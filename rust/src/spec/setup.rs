@@ -11,6 +11,14 @@
 //! matches SSIDs against every spec's prefix, and the adopt flow probes every
 //! spec's gateway. One profile per softap method, so a catalogue gaining a
 //! third adoptable family is a spec change and nothing else.
+//!
+//! The second thing it lifts is the human-readable other half of the same
+//! block: the pairing steps, the troubleshooting symptoms, the factory-reset
+//! procedure and the rejoin note. That prose is exactly what a user wants when
+//! a BLE connect fails, so [`setup_instructions`] shapes it into typed structs
+//! the UI can render — where the softap extraction filters *to* one method
+//! type, this keeps every method, because "how do I connect this" is a
+//! question every setup block can answer.
 
 use crate::spec::types::DeviceSpec;
 
@@ -144,6 +152,218 @@ fn profiles_for_spec(spec: &DeviceSpec) -> Vec<SoftApProfile> {
         .collect()
 }
 
+// ── Human-readable setup / troubleshooting instructions ─────────────────────
+// The prose half of `device.setup`, shaped so a client can render "how do I
+// connect this / why won't it / how do I reset it" when a connect fails. Every
+// field is optional or defaults to empty: setup blocks are uneven, and a
+// section a spec omits must simply not appear, never render as a blank heading.
+
+/// One `action`/`actor`/`expect` triple from a setup or reset step list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupStep {
+    /// What to do — the only required field.
+    pub action: String,
+    /// Who does it (`user` / `client`), when the spec says.
+    pub actor: Option<String>,
+    /// What confirms it worked, when the spec says.
+    pub expect: Option<String>,
+}
+
+/// A `symptom` + its likely `causes`, from a method's `troubleshooting` list —
+/// purpose-built for the "it won't connect" screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Troubleshooting {
+    pub symptom: String,
+    pub causes: Vec<String>,
+}
+
+/// One `setup.methods[]` entry, reduced to what a human needs to read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupMethod {
+    /// `ble_direct`, `button_pairing`, `softap_http`, … — labels the method.
+    pub method_type: Option<String>,
+    pub description: Option<String>,
+    pub steps: Vec<SetupStep>,
+    pub troubleshooting: Vec<Troubleshooting>,
+}
+
+impl SetupMethod {
+    /// A method with no prose at all is dropped — a bare `type:` teaches a
+    /// reader nothing and would render as an empty card.
+    fn is_empty(&self) -> bool {
+        self.description.is_none() && self.steps.is_empty() && self.troubleshooting.is_empty()
+    }
+}
+
+/// One named way to factory-reset the device.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FactoryResetProcedure {
+    pub name: String,
+    pub hold_seconds: Option<u32>,
+    /// The LED/screen/audio signal that confirms the reset took.
+    pub indicator: Option<String>,
+    pub steps: Vec<SetupStep>,
+}
+
+/// `setup.factory_reset` — what a reset clears and how to trigger it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FactoryReset {
+    pub effect: Option<String>,
+    pub procedures: Vec<FactoryResetProcedure>,
+}
+
+/// `setup.rejoin` — whether a device that dropped can be reconnected in place,
+/// and the note explaining what usually went wrong (for Ember, "a phone is
+/// still holding the single allowed connection").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rejoin {
+    pub in_place_supported: Option<bool>,
+    pub requires_factory_reset: Option<bool>,
+    pub notes: Option<String>,
+}
+
+impl Rejoin {
+    fn is_empty(&self) -> bool {
+        self.in_place_supported.is_none()
+            && self.requires_factory_reset.is_none()
+            && self.notes.is_none()
+    }
+}
+
+/// The renderable digest of one spec's `device.setup` block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupInstructions {
+    pub notes: Option<String>,
+    pub methods: Vec<SetupMethod>,
+    pub factory_reset: Option<FactoryReset>,
+    pub rejoin: Option<Rejoin>,
+}
+
+fn opt_str(value: Option<&serde_yaml::Value>) -> Option<String> {
+    value.and_then(|v| v.as_str()).map(str::to_string)
+}
+
+fn parse_steps(value: Option<&serde_yaml::Value>) -> Vec<SetupStep> {
+    value
+        .and_then(|v| v.as_sequence())
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|s| {
+                    // A step with no `action` is a step that says nothing to do.
+                    let action = s.get("action")?.as_str()?.to_string();
+                    Some(SetupStep {
+                        action,
+                        actor: opt_str(s.get("actor")),
+                        expect: opt_str(s.get("expect")),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Lift one spec's `device.setup` block into renderable instructions, or `None`
+/// when the block is absent or carries no prose a user could act on. Reaches
+/// into the untyped `extensions` map by hand, the same way [`profiles_for_spec`]
+/// does — `device.setup` is deliberately not a typed field (see
+/// [`crate::spec::types::DeviceInfo`]).
+pub fn setup_instructions(spec: &DeviceSpec) -> Option<SetupInstructions> {
+    let setup = spec.device.extensions.get("setup")?;
+
+    let methods: Vec<SetupMethod> = setup
+        .get("methods")
+        .and_then(|m| m.as_sequence())
+        .map(|seq| {
+            seq.iter()
+                .map(|m| SetupMethod {
+                    method_type: opt_str(m.get("type")),
+                    description: opt_str(m.get("description")),
+                    steps: parse_steps(m.get("steps")),
+                    troubleshooting: m
+                        .get("troubleshooting")
+                        .and_then(|t| t.as_sequence())
+                        .map(|ts| {
+                            ts.iter()
+                                .filter_map(|t| {
+                                    let symptom = t.get("symptom")?.as_str()?.to_string();
+                                    let causes = t
+                                        .get("causes")
+                                        .and_then(|c| c.as_sequence())
+                                        .map(|cs| {
+                                            cs.iter()
+                                                .filter_map(|c| c.as_str().map(str::to_string))
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+                                    Some(Troubleshooting { symptom, causes })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .filter(|m| !m.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let factory_reset = setup.get("factory_reset").and_then(|fr| {
+        let effect = opt_str(fr.get("effect"));
+        let procedures: Vec<FactoryResetProcedure> = fr
+            .get("procedures")
+            .and_then(|p| p.as_sequence())
+            .map(|seq| {
+                seq.iter()
+                    .filter_map(|p| {
+                        let name = p.get("name")?.as_str()?.to_string();
+                        Some(FactoryResetProcedure {
+                            name,
+                            hold_seconds: p
+                                .get("hold_seconds")
+                                .and_then(|h| h.as_u64())
+                                .and_then(|h| u32::try_from(h).ok()),
+                            indicator: opt_str(p.get("indicator")),
+                            steps: parse_steps(p.get("steps")),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        // A reset block that names neither an effect nor a procedure is noise.
+        if effect.is_none() && procedures.is_empty() {
+            None
+        } else {
+            Some(FactoryReset { effect, procedures })
+        }
+    });
+
+    let rejoin = setup.get("rejoin").and_then(|r| {
+        let rejoin = Rejoin {
+            in_place_supported: r.get("in_place_supported").and_then(|b| b.as_bool()),
+            requires_factory_reset: r.get("requires_factory_reset").and_then(|b| b.as_bool()),
+            notes: opt_str(r.get("notes")),
+        };
+        if rejoin.is_empty() {
+            None
+        } else {
+            Some(rejoin)
+        }
+    });
+
+    let notes = opt_str(setup.get("notes"));
+
+    // Nothing renderable → no affordance at all, rather than an empty screen.
+    if notes.is_none() && methods.is_empty() && factory_reset.is_none() && rejoin.is_none() {
+        return None;
+    }
+
+    Some(SetupInstructions {
+        notes,
+        methods,
+        factory_reset,
+        rejoin,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,5 +475,132 @@ device:
 "#;
         let spec = spec(yaml);
         assert!(soft_ap_profiles([&spec]).is_empty());
+    }
+
+    const BLE_SETUP: &str = r#"
+device:
+  name: "Test Mug"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  setup:
+    notes: "Enable Bluetooth, then connect."
+    methods:
+      - type: "ble_direct"
+        description: "Direct BLE pairing."
+        steps:
+          - action: "Put the mug in pairing mode."
+            actor: "user"
+            expect: "The LED shows the pairing colour."
+          - action: "Connect and read the state characteristics."
+            actor: "client"
+        troubleshooting:
+          - symptom: "The mug will not connect."
+            causes:
+              - "A phone is still holding the single allowed connection."
+              - "The mug is asleep off the coaster."
+    factory_reset:
+      effect: "Clears the claim and settings; identity survives."
+      procedures:
+        - name: "Factory reset"
+          hold_seconds: 15
+          indicator: "LED blue, then yellow, then red."
+          steps:
+            - action: "Hold the base button through blue and yellow, release at red."
+              actor: "user"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Close the other client, or power-cycle on the coaster."
+"#;
+
+    #[test]
+    fn ble_setup_block_lifts_every_section() {
+        let spec = spec(BLE_SETUP);
+        let s = setup_instructions(&spec).expect("has instructions");
+        assert_eq!(s.notes.as_deref(), Some("Enable Bluetooth, then connect."));
+
+        assert_eq!(s.methods.len(), 1);
+        let m = &s.methods[0];
+        assert_eq!(m.method_type.as_deref(), Some("ble_direct"));
+        assert_eq!(m.description.as_deref(), Some("Direct BLE pairing."));
+        assert_eq!(m.steps.len(), 2);
+        assert_eq!(m.steps[0].actor.as_deref(), Some("user"));
+        assert_eq!(
+            m.steps[0].expect.as_deref(),
+            Some("The LED shows the pairing colour.")
+        );
+        assert_eq!(m.steps[1].expect, None);
+
+        assert_eq!(m.troubleshooting.len(), 1);
+        assert_eq!(m.troubleshooting[0].symptom, "The mug will not connect.");
+        assert_eq!(m.troubleshooting[0].causes.len(), 2);
+
+        let fr = s.factory_reset.expect("has factory reset");
+        assert!(fr.effect.is_some());
+        assert_eq!(fr.procedures.len(), 1);
+        assert_eq!(fr.procedures[0].name, "Factory reset");
+        assert_eq!(fr.procedures[0].hold_seconds, Some(15));
+        assert_eq!(fr.procedures[0].steps.len(), 1);
+
+        let r = s.rejoin.expect("has rejoin");
+        assert_eq!(r.in_place_supported, Some(true));
+        assert_eq!(r.requires_factory_reset, Some(false));
+        assert!(r.notes.is_some());
+    }
+
+    #[test]
+    fn no_setup_block_yields_no_instructions() {
+        let yaml = r#"
+device:
+  name: "Bare Sensor"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+"#;
+        assert!(setup_instructions(&spec(yaml)).is_none());
+    }
+
+    #[test]
+    fn a_setup_block_with_no_prose_yields_nothing() {
+        // required: true is machinery, not something to read — an empty method
+        // and no reset/rejoin/notes must not surface a blank help screen.
+        let yaml = r#"
+device:
+  name: "Quiet Plug"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  setup:
+    required: true
+    methods:
+      - type: "ble_direct"
+"#;
+        assert!(
+            setup_instructions(&spec(yaml)).is_none(),
+            "a bare method with no description/steps/troubleshooting is dropped, leaving nothing"
+        );
+    }
+
+    #[test]
+    fn partial_blocks_keep_only_what_is_present() {
+        let yaml = r#"
+device:
+  name: "Reset Only"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  setup:
+    factory_reset:
+      effect: "Wipes the pairing."
+"#;
+        let s = setup_instructions(&spec(yaml)).expect("has instructions");
+        assert!(s.notes.is_none());
+        assert!(s.methods.is_empty());
+        assert!(s.rejoin.is_none());
+        assert_eq!(
+            s.factory_reset.expect("reset present").effect.as_deref(),
+            Some("Wipes the pairing.")
+        );
     }
 }

@@ -44,6 +44,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   double dco_decode_box_autoadd_f_64(dynamic raw);
 
   @protected
+  FactoryResetDto dco_decode_box_autoadd_factory_reset_dto(dynamic raw);
+
+  @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
 
   @protected
@@ -68,10 +71,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   QuerySourceDto dco_decode_box_autoadd_query_source_dto(dynamic raw);
 
   @protected
+  RejoinDto dco_decode_box_autoadd_rejoin_dto(dynamic raw);
+
+  @protected
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw);
 
   @protected
   SecurityAdvisoryDto dco_decode_box_autoadd_security_advisory_dto(dynamic raw);
+
+  @protected
+  SetupInstructionsDto dco_decode_box_autoadd_setup_instructions_dto(
+      dynamic raw);
 
   @protected
   StoredUploadDto dco_decode_box_autoadd_stored_upload_dto(dynamic raw);
@@ -115,6 +125,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   double dco_decode_f_64(dynamic raw);
+
+  @protected
+  FactoryResetDto dco_decode_factory_reset_dto(dynamic raw);
+
+  @protected
+  FactoryResetProcedureDto dco_decode_factory_reset_procedure_dto(dynamic raw);
 
   @protected
   FormatFieldDto dco_decode_format_field_dto(dynamic raw);
@@ -178,6 +194,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<EntityDto> dco_decode_list_entity_dto(dynamic raw);
+
+  @protected
+  List<FactoryResetProcedureDto> dco_decode_list_factory_reset_procedure_dto(
+      dynamic raw);
 
   @protected
   List<FormatFieldDto> dco_decode_list_format_field_dto(dynamic raw);
@@ -265,6 +285,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ServiceDto> dco_decode_list_service_dto(dynamic raw);
 
   @protected
+  List<SetupMethodDto> dco_decode_list_setup_method_dto(dynamic raw);
+
+  @protected
+  List<SetupStepDto> dco_decode_list_setup_step_dto(dynamic raw);
+
+  @protected
   List<SoapRequestDto> dco_decode_list_soap_request_dto(dynamic raw);
 
   @protected
@@ -272,6 +298,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<SpecIdentityDto> dco_decode_list_spec_identity_dto(dynamic raw);
+
+  @protected
+  List<TroubleshootingDto> dco_decode_list_troubleshooting_dto(dynamic raw);
 
   @protected
   List<WemoAccessPointDto> dco_decode_list_wemo_access_point_dto(dynamic raw);
@@ -328,6 +357,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   double? dco_decode_opt_box_autoadd_f_64(dynamic raw);
 
   @protected
+  FactoryResetDto? dco_decode_opt_box_autoadd_factory_reset_dto(dynamic raw);
+
+  @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
 
   @protected
@@ -351,7 +383,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw);
 
   @protected
+  RejoinDto? dco_decode_opt_box_autoadd_rejoin_dto(dynamic raw);
+
+  @protected
   SecurityAdvisoryDto? dco_decode_opt_box_autoadd_security_advisory_dto(
+      dynamic raw);
+
+  @protected
+  SetupInstructionsDto? dco_decode_opt_box_autoadd_setup_instructions_dto(
       dynamic raw);
 
   @protected
@@ -407,6 +446,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   (int, Uint8List) dco_decode_record_u_16_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  RejoinDto dco_decode_rejoin_dto(dynamic raw);
+
+  @protected
   ScanMatch dco_decode_scan_match(dynamic raw);
 
   @protected
@@ -417,6 +459,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ServiceDto dco_decode_service_dto(dynamic raw);
+
+  @protected
+  SetupInstructionsDto dco_decode_setup_instructions_dto(dynamic raw);
+
+  @protected
+  SetupMethodDto dco_decode_setup_method_dto(dynamic raw);
+
+  @protected
+  SetupStepDto dco_decode_setup_step_dto(dynamic raw);
 
   @protected
   SoapRequestDto dco_decode_soap_request_dto(dynamic raw);
@@ -441,6 +492,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredUploadPlanDto dco_decode_stored_upload_plan_dto(dynamic raw);
+
+  @protected
+  TroubleshootingDto dco_decode_troubleshooting_dto(dynamic raw);
 
   @protected
   TuyaBroadcastDto dco_decode_tuya_broadcast_dto(dynamic raw);
@@ -490,6 +544,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   double sse_decode_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
+  FactoryResetDto sse_decode_box_autoadd_factory_reset_dto(
+      SseDeserializer deserializer);
+
+  @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
@@ -521,11 +579,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  RejoinDto sse_decode_box_autoadd_rejoin_dto(SseDeserializer deserializer);
+
+  @protected
   ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
       SseDeserializer deserializer);
 
   @protected
   SecurityAdvisoryDto sse_decode_box_autoadd_security_advisory_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  SetupInstructionsDto sse_decode_box_autoadd_setup_instructions_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -572,6 +637,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   double sse_decode_f_64(SseDeserializer deserializer);
+
+  @protected
+  FactoryResetDto sse_decode_factory_reset_dto(SseDeserializer deserializer);
+
+  @protected
+  FactoryResetProcedureDto sse_decode_factory_reset_procedure_dto(
+      SseDeserializer deserializer);
 
   @protected
   FormatFieldDto sse_decode_format_field_dto(SseDeserializer deserializer);
@@ -642,6 +714,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<EntityDto> sse_decode_list_entity_dto(SseDeserializer deserializer);
+
+  @protected
+  List<FactoryResetProcedureDto> sse_decode_list_factory_reset_procedure_dto(
+      SseDeserializer deserializer);
 
   @protected
   List<FormatFieldDto> sse_decode_list_format_field_dto(
@@ -743,6 +819,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ServiceDto> sse_decode_list_service_dto(SseDeserializer deserializer);
 
   @protected
+  List<SetupMethodDto> sse_decode_list_setup_method_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<SetupStepDto> sse_decode_list_setup_step_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<SoapRequestDto> sse_decode_list_soap_request_dto(
       SseDeserializer deserializer);
 
@@ -752,6 +836,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<SpecIdentityDto> sse_decode_list_spec_identity_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<TroubleshootingDto> sse_decode_list_troubleshooting_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -817,6 +905,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
+  FactoryResetDto? sse_decode_opt_box_autoadd_factory_reset_dto(
+      SseDeserializer deserializer);
+
+  @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
@@ -844,7 +936,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  RejoinDto? sse_decode_opt_box_autoadd_rejoin_dto(
+      SseDeserializer deserializer);
+
+  @protected
   SecurityAdvisoryDto? sse_decode_opt_box_autoadd_security_advisory_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  SetupInstructionsDto? sse_decode_opt_box_autoadd_setup_instructions_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -908,6 +1008,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  RejoinDto sse_decode_rejoin_dto(SseDeserializer deserializer);
+
+  @protected
   ScanMatch sse_decode_scan_match(SseDeserializer deserializer);
 
   @protected
@@ -919,6 +1022,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ServiceDto sse_decode_service_dto(SseDeserializer deserializer);
+
+  @protected
+  SetupInstructionsDto sse_decode_setup_instructions_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  SetupMethodDto sse_decode_setup_method_dto(SseDeserializer deserializer);
+
+  @protected
+  SetupStepDto sse_decode_setup_step_dto(SseDeserializer deserializer);
 
   @protected
   SoapRequestDto sse_decode_soap_request_dto(SseDeserializer deserializer);
@@ -945,6 +1058,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredUploadPlanDto sse_decode_stored_upload_plan_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  TroubleshootingDto sse_decode_troubleshooting_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -997,6 +1114,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_factory_reset_dto(
+      FactoryResetDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_i_64(
       PlatformInt64 self, SseSerializer serializer);
 
@@ -1029,12 +1150,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       QuerySourceDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_rejoin_dto(
+      RejoinDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_scanned_device_dto(
       ScannedDeviceDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_security_advisory_dto(
       SecurityAdvisoryDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_setup_instructions_dto(
+      SetupInstructionsDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_stored_upload_dto(
@@ -1085,6 +1214,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_factory_reset_dto(
+      FactoryResetDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_factory_reset_procedure_dto(
+      FactoryResetProcedureDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_format_field_dto(
@@ -1163,6 +1300,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_entity_dto(
       List<EntityDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_factory_reset_procedure_dto(
+      List<FactoryResetProcedureDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_format_field_dto(
@@ -1272,6 +1413,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<ServiceDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_setup_method_dto(
+      List<SetupMethodDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_setup_step_dto(
+      List<SetupStepDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_soap_request_dto(
       List<SoapRequestDto> self, SseSerializer serializer);
 
@@ -1282,6 +1431,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_spec_identity_dto(
       List<SpecIdentityDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_troubleshooting_dto(
+      List<TroubleshootingDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_wemo_access_point_dto(
@@ -1351,6 +1504,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_factory_reset_dto(
+      FactoryResetDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_i_64(
       PlatformInt64? self, SseSerializer serializer);
 
@@ -1379,8 +1536,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       QuerySourceDto? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_rejoin_dto(
+      RejoinDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_security_advisory_dto(
       SecurityAdvisoryDto? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_setup_instructions_dto(
+      SetupInstructionsDto? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_stored_upload_dto(
@@ -1447,6 +1612,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       (int, Uint8List) self, SseSerializer serializer);
 
   @protected
+  void sse_encode_rejoin_dto(RejoinDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_scan_match(ScanMatch self, SseSerializer serializer);
 
   @protected
@@ -1459,6 +1627,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_service_dto(ServiceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_setup_instructions_dto(
+      SetupInstructionsDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_setup_method_dto(
+      SetupMethodDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_setup_step_dto(SetupStepDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_soap_request_dto(
@@ -1490,6 +1669,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_stored_upload_plan_dto(
       StoredUploadPlanDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_troubleshooting_dto(
+      TroubleshootingDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_tuya_broadcast_dto(
