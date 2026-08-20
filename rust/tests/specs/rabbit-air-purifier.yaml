@@ -25,21 +25,42 @@
 #     pm_sensor, ionizer, buzzer, quality, schedule), the thingName/user_key
 #     credential pair, a generateUserKey operation, RawDatagramSocket (UDP)
 #     use, mDNS-based setup resolution against rabbitair-setup.local,
-#     BLE-assisted provisioning (flutter_reactive_ble) with two candidate
-#     GATT UUIDs, the LAN crypto stack (package:encrypt AES plus
-#     pointycastle CBC mode and PKCS7 padding bundled), and the cloud side:
-#     AWS IoT Core endpoint au32ip2ri54us-ats.iot.us-east-1.amazonaws.com
-#     with device-shadow topics $aws/things/<thing>/shadow/{get,update}
-#     (/accepted), ota.rabbitair.com, and a GraphQL account API under path
-#     /graphql.json exposing users/* operations (serialByMac, login_by_pass,
-#     etc. — see the cloud block).
+#     BLE-assisted provisioning (flutter_reactive_ble), the LAN crypto stack
+#     (package:encrypt AES plus pointycastle CBC mode and PKCS7 padding
+#     bundled), and the cloud side: AWS IoT Core endpoint
+#     au32ip2ri54us-ats.iot.us-east-1.amazonaws.com with device-shadow topics
+#     $aws/things/<thing>/shadow/{get,update} (/accepted), ota.rabbitair.com,
+#     and a GraphQL account API under path /graphql.json exposing users/*
+#     operations (serialByMac, login_by_pass, etc. — see the cloud block).
+#     A full blutter decompile of that same libapp.so (Dart 3.10.3 AOT,
+#     arm64) subsequently recovered the ENTIRE provisioning protocol —
+#     BLE GATT layout, packetization, the setup command set (cmds 0/1/2/3/5/7),
+#     and the AP-mode transport — see rabbit_air_protocol.setup_commands and
+#     rabbit_air_ble below; the setup flow is no longer an open gap.
+#   - yepher/RabbiteAirProtocol (https://github.com/yepher/RabbiteAirProtocol):
+#     independent 2021 capture/research notes on the earlier iOS app;
+#     corroborates the BLE service/characteristic UUID roles, the setup-AP
+#     address 192.168.10.1:9009, and the AES-CBC + appended-IV construction.
 
 device:
   name: "Rabbit Air MinusA2 (SPA-700A/SPA-780A) / A3 (SPA-1000N) / BioGS 2.0 (SPA-550A/SPA-625A)"
   manufacturer: "Rabbit Air"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >
+      2026-08-15: the BLE provisioning flow was executed end-to-end against a
+      real MinusA2 (model 1, Wi-Fi module mcu 2.2.8): cleartext cmd
+      255/4/7/0 reads, cmd 1 join, cmd 5 type 4 user-key push, cmd 2 leave —
+      all answered as documented.
+      Post-join, the LAN protocol was driven over UDP 9009 with the pushed key
+      (cmd 9 clock sync, cmd 255 info, cmd 4 state) and the ENCRYPTED BLE
+      control transport was exercised the same way. The softap_udp and WPS
+      methods remain unreplayed; the LAN state-set surface is exercised only
+      as far as reads. Join latency observation: after cmd 2 the unit held
+      ip 0.0.0.0 for ~4 minutes before associating and taking a DHCP lease —
+      a client should keep watching, not declare failure.
   openness:
     status: "documented_api"
     reverse_engineered: true
@@ -51,8 +72,10 @@ device:
       so the local protocol is documented_api-by-reference-implementation —
       the library source, not this file, is authoritative for constants.
       reverse_engineered is still true because the Wi-Fi provisioning flow
-      (BLE-assisted / AP-mode) is NOT published and was only partially
-      recovered from the Rabbit Air 2 app binary.
+      (BLE-assisted / AP-mode) is NOT published — it was recovered here from
+      a blutter decompile of the Rabbit Air 2 app binary (v1.2.1) and is
+      recorded in setup.methods, rabbit_air_protocol.setup_commands and
+      rabbit_air_ble.
   protocol: "wifi"
   category: "climate"
   transport: "udp"
@@ -90,16 +113,23 @@ device:
   identification:
     mdns_service_type: "_rabbitair._udp.local."
     default_port: 9009
+    # BLE names the purifier advertises: "RabbitAirSetup" while unprovisioned
+    # (in setup mode), "RabbitAir" once provisioned (the app post-setup
+    # reconnects over BLE by this name plus the BT MAC — see rabbit_air_ble).
+    local_name_prefixes:
+      - "RabbitAirSetup"
+      - "RabbitAir"
     service_uuids:
-      # BLE provisioning candidates — verification: hypothesis. Both are
-      # strings found in the Rabbit Air 2 app binary (libapp.so); whether
-      # either is a GATT service or a characteristic, and whether the
-      # purifier advertises it while unprovisioned, is UNCONFIRMED without
-      # an HCI capture (see setup.methods[ble_provisioning]). A scanner must
-      # treat a match as "worth a closer look", never as identification on
-      # its own.
-      - "53ef7d7d-c244-42bd-9064-a1569a521ca9"
+      # BLE GATT roles CONFIRMED by decompiling the Rabbit Air 2 app
+      # (blutter, libapp.so Dart 3.10.3 AOT): the app scans with a
+      # withServices filter on 366048ae-… (it is the GATT SERVICE) and
+      # writes/subscribes 53ef7d7d-… (it is the single command
+      # CHARACTERISTIC on that service). Independently corroborated by
+      # yepher/RabbiteAirProtocol's 2021 iOS-app research, which names the
+      # same pair COMMAND_SERVICE_UUID / COMMAND_CHARACTERISTIC_UUID.
+      # 366048ae-… in a scan result identifies a Rabbit Air purifier.
       - "366048ae-9f36-43cf-8004-010c0c9fa52e"
+      - "53ef7d7d-c244-42bd-9064-a1569a521ca9"
     identity_keys:
       primary: "thing_id"
       secondary: "mac"
@@ -117,12 +147,37 @@ device:
             display:
               source: "name"
         notes: >
-          The device's mDNS hostname IS its Thing ID (AWS IoT thing name),
-          in the form seen in the app, e.g.
-          "abcdef1234_123456789012345678.local" (pattern documented in the
-          vendor library README). Resolving the service/hostname yields the
+          When the unit has a Thing ID (vendor cloud flow), the mDNS
+          hostname IS the Thing ID (AWS IoT thing name), e.g.
+          "abcdef1234_123456789012345678.local" (vendor library README).
+          HARDWARE-VERIFIED 2026-08-15 for a local-only provisioning (no
+          cloud, no Thing ID — cmd 255 data.name stays ""): the unit
+          advertises service instance AND hostname
+          "RabbitAir-<WIFI MAC>" — e.g. RabbitAir-A1B2C3D4E5F6.local for a
+          unit whose Wi-Fi MAC is A1:B2:C3:D4:E5:F6 — with a single TXT
+          record "id=A1B2C3D4E5F6" (the MAC, uppercase, no separators).
+          Consumers
+          keying the LAN credential by hostname must handle this fallback:
+          the key scope is derivable at provisioning time from cmd 255's
+          data.mac ("RabbitAir-" + mac.upper() minus colons) even when
+          data.name is empty. Resolving the service/hostname yields the
           IP to send UDP 9009 traffic to. Home Assistant discovers the
           device by exactly this zeroconf service type.
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "366048ae-9f36-43cf-8004-010c0c9fa52e"
+          local_name:
+            match: "prefix"
+            value: "RabbitAir"
+        notes: >
+          The purifier advertises the Rabbit Air GATT service whenever its
+          BLE radio is up — as "RabbitAirSetup" while unprovisioned (setup
+          mode) and as "RabbitAir" once provisioned. A BLE scan match means
+          "Rabbit Air purifier"; the advertised NAME tells you which mode it
+          is in. BLE is a full alternate transport for the same command
+          envelope (plaintext during setup, user-key-encrypted after) — see
+          rabbit_air_ble.
     identity:
       stable_keys: ["thing_id", "mac"]
       display: "name"
@@ -130,67 +185,174 @@ device:
 
   setup:
     required: true
-    confidence: "medium"
+    confidence: "high"
     notes: >
-      The purifier must be joined to Wi-Fi once with the official app
-      ("Rabbit Air 2", com.rabbitair.rabbitair_flutter; legacy "Rabbit Air"
-      app for older units). Two provisioning paths are visible in the app
-      binary (v1.2.1): BLE-assisted setup (flutter_reactive_ble;
-      "No bluetooth connection on local setup" string) and an AP-mode
-      fallback in which the phone joins the device's setup AP and resolves
-      the fixed mDNS hostname "rabbitair-setup.local" to reach it
-      ("Starting mDNS for hostname [rabbitair-setup.local]", "Error on
-      leave ap mode"). The on-wire credential-transfer format of NEITHER
-      path has been captured in this project — that is the open gap. What
-      is documented (vendor library README + HA docs) is the result: the
-      device ends up on the LAN with a Thing ID (its mDNS hostname) and a
-      16-byte user key the owner can read out of the app. Provisioning also
-      involves the cloud account (serial QR scan, GraphQL serialByMac
-      lookup), so first-time setup with the stock firmware is not
-      cloud-free — ongoing control is.
+      The purifier must be joined to Wi-Fi once. The full provisioning
+      protocol is documented below — originally recovered from a blutter
+      decompile of the Rabbit Air 2 app binary (v1.2.1, Dart 3.10.3 AOT) and
+      since REPLAYED AGAINST HARDWARE (2026-08-15, MinusA2 gen2, Wi-Fi module
+      mcu 2.2.8): the BLE method below ran end-to-end exactly as written and
+      the unit came up on the LAN under a client-generated user key. The app
+      offers three connection methods — BLE-assisted ("mobile"), AP-mode
+      ("local") and WPS — and the first two converge on the SAME command
+      channel: the JSON {id, cmd, data} envelope of the LAN protocol, sent in
+      CLEARTEXT during setup (no `ts` field, no AES — encryption is only
+      switched on afterwards, once a user key exists). Over BLE the envelope
+      is framed and chunked per rabbit_air_ble; over the setup AP it is one
+      datagram per message to 192.168.10.1:9009, byte-identical to the LAN
+      protocol minus encryption.
+
+      A local-only provisioner needs NO cloud: generate the 16-byte user
+      key CLIENT-side (32 uppercase hex chars), push it with cmd 5 type 4,
+      and the unit is fully controllable over LAN and BLE without any
+      Rabbit Air account — VERIFIED: the unit provisioned this way answers
+      encrypted cmd 9/255/4 over UDP 9009 and over BLE. Consequence of
+      skipping the cloud flow: the unit has no Thing ID (cmd 255 data.name
+      stays ""), and its mDNS hostname falls back to "RabbitAir-<WIFI MAC>"
+      (see discovery). The vendor app's own flow additionally does cloud
+      work (serial QR scan, GraphQL serialByMac / reserveThingNameV2, and
+      pushing AWS IoT certificates with cmd 5 types 0-3) — that binds the
+      unit to the vendor cloud and is optional for local control.
     methods:
       - type: "ble_provisioning"
-        verified: false
+        verified: true
+        verification_notes: >
+          Replayed against hardware 2026-08-15 (MinusA2 gen2, mcu 2.2.8):
+          scan → connect → MTU 515 → enable
+          INDICATIONS on the command characteristic → cleartext cmd 255, 4,
+          7, 0 (poll), 1, 5 type 4, 2 — every reply arrived as documented,
+          framed 2-byte-LE-length-prefixed. Every command's reply is a bare
+          {"id":<echo>} ack for the writes and {"id":…,"data":{…}} for the
+          reads; failures surface as {"id":<echo>,"error":true} (observed
+          when cmd 1/2 were re-sent AFTER setup completed — the setup
+          command set is only accepted while the unit is in setup mode).
+          One correction to the decompile reading: the characteristic's
+          server-to-client leg is INDICATIONS (properties 0x28 = write +
+          indicate), not notifications — and its CCCD already reads 0x0002
+          on a fresh connection (indications enabled by default), but
+          clients should still write the CCCD explicitly. A KEYED unit
+          (already provisioned, not in setup mode) does not answer
+          cleartext at all: writes are intermittently rejected with ATT
+          application error 0x87 and otherwise accepted-and-dropped, so a
+          setup probe that gets silence/0x87 means "not in setup mode".
         description: >
-          Preferred path in the Rabbit Air 2 app: scan the purifier's serial
-          QR code (camera) or enter it, then the app talks to the device over
-          BLE (flutter_reactive_ble) to hand over Wi-Fi credentials and bind
-          it to the account. GATT service/characteristic layout for this
-          exchange has not been captured — HCI snoop required before a
-          replacement provisioner can be written. Two 128-bit UUIDs in the
-          app binary are the candidate GATT identifiers for that capture to
-          confirm: 53ef7d7d-c244-42bd-9064-a1569a521ca9 and
-          366048ae-9f36-43cf-8004-010c0c9fa52e (low confidence; present as
-          strings in libapp.so, roles — service vs characteristic, write vs
-          notify — UNCONFIRMED without a packet capture).
+          Preferred path in the Rabbit Air 2 app (its "mobile" connection
+          method). The phone scans for the setup-mode peripheral —
+          advertised name "RabbitAirSetup", GATT service
+          366048ae-9f36-43cf-8004-010c0c9fa52e — connects, negotiates MTU
+          515, and speaks the cleartext setup command set
+          (rabbit_air_protocol.setup_commands) through the single command
+          characteristic 53ef7d7d-c244-42bd-9064-a1569a521ca9
+          (write-with-response, INDICATIONS on the same characteristic —
+          verified on hardware; the decompile read "notifications"),
+          framed and chunked exactly as rabbit_air_ble describes.
+          Conversation: cmd 255 + cmd 4 (info/state sanity check), cmd 0
+          (read network settings — doubles as the device's own Wi-Fi scan
+          list), cmd 1 (join network — ssid/passphrase/security), cmd 5
+          type 4 (push a client-generated user key), cmd 3 (set module
+          name), cmd 2 (leave setup mode). The unit then joins Wi-Fi and
+          appears on the LAN as _rabbitair._udp.local — allow MINUTES, not
+          seconds: the verified unit held ip 0.0.0.0 in cmd 0 for ~4
+          minutes after cmd 2 before it associated and took a DHCP lease.
+          The vendor app additionally pushes AWS IoT certificates (cmd 5
+          types 0-3) for cloud binding — optional; skip for local-only
+          provisioning.
+        ble:
+          advertised_name: "RabbitAirSetup"
+          protocol: "Rabbit Air setup — cleartext JSON command envelope over GATT (see rabbit_air_ble)"
+          service_uuid: "366048ae-9f36-43cf-8004-010c0c9fa52e"
+          write_characteristic: "53ef7d7d-c244-42bd-9064-a1569a521ca9"
+          read_characteristic: "53ef7d7d-c244-42bd-9064-a1569a521ca9"
+          pairing_required: false
+        timing:
+          mtu: 515
+          chunk_size: 510
+          chunk_size_rule: "negotiated MTU - 5 (the app's default before negotiation is 512)"
+          response_timeout_s: 7
+          scan_timeout_s: 60
+          connect_attempts: 2
+          network_list_retries: 15
+          network_list_note: "cmd 0 is re-polled (up to 15x) until data.networks is non-empty"
+          info_retries: 5
+          info_retry_delay_s: 1
         steps:
-          - action: "Power the purifier; it advertises over BLE while unprovisioned."
+          - action: "Power the purifier and hold Speed/Wireless until the wireless LED blinks — it advertises 'RabbitAirSetup' over BLE."
             actor: "user"
-          - action: "Scan the serial QR code on the unit with the app (or type the serial)."
-            actor: "user"
-          - action: "Capture the BLE provisioning exchange (HCI snoop) — open gap."
+          - action: "Scan for service 366048ae-9f36-43cf-8004-010c0c9fa52e (name 'RabbitAirSetup'), connect, request MTU 515."
             actor: "client"
-            notes: "Needed to document the credential transfer."
-      - type: "softap_http"
+          - action: "cmd 255 get_info + cmd 4 state_get (retry up to 5x, 1 s apart) — confirms the channel and reads model/mcu."
+            actor: "client"
+          - action: "cmd 0 read_network_settings — re-poll until data.networks is non-empty; present the SSID list."
+            actor: "client"
+          - action: "Pick the SSID and enter its passphrase."
+            actor: "user"
+          - action: "cmd 1 join_network, data {\"ssid\":...,\"passphrase\":...,\"security\":<int>} — security is echoed from the chosen networks[] entry (3 = WPA2-PSK observed on hardware; see setup_commands)."
+            actor: "client"
+          - action: "Generate the user key client-side (32 uppercase hex chars = 16 bytes) and push it: cmd 5, data {\"type\":4,\"value\":\"<32 hex>\"}."
+            actor: "client"
+            notes: "Feature-gate on firmware: user-key write needs mcu >= 24 on ESP32 units / >= 2.2 on Inventek units — older firmware rejects it ('User key write not supported' in the app)."
+          - action: "Optional: cmd 3 set_module_name; cmd 5 types 0-3 push AWS IoT/HTTPS certificates (cloud binding only — skip for local-only use)."
+            actor: "client"
+          - action: "cmd 2 leave_ap_mode — the unit joins the Wi-Fi network."
+            actor: "client"
+            expect: "Unit appears on the LAN advertising _rabbitair._udp.local.; verify with an encrypted cmd 9 + cmd 4 under the new user key. On the verified unit this took ~4 minutes (cmd 0 reported ip 0.0.0.0 the whole wait) — keep watching rather than failing fast."
+        troubleshooting:
+          - symptom: "BLE scan finds nothing"
+            causes:
+              - "Unit is not in setup mode — hold Speed/Wireless until the wireless LED blinks."
+              - "Unit is already provisioned — it advertises as 'RabbitAir' (still matches service 366048ae-…); factory-reset to re-provision."
+          - symptom: "Writes are rejected with ATT application error 0x87, or accepted but never answered"
+            causes:
+              - "The unit is NOT in setup mode (already keyed) — a provisioned unit drops all cleartext commands and intermittently 0x87s the writes. Hold the wireless button until the LED blinks."
+              - "Observed on keyed hardware 2026-08-15: no cleartext command (255/4/7/0/1) is answered or acted on in this state, and post-setup cmd 1/2 return {\"id\":…,\"error\":true} over the encrypted channel too."
+          - symptom: "Command round trip times out (7 s) or the connection drops mid-setup"
+            causes:
+              - "MTU negotiation did not reach 515, so the 510-byte chunks exceeded the real ATT MTU."
+              - "The unit left setup mode (timeout or completed join)."
+          - symptom: "cmd 5 type 4 (user key) fails"
+            causes:
+              - "Firmware too old — user-key write requires mcu >= 24 (ESP32) / >= 2.2 (Inventek)."
+          - symptom: "cmd 1 acked but the unit never gets an IP (cmd 0 keeps reporting 0.0.0.0)"
+            causes:
+              - "Give it minutes first — the verified join took ~4 minutes."
+              - "Wrong passphrase or a 5 GHz-only BSSID; re-enter setup mode and re-run cmd 1 with the corrected credentials."
+      - type: "softap_udp"
         verified: false
         description: >
-          AP-mode fallback: the device hosts a setup AP; after joining it the
-          app resolves the fixed hostname rabbitair-setup.local via mDNS and
-          talks to the device there ("leave ap mode" on completion).
-          Transport over that AP (HTTP? the same JSON/UDP protocol?) is
-          UNVERIFIED — the softap_http type records the shape, not a captured
-          HTTP API.
+          AP-mode fallback (the app's "local" connection method): the
+          device hosts an open setup AP (SSID prefix "rabbitair_"); after
+          joining it, the phone speaks the SAME cleartext setup command set
+          as the BLE path — one JSON envelope per UDP datagram to
+          192.168.10.1:9009 (or TCP 9009 with the 2-byte little-endian
+          length prefix). The app first resolves the fixed hostname
+          rabbitair-setup.local via mDNS and falls back to the fixed
+          gateway IP; the command sequence is identical to the BLE method
+          (cmd 255/4 → 0 → 1 → 5 → 3 → 2), and cmd 2 "leave AP mode"
+          closes the AP at the end. Transport confirmed from the decompile
+          (wifi_iot joins the rabbitair_* SSID, then UDP/TCP 9009);
+          192.168.10.1:9009 independently corroborated by
+          yepher/RabbiteAirProtocol's iOS research.
         softap:
-          ssid_prefix: "unknown — capture required"
+          ssid_prefix: "rabbitair_"
           open_network: true
+          gateway_ip: "192.168.10.1"
+          port: 9009
         steps:
-          - action: "Put the purifier in AP/setup mode (app-guided; Wi-Fi button on the unit)."
+          - action: "Put the purifier in AP/setup mode (Wi-Fi button on the unit; app-guided)."
             actor: "user"
-          - action: "Join the device AP; resolve rabbitair-setup.local via mDNS."
+          - action: "Join the open rabbitair_* AP from OS Wi-Fi settings."
+            actor: "user"
+          - action: "Resolve rabbitair-setup.local via mDNS or use 192.168.10.1; run the same cleartext command sequence as the BLE method (cmd 255/4 → 0 → 1 → 5 type 4 → 3 → 2) over UDP 9009."
             actor: "client"
-          - action: "Capture the provisioning exchange over the setup AP — open gap."
-            actor: "client"
-            expect: "Device leaves AP mode and appears on the LAN advertising _rabbitair._udp.local."
+            expect: "cmd 2 leaves AP mode; the unit joins Wi-Fi and appears on the LAN advertising _rabbitair._udp.local."
+      - type: "wps"
+        verified: false
+        description: >
+          Third connection method in the app: router push-button WPS join.
+          The app then skips cmd 0/1 (no credentials cross the phone) and
+          cmd 2, running only the naming/certificate steps (cmd 3/5). Which
+          transport carries those commands in WPS mode has not been traced;
+          recorded for completeness — prefer the BLE method.
     factory_reset:
       # `unknown` rather than `true`: the effect below is believed, but no
       # procedure has been established here, and `applicable: true` would
@@ -210,27 +372,32 @@ device:
         No documented in-place credential update; treat a router change as
         reset-and-reprovision through the app.
     credentials:
-      wifi_passphrase_protection: "unknown"
+      # Setup commands are cleartext JSON; encryption begins only after a
+      # user key is pushed (cmd 5 type 4).
+      wifi_passphrase_protection: "plaintext"
       stored_on_device:
         - "Wi-Fi credentials"
-        - "user key (16-byte AES key, self-generated)"
-        - "AWS IoT thing certificate (cloud path)"
+        - "user key (16-byte AES key, generated client-side and pushed via cmd 5 type 4)"
+        - "AWS IoT thing certificate (cloud path, cmd 5 types 0-3 — optional)"
       issued_to_client:
         - "Thing ID (mDNS hostname)"
         - "user key / access token (32 hex chars = 16 bytes)"
       notes: >
-        The LAN credential is a per-device 16-byte user key. The owner
-        retrieves it from the official app: device control page > three-dot
-        menu > Rename > tap the device name to expand — the screen reveals
-        Thing ID and User key (HA docs flow; older app versions: Edit screen,
-        tap "Serial Number" several times). If the unit was set up before
-        user keys existed, the app offers "Tap for setup user key" to
-        generate one on-device; the app binary carries a matching
-        `generateUserKey` operation string (alongside "Error! userKey is
-        null" / "User key write not supported"), corroborating that key
-        generation is pushed to the device rather than minted in the cloud
-        (app-derived, not hardware-verified — confidence: medium). Never
-        record a real key in this repo — the spec documents the shape only.
+        The LAN credential is a per-device 16-byte user key. The decompile
+        settled how it is born: the APP generates it — 32 uppercase hex
+        characters drawn from dart:math Random — and pushes it to the unit
+        with cmd 5, data {"type":4,"value":"<32 hex>"} (feature-gated on
+        firmware: mcu >= 24 on ESP32 units, >= 2.2 on Inventek; older units
+        report "User key write not supported"). A third-party provisioner
+        can therefore mint the key itself during setup and needs nothing
+        from the vendor cloud. On units set up before user keys existed,
+        the official app offers "Tap for setup user key" to run the same
+        push after the fact. The owner can also READ an existing key out of
+        the official app: device control page > three-dot menu > Rename >
+        tap the device name to expand — the screen reveals Thing ID and
+        User key (older app versions: Edit screen, tap "Serial Number"
+        several times). Never record a real key in this repo — the spec
+        documents the shape only.
 
 cloud:
   required: false
@@ -343,7 +510,83 @@ rabbit_air_protocol:
     algorithm: "AES-128-CBC, PKCS7 padding"
     key: "The 16-byte user key (access token), hex-decoded from the 32-character string shown in the app."
     iv: "Random 16 bytes per message, APPENDED as the last 16 bytes of the datagram (ciphertext || IV). Decrypt: IV = msg[-16:], ciphertext = msg[:-16]."
-    applies_to: "Both directions, once a user key is set. The library supports tokenless plaintext operation, but production units are expected to be keyed; treat plaintext mode as hypothesis."
+    applies_to: "Both directions, once a user key is set. During SETUP (before a user key exists) the app sends the same envelope in CLEARTEXT with no `ts` field — see setup_commands. The library's tokenless plaintext mode is the same code path."
+  setup_commands:
+    # Recovered from the blutter decompile of the Rabbit Air 2 app v1.2.1
+    # (AirPurifierApi / AirPurifierBleInteractor / AirPurifierNetInteractor /
+    # SetupDeviceProgress), then REPLAYED AGAINST HARDWARE 2026-08-15
+    # (MinusA2 gen2, mcu 2.2.8) over BLE: cmds 0/1/2/4/5(type 4)/7/255 all
+    # behaved as written. These commands run BEFORE a user key exists:
+    # cleartext envelope {"id":n,"cmd":n,"data":{...}} — no `ts`, no AES —
+    # over BLE (framed per rabbit_air_ble) or UDP/TCP 9009 to the setup AP
+    # (192.168.10.1). cmd 4/9/255 are the same commands as post-setup, just
+    # plaintext; the rest exist for provisioning. Responses echo `id`;
+    # reads carry `data`; writes ack with a bare {"id":<echo>}. On hardware
+    # failures DID surface as an error field — re-sending cmd 1/2 after the
+    # unit had left setup mode returned {"id":<echo>,"error":true} over the
+    # encrypted channel (the decompile suggested failures only surfaced as
+    # timeouts).
+    verification: "confirmed"
+    commands:
+      - cmd: 0
+        name: "read_network_settings"
+        description: >
+          Response data is a RabbitairWireless object: current ssid, security
+          (int), dhcp, ip, mask, gateway, and `networks` — the device's own
+          Wi-Fi SCAN RESULTS, each {ssid, security(int)}. During setup the
+          app re-polls this (up to 15x) until networks is non-empty, then
+          presents the SSID picker. The `security` enum is partially mapped
+          by hardware observation: 3 = WPA2-PSK (every WPA2 network in the
+          verified unit's scan, and the value the successful join echoed).
+          The same reply doubles as join progress: after cmd 1/2, `ip`
+          stays "0.0.0.0" until the unit has associated AND taken a DHCP
+          lease — on the verified unit that took ~4 minutes. The same SSID
+          appears once per visible BSSID (the verified scan listed the
+          target network 3 times) — dedupe before presenting a picker.
+          Post-setup the reply omits `networks` and carries the live
+          ssid/security/dhcp/ip/mask/gateway/dns1/dns2 only.
+      - cmd: 1
+        name: "join_network"
+        description: >
+          Request data {"ssid": "...", "passphrase": "...", "security": <int>}
+          — security echoed from the cmd 0 networks[] entry (3 = WPA2-PSK
+          verified). The reply is a bare id ack; a wrong passphrase surfaces
+          later (ip stays 0.0.0.0 and the unit never appears on the LAN).
+          Setup-mode only: after the unit has left setup mode this command
+          returns {"id":<echo>,"error":true} (verified).
+      - cmd: 2
+        name: "leave_ap_mode"
+        description: "No data. Ends setup mode (closes the setup AP / BLE setup advertising); the unit joins the network given in cmd 1. Bare id ack. Setup-mode only like cmd 1 — error:true after setup (verified)."
+      - cmd: 3
+        name: "module_name"
+        description: "GET (no data): response data.name. SET: request data {\"name\": \"...\"}."
+      - cmd: 5
+        name: "set_certificate"
+        description: >
+          Request data {"type": <int>, "value": "<string>"}. Types:
+          0 = AWS IoT root CA, 1 = device certificate, 2 = device private
+          key, 3 = HTTPS root CA, 4 = USER KEY (32 uppercase hex chars,
+          generated client-side). Types 0-3 are cloud binding (skip for
+          local-only provisioning); type 4 is the one that matters locally —
+          it lands the shared AES key for all later encrypted traffic.
+          Firmware gate: type 4 needs mcu >= 24 (ESP32) / >= 2.2 (Inventek)
+          — an mcu 2.2.8 unit accepted it (verified); the key it was pushed
+          immediately drove encrypted LAN and BLE traffic.
+      - cmd: 7
+        name: "get_current_mode"
+        description: "Response data {mode (int 0-5), setup (bool)} — verified reply during setup mode: {\"mode\":5,\"setup\":true}."
+      - cmd: 255
+        name: "get_info (setup-mode notes)"
+        description: >
+          Same command as the post-setup get_info, plaintext during setup.
+          Hardware-verified reply shape: data carries name, mcu, build,
+          wifi (Wi-Fi stack version string), mac (the WI-FI MAC — on the
+          verified unit it differed from the BT MAC only in the last
+          octet), time, heap/hmin/stack/clk, uptime/mup/wup/iup/cup
+          counters, flc/ftc/errw. Without the vendor cloud flow, name is ""
+          (no Thing ID is ever assigned) — consumers must not require it
+          non-empty; the mDNS hostname then falls back to
+          "RabbitAir-<WIFI MAC>" (see discovery).
   handshake:
     description: >
       No connection or session exists (UDP). The only required preamble when
@@ -445,6 +688,98 @@ rabbit_air_protocol:
     state_get_request_plaintext: '{"id":1234568,"cmd":4,"ts":1700000123}'
     state_set_power_on_plaintext: '{"id":1234569,"cmd":4,"ts":1700000124,"data":{"power":true}}'
     wire_note: "On the wire each of these is AES-128-CBC(user_key) with PKCS7 padding and a random 16-byte IV appended after the ciphertext."
+
+# BLE transport for the SAME command envelope — recovered from the blutter
+# decompile of the Rabbit Air 2 app v1.2.1 (AirPurifierBleInteractor).
+# BLE is both the provisioning channel (cleartext setup_commands against
+# the "RabbitAirSetup" peripheral) AND a full alternate control transport:
+# after setup the app reconnects to the "RabbitAir" peripheral and runs the
+# encrypted cmds 9/4/255 over GATT, byte-for-byte the LAN payloads.
+rabbit_air_ble:
+  verification: "confirmed"
+  verification_notes: >
+    2026-08-15, MinusA2 gen2 (Wi-Fi module mcu 2.2.8): full cleartext
+    provisioning conversation and the post-setup
+    ENCRYPTED command set (cmd 9 clock sync, 255 info, 0 network, 4 state)
+    both driven over this GATT channel as written. Hardware details the
+    decompile could not see: the characteristic's properties byte is 0x28 —
+    write + INDICATE, so server→client messages are ATT Handle Value
+    Indications (the client must confirm them), not notifications; the
+    stack tolerates an unconfirmed-then-confirmed mix, and the CCCD reads
+    0x0002 on a fresh connection (indications on by default). GATT layout
+    observed: service at handle 0x28, declaration 0x29, VALUE handle 0x2A,
+    CCCD 0x2B. MTU 515 negotiates cleanly. A KEYED unit rejects cleartext
+    writes with ATT application error 0x87 (intermittent, load-dependent)
+    and never answers them.
+  gatt:
+    service_uuid: "366048ae-9f36-43cf-8004-010c0c9fa52e"
+    command_characteristic: "53ef7d7d-c244-42bd-9064-a1569a521ca9"
+    operations: "Single characteristic for both directions: the client WRITES requests (write-WITH-response) and subscribes to INDICATIONS (not notifications — properties 0x28, hardware-verified) for responses; the client must send ATT confirmations. No BLE pairing/bonding."
+    advertised_names:
+      setup: "RabbitAirSetup — unprovisioned / setup mode"
+      provisioned: "RabbitAir — after setup; the app matches this name plus the unit's BT MAC. Note (hardware-observed): a provisioned unit's ADVERTISING data carried no local name at all — only the service UUID; the name 'RabbitAir' came from the GAP Device Name characteristic (0x2A00) read after connect."
+  off_wifi_access:
+    # BLE works with NO Wi-Fi involvement at all — the channel is between
+    # phone and purifier. What you can read depends on provisioning state:
+    summary: >
+      The purifier's BLE radio is up whether or not it has joined a WLAN,
+      so state/info is reachable with the device entirely off Wi-Fi. A unit
+      in SETUP mode answers the cleartext command set with no credentials
+      at all — cmd 255 (name, MAC, firmware, uptimes), cmd 4 (full live
+      state: power, mode, speed, air quality, filter life, ...), cmd 0
+      (its own Wi-Fi scan list), cmd 7 — the vendor app's own setup flow
+      reads cmd 255 + cmd 4 exactly this way before any key exists. A
+      PROVISIONED unit keeps advertising ("RabbitAir") and accepts the full
+      command set over BLE encrypted under its user key — the vendor app's
+      CurrentDeviceProvider does bluetoothConnect + setEncrypted for local
+      control independent of the LAN — VERIFIED 2026-08-15: after a
+      local-only provisioning (no cloud), encrypted cmd 9/255/0/4 ran over
+      BLE under the pushed key with the unit reachable/unreachable on
+      Wi-Fi alike. The one
+      closed case: a keyed unit whose key you don't have — there is no BLE
+      pairing/bonding to fall back on and every command needs the AES key;
+      VERIFIED: such a unit answers no cleartext command and intermittently
+      rejects the writes with ATT application error 0x87.
+    security_note: >
+      Corollary: while a unit sits in setup mode it discloses state,
+      identity and its Wi-Fi scan results to ANY BLE client in range, and
+      accepts cmd 1 (join network) from anyone — the provisioning window is
+      unauthenticated by design. Keep setup mode short.
+  framing:
+    description: >
+      Every request/response payload (the plaintext-or-encrypted envelope
+      bytes — the same bytes one UDP datagram would carry) is prefixed with
+      a 2-byte LITTLE-ENDIAN uint16 length of the PAYLOAD ONLY (prefix not
+      counted), then split into consecutive chunks of (negotiated MTU - 5)
+      bytes. The app requests MTU 515, so chunks are 510 bytes; its
+      pre-negotiation default chunk is 512. Each chunk is one GATT write
+      (with response), sent sequentially.
+    reassembly: >
+      Indications arrive in the same chunking (hardware-verified: ATT
+      Handle Value Indications, which the client's ATT layer confirms).
+      The first indication of
+      a message starts with the 2-byte LE total-payload length; accumulate
+      chunk bodies (skipping the 2-byte prefix of the first chunk) until
+      that many payload bytes have arrived — that is the complete response,
+      which then goes through the normal decrypt/JSON path. Indications
+      shorter than 2 bytes are ignored. The app waits at most 7 s for a
+      complete response.
+  provisioning_over_ble:
+    summary: >
+      During setup the framed payloads are the CLEARTEXT
+      {"id","cmd","data"} envelopes of rabbit_air_protocol.setup_commands
+      (no ts, no AES). Order in the app: cmd 255 + cmd 4 (info/state,
+      5 retries 1 s apart) → cmd 0 (network list; re-poll up to 15x until
+      networks[] non-empty) → cmd 1 (join network) → cmd 5 type 4 (push
+      client-generated user key) → cmd 3 (set name) → cmd 2 (leave setup
+      mode). Cloud-only extras (cmd 5 types 0-3 certificates) can be
+      skipped. Afterwards the unit joins Wi-Fi; verify over LAN with an
+      encrypted cmd 9 + cmd 4 under the new key.
+  example_wire:
+    description: "cmd 255 get_info, cleartext, as framed on BLE. id is a per-client counter starting at 0."
+    payload: '{"id":0,"cmd":255}'
+    framed_hex: "0d00"  # 13 = len('{"id":0,"cmd":255}'), LE; then the 13 payload bytes
+    note: "13+2 = 15 bytes fit one chunk, so this example is a single write; a cmd 1 join message with a long passphrase crosses one chunk boundary at 510 bytes."
 
 # The invocations entities bind. Each is one Rabbit Air LAN message whose
 # `body` carries only the STATIC envelope fields (cmd, and `data` when the
@@ -727,3 +1062,6 @@ helpful_urls:
   - url: "https://pypi.org/project/python-rabbitair/"
     title: "python-rabbitair on PyPI"
     description: "Released packages 0.0.2-0.0.8 (0.0.1 yanked); 0.0.8 is the version pinned by Home Assistant."
+  - url: "https://github.com/yepher/RabbiteAirProtocol"
+    title: "yepher/RabbiteAirProtocol"
+    description: "Independent 2021 research on the earlier iOS app; corroborates the BLE service/characteristic UUID roles, the setup-AP address 192.168.10.1:9009, and the AES-CBC + appended-IV construction."
