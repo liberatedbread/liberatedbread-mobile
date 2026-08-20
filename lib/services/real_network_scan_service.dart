@@ -110,6 +110,53 @@ const _kasaPort = 9999;
 const _kasaProbeJson = '{"system":{"get_sysinfo":null}}';
 const _kasaProtocol = 'tplink-smarthome';
 
+/// Wiz (Philips) lights answer a JSON `getSystemConfig` broadcast to UDP 38899
+/// and unicast the reply back. Active — they do not beacon — so the probe is
+/// required. Tagged with the lan-protocol the Wiz spec declares.
+const _wizPort = 38899;
+const _wizProbe = '{"method":"getSystemConfig","params":{}}';
+const _wizLanProtocol = 'wiz-udp';
+
+/// Yeelight lights answer an SSDP-style `wifi_bulb` M-SEARCH on the multicast
+/// group 239.255.255.250:1982 (NOT the standard SSDP :1900). Active probe.
+const _yeelightMulticast = '239.255.255.250';
+const _yeelightPort = 1982;
+const _yeelightLanProtocol = 'yeelight-ssdp';
+const _yeelightProbe = 'M-SEARCH * HTTP/1.1\r\n'
+    'HOST: 239.255.255.250:1982\r\n'
+    'MAN: "ssdp:discover"\r\n'
+    'ST: wifi_bulb\r\n\r\n';
+
+/// Govee devices with "LAN Control" enabled answer a multicast `scan` request
+/// sent to 239.255.255.250:4001 by unicasting a reply to UDP 4002. Two ports,
+/// so the listener binds 4002 and sends from a separate socket.
+const _goveeMulticast = '239.255.255.250';
+const _goveeSendPort = 4001;
+const _goveeRecvPort = 4002;
+const _goveeLanProtocol = 'govee-lan';
+const _goveeProbe = '{"msg":{"cmd":"scan","data":{"account_topic":"reserve"}}}';
+
+/// iRobot Roomba/Braava answer the ASCII probe `irobotmcs` broadcast to UDP
+/// 5678 — the SAME port MikroTik MNDP uses — with a JSON blob. Detection rides
+/// on the MikroTik transport's :5678 socket (one probe pair, both reply shapes
+/// parsed). Tagged with the lan-protocol the Roomba spec declares.
+const _irobotProbe = 'irobotmcs';
+const _irobotLanProtocol = 'irobot-mqtt';
+
+/// KNXnet/IP routers/interfaces answer a SEARCH_REQUEST multicast to
+/// 224.0.23.12:3671 with a SEARCH_RESPONSE (device-info DIB). The HPAI in the
+/// request is sent as 0.0.0.0:0 so a router replies to the datagram source
+/// (the NAT-aware convention), which spares us enumerating the local IP.
+const _knxMulticast = '224.0.23.12';
+const _knxPort = 3671;
+const _knxLanProtocol = 'knxnet-ip';
+// SEARCH_REQUEST: 6-byte header (06 10, service 02 01, total length 00 0e) +
+// 8-byte HPAI (len 08, UDP 01, IP 0.0.0.0, port 0 — reply to the source).
+const _knxProbe = [
+  0x06, 0x10, 0x02, 0x01, 0x00, 0x0e, //
+  0x08, 0x01, 0, 0, 0, 0, 0, 0,
+];
+
 /// Parse an SSDP response into its headers, lowercased keys.
 ///
 /// Tolerant on purpose: SSDP implementations in shipped hardware are famously
@@ -370,6 +417,142 @@ String mikrotikPictogram({String? board, String? identity}) {
   return 'router';
 }
 
+/// Parse a Wiz reply (UDP 38899). A Wiz bulb answers a JSON `getSystemConfig`
+/// with `{"method":"getSystemConfig","result":{"mac":...,"moduleName":...,
+/// "fwVersion":...}}`; a `getPilot` reply carries state but no mac. Returns the
+/// identity fields (mac may be null), or null for anything that is not a Wiz
+/// JSON reply.
+({String? mac, String? moduleName, String? fwVersion})? parseWizReply(
+    List<int> data) {
+  Object? decoded;
+  try {
+    decoded = jsonDecode(utf8.decode(data));
+  } catch (_) {
+    return null;
+  }
+  if (decoded is! Map) return null;
+  final method = decoded['method'];
+  if (method != 'getSystemConfig' && method != 'getPilot') return null;
+  final result = decoded['result'];
+  if (result is! Map) return null;
+  String? str(Object? v) =>
+      v is String && v.trim().isNotEmpty ? v.trim() : null;
+  return (
+    mac: str(result['mac']),
+    moduleName: str(result['moduleName']),
+    fwVersion: str(result['fwVersion']),
+  );
+}
+
+/// Parse a Yeelight discovery reply (multicast 239.255.255.250:1982). A
+/// Yeelight bulb answers the `wifi_bulb` M-SEARCH with an HTTP-style response
+/// carrying `id`, `model`, `name` and a `Location: yeelight://ip:port` header;
+/// the SSDP header parser reads it. Null when the payload is not a Yeelight
+/// reply (no `id` and no `yeelight://` location).
+({String? id, String? model, String? name, String? location})? parseYeelight(
+    String payload) {
+  final h = parseSsdpHeaders(payload);
+  final location = h['location'];
+  final id = h['id'];
+  final isYeelight =
+      (location != null && location.startsWith('yeelight://')) || id != null;
+  if (!isYeelight) return null;
+  return (
+    id: id,
+    model: h['model'],
+    name: (h['name']?.isNotEmpty ?? false) ? h['name'] : null,
+    location: location,
+  );
+}
+
+/// Parse a Govee LAN reply (received on UDP 4002 after a multicast scan to
+/// 239.255.255.250:4001). A Govee device with LAN control enabled answers with
+/// `{"msg":{"cmd":"scan","data":{"ip":...,"device":<mac>,"sku":<model>}}}`.
+/// Null for anything that is not that shape.
+({String? device, String? sku, String? ip})? parseGoveeReply(List<int> data) {
+  Object? decoded;
+  try {
+    decoded = jsonDecode(utf8.decode(data));
+  } catch (_) {
+    return null;
+  }
+  if (decoded is! Map) return null;
+  final msg = decoded['msg'];
+  if (msg is! Map || msg['cmd'] != 'scan') return null;
+  final d = msg['data'];
+  if (d is! Map) return null;
+  String? str(Object? v) =>
+      v is String && v.trim().isNotEmpty ? v.trim() : null;
+  final device = str(d['device']);
+  if (device == null) return null;
+  return (device: device, sku: str(d['sku']), ip: str(d['ip']));
+}
+
+/// Parse an iRobot Roomba/Braava discovery reply (UDP 5678, the port MNDP also
+/// uses). A robot answers the `irobotmcs` probe with a JSON blob:
+/// `{"hostname":"Roomba-<blid>","robotname":...,"ip":...,"mac":...,"sku":...}`.
+/// The BLID (the MQTT username) is the substring after the first hyphen of
+/// hostname. Null for a non-iRobot datagram (a binary MNDP beacon, our own
+/// probe echo) — the JSON parse and the `Roomba-`/`iRobot-` hostname prefix are
+/// the guard that keeps the two protocols sharing :5678 apart.
+({String? hostname, String? robotname, String? blid, String? sku, String? mac})?
+    parseIrobotReply(List<int> data) {
+  Object? decoded;
+  try {
+    decoded = jsonDecode(utf8.decode(data));
+  } catch (_) {
+    return null;
+  }
+  if (decoded is! Map) return null;
+  final hostname = decoded['hostname'];
+  if (hostname is! String ||
+      !(hostname.startsWith('Roomba-') || hostname.startsWith('iRobot-'))) {
+    return null;
+  }
+  String? str(Object? v) =>
+      v is String && v.trim().isNotEmpty ? v.trim() : null;
+  final hyphen = hostname.indexOf('-');
+  return (
+    hostname: hostname,
+    robotname: str(decoded['robotname']),
+    blid: hyphen >= 0 ? hostname.substring(hyphen + 1) : null,
+    sku: str(decoded['sku']),
+    mac: str(decoded['mac']),
+  );
+}
+
+/// Parse a KNXnet/IP SEARCH_RESPONSE (multicast 224.0.23.12:3671). A KNX IP
+/// router/interface answers a SEARCH_REQUEST with a device-information block
+/// (DIB) carrying a friendly name, KNX individual address, serial and MAC.
+/// Layout: 6-byte header (`06 10`, service type `02 02`, total length), an
+/// 8-byte HPAI, then the 54-byte DIB_DEVICE_INFO. Null for anything that is not
+/// a well-formed SEARCH_RESPONSE.
+({String? name, String? individualAddress, String? serial, String? mac})?
+    parseKnxSearchResponse(List<int> d) {
+  const dib = 14; // 6-byte header + 8-byte HPAI
+  if (d.length < dib + 54 || d[0] != 0x06 || d[1] != 0x10) return null;
+  if (d[2] != 0x02 || d[3] != 0x02) return null; // SEARCH_RESPONSE
+  if (d[dib] < 54 || d[dib + 1] != 0x01) return null; // DIB_DEVICE_INFO
+  // Individual address: area(4b).line(4b).device(8b).
+  final ia = d[dib + 4];
+  final individual = '${ia >> 4}.${ia & 0x0f}.${d[dib + 5]}';
+  String hexJoin(Iterable<int> bytes, String sep) =>
+      bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(sep);
+  final serial = hexJoin(d.sublist(dib + 8, dib + 14), '');
+  final mac = hexJoin(d.sublist(dib + 18, dib + 24), ':');
+  final nameBytes = d.sublist(dib + 24, dib + 54);
+  final nul = nameBytes.indexOf(0);
+  final name =
+      String.fromCharCodes(nul >= 0 ? nameBytes.sublist(0, nul) : nameBytes)
+          .trim();
+  return (
+    name: name.isEmpty ? null : name,
+    individualAddress: individual,
+    serial: serial,
+    mac: mac,
+  );
+}
+
 /// Whether [haystack] contains the contiguous byte sequence [needle].
 bool containsBytes(List<int> haystack, List<int> needle) {
   if (needle.isEmpty || needle.length > haystack.length) return false;
@@ -570,6 +753,26 @@ class RealNetworkScanService implements NetworkScanService {
               Log.net.warning('Tuya discovery failed', error: e);
               return TransportOutcome.failed;
             }),
+          // Vendor light protocols that answer only their own UDP probe, each
+          // deaf to mDNS/SSDP: Wiz (38899), Yeelight (multicast 1982), Govee
+          // LAN (4001/4002). iRobot rides on the MikroTik :5678 transport.
+          _runWiz(session, emit, timeout).catchError((Object e) {
+            Log.net.warning('Wiz discovery failed', error: e);
+            return TransportOutcome.failed;
+          }),
+          _runYeelight(session, emit, timeout).catchError((Object e) {
+            Log.net.warning('Yeelight discovery failed', error: e);
+            return TransportOutcome.failed;
+          }),
+          _runGovee(session, emit, timeout).catchError((Object e) {
+            Log.net.warning('Govee discovery failed', error: e);
+            return TransportOutcome.failed;
+          }),
+          // KNXnet/IP building-automation gateways (multicast 224.0.23.12:3671).
+          _runKnx(session, emit, timeout).catchError((Object e) {
+            Log.net.warning('KNX discovery failed', error: e);
+            return TransportOutcome.failed;
+          }),
         ]);
 
         final failure = scanFailureFor(
@@ -864,11 +1067,14 @@ class RealNetworkScanService implements NetworkScanService {
     }
   }
 
-  /// Discover MikroTik RouterOS devices over MNDP (UDP 5678). Must BIND :5678:
-  /// a solicited device broadcasts its TLV beacon back to :5678, not to the
-  /// sender's port, so a listener on an ephemeral port hears nothing. Each
-  /// beacon becomes a device at its source IP, named by its Identity and tagged
-  /// with [_mikrotikLanProtocol] so the RouterOS spec claims it.
+  /// Discover MikroTik RouterOS devices over MNDP AND iRobot robots over their
+  /// discovery protocol — both live on UDP 5678. Must BIND :5678: a solicited
+  /// MNDP device broadcasts its TLV beacon back to :5678 (not the sender's
+  /// port), and a Roomba unicasts its JSON reply to the probe's source port,
+  /// which is also :5678 here. So one bound socket, two probes (the 4-byte MNDP
+  /// solicitation and the ASCII `irobotmcs`), and each reply is dispatched by
+  /// shape — a binary TLV beacon to [parseMndp], a JSON blob to
+  /// [parseIrobotReply] — and tagged with the matching spec's lan-protocol.
   Future<TransportOutcome> _runMikrotik(
     _ScanSession session,
     void Function(NetworkDevice) emit,
@@ -880,7 +1086,7 @@ class RealNetworkScanService implements NetworkScanService {
           reuseAddress: true, reusePort: true);
     } catch (e) {
       // :5678 exclusively held, or the bind is otherwise refused — skip.
-      Log.net.debug('MikroTik MNDP bind failed: $e');
+      Log.net.debug('port 5678 (MNDP/iRobot) bind failed: $e');
       return TransportOutcome.silent;
     }
     session.mikrotikSocket = socket;
@@ -889,8 +1095,10 @@ class RealNetworkScanService implements NetworkScanService {
     final seen = <String>{};
     try {
       final target = InternetAddress(_lifxBroadcast);
+      final irobotProbe = utf8.encode(_irobotProbe);
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(_mikrotikProbe, target, _mikrotikPort);
+        socket.send(irobotProbe, target, _mikrotikPort);
         if (await session
             .sleepUnlessStopped(const Duration(milliseconds: 250))) {
           break;
@@ -905,35 +1113,57 @@ class RealNetworkScanService implements NetworkScanService {
         if (event != RawSocketEvent.read) continue;
         final datagram = socket.receive();
         if (datagram == null) continue;
-        final parsed = parseMndp(datagram.data);
-        // Our own 4-byte solicitation echoes back; a real beacon carries an
-        // identity or MAC. Logged (skipping our own 4-byte echo) so a genuine
-        // beacon we failed to parse is visible.
-        if (parsed.identity == null && parsed.mac == null) {
-          if (datagram.data.length > 4) {
-            Log.net.debug('rejected MikroTik MNDP datagram from '
-                '${datagram.address.address} (${datagram.data.length}B, '
-                'no id parsed)');
-          }
+        final host = datagram.address.address;
+        // A binary MNDP TLV beacon: an identity or MAC decodes out of it.
+        final mndp = parseMndp(datagram.data);
+        if (mndp.identity != null || mndp.mac != null) {
+          heard = true;
+          if (!seen.add(host)) continue;
+          emit(NetworkDevice(
+            host: host,
+            name: mndp.identity ?? '',
+            answeredLanProtocols: const [_mikrotikLanProtocol],
+            pictogram:
+                mikrotikPictogram(board: mndp.board, identity: mndp.identity),
+            txt: {
+              if (mndp.mac != null) 'mac': mndp.mac!,
+              if (mndp.board != null) 'board': mndp.board!,
+              if (mndp.version != null) 'version': mndp.version!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ));
           continue;
         }
-        heard = true;
-        final host = datagram.address.address;
-        if (!seen.add(host)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: parsed.identity ?? '',
-          answeredLanProtocols: const [_mikrotikLanProtocol],
-          pictogram:
-              mikrotikPictogram(board: parsed.board, identity: parsed.identity),
-          txt: {
-            if (parsed.mac != null) 'mac': parsed.mac!,
-            if (parsed.board != null) 'board': parsed.board!,
-            if (parsed.version != null) 'version': parsed.version!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        // Otherwise a JSON iRobot reply on the same port. Keyed on the BLID
+        // (stable), namespaced so it cannot collide with a MikroTik host key.
+        final robot = parseIrobotReply(datagram.data);
+        if (robot != null) {
+          heard = true;
+          if (!seen.add('irobot:${robot.blid ?? robot.hostname ?? host}')) {
+            continue;
+          }
+          emit(NetworkDevice(
+            host: host,
+            name: robot.robotname ?? robot.hostname ?? '',
+            answeredLanProtocols: const [_irobotLanProtocol],
+            pictogram: 'robot',
+            txt: {
+              if (robot.hostname != null) 'hostname': robot.hostname!,
+              if (robot.blid != null) 'blid': robot.blid!,
+              if (robot.sku != null) 'sku': robot.sku!,
+              if (robot.mac != null) 'mac': robot.mac!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ));
+          continue;
+        }
+        // Neither shape — our own 4-byte MNDP echo, or an unrecognized reply.
+        if (datagram.data.length > 4) {
+          Log.net.debug('rejected :5678 datagram from $host '
+              '(${datagram.data.length}B, not MNDP or iRobot)');
+        }
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1034,6 +1264,280 @@ class RealNetworkScanService implements NetworkScanService {
       encrypted?.close();
       session.tuyaPlainSocket = null;
       session.tuyaEncryptedSocket = null;
+    }
+  }
+
+  /// Discover Wiz (Philips) lights: broadcast a JSON `getSystemConfig` to UDP
+  /// 38899 and collect the unicast replies. Active — Wiz bulbs do not beacon —
+  /// so the probe is required. Each reply becomes a light at its source IP,
+  /// keyed on its MAC and tagged with [_wizLanProtocol].
+  Future<TransportOutcome> _runWiz(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+  ) async {
+    final RawDatagramSocket socket;
+    try {
+      socket = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
+          reuseAddress: true);
+    } catch (e) {
+      Log.net.debug('Wiz bind failed: $e');
+      return TransportOutcome.silent;
+    }
+    session.wizSocket = socket;
+    socket.broadcastEnabled = true;
+    var heard = false;
+    final seen = <String>{};
+    try {
+      final target = InternetAddress(_lifxBroadcast);
+      for (var attempt = 0; attempt < 2; attempt++) {
+        socket.send(utf8.encode(_wizProbe), target, _wizPort);
+        if (await session
+            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+          break;
+        }
+      }
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+        final parsed = parseWizReply(datagram.data);
+        // Our own probe (method but no result) parses to null; skip it quietly
+        // rather than logging it as a rejected device on every echo.
+        if (parsed == null) continue;
+        heard = true;
+        final host = datagram.address.address;
+        if (!seen.add(parsed.mac ?? host)) continue;
+        emit(NetworkDevice(
+          host: host,
+          name: '',
+          answeredLanProtocols: const [_wizLanProtocol],
+          pictogram: 'light',
+          txt: {
+            if (parsed.mac != null) 'mac': parsed.mac!,
+            if (parsed.moduleName != null) 'moduleName': parsed.moduleName!,
+            if (parsed.fwVersion != null) 'fwVersion': parsed.fwVersion!,
+          },
+          sources: const {NetworkDiscoverySource.lanProbe},
+          discoveredAt: DateTime.now(),
+        ));
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      socket.close();
+      session.wizSocket = null;
+    }
+  }
+
+  /// Discover Yeelight lights: an SSDP-style `wifi_bulb` M-SEARCH to the
+  /// Yeelight multicast group 239.255.255.250:1982 (NOT the standard SSDP
+  /// :1900). Each reply becomes a light at its source IP, keyed on the `id`
+  /// header and tagged with [_yeelightLanProtocol].
+  Future<TransportOutcome> _runYeelight(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+  ) async {
+    final RawDatagramSocket socket;
+    try {
+      socket = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
+          reuseAddress: true);
+    } catch (e) {
+      Log.net.debug('Yeelight bind failed: $e');
+      return TransportOutcome.silent;
+    }
+    session.yeelightSocket = socket;
+    socket.broadcastEnabled = true;
+    var heard = false;
+    final seen = <String>{};
+    try {
+      final target = InternetAddress(_yeelightMulticast);
+      for (var attempt = 0; attempt < 2; attempt++) {
+        socket.send(utf8.encode(_yeelightProbe), target, _yeelightPort);
+        if (await session
+            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+          break;
+        }
+      }
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+        final parsed =
+            parseYeelight(utf8.decode(datagram.data, allowMalformed: true));
+        if (parsed == null) continue; // our own M-SEARCH echoes; ignore
+        heard = true;
+        final host = datagram.address.address;
+        if (!seen.add(parsed.id ?? host)) continue;
+        emit(NetworkDevice(
+          host: host,
+          name: parsed.name ?? '',
+          answeredLanProtocols: const [_yeelightLanProtocol],
+          pictogram: 'light',
+          txt: {
+            if (parsed.id != null) 'id': parsed.id!,
+            if (parsed.model != null) 'model': parsed.model!,
+          },
+          sources: const {NetworkDiscoverySource.lanProbe},
+          discoveredAt: DateTime.now(),
+        ));
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      socket.close();
+      session.yeelightSocket = null;
+    }
+  }
+
+  /// Discover Govee devices with LAN Control enabled: a multicast `scan` to
+  /// 239.255.255.250:4001, whose replies arrive on a DIFFERENT port (UDP 4002).
+  /// So this binds 4002 to listen and sends the probe from a second socket.
+  /// Each reply becomes a light keyed on its `device` id and tagged with
+  /// [_goveeLanProtocol].
+  Future<TransportOutcome> _runGovee(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+  ) async {
+    final RawDatagramSocket recv;
+    try {
+      recv = await bindDatagramSocket(InternetAddress.anyIPv4, _goveeRecvPort,
+          reuseAddress: true, reusePort: true);
+    } catch (e) {
+      Log.net.debug('Govee :$_goveeRecvPort bind failed: $e');
+      return TransportOutcome.silent;
+    }
+    session.goveeSocket = recv;
+    RawDatagramSocket? sender;
+    var heard = false;
+    final seen = <String>{};
+    try {
+      try {
+        sender = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
+            reuseAddress: true);
+        sender.broadcastEnabled = true;
+        final target = InternetAddress(_goveeMulticast);
+        for (var attempt = 0; attempt < 2; attempt++) {
+          sender.send(utf8.encode(_goveeProbe), target, _goveeSendPort);
+          if (await session
+              .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+            break;
+          }
+        }
+      } catch (e) {
+        Log.net.debug('Govee probe send failed: $e');
+      }
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in recv.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = recv.receive();
+        if (datagram == null) continue;
+        final parsed = parseGoveeReply(datagram.data);
+        if (parsed == null) continue;
+        heard = true;
+        final host = parsed.ip ?? datagram.address.address;
+        if (!seen.add(parsed.device!)) continue;
+        emit(NetworkDevice(
+          host: host,
+          name: '',
+          answeredLanProtocols: const [_goveeLanProtocol],
+          pictogram: 'light',
+          txt: {
+            'device': parsed.device!,
+            if (parsed.sku != null) 'sku': parsed.sku!,
+          },
+          sources: const {NetworkDiscoverySource.lanProbe},
+          discoveredAt: DateTime.now(),
+        ));
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      sender?.close();
+      recv.close();
+      session.goveeSocket = null;
+    }
+  }
+
+  /// Discover KNXnet/IP gateways: a SEARCH_REQUEST multicast to 224.0.23.12:3671
+  /// whose HPAI is 0.0.0.0:0, so a router replies to the datagram source. Each
+  /// SEARCH_RESPONSE becomes a device carrying the gateway's friendly name, KNX
+  /// individual address, serial and MAC, tagged with [_knxLanProtocol].
+  Future<TransportOutcome> _runKnx(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+  ) async {
+    final RawDatagramSocket socket;
+    try {
+      socket = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
+          reuseAddress: true);
+    } catch (e) {
+      Log.net.debug('KNX bind failed: $e');
+      return TransportOutcome.silent;
+    }
+    session.knxSocket = socket;
+    var heard = false;
+    final seen = <String>{};
+    try {
+      final target = InternetAddress(_knxMulticast);
+      for (var attempt = 0; attempt < 2; attempt++) {
+        socket.send(_knxProbe, target, _knxPort);
+        if (await session
+            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+          break;
+        }
+      }
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+        final parsed = parseKnxSearchResponse(datagram.data);
+        if (parsed == null) {
+          Log.net.debug('rejected KNX :$_knxPort datagram from '
+              '${datagram.address.address} (${datagram.data.length}B)');
+          continue;
+        }
+        heard = true;
+        final host = datagram.address.address;
+        if (!seen.add(parsed.serial ?? parsed.mac ?? host)) continue;
+        emit(NetworkDevice(
+          host: host,
+          name: parsed.name ?? '',
+          answeredLanProtocols: const [_knxLanProtocol],
+          pictogram: 'smart-device',
+          txt: {
+            if (parsed.individualAddress != null)
+              'knxAddress': parsed.individualAddress!,
+            if (parsed.serial != null) 'serial': parsed.serial!,
+            if (parsed.mac != null) 'mac': parsed.mac!,
+          },
+          sources: const {NetworkDiscoverySource.lanProbe},
+          discoveredAt: DateTime.now(),
+        ));
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      socket.close();
+      session.knxSocket = null;
     }
   }
 
@@ -1428,6 +1932,10 @@ class _ScanSession {
   RawDatagramSocket? mikrotikSocket;
   RawDatagramSocket? tuyaPlainSocket;
   RawDatagramSocket? tuyaEncryptedSocket;
+  RawDatagramSocket? wizSocket;
+  RawDatagramSocket? yeelightSocket;
+  RawDatagramSocket? goveeSocket;
+  RawDatagramSocket? knxSocket;
 
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
@@ -1464,5 +1972,13 @@ class _ScanSession {
     tuyaPlainSocket = null;
     tuyaEncryptedSocket?.close();
     tuyaEncryptedSocket = null;
+    wizSocket?.close();
+    wizSocket = null;
+    yeelightSocket?.close();
+    yeelightSocket = null;
+    goveeSocket?.close();
+    goveeSocket = null;
+    knxSocket?.close();
+    knxSocket = null;
   }
 }
