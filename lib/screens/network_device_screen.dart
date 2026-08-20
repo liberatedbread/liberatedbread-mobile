@@ -12,10 +12,10 @@ import '../core/log.dart';
 import '../models/network_device.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
-import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
 import '../services/json_fields.dart';
 import '../services/kasa_control_service.dart';
+import '../services/network_command_sender.dart';
 import '../services/query_source_reader.dart';
 import '../services/rabbit_air_control_service.dart';
 import '../services/rabbit_air_key_store.dart';
@@ -103,14 +103,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// note stays up after the error text is replaced by the next attempt.
   bool _controlRefused = false;
 
-  /// The ECP2 signed session, opened lazily on the first plain-ECP refusal:
-  /// a Roku in "Control by mobile apps = Limited" refuses plain ECP but
-  /// answers ECP2, so the refusal is where the fallback begins. Null plus
-  /// [_ecp2Unavailable] means there is no ECP2 here — not a Roku, or the
-  /// session itself failed — and the plain refusal stands.
-  Ecp2Session? _ecp2;
-  Future<Ecp2Session?>? _ecp2Opening;
-  bool _ecp2Unavailable = false;
+  /// The per-device send pipeline — transport dispatch and the lazily
+  /// opened ECP2 signed session both live in it, so a group run can drive
+  /// the same device the same way without this widget. The session is the
+  /// device's rather than the send path's, which is why the keyboard watch
+  /// below reads its `textedit` signal off the very same one.
+  late final NetworkCommandSender _sender;
 
   /// Whether the device has a text field focused, so its on-screen keyboard is
   /// actually usable — and, through that, where the keyboard card sits:
@@ -182,13 +180,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     _keyboardPoll?.cancel();
     _statePoll?.cancel();
     unawaited(_keyboardSub?.cancel());
-    unawaited(_ecp2?.close() ?? Future<void>.value());
+    unawaited(_sender.close());
     super.dispose();
   }
 
   @override
   void initState() {
     super.initState();
+    _sender = ref.read(networkCommandSenderFactoryProvider)(
+      device: widget.device,
+      specYaml: widget.controls.specYaml,
+    );
     unawaited(_load());
     unawaited(_watchKeyboard());
   }
@@ -217,7 +219,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<void> _watchKeyboard() async {
     final hasKeyboard = _entities.any((e) => e.platform == 'text');
     if (!hasKeyboard || !widget.device.ssdpTargets.contains('roku:ecp')) return;
-    final session = await _openEcp2();
+    final session = await _sender.openSignedSession();
     if (session == null || !mounted) return;
     _keyboardSub = session.textEditFocusChanges.listen(_setKeyboardFocused);
     Future<void> poll() async {
@@ -333,20 +335,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// mDNS SRV port (9009); the constant is the fallback.
   int get _rabbitAirHostPort =>
       widget.device.port ?? RabbitAirControlClient.defaultPort;
-
-  /// Roku control — plain ECP and the ECP2 session alike — always lives on
-  /// 8060 (the spec's `default_port`), whatever port the SSDP LOCATION carried.
-  /// A field TV answered discovery with a 7250 root-description port, but
-  /// /keypress, /query, /launch and /ecp-session are only ever served on 8060.
-  static const _rokuEcpPort = 8060;
-
-  /// A Roku, by the `roku:ecp` target it answered at discovery — the same test
-  /// [_openEcp2] gates the signed session on, not a name guess.
-  bool get _isRoku => widget.device.ssdpTargets.contains('roku:ecp');
-
-  /// The port a control request goes to. A Roku is pinned to its ECP port; every
-  /// other device uses the port discovery captured from its LOCATION.
-  int get _controlPort => _isRoku ? _rokuEcpPort : widget.device.controlPort!;
 
   /// The identity the user key is stored under: the Thing ID, which IS the
   /// device's mDNS hostname, falling back to the host when discovery carried
@@ -746,16 +734,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       if (value != null && action.userParams.isNotEmpty) {
         values[action.userParams.first] = value;
       }
-      switch (action.transport) {
-        case 'http':
-          await _sendHttp(action, values);
-        case _kasaTransport:
-          await _sendKasa(action, values);
-        case _rabbitAirTransport:
-          await _sendRabbitAir(action, values);
-        default:
-          await _sendSoap(action, values);
-      }
+      await _sender.sendAction(
+        action,
+        values,
+        description: _description,
+        rabbitAirKey: _rabbitAirKey,
+      );
       // The reply acknowledges the request, it does not report the resulting
       // state — the Crock-Pot doesn't always take a setting. Read back
       // whatever state this screen polls; a remote of stateless buttons has
@@ -787,6 +771,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
   }
 
+  /// One plain-HTTP exchange through the sender, which owns the ECP2
+  /// session and the plain-ECP fallback alike.
+  Future<String> _sendNetworkHttp(HttpRequestDto request) =>
+      _sender.sendHttpRequest(request);
+
   /// Whether [action]'s control must sit out the current SOAP write. HTTP
   /// presses, Kasa sends and Rabbit Air sends never lock out — see
   /// [_soapSending].
@@ -796,101 +785,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       action.transport != _kasaTransport &&
       action.transport != _rabbitAirTransport &&
       _soapSending != null;
-
-  /// The plain-HTTP send: render, POST to the discovered port, done. The
-  /// method and path are the whole request, and the address is the one
-  /// discovery already established.
-  Future<void> _sendHttp(
-      NetworkActionDto action, Map<String, String> values) async {
-    final codec = ref.read(specCodecProvider);
-    final request = await codec.renderNetworkHttpCommand(
-      specYaml: widget.controls.specYaml,
-      commandName: action.commandName,
-      values: values,
-    );
-    // The port null-check in _load has already run by the time any control
-    // is tappable.
-    await _sendNetworkHttp(request);
-  }
-
-  /// Send one control request. A Roku is driven over the app's authenticated
-  /// ECP2 session — the same path the official Roku app uses — for EVERYTHING,
-  /// and falls back to plain ECP only when the session is unavailable (not a
-  /// Roku, or ECP2 could not be opened) or cannot carry this particular request
-  /// (a path with no ECP2 equivalent, or the device refuses it over the
-  /// session). Every non-Roku device has only the plain path: [_openEcp2]
-  /// returns null and this is a plain send on the discovered port.
-  Future<String> _sendNetworkHttp(HttpRequestDto request) async {
-    final session = await _openEcp2();
-    if (session != null) {
-      try {
-        return await session.send(request);
-      } on ControlRefusedException {
-        // ECP2 has no equivalent for this path, or the device refused it over
-        // the session — fall through to the plain path below.
-      } on Ecp2Exception {
-        // The session faltered; fall back to plain ECP for this request. A
-        // socket that truly died self-closes and throws fast next time, so the
-        // fallback stays cheap and the keyboard watch keeps owning the session.
-      }
-    }
-    return ref
-        .read(httpControlClientProvider)
-        .send(widget.device.host, _controlPort, request);
-  }
-
-  /// The signed session, opened once and reused. Only a Roku speaks ECP2 — the
-  /// check is the `roku:ecp` search target the device answered to at discovery,
-  /// not a name guess.
-  ///
-  /// A failure that means "no ECP2 here" — the client id refused, no challenge,
-  /// an [Ecp2Exception] — is latched as unavailable, so later refusals keep the
-  /// plain answer instead of waiting out a fresh timeout each time. A mere
-  /// transient (a socket drop, a busy TV at load) is NOT latched: it clears the
-  /// in-flight handle so the next caller re-attempts, so a hiccup while the
-  /// keyboard watch opens the session cannot poison the control fallback.
-  Future<Ecp2Session?> _openEcp2() {
-    final session = _ecp2;
-    if (session != null) return Future.value(session);
-    if (_ecp2Unavailable || !widget.device.ssdpTargets.contains('roku:ecp')) {
-      return Future.value(null);
-    }
-    return _ecp2Opening ??= ref
-        .read(ecp2ControlServiceProvider)
-        .connect(widget.device.host, _controlPort)
-        .then<Ecp2Session?>((opened) {
-      _ecp2Opening = null;
-      // Disposed while the connect was in flight: dispose() saw a null _ecp2
-      // and closed nothing, so close it here or the socket leaks.
-      if (!mounted) {
-        unawaited(opened.close());
-        return null;
-      }
-      return _ecp2 = opened;
-    }).catchError((Object e) {
-      _ecp2Opening = null;
-      if (e is Ecp2Exception) _ecp2Unavailable = true;
-      Log.net.debug('ecp2 session failed for ${widget.device.host}: $e');
-      return null;
-    });
-  }
-
-  /// The Kasa send: render the JSON command and write it to the plug over the
-  /// socket. Like the HTTP send there is no read-back and no description to
-  /// resolve; the caller re-polls `get_sysinfo` afterwards, so the switch snaps
-  /// to the plug's true state whether or not the write took.
-  Future<void> _sendKasa(
-      NetworkActionDto action, Map<String, String> values) async {
-    final codec = ref.read(specCodecProvider);
-    final request = await codec.renderNetworkKasaCommand(
-      specYaml: widget.controls.specYaml,
-      commandName: action.commandName,
-      values: values,
-    );
-    await ref
-        .read(kasaControlClientProvider)
-        .send(widget.device.host, _kasaHostPort, request);
-  }
 
   /// Toggle one outlet of a power strip: render the child-scoped command with
   /// the outlet's id threaded into `context.child_ids` (via the action's
@@ -960,77 +854,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     } finally {
       if (mounted) setState(() => _sending.remove(_kasaLightKey));
     }
-  }
-
-  /// The Rabbit Air send: sync the clock, render the envelope, encrypt it
-  /// under the user key, and send it as one UDP datagram. Like the Kasa send
-  /// there is no read-back; the caller re-polls `get_state` afterwards, so a
-  /// control snaps to the purifier's true state whether or not the write took.
-  Future<void> _sendRabbitAir(
-      NetworkActionDto action, Map<String, String> values) async {
-    final key = _rabbitAirKey;
-    if (key == null) {
-      throw const RabbitAirControlException(
-          'no user key is stored for this purifier');
-    }
-    final codec = ref.read(specCodecProvider);
-    final client = ref.read(rabbitAirControlClientProvider);
-    final host = widget.device.host;
-    await client.syncClock(host, _rabbitAirHostPort,
-        specYaml: widget.controls.specYaml, userKey: key);
-    final request = await codec.renderNetworkRabbitAirCommand(
-      specYaml: widget.controls.specYaml,
-      commandName: action.commandName,
-      values: values,
-      requestId: client.nextRequestId(),
-      deviceTs: client.deviceTs(host),
-    );
-    await client.send(host, _rabbitAirHostPort, request, userKey: key);
-  }
-
-  /// The SOAP send: read back the settings this action carries but is not
-  /// changing, render the envelope, and POST it to the control URL the
-  /// device's own description names.
-  Future<void> _sendSoap(
-      NetworkActionDto action, Map<String, String> values) async {
-    final codec = ref.read(specCodecProvider);
-    final client = ref.read(soapControlClientProvider);
-    final description = _description!;
-
-    // The spec says which settings this action carries that the user is NOT
-    // changing, and where to read them. Fetched fresh, not from the last
-    // refresh: the device's own countdown moves between refreshes, and
-    // sending a stale cook time rewinds it.
-    for (final readBack in action.readBack) {
-      final request = await codec.renderNetworkStateRequest(
-        specYaml: widget.controls.specYaml,
-        stateCommand: readBack.command,
-      );
-      final path = description.controlPathFor(request);
-      if (path == null) continue;
-      final returned =
-          await client.send(description.host, description.port, path, request);
-      final current = returned[readBack.field];
-      // An empty element (`<time/>`) is a value the device did not state,
-      // not a value of "": forwarding it renders an empty parameter the
-      // firmware may read as 0. Leave it absent so the Rust renderer fails
-      // the write instead — the same refusal a missing field gets.
-      if (current != null && current.trim().isNotEmpty) {
-        values.putIfAbsent(readBack.param, () => current);
-      }
-    }
-
-    final request = await codec.renderNetworkCommand(
-      specYaml: widget.controls.specYaml,
-      commandName: action.commandName,
-      values: values,
-    );
-    final path = description.controlPathFor(request);
-    if (path == null) {
-      throw SoapTransportException(
-          'the device does not list ${request.service}');
-    }
-    await client.send(description.host, description.port, path, request);
   }
 
   NetworkActionDto? _actionFor(NetworkEntityDto entity, String role) {
@@ -1640,9 +1463,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
     try {
       if (action.transport == 'http') {
-        await _sendHttp(action, values);
+        await _sender.sendAction(action, values);
       } else {
-        await _sendSoap(action, values);
+        await _sender.sendAction(action, values, description: _description);
       }
     } on ControlRefusedException {
       if (mounted) setState(() => _controlRefused = true);
