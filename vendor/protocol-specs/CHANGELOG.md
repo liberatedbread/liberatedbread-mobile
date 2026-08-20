@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Stateful **Power** `switch` entities on eight TV specs, landing the spec
+  half of [Spec Evolution P13](docs/contributing/spec-evolution.md#p13):
+  discrete `turn_on`/`turn_off` bindings where the hardware honestly has
+  them (`roku-ecp`, `sony-bravia`, `vizio-smartcast`, `philips-jointspace`;
+  `lg-webos` off-only; `samsung-tizen-tv` off-only, because its standby
+  network stack being down makes the one KEY_POWER toggle discrete-off in
+  practice), and the new **`toggle`** role — a command declared to *flip*
+  power, which a consumer must not send without establishing state first —
+  where a flip is all the set offers (`sony-bravia`, `vizio-smartcast`,
+  `philips-jointspace` as alternates; `hisense-vidaa` and
+  `android-tv-remote` as the only binding, each gated on its declared
+  reading). `panasonic-viera` is deliberately excluded: toggle-only,
+  reachable in network standby, and no readable state — the one set a bulk
+  off could turn on. The remote `button` entities are untouched.
+
+- `set_power_standby` on `philips-jointspace`: the `/powerstate` resource
+  written instead of read — documented under `http_endpoints` all along,
+  now invocable as a command. The non-key off for sets that ignore the
+  PowerOff key.
+
 - `commands:` blocks for seven specs whose entity role maps named no command
   — `ratgdo`, `wled-controller`, `lifx-z`, `divoom-pixoo`,
   `frigidaire-window-ac`, `frigidaire-portable-ac` and (by removal)

@@ -1022,6 +1022,23 @@ commands:
 # are declarations for an MQTT-capable consumer — the reference app cannot
 # execute any of them yet (remoteapp_common.transport_gap).
 entities:
+  # The stateful Power control (spec-evolution P13). KEY_POWER is a toggle
+  # with no discrete pair, so a consumer must establish the state before
+  # sending — the ui_service state broadcast is the reading (statetype
+  # fake_sleep_0 = standby; anything else = awake enough to be sent the key).
+  # The broker being down in standby means the toggle can in practice only
+  # turn the set off, but the state gate stays: fake_sleep_1 is a waking set,
+  # not an asleep one.
+  - platform: "switch"
+    name: "Power"
+    icon: "mdi:power"
+    commands:
+      toggle: "press_power"
+    state_topic: "/remoteapp/mobile/broadcast/ui_service/state"
+    notes: >
+      statetype fake_sleep_0 = standby (do not send); anything else the
+      broker reports = on. Power-on from standby is Wake-on-LAN — the broker
+      is down while off.
   - platform: "button"
     name: "Power"
     icon: "mdi:power"

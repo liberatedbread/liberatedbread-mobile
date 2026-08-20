@@ -79,6 +79,12 @@ single `KEY_POWER` toggle on 2016+ sets. And no network command powers a
 standby TV **on** — the network stack is down; power-on is Wake-on-LAN to
 `device.wifiMac`.
 
+That unreachability is what lets the spec's stateful **Power** `switch`
+entity bind `KEY_POWER` as `turn_off` rather than `toggle`
+([Spec Evolution P13](../contributing/spec-evolution.md#p13)): the toggle
+direction cannot be reached from the network, so from a client's seat the
+key is discrete-off in practice. No power state is readable.
+
 ## Apps
 
 - **List**: WebSocket only — `ms.channel.emit` with

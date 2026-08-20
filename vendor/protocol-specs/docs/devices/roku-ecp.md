@@ -92,6 +92,13 @@ channels, then inputs. That is every key the official Roku app's remote
 sends over ECP; `scripts/test_roku_spec.py` renders each button from the
 YAML alone and diffs the result against the documented key vocabulary.
 
+The spec also declares a stateful **Power** `switch` entity binding the
+discrete `PowerOn`/`PowerOff` keys as `turn_on`/`turn_off` roles, so a bulk
+operation can resolve power without matching key names
+([Spec Evolution P13](../contributing/spec-evolution.md#p13)). `turn_on`
+works only from the warm standby "Fast TV Start" keeps; no power state is
+readable over ECP.
+
 ## Channel launcher
 
 The `Channel` select entity joins three endpoints into a picker: options
