@@ -5,11 +5,13 @@ import 'settings_store.dart';
 /// The per-device user key a Rabbit Air purifier's LAN protocol encrypts
 /// under, remembered per device.
 ///
-/// The key is a 16-byte AES key the device generated itself, revealed to the
-/// owner through the vendor app (device page → Rename → tap the device name)
-/// as a 32-hex-character string. It is a long-lived LAN secret — the Hue
-/// whitelist username's peer — so it lives in the platform keychain via
-/// [SettingsStore], never in plain preferences, never logged.
+/// The key is a 16-byte AES key — minted by the vendor app (or this app's
+/// provisioning flow: cmd 5 type 4 takes a client-generated key, verified
+/// against hardware) and shown to the owner in the vendor app (device page →
+/// Rename → tap the device name) as a 32-hex-character string. It is a
+/// long-lived LAN secret — the Hue whitelist username's peer — so it lives
+/// in the platform keychain via [SettingsStore], never in plain preferences,
+/// never logged.
 ///
 /// Keyed by the device's stable identity — the Thing ID, which IS its mDNS
 /// hostname — and never by IP alone, because the IP is a DHCP lease. A caller
@@ -62,4 +64,19 @@ class RabbitAirKeyStore {
   /// Forget the key — e.g. after the device was factory-reset and
   /// reprovisioned, which mints a fresh one.
   Future<void> forget(String deviceId) => _store.delete(_key(deviceId));
+}
+
+/// The mDNS hostname a purifier falls back to when it has no Thing ID —
+/// hardware-verified 2026-08-15: a unit provisioned WITHOUT the vendor
+/// cloud flow (no `reserveThingName`, no certificates) reports cmd 255
+/// `data.name` as "" and announces itself as `RabbitAir-<WIFI MAC>.local`
+/// (uppercase, no separators; TXT `id=<MAC>`). The Wi-Fi MAC arrives in the
+/// same cmd 255 reply as `data.mac`, so a provisioner can pre-file the user
+/// key under the exact scope the LAN control path will look up once the
+/// unit joins. Null when [mac] is absent or not MAC-shaped.
+String? rabbitAirFallbackHostname(String? mac) {
+  if (mac == null) return null;
+  final compact = mac.trim().toUpperCase().replaceAll(':', '');
+  if (!RegExp(r'^[0-9A-F]{12}$').hasMatch(compact)) return null;
+  return 'RabbitAir-$compact.local';
 }
