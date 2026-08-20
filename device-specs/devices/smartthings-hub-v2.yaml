@@ -30,6 +30,16 @@ device:
   protocol: "wifi"
   category: "hub"
   transport: "https"
+  # identify_only: this project does NOT drive the hub. Every local endpoint it
+  # exposes (the hedge HTTPS API on 8766, the CLI logcat API on 9495, the Matter
+  # controller) is gated behind a cloud-issued Samsung OAuth bearer token, and
+  # the primary _smartthings._tcp service on 8081 refuses connections on current
+  # firmware — so there is nothing here the app can control without the cloud.
+  # We recognise the hub from its mDNS advertisement and stop there; the
+  # http_endpoints below are documented as evidence, not as a control surface
+  # this app can use. There is no local admin UI to deep-link to (the hub is
+  # managed entirely through the SmartThings cloud/app), so no admin_url.
+  integration: "identify_only"
   notes: >
     SmartThings Hub v2 advertises local SmartThings, Edge driver, and Matter
     services via mDNS. The primary identity is the _smartthings._tcp TXT
