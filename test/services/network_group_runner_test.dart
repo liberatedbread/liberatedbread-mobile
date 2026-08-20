@@ -82,7 +82,7 @@ void main() {
         senderFor: ({required device, required specYaml}) =>
             NetworkCommandSender(
           host: device.host,
-          controlPort: device.controlPort,
+          discoveredControlPort: device.controlPort,
           devicePort: device.port,
           ssdpTargets: device.ssdpTargets,
           specYaml: specYaml,
