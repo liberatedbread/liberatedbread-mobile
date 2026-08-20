@@ -449,10 +449,22 @@ source:
   decompiled: jadx (25266 classes)
   date_extracted: "2026-07-28"
 
-references:
+helpful_urls:
   # MatrixEditor/oralb-io (GPL) additionally ships a working OTA client and
   # the extracted P&G RSA public key used to verify firmware manifests.
-  - "https://github.com/MatrixEditor/oralb-io"
-  - "https://github.com/Bluetooth-Devices/oralb-ble"
-  - "https://www.home-assistant.io/integrations/oralb"
-  - "https://fw.iot-dev.alchemy.codes"
+  - title: "MatrixEditor/oralb-io"
+    url: "https://github.com/MatrixEditor/oralb-io"
+    description: >-
+      GPL client for Oral-B iO brushes. Corroborates this spec's field layout field-for-field, and
+      additionally ships a working OTA client.
+  - title: "oralb-ble"
+    url: "https://github.com/Bluetooth-Devices/oralb-ble"
+    description: >-
+      Parser library behind the Home Assistant oralb integration; the other field-for-field
+      corroboration, and the source of the FF03/FF2A characteristics app v10 does not reference.
+  - title: "Home Assistant: Oral-B integration"
+    url: "https://www.home-assistant.io/integrations/oralb"
+    description: "Where that parser runs in production."
+  - title: "Oral-B firmware host"
+    url: "https://fw.iot-dev.alchemy.codes"
+    description: "The official firmware host hardcoded in the vendor app."

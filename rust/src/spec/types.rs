@@ -1242,15 +1242,6 @@ impl LocateKind {
 }
 
 impl Command {
-    /// The fixed byte sequence of an `encoding: bytes` command, when its
-    /// `payload.bytes` is a well-formed byte list.
-    ///
-    /// Govee specs write fixed commands as `encoding: bytes` +
-    /// `payload: {bytes: [...]}` instead of the `value:` key — the same
-    /// information in a different envelope. Returns `None` for any other
-    /// encoding, for a missing/short payload, or for entries outside 0..=255,
-    /// so a malformed payload stays "unsupported" rather than sending a
-    /// truncated write.
     /// The declared locator modality, or `None` when this is not a locator.
     ///
     /// An unrecognised spelling is `None`: offering a button that writes an
@@ -1260,6 +1251,27 @@ impl Command {
         LocateKind::parse(self.locate.as_deref()?)
     }
 
+    /// The fixed byte sequence of an `encoding: bytes` command whose bytes
+    /// were filed under `payload.bytes` rather than under `value`.
+    ///
+    /// COMPATIBILITY ONLY. Two Govee specs wrote fixed commands this way.
+    /// Upstream has rewritten both to use `value`/`template` and the spec
+    /// schema now rejects the key outright, so once the next subtree refresh
+    /// lands, a spec reaching this path is one no schema validated — a
+    /// bundled spec pack, or a spec being edited. Until then the vendored
+    /// copies still take it. Either way it is not a second spelling of
+    /// `value`; do not write one.
+    ///
+    /// Reading it back is what let the misfiling go unnoticed here: the plug
+    /// worked, so nothing reported that every other consumer of the same YAML
+    /// saw a command with no bytes at all. It stays because dropping a spec
+    /// pack's commands on a rename is worse than parsing a shape we no longer
+    /// emit, not because the shape is supported.
+    ///
+    /// `None` for any other encoding, for an absent or empty list, or for
+    /// entries outside 0..=255. Note that "well-formed" is all this can
+    /// check: the bulb's entries were valid bytes and still only a prefix of
+    /// the 20-byte frame the hardware wants, and no accessor can see that.
     pub fn payload_bytes(&self) -> Option<Vec<u8>> {
         if self.encoding.as_deref() != Some("bytes") {
             return None;
@@ -1446,6 +1458,30 @@ pub enum AutoRole {
     /// An additive frame checksum: the sum of the bytes already emitted (from
     /// `checksum_start` on) mod 256, then XORed with `checksum_xor`.
     Checksum,
+    /// The same span reduced with XOR instead of addition — every Govee
+    /// 20-byte frame ends in one, over bytes 0..18 (`checksum_start: 0`).
+    ///
+    /// A distinct role rather than a flag on [`AutoRole::Checksum`] because
+    /// the two produce different bytes from the same frame, and a reader that
+    /// took an unknown modifier as "additive" would send a packet the device
+    /// silently drops. `checksum_xor` does not apply: it salts the additive
+    /// result, and no XOR frame in the catalogue carries one.
+    XorChecksum,
+    /// CRC-16/MODBUS over the same span: reflected polynomial 0xA001, init
+    /// 0xFFFF, no final xor. MODBUS-RTU framing, as Bluetti carries over GATT
+    /// (`[addr][function][payload][crc lo][crc hi]`, `checksum_start: 0`
+    /// because the address byte is covered).
+    ///
+    /// Two bytes wide, unlike the other checksum roles — the parameter
+    /// declares `type: uint16` and the ordinary numeric path emits it, so
+    /// MODBUS's low-byte-first convention falls out of the default
+    /// little-endian rather than being special-cased here.
+    ///
+    /// Named as a whole algorithm rather than assembled from width/poly/init/
+    /// reflect/xorout knobs: a spec that got one knob wrong would still
+    /// validate and still produce a plausible wrong CRC, which is the failure
+    /// mode this vocabulary exists to avoid.
+    Crc16Modbus,
 }
 
 impl std::fmt::Display for AutoRole {
@@ -1456,6 +1492,8 @@ impl std::fmt::Display for AutoRole {
             AutoRole::PacketLength => write!(f, "packet_length"),
             AutoRole::Sequence => write!(f, "sequence"),
             AutoRole::Checksum => write!(f, "checksum"),
+            AutoRole::XorChecksum => write!(f, "xor_checksum"),
+            AutoRole::Crc16Modbus => write!(f, "crc16_modbus"),
         }
     }
 }

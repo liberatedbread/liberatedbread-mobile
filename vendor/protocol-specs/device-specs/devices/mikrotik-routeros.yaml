@@ -1,0 +1,147 @@
+# MikroTik RouterOS Device (MNDP discovery, identify-only) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: MNDP reverse-engineering (Wireshark packet-mndp.c value_string,
+# authoritative for TLV types + big-endian framing) + live hardware.
+
+device:
+  name: "MikroTik RouterOS Device (router / switch / AP)"
+  manufacturer: "MikroTik (SIA Mikrotīkls)"
+  manufacturer_status: "active"
+  testing:
+    status: verified
+    detail: minimally-verified
+    notes: >
+      MNDP discovery verified live 2026-08-14: an empty 4-byte UDP datagram to
+      255.255.255.255:5678 (and the directed subnet broadcast) drew TLV replies
+      from three real RouterOS devices, decoded per the type table below —
+      "core-router" (board CCR2004-1G-12S+2XS, RouterOS 7.13), "core-switch"
+      (CRS354-48P-4S+2Q+, 7.11rc1) and "edge-switch" (CRS326-24S+2Q+, 7.9).
+      Each carried Identity (0x05), Board (0x0c), Version (0x07) and Platform
+      (0x08 = "MikroTik"), confirming both the big-endian u16 type/length
+      framing and the field mapping. This is an identify-only spec — no control
+      protocol is exercised; the app hands the user to WebFig.
+  protocol: "wifi"
+  category: "network"
+  pictogram: "router"
+  transport: "udp"
+  integration: "identify_only"
+  admin_url: "http://{address}/webfig/"
+  notes: >
+    MikroTik routers, switches and APs run RouterOS and announce themselves on
+    the local segment with MNDP (MikroTik Neighbor Discovery Protocol). This
+    project does NOT implement RouterOS control (the RouterOS API on 8728/8729,
+    WebFig, and Winbox all exist and are fully capable — it is simply out of
+    scope as home-network infrastructure). Instead we DISCOVER the device,
+    show a pictogram, and deep-link the user to its own admin UI. RouterOS also
+    emits LLDP, so a passive_l2 listener sees it too (see discovery).
+
+    MNDP: UDP port 5678. Devices broadcast unsolicited roughly every 60 s, so a
+    listener needs no probe; you can also solicit an immediate reply by sending
+    a 4-byte zero datagram to 255.255.255.255:5678 from port 5678. The payload
+    is a 4-byte header (type 0x0000 + u16 sequence) followed by TLV records
+    whose type and length are u16 BIG-endian. Known TLVs: 0x0001 MAC (6 bytes),
+    0x0005 Identity (name), 0x0007 Version, 0x0008 Platform ("MikroTik"),
+    0x000a Uptime (u32 s), 0x000b Software-ID, 0x000c Board (model), 0x000e
+    Unpack, 0x000f IPv6, 0x0010 Interface name; the device's IPv4 is taken from
+    the source IP of the UDP datagram (MNDP historically carries no IPv4 TLV).
+    Model for the pictogram comes from Board (0x0c); the display name from
+    Identity (0x05).
+
+    Admin: WebFig at http://<ip>/webfig/ (plain HTTP 80 by default, or
+    https://<ip>/ when www-ssl is enabled). The native Winbox app listens on
+    TCP 8291 (winbox://<ip>:8291).
+  identification:
+    default_port: 5678
+    identity_keys:
+      primary: "mac"
+      secondary: "identity"
+      display: "identity"
+
+  discovery:
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 5678
+          broadcast_address: "255.255.255.255"
+          probe_hex: "00000000"
+          passive_ok: true
+          response_format: "tlv"
+          identity_mapping:
+            stable_keys:
+              - source: "tlv:0x0001"
+                key: "mac"
+              - source: "tlv:0x0005"
+                key: "identity"
+            display:
+              source: "tlv:0x0005"
+      - type: "passive_l2"
+        passive_l2:
+          protocol: "lldp"
+          identity_mapping:
+            stable_keys:
+              - source: "lldp:chassis_id"
+                key: "mac"
+            display:
+              source: "lldp:system_name"
+    identity:
+      stable_keys: ["mac", "identity"]
+      display: "identity"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: high
+    notes: >
+      Nothing to set up for identification: listen on UDP 5678 (or solicit),
+      read the TLVs, show the pictogram and offer the WebFig link. Confidence
+      high: verified live against three RouterOS devices, and the TLV table is
+      the authoritative Wireshark dissector's.
+    methods:
+      - type: "wired"
+        description: "The device is already on the LAN; discovery is passive MNDP/LLDP."
+        verified: true
+        steps:
+          - action: "Listen on UDP 5678 for MNDP beacons (or send a 4-byte zero datagram to solicit)."
+            actor: client
+            expect: "TLV reply with Identity, Board and Version; source IP is the device address."
+          - action: "Offer the admin link http://<ip>/webfig/ (or winbox://<ip>:8291)."
+            actor: client
+    factory_reset:
+      applicable: false
+      confidence: high
+      effect: >
+        Not this project's concern: RouterOS reset (hold the physical reset
+        button on boot, or /system reset-configuration) is done at the device
+        and clears its own config, not anything we store. We only identify the
+        device; there is nothing on our side to reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The device stays discoverable by MNDP/LLDP wherever it is on the LAN;
+        identity keys on MAC/Identity, not IP, so a DHCP move does not lose it.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Identify-only: no credential crosses to this app. RouterOS's own admin
+        login (WebFig/Winbox/API) is entered by the user at the device's admin
+        page, which we only deep-link to.
+
+  local_access:
+    status: native
+    summary: >
+      Fully locally controllable in principle (RouterOS API 8728/8729, WebFig,
+      Winbox) — this project deliberately scopes it to identify-only and links
+      to the device's own admin UI rather than managing it.
+
+helpful_urls:
+  - url: "https://help.mikrotik.com/docs/spaces/ROS/pages/24805517/Neighbor+discovery"
+    title: "MikroTik — Neighbor discovery (MNDP)"
+    description: "Vendor docs: MNDP on UDP 5678, ~60 s beacons, CDP/LLDP interop."
+  - url: "https://github.com/boundary/wireshark/blob/master/epan/dissectors/packet-mndp.c"
+    title: "Wireshark MNDP dissector"
+    description: "Authoritative TLV type table and big-endian framing."

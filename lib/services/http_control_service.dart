@@ -66,6 +66,11 @@ class HttpControlClient {
       throw const ControlUnreachableException();
     }
     if (response.statusCode == 403 ||
+        // A firmware-gated API answers 401 until a credential rides along —
+        // the Envoy's local endpoints since firmware 7 want the entrez JWT.
+        // That is the same device-side policy 403 is ("the device will not
+        // serve you yet"), not a network failure, so it gets the same type.
+        response.statusCode == 401 ||
         // A Roku in "Limited" control mode answers some gated endpoints with
         // 400 and this body instead of 403 (observed both spellings on one
         // OS 15.2.4 fleet, against the same endpoint, minutes apart). It is
@@ -112,11 +117,13 @@ class HttpControlException implements Exception {
   String toString() => 'HttpControlException: $message';
 }
 
-/// The device understood the request and refused it (HTTP 403).
+/// The device understood the request and refused it (HTTP 403, or 401 where
+/// the gate is a missing credential rather than a disabled setting).
 ///
 /// On the devices this transport exists for, that is a settings toggle, not
 /// a fault: since Roku OS 14.1 command endpoints answer 403 until
-/// "Control by mobile apps" is enabled on the device itself. The message
+/// "Control by mobile apps" is enabled on the device itself, and the Envoy's
+/// firmware-7+ endpoints want a token this app does not hold. The message
 /// stays device-agnostic — the spec documents the exact menu path.
 class ControlRefusedException implements UserFacingException {
   const ControlRefusedException();

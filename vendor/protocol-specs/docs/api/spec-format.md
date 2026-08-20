@@ -48,6 +48,16 @@ Everything else is optional, and the schema is deliberately
 permissive — unknown keys are allowed so device-specific detail can travel
 alongside the standard fields. Consumers parse the subset they understand.
 
+Permissiveness has two deliberate exceptions, both places where an unknown key
+is not bespoke detail but a standard field spelled wrong, and where nothing
+downstream can tell the difference:
+
+- a top-level `references:` is rejected — reference links go in `helpful_urls`
+  (see below);
+- a command's `payload:` accepts only `key` and `value_type` — a raw byte
+  sequence is `value` (fixed) or `template` (parameterized), never
+  `payload.bytes`.
+
 ### Further reading and watch links
 
 Use top-level `helpful_urls` and `helpful_videos` for human-oriented reference
@@ -73,6 +83,11 @@ link matters. URLs must be HTTP or HTTPS. Do not invent links, and verify that
 they resolve before adding them. A dead or wrong reference is worse than an
 absent one. Videos are not YouTube-only; PeerTube, Vimeo, Invidious and direct
 video files are valid when they resolve and are relevant.
+
+The field is `helpful_urls`, not `references`. A top-level `references:` is
+rejected by the schema rather than ignored: it reads like a spec field, it is
+not one, and a spec that used it kept its links in the file and out of every
+generated artifact with nothing to say so.
 
 ### Three things that sound alike
 
@@ -662,6 +677,61 @@ paths resolve *inside that child's object*, `label_path` names it for the
 human, and the id fills the `instance:` placeholder of every command the
 entity binds. `device-specs/devices/hue-bridge.yaml` is the worked example.
 
+### One spec, several models
+
+A spec usually covers a family, not a single unit, and the family is rarely
+uniform. Two keys keep that from turning into controls that never work, and
+both are machine-readable on purpose — a caveat in `notes` is read by people,
+and the client drawing the dead tile is not a person.
+
+**`device.variants` + `entities[].variants`** — when a model *lacks the
+hardware*. The Kasa plugs all speak the same port-9999 protocol, but only the
+HS110 and KP115 have an energy meter; on an HS100 `get_emeter` answers with an
+error, so four unscoped sensors are four tiles that are permanently
+unavailable. The device block lists the models with something a client can
+match on, and the entity names the ones that have it:
+
+```yaml
+device:
+  variants:
+    - model: "HS100"
+      identification: { model_prefix: "HS100" }   # get_sysinfo `model` is "HS100(US)"
+    - model: "HS110"
+      identification: { model_prefix: "HS110" }
+entities:
+  - platform: "sensor"
+    name: "Power"
+    variants: ["HS110", "KP115"]                  # drop me on the others
+```
+
+`model_prefix` is matched as a prefix because vendors suffix region and
+hardware-revision codes onto an otherwise stable model name. Where the device
+reports its own capabilities, prefer that at runtime — Kasa's `get_sysinfo`
+answers a `feature` list, and `"ENE"` in it means *this unit* has the meter, a
+statement that stays true when a new model ships and a hand-written table does
+not.
+
+**`state_mapping.<role>_fallback`** — when a revision *renames* a field.
+HS110 hardware v1 reports the same four readings as `voltage_mv`,
+`current_ma`, `power_mw`, `total_wh`, in milli-units. Telling a consumer in
+prose to "divide by 1000" does not help: the key the primary path names is
+simply absent from that reply, so a dotted-path reader renders nothing.
+
+```yaml
+    state_mapping:
+      value: "emeter.get_realtime.voltage"
+      value_fallback:
+        path: "emeter.get_realtime.voltage_mv"    # hw v1 spelling
+        scale: 0.001                              # → the entity's `unit`
+```
+
+Read the primary first; fall back only when that key is absent. Note this is
+*not* a variant split: two entities, one per spelling, would make a consumer
+that ignores `variants` draw the tile twice, whereas a consumer that ignores
+`value_fallback` keeps working on current firmware and loses only the old
+hardware. Both paths must name fields the bound command declares in `returns`,
+so the legacy field family belongs in the spec too, not only in a sentence.
+
 `example_body`, and the `example` on an `http_endpoints` request or response,
 do for control what test vectors do for crypto: they turn "the device rejects
 this and I cannot tell which half is wrong" into a diff.
@@ -677,8 +747,9 @@ pip install -r requirements.txt
 python scripts/validate_specs.py     # PASS/FAIL per file, with the failing JSON path
 ```
 
-CI runs this on every push, regenerates `device-specs/index.json` and fails if
-it is stale, and re-validates every published spec before building the docs.
+CI runs this on every push and re-validates every published spec before building
+the docs. `device-specs/index.json` is rebuilt and committed by CI on main —
+never carry it in a branch.
 
 ## Writing one
 

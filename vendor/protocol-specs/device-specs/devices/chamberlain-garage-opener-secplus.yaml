@@ -1,0 +1,175 @@
+# Chamberlain/LiftMaster Garage Opener — Security+ wired (bridge hardware)
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: argilo/secplus (Security+ 1.0/2.0 reverse-engineering, the canonical
+# public work) and the ratgdo/esphome-ratgdo firmware (applied wired-protocol
+# reference: UART parameters + wall-panel emulation). This is a
+# bridge_hardware spec: the opener's own protocol is only reachable through an
+# aftermarket board wired to its wall-control terminals.
+
+device:
+  name: "Chamberlain/LiftMaster Garage Opener (Security+ wired, via bridge)"
+  manufacturer: "The Chamberlain Group (Chamberlain / LiftMaster / Craftsman)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "uart"
+  category: "other"
+  pictogram: "garage-door"
+  type: "garage-door-opener"
+  integration: "supported"
+  notes: >
+    Chamberlain's MyQ CLOUD product has no local control (see the
+    research-notes/myq-cloud-hub dud: the MyQ Wi-Fi hub is outbound-cloud-only,
+    verified 2026-08-14 with all local ports closed). The garage OPENER itself,
+    however, is locally controllable — not over the network, but by wiring an
+    aftermarket bridge board (ratgdo, GPL-2.0; or Konnected blaQ) to the
+    opener's low-voltage wall-control terminals. The board impersonates a
+    wall-console and speaks the opener's native Security+ wire protocol,
+    exposing local control + full door status over ESPHome / MQTT with no
+    cloud and no MyQ. This spec documents that wired protocol; the transport
+    is UART because that is what the bridge speaks to the opener. The bridge's
+    NETWORK-facing API (what a phone app actually talks to) is documented
+    separately in ratgdo.yaml.
+
+    GENERATION GATE (identify by the learn-button color before committing):
+    - Security+ 1.0 (purple / orange / red learn button): wired UART
+      1200 baud, 8E1. ~32-bit rolling + ~32-bit fixed code as 40 ternary
+      symbols; counter increments by 3 per press. Bridgeable but "experimental"
+      in ratgdo, limited status.
+    - Security+ 2.0 (yellow learn button): wired UART 9600 baud, 8N1, 19-byte
+      packets. 40-bit fixed + 28-bit rolling (+ optional 32-bit supplemental),
+      counter +1 per press. The rolling code is obfuscated (bit-reverse ->
+      base-3 -> 2-bit remap + permutation) — the "obfuscated serial signal"
+      that defeats a plain relay. Best target: mature firmware, bidirectional
+      status (door position, obstruction, light, motion, lockout). The bridge
+      persists the rolling-code counter across reboots to stay in sync.
+    - Security+ 3.0 (WHITE learn button, Nov 2025+): NOT locally controllable
+      by anyone. Accessory comms moved to encrypted BLE; the wall-button wires
+      carry power only, no data to tap. Uncracked. Out of scope — flag and
+      stop.
+
+    LEARN/PAIR: press the opener's learn button, then the bridge (emulating a
+    wall panel) is recorded with its fixed code + current rolling counter as
+    the seed; the opener then tracks the expected next codes.
+
+    SAFETY: this actuates a heavy motorised door. Control is a single toggle
+    that opens or closes; a bridge with door-position status should gate
+    commands on the current state. The Security+ rolling code is the opener's
+    only auth — anyone who can pair a panel can drive the door, which is why
+    the learn-button press (physical access) is the pairing gate.
+  # Not network-discoverable. The bridge board (ratgdo) is what appears on the
+  # LAN, as an ESPHome/MQTT device, not the opener; identify the OPENER
+  # physically by learn-button color to pick the Security+ generation. No
+  # `identification` block: there is no pre-connect signal of our own to match.
+
+  setup:
+    required: true
+    confidence: medium
+    notes: >
+      Requires aftermarket hardware: a ratgdo or Konnected board wired to the
+      opener's wall-control terminals (Ground, Control/data, Obstruction — on
+      LiftMaster/Chamberlain Sec+ 2.0 the red/white/common terminals). The
+      board runs in parallel with the existing wall button. After wiring, pair
+      by pressing the opener's learn button. Confidence medium: the wired UART
+      parameters and wall-panel emulation are proven by ratgdo/Konnected
+      firmware in the field, but this project has not driven hardware.
+    methods:
+      - type: "wired"
+        verified: false
+        description: >
+          Install a Security+ bridge board (ratgdo/Konnected) on the opener's
+          wall-control terminals; it exposes local control over ESPHome/MQTT.
+        steps:
+          - action: "Identify the opener's Security+ generation by learn-button color (purple/orange/red = 1.0, yellow = 2.0, white = 3.0 unsupported)."
+            actor: user
+          - action: "Wire the bridge board to Ground / Control / Obstruction terminals (parallel to the wall console)."
+            actor: user
+          - action: "Press the opener's learn button to pair the emulated wall panel; the board seeds its rolling-code counter."
+            actor: user
+            expect: "The board reports door status and can open/close; the physical wall button keeps working."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Clearing remotes is done at the opener (hold the learn button ~6 s to
+        wipe all paired remotes/panels), which also de-pairs the bridge — re-pair
+        afterward. Not a network operation.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "The bridge board joins the home Wi-Fi like any ESPHome device; the opener pairing is independent of the network."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Security+ rolling-code counter (persisted on the bridge board)"
+      issued_to_client: []
+      notes: >
+        No network credential crosses to the opener; the Security+ rolling code
+        is the only authentication and it is seeded by the physical
+        learn-button press.
+
+  local_access:
+    status: bridge_hardware
+    summary: >
+      No local interface on the stock opener/MyQ hub; local control requires an
+      aftermarket wired bridge (ratgdo/Konnected) speaking Security+ 1.0/2.0.
+      Blocked on Security+ 3.0 (encrypted BLE, uncracked).
+    covers:
+      - "Open/close/stop the door"
+      - "Door position, obstruction, light and motion status (Security+ 2.0)"
+
+bus:
+  link:
+    type: "uart"
+    baud: 9600
+    framing: "8N1"
+    logic_level: "TTL"
+    verification: "reported"
+    wiring:
+      - signal: "opener wall-control data line (Security+ 2.0)"
+        connector: "opener low-voltage terminals (LiftMaster/Chamberlain red / white / common)"
+        notes: >
+          Reached through a ratgdo/Konnected bridge board wired in parallel
+          with the wall console: Ground, Control (data) and Obstruction. The
+          board's ESP UART drives the line.
+        verification: "reported"
+  style: "request_response"
+  notes: >
+    Two physical generations. Security+ 2.0 (yellow learn button) is the
+    documented link above: 9600 baud 8N1, 19-byte packets, the board
+    authenticates as a wall panel and gets bidirectional status. Security+ 1.0
+    (purple/orange/red) instead runs 1200 baud 8E1 with simpler byte commands
+    and limited status. The rolling-code codec (Sec+ 2.0: 40-bit fixed +
+    28-bit rolling, obfuscated by bit-reverse -> base-3 -> 2-bit remap +
+    permutation; counter +1/press) is fully implemented in argilo/secplus and
+    ratgdo — this spec points at those rather than restating the bit math.
+    Security+ 3.0 (white learn button) is not on the wire at all (encrypted
+    BLE) and cannot be bridged.
+  messages:
+    - name: "door_command (toggle)"
+      direction: "to_device"
+      verification: "reported"
+      notes: >
+        Emulated wall-panel button press: opens a closed door / closes an open
+        one (single-button toggle). Carried in the Security+ packet with the
+        current rolling code; the bridge increments and persists the counter.
+    - name: "status_report"
+      direction: "from_device"
+      verification: "reported"
+      notes: >
+        Security+ 2.0 only: door position (open/closed/opening/closing/stopped),
+        obstruction-sensor state, light state, motion and lockout. Security+ 1.0
+        status is limited.
+
+helpful_urls:
+  - url: "https://github.com/argilo/secplus"
+    title: "argilo/secplus"
+    description: "Canonical reverse-engineering of Security+ 1.0 and 2.0 (rolling/fixed code structure, obfuscation, encodings)."
+  - url: "https://github.com/ratgdo/esphome-ratgdo"
+    title: "ratgdo/esphome-ratgdo"
+    description: "Applied wired-protocol reference: wall-panel emulation, UART parameters (Sec+ 1.0 1200/8E1, Sec+ 2.0 9600/8N1 19-byte packets), rolling-code persistence, local ESPHome/MQTT."
+  - url: "https://konnected.io/products/smart-garage-door-opener-blaq-myq-alternative"
+    title: "Konnected GDO blaQ"
+    description: "Commercial Security+ bridge board; local HA/Hubitat/HomeKit, no cloud."

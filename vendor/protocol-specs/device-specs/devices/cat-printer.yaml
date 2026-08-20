@@ -249,12 +249,28 @@ entities:
     name: "Print Feed"
     state_characteristic: "0000ae02-0000-1000-8000-00805f9b34fb"
 
-references:
-  - "https://github.com/NaitLee/Cat-Printer"
-  - "https://github.com/rbaron/catprinter"
-  - "https://github.com/lisp3r/bluetooth-thermal-printer"
-  - "https://github.com/WerWolv/PythonCatPrinter"
-  - "https://werwolv.net/blog/cat_printer"
+helpful_urls:
+  - title: "NaitLee/Cat-Printer"
+    url: "https://github.com/NaitLee/Cat-Printer"
+    description: >-
+      Production-quality Python tool with its own model registry; the primary implementation this
+      spec's command set was checked against.
+  - title: "rbaron/catprinter"
+    url: "https://github.com/rbaron/catprinter"
+    description: >-
+      Second independent Python implementation. Source of the chunking behaviour for payloads over
+      48 bytes and of the alternate 0xAE30 characteristic seen on Apple platforms.
+  - title: "lisp3r/bluetooth-thermal-printer"
+    url: "https://github.com/lisp3r/bluetooth-thermal-printer"
+    description: >-
+      GT01 captures and a service dump; the corroborating source for the second BLE service this
+      spec records.
+  - title: "WerWolv/PythonCatPrinter"
+    url: "https://github.com/WerWolv/PythonCatPrinter"
+    description: "Another independent Python client for the same printer family."
+  - title: "WerWolv: cat printer write-up"
+    url: "https://werwolv.net/blog/cat_printer"
+    description: "Blog account of the reverse engineering behind that client."
 
 # Newer MXW01 model (outside this registry — no protocol section here):
 # a newer "cat printer" hardware revision with its own RE efforts —
