@@ -48,6 +48,17 @@ device:
       guaranteed to a new client. The claim survived un-pairing from its phone
       (UDSK stayed non-zero), and the check-2 connection-refusal state reproduced
       after three quick sessions.
+
+      Later the same day this unit was accidentally factory reset by button
+      holds during a flat-battery recovery, which turned it into an unclaimed
+      fw-394 test bed: the reset defaults matched the fw-367 record (target
+      5a16, LED ffffffff, date-time zeroed, UDSK all zeros, identity intact)
+      except the unit byte, which came out 01 Fahrenheit rather than 00
+      Celsius, and an unclaimed write was refused with ATT 0x03 exactly as
+      documented. Battery exhaustion behaviour: holding 60 C off the coaster
+      from 52% drained to radio-dead in under an hour, and the radio stayed
+      down through 60+ minutes back on the coaster until a button press
+      powered the mug back up.
   protocol: "ble"
   category: "appliance"
   notes: >
@@ -101,7 +112,14 @@ device:
     zero bytes, and reset the target to 5a16 (57.22 C, exactly 135.0 F), the unit
     to Celsius, the date-time zone byte to 00 and the LED to ffffffff. Firmware,
     hardware, serial, address and the DSK all read back byte identical, so the
-    reset restores settings and does not touch identity.
+    reset restores settings and does not touch identity. HARDWARE 2026-08-19,
+    the same reset on the fw-394 unit (triggered accidentally by button holds
+    during a flat-battery recovery): claim to twenty zero bytes, target to
+    5a16, date-time to zeros, LED to ffffffff, identity intact — all matching —
+    but the unit byte came out 01 Fahrenheit where it had read 00 Celsius
+    before the reset. So the post-reset unit default is NOT universally
+    Celsius; it may be firmware-dependent or region-dependent. Do not use the
+    unit byte to detect a reset — use the UDSK.
 
     An unclaimed mug refuses every write with ATT 0x03. Target, LED and mug name
     were each refused after the reset, having each been written successfully an
@@ -271,21 +289,33 @@ device:
               the DSK/UDSK semantics as partially understood; keep the value
               you wrote, since it is the client's claim on the mug.
     factory_reset:
-      confidence: "medium"
-      effect: "Clears the stored claim and returns the mug to pairing mode; temperature history and target are lost."
+      confidence: "high"
+      effect: >
+        Clears the claim (UDSK to twenty zero bytes) and the settings: target
+        to 5a16 (57.22 C / 135.0 F), date-time to zeros, LED to ffffffff. The
+        post-reset unit byte differed between units (00 Celsius on the fw-367
+        unit, 01 Fahrenheit on the fw-394 unit), so detect a reset by the
+        UDSK, not the unit. Firmware, hardware, serial, address and DSK
+        survive. Writes are then refused with ATT 0x03 until the mug is
+        re-claimed through the Ember app.
       procedures:
         - name: "Base button held"
-          hold_seconds: 12
-          indicator: "LED blinks red, then the mug re-enters pairing mode."
+          hold_seconds: 15
+          indicator: "LED goes blue, then yellow, then red; release at red. It then blinks red, blinks yellow, pulses white, goes solid white and powers off; one press brings it back."
           steps:
-            - action: "Press and hold the power button on the base of the mug for about 12 seconds, until the LED blinks red."
+            - action: "Press and hold the power button on the base of the mug for about 15 seconds, through blue and yellow, and release at red."
               actor: "user"
               notes: >
-                App-confirmed, not hardware-tested: Ember app 4.5.9
-                troubleshooting copy (libapp.so AOT strings, English plus a
-                matching Dutch translation) tells users to hold the base
-                power button about 12 seconds until the LED blinks red.
-                Watch the LED rather than the clock.
+                HARDWARE (fw-367 unit, 2026-08-16): the Ember app 4.5.9
+                troubleshooting copy says 12 seconds and 'blinks red', but the
+                bench and Ember's support page agree on ~15 seconds and the
+                blue/yellow/red ladder — red is the LAST of three colours, so
+                watch the LED rather than the clock, and release the instant
+                it turns red. Shorter holds (release on the first colour
+                change) are the harmless connection-refusal recovery; holding
+                to red is the reset — a fw-394 unit was reset exactly this way
+                by accident on 2026-08-19, and its cleared state matched this
+                block.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
