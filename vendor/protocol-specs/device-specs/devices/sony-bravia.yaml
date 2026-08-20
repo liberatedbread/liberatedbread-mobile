@@ -1135,6 +1135,27 @@ commands:
 # inputs. Buttons bind the IRCC commands; the two sensors and the select
 # bind the REST surface and carry the transport gap in their notes.
 entities:
+  # The stateful Power control (spec-evolution P13). Commands go over IRCC
+  # SOAP, which the reference app can send today; the state read is the same
+  # getPowerStatus RPC as the Power Status sensor below and shares its
+  # transport gap (JSON body POST + auth header). result[0].status is
+  # 'active' when on — and a 'not power-on' error on any other call is a
+  # verified standby signal, not a failure (rest.description).
+  - platform: "switch"
+    name: "Power"
+    icon: "mdi:power"
+    commands:
+      turn_on: "press_power_on"
+      turn_off: "press_power_off"
+      toggle: "press_power"
+    state_endpoint: "/sony/system"
+    state_command: "getPowerStatus"
+    state_path: "result[0].status"
+    notes: >
+      Discrete on/off are consumer-set IRCC codes; the toggle is the one key
+      every set carries. Prefer turn_off for a bulk send — the toggle needs
+      the state read first, and a set with network standby off simply won't
+      answer it.
   - platform: "button"
     name: "Power"
     icon: "mdi:power"

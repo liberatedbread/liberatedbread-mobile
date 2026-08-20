@@ -495,6 +495,13 @@ rather than invent its own.
 
 ### P13 — Power as a stateful control, and the toggle problem { #p13 }
 
+**Status: spec half landed.** Eight TV specs carry the Power `switch`
+(Panasonic excluded, as proposed), Philips gained `set_power_standby`, and
+the `toggle` role is documented in the spec-format guide. The consumer half —
+a `toggle` role in the mobile app's role tables and the
+read-state-then-toggle rule — is in flight downstream. The rest of this
+section is written as it was proposed.
+
 **Problem.** A consumer cannot turn a TV off from these specs without guessing.
 All nine `category: tv` specs express power as a stateless `button`, and the
 schema *enforces* that shape: the button contract in

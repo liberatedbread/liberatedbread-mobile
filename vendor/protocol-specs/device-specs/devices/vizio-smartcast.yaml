@@ -960,6 +960,23 @@ commands:
 # JSON body, and the AUTH header. Order mirrors a Vizio remote: power, then
 # SmartCast/navigation, D-pad, transport, volume, channel, inputs.
 entities:
+  # The stateful Power control (spec-evolution P13): the discrete codeset-11
+  # keys bound as roles, with the toggle beside them for consumers that have
+  # read the state first. State is the same authenticated power_mode reading
+  # as the Power Mode sensor below.
+  - platform: "switch"
+    name: "Power"
+    icon: "mdi:power"
+    commands:
+      turn_on: "press_power_on"
+      turn_off: "press_power_off"
+      toggle: "press_power_toggle"
+    state_topic: "/state/device/power_mode"
+    notes: >
+      ITEMS[0].VALUE: 1 = on, 0 = standby. Authenticated, and unreachable
+      rather than wrong while the set is fully asleep (smartcast_common.power)
+      — read unreachable as not-confirmed-on, never as a reason to skip the
+      discrete off. turn_on is reliable only from a warm power mode.
   - platform: "button"
     name: "Power"
     icon: "mdi:power"

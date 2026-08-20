@@ -10,6 +10,7 @@ import '../services/http_control_service.dart';
 import '../services/kasa_control_service.dart';
 import '../services/lifx_control_service.dart';
 import '../services/rabbit_air_ble_client.dart';
+import '../services/network_command_sender.dart';
 import '../services/rabbit_air_control_service.dart';
 import '../services/rabbit_air_key_store.dart';
 import '../services/rabbit_air_provision_service.dart';
@@ -157,6 +158,38 @@ final rabbitAirProvisionServiceProvider =
   );
 });
 
+/// Builds one [NetworkCommandSender] per device, wired to the same transport
+/// providers the tests already substitute.
+///
+/// A factory rather than a family because the sender is stateful (it owns
+/// the ECP2 session) and its lifecycle belongs to the caller: the device
+/// screen closes its sender in dispose, and a group run closes each member's
+/// as the member finishes. A family-cached instance would share one signed
+/// session between surfaces that outlive each other, and nobody would know
+/// who closes it.
+typedef NetworkCommandSenderFactory = NetworkCommandSender Function({
+  required NetworkDevice device,
+  required String specYaml,
+});
+
+final networkCommandSenderFactoryProvider =
+    Provider<NetworkCommandSenderFactory>((ref) {
+  return ({required NetworkDevice device, required String specYaml}) =>
+      NetworkCommandSender(
+        host: device.host,
+        discoveredControlPort: device.controlPort,
+        devicePort: device.port,
+        ssdpTargets: device.ssdpTargets,
+        specYaml: specYaml,
+        codec: ref.read(specCodecProvider),
+        http: ref.read(httpControlClientProvider),
+        soap: ref.read(soapControlClientProvider),
+        kasa: ref.read(kasaControlClientProvider),
+        rabbitAir: ref.read(rabbitAirControlClientProvider),
+        ecp2: ref.read(ecp2ControlServiceProvider),
+      );
+});
+
 /// Identity of one network device the control layer is asked about.
 ///
 /// Value-equal so the family caches per device: `specKey` names the matched
@@ -198,16 +231,10 @@ class NetworkControls {
   const NetworkControls({required this.specYaml, required this.entities});
 
   /// Whether these controls describe a hub — a device fronting children that
-  /// must be paired with and enumerated over HTTP (a Hue bridge). This routes
-  /// the tap: Roku is `http` too but has no instanced children and no pairing,
-  /// so it keeps the ordinary control screen; only a hub gets the paired one.
-  ///
-  /// A Kasa power strip is ALSO instanced (its outlets), but is driven over the
-  /// raw tcp-json socket with no pairing, so it stays on the ordinary control
-  /// screen, which enumerates its outlets there. So a hub is an instanced
-  /// entity whose control is NOT tcp-json.
-  bool get isHub => entities.any(
-      (e) => e.isInstanced && !e.actions.any((a) => a.transport == 'tcp-json'));
+  /// must be paired with and enumerated. This is what routes the tap: Roku is
+  /// `http` too but has no instanced children and no pairing, so it keeps the
+  /// ordinary control screen; only a hub gets the paired one.
+  bool get isHub => entities.any((e) => e.isInstanced);
 }
 
 /// Resolve what the catalogue lets us control on one network device.

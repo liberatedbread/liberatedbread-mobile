@@ -346,6 +346,164 @@ List<GroupRead> resolveSensorReads({
   return reads;
 }
 
+/// One direct network write a group op resolved: send [action] on [entity]
+/// with [values] — no state read required first (a discrete on/off, or a
+/// valued brightness).
+class GroupNetworkSend {
+  final NetworkEntityDto entity;
+  final NetworkActionDto action;
+  final Map<String, String> values;
+
+  const GroupNetworkSend({
+    required this.entity,
+    required this.action,
+    required this.values,
+  });
+}
+
+/// One toggle a group turn-off may send ONLY after establishing the entity
+/// is on: the toggle contract. [entity] names the state command to read and
+/// decode; the runner sends [action] when the reading answers `isOn == true`,
+/// skips when it answers false, and skips when the read fails or answers
+/// nothing — unknown blocks the toggle, and nothing else.
+class GroupNetworkGatedToggle {
+  final NetworkEntityDto entity;
+  final NetworkActionDto action;
+
+  const GroupNetworkGatedToggle({required this.entity, required this.action});
+}
+
+/// What one network member does for one command op: the direct sends, plus
+/// the state-gated toggles a turn-off may add. Both empty means the member
+/// cannot take part (report it skipped, never silently dropped).
+class GroupNetworkPlan {
+  final List<GroupNetworkSend> direct;
+  final List<GroupNetworkGatedToggle> gated;
+
+  const GroupNetworkPlan({this.direct = const [], this.gated = const []});
+
+  bool get isEmpty => direct.isEmpty && gated.isEmpty;
+}
+
+/// Transports the group path can actually drive headlessly today. `udp`
+/// (Rabbit Air) is deliberately absent: its every exchange needs the stored
+/// per-device key, and a bulk operation silently reaching for stored
+/// credentials is a surprise; it can join when someone asks for it. An
+/// action on any other transport (a LIFX handler's `lifx`, an LG WebSocket)
+/// resolves nothing here and the member reports an honest skip.
+const Set<String> kGroupSendableTransports = {'http', 'soap', 'tcp-json'};
+
+bool _groupSendable(NetworkActionDto action) =>
+    kGroupSendableTransports.contains(action.transport) &&
+    // Actions parameterized by pairing credentials or hub-child ids need
+    // context a bulk send does not carry — the same visible-failure rule
+    // the renderer applies, applied before the send exists.
+    action.credentials.isEmpty &&
+    action.instanceParams.isEmpty;
+
+/// The control entities a network group op may bind — switch and light
+/// platforms, exactly the BLE rule. ONE definition consumed by both
+/// [supportedNetworkGroupOps] and [resolveNetworkGroupPlan], for the same
+/// no-drift reason as [_controlActions].
+Iterable<NetworkEntityDto> _networkControlEntities(
+  List<NetworkEntityDto> entities,
+) =>
+    entities.where((e) => e.platform == 'light' || e.platform == 'switch');
+
+NetworkActionDto? _networkAction(NetworkEntityDto entity, String role) {
+  for (final action in entity.actions) {
+    if (action.role == role && _groupSendable(action)) return action;
+  }
+  return null;
+}
+
+/// Whether [entity] declares a power state a gated toggle can read: a
+/// non-empty state command, over a transport the group state-read path
+/// speaks (SOAP and plain HTTP — the two the description-based read serves).
+bool _hasReadableState(NetworkEntityDto entity) =>
+    entity.stateCommand.isNotEmpty &&
+    (entity.transport == null ||
+        entity.transport == 'http' ||
+        entity.transport == 'soap');
+
+/// Which group operations these network [entities] support at all — the
+/// network sibling of [supportedGroupOps], feeding the same buttons and the
+/// same skip logic.
+Set<GroupOp> supportedNetworkGroupOps(List<NetworkEntityDto> entities) {
+  final ops = <GroupOp>{};
+  for (final entity in _networkControlEntities(entities)) {
+    if (_networkAction(entity, 'turn_on') != null) ops.add(GroupOp.turnOn);
+    if (_networkAction(entity, 'turn_off') != null ||
+        (_networkAction(entity, 'toggle') != null &&
+            _hasReadableState(entity))) {
+      ops.add(GroupOp.turnOff);
+    }
+    if (entity.platform == 'light' &&
+        _networkAction(entity, 'set_brightness') != null) {
+      ops.add(GroupOp.setBrightness);
+    }
+  }
+  return ops;
+}
+
+/// Resolve what one member sends for a command op, role-first with no GATT
+/// admission step — there is no discovered service tree on this side; the
+/// admission is that the action resolved as sendable at all.
+///
+/// The turn-off policy, in full: a discrete `turn_off` is sent outright; a
+/// `toggle` is added ONLY when the entity also declares a readable power
+/// state, and the runner sends it only on a reading that says "on" — a
+/// failed or empty read blocks the toggle and nothing else. An entity with
+/// only a toggle and no state resolves nothing, which is the honest answer
+/// for a device that cannot be turned off without risking turning it on.
+GroupNetworkPlan resolveNetworkGroupPlan({
+  required GroupOp op,
+  required List<NetworkEntityDto> entities,
+  double? brightnessPercent,
+}) {
+  assert(op.isCommand, 'read ops have no network resolution yet');
+  final direct = <GroupNetworkSend>[];
+  final gated = <GroupNetworkGatedToggle>[];
+  for (final entity in _networkControlEntities(entities)) {
+    switch (op) {
+      case GroupOp.turnOn:
+        final action = _networkAction(entity, 'turn_on');
+        if (action != null) {
+          direct.add(GroupNetworkSend(
+              entity: entity, action: action, values: const {}));
+        }
+      case GroupOp.turnOff:
+        final off = _networkAction(entity, 'turn_off');
+        if (off != null) {
+          direct.add(
+              GroupNetworkSend(entity: entity, action: off, values: const {}));
+          break;
+        }
+        final toggle = _networkAction(entity, 'toggle');
+        if (toggle != null && _hasReadableState(entity)) {
+          gated.add(GroupNetworkGatedToggle(entity: entity, action: toggle));
+        }
+      case GroupOp.setBrightness:
+        if (entity.platform != 'light') break;
+        final action = _networkAction(entity, 'set_brightness');
+        if (action != null && action.userParams.isNotEmpty) {
+          final percent = (brightnessPercent ?? 100).clamp(0.0, 100.0);
+          final min = action.min ?? 0;
+          final max = action.max ?? 100;
+          final value = (min + (max - min) * percent / 100).round();
+          direct.add(GroupNetworkSend(
+            entity: entity,
+            action: action,
+            values: {action.userParams.first: '$value'},
+          ));
+        }
+      case GroupOp.readBattery || GroupOp.readSensors:
+        break;
+    }
+  }
+  return GroupNetworkPlan(direct: direct, gated: gated);
+}
+
 /// The discovered service owning [charUuid] with read permission, or null.
 ///
 /// "Owning" is decided by the SPEC, not by discovery order: characteristic

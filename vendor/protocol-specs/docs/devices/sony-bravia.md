@@ -147,6 +147,13 @@ inputs), each bound to one IRCC `soap` command. Three `sensor` entities
 transport gap in their notes and become live once the app can send JSON
 bodies with auth headers.
 
+A stateful **Power** `switch` entity binds `turn_on`/`turn_off` to the
+discrete IRCC codes and `toggle` to the one key every set carries, with the
+`getPowerStatus` read as its state
+([Spec Evolution P13](../contributing/spec-evolution.md#p13)) — the standby
+error string `not power-on` on any other call is that reading saying
+"standby", not a failure.
+
 Machine-readable spec: `device-specs/devices/sony-bravia.yaml`
 
 ## References

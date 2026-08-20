@@ -143,6 +143,13 @@ unreachable, not answerable. Wake needs a Wake-on-LAN magic packet, which
 does not work in *Settings > System > Power Mode > Eco Mode*; Quickstart
 mode keeps the network warm enough.
 
+The spec's stateful **Power** `switch` entity binds the discrete codeset-11
+keys as `turn_on`/`turn_off`, the toggle alongside, and the `power_mode`
+reading as its state
+([Spec Evolution P13](../contributing/spec-evolution.md#p13)). An
+unreachable state read means not-confirmed-on — never a reason to skip the
+discrete off.
+
 ## Initial Setup
 
 | Property | Value |
