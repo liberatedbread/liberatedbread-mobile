@@ -631,6 +631,186 @@ void main() {
     });
   });
 
+  // ── Which port control talks to ─────────────────────────────────────────
+  //
+  // A real Roku is heard on BOTH transports, and the mDNS half advertises
+  // services that have nothing to do with control: Television Boat (TCL
+  // 50S525, Roku OS 15.2.4) publishes `_airplay._tcp` on 7000,
+  // `_display._tcp` on 7250 and `_hap._tcp` on 44003 while ECP listens on
+  // the SSDP LOCATION port, 8060. `NetworkDevice.mergedWith` deliberately
+  // prefers the mDNS SRV port for `port`, so a merged row's `port` is
+  // whichever of those resolved first — and every one of them is wrong for
+  // control.
+  //
+  // This is not a failure that announces itself. The AirPlay port answers a
+  // keypress with 403, which is byte-identical to the device-side "Control
+  // by mobile apps" gate, so the screen showed the settings note and the
+  // buttons did nothing — on a TV whose ECP was answering fine the whole
+  // time. Every path here must address `controlPort`, never `port`.
+  group('control port', () {
+    /// A Roku as discovery really hands it over: an mDNS service port in
+    /// `port`, the ECP endpoint in `ssdpPort`.
+    final dualPortRoku = NetworkDevice(
+      host: '10.0.0.9',
+      name: '',
+      port: 7250,
+      ssdpPort: 8060,
+      ssdpTargets: const ['roku:ecp'],
+      serviceTypes: const ['_display._tcp.local', '_airplay._tcp.local'],
+      sources: const {
+        NetworkDiscoverySource.ssdp,
+        NetworkDiscoverySource.mdns,
+      },
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const homeButton = NetworkEntityDto(
+      name: 'Home',
+      platform: 'button',
+      icon: 'mdi:home',
+      isInstanced: false,
+      stateCommand: '',
+      options: [],
+      actions: [
+        NetworkActionDto(
+          role: 'press',
+          commandName: 'press_home',
+          transport: 'http',
+          userParams: [],
+          readBack: [],
+          credentials: [],
+          instanceParams: [],
+        ),
+      ],
+    );
+
+    Future<void> pumpDualPort(
+      WidgetTester tester, {
+      required http.Client plain,
+      required Ecp2ControlService ecp2,
+    }) async {
+      codec = FakeSpecCodec(
+        networkEntities: (_) => const [homeButton],
+        networkHttpRequest: (name, _) => const HttpRequestDto(
+            method: 'POST', path: '/keypress/Home', body: ''),
+      );
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((request) async =>
+                  fail('no description exists for this device')))),
+          httpControlClientProvider
+              .overrideWithValue(HttpControlClient(httpClient: plain)),
+          ecp2ControlServiceProvider.overrideWithValue(ecp2),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+            device: dualPortRoku,
+            controls:
+                const NetworkControls(specYaml: 'yaml', entities: [homeButton]),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a keypress goes to the SSDP port, not the mDNS one',
+        (tester) async {
+      final received = <http.Request>[];
+      await pumpDualPort(
+        tester,
+        plain: MockClient((request) async {
+          received.add(request);
+          return http.Response('', 200);
+        }),
+        ecp2: noEcp2(),
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Home'));
+      await tester.pumpAndSettle();
+
+      // 8060, the LOCATION port — not 7250, the `_display._tcp` SRV port
+      // that happens to be sitting in `port`.
+      expect(
+          received.single.url.toString(), 'http://10.0.0.9:8060/keypress/Home');
+    });
+
+    testWidgets('the ECP2 session opens on the SSDP port', (tester) async {
+      // The second half of the same bug: a session dialled at the wrong port
+      // finds no WebSocket answering, so ECP2 was written off as unavailable
+      // on a TV whose ECP was fine the whole time.
+      final socket = AutoEcp2Socket();
+      final dialled = <String>[];
+      await pumpDualPort(
+        tester,
+        plain: MockClient((request) async =>
+            fail('a Roku keypress goes over the session, not plain ECP')),
+        ecp2: Ecp2ControlService(connector: (host, port) async {
+          dialled.add('$host:$port');
+          socket.begin();
+          return socket;
+        }),
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Home'));
+      await tester.pumpAndSettle();
+
+      expect(dialled, ['10.0.0.9:8060']);
+      // And the press actually landed, over the session.
+      expect(
+        socket.sent.where((frame) => frame['request'] == 'key-press'),
+        hasLength(1),
+      );
+    });
+
+    testWidgets('the UPnP description is fetched from the SSDP port',
+        (tester) async {
+      // The SOAP half of the same contract: a Wemo-class device heard over
+      // mDNS too must still resolve its description against the LOCATION
+      // port, or state reads and every SOAP write go to a stranger.
+      posts = [];
+      final fetched = <String>[];
+      final client = MockClient((request) async {
+        if (request.url.path == '/setup.xml') {
+          fetched.add(request.url.toString());
+          return http.Response(_setupXml, 200);
+        }
+        posts.add(request);
+        return http.Response(_stateResponse(mode: 0, time: 0), 200);
+      });
+      await tester.pumpWidget(screen(client));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+            device: NetworkDevice(
+              host: '10.0.0.5',
+              name: 'Kitchen Crock-Pot',
+              port: 80, // an `_http._tcp` sighting
+              ssdpPort: 49153, // where the UPnP surface actually is
+              ssdpTargets: const ['urn:Belkin:device:crockpot:1'],
+              sources: const {
+                NetworkDiscoverySource.ssdp,
+                NetworkDiscoverySource.mdns,
+              },
+              discoveredAt: DateTime.utc(2026),
+            ),
+            controls:
+                const NetworkControls(specYaml: 'yaml', entities: _entities),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(fetched, ['http://10.0.0.5:49153/setup.xml']);
+    });
+  });
+
   // ── The channel launcher: options that live on the device ───────────────
   group('device-sourced channel list', () {
     final rokuDevice = NetworkDevice(

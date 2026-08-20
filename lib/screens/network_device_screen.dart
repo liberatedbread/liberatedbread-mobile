@@ -346,7 +346,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   /// The port a control request goes to. A Roku is pinned to its ECP port; every
   /// other device uses the port discovery captured from its LOCATION.
-  int get _controlPort => _isRoku ? _rokuEcpPort : widget.device.port!;
+  int get _controlPort => _isRoku ? _rokuEcpPort : widget.device.controlPort!;
 
   /// The identity the user key is stored under: the Thing ID, which IS the
   /// device's mDNS hostname, falling back to the host when discovery carried
@@ -415,10 +415,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             .userKey(_rabbitAirKeyScope);
         if (_rabbitAirKey != null) await _refreshState();
       } else {
-        final port = widget.device.port;
+        final port = widget.device.controlPort;
         if (port == null) {
-          // Discovery hands us the SSDP LOCATION port for every UPnP device, so
-          // this is a mDNS-only sighting — not a device this screen can drive.
+          // Nothing advertised a port at all — not a device this screen can
+          // drive.
           throw const SoapTransportException(
               'the device did not advertise a control port');
         }
@@ -677,8 +677,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// buttons beside it still work, and the screen must not become an error
   /// page over a channel list.
   Future<void> _refreshQuerySources() async {
-    final port = widget.device.port;
-    if (port == null) return;
+    if (widget.device.controlPort == null) return;
     if (!_entities.any((e) => e.optionsSource != null)) return;
 
     if (mounted) setState(() => _loadingOptions = true);
@@ -2201,7 +2200,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final rows = <(String, String)>[
-      ('Address', '${widget.device.host}:${widget.device.port ?? '?'}'),
+      // The control address, not the advertised one: this screen's whole
+      // subject is what it sends and where, and a row naming a port nothing
+      // here talks to is what makes a wrong-port bug invisible.
+      ('Address', '${widget.device.host}:${widget.device.controlPort ?? '?'}'),
       if (description?.serialNumber != null)
         ('Serial', description!.serialNumber!),
       if (description?.firmwareVersion != null)
