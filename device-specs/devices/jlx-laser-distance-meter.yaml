@@ -7,7 +7,26 @@ device:
   manufacturer: "Johnson Level & Tool (Winho OEM)"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >-
+      Driven against one LDM330 (Johnson model 40-6013) at public address
+      18:7A:93:12:DE:94 on 2026-08-19, plus an HCI capture of the vendor app
+      driving the same unit. Advertisement identity read live (local name
+      "Laser Distance Meter", advertised 16-bit service 0xf150 — both
+      previously unknown). Full GATT enumerated: the f150 service is real,
+      f151 write and f154 notify as documented. Init frame, CCCD subscribe,
+      and the Ztest02/Link keep-alive loop driven live over a raw ATT channel
+      for 66+ seconds; Ztest01, Ztest02 and Zbleoff all observed on the air.
+      Measurement frames confirmed from the capture (e.g. "A02.509b" = 2.509 m,
+      display in feet), with prefixes A, B and C all seen.
+
+      `minimally-verified` because the LDM130 was never in the room, the remote
+      'm' measure command was sent but returned no reading (the meter's display
+      had auto-slept; inconclusive rather than refuted), and — the load-bearing
+      caveat — this device cannot be enumerated through BlueZ's bluetoothd at
+      all (see the BLUEZ QUIRK note), so every live result above came through a
+      raw ATT channel (gatttool) or the vendor-app capture.
   protocol: "ble"
   category: "sensor"
   notes: >
@@ -23,16 +42,19 @@ device:
     (MeasureBox / MeasureCam / TargetCam). All of those should speak the
     protocol below (unverified against any of them).
 
-    EVERYTHING HERE IS DESK RESEARCH: recovered by static analysis of the
-    Measure-Up APK (jadx, sources under workspace/static/, gitignored). No
-    hardware was in hand; no over-the-air capture exists. Treat all protocol
-    details as static-analysis-derived ("reported" verification at best).
+    Originally desk research recovered by static analysis of the Measure-Up
+    APK (jadx, sources under workspace/static/, gitignored). HARDWARE
+    2026-08-19: verified against a live LDM330 plus an HCI capture of the
+    vendor app driving it — see device.testing and the corrections marked
+    HARDWARE below.
 
     PROTOCOL SHAPE: a BLE GATT serial-style exchange over two vendor
     characteristics, 0000f151 (write) and 0000f154 (notify), discovered by
-    scanning ALL services after connect — the app never pins a service UUID.
-    The containing service UUID is unknown; 0000f150 is only a numbering
-    guess (hypothesis). Payloads are printable ASCII frames:
+    scanning ALL services after connect — the vendor app never pins a service
+    UUID. HARDWARE: the containing service is 0000f150 after all (the file's
+    old numbering guess, confirmed by capture and live enumeration at handles
+    0x0050..0x0055), and the meter even advertises it. Payloads are printable
+    ASCII frames:
 
       Device -> app (notify on f154, 10 bytes, NUL-padded):
         "Ztest01"  handshake request   -> app answers with the init frame
@@ -61,38 +83,89 @@ device:
     reports measurement failures as ASCII error frames (hypothesis — those
     strings are only compared against, never produced, in the app).
 
+    HARDWARE, 2026-08-19, session behaviour: Ztest01 is NOT guaranteed — one
+    live session got it ~7 s after subscribing, another skipped it entirely
+    and went straight to Ztest02, so a client must not block on the
+    handshake. Ztest02 arrives every ~5.5 s. In the vendor-app capture the
+    client answered no keep-alives and the meter announced Zbleoff and
+    dropped ~44 s in; a live session that answered every Ztest02 with the
+    Link frame was still up at 66+ s, so answer them. The meter also refuses
+    connections outright while its BLE is transitioning (le-connection-abort
+    / immediate errors); retry rather than diagnose. When the meter's display
+    has auto-slept, the radio may keep advertising while sessions get cut
+    with Zbleoff within seconds and the remote 'm' command produces nothing.
+
+    BLUEZ QUIRK, the reason a Linux desktop sees zero services: the meter
+    never answers an ATT Read By Type for the Database Hash (0x2b2a) — the
+    request bluetoothd (BlueZ >= 5.62 robust caching, reproduced on 5.85)
+    sends during GATT client init. The read gets silence, not an error;
+    bluetoothd eats the 30 s ATT transaction timeout, abandons init, and
+    reports the device "resolved" with an EMPTY service database (reproduced:
+    32.5 s to an empty resolve, and the stalled read leaves the ATT channel
+    dead). Read By Type on other UUIDs is also unreliable (some return
+    errors, GAP device name by type got silence). Exchange MTU is answered
+    instantly, and plain requests (discovery, writes, notifications) work, so
+    Android/iOS clients and raw ATT channels (gatttool, a custom L2CAP CID 4
+    client) are unaffected. Consequence: this device cannot be used through
+    bluetoothd-based stacks (bleak, flutter_blue_plus on Linux) until BlueZ
+    or the firmware changes; nothing an application layered on bluetoothd can
+    do fixes it.
+
+    HARDWARE, GATT extras the static analysis could not see: a parallel
+    vendor service 0000fff3 with 0000fff4 (notify) + 0000fff5
+    (write/write-without-response) at handles 0x0060..0x0065, mirroring the
+    f150 pair's shape — purpose unknown, never touched by the vendor app in
+    the capture. Stock SDK services also enumerate: Generic Access, Device
+    Information (declared, but string reads are unverified — read-by-type
+    fails; plain reads by handle untested), Link Loss, Immediate Alert, Tx
+    Power, Battery (0x2a19), and, comically, Heart Rate. f151's properties
+    are write AND write-without-response; the working clients use
+    write-without-response.
+
     ANGLE: the LDM330 has an integrated angle sensor (digital level /
     indirect measurement), but no angle path was found in the recovered BLE
     code — every frame carries a single scalar distance. Angle is likely
     on-device only, or shares the measurement frame with a distinct byte-0
-    prefix the app ignores (unknown; needs a capture).
+    prefix the app ignores (unknown; needs a capture). Prefixes 'A', 'B' and
+    'C' were all seen on plain button-press distance readings in the capture,
+    so the prefix does not simply mean "distance".
 
-    IDENTIFICATION: the app scans with NO name or service-UUID filter and
-    shows every BLE peripheral for the user to pick, so the advertised local
-    name is unknown from static analysis. Identify by GATT fingerprint after
-    connect: presence of characteristics 0000f151 (write) + 0000f154
-    (notify) with the ASCII "Ztest01" handshake.
+    IDENTIFICATION: the vendor app scans with NO name or service-UUID filter
+    and shows every BLE peripheral for the user to pick. HARDWARE: the meter
+    itself advertises plenty — local name "Laser Distance Meter" and the
+    16-bit service UUID 0xf150, on a public address — so a replacement client
+    can filter where the vendor app does not.
 
   identification:
+    local_name_prefix: "Laser Distance Meter"
+    service_uuids:
+      - "0000f150-0000-1000-8000-00805f9b34fb"
     notes: >
-      No advertised local-name prefix or advertised service UUID is known —
-      the vendor app scans unfiltered and the user picks from a list.
-      Identify post-connect by the 0000f151/0000f154 characteristic pair and
-      the "Ztest01" handshake notification.
+      HARDWARE 2026-08-19 (live scan + vendor-app capture, previously
+      unknown): advertises local name "Laser Distance Meter" and 16-bit
+      service UUID 0xf150 in the same advertisement, public address, no
+      manufacturer data. The name is generic Winho-OEM wording, so expect the
+      rebadged siblings to advertise it too — treat a match as "a Winho LDM",
+      not "a Johnson LDM330". Post-connect, confirm by the 0000f151/0000f154
+      characteristic pair; the "Ztest01" handshake corroborates but is not
+      guaranteed to arrive (one live session skipped it).
 
   discovery:
     methods:
       - type: "ble_scan"
         ble:
           local_name:
-            match: "prefix"
-            values: []
-          service_uuids: []
+            match: "exact"
+            value: "Laser Distance Meter"
+          service_uuids:
+            - "0000f150-0000-1000-8000-00805f9b34fb"
         notes: >
-          Unfiltered scan in the vendor app; no advertisement-level
-          signature recovered. A replacement app should either list all
-          peripherals (as the vendor app does) or probe candidates by
-          connecting and checking for f151/f154.
+          HARDWARE 2026-08-19: name and advertised service UUID measured live
+          and in the vendor-app capture (the vendor app itself scans
+          unfiltered — these filters are ours). Either half suffices; the
+          advertisement carries both. The name is the OEM platform's generic
+          string, so rebadged siblings (Starrett, Ronix, ...) likely match
+          identically.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -100,26 +173,29 @@ device:
 
   setup:
     required: false
-    confidence: "medium"
+    confidence: "high"
     notes: >
       No provisioning, pairing, bonding or account. Enable Bluetooth on the
       meter (press-and-hold the Bluetooth button per the quick-start guide),
-      scan, pick the device, connect, enable f154 notifications, write the
-      init frame. Confidence medium: the whole flow is read from decompiled
-      app code and the vendor quick-start guide, never run against hardware.
+      scan, connect, enable f154 notifications, write the init frame.
+      HARDWARE 2026-08-19: run end-to-end against an LDM330 (over a raw ATT
+      channel — see the BLUEZ QUIRK in device.notes for why bluetoothd-based
+      Linux clients cannot complete the discovery step at all).
     methods:
       - type: "ble_direct"
-        verified: false
+        verified: true
         description: >
-          Scan (unfiltered), user picks the meter, connect GATT, discover
-          services, find f151/f154, subscribe f154, write init frame to
-          f151, answer handshake/keep-alive frames, read measurements.
+          Scan (filter on the name or the advertised f150), connect GATT,
+          discover services, find f151/f154, subscribe f154, write init
+          frame to f151, answer keep-alive frames, read measurements.
+          Verified live except measurement delivery, which is verified from
+          the vendor-app capture.
         ble:
           pairing_required: false
         steps:
           - action: "Press and hold the meter's Bluetooth button to enable BLE (per vendor quick-start guide)."
             actor: user
-          - action: "Scan unfiltered; user selects the meter from the peripheral list."
+          - action: "Scan filtering on local name 'Laser Distance Meter' or advertised service 0000f150 (the vendor app scans unfiltered and makes the user pick; the filter is measured, not vendor behaviour)."
             actor: client
           - action: "Connect, discover services, locate characteristics 0000f151 (write) and 0000f154 (notify) across all services."
             actor: client
@@ -200,20 +276,25 @@ services:
   - uuid: "0000f150-0000-1000-8000-00805f9b34fb"
     name: "Winho LDM Service"
     notes: >
-      HYPOTHESIS: the containing service UUID is not pinned anywhere in the
-      app — it discovers all services and matches the two characteristics
-      below by UUID. 0xF150 is inferred from the numbering convention
-      (service F150, characteristics F151-F154) and must be confirmed with a
-      scan or capture. Clients should match the characteristics, not this
-      service UUID.
-    verification: "hypothesis"
+      HARDWARE 2026-08-19: confirmed on an LDM330, live and in the vendor-app
+      capture — primary service 0xf150 at handles 0x0050..0x0055 (f154 value
+      handle 0x0052 with CCCD 0x0053, f151 value handle 0x0055), and the same
+      UUID is advertised. The vendor app still discovers all services and
+      matches the two characteristics by UUID, which remains the robust
+      approach across the OEM's siblings. A second, undocumented vendor
+      service 0000fff3 (0000fff4 notify + 0000fff5 write/write-without-
+      response, handles 0x0060..0x0065) mirrors this one's shape; the vendor
+      app never touched it and its purpose is unknown.
+    verification: "confirmed"
     characteristics:
       - uuid: "0000f151-0000-1000-8000-00805f9b34fb"
         name: "command_rx"
-        properties: ["write"]
+        properties: ["write", "write_without_response"]
         notes: >
           Command channel, app -> device. Carries the 6-byte init frame and
-          13-byte checksummed command frames (see payload_formats).
+          13-byte checksummed command frames (see payload_formats). HARDWARE:
+          both write flavours are declared (props 0x0c); the vendor app and
+          the live sessions used write-without-response throughout.
         commands:
           init:
             description: >
