@@ -20,4 +20,10 @@ class PrefsSettingsStore implements SettingsStore {
 
   @override
   Future<void> delete(String key) => _prefs.remove(key);
+
+  @override
+  Future<Map<String, String>> readAll() async => {
+        for (final key in _prefs.getKeys())
+          if (_prefs.getString(key) case final String value) key: value,
+      };
 }

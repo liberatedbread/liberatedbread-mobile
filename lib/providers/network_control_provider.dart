@@ -4,15 +4,20 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
+import '../models/network_device.dart';
 import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
 import '../services/kasa_control_service.dart';
 import '../services/lifx_control_service.dart';
+import '../services/rabbit_air_ble_client.dart';
 import '../services/rabbit_air_control_service.dart';
 import '../services/rabbit_air_key_store.dart';
+import '../services/rabbit_air_provision_service.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
+import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
+import 'network_scan_provider.dart';
 import 'settings_store_provider.dart';
 import 'spec_codec_provider.dart';
 
@@ -56,6 +61,101 @@ final rabbitAirKeyStoreProvider = Provider<RabbitAirKeyStore>(
 /// real purifier.
 final rabbitAirControlClientProvider = Provider<RabbitAirControlClient>(
     (ref) => RabbitAirControlClient(ref.watch(specCodecProvider)));
+
+/// The Rabbit Air entity surface of a BLE-matched spec, or null when the
+/// matched spec is not a Rabbit Air purifier. Decided exactly the way
+/// NetworkDeviceScreen does — entities riding the `udp` transport — but from
+/// the BLE side's spec match, so the device screen can fork to the shared
+/// Rabbit Air panel over the BLE transport instead of the raw GATT browser.
+final rabbitAirBleControlsProvider = FutureProvider.autoDispose
+    .family<List<NetworkEntityDto>?, String>((ref, specYaml) async {
+  final codec = ref.watch(specCodecProvider);
+  try {
+    final entities = await codec.networkEntitiesForDevice(
+      specYaml: specYaml,
+      ssdpTargets: const [],
+    );
+    final isRabbitAir = entities.any((e) =>
+        e.transport == 'udp' || e.actions.any((a) => a.transport == 'udp'));
+    return isRabbitAir ? entities : null;
+  } catch (e) {
+    Log.spec.warning('rabbit air BLE surface failed to resolve', error: e);
+    return null;
+  }
+});
+
+/// The Rabbit Air spec's YAML and entity surface, resolved from the
+/// catalogue by its mDNS service type rather than by a device match: a
+/// setup-mode purifier ("RabbitAirSetup") is met before it can be matched,
+/// and it IS this spec. Null when the catalogue carries no Rabbit Air spec.
+final rabbitAirSpecSurfaceProvider = FutureProvider.autoDispose<
+    ({String specYaml, List<NetworkEntityDto> entities})?>((ref) async {
+  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
+  final spec = parsed
+      .where((p) => p.spec.mdnsServiceType == '_rabbitair._udp.local.')
+      .firstOrNull;
+  if (spec == null) return null;
+  final codec = ref.watch(specCodecProvider);
+  try {
+    final entities = await codec.networkEntitiesForDevice(
+      specYaml: spec.yaml,
+      ssdpTargets: const [],
+    );
+    return (specYaml: spec.yaml, entities: entities);
+  } catch (e) {
+    Log.spec.warning('rabbit air spec surface failed to resolve', error: e);
+    return null;
+  }
+});
+
+/// The Rabbit Air BLE provisioning service. The link factory builds a client
+/// on the app's [BleService]; the default verifier watches the network scan
+/// for the Thing ID's mDNS hostname and proves the freshly pushed key with a
+/// clock sync and a state read over the LAN protocol. Tests override the
+/// whole provider with a service wired to fakes.
+final rabbitAirProvisionServiceProvider =
+    Provider<RabbitAirProvisionService>((ref) {
+  final codec = ref.watch(specCodecProvider);
+  return RabbitAirProvisionService(
+    codec: codec,
+    keyStore: ref.watch(rabbitAirKeyStoreProvider),
+    linkFactory: () => RabbitAirBleClient(ref.watch(bleServiceProvider), codec),
+    verifier: ({required thingId, required userKey}) async {
+      final parsed = await ref.read(parsedDeviceSpecsProvider.future);
+      final spec = parsed
+          .where((p) => p.spec.mdnsServiceType == '_rabbitair._udp.local.')
+          .firstOrNull;
+      if (spec == null) return false;
+      final scanner = ref.read(networkScanServiceProvider);
+      final client = ref.read(rabbitAirControlClientProvider);
+      // Scan windows until the outer timeout (the service's verifyTimeout)
+      // cuts in: the purifier can take tens of seconds to join and announce.
+      while (true) {
+        NetworkDevice? found;
+        await for (final device
+            in scanner.scan(timeout: const Duration(seconds: 10))) {
+          final hostname = device.hostname;
+          if (hostname != null && hostname.startsWith(thingId)) {
+            found = device;
+            break;
+          }
+        }
+        if (found == null) continue;
+        final port = found.port ?? RabbitAirControlClient.defaultPort;
+        await client.syncClock(found.host, port,
+            specYaml: spec.yaml, userKey: userKey);
+        final request = await codec.renderNetworkRabbitAirStateRequest(
+          specYaml: spec.yaml,
+          stateCommand: 'get_state',
+          requestId: client.nextRequestId(),
+          deviceTs: client.deviceTs(found.host),
+        );
+        await client.send(found.host, port, request, userKey: userKey);
+        return true;
+      }
+    },
+  );
+});
 
 /// Identity of one network device the control layer is asked about.
 ///

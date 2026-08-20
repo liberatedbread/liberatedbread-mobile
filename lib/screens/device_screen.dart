@@ -17,6 +17,7 @@ import '../widgets/device_control_panel.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
+import '../widgets/rabbit_air_setup_info_panel.dart';
 import 'find_device_screen.dart';
 import 'setup_instructions_screen.dart';
 
@@ -418,6 +419,14 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         );
 
       case _ScreenState.ready:
+        // The one place the advertised-name decision lives: an
+        // unprovisioned purifier ("RabbitAirSetup") gets the read-only
+        // setup-info view — which carries the "Set up Wi-Fi" way into the
+        // onboarding flow — and anything else the spec-matched control
+        // panel (which itself forks to the keyed Rabbit Air BLE controls
+        // for a provisioned purifier).
+        final isRabbitAirSetup =
+            widget.device.name.startsWith('RabbitAirSetup');
         return Column(
           children: [
             _ConnectedHeader(
@@ -446,12 +455,17 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               },
             ),
             Expanded(
-              child: DeviceControlPanel(
-                deviceId: widget.device.id,
-                deviceName: widget.device.displayName,
-                services: _services,
-                manufacturerData: widget.device.manufacturerData,
-              ),
+              child: isRabbitAirSetup
+                  ? RabbitAirSetupInfoPanel(
+                      device: widget.device,
+                      services: _services,
+                    )
+                  : DeviceControlPanel(
+                      deviceId: widget.device.id,
+                      deviceName: widget.device.displayName,
+                      services: _services,
+                      manufacturerData: widget.device.manufacturerData,
+                    ),
             ),
           ],
         );
