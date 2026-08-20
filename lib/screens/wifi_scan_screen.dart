@@ -15,9 +15,10 @@ import '../providers/scan_match_provider.dart';
 import '../services/network_scan_service.dart';
 import '../services/number_registry.dart';
 import '../services/spec_codec.dart';
+import '../widgets/adopt_device_card.dart';
 import '../widgets/device_list_tile.dart';
+import 'adopt_device_screen.dart';
 import 'hub_device_screen.dart';
-import 'lifx_provisioning_screen.dart';
 import 'network_device_screen.dart';
 
 /// Discovery of devices on the local network, alongside the BLE scan.
@@ -167,11 +168,11 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
         title: const Text('Wi-Fi devices'),
         actions: [
           IconButton(
-            tooltip: 'Set up a new LIFX device',
+            tooltip: 'Adopt a new Wi-Fi device',
             icon: const Icon(Icons.add_circle_outline),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => const LifxProvisioningScreen(),
+                builder: (_) => const AdoptDeviceScreen(),
               ),
             ),
           ),
@@ -207,6 +208,19 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                         _error != null ? scheme.error : scheme.onSurfaceVariant,
                     height: 1.5,
                   ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            // The adoption entry point lives above the scan results and stays
+            // put across every scan state: a user with a just-reset device is
+            // here to set it up, not to scan, and that device is invisible to
+            // the scan below until they do. Its icon spins when the OS can see a
+            // matching setup network.
+            AdoptDeviceCard(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AdoptDeviceScreen(),
                 ),
               ),
             ),

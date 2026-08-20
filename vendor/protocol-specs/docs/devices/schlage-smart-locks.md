@@ -178,7 +178,7 @@ history-read/state, 4=reads/WiFi/claim, 5=deleteAll/claim-confirm/JITR,
 | History logs | check `{1:8,2:2,16:{0:3,1:0,2:{0:0}}}` + read `{1:8,2:3,16:{0:3,1:batchSize}}` | reported |
 | Factory reset | `{1:8,2:2,16:{0:3,1:3}}` (advanced) | reported |
 | WiFi credentials | `{1:8,2:4,16:{0:6,1:0,2:{0:ssid,1:password,2:security}}}` | reported |
-| WiFi JITR payload0 | `{1:8,2:4,16:{0:6,1:2,2:{0:payload0Bytes}}}`; status `{1:8,2:5,16:{0:6,1:4}}` → 0..6 | reported |
+| WiFi JITR payload0 | `{1:8,2:4,16:{0:6,1:2,2:{0:payload0Bytes}}}`; status `{1:8,2:5,16:{0:6,1:4}}` → 0..5 (enum ends at IP_ACQUIRED; no state 6) | reported |
 | Firmware OTA | separate GATT profile (above) | UUIDs in app resources |
 
 Enums: lockState 0=unlocked, 1=locked, 2=jammed, 3=unknown, 4=motorJammed,
@@ -197,16 +197,67 @@ Genuinely cloud-dependent:
   ("payload0" JITR blob) is minted by `factory.allegion.yonomi.cloud` and
   pushed to the lock over BLE (trait 6 prop 2). No cloud, no WiFi onboarding.
 - **CAT minting for non-owner users on non-Sense locks** (CatStar service).
-- **Firmware metadata and binaries** (`api.allegionengage.com`).
+- **Firmware metadata and binaries** (`api.allegionengage.com` — metadata at
+  `GET /api/firmware/{platformType}`, binary URL server-supplied, and the app
+  verifies content-length only; WiFi locks can also self-download over WiFi,
+  manual trigger: interior button ×5).
 - **Remote access, push notifications, multi-user invites.**
 
 The consumer cloud path itself is AWS Cognito SRP login plus REST
 `api.allegion.yonomi.cloud/v1` with an API-key header, realtime via per-device
 MQTT-over-WebSocket, TLS-pinned to Amazon Root CAs. (The app-embedded key and
 secret are vendor client credentials; only the shape is recorded here, per the
-clean-room rules.) There is **no local WiFi runtime API**: no open port, no
-SSDP, and the only mDNS observed is the Encode Plus's HomeKit `_hap._udp`
-record — Apple's protocol, mutually exclusive with Schlage-mode pairing.
+clean-room rules.) There is **no local WiFi runtime API**: the app never opens
+a socket to a lock and the lock hosts no softAP or listener (3.6.0 code-level
+confirmation, 2026-08), no SSDP, and the only mDNS observed is the Encode
+Plus's HomeKit `_hap._udp` record — Apple's protocol, mutually exclusive with
+Schlage-mode pairing. A full-/16 LAN census of a household with three
+commissioned locks (2026-08-14) found no lock-like listener on any host. The
+one local WiFi surface in the family is the Sense's optional **BR400 adapter**,
+which exposes an *unauthenticated* LAN HTTP API — including a firmware-update
+endpoint taking an arbitrary URL — documented in
+`research-notes/schlage-wifi-local-surface.md`; it is accessory-scoped and
+does not exist on Encode-family locks.
+
+## Live verification (2026-08)
+
+Read-only check against three commissioned household locks (front / kitchen /
+laundry doors), 2026-08-14, BlueZ + bleak on the home LAN. No pairing was
+attempted (SPAKE2 needs the printed programming code) and nothing was written
+to any lock.
+
+- **BLE presence confirmed**: one lock was captured advertising once — complete
+  local name `SCHLAGE` + 8 uppercase hex digits (serial-looking suffix),
+  address beginning `B7:AC:C2` (partially recorded), RSSI −74 dBm, manufacturer
+  data under Bluetooth company ID **315 = Allegion** embedding a MAC. Which
+  door it belongs to is not yet mapped.
+- **Don't key on the MAC**: both observed lock addresses had the
+  locally-administered bit set — these are *random-static* addresses, which the
+  lock may rotate. A client that stores one either loses a lock it already
+  knows or enrols the same lock twice. The spec's `discovery.identity`
+  therefore keys on the full `SCHLAGE<hex>` local name (serial-derived, and
+  stable across a rotation) and treats the address as an ephemeral connection
+  locator to be re-resolved by scanning. Scan filters should match the Allegion
+  company ID **315** or the `SCHLAGE` name prefix — *not* the DataTransfer
+  service UUID, which the observed lock did not advertise at all.
+- **Advertised-UUID claim not observed**: that single advertisement carried
+  **no service UUIDs** — not the DataTransfer UUID
+  `1F6B43AA-…` this page says Schlage-mode locks advertise. One sample from a
+  commissioned lock (commissioned locks are known *reportedly* to change their
+  advertising), so treat as "not observed", not refuted.
+- **Idle locks barely advertise**: ~75 minutes of further scanning caught zero
+  more advertisements from any of the three locks, so no GATT connection —
+  and hence no GATT-table verification — was possible. The service tables
+  above remain app/Go-library-derived. To verify on hardware, wake a lock
+  (keypad touch) while scanning.
+- **No HomeKit-mode unit**: no lock advertised `SENSE  ` (HAP-over-BLE) and no
+  `_hap._udp` mDNS record exists on the LAN — no Encode Plus in HomeKit mode
+  here.
+- **LAN silence consistent with "no local WiFi API"**: full mDNS enumeration
+  and an SSDP M-SEARCH turned up nothing Schlage; no Schlage/Allegion OUI
+  exists in the IEEE registry, so lock IPs couldn't be identified for port
+  scanning. The locks make no LAN discovery announcements at all, matching the
+  cloud-relay-only claim (absence-of-evidence caveat applies).
 
 ## Building a local client
 

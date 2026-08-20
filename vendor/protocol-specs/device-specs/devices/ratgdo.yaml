@@ -1,0 +1,342 @@
+# ratgdo Garage-Door Controller (ESPHome, local) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: ESPHome ratgdo authoritative config (github.com/ratgdo/esphome-ratgdo
+# base.yaml + the static board YAMLs) and ESPHome docs (web_server, api, mdns).
+# ratgdo is the network-facing bridge for the Security+ opener protocol
+# documented in chamberlain-garage-opener-secplus.yaml.
+
+device:
+  name: "ratgdo Garage-Door Controller (ESPHome)"
+  manufacturer: "ratgdo (open hardware) / Konnected (blaQ)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Written from the authoritative ESPHome ratgdo config and ESPHome docs;
+      no hardware driven yet (board on order). The control surface is standard
+      ESPHome, so the endpoints are well-established, but the ratgdo-specific
+      entity object_ids and the default-on web_server should be confirmed on
+      the first real board. Discovery (_esphomelib._tcp) will be exercised by
+      the app's existing mDNS meta-query sweep.
+  protocol: "wifi"
+  category: "other"
+  pictogram: "garage-door"
+  type: "garage-door-opener"
+  transport: "http"
+  integration: "supported"
+  admin_url: "http://{address}/"
+  notes: >
+    ratgdo is a small ESP board wired to a Chamberlain/LiftMaster opener's
+    wall-control terminals; it speaks the opener's Security+ 1.0/2.0 wire
+    protocol (see chamberlain-garage-opener-secplus.yaml for that side) and
+    exposes local, cloud-free control on the home network. This spec targets
+    the mainstream ESPHome ratgdo firmware (also what Konnected's blaQ ships).
+
+    Two interchangeable local transports, both no-cloud, no-broker:
+    1. WEB SERVER (HTTP :80) — enabled by default in ratgdo's config. A plain
+       REST API plus a Server-Sent-Events state stream, ideal for a phone app:
+         POST /cover/door/open | /close | /stop | /toggle
+         POST /cover/door/set?position=<0..100>   (Security+ 2.0 only)
+         GET  /cover/door                          -> JSON state
+         POST /light/light/turn_on | /turn_off | /toggle
+         POST /lock/lock_remotes/lock | /unlock
+         GET  /binary_sensor/{obstruction,motion,motor,button}
+         POST /button/restart/press
+         GET  /events  (text/event-stream) -> "state" events with the same
+              per-entity JSON, the push channel for door/obstruction/motion.
+       JSON state shape per entity, e.g.
+         {"id":"cover-door","state":"OPEN","current_operation":"IDLE","position":1.0}
+         {"id":"binary_sensor-obstruction","value":true,"state":"ON"}
+       Default has NO auth; if the user adds web_server auth (basic/digest) the
+       app must send it. web_server "version" affects only the built-in UI, not
+       these endpoints.
+    2. NATIVE API (TCP :6053, protobuf) — always present, what Home Assistant
+       uses. Length-delimited protobuf: Hello -> Connect (optional legacy
+       password) -> ListEntities (match object_id -> entity key) ->
+       SubscribeStates; commands reference the entity key. Framing byte 0x00 =
+       plaintext, 0x01 = Noise-encrypted (Noise_NNpsk0_25519_ChaChaPoly_SHA256
+       with the 32-byte base64 PSK from `api: encryption: key:`). Efficient and
+       streaming, but heavier to implement than the REST/SSE path; prefer the
+       web server for a first cut.
+
+    ENTITY object_ids (the REST/api identifier is slugify(name), NOT the C++
+    id): cover `door` (states open/closed/opening/closing/stopped; open/close/
+    stop/toggle/position); light `light`; lock `lock_remotes` (lock/unlock);
+    read-only binary_sensors `obstruction`, `motion`, `motor`, `button`;
+    sensors `openings`, `paired_devices`; text_sensor `firmware_version`;
+    buttons `restart`, `toggle_door`, `sync`, `query_status`, `query_openings`;
+    numbers `opening_duration`, `closing_duration`, `rolling_code_counter`,
+    `client_id`; switch `learn` (pairing mode). The phone app's core four:
+    cover/door, light/light, lock/lock_remotes, and the read-only sensors.
+
+    GENERATION CAVEAT: on Security+ 1.0 openers the door has no stop/position
+    (the opener does not support it) — expose stop/position only for Sec+ 2.0.
+
+    SAFETY: this opens/closes a heavy motorised door. Treat door commands as
+    advanced; gate them on the reported door state and surface obstruction.
+
+    Cloud dependency: none. The native API is a direct device<->app socket; the
+    web server is served from the board. No broker, no account.
+  identification:
+    mdns_service_type: "_esphomelib._tcp.local."
+    default_port: 80
+    identity_keys:
+      primary: "mac"
+      display: "friendly_name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_esphomelib._tcp.local."
+          port: 6053
+          txt_record_keys: ["mac", "version", "board", "project_name", "project_version", "friendly_name", "api_encryption", "network", "platform"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:mac"
+                key: "mac"
+            display:
+              source: "txt:friendly_name"
+    identity:
+      stable_keys: ["mac"]
+      display: "friendly_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: medium
+    notes: >
+      Two-part setup. HARDWARE: wire the ratgdo board to the opener's
+      wall-control terminals and pair it to the opener with the opener's learn
+      button (see chamberlain-garage-opener-secplus.yaml). NETWORK: the board
+      is an ESPHome device — on first boot it hosts a Wi-Fi provisioning AP (or
+      is flashed with credentials); once on the LAN it advertises
+      _esphomelib._tcp and answers the web server on :80 and the native API on
+      :6053. Confidence medium: standard ESPHome flows, not yet run here.
+      Discriminate plaintext vs Noise-encrypted native API by the presence of
+      the mDNS `api_encryption` TXT key; the web server has no such gate.
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          ESPHome captive-portal / improv provisioning to join Wi-Fi, then
+          local HTTP/native-API control. (ratgdo images are flashed via the
+          web installer at ratgdo.github.io or Konnected's installer.)
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Flash ratgdo ESPHome firmware and wire the board to the opener terminals; pair with the opener's learn button."
+            actor: user
+          - action: "Join the board to Wi-Fi (ESPHome AP/improv, or flashed credentials)."
+            actor: user
+          - action: "Discover it via _esphomelib._tcp mDNS; read the project_name TXT to confirm it is a ratgdo (vs another ESPHome device)."
+            actor: client
+            expect: "TXT project_name identifies ratgdo; the web server answers GET /cover/door with the door state."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Re-flashing or an ESPHome factory-reset clears Wi-Fi credentials and
+        the ESPHome config; the opener pairing (rolling-code seed) is separate
+        and cleared at the opener's learn button. The exact ratgdo reset
+        procedure (button hold vs re-flash) is not established here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Standard ESPHome Wi-Fi rejoin; identity keys on the board MAC (mDNS TXT
+        `mac`), not IP, so a DHCP move does not lose it.
+    credentials:
+      wifi_passphrase_protection: device_encrypted
+      stored_on_device:
+        - "Home Wi-Fi credentials"
+        - "Optional native-API Noise PSK (api: encryption: key) or legacy password"
+        - "Security+ rolling-code counter (opener pairing)"
+      issued_to_client:
+        - "The native-API Noise PSK, if the user chose an encrypted build, must be shared with the app"
+      notes: >
+        The web server is unauthenticated by default (add web_server auth to
+        change that). The native API may be plaintext, legacy-password, or
+        Noise-encrypted — detect via the mDNS api_encryption TXT key.
+
+  local_access:
+    status: native
+    summary: >
+      Fully local control (ESPHome web server REST/SSE on :80 and native
+      protobuf API on :6053) with no cloud and no broker. This is the
+      network-facing counterpart to the Security+ wired protocol.
+    covers:
+      - "Open / close / stop / toggle the door"
+      - "Garage light on/off; remote lock-out"
+      - "Door position/state, obstruction, motion, motor, wall-button status"
+
+http_endpoints:
+  # ESPHome web_server (port 80), enabled by default on ratgdo. Unauthenticated
+  # unless the user adds web_server auth. Door commands are advanced (they move
+  # a real door).
+  - method: "GET"
+    path: "/cover/door"
+    name: "Door State"
+    description: "JSON state of the garage door cover: state OPEN/CLOSED/OPENING/CLOSING, current_operation, position (0..1). object_id 'door'."
+  - method: "POST"
+    path: "/cover/door/open"
+    name: "Open Door"
+    description: "Open the garage door. Siblings: /cover/door/close, /cover/door/stop, /cover/door/toggle. Advanced: moves a heavy motorised door."
+    status: "unverified"
+  - method: "POST"
+    path: "/cover/door/set"
+    name: "Set Door Position"
+    description: "Set door position: query param position=<0..100>. Security+ 2.0 only (Sec+ 1.0 openers have no position/stop). Advanced."
+    status: "unverified"
+  - method: "POST"
+    path: "/light/light/turn_on"
+    name: "Light On"
+    description: "Turn the garage light on. Siblings: /light/light/turn_off, /light/light/toggle. object_id 'light'."
+    status: "unverified"
+  - method: "POST"
+    path: "/lock/lock_remotes/lock"
+    name: "Lock Remotes"
+    description: "Engage the opener's remote lock-out. Sibling: /lock/lock_remotes/unlock. object_id 'lock_remotes'."
+    status: "unverified"
+  - method: "GET"
+    path: "/binary_sensor/obstruction"
+    name: "Obstruction Sensor"
+    description: "Obstruction beam state (JSON {value,state}). Read-only. Siblings: /binary_sensor/motion, /binary_sensor/motor, /binary_sensor/button."
+  - method: "POST"
+    path: "/button/restart/press"
+    name: "Restart Board"
+    description: "Reboot the ratgdo board (object_id 'restart'). Does not affect the door."
+    status: "unverified"
+  - method: "GET"
+    path: "/events"
+    name: "State Event Stream (SSE)"
+    description: "text/event-stream; emits 'state' events carrying the same per-entity JSON as the REST GETs — the push channel for door/obstruction/motion changes without polling. Also 'ping' and 'log' events."
+
+commands:
+  # One invocation each, so an entity's role map can name one. `http_endpoints`
+  # above catalogues what the board offers; these are the sends. Paths are the
+  # ESPHome web_server object_id form (/<domain>/<object_id>/<action>) and are
+  # fixed for a ratgdo build, so they are stated rather than resolved.
+  door_open:
+    description: "Open the garage door. Moves a heavy motorised door — gate this behind a deliberate action and check the reported state and obstruction sensor first."
+    transport: "http"
+    method: "POST"
+    path: "/cover/door/open"
+    verification: "reported"
+  door_close:
+    description: "Close the garage door. Same caution as door_open: a closing door is the one that can trap something."
+    transport: "http"
+    method: "POST"
+    path: "/cover/door/close"
+    verification: "reported"
+  door_stop:
+    description: "Halt a door mid-travel. Security+ 2.0 only — Sec+ 1.0 openers have no stop."
+    transport: "http"
+    method: "POST"
+    path: "/cover/door/stop"
+    verification: "reported"
+  door_set_position:
+    description: "Drive the door to a position, 0 closed to 100 open. Security+ 2.0 only."
+    transport: "http"
+    method: "POST"
+    path: "/cover/door/set"
+    arguments:
+      position: "{position}"
+    parameters:
+      position:
+        type: "uint8"
+        min: 0
+        max: 100
+        unit: "%"
+        description: "Target position, 0 closed to 100 open. Sent as a query parameter."
+    notes: >
+      The position argument rides the query string (`/cover/door/set?position=50`),
+      which is how ESPHome's web_server takes it.
+    verification: "reported"
+  light_turn_on:
+    description: "Turn the opener's light on."
+    transport: "http"
+    method: "POST"
+    path: "/light/light/turn_on"
+    verification: "reported"
+  light_turn_off:
+    description: "Turn the opener's light off."
+    transport: "http"
+    method: "POST"
+    path: "/light/light/turn_off"
+    verification: "reported"
+  lock_remotes:
+    description: "Engage the opener's remote lock-out, so paired remotes stop working."
+    transport: "http"
+    method: "POST"
+    path: "/lock/lock_remotes/lock"
+    verification: "reported"
+  unlock_remotes:
+    description: "Release the remote lock-out."
+    transport: "http"
+    method: "POST"
+    path: "/lock/lock_remotes/unlock"
+    verification: "reported"
+  restart_board:
+    description: "Reboot the ratgdo board. Does not move the door."
+    transport: "http"
+    method: "POST"
+    path: "/button/restart/press"
+    verification: "reported"
+
+entities:
+  - platform: "cover"
+    name: "Garage Door"
+    device_class: "garage"
+    commands:
+      open_cover: "door_open"
+      close_cover: "door_close"
+      stop_cover: "door_stop"
+      set_cover_position: "door_set_position"
+    state_topic: "/cover/door"
+    notes: "object_id 'door'. States open/closed/opening/closing/stopped."
+  - platform: "light"
+    name: "Garage Light"
+    commands:
+      turn_on: "light_turn_on"
+      turn_off: "light_turn_off"
+    state_topic: "/light/light"
+  - platform: "switch"
+    name: "Lock Remotes"
+    commands:
+      turn_on: "lock_remotes"
+      turn_off: "unlock_remotes"
+    state_topic: "/lock/lock_remotes"
+    notes: >
+      ESPHome exposes this in the `lock` domain (object_id 'lock_remotes',
+      lock/unlock); modelled here as a switch (on = remotes locked out) because
+      this schema's entity vocabulary has no lock platform. On = the opener
+      ignores its RF remotes.
+  - platform: "binary_sensor"
+    name: "Obstruction"
+    device_class: "problem"
+    state_topic: "/binary_sensor/obstruction"
+  - platform: "binary_sensor"
+    name: "Motion"
+    device_class: "motion"
+    state_topic: "/binary_sensor/motion"
+  - platform: "sensor"
+    name: "Openings"
+    state_topic: "/sensor/openings"
+    notes: "Cumulative door-open counter (object_id 'openings')."
+
+helpful_urls:
+  - url: "https://github.com/ratgdo/esphome-ratgdo"
+    title: "ratgdo/esphome-ratgdo"
+    description: "Authoritative ESPHome config: entity object_ids (base.yaml), default-on web_server, plaintext vs Noise builds."
+  - url: "https://esphome.io/components/web_server/"
+    title: "ESPHome web_server component"
+    description: "REST scheme (/<domain>/<object_id>/<action>), /events SSE, versions, auth."
+  - url: "https://esphome.io/components/api/"
+    title: "ESPHome native API"
+    description: "TCP 6053 protobuf, Noise encryption key, legacy password, entity/key model."
+  - url: "https://ratgdo.github.io/esphome-ratgdo/"
+    title: "ratgdo ESPHome installer & docs"
+    description: "Web flasher and setup for the mainstream ratgdo firmware."

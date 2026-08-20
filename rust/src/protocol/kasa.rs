@@ -114,7 +114,10 @@ pub fn render_state_request(
 /// document, not a URL — so a spec interpolating a device-supplied value must
 /// keep it JSON-safe. No Phase-1 command carries a placeholder; the machinery
 /// is here for the per-outlet `child_id` a power strip will thread through.
-fn substitute(
+///
+/// `pub(crate)` because Rabbit Air's envelope bodies carry the same `{name}`
+/// placeholders with the same semantics — one substitution rule, one home.
+pub(crate) fn substitute(
     template: &str,
     command: &SpecCommand,
     command_name: &str,

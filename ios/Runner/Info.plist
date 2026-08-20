@@ -78,6 +78,8 @@
 		<string>_philipstv_rpc._tcp</string>
 		<string>_viziocast._tcp</string>
 		<string>_androidtvremote2._tcp</string>
+		<string>_esphomelib._tcp</string>
+		<string>_snapmaker._tcp</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

@@ -712,27 +712,84 @@ entities:
       set_medium: "set_volume_medium"
       set_high: "set_volume_high"
 
-references:
-  - "https://play.google.com/store/apps/details?id=com.embertech"
-  - "https://apkpure.com/ember/com.embertech"
-  - "https://github.com/orlopau/ember-mug"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/target-temp.md"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/current-temp.md"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/battery.md"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/liquid-level.md"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/liquid-state.md"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/mug-color.md"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/mug-name.md"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/temperature-unit.md"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/push-events.md"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/time-date-zone.md"
-  - "https://github.com/orlopau/ember-mug/blob/master/docs/ota.md"
-  - "https://github.com/sopelj/python-ember-mug"
-  - "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/consts.py"
-  - "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/mug.py"
-  - "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/data.py"
-  - "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/utils.py"
-  - "https://github.com/sopelj/hass-ember-mug-component"
-  - "https://github.com/sopelj/hass-ember-mug-component/blob/main/custom_components/ember_mug/manifest.json"
-  - "https://github.com/zopieux/mugctl"
-  - "https://support.ember.com/en-US/ember-mug-how-to-pair-1757457"
+helpful_urls:
+  - title: "Ember app on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.embertech"
+    description: >-
+      Vendor app listing; com.embertech is the package this spec's static analysis used.
+  - title: "Ember app on APKPure"
+    url: "https://apkpure.com/ember/com.embertech"
+    description: "Mirror the analysed XAPK came from (app 4.5.9, versionCode 220)."
+  - title: "orlopau/ember-mug"
+    url: "https://github.com/orlopau/ember-mug"
+    description: >-
+      Per-characteristic protocol documentation for the Ember Mug; the reference this spec's
+      characteristic notes follow.
+  - title: "orlopau: target temperature characteristic"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/target-temp.md"
+    description: "Byte layout and units of the target-temperature characteristic."
+  - title: "orlopau: current temperature characteristic"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/current-temp.md"
+    description: "Byte layout and units of the current-temperature characteristic."
+  - title: "orlopau: battery characteristic"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/battery.md"
+    description: "Byte layout of the battery characteristic."
+  - title: "orlopau: liquid level characteristic"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/liquid-level.md"
+    description: "Byte layout of the liquid-level characteristic and the raw scale it reports on."
+  - title: "orlopau: liquid state characteristic"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/liquid-state.md"
+    description: "Enumeration of the liquid-state values."
+  - title: "orlopau: mug colour characteristic"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/mug-color.md"
+    description: "Byte layout of the LED colour characteristic."
+  - title: "orlopau: mug name characteristic"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/mug-name.md"
+    description: "Byte layout of the mug-name characteristic."
+  - title: "orlopau: temperature unit characteristic"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/temperature-unit.md"
+    description: >-
+      Byte layout of the display temperature-unit characteristic, which is a display preference and
+      not the wire encoding.
+  - title: "orlopau: push events"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/push-events.md"
+    description: "The push-event codes the mug notifies with."
+  - title: "orlopau: time, date and time zone characteristic"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/time-date-zone.md"
+    description: "Byte layout of the time/date/zone characteristic."
+  - title: "orlopau: OTA"
+    url: "https://github.com/orlopau/ember-mug/blob/master/docs/ota.md"
+    description: "What is known about the mug's firmware-update surface."
+  - title: "python-ember-mug"
+    url: "https://github.com/sopelj/python-ember-mug"
+    description: >-
+      Maintained Python client and the source of several facts recorded here: the DSK/UDSK model,
+      the enforced setpoint bounds, and the manufacturer-data ID the advertisement is read from.
+  - title: "python-ember-mug: consts.py"
+    url: "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/consts.py"
+    description: "UUID and constant tables."
+  - title: "python-ember-mug: mug.py"
+    url: "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/mug.py"
+    description: "Connect, claim-write and read/write flow."
+  - title: "python-ember-mug: data.py"
+    url: "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/data.py"
+    description: "Field decoding for each characteristic."
+  - title: "python-ember-mug: utils.py"
+    url: "https://github.com/sopelj/python-ember-mug/blob/main/ember_mug/utils.py"
+    description: "Encoding helpers for temperature, name and colour."
+  - title: "hass-ember-mug-component"
+    url: "https://github.com/sopelj/hass-ember-mug-component"
+    description: >-
+      Home Assistant integration built on python-ember-mug; shows this entity mapping in production
+      use.
+  - title: "hass-ember-mug-component: manifest.json"
+    url: "https://github.com/sopelj/hass-ember-mug-component/blob/main/custom_components/ember_mug/manifest.json"
+    description: "The integration's Bluetooth discovery matchers."
+  - title: "zopieux/mugctl"
+    url: "https://github.com/zopieux/mugctl"
+    description: "Small third-party command-line controller for the mug."
+  - title: "Ember support: how to pair a mug"
+    url: "https://support.ember.com/en-US/ember-mug-how-to-pair-1757457"
+    description: >-
+      Vendor instructions for putting the mug into pairing mode, which is the physical step this
+      spec's setup sequence starts from.

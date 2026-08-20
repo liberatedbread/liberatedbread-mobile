@@ -247,6 +247,61 @@ class RealSpecCodec implements SpecCodec {
       rust.kasaDecodeDatagram(datagram: datagram);
 
   @override
+  Future<RabbitAirRequestDto> renderNetworkRabbitAirCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+    required int requestId,
+    required int deviceTs,
+  }) =>
+      rust.renderNetworkRabbitAirCommand(
+        specYaml: specYaml,
+        commandName: commandName,
+        values: values,
+        requestId: requestId,
+        deviceTs: deviceTs,
+      );
+
+  @override
+  Future<RabbitAirRequestDto> renderNetworkRabbitAirStateRequest({
+    required String specYaml,
+    required String stateCommand,
+    required int requestId,
+    required int deviceTs,
+  }) =>
+      rust.renderNetworkRabbitAirStateRequest(
+        specYaml: specYaml,
+        stateCommand: stateCommand,
+        requestId: requestId,
+        deviceTs: deviceTs,
+      );
+
+  @override
+  Future<int> rabbitAirPort() => rust.rabbitAirPort();
+
+  @override
+  Future<List<int>> rabbitAirEncryptDatagram({
+    required String userKey,
+    required String plaintext,
+  }) =>
+      rust.rabbitAirEncryptDatagram(userKey: userKey, plaintext: plaintext);
+
+  @override
+  Future<String> rabbitAirDecryptDatagram({
+    required String userKey,
+    required List<int> datagram,
+  }) =>
+      rust.rabbitAirDecryptDatagram(userKey: userKey, datagram: datagram);
+
+  @override
+  Future<int> rabbitAirTimeSyncOffset({
+    required String replyJson,
+    required int localNowSecs,
+  }) =>
+      rust.rabbitAirTimeSyncOffset(
+          replyJson: replyJson, localNowSecs: localNowSecs);
+
+  @override
   Future<NetworkReadingDto?> readNetworkEntity({
     required String specYaml,
     required String entityName,
@@ -429,6 +484,45 @@ class RealSpecCodec implements SpecCodec {
   Future<LifxAccessPointDto> decodeLifxAccessPoint(
           {required List<int> bytes}) =>
       rust.decodeLifxAccessPoint(bytes: bytes);
+
+  @override
+  Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls) =>
+      rust.softApProfiles(specYamls: specYamls);
+
+  @override
+  Future<int?> matchSoftApSsid({
+    required List<SoftApProfileDto> profiles,
+    required String ssid,
+  }) =>
+      rust.matchSoftApSsid(profiles: profiles, ssid: ssid);
+
+  @override
+  Future<List<SoapRequestDto>> renderWemoConnectRequests({
+    required String specYaml,
+    required String metaInfo,
+    required String ssid,
+    required String auth,
+    required String encrypt,
+    required String channel,
+    required String passphrase,
+  }) =>
+      rust.renderWemoConnectRequests(
+        specYaml: specYaml,
+        metaInfo: metaInfo,
+        ssid: ssid,
+        auth: auth,
+        encrypt: encrypt,
+        channel: channel,
+        passphrase: passphrase,
+      );
+
+  @override
+  Future<WemoJoinStatus> wemoNetworkStatus({required String code}) =>
+      rust.wemoNetworkStatus(code: code);
+
+  @override
+  Future<List<WemoAccessPointDto>> parseWemoApList({required String apList}) =>
+      rust.parseWemoApList(apList: apList);
 
   @override
   Future<PlaylistWritesDto> encodeSetPlaylist({

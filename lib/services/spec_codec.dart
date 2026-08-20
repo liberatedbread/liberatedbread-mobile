@@ -54,12 +54,16 @@ export '../src/rust/api/device_api.dart'
         SoapRequestDto,
         HttpRequestDto,
         KasaRequestDto,
+        RabbitAirRequestDto,
         QuerySourceDto,
         LifxServiceDto,
         LifxStateDto,
         LifxZoneColorDto,
         LifxZonesDto,
-        LifxAccessPointDto;
+        LifxAccessPointDto,
+        SoftApProfileDto,
+        WemoAccessPointDto,
+        WemoJoinStatus;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -276,6 +280,59 @@ abstract class SpecCodec {
   /// Decode a Kasa UDP reply datagram (no length prefix) back to its JSON text.
   Future<String> kasaDecodeDatagram({required List<int> datagram});
 
+  // ── Rabbit Air (encrypted JSON over UDP) ──────────────────────────────────
+  // Like Kasa the invocation is JSON, but the wire crypto is real:
+  // AES-128-CBC under the per-device user key, the random IV appended as the
+  // datagram's last 16 bytes. Byte-in/byte-out, same as Kasa — Dart owns the
+  // socket, the retries, and the request-id matching.
+
+  /// Render a named `transport: udp` command into the Rabbit Air envelope
+  /// JSON to send — the sibling of [renderNetworkKasaCommand]. [requestId] is
+  /// the caller's fresh nonce (the reply echoes it); [deviceTs] is the
+  /// device-clock timestamp, extrapolated from the learned offset.
+  Future<RabbitAirRequestDto> renderNetworkRabbitAirCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+    required int requestId,
+    required int deviceTs,
+  });
+
+  /// Render the envelope that polls a Rabbit Air state command (`get_state`),
+  /// or the `time_sync` handshake command — the counterpart of
+  /// [renderNetworkKasaStateRequest].
+  Future<RabbitAirRequestDto> renderNetworkRabbitAirStateRequest({
+    required String specYaml,
+    required String stateCommand,
+    required int requestId,
+    required int deviceTs,
+  });
+
+  /// The UDP port every Rabbit Air purifier listens on (9009).
+  Future<int> rabbitAirPort();
+
+  /// Encrypt an envelope for the wire under the 16-byte user key (its
+  /// 32-hex-character spelling); the returned datagram is ciphertext with the
+  /// random IV appended as the last 16 bytes. Throws on a malformed key.
+  Future<List<int>> rabbitAirEncryptDatagram({
+    required String userKey,
+    required String plaintext,
+  });
+
+  /// Decrypt a reply datagram back to its JSON text. Throws on a wrong key or
+  /// a short/mis-sized datagram rather than returning garbage.
+  Future<String> rabbitAirDecryptDatagram({
+    required String userKey,
+    required List<int> datagram,
+  });
+
+  /// The clock offset a `time_sync` reply teaches: the reply's `data.ts`
+  /// minus [localNowSecs]. Throws on a reply carrying `error` or no `data.ts`.
+  Future<int> rabbitAirTimeSyncOffset({
+    required String replyJson,
+    required int localNowSecs,
+  });
+
   /// Decode one entity's state from the name→value pairs a state call
   /// returned. Null when the reply did not carry the entity's value — which
   /// renders as unknown, never as a fabricated zero.
@@ -438,6 +495,46 @@ abstract class SpecCodec {
 
   /// Decode a `StateAccessPoint` scan-result reply.
   Future<LifxAccessPointDto> decodeLifxAccessPoint({required List<int> bytes});
+
+  // ── Wemo SoftAP setup, and the shared softap-profile catalogue ─────────────
+  // The Wemo half of adoption (SOAP): the passphrase encryption and the ApList
+  // parse. `softApProfiles`/`matchSoftApSsid` are family-agnostic — they back
+  // the "a setup network is nearby" hint that spins the adopt icon.
+
+  /// Every softap setup method the catalogue declares (Wemo, LIFX, …), from the
+  /// given spec YAMLs — the families the adopt flow can offer, and the SSID
+  /// prefixes the nearby-network hint watches for.
+  Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls);
+
+  /// The index of the first profile whose setup-AP prefix matches [ssid]
+  /// (case-insensitive, anchored), or null. Drives the spinning hint.
+  Future<int?> matchSoftApSsid({
+    required List<SoftApProfileDto> profiles,
+    required String ssid,
+  });
+
+  /// Every `ConnectHomeNetwork` request worth sending to join [ssid], rendered
+  /// and ready to POST — the Wemo counterpart of [renderLifxSetAccessPoint].
+  /// The passphrase is encrypted (each variant of the spec's sweep) and each
+  /// attempt rendered into a SOAP request; the caller POSTs them in turn until
+  /// one joins. [metaInfo] is the raw `GetMetaInfo` reply (unused for an open
+  /// network). Throws when the passphrase is too short — terminal, worth saying
+  /// before any network I/O.
+  Future<List<SoapRequestDto>> renderWemoConnectRequests({
+    required String specYaml,
+    required String metaInfo,
+    required String ssid,
+    required String auth,
+    required String encrypt,
+    required String channel,
+    required String passphrase,
+  });
+
+  /// Interpret a Wemo `GetNetworkStatus` reply's `NetworkStatus` value.
+  Future<WemoJoinStatus> wemoNetworkStatus({required String code});
+
+  /// Parse a Wemo `GetApList` reply into pickable networks.
+  Future<List<WemoAccessPointDto>> parseWemoApList({required String apList});
 
   /// Encode the writes that loop stored frames as an animation: the
   /// set-playlist command then loop mode. [cids] are the stored frames in play

@@ -26,6 +26,26 @@ heading.
 
 ### Changed
 
+- **`./scripts/update-specs.sh` builds the spec index when the source cannot
+  have a current one.** Upstream generates `device-specs/index.json` in CI and
+  commits it after a spec merges, so a spec *branch* — or a local checkout with
+  an uncommitted spec, which is how a spec and the app get written together —
+  carries an index that predates the spec being tested. The app's loader is
+  index-driven, so the device it names simply would not appear. The refresh now
+  runs upstream's own generator over the specs it just vendored whenever the
+  source is a local checkout, and on demand for any source with
+  `--rebuild-index` (`--no-rebuild-index` opts out). The rebuild is left
+  uncommitted deliberately: committing it would make the next `git subtree
+  pull` merge our generated index against upstream's, which is the conflict
+  upstream moved the build into CI to end — so a later pull discards it before
+  pulling, and rebuilds after. `--check` gained the matching pair: it tolerates
+  that one file being dirty when it verifies byte-for-byte as generator output
+  over the vendored specs, and it now fails when the index and the specs beside
+  it name different sets, which is the same invariant
+  `rust/tests/vendored_assets.rs` enforces but reported at refresh time with
+  the command that fixes it. The rebuild and the verification want a python3
+  with `pyyaml` + `jsonschema` (`PYTHON=` overrides the interpreter); nothing
+  else in this repo does, and a clean vendored tree never asks for them
 - **An Airthings dashboard now shows every sensor the unit has, wherever the
   firmware puts it.** Refreshed vendored protocol-specs: temperature and
   humidity gain bindings on each Wave model's combined packet — the source
@@ -387,6 +407,57 @@ heading.
 
 ### Added
 
+- **The Linux desktop build has an app icon.** It was the one platform without
+  one: iOS, macOS, Android and web all carried the mascot, and the GTK build
+  shipped whatever generic placeholder the desktop supplies — so a running
+  window was unidentifiable in a taskbar or an alt-tab switcher.
+  `tool/branding/generate_icons.mjs` now emits seven flattened sizes (16–256,
+  the freedesktop hicolor set) to `linux/resources/`, `linux/CMakeLists.txt`
+  copies them into the bundle at `data/resources/`, and
+  `linux/my_application.cc` loads them and sets the default window icon list at
+  startup, before any window exists. All seven ship rather than one large one
+  because a desktop picks per surface, and given only a 256 the compositor
+  downscales it into the muddy taskbar icon this exists to avoid.
+
+  The icons are loaded from the bundle rather than looked up by name through
+  the icon theme, which is the GTK-idiomatic call: a theme lookup only resolves
+  for an *installed* app, and this one normally runs straight out of
+  `build/linux/x64/<mode>/bundle`. `scripts/verify_linux_bundle.sh` asserts each
+  size arrives, since a bundle missing them builds green, starts fine, and is
+  wrong only somewhere CI never looks.
+
+  A native **Wayland** session needs one more piece, and cannot use the above:
+  the protocol has no per-window icons, so the compositor matches the surface's
+  `app_id` to an installed `.desktop` file instead. `linux/main.cc` therefore
+  sets the process name to `APPLICATION_ID` (`ca.pigscanfly.liberatedbread`,
+  which also fixes the X11 `WM_CLASS`), and the new
+  `scripts/install-linux-desktop-entry.sh` installs a matching entry and the
+  hicolor icons under `~/.local/share` — no root, nothing outside `$HOME`, and
+  `--uninstall` to undo. It is deliberately not run by the build or by
+  `run-linux.sh`: writing into a developer's desktop environment is not
+  something a build should do unasked.
+
+- **Rabbit Air purifiers (full local control over Wi-Fi).** The fourth
+  network transport, after SOAP (Wemo), plain HTTP (Roku) and Kasa: the
+  Rabbit Air LAN protocol is an encrypted JSON envelope — `{id, cmd, ts,
+  data}` — over UDP datagrams on port 9009, AES-128-CBC under a per-device
+  16-byte user key with a random IV appended to each datagram. The crypto,
+  the envelope renderer and the device-clock handshake (cmd 9 `time_sync`,
+  then timestamps extrapolated from the learned offset) live in the Rust core
+  (`rust/src/protocol/rabbit_air.rs`, pinned against the spec's documented
+  example exchange); `RabbitAirControlClient` owns the UDP socket, the
+  vendor's 3-attempts/2 s retry discipline and reply matching on the echoed
+  request id. The spec's whole surface renders through the existing entity
+  cards: a Power switch, an Auto/Pollen/Manual mode select, a 1–5 fan-speed
+  number, air-quality / filter-life / Wi-Fi-RSSI sensors, and Ionizer and
+  Child Lock switches. Because the wire is encrypted, the first visit to the
+  device screen asks for the 32-character user key (the vendor app reveals it
+  under device page → Rename → tap the device name), validated as hex and
+  stored per Thing ID in the platform keychain
+  (`RabbitAirKeyStore`, the Hue credential store's precedent). Discovery
+  needed nothing new: the generic mDNS enumeration already finds
+  `_rabbitair._udp.local`. The tokenless plaintext mode and the TCP 9009
+  variant the vendor library also documents are deliberately not implemented.
 - **TP-Link Kasa smart plugs (on/off control over Wi-Fi).** The third network
   transport, after SOAP (Wemo) and plain HTTP (Roku): the Kasa local protocol
   is JSON over a raw TCP socket on port 9999, obfuscated by a trivial XOR-

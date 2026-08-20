@@ -376,14 +376,45 @@ obd:
       type: "bytes"
       verification: "reported"
 
-references:
-  - "https://www.motoscan.de/"
-  - "https://play.google.com/store/apps/details?id=de.wgsoft.motoscan"
-  - "https://www.wgsoft.de/unicarscan-ucsi-2100"
-  - "https://www.wgsoft.de/download/all"
-  - "https://gallia.readthedocs.io/en/stable/uds/scan_modes.html"
-  - "https://www.bimmerforums.com/forum/showthread.php?2298830"
-  - "https://mechanics.stackexchange.com/questions/49744/bmw-can-bus-data-format"
-  - "https://www.hexgs911.com/"
-  - "https://www.bimmerguide.de/neuer-unicarscan-ucsi-2100-3000-diagnoseadapter/"
-  - "https://motoscan.en.aptoide.com/app"
+helpful_urls:
+  - title: "MotoScan (WGSoft)"
+    url: "https://www.motoscan.de/"
+    description: >-
+      Vendor site for the app this spec is derived from, and the tool that covers the dealer-gated
+      diagnostic surface on BMW motorcycles.
+  - title: "MotoScan on Google Play"
+    url: "https://play.google.com/store/apps/details?id=de.wgsoft.motoscan"
+    description: "Distribution page for the analysed app, package de.wgsoft.motoscan."
+  - title: "UniCarScan UCSI-2100 adapter"
+    url: "https://www.wgsoft.de/unicarscan-ucsi-2100"
+    description: >-
+      Vendor page for the adapter MotoScan classifies as an original; relevant to the 255-byte
+      long-message mode this spec documents for coding and adaptation writes.
+  - title: "WGSoft downloads"
+    url: "https://www.wgsoft.de/download/all"
+    description: "Vendor download index, and the route to genuine MotoScan and UniCarScan builds."
+  - title: "gallia: UDS scan modes"
+    url: "https://gallia.readthedocs.io/en/stable/uds/scan_modes.html"
+    description: >-
+      Documentation of the UDS scanning techniques behind the ECU and service discovery this spec
+      describes.
+  - title: "BimmerForums thread on BMW diagnostics"
+    url: "https://www.bimmerforums.com/forum/showthread.php?2298830"
+    description: "Owner-forum thread; community evidence rather than a primary source."
+  - title: "Stack Exchange: BMW CAN bus data format"
+    url: "https://mechanics.stackexchange.com/questions/49744/bmw-can-bus-data-format"
+    description: >-
+      Q and A on how BMW frames diagnostic data on CAN; background for the addressing scheme
+      recorded here.
+  - title: "HEX GS-911"
+    url: "https://www.hexgs911.com/"
+    description: "Vendor site for the GS-911, the other well-known BMW motorcycle diagnostic tool."
+  - title: "BimmerGuide: UniCarScan UCSI-2100 and UCSI-3000 adapters"
+    url: "https://www.bimmerguide.de/neuer-unicarscan-ucsi-2100-3000-diagnoseadapter/"
+    description: >-
+      Write-up covering both adapter generations, including the UCSI-3000 this spec notes as
+      expected-but-unverified.
+  - title: "MotoScan on Aptoide"
+    url: "https://motoscan.en.aptoide.com/app"
+    description: >-
+      Mirror listing for the app; an alternative source when the Play listing is unavailable.

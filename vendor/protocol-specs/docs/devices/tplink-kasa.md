@@ -64,8 +64,10 @@ obfuscation, not security — there is no secret. Reproducible test vectors
 Broadcast the XOR-encoded `{"system":{"get_sysinfo":null}}` to
 `255.255.255.255:9999`. Every Kasa-protocol device on the segment answers with
 a unicast datagram carrying its full `get_sysinfo` — `alias`, `model`,
-`deviceId`, `mac`, `rssi` and `relay_state`. `deviceId` is the stable identity;
-`alias` is the user-facing name.
+`feature`, `deviceId`, `mac`, `rssi` and `relay_state`. `deviceId` is the
+stable identity; `alias` is the user-facing name; `model` and `feature` are
+what a client matches to decide which entities this unit actually has (see
+[Energy monitoring](#energy-monitoring-hs110-kp115)).
 
 ## Commands
 
@@ -74,8 +76,37 @@ a unicast datagram carrying its full `get_sysinfo` — `alias`, `model`,
 | `{"system":{"get_sysinfo":null}}` | Device info + current `relay_state` (0/1). The state poll and the discovery probe. |
 | `{"system":{"set_relay_state":{"state":1}}}` | Turn the outlet **on**. |
 | `{"system":{"set_relay_state":{"state":0}}}` | Turn the outlet **off**. |
-| `{"emeter":{"get_realtime":null}}` | HS110 only — instantaneous voltage/current/power/total. Not modelled as an entity yet. |
+| `{"emeter":{"get_realtime":null}}` | Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. The state poll for the energy sensors below. |
 | `netif.set_stainfo` | Provisioning: join the plug to a Wi-Fi network. |
+
+## Energy monitoring (HS110, KP115)
+
+The meter is modelled as four sensor entities in the machine-readable spec —
+**Voltage** (V), **Current** (A), **Power** (W) and **Total Consumption**
+(kWh) — all polled with `emeter.get_realtime`. The reply nests under
+`{"emeter":{"get_realtime":{...}}}`.
+
+**Only some of the family has the hardware.** The HS110 and KP115 meter; the
+HS100/HS103/HS105/KP105 do not, and answer this command with an error rather
+than a reading. The four sensors are scoped in the spec with
+`variants: ["HS110", "KP115"]`, matched against the `device.variants` table, so
+a client can drop them instead of drawing four tiles that are permanently
+unavailable. Match `get_sysinfo`'s `model` against a variant's `model_prefix`
+as a **prefix** — the reply is `"HS110(US)"`, region suffix and all. Better
+still, `get_sysinfo` answers a colon-separated `feature` list: `"ENE"` in it
+means *this unit* has the meter, which is the check python-kasa's `has_emeter`
+makes and the one that stays correct when a new model ships.
+
+**And the field names vary by hardware revision.** Current firmware reports
+`voltage`/`current`/`power`/`total` as floats already in V/A/W/kWh; HS110
+hardware v1 reports `voltage_mv`/`current_ma`/`power_mw`/`total_wh` in
+milli-units instead. This is a *rename*, not just a scaling — on hw v1 the
+modern keys are absent, so a client resolving the primary path finds nothing at
+all. Each sensor therefore carries a `state_mapping.value_fallback` naming the
+legacy path and the factor (`0.001`) that brings it back to the entity's unit:
+try the primary, fall back only when that key is missing. That is what
+python-kasa's `EmeterStatus` does, and both code paths exist in the vendor app
+(see the spec's `evidence` block).
 
 ## Setup (adopting a reset plug)
 

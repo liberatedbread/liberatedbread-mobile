@@ -372,10 +372,11 @@ pub fn unsupported_encoding_kind(command: &Command) -> Option<String> {
     if command.value.is_some() || command.template.is_some() {
         return None;
     }
-    // `encoding: bytes` + `payload.bytes` is a fixed byte write in a
-    // different envelope (govee specs), so it is encodable; the same
-    // encoding with a missing or malformed payload is not — there is
-    // nothing to send.
+    // `encoding: bytes` + `payload.bytes` is a fixed byte write filed under
+    // the wrong key, so it is still encodable; the same encoding with a
+    // missing or malformed payload is not — there is nothing to send. The
+    // spec schema rejects that key now; see Command::payload_bytes for why
+    // the reader stays anyway.
     if command.payload_bytes().is_some() {
         return None;
     }
@@ -477,10 +478,13 @@ pub fn encode_command_with_bytes(
                 // `seq`/`flag` come from the spec.
                 let val = match def.and_then(|d| d.auto) {
                     Some(AutoRole::Sequence) => params.get(name.as_str()).copied().unwrap_or(0.0),
-                    Some(AutoRole::Checksum) => match params.get(name.as_str()) {
+                    Some(
+                        role @ (AutoRole::Checksum | AutoRole::XorChecksum | AutoRole::Crc16Modbus),
+                    ) => match params.get(name.as_str()) {
                         Some(v) => *v,
                         None => {
-                            compute_checksum(&bytes, def.expect("auto implies a def"), name)? as f64
+                            compute_checksum(&bytes, def.expect("auto implies a def"), name, role)?
+                                as f64
                         }
                     },
                     _ => match params.get(name.as_str()) {
@@ -527,17 +531,42 @@ pub fn encode_command_with_bytes(
     Ok(bytes)
 }
 
-/// Compute the byte an `auto: checksum` parameter emits: the sum of every
-/// frame byte from `checksum_start` (default 1) up to the current end of the
-/// buffer, mod 256, then XORed with `checksum_xor` (default 0).
+/// Compute the value an `auto` checksum parameter emits, over every frame byte
+/// from `checksum_start` up to the current end of the buffer.
 ///
-/// `emitted` is the frame built so far — the checksum byte itself is not yet
-/// in it, so "up to but not including the checksum position" falls out of the
-/// call site. `checksum_start` beyond the emitted length is a spec error
+/// - [`AutoRole::Checksum`] sums them mod 256, then XORs `checksum_xor`
+///   (default 0).
+/// - [`AutoRole::XorChecksum`] folds them with XOR instead, which is how the
+///   Govee 20-byte frames end.
+/// - [`AutoRole::Crc16Modbus`] runs CRC-16/MODBUS over them (reflected poly
+///   0xA001, init 0xFFFF, no final xor), which is MODBUS-RTU framing.
+///
+/// `checksum_xor` is a salt on the additive result and is deliberately not
+/// applied to the other two — no spec pairs them, and doing it silently would
+/// make one spelling mean two things.
+///
+/// Returns `u16` because the MODBUS CRC is two bytes; the one-byte roles widen.
+/// The caller emits the value through the ordinary numeric path, so the
+/// parameter's declared `type` and `endianness` place the bytes — which is how
+/// MODBUS's low-byte-first convention comes out of the default little-endian
+/// without a special case here.
+///
+/// `checksum_start` defaults to 1, the additive idiom's convention of skipping
+/// the frame leader; Govee's XOR frames and MODBUS-RTU both cover the whole
+/// frame and say 0.
+///
+/// `emitted` is the frame built so far — the checksum itself is not yet in it,
+/// so "up to but not including the checksum position" falls out of the call
+/// site. `checksum_start` beyond the emitted length is a spec error
 /// (`ParameterInvalid`), not a silent zero-sum over an empty range: a frame
 /// whose checksum never sees its bytes fails on the device in a way nobody
 /// can debug from the app.
-fn compute_checksum(emitted: &[u8], def: &Parameter, name: &str) -> Result<u8, ProtocolError> {
+fn compute_checksum(
+    emitted: &[u8],
+    def: &Parameter,
+    name: &str,
+    role: AutoRole,
+) -> Result<u16, ProtocolError> {
     let start = def.checksum_start.unwrap_or(1);
     if emitted.len() <= start {
         return Err(ProtocolError::ParameterInvalid {
@@ -549,11 +578,39 @@ fn compute_checksum(emitted: &[u8], def: &Parameter, name: &str) -> Result<u8, P
             ),
         });
     }
-    let sum: u32 = emitted[start..].iter().map(|b| u32::from(*b)).sum();
-    // `checksum_xor` is i64 like every spec number; only its low byte can
-    // affect a one-byte checksum, so mask rather than reject a wider value.
-    let xor = (def.checksum_xor.unwrap_or(0) & 0xFF) as u8;
-    Ok((sum % 256) as u8 ^ xor)
+    let span = &emitted[start..];
+    match role {
+        AutoRole::XorChecksum => Ok(u16::from(span.iter().fold(0u8, |acc, b| acc ^ b))),
+        AutoRole::Crc16Modbus => Ok(crc16_modbus(span)),
+        _ => {
+            let sum: u32 = span.iter().map(|b| u32::from(*b)).sum();
+            // `checksum_xor` is i64 like every spec number; only its low byte
+            // can affect a one-byte checksum, so mask rather than reject a
+            // wider value.
+            let xor = (def.checksum_xor.unwrap_or(0) & 0xFF) as u8;
+            Ok(u16::from((sum % 256) as u8 ^ xor))
+        }
+    }
+}
+
+/// CRC-16/MODBUS: reflected polynomial 0xA001, init 0xFFFF, no final xor.
+///
+/// Bitwise rather than table-driven on purpose — these frames are a handful of
+/// bytes sent on a user action, so a 512-byte table would cost more to carry
+/// and to review than the eight shifts it saves.
+fn crc16_modbus(data: &[u8]) -> u16 {
+    let mut crc: u16 = 0xFFFF;
+    for byte in data {
+        crc ^= u16::from(*byte);
+        for _ in 0..8 {
+            let lsb = crc & 1 != 0;
+            crc >>= 1;
+            if lsb {
+                crc ^= 0xA001;
+            }
+        }
+    }
+    crc
 }
 
 /// Validate that `val` is within `[def.min, def.max]` if either bound is set.
@@ -1303,6 +1360,184 @@ mod tests {
             }
             other => panic!("expected ParameterInvalid, got {other:?}"),
         }
+    }
+
+    // ── auto: xor_checksum ──────────────────────────────────────────────────
+
+    /// The Govee 20-byte frame shape: `set_brightness` is `33 04 <val>` then
+    /// thirteen zero-padding bytes and a trailing XOR over bytes 0..18, so the
+    /// checksum covers the whole frame and says `checksum_start: 0`.
+    fn govee_brightness_cmd() -> Command {
+        let mut template = vec![
+            TemplateElement::Byte(0x33),
+            TemplateElement::Byte(0x04),
+            TemplateElement::Param("brightness".into()),
+        ];
+        template.extend(std::iter::repeat_n(TemplateElement::Byte(0x00), 16));
+        template.push(TemplateElement::Param("checksum".into()));
+        Command {
+            description: "set brightness".into(),
+            value: None,
+            template: Some(template),
+            parameters: Some(pset([
+                ("brightness", param(ValueType::Uint8, Some(0), Some(255))),
+                (
+                    "checksum",
+                    Parameter {
+                        value_type: ValueType::Uint8,
+                        auto: Some(AutoRole::XorChecksum),
+                        checksum_start: Some(0),
+                        ..Default::default()
+                    },
+                ),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+        }
+    }
+
+    #[test]
+    fn xor_checksum_folds_the_frame_from_checksum_start() {
+        // brightness 0x80: 0x33 ^ 0x04 ^ 0x80 = 0xB7, the zero padding being
+        // transparent to an XOR fold.
+        let out = encode_command(
+            &govee_brightness_cmd(),
+            &HashMap::from([("brightness".into(), 128.0)]),
+        )
+        .unwrap();
+        assert_eq!(out.len(), 20, "Govee frames are a fixed 20 bytes");
+        assert_eq!(out[..3], [0x33, 0x04, 0x80]);
+        assert_eq!(out[19], 0xB7);
+        assert_eq!(out[..19].iter().fold(0u8, |a, b| a ^ b), out[19]);
+    }
+
+    #[test]
+    fn xor_checksum_differs_from_the_additive_role() {
+        // The reason this is a separate role and not a flag: over the same
+        // span the two reductions disagree (0x33+0x04+0x80 = 0xB7 by luck
+        // here, so use a frame where they do not).
+        let out = encode_command(
+            &govee_brightness_cmd(),
+            &HashMap::from([("brightness".into(), 0x21 as f64)]),
+        )
+        .unwrap();
+        let xor = 0x33u8 ^ 0x04 ^ 0x21;
+        let additive = (0x33u32 + 0x04 + 0x21) as u8;
+        assert_ne!(xor, additive, "picked a value where the two agree");
+        assert_eq!(out[19], xor);
+    }
+
+    #[test]
+    fn xor_checksum_honors_a_caller_supplied_value() {
+        // Same contract as the additive role: a caller that already knows the
+        // byte is not forced to let the encoder recompute it.
+        let params = HashMap::from([
+            ("brightness".into(), 128.0),
+            ("checksum".into(), 0x99 as f64),
+        ]);
+        let out = encode_command(&govee_brightness_cmd(), &params).unwrap();
+        assert_eq!(out[19], 0x99);
+    }
+
+    #[test]
+    fn xor_checksum_is_not_a_user_control() {
+        // The whole point of the review that prompted this role: an auto
+        // parameter must never be presented as, or required from, a control.
+        let cmd = govee_brightness_cmd();
+        let checksum = &cmd.parameters.as_ref().unwrap().params["checksum"];
+        assert!(checksum.auto.is_some(), "checksum must carry an auto role");
+        assert!(
+            encode_command(&cmd, &HashMap::from([("brightness".into(), 10.0)])).is_ok(),
+            "brightness alone must be enough to send"
+        );
+    }
+
+    // ── auto: crc16_modbus ──────────────────────────────────────────────────
+
+    #[test]
+    fn crc16_modbus_matches_the_standard_check_vector() {
+        // The catalogue check value for CRC-16/MODBUS: "123456789" -> 0x4B37.
+        assert_eq!(crc16_modbus(b"123456789"), 0x4B37);
+    }
+
+    /// Bluetti's MODBUS-RTU write: `01 06 0B BF 00 <on> <crc lo> <crc hi>`,
+    /// the CRC covering the frame from the address byte (`checksum_start: 0`).
+    fn bluetti_set_ac_output() -> Command {
+        Command {
+            description: "AC output on/off".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0x01),
+                TemplateElement::Byte(0x06),
+                TemplateElement::Byte(0x0B),
+                TemplateElement::Byte(0xBF),
+                TemplateElement::Byte(0x00),
+                TemplateElement::Param("on".into()),
+                TemplateElement::Param("crc".into()),
+            ]),
+            parameters: Some(pset([
+                ("on", param(ValueType::Uint8, Some(0), Some(1))),
+                (
+                    "crc",
+                    Parameter {
+                        value_type: ValueType::Uint16,
+                        auto: Some(AutoRole::Crc16Modbus),
+                        checksum_start: Some(0),
+                        ..Default::default()
+                    },
+                ),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+        }
+    }
+
+    #[test]
+    fn crc16_modbus_appends_low_byte_first() {
+        // MODBUS puts the CRC low byte first, which must fall out of the
+        // parameter's default little-endian rather than a special case.
+        let out = encode_command(
+            &bluetti_set_ac_output(),
+            &HashMap::from([("on".into(), 1.0)]),
+        )
+        .unwrap();
+        assert_eq!(out.len(), 8, "MODBUS write frame is 8 bytes");
+        assert_eq!(out[..6], [0x01, 0x06, 0x0B, 0xBF, 0x00, 0x01]);
+        let expected = crc16_modbus(&out[..6]);
+        assert_eq!(
+            [out[6], out[7]],
+            [(expected & 0xFF) as u8, (expected >> 8) as u8],
+            "low byte first"
+        );
+    }
+
+    #[test]
+    fn crc16_modbus_is_not_a_user_control() {
+        // The whole point of the role: `on` alone must be enough to send.
+        let cmd = bluetti_set_ac_output();
+        let crc = &cmd.parameters.as_ref().unwrap().params["crc"];
+        assert_eq!(crc.auto, Some(AutoRole::Crc16Modbus));
+        assert!(encode_command(&cmd, &HashMap::from([("on".into(), 0.0)])).is_ok());
+    }
+
+    #[test]
+    fn crc16_modbus_differs_from_the_other_checksum_roles() {
+        // Three roles, three answers over the same span — which is why each
+        // is a named algorithm rather than a knob on one.
+        let span = [0x01u8, 0x06, 0x0B, 0xBF, 0x00, 0x01];
+        let crc = crc16_modbus(&span);
+        let xor = span.iter().fold(0u8, |a, b| a ^ b);
+        let additive = span.iter().fold(0u32, |a, b| a + u32::from(*b)) as u8;
+        assert_ne!(crc & 0xFF, u16::from(xor) & 0xFF);
+        assert_ne!(crc & 0xFF, u16::from(additive) & 0xFF);
     }
 
     #[test]

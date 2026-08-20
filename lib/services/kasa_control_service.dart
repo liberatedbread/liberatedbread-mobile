@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'json_fields.dart';
 import 'spec_codec.dart';
 
 /// One request/reply exchange with a Kasa device over a raw TCP socket.
@@ -126,6 +127,23 @@ Map<String, String> kasaSysinfoFields(String replyJson) {
     }
   });
   return out;
+}
+
+/// Flatten whatever a Kasa state poll answered — the dispatch wrapper every
+/// state command goes through.
+///
+/// A `get_sysinfo` reply lifts exactly as [kasaSysinfoFields] has always done
+/// (flat keys, a strip's `children` dropped), because the outlet switch's
+/// `state_mapping` names `relay_state` bare. Anything else — the HS110's
+/// `get_emeter` reply — flattens recursively from the reply root via
+/// [jsonStateFields], so the emeter sensors' dotted `state_mapping` paths
+/// (`emeter.get_realtime.voltage`) name their values. Milli-unit hardware
+/// (HS110 hw v1's `voltage_mv`/`current_ma`/`power_mw`/`total_wh`) is NOT
+/// normalized here: no spec path names those keys, so such a unit reads as
+/// unknown rather than as mislabeled volts.
+Map<String, String> kasaStateFields(String replyJson) {
+  final sysinfo = kasaSysinfoFields(replyJson);
+  return sysinfo.isNotEmpty ? sysinfo : jsonStateFields(replyJson);
 }
 
 /// The Kasa transport failed: unreachable host, timeout, or an unreadable

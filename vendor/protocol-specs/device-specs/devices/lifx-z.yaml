@@ -576,13 +576,92 @@ http_endpoints:
     name: "Optional Embedded HTTP Root"
     description: "Some observed LIFX Z devices have TCP port 80 open, but LAN control is the binary UDP protocol on port 56700."
 
+commands:
+  # One invocation each, so a role map can name one. The message TYPE is not
+  # enough on its own: turn_on and turn_off are both LightSetPower and differ
+  # only by the `level` argument, which is exactly the value an entity's role
+  # map has nowhere to put. Field names and widths come from `payload_formats`
+  # above; the `lifx_lan_udp` protocol_handler builds the 36-byte header and
+  # frames these.
+  turn_on:
+    description: "Turn the strip on — LightSetPower with level at full."
+    transport: "udp"
+    action: "LightSetPower"
+    arguments:
+      level: 65535
+      duration: "{duration}"
+    parameters:
+      duration:
+        type: "uint32"
+        default: 0
+        unit: "ms"
+        description: "Fade time in milliseconds; 0 is instant."
+    notes: "Message type 117. Light-level power, not the device-level SetPower (21)."
+    verification: "confirmed"
+  turn_off:
+    description: "Turn the strip off — LightSetPower with level at zero."
+    transport: "udp"
+    action: "LightSetPower"
+    arguments:
+      level: 0
+      duration: "{duration}"
+    parameters:
+      duration:
+        type: "uint32"
+        default: 0
+        unit: "ms"
+        description: "Fade time in milliseconds; 0 is instant."
+    notes: "Message type 117."
+    verification: "confirmed"
+  set_color:
+    description: "Set every zone to one HSBK colour — LightSetColor. Per-zone control needs the multizone family (SetColorZones, 501) instead."
+    transport: "udp"
+    action: "LightSetColor"
+    arguments:
+      hue: "{hue}"
+      saturation: "{saturation}"
+      brightness: "{brightness}"
+      kelvin: "{kelvin}"
+      duration: "{duration}"
+    parameters:
+      hue:
+        type: "uint16"
+        min: 0
+        max: 65535
+        description: "Hue as a fraction of 360° across the full u16 range."
+      saturation:
+        type: "uint16"
+        min: 0
+        max: 65535
+        description: "0 is white, in which case `kelvin` sets the white point."
+      brightness:
+        type: "uint16"
+        min: 0
+        max: 65535
+      kelvin:
+        type: "uint16"
+        min: 1500
+        max: 9000
+        default: 3500
+        unit: "K"
+        description: "White point; meaningful when saturation is 0."
+      duration:
+        type: "uint32"
+        default: 0
+        unit: "ms"
+    notes: >
+      Message type 102. The payload is a reserved byte, the 8-byte HSBK, then
+      duration — see the `hsbk` and `set_color` payload formats. Full red is
+      hue 0, saturation and brightness 65535, kelvin 3500.
+    verification: "confirmed"
+
 entities:
   - platform: "light"
     name: "LIFX Z Multizone Strip"
     features: ["brightness", "color", "color_temperature"]
     state_topic: "udp://{host}:56700"
     commands:
-      turn_on: "SetPower"
-      turn_off: "SetPower"
-      set_color: "SetColor"
+      turn_on: "turn_on"
+      turn_off: "turn_off"
+      set_color: "set_color"
 

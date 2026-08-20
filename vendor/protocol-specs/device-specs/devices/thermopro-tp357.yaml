@@ -281,12 +281,32 @@ entities:
     unit: "%"
     notes: "Coarse 3-level mapping from byte 4 low bits: 1 / 50 / 100 %."
 
-references:
-  - "https://github.com/Bluetooth-Devices/thermopro-ble"
-  - "https://github.com/Bluetooth-Devices/thermopro-ble/blob/main/src/thermopro_ble/parser.py"
-  - "https://github.com/Bluetooth-Devices/thermopro-ble/blob/main/tests/test_parser.py"
-  - "https://github.com/Ernst79/bleparser/blob/c42ae922e1abed2720c7fac993777e1bd59c0c93/package/bleparser/thermopro.py"
-  - "https://github.com/custom-components/ble_monitor"
-  - "https://github.com/giovannipizzi/pytp357s"
-  - "https://github.com/giovannipizzi/pytp357s/blob/main/PROTOCOL.md"
-  - "https://github.com/pasky/tp357"
+helpful_urls:
+  - title: "thermopro-ble"
+    url: "https://github.com/Bluetooth-Devices/thermopro-ble"
+    description: >-
+      Parser library behind the Home Assistant ThermoPro integration; the reference advertisement
+      decode this spec follows.
+  - title: "thermopro-ble: parser.py"
+    url: "https://github.com/Bluetooth-Devices/thermopro-ble/blob/main/src/thermopro_ble/parser.py"
+    description: "The advertisement decode itself."
+  - title: "thermopro-ble: test_parser.py"
+    url: "https://github.com/Bluetooth-Devices/thermopro-ble/blob/main/tests/test_parser.py"
+    description: "Test vectors, including the test_tp357_raw case this spec quotes."
+  - title: "bleparser: thermopro.py"
+    url: "https://github.com/Ernst79/bleparser/blob/c42ae922e1abed2720c7fac993777e1bd59c0c93/package/bleparser/thermopro.py"
+    description: "The older parser thermopro-ble was copied from, pinned at the commit read here."
+  - title: "ble_monitor"
+    url: "https://github.com/custom-components/ble_monitor"
+    description: "The Home Assistant custom component bleparser ships in."
+  - title: "pytp357s"
+    url: "https://github.com/giovannipizzi/pytp357s"
+    description: "Client for the TP357S connected mode."
+  - title: "pytp357s: PROTOCOL.md"
+    url: "https://github.com/giovannipizzi/pytp357s/blob/main/PROTOCOL.md"
+    description: "The connected-mode protocol write-up this spec's TP357S section follows."
+  - title: "pasky/tp357"
+    url: "https://github.com/pasky/tp357"
+    description: >-
+      Original TP357 connected-mode client, and the source of the history opcodes and the
+      record-buffer limits recorded here.

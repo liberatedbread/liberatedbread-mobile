@@ -7,7 +7,26 @@ device:
   manufacturer: "Samsung SmartThings"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Probed live 2026-08-14 against the real hub (id D052A8A662BC0001 at the
+      address its mDNS answers resolved to). All three documented mDNS
+      services re-observed exactly as recorded in evidence (2026-07-16):
+      _smartthings._tcp 8081 (type=hubv2, path=/), _smartthings-hedge._tcp
+      8766 (feat=ctrl), _matter._tcp 49722 (T=6). The hedge HTTPS service is
+      REAL and gated as documented: GET /devices/hub/connectionState on 8766
+      without a bearer token answers 401
+      {"error":{"code":"UnauthorizedError","message":"authentication is
+      required for rate limited endpoints"}}, and its TLS certificate CN
+      embeds the hub UUID (hla-tcp.d5799221-24fc-4ada-b0e1-2ad8225d16d5.st,
+      matching the hedge instance name) — corroborating the CLI's
+      cert-pinning behavior. Port 9495 (CLI logcat API) answers the same 401
+      JSON with an O=SmartThings Inc. self-signed cert. Port 8081, despite
+      being the advertised primary service, REFUSED both http and https
+      connections during the probe — see the endpoint note. Not exercised:
+      anything behind the cloud-issued bearer tokens, and the reboot POST
+      (deliberately).
   protocol: "wifi"
   category: "hub"
   transport: "https"
@@ -198,7 +217,7 @@ http_endpoints:
     path: "/"
     name: "SmartThings Local Service Root"
     status: "unverified"
-    description: "Primary _smartthings._tcp service endpoint on port 8081 (probe-observed only; the 2016 community capture's TXT path=/ supports a root path existing, but no public documentation of an HTTP API on 8081 exists). Edge control is advertised separately on the hedge HTTPS service."
+    description: "Primary _smartthings._tcp service endpoint on port 8081 (probe-observed only; the 2016 community capture's TXT path=/ supports a root path existing, but no public documentation of an HTTP API on 8081 exists). Edge control is advertised separately on the hedge HTTPS service. Live probe 2026-08-14 (firmware-current hub, id D052A8A662BC0001): the port REFUSED both http and https connections even while the mDNS answer advertising it was fresh — on current firmware nothing listens there, so treat the advertisement as legacy identity metadata, not a usable API."
   - method: "GET"
     path: "/devices/hub/connectionState"
     name: "Hub Connection State (hedge, port 8766)"

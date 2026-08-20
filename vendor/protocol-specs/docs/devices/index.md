@@ -52,6 +52,9 @@ spec's `device.setup` block; the patterns are explained in
 | [Inkbird IBS-TH1/TH2 Hygrometer](inkbird-ibs-th.md) | BLE | Complete | None needed | Inkbird |
 | [ThermoPro TP357-family Hygrometers](thermopro-tp357.md) | BLE | Complete | None needed | ThermoPro (Adsmart) |
 | [Omron BLE Blood Pressure Monitors](omron-connect.md) | BLE | Complete | BLE button pairing + client key (high) | Omron Healthcare |
+| [Aranet4 CO2 Sensor](aranet4.md) | BLE | Complete | None needed (broadcast); bonding for history (high) | SAF Tehnika JSC |
+| [Bluetti Power Station](bluetti-power-station.md) | BLE | Complete | None needed | Bluetti (Shenzhen Poweroak) |
+| [Johnson JLX LDM330/LDM130 Laser Distance Meters](jlx-laser-distance-meter.md) | BLE | Spec Available | None needed (medium) | Johnson Level & Tool (Winho OEM) |
 | [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | [SoftAP + SOAP](wemo-setup.md) (medium) | Belkin |
 | [Anki Vector Robot](vector-robot.md) | WiFi + BLE | Research | BLE provisioning (high) | Anki / Digital Dream Labs |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Cloud account only (low) | Frigidaire (Electrolux) |
@@ -67,10 +70,18 @@ spec's `device.setup` block; the patterns are explained in
 | [Philips Hue Bridge](hue-bridge.md) | WiFi | Complete | Wired + link button (high) | Signify / Philips Hue |
 | [Enphase Envoy](enphase-envoy.md) | WiFi | Complete | Wired / SoftAP (low) | Enphase Energy |
 | [Dyson Air Purifier](dyson-air-purifier.md) | WiFi | Complete | SoftAP, sticker creds (medium) | Dyson |
+| [iRobot Roomba (Wi-Fi models)](irobot-roomba.md) | WiFi (MQTT over TLS 8883) | Complete | Button-press or account credential extraction (medium) | iRobot / Picea Robotics |
 | [LIFX Z](lifx-z.md) | WiFi | Complete | SoftAP, uncaptured (low) | LIFX |
 | [Lutron Caseta Smart Bridge 2](lutron-caseta-smart-bridge.md) | WiFi | In Progress | Wired + cert pairing (medium) | Lutron |
 | [TP-Link Kasa Smart Plug](tplink-kasa.md) | WiFi (JSON over TCP 9999) | Complete | SoftAP, uncaptured (low) | TP-Link |
 | [Rachio Controller](rachio-controller.md) | WiFi | Research | Uncaptured (low) | Rachio |
+| [Snapmaker U1 3D Printer](snapmaker-u1.md) | WiFi | Complete | None needed (Moonraker) | Snapmaker |
+| [PurpleAir Air Quality Sensor](purpleair-sensor.md) | WiFi | Complete | None needed | PurpleAir |
+| [UniFi Protect Camera](unifi-protect-camera.md) | WiFi | Complete | Enable RTSP in Protect | Ubiquiti |
+| [Ubiquiti UniFi Device](ubiquiti-unifi-device.md) | UDP 10001 | Complete (identify-only) | None needed | Ubiquiti |
+| [MikroTik RouterOS Device](mikrotik-routeros.md) | MNDP | Complete (identify-only) | None needed | MikroTik |
+| [Chamberlain Garage Opener (Security+)](chamberlain-garage-opener-secplus.md) | UART | Complete (needs bridge) | ratgdo/Konnected bridge | Chamberlain |
+| [ratgdo Garage-Door Controller](ratgdo.md) | WiFi (ESPHome) | Complete (untested) | Flash + wire to opener | ratgdo / Konnected |
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Wired + cloud account (low) | Samsung SmartThings |
 | [devolo Home Control](devolo-home-control.md) | Z-Wave | Spec Available | Exclude/re-include to any Z-Wave controller (medium) | devolo AG |
 | [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Pairing (medium) | Generic / ScanTool / Vgate |

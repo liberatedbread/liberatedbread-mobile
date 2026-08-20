@@ -30,12 +30,12 @@ enum DeviceCategory {
   lock(Icons.lock_outline, 'Lock'),
   motor(Icons.settings_outlined, 'Motor'),
 
-  /// Network infrastructure — routers, switches, access points, NVRs, NAS.
-  /// Usually `integration: identify_only` in the spec: recognised and linked to
-  /// its own admin page rather than controlled here. The specific shape (AP vs
-  /// switch vs router) comes from the spec's `pictogram`; this is the generic
-  /// fallback when none resolves.
-  network(Icons.lan_outlined, 'Network'),
+  /// Routers, switches, access points and gateways — the vendored examples are
+  /// MikroTik RouterOS and the Ubiquiti UniFi/EdgeMAX family, both of which
+  /// cover several form factors under one spec. The router glyph is the one
+  /// that reads at a glance for all of them; a switch or an AP drawn as a
+  /// generic box would say less than the thing people already picture.
+  network(Icons.router_outlined, 'Network'),
   printer(Icons.print_outlined, 'Printer'),
 
   /// A published-protocol reference (SAE J1979, ISO 14229, ISO 15765-2), not a
@@ -84,6 +84,8 @@ enum DeviceCategory {
         DeviceCategory.fitness ||
         DeviceCategory.health ||
         DeviceCategory.irrigation ||
+        // "Networks" would name the wrong thing: the group holds routers and
+        // access points, not networks. Same mass-noun treatment as Climate.
         DeviceCategory.network =>
           label,
         _ => '${label}s',

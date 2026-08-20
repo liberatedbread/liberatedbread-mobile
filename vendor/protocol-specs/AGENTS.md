@@ -46,14 +46,21 @@ pip install -r requirements.txt -r requirements-dev.txt
 ruff check .                      # lint the helper scripts
 pytest -q                         # test suite
 python scripts/validate_specs.py  # validate every spec against schema.json
-python scripts/generate_index.py  # device-specs/index.json must stay in sync
 python scripts/build_index.py --check   # JSON API freshness (what CI checks)
 mkdocs build --strict             # docs must build clean
 ```
 
-CI (`.github/workflows/ci.yml`) runs exactly these. If you touch a spec, expect
-to regenerate `device-specs/index.json` — CI fails on a stale one
-(`git diff --exit-code device-specs/index.json`).
+CI (`.github/workflows/ci.yml`) runs exactly these.
+
+**Do not commit `device-specs/index.json`.** It is generated, and CI's
+`publish-index` job rebuilds and commits it on every push to main — that is the
+whole reason it moved out of branches: with several spec PRs open at once, a
+60 kB machine-written file that every one of them touches conflicts with every
+other one. A PR carrying it fails CI (`Reject a hand-carried index.json`) with
+the command to drop it. If you want to see the index your specs produce,
+`python scripts/generate_index.py` still writes it locally — just leave it out
+of the commit (`python scripts/generate_index.py --check` reports staleness
+without writing).
 
 ## Adding or changing a device
 
@@ -61,7 +68,8 @@ to regenerate `device-specs/index.json` — CI fails on a stale one
    factory reset, rebinding).
 2. Add the device to `docs/devices/index.md` and to `mkdocs.yml`'s nav.
 3. Add a spec under `device-specs/devices/`, then
-   `python scripts/validate_specs.py` and regenerate the index.
+   `python scripts/validate_specs.py`. The index picks the spec up on its own
+   once this merges — do not commit `device-specs/index.json`.
 4. For net-new reverse engineering, follow the per-target clean-room workflow in
    [prompts/AGENT_META_PROMPT.md](prompts/AGENT_META_PROMPT.md).
 

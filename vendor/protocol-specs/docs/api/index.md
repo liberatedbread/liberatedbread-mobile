@@ -119,8 +119,9 @@ GET /api/v1/devices/chef-iq-sense.json
 }
 ```
 
-The checked-in `device-specs/index.json` carries `helpful_urls` and
-`helpful_videos` only for specs that define them. Absent fields are omitted,
+The checked-in `device-specs/index.json` — rebuilt and committed by CI on every
+push to main, so it trails a merged spec by one commit at most — carries
+`helpful_urls` and `helpful_videos` only for specs that define them. Absent fields are omitted,
 not emitted as empty arrays. Each reference entry requires `title` and an
 HTTP(S) `url`; `description` is optional. Contributors should only add links
 they have verified resolve.
