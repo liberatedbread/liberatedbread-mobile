@@ -113,6 +113,12 @@ Via WiFi (2017+ models), or Settings > Support > IP control settings > Wake
 on LAN (2025+ models); it works most reliably over Ethernet and requires the
 TV's MAC, captured while it is on.
 
+Power in the spec is therefore one-way: a stateful **Power** `switch` entity
+binds only `turn_off: power_off`
+([Spec Evolution P13](../contributing/spec-evolution.md#p13)) — no `turn_on`
+to bind, no power state to read; an unreachable socket is the closest thing
+to "off" webOS offers.
+
 ## Tools Used
 
 - [x] Source reading: LG Connect SDK, aiowebostv, bscpylgtv, openHAB lgwebos

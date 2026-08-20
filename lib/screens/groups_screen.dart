@@ -6,8 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/device_category.dart';
 import '../providers/device_group_provider.dart';
 import '../providers/saved_device_provider.dart';
+import '../providers/saved_network_device_provider.dart';
 import '../services/device_group_store.dart';
 import '../services/saved_device_store.dart';
+import '../services/saved_network_device_store.dart';
 import '../widgets/device_list_tile.dart';
 import 'group_detail_screen.dart';
 import 'group_edit_screen.dart';
@@ -21,14 +23,18 @@ class GroupsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final saved = ref.watch(savedDevicesProvider);
+    final savedNetwork = ref.watch(savedNetworkDevicesProvider);
     final auto = ref.watch(autoGroupsProvider);
     final custom = ref.watch(deviceGroupsProvider);
     final savedById = {for (final device in saved) device.id: device};
+    final savedNetworkById = {
+      for (final device in savedNetwork) device.id: device
+    };
 
     return Scaffold(
       backgroundColor: scheme.surface,
       appBar: AppBar(title: const Text('Groups')),
-      floatingActionButton: saved.isEmpty
+      floatingActionButton: saved.isEmpty && savedNetwork.isEmpty
           ? null
           : FloatingActionButton.extended(
               heroTag: 'groups-create-fab',
@@ -41,13 +47,14 @@ class GroupsScreen extends ConsumerWidget {
               label: const Text('New group'),
             ),
       body: SafeArea(
-        child: saved.isEmpty
+        child: saved.isEmpty && savedNetwork.isEmpty
             ? const _EmptyState()
             : ListView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
                 children: [
                   ..._byTypeSection(context, auto),
-                  ..._myGroupsSection(context, custom, savedById),
+                  ..._myGroupsSection(
+                      context, custom, savedById, savedNetworkById),
                   ..._unidentifiedSection(context, auto),
                 ],
               ),
@@ -66,9 +73,9 @@ class GroupsScreen extends ConsumerWidget {
         GroupTile(
           icon: group.category.icon,
           title: group.category.pluralLabel,
-          subtitle: group.devices.length == 1
+          subtitle: group.memberCount == 1
               ? '1 device'
-              : '${group.devices.length} devices',
+              : '${group.memberCount} devices',
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute<void>(
@@ -82,8 +89,11 @@ class GroupsScreen extends ConsumerWidget {
     ];
   }
 
-  List<Widget> _myGroupsSection(BuildContext context, List<DeviceGroup> custom,
-      Map<String, SavedDevice> savedById) {
+  List<Widget> _myGroupsSection(
+      BuildContext context,
+      List<DeviceGroup> custom,
+      Map<String, SavedDevice> savedById,
+      Map<String, SavedNetworkDevice> savedNetworkById) {
     if (custom.isEmpty) return const [];
     return [
       SectionHeader(label: 'My groups', count: custom.length),
@@ -93,8 +103,13 @@ class GroupsScreen extends ConsumerWidget {
           // The count reflects what a run would actually touch — the same
           // filter groupMembersProvider applies: forgotten devices leave a
           // group silently, and so does a member whose recorded kind turned
-          // out to be non-groupable.
+          // out to be non-groupable. Network members resolve through their
+          // own store and namespace.
           final liveMembers = group.deviceIds.where((id) {
+            if (isNetworkMemberId(id)) {
+              final device = savedNetworkById[networkDeviceIdOf(id)];
+              return device != null && isGroupable(device.category);
+            }
             final device = savedById[id];
             return device != null && isGroupable(device.category);
           }).length;

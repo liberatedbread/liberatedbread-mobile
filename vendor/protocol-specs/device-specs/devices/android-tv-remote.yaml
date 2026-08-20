@@ -642,6 +642,20 @@ commands:
 # inputs) no-op harmlessly on HDMI-less boxes, the same trade Roku's spec
 # makes for its player models.
 entities:
+  # The stateful Power control (spec-evolution P13). KEYCODE_POWER is a
+  # toggle with no discrete pair, so a consumer must establish the state
+  # before sending. The reading exists — remote_start { started }, the Power
+  # State binary_sensor below — but it is pushed over the session rather
+  # than pollable, so no state binding this schema can spell fits here; a
+  # consumer without the session sees no state and must not send blind.
+  - platform: "switch"
+    name: "Power"
+    icon: "mdi:power"
+    commands:
+      toggle: "press_power"
+    notes: >
+      Gate on the Power State push (remote_start.started). Wake depends on
+      network reachability in standby; see androidtv_remote_v2.session.limits.
   - platform: "button"
     name: "Power"
     icon: "mdi:power"

@@ -830,6 +830,22 @@ commands:
 # that later learns is-tv from /query/device-info may hide the TV groups on
 # players; the notes on each say which those are.
 entities:
+  # The stateful Power control (spec-evolution P13): the same commands the two
+  # buttons below send, bound as roles a bulk operation can resolve without
+  # matching on names. No state binding — ECP reports no power reading
+  # (device-info's supports-tv-power-control says the player may control a
+  # TV's power, not what state the panel is in).
+  - platform: "switch"
+    name: "Power"
+    icon: "mdi:power"
+    commands:
+      turn_on: "press_power_on"
+      turn_off: "press_power_off"
+    notes: >
+      TV-class keys. turn_off is discrete and safe to send blind; turn_on
+      works only from the warm standby PowerOff leaves behind ("Fast TV
+      Start" keeps it warm) — a cold set needs the physical remote. No power
+      state is readable over ECP.
   - platform: "button"
     name: "Power On"
     icon: "mdi:power"

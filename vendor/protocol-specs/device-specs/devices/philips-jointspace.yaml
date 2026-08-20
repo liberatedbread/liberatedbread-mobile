@@ -701,6 +701,25 @@ commands:
         description: "As press_standby."
     example_body: '{"key": "PowerOff"}'
     verification: "reported"
+  set_power_standby:
+    description: >
+      Put the TV in standby through the powerstate resource rather than a key
+      code — the same endpoint the Power State sensor reads, written instead
+      of read. The non-key off for sets that ignore the PowerOff key
+      (spec-evolution P13 bound this; the endpoint itself was documented under
+      http_endpoints all along). v6 only, like the read.
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/powerstate"
+    action: "Set Power State"
+    arguments: {powerstate: "Standby"}
+    parameters:
+      api_version:
+        type: "string"
+        default: "6"
+        description: "As press_standby."
+    example_body: '{"powerstate": "Standby"}'
+    verification: "reported"
 
   # -- Navigation.
   press_cursor_up:
@@ -1279,6 +1298,24 @@ commands:
 # control in the reference app until its HTTP transport can send a JSON body
 # (and, on 2016+ models, digest auth over HTTPS).
 entities:
+  # The stateful Power control (spec-evolution P13). State is the same
+  # powerstate resource as the Power State sensor below — v6 only, absent on
+  # some firmwares, and a 403/404 there is endpoint-not-present, which says
+  # nothing about power.
+  - platform: "switch"
+    name: "Power"
+    icon: "mdi:power"
+    commands:
+      turn_on: "press_power_on"
+      turn_off: "press_power_off"
+      toggle: "press_standby"
+    state_topic: "/{api_version}/powerstate"
+    notes: >
+      powerstate "On" when on, "Standby" otherwise. turn_off maps to Standby
+      on Android models anyway; set_power_standby is the non-key alternative
+      for sets that ignore the PowerOff key. turn_on only reaches a TV still
+      listening on the network — Wake-on-LAN is the documented route
+      otherwise.
   - platform: "button"
     name: "Standby"
     icon: "mdi:power-standby"

@@ -89,3 +89,5 @@ optional here — they're a feature.
 - [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) — build/run/test guide
 - [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) — E2E architecture + spec format
 - [docs/ios-from-linux.md](docs/ios-from-linux.md) — iPhone workflows from Linux
+- [docs/GROUP_CONTROL_AND_VOICE.md](docs/GROUP_CONTROL_AND_VOICE.md) — design
+  note: group ops across both transports, and a Siri/Shortcuts surface
