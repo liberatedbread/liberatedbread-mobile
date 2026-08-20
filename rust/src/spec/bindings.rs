@@ -138,6 +138,22 @@ const TURN_OFF: RoleSpec = RoleSpec {
     required_user_params: &[],
 };
 
+/// The one role that FLIPS state instead of setting it (spec-evolution P13):
+/// a TV whose only power channel is the remote's one power key. Binding-only
+/// on purpose — no `fallback_exact`/`fallback_suffixes` — because a toggle
+/// sent blind turns a sleeping device on, so it must never be inferred from
+/// a command's name the way on/off safely are; a spec opts in by writing
+/// `toggle:` in an entity's role map, nothing else resolves it. Callers gate
+/// the send on a state read (see the group toggle policy on the Dart side).
+const TOGGLE: RoleSpec = RoleSpec {
+    role: "toggle",
+    aliases: &["toggle", "power_toggle"],
+    fallback_exact: &[],
+    fallback_suffixes: &[],
+    user_params: &[],
+    required_user_params: &[],
+};
+
 const PRESS: RoleSpec = RoleSpec {
     role: "press",
     aliases: &["press"],
@@ -186,7 +202,7 @@ pub fn resolve_entity_actions<'a>(
     }
 
     let roles: &[&RoleSpec] = match entity.platform.as_deref() {
-        Some("switch") => &[&TURN_ON, &TURN_OFF, &PRESS],
+        Some("switch") => &[&TURN_ON, &TURN_OFF, &TOGGLE, &PRESS],
         Some("light") => &[&TURN_ON, &TURN_OFF, &SET_BRIGHTNESS, &SET_COLOR],
         _ => return Vec::new(),
     };
@@ -721,6 +737,11 @@ const NETWORK_ROLES: &[(&str, &[NetworkRole])] = &[
                 aliases: TURN_OFF.aliases,
                 takes_value: false,
             },
+            NetworkRole {
+                role: TOGGLE.role,
+                aliases: TOGGLE.aliases,
+                takes_value: false,
+            },
         ],
     ),
     (
@@ -815,6 +836,18 @@ pub fn resolve_network_actions<'a>(
         return Vec::new();
     };
 
+    resolve_network_roles(spec, roles, entity)
+}
+
+/// The role-map half of [`resolve_network_actions`], with no admission
+/// check. Factored out because [`on_network_surface`] itself needs it — a
+/// stateless `switch` is admitted on the strength of what resolves — and
+/// calling the public function from the gate would recurse.
+fn resolve_network_roles<'a>(
+    spec: &'a DeviceSpec,
+    roles: &[NetworkRole],
+    entity: &'a Entity,
+) -> Vec<NetworkAction<'a>> {
     roles
         .iter()
         .filter_map(|role| {
@@ -921,20 +954,34 @@ fn qualify_network<'a>(
 
 /// Whether an entity belongs on the network control surface at all.
 ///
-/// The honesty rule with its three carve-outs: an entity is listed when it
+/// The honesty rule with its four carve-outs: an entity is listed when it
 /// says where its reading comes from (`state_command`), because a control
 /// that can never update is worse than an absent one — except a `button`,
 /// which is momentary and has no resulting state to read, a `text`, whose
 /// surface is the input field itself (the device never reports what its
-/// focused field holds), and a `select` carrying an `options_source`, whose
+/// focused field holds), a `select` carrying an `options_source`, whose
 /// device-fetched options ARE its surface (the schema says so in the same
-/// words). Requiring state of any of them would just push spec authors to
-/// invent fake bindings.
+/// words), and a `switch` whose discrete on/off resolve, below. Requiring
+/// state of any of them would just push spec authors to invent fake
+/// bindings.
 ///
 /// The options-source carve-out demands the source actually resolve — the
 /// named endpoint present and not sunset — because a select admitted on the
 /// strength of a list that can never load is exactly the dead control the
 /// rule exists to keep off screen.
+///
+/// The switch carve-out is P13's assumed-state case: a TV's Power switch on
+/// a set that honestly reports no power state (Roku over ECP). Its discrete
+/// sends work; the reading does not exist to bind, and demanding one is the
+/// fake-binding trap again. Two deliberate narrowings keep it honest.
+/// First, admission is by what RESOLVES, not what is written — a switch
+/// whose commands ride a transport this crate cannot send (Samsung's
+/// WebSocket) stays off the surface entirely, because a card of dead
+/// buttons is what this rule exists to prevent. Second, a resolving
+/// `toggle` does not count: the toggle contract requires establishing state
+/// before sending, so on an entity with no state binding it is unsendable
+/// by policy — admitting a switch on its strength alone would list a
+/// control the client must then refuse to operate.
 fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
     entity.state_command.is_some()
         || matches!(entity.platform.as_deref(), Some("button") | Some("text"))
@@ -942,6 +989,21 @@ fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
             .options_source
             .as_ref()
             .is_some_and(|source| http::endpoint_request(spec, &source.command).is_some())
+        || is_assumed_state_switch(spec, entity)
+}
+
+/// The switch carve-out of [`on_network_surface`], separated so the P13
+/// group path can ask the same question the screen's admission does.
+fn is_assumed_state_switch(spec: &DeviceSpec, entity: &Entity) -> bool {
+    if entity.platform.as_deref() != Some("switch") {
+        return false;
+    }
+    let Some((_, roles)) = NETWORK_ROLES.iter().find(|(name, _)| *name == "switch") else {
+        return false;
+    };
+    resolve_network_roles(spec, roles, entity)
+        .iter()
+        .any(|action| action.role != TOGGLE.role)
 }
 
 /// Entities a spec drives over the network — see [`on_network_surface`] for
@@ -1128,6 +1190,62 @@ entities:
 
         let color = &actions[3];
         assert_eq!(color.user_params, vec!["red", "green", "blue"]);
+    }
+
+    /// A switch that declares `toggle:` resolves it as a role — and only by
+    /// declaration: an undeclared command named `power_toggle` must NOT be
+    /// picked up by name, because a toggle sent blind turns a sleeping
+    /// device on, so the role has no fallback resolution on purpose.
+    #[test]
+    fn toggle_resolves_by_binding_and_never_by_name() {
+        let bound = spec_with(
+            r#"
+  - name: Power
+    platform: switch
+    state_characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
+    commands:
+      toggle: flip
+"#,
+            r#"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: Control
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: Write
+        properties: [write]
+        commands:
+          flip:
+            description: Toggle power
+            value: [204, 40, 51]
+"#,
+        );
+        let actions = actions_for(&bound);
+        assert_eq!(roles(&actions), vec!["toggle"]);
+        assert_eq!(actions[0].command_name, Some("flip"));
+
+        let unbound = spec_with(
+            r#"
+  - name: Power
+    platform: switch
+    state_characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
+"#,
+            r#"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: Control
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: Write
+        properties: [write]
+        commands:
+          power_toggle:
+            description: Toggle power
+            value: [204, 40, 51]
+"#,
+        );
+        assert!(
+            roles(&actions_for(&unbound)).is_empty(),
+            "an unbound power_toggle must not resolve by name"
+        );
     }
 
     /// A role mapped onto a characteristic that takes no writes must not
@@ -1941,25 +2059,61 @@ entities:
         }
     }
 
-    /// A stateless platform that is NOT button keeps the old rule: a switch
-    /// with no state source stays off the network surface entirely.
+    /// P13's assumed-state carve-out: a stateless `switch` is admitted when
+    /// its discrete on/off resolve — a Roku TV's Power over ECP, which
+    /// honestly has no power reading to bind — and the roles it resolves are
+    /// the sendable ones.
     #[test]
-    fn statelessness_excuses_only_buttons() {
-        let spec = network_spec(
-            r#"
-  press_me:
-    description: Fixed HTTP invocation.
-    transport: http
-    method: POST
-    path: /keypress/Select
-"#,
+    fn a_stateless_switch_with_a_resolving_discrete_role_is_admitted() {
+        let spec = parse_device_spec(ROKUISH_SWITCH).expect("test spec should parse");
+        let entities = network_entities(&spec);
+        assert_eq!(entities.len(), 1, "the assumed-state switch is admitted");
+        let actions = resolve_network_actions(&spec, entities[0]);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].role, "turn_on");
+    }
+
+    /// The carve-out is by what RESOLVES, not what is written: the same
+    /// switch whose one command rides a transport this crate cannot send
+    /// (Samsung's WebSocket) stays off the surface — a card of dead buttons
+    /// is what the admission rule exists to prevent.
+    #[test]
+    fn a_stateless_switch_on_an_unsendable_transport_stays_off_the_surface() {
+        let yaml = ROKUISH_SWITCH.replace("transport: http", "transport: websocket");
+        let spec = parse_device_spec(&yaml).expect("test spec should parse");
+        assert!(network_entities(&spec).is_empty());
+    }
+
+    /// A resolving `toggle` alone does not admit a stateless switch: the
+    /// toggle contract demands a state read before sending, and with no
+    /// state binding there is nothing to read — the control would be listed
+    /// and then refused on every touch.
+    #[test]
+    fn a_toggle_alone_does_not_admit_a_stateless_switch() {
+        let yaml = ROKUISH_SWITCH.replace("turn_on: press_me", "toggle: press_me");
+        let spec = parse_device_spec(&yaml).expect("test spec should parse");
+        assert!(network_entities(&spec).is_empty());
+        // With a state binding the same entity is admitted, and the toggle
+        // resolves for the consumer that can now read before sending.
+        let stateful = ROKUISH_SWITCH.replace(
+            "    commands:\n      turn_on: press_me",
+            "    state_command: press_me\n    commands:\n      toggle: press_me",
         );
-        // Same spec, but the entity claims to be a switch.
-        let yaml = ROKUISH_SWITCH;
-        let switch_spec = parse_device_spec(yaml).expect("test spec should parse");
-        assert!(network_entities(&switch_spec).is_empty());
-        // Sanity: the button variant IS on the surface.
-        assert_eq!(network_entities(&spec).len(), 1);
+        let spec = parse_device_spec(&stateful).expect("test spec should parse");
+        let entities = network_entities(&spec);
+        assert_eq!(entities.len(), 1);
+        let actions = resolve_network_actions(&spec, entities[0]);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].role, "toggle");
+    }
+
+    /// Statelessness still excuses nothing else: a sensor-shaped entity with
+    /// no state source stays off the surface exactly as before.
+    #[test]
+    fn statelessness_still_excludes_other_platforms() {
+        let yaml = ROKUISH_SWITCH.replace("platform: switch", "platform: sensor");
+        let spec = parse_device_spec(&yaml).expect("test spec should parse");
+        assert!(network_entities(&spec).is_empty());
     }
 
     const ROKUISH_SWITCH: &str = r#"
