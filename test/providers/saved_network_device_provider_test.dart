@@ -53,8 +53,7 @@ void main() {
     expect(saved.specKey, 'Roku External Control Protocol|Roku');
   });
 
-  test('forgetNetworkDevice prunes the namespaced membership first',
-      () async {
+  test('forgetNetworkDevice prunes the namespaced membership first', () async {
     final c = await container();
     final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
     final groups = c.read(deviceGroupsProvider.notifier);
@@ -77,8 +76,7 @@ void main() {
         reason: 'the BLE member stays; the network membership is pruned');
   });
 
-  test('member id namespace round-trips and never collides with bare ids',
-      () {
+  test('member id namespace round-trips and never collides with bare ids', () {
     final memberId = networkMemberId('hn:tv.local');
     expect(isNetworkMemberId(memberId), isTrue);
     expect(networkDeviceIdOf(memberId), 'hn:tv.local');

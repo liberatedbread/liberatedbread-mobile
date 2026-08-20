@@ -306,8 +306,8 @@ class NetworkCommandSender {
       );
       final path = description.controlPathFor(request);
       if (path == null) continue;
-      final returned = await _soap.send(
-          description.host, description.port, path, request);
+      final returned =
+          await _soap.send(description.host, description.port, path, request);
       final current = returned[readBack.field];
       // An empty element (`<time/>`) is a value the device did not state,
       // not a value of "": forwarding it renders an empty parameter the
