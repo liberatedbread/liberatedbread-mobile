@@ -583,6 +583,16 @@ commands:
 # hardware (webos_common.input_channel), and every control here awaits a
 # WebSocket transport in the consumer (device.notes).
 entities:
+  # The stateful Power control (spec-evolution P13). Off only:
+  # ssap://system/turnOn left the firmware years ago, and the socket is down
+  # in standby, so power-on is Wake-on-LAN — which this file has no
+  # vocabulary for. No power state is readable; an unreachable socket is the
+  # closest thing to "off" webOS offers.
+  - platform: "switch"
+    name: "Power"
+    icon: "mdi:power"
+    commands:
+      turn_off: "power_off"
   - platform: "button"
     name: "Power Off"
     icon: "mdi:power"

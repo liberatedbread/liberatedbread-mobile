@@ -828,6 +828,17 @@ commands:
 # transport lands, and a consumer without WebSocket support must not offer
 # them as live controls.
 entities:
+  # The stateful Power control (spec-evolution P13). KEY_POWER is nominally a
+  # toggle, but the network stack is down in standby, so no network client
+  # can reach an off set — from the network the key is discrete-off in
+  # practice, which is why it binds turn_off rather than toggle: the toggle
+  # direction is unreachable by construction (samsung_remote_common.power).
+  # Power-on is Wake-on-LAN; no power state is readable.
+  - platform: "switch"
+    name: "Power"
+    icon: "mdi:power"
+    commands:
+      turn_off: "press_power"
   - platform: "button"
     name: "Power"
     icon: "mdi:power"
