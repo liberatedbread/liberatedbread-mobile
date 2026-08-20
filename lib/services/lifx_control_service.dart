@@ -116,12 +116,20 @@ class LifxControlClient {
   /// over a few seconds — so this gathers them all and returns them for the codec
   /// to decode. Sent to [host] (the setup network's broadcast address), broadcast
   /// enabled.
+  /// [matchSequence] false keeps every well-formed datagram regardless of the
+  /// header's echoed sequence. On a setup AP there is exactly one device and
+  /// nothing else on the wire, and some firmware answers `GetService`/
+  /// `GetAccessPoints` with a zeroed sequence byte — filtering on the echo
+  /// there drops the only device on the network. The decoder is the real
+  /// filter: a datagram that is not the message we asked for fails to decode
+  /// and is discarded by the caller. Leave it true on the shared LAN.
   Future<List<Uint8List>> collect(
     String host,
     Uint8List packet, {
     required int sequence,
     Duration window = const Duration(seconds: 5),
     int sends = 2,
+    bool matchSequence = true,
   }) async {
     final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
     socket.broadcastEnabled = true;
@@ -131,7 +139,7 @@ class LifxControlClient {
       final datagram = socket.receive();
       if (datagram == null) return;
       final data = datagram.data;
-      if (data.length > 23 && data[23] == sequence) {
+      if (data.length > 23 && (!matchSequence || data[23] == sequence)) {
         replies.add(Uint8List.fromList(data));
       }
     });

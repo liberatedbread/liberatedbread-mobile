@@ -3,12 +3,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../core/device_pictogram.dart';
 import '../core/error_text.dart';
 import '../models/network_device.dart';
+import '../widgets/power_strip_icon.dart';
+import '../widgets/three_d_printer_icon.dart';
 import '../providers/device_description_provider.dart';
+import '../providers/ha_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/network_scan_provider.dart';
 import '../providers/scan_match_provider.dart';
@@ -75,9 +80,20 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     final targets = <String>{
       for (final identity in identities) ...identity.ssdpSearchTargets,
     }.toList();
+    // The same idea one transport over: a device whose responder ignores the
+    // `_services._dns-sd._udp.local` meta-query (a Snapmaker U1's embedded
+    // zeroconf is one) is only found if the scan asks for its exact
+    // `_vendor._tcp` type by name. Sourced from the catalogue like the SSDP
+    // targets — the scan layer knows no product names.
+    final mdnsTypes = <String>{
+      for (final identity in identities)
+        if (identity.mdnsServiceType case final type?) type,
+    }.toList();
     if (!mounted) return;
 
-    _scanSub = _service.scan(extraSearchTargets: targets).listen(
+    _scanSub = _service
+        .scan(extraSearchTargets: targets, extraMdnsServiceTypes: mdnsTypes)
+        .listen(
       (device) {
         if (!mounted) return;
         setState(() => _found[device.host] = device);
@@ -318,12 +334,37 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
               ssdpTargets: device.ssdpTargets,
             )))
             .valueOrNull;
+    // The pictogram a TRANSPORT worked out from the device itself (a UniFi
+    // camera's platform, a Kasa bulb's mic_type) wins over the shared spec's
+    // category — that is the point of NetworkDevice.pictogram. Then the matched
+    // spec's pictogram, then its category glyph.
+    // A pictogram Material has no glyph for is drawn by a custom painter. The
+    // transport's own token wins over the matched spec's (same precedence as
+    // the Material path below), and a name that reads as a power strip is a
+    // last resort for a plug that matched nothing.
+    final customToken = DevicePictogram.isCustom(device.pictogram)
+        ? device.pictogram
+        : DevicePictogram.isCustom(guess?.pictogram)
+            ? guess!.pictogram
+            : device.displayName.toLowerCase().contains('power strip')
+                ? 'power-strip'
+                : null;
+    final scheme = Theme.of(context).colorScheme;
     return DeviceListTile(
       title: device.displayName,
       subtitle: _transportLabel(device),
       detail:
           device.port == null ? device.host : '${device.host}:${device.port}',
-      icon: entry.guess?.iconOr(Icons.router_outlined) ?? Icons.router_outlined,
+      icon: DevicePictogram.iconFor(device.pictogram) ??
+          entry.guess?.iconOr(Icons.router_outlined) ??
+          Icons.router_outlined,
+      iconWidget: switch (customToken) {
+        'power-strip' =>
+          PowerStripIcon(size: 24, color: scheme.onSurfaceVariant),
+        '3d-printer' =>
+          ThreeDPrinterIcon(size: 24, color: scheme.onSurfaceVariant),
+        _ => null,
+      },
       badge: entry.guess?.label,
       badgeIsClaim: entry.isLikelySupported,
       // Same rule as the BLE tab, and for the same reason: it is naming a
@@ -345,8 +386,50 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                       : NetworkDeviceScreen(device: device, controls: controls),
                 ),
               )
-          : () => _showDetails(device, vendor),
+          // A UniFi camera's own admin page is a dead end — cameras are driven
+          // through UniFi Protect, not individually — so it opens the details
+          // sheet (which points at the Protect controller) rather than
+          // click-and-go into nothing.
+          : (_isUnifiCamera(device)
+              ? () => _showDetails(device, vendor)
+              // A recognize-only device we can't drive but whose spec knows
+              // where its admin page lives (a NAS's DSM, a printer's web UI):
+              // the tap opens that, the one useful action here.
+              : (guess?.adminUrl != null
+                  ? () => _openAdmin(guess!, device)
+                  : () => _showDetails(device, vendor))),
     );
+  }
+
+  /// A UniFi camera or doorbell — recognized by the pictogram its transport
+  /// derived from the platform string. Cameras are managed in UniFi Protect,
+  /// not individually.
+  static bool _isUnifiCamera(NetworkDevice device) =>
+      device.answeredLanProtocols.contains('ubiquiti-discovery') &&
+      (device.pictogram == 'ip-camera' || device.pictogram == 'video-doorbell');
+
+  /// The UniFi Protect controller among the devices found this scan, if any —
+  /// a UNVR, or a UDM/Cloud Key that runs Protect. Cameras point back to it.
+  NetworkDevice? _unifiProtectController() {
+    for (final d in _found.values) {
+      final platform = (d.txt['platform'] ?? '').toUpperCase();
+      if (d.pictogram == 'nvr' ||
+          platform.startsWith('UNVR') ||
+          platform.startsWith('UDM') ||
+          platform.startsWith('UCKP') ||
+          platform.startsWith('UCK-G2')) {
+        return d;
+      }
+    }
+    return null;
+  }
+
+  /// Open a device's own admin page, filling `{address}` with its host.
+  void _openAdmin(ScanGuess guess, NetworkDevice device) {
+    final uri =
+        Uri.tryParse(guess.adminUrl!.replaceAll('{address}', device.host));
+    if (uri == null) return;
+    unawaited(ref.read(urlOpenerProvider)(uri));
   }
 
   static String _transportLabel(NetworkDevice device) {
@@ -389,8 +472,8 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) {
-        final text = Theme.of(context).textTheme;
+      builder: (sheetContext) {
+        final text = Theme.of(sheetContext).textTheme;
         // Scrollable, because the content is whatever the device chose to
         // advertise: a printer's TXT records alone can be taller than the
         // sheet, and a Column would overflow rather than let the user read
@@ -402,9 +485,30 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(device.displayName,
-                    style:
-                        text.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(device.displayName,
+                          style: text.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w700)),
+                    ),
+                    // The details are the reason to open the sheet — a MAC to
+                    // save, a TXT record to paste into a bug report. Copy the
+                    // whole lot, since retyping a MAC or a serial off a phone
+                    // screen is exactly the friction this removes.
+                    IconButton(
+                      icon: const Icon(Icons.copy_outlined),
+                      tooltip: 'Copy details',
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(sheetContext);
+                        await Clipboard.setData(
+                            ClipboardData(text: _detailsText(device, vendor)));
+                        messenger.showSnackBar(const SnackBar(
+                            content: Text('Device details copied')));
+                      },
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 16),
                 _detailRow('Address', device.host),
                 if (device.port != null) _detailRow('Port', '${device.port}'),
@@ -425,12 +529,95 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 if (device.server != null) _detailRow('Server', device.server!),
                 for (final entry in device.txt.entries)
                   _detailRow(entry.key, entry.value),
+                // Additional context for a camera we can recognize but not
+                // drive: it is managed in UniFi Protect, and if a controller
+                // turned up in this scan, where to find it.
+                if (_isUnifiCamera(device)) ...[
+                  const SizedBox(height: 16),
+                  _controllableViaNote(sheetContext),
+                ],
               ],
             ),
           ),
         );
       },
     );
+  }
+
+  /// A footer note for a UniFi camera: it is driven through UniFi Protect, with
+  /// a link to the controller when one was found on the same scan.
+  Widget _controllableViaNote(BuildContext sheetContext) {
+    final scheme = Theme.of(sheetContext).colorScheme;
+    final text = Theme.of(sheetContext).textTheme;
+    final controller = _unifiProtectController();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.info_outline, size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Text('Likely controlled via UniFi Protect',
+                style:
+                    text.titleSmall?.copyWith(color: scheme.onSurfaceVariant)),
+          ]),
+          const SizedBox(height: 6),
+          Text(
+            controller != null
+                ? 'This app can recognise the camera but not drive it directly. '
+                    'Found a UniFi Protect controller at ${controller.host} '
+                    '(${controller.displayName}).'
+                : 'This app can recognise the camera but not drive it directly. '
+                    'It is managed in the UniFi Protect app/controller.',
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          if (controller != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('Open UniFi Protect'),
+                onPressed: () {
+                  final uri =
+                      Uri.tryParse('https://${controller.host}/protect/');
+                  if (uri != null) {
+                    unawaited(ref.read(urlOpenerProvider)(uri));
+                  }
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// The details sheet as plain text for the clipboard — the same rows the
+  /// sheet shows, one `Label: value` per line.
+  static String _detailsText(NetworkDevice device, String? vendor) {
+    final b = StringBuffer()..writeln(device.displayName);
+    b.writeln('Address: ${device.host}');
+    if (device.port != null) b.writeln('Port: ${device.port}');
+    if (device.hostname != null) b.writeln('Hostname: ${device.hostname}');
+    if (device.advertisedMac != null) b.writeln('MAC: ${device.advertisedMac}');
+    if (vendor != null) b.writeln('Address block: $vendor');
+    if (device.serviceTypes.isNotEmpty) {
+      b.writeln('mDNS: ${device.serviceTypes.join(', ')}');
+    }
+    if (device.ssdpTargets.isNotEmpty) {
+      b.writeln('SSDP: ${device.ssdpTargets.join(', ')}');
+    }
+    if (device.server != null) b.writeln('Server: ${device.server}');
+    for (final entry in device.txt.entries) {
+      b.writeln('${entry.key}: ${entry.value}');
+    }
+    return b.toString().trimRight();
   }
 
   Widget _detailRow(String label, String value) => Padding(

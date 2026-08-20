@@ -16,11 +16,39 @@ use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
     Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField,
-    Identification, MacPrefix, MacPrefixConfidence, Parameter, Service,
+    Identification, MacPrefix, MacPrefixConfidence, Parameter, SecurityAdvisory, Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
 // These are simpler, FRB-friendly versions of the internal types.
+
+/// A device's known security problem, flattened for the FFI. The mitigation is
+/// split into two optional scalars rather than a nested struct so the whole
+/// advisory crosses as one flat record. See [`SecurityAdvisory`].
+#[derive(Debug, Clone)]
+pub struct SecurityAdvisoryDto {
+    /// `vulnerable`, `reported`, or `malicious` — the app colours and words the
+    /// warning by this, and treats `malicious` (a skimmer) as a scan alert.
+    pub severity: String,
+    pub summary: String,
+    pub detail: Option<String>,
+    pub advisory_url: Option<String>,
+    pub mitigation_summary: Option<String>,
+    pub mitigation_url: Option<String>,
+}
+
+impl From<&SecurityAdvisory> for SecurityAdvisoryDto {
+    fn from(a: &SecurityAdvisory) -> Self {
+        Self {
+            severity: a.severity.to_string(),
+            summary: a.summary.clone(),
+            detail: a.detail.clone(),
+            advisory_url: a.advisory_url.clone(),
+            mitigation_summary: a.mitigation.as_ref().map(|m| m.summary.clone()),
+            mitigation_url: a.mitigation.as_ref().and_then(|m| m.url.clone()),
+        }
+    }
+}
 
 /// A parsed device specification, ready for use by the Flutter app.
 #[derive(Debug, Clone)]
@@ -35,12 +63,28 @@ pub struct DeviceSpecDto {
     /// category added upstream after this build still reaches Dart, which
     /// decides what to do with a value it does not recognise.
     pub category: Option<String>,
+    /// Finer-grained glyph token than `category` (`nas`, `power-strip`, `phone`,
+    /// …), carried as the raw string; the Dart resolver owns the table and
+    /// falls back to the category icon for one it does not know.
+    pub pictogram: Option<String>,
+    /// URL template to the device's own admin page, `{address}` for the host.
+    pub admin_url: Option<String>,
+    /// `supported` (default) vs `identify_only` — whether this app drives the
+    /// device or only recognises it and hands off. Raw string, absent =
+    /// supported.
+    pub integration: Option<String>,
+    /// A known security problem with this device, when the spec declares one —
+    /// the app warns rather than controls. See [`SecurityAdvisoryDto`].
+    pub security_advisory: Option<SecurityAdvisoryDto>,
     pub notes: Option<String>,
     /// Every BLE local name prefix this device family advertises under, in
     /// spec order. Plural because a family sold as several rebadged models has
     /// several -- the Inkbird thermometer ships under eight names with no
     /// shared prefix. Empty when the spec declares none.
     pub local_name_prefixes: Vec<String>,
+    /// EXACT advertised names this spec matches whole-string (not a prefix).
+    /// Empty when the spec declares none.
+    pub local_names: Vec<String>,
     pub service_uuids: Vec<String>,
     /// Bluetooth SIG company IDs this device family advertises in its
     /// manufacturer-specific data, primary first. Empty when the spec declares
@@ -589,7 +633,22 @@ pub struct SpecIdentityDto {
     /// that has to index back into its own list to draw an icon will sooner or
     /// later index into a stale one.
     pub category: Option<String>,
+    /// Finer-grained glyph token than `category`, carried so the scan list can
+    /// draw a NAS/power-strip/phone glyph without fetching the whole spec back.
+    pub pictogram: Option<String>,
+    /// URL template to the device's own admin page (`{address}` for the host),
+    /// so a recognise-only scan result can offer an "Open admin" deep link.
+    pub admin_url: Option<String>,
+    /// `supported` vs `identify_only`, so the scan badge can say "recognised,
+    /// not controlled" instead of claiming a device it cannot drive.
+    pub integration: Option<String>,
+    /// The matched spec's security advisory, carried so the scan list can badge
+    /// (and alert on) a known-bad device without fetching the whole spec back.
+    pub security_advisory: Option<SecurityAdvisoryDto>,
     pub local_name_prefixes: Vec<String>,
+    /// EXACT advertised names this spec matches whole-string (not a prefix) —
+    /// a bare factory-default name only. Empty when the spec declares none.
+    pub local_names: Vec<String>,
     pub service_uuids: Vec<String>,
     pub company_ids: Vec<u16>,
     pub mac_prefixes: Vec<MacPrefixDto>,
@@ -617,6 +676,17 @@ pub struct ScanMatch {
     /// The matched spec's device class, copied through from
     /// [`SpecIdentityDto::category`]. `None` when the spec states none.
     pub category: Option<String>,
+    /// The matched spec's finer glyph token, admin-page URL template, and
+    /// integration mode, copied through so the scan tile can draw the right
+    /// pictogram, offer an admin deep link, and badge recognise-only devices
+    /// without fetching the whole spec back.
+    pub pictogram: Option<String>,
+    pub admin_url: Option<String>,
+    pub integration: Option<String>,
+    /// The matched spec's security advisory, copied through so a scan result
+    /// can warn or alert the moment it is recognised. `None` for a device with
+    /// no known problem.
+    pub security_advisory: Option<SecurityAdvisoryDto>,
     pub confidence: MatchConfidence,
     pub matched_by_name_prefix: bool,
     /// Matched advertised service UUIDs, lowercased.
@@ -767,7 +837,12 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
             device_name: spec.device_name.clone(),
             manufacturer: spec.manufacturer.clone(),
             category: spec.category.clone(),
+            pictogram: spec.pictogram.clone(),
+            admin_url: spec.admin_url.clone(),
+            integration: spec.integration.clone(),
+            security_advisory: spec.security_advisory.clone(),
             local_name_prefixes: spec.local_name_prefixes.clone(),
+            local_names: spec.local_names.clone(),
             service_uuids: spec.service_uuids.clone(),
             company_ids: spec.company_ids.clone(),
             mac_prefixes: spec.mac_prefixes.clone(),
@@ -790,10 +865,19 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             manufacturer_status: spec.device.manufacturer_status.to_string(),
             protocol: spec.device.protocol.to_string(),
             category: spec.device.category.clone(),
+            pictogram: spec.device.pictogram.clone(),
+            admin_url: spec.device.admin_url.clone(),
+            integration: spec.device.integration.clone(),
+            security_advisory: spec
+                .device
+                .security_advisory
+                .as_ref()
+                .map(SecurityAdvisoryDto::from),
             notes: spec.device.notes.clone(),
             local_name_prefixes: ident
                 .map(Identification::local_name_prefixes)
                 .unwrap_or_default(),
+            local_names: ident.map(Identification::local_names).unwrap_or_default(),
             service_uuids: ident
                 .and_then(|i| i.service_uuids.clone())
                 .unwrap_or_default(),
@@ -1739,6 +1823,40 @@ pub fn kasa_decode_datagram(datagram: Vec<u8>) -> anyhow::Result<String> {
     String::from_utf8(plaintext).map_err(|e| anyhow::anyhow!("Kasa datagram is not UTF-8: {e}"))
 }
 
+/// What a Tuya discovery broadcast identifies about its sender — the FFI face
+/// of [`crate::protocol::tuya::TuyaBroadcast`]. Every field optional: a partial
+/// datagram still identifies the device by whatever it carried.
+#[derive(Debug, Clone)]
+pub struct TuyaBroadcastDto {
+    pub gw_id: Option<String>,
+    pub ip: Option<String>,
+    pub version: Option<String>,
+    pub product_key: Option<String>,
+    pub encrypted: bool,
+}
+
+impl From<crate::protocol::tuya::TuyaBroadcast> for TuyaBroadcastDto {
+    fn from(b: crate::protocol::tuya::TuyaBroadcast) -> Self {
+        Self {
+            gw_id: b.gw_id,
+            ip: b.ip,
+            version: b.version,
+            product_key: b.product_key,
+            encrypted: b.encrypted,
+        }
+    }
+}
+
+/// Parse a Tuya discovery datagram (UDP 6666 plaintext or 6667 fixed-key
+/// AES-128-ECB) into the identity it advertises, or `None` when the bytes are
+/// not a Tuya broadcast we can read. Identify-only: the cipher here unwraps the
+/// device's own beacon, never its control channel (which needs the per-device
+/// local key this project does not hold). The decrypt stays in Rust under test,
+/// like the Kasa cipher, rather than being re-implemented in Dart.
+pub fn tuya_parse_broadcast(datagram: Vec<u8>) -> Option<TuyaBroadcastDto> {
+    crate::protocol::tuya::parse_broadcast(&datagram).map(TuyaBroadcastDto::from)
+}
+
 /// A rendered Rabbit Air request: the plaintext envelope JSON, and the client
 /// nonce it carries.
 ///
@@ -2217,6 +2335,9 @@ pub struct LifxAccessPointDto {
     /// The `SECURITY_PROTOCOL` byte (1 OPEN, 3 WPA-TKIP, 5 WPA2-AES, …), passed
     /// straight back in the `SetAccessPoint` for the chosen network.
     pub security: u8,
+    /// Whether this is an open network (no passphrase) — resolved from
+    /// [security] here so the caller never re-spells the OPEN value.
+    pub is_open: bool,
     /// Signal strength as the device reported it (higher is stronger).
     pub strength: i32,
     pub channel: u16,
@@ -2251,6 +2372,7 @@ pub fn decode_lifx_access_point(bytes: Vec<u8>) -> anyhow::Result<LifxAccessPoin
     Ok(LifxAccessPointDto {
         ssid: ap.ssid,
         security: ap.security,
+        is_open: crate::protocol::lifx::is_open(ap.security),
         strength: i32::from(ap.strength),
         channel: ap.channel,
     })
@@ -2451,11 +2573,18 @@ fn match_axes(
     device_mac: Option<&str>,
 ) -> MatchAxes {
     // Any prefix matching is a match: the list holds the names one family ships
-    // under, not names a device must carry all of.
+    // under, not names a device must carry all of. `local_names` is the
+    // whole-string variant — a bare factory-default name only, where a prefix
+    // would also catch a configured one (an HC-05 skimmer vs a renamed hobby
+    // module). Either kind of name match counts the same.
     let by_name_prefix = identity
         .local_name_prefixes
         .iter()
-        .any(|prefix| name_has_prefix(&device.name, prefix));
+        .any(|prefix| name_has_prefix(&device.name, prefix))
+        || identity
+            .local_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(&device.name));
 
     // Return the lowercased intersection. Matches the docstring's contract and
     // gives Dart callers a predictable casing. We only allocate the lowercased
@@ -2801,6 +2930,10 @@ fn rank_matches(
                 device_name: identity.device_name.clone(),
                 manufacturer: identity.manufacturer.clone(),
                 category: identity.category.clone(),
+                pictogram: identity.pictogram.clone(),
+                admin_url: identity.admin_url.clone(),
+                integration: identity.integration.clone(),
+                security_advisory: identity.security_advisory.clone(),
                 confidence: axes.confidence(),
                 matched_by_name_prefix: axes.by_name_prefix,
                 matched_service_uuids,
@@ -3488,6 +3621,136 @@ pub fn match_soft_ap_ssid(profiles: Vec<SoftApProfileDto>, ssid: String) -> Opti
         .map(|i| i as u32)
 }
 
+// ── Setup / troubleshooting instructions ────────────────────────────────────
+// The prose half of `device.setup`, shaped for the UI to render when a connect
+// fails: how to pair, why it might not, how to factory reset, how to rejoin. The
+// caller finds the right spec (the scan matcher's `spec_index` recovers it) and
+// asks for that one spec's instructions — no whole-catalogue marshalling.
+
+/// One `action`/`actor`/`expect` triple from a setup or reset step list.
+#[derive(Debug, Clone)]
+pub struct SetupStepDto {
+    pub action: String,
+    /// Who does it (`user` / `client`), when the spec says.
+    pub actor: Option<String>,
+    /// What confirms it worked, when the spec says.
+    pub expect: Option<String>,
+}
+
+/// A `symptom` + its likely `causes` — the "it won't connect" list.
+#[derive(Debug, Clone)]
+pub struct TroubleshootingDto {
+    pub symptom: String,
+    pub causes: Vec<String>,
+}
+
+/// One `setup.methods[]` entry as human-readable prose.
+#[derive(Debug, Clone)]
+pub struct SetupMethodDto {
+    /// `ble_direct`, `button_pairing`, … — labels the method.
+    pub method_type: Option<String>,
+    pub description: Option<String>,
+    pub steps: Vec<SetupStepDto>,
+    pub troubleshooting: Vec<TroubleshootingDto>,
+}
+
+/// One named way to factory-reset the device.
+#[derive(Debug, Clone)]
+pub struct FactoryResetProcedureDto {
+    pub name: String,
+    pub hold_seconds: Option<u32>,
+    pub indicator: Option<String>,
+    pub steps: Vec<SetupStepDto>,
+}
+
+/// `setup.factory_reset` — what a reset clears and how to trigger it.
+#[derive(Debug, Clone)]
+pub struct FactoryResetDto {
+    pub effect: Option<String>,
+    pub procedures: Vec<FactoryResetProcedureDto>,
+}
+
+/// `setup.rejoin` — whether a dropped device reconnects in place, and why it
+/// usually dropped.
+#[derive(Debug, Clone)]
+pub struct RejoinDto {
+    pub in_place_supported: Option<bool>,
+    pub requires_factory_reset: Option<bool>,
+    pub notes: Option<String>,
+}
+
+/// One spec's `device.setup` block, rendered-ready.
+#[derive(Debug, Clone)]
+pub struct SetupInstructionsDto {
+    pub notes: Option<String>,
+    pub methods: Vec<SetupMethodDto>,
+    pub factory_reset: Option<FactoryResetDto>,
+    pub rejoin: Option<RejoinDto>,
+}
+
+impl From<crate::spec::setup::SetupStep> for SetupStepDto {
+    fn from(s: crate::spec::setup::SetupStep) -> Self {
+        SetupStepDto {
+            action: s.action,
+            actor: s.actor,
+            expect: s.expect,
+        }
+    }
+}
+
+impl From<crate::spec::setup::SetupInstructions> for SetupInstructionsDto {
+    fn from(s: crate::spec::setup::SetupInstructions) -> Self {
+        SetupInstructionsDto {
+            notes: s.notes,
+            methods: s
+                .methods
+                .into_iter()
+                .map(|m| SetupMethodDto {
+                    method_type: m.method_type,
+                    description: m.description,
+                    steps: m.steps.into_iter().map(Into::into).collect(),
+                    troubleshooting: m
+                        .troubleshooting
+                        .into_iter()
+                        .map(|t| TroubleshootingDto {
+                            symptom: t.symptom,
+                            causes: t.causes,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            factory_reset: s.factory_reset.map(|fr| FactoryResetDto {
+                effect: fr.effect,
+                procedures: fr
+                    .procedures
+                    .into_iter()
+                    .map(|p| FactoryResetProcedureDto {
+                        name: p.name,
+                        hold_seconds: p.hold_seconds,
+                        indicator: p.indicator,
+                        steps: p.steps.into_iter().map(Into::into).collect(),
+                    })
+                    .collect(),
+            }),
+            rejoin: s.rejoin.map(|r| RejoinDto {
+                in_place_supported: r.in_place_supported,
+                requires_factory_reset: r.requires_factory_reset,
+                notes: r.notes,
+            }),
+        }
+    }
+}
+
+/// The renderable `device.setup` instructions for one spec, or null when the
+/// spec carries none (or fails to parse). Fed the single YAML the caller
+/// resolved for a device — on a connect failure, the scan matcher's best
+/// `spec_index` — so it can show "how to connect / why it won't / how to reset"
+/// without any device present.
+pub fn setup_instructions(spec_yaml: String) -> Option<SetupInstructionsDto> {
+    let spec = parse_device_spec(&spec_yaml).ok()?;
+    crate::spec::setup::setup_instructions(&spec).map(SetupInstructionsDto::from)
+}
+
 /// Every `ConnectHomeNetwork` request worth sending to join `ssid`, rendered
 /// and ready to POST — the Wemo counterpart of `render_lifx_set_access_point`.
 ///
@@ -3503,6 +3766,9 @@ pub fn match_soft_ap_ssid(profiles: Vec<SoftApProfileDto>, ssid: String) -> Opti
 /// secured network `meta_info` is the raw `GetMetaInfo` reply. Fails when the
 /// passphrase is outside the device's documented bounds (under 8 characters is
 /// terminal), before any network I/O.
+// One flat argument list per credential input, mirrored across the FFI boundary
+// — a params struct would only move the same fields behind another type.
+#[allow(clippy::too_many_arguments)]
 pub fn render_wemo_connect_requests(
     spec_yaml: String,
     meta_info: String,
@@ -3511,6 +3777,12 @@ pub fn render_wemo_connect_requests(
     encrypt: String,
     channel: String,
     passphrase: String,
+    // From the device's own setup.xml: `rtos=1` without `iot=1` selects the
+    // method-2 password layout, so those units get it tried first instead of
+    // burning a full join-poll on method 1. Absent (older firmware, an
+    // unparsed description) leaves the ordinary method-1-first order.
+    rtos: Option<i64>,
+    iot: Option<i64>,
 ) -> anyhow::Result<Vec<SoapRequestDto>> {
     use std::collections::BTreeMap;
     let spec = parse_device_spec(&spec_yaml)?;
@@ -3538,7 +3810,7 @@ pub fn render_wemo_connect_requests(
         // The spec's open-network rule: auth OPEN, encrypt NONE, empty password.
         return Ok(vec![render("", "OPEN", "NONE")?]);
     }
-    crate::protocol::wemo_setup::password_candidates(&meta_info, &passphrase, None, None)?
+    crate::protocol::wemo_setup::password_candidates(&meta_info, &passphrase, rtos, iot)?
         .into_iter()
         .map(|c| render(&c.password, &auth, &encrypt))
         .collect()
@@ -3941,6 +4213,36 @@ services:
     }
 
     #[test]
+    fn match_by_exact_name_is_whole_string_not_prefix() {
+        const EXACT: &str = r#"
+device:
+  name: "Bare serial module"
+  manufacturer: "Unknown"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  identification:
+    local_names: ["HC-05", "HC-06"]
+"#;
+        let dto = load_device_spec(EXACT.into()).unwrap();
+        // The bare default name matches (case-insensitively, like the prefix path).
+        assert!(
+            match_device_to_spec(vec![dto.clone()], "HC-05".into(), vec![])
+                .iter()
+                .any(|m| m.matched_by_name_prefix)
+        );
+        assert!(
+            match_device_to_spec(vec![dto.clone()], "hc-06".into(), vec![])
+                .iter()
+                .any(|m| m.matched_by_name_prefix)
+        );
+        // But a configured module that only SHARES the prefix does not — the
+        // whole point of local_names over local_name_prefixes.
+        assert!(match_device_to_spec(vec![dto], "HC-05Foo".into(), vec![])
+            .iter()
+            .all(|m| !m.matched_by_name_prefix));
+    }
+
+    #[test]
     fn match_by_service_uuid_only() {
         let dto = load_device_spec(TEST_YAML.into()).unwrap();
         // Advertised UUID uses uppercase to exercise the case-insensitive
@@ -4243,6 +4545,86 @@ services:
         let matches = match_scanned_device(vec![scan_identity()], device);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].category.as_deref(), Some("light"));
+    }
+
+    #[test]
+    fn a_security_advisory_reaches_the_dto_the_identity_and_the_scan_match() {
+        const YAML: &str = r#"
+device:
+  name: "Sketchy Alarm"
+  manufacturer: "Nobody"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "warning"
+  integration: "identify_only"
+  security_advisory:
+    severity: "vulnerable"
+    summary: "One shared key unlocks every unit."
+    detail: "The longer story."
+    advisory_url: "https://example.test/advisory"
+    mitigation:
+      summary: "Update the app."
+      url: "https://example.test/patch"
+  identification:
+    local_name_prefix: "SKETCH_"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "SKETCH_"
+  setup:
+    required: false
+    confidence: low
+    notes: "none"
+    methods:
+      - type: "none"
+        description: "passive"
+        verified: false
+    factory_reset: { applicable: false, confidence: low, effect: "n/a" }
+    rejoin: { in_place_supported: true, requires_factory_reset: false }
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+"#;
+        // Parses onto the spec DTO...
+        let dto = load_device_spec(YAML.into()).unwrap();
+        let adv = dto.security_advisory.as_ref().expect("advisory parsed");
+        assert_eq!(adv.severity, "vulnerable");
+        assert_eq!(adv.summary, "One shared key unlocks every unit.");
+        assert_eq!(adv.mitigation_summary.as_deref(), Some("Update the app."));
+        assert_eq!(
+            adv.mitigation_url.as_deref(),
+            Some("https://example.test/patch")
+        );
+
+        // ...through the scan identity...
+        let identity = SpecIdentityDto::from(&dto);
+        assert!(identity.security_advisory.is_some());
+
+        // ...and out to a scan match on a device that carries the name.
+        let mut device = anonymous_device();
+        device.name = "SKETCH_01".into();
+        let matches = match_scanned_device(vec![identity], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            matches[0]
+                .security_advisory
+                .as_ref()
+                .map(|a| a.severity.as_str()),
+            Some("vulnerable")
+        );
+    }
+
+    #[test]
+    fn a_spec_with_no_security_advisory_carries_none() {
+        assert!(scan_identity().security_advisory.is_none());
+        assert!(load_device_spec(SCAN_YAML.into())
+            .unwrap()
+            .security_advisory
+            .is_none());
     }
 
     #[test]
@@ -5194,5 +5576,60 @@ services:
         let dto = DecodedValueDto::from(("counter", &DecodedValue::Uint(u64::MAX)));
         assert_eq!(dto.uint_value, Some(i64::MAX));
         assert_eq!(dto.string_value, Some(u64::MAX.to_string()));
+    }
+
+    #[test]
+    fn setup_instructions_dto_carries_the_block_across() {
+        let yaml = r#"
+device:
+  name: "Help Mug"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  setup:
+    notes: "Turn it on."
+    methods:
+      - type: "ble_direct"
+        description: "Pair over BLE."
+        steps:
+          - action: "Hold the button."
+            actor: "user"
+            expect: "It blinks blue."
+        troubleshooting:
+          - symptom: "Won't connect."
+            causes:
+              - "Another phone holds the link."
+    factory_reset:
+      effect: "Wipes the claim."
+      procedures:
+        - name: "Factory reset"
+          hold_seconds: 15
+    rejoin:
+      in_place_supported: true
+      notes: "Close the other app."
+"#;
+        let dto = setup_instructions(yaml.to_string()).expect("has instructions");
+        assert_eq!(dto.notes.as_deref(), Some("Turn it on."));
+        assert_eq!(dto.methods.len(), 1);
+        assert_eq!(
+            dto.methods[0].steps[0].expect.as_deref(),
+            Some("It blinks blue.")
+        );
+        assert_eq!(dto.methods[0].troubleshooting[0].causes.len(), 1);
+        let fr = dto.factory_reset.expect("reset");
+        assert_eq!(fr.procedures[0].hold_seconds, Some(15));
+        assert_eq!(dto.rejoin.expect("rejoin").in_place_supported, Some(true));
+    }
+
+    #[test]
+    fn setup_instructions_dto_is_none_without_a_block() {
+        let yaml = r#"
+device:
+  name: "No Help"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+"#;
+        assert!(setup_instructions(yaml.to_string()).is_none());
     }
 }

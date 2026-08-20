@@ -53,6 +53,7 @@ final _findMeSpec = DeviceSpecDto(
   manufacturerStatus: 'abandoned',
   protocol: 'ble',
   localNamePrefixes: ['Band'],
+  localNames: const [],
   serviceUuids: [_svc],
   companyIds: Uint16List(0),
   macPrefixes: [],

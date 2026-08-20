@@ -21,6 +21,12 @@ enum DeviceCategory {
   camera(Icons.videocam_outlined, 'Camera'),
   climate(Icons.air_outlined, 'Climate'),
   display(Icons.grid_on_outlined, 'Display'),
+
+  /// Wireless earbuds and headsets. The app does not control them — most speak
+  /// Classic-Bluetooth audio profiles a BLE scan never even surfaces — but a
+  /// spec that recognises one by name or service UUID gets the earbud glyph
+  /// rather than the anonymous Bluetooth address.
+  earbuds(Icons.earbuds_outlined, 'Earbuds'),
   energy(Icons.solar_power_outlined, 'Energy'),
   fitness(Icons.fitness_center_outlined, 'Fitness'),
   health(Icons.favorite_outline, 'Health'),
@@ -29,6 +35,11 @@ enum DeviceCategory {
   light(Icons.lightbulb_outline, 'Light'),
   lock(Icons.lock_outline, 'Lock'),
   motor(Icons.settings_outlined, 'Motor'),
+
+  /// A pointing device. Not controlled — and a BLE mouse advertises the generic
+  /// HID service, which a keyboard or gamepad shares — but a spec that names one
+  /// specifically gets the mouse glyph instead of a bare Bluetooth address.
+  mouse(Icons.mouse_outlined, 'Mouse'),
 
   /// Routers, switches, access points and gateways — the vendored examples are
   /// MikroTik RouterOS and the Ubiquiti UniFi/EdgeMAX family, both of which
@@ -59,6 +70,12 @@ enum DeviceCategory {
   treadmill(Icons.directions_walk_outlined, 'Treadmill'),
   tv(Icons.tv_outlined, 'TV'),
   vehicle(Icons.directions_car_outlined, 'Vehicle'),
+
+  /// A device with a known, cited security problem — a dealer alarm with a
+  /// shared key, a card skimmer's Bluetooth module. Carries a
+  /// `security_advisory`; the app draws this glyph, badges the scan result by
+  /// severity, and opens a warning instead of a control surface.
+  warning(Icons.gpp_maybe_outlined, 'Security warning'),
   wearable(Icons.checkroom_outlined, 'Wearable'),
   other(Icons.devices_other_outlined, 'Device');
 
@@ -79,6 +96,7 @@ enum DeviceCategory {
   /// is a mass noun keep it.
   String get pluralLabel => switch (this) {
         DeviceCategory.switch_ => 'Switches',
+        DeviceCategory.mouse => 'Mice',
         DeviceCategory.climate ||
         DeviceCategory.energy ||
         DeviceCategory.fitness ||
@@ -86,7 +104,9 @@ enum DeviceCategory {
         DeviceCategory.irrigation ||
         // "Networks" would name the wrong thing: the group holds routers and
         // access points, not networks. Same mass-noun treatment as Climate.
-        DeviceCategory.network =>
+        DeviceCategory.network ||
+        // "Earbuds" is already plural.
+        DeviceCategory.earbuds =>
           label,
         _ => '${label}s',
       };

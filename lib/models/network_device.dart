@@ -83,6 +83,13 @@ class NetworkDevice {
   /// bridge ids and sometimes a MAC address here.
   final Map<String, String> txt;
 
+  /// A finer glyph token this transport worked out from what the device SAID
+  /// about itself at discovery — a UniFi camera's `UVC…` platform, a Kasa
+  /// bulb's `IOT.SMARTBULB` mic_type — where the matched spec, shared across a
+  /// product family, only carries a broad category. Preferred over the spec's
+  /// pictogram by the scan tile. Null when the transport learned nothing finer.
+  final String? pictogram;
+
   final Set<NetworkDiscoverySource> sources;
   final DateTime discoveredAt;
 
@@ -100,6 +107,7 @@ class NetworkDevice {
     this.answeredLanProtocols = const [],
     this.server,
     this.txt = const {},
+    this.pictogram,
   });
 
   /// Where to send control traffic: the SSDP `LOCATION` port when this device
@@ -184,6 +192,7 @@ class NetworkDevice {
             {...answeredLanProtocols, ...other.answeredLanProtocols}.toList(),
         server: server ?? other.server,
         txt: {...other.txt, ...txt},
+        pictogram: pictogram ?? other.pictogram,
         sources: {...sources, ...other.sources},
         // The first sighting is when this device was discovered.
         discoveredAt: discoveredAt.isBefore(other.discoveredAt)
@@ -225,6 +234,7 @@ class NetworkDevice {
       listEquals(other.serviceTypes, serviceTypes) &&
       listEquals(other.ssdpTargets, ssdpTargets) &&
       listEquals(other.answeredLanProtocols, answeredLanProtocols) &&
+      other.pictogram == pictogram &&
       mapEquals(other.txt, txt);
 }
 

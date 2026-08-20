@@ -1,0 +1,84 @@
+# Rockledge Vehicle Alarm — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# WARNING spec, not a control spec. The same UC San Diego research that covered
+# KARR/SWDS (see karr-swds-alarm.yaml) named Rockledge devices as a second,
+# WEAKER case: similar in spirit but harder to attack — it requires intercepting
+# and replaying a live exchange rather than reusing one universal key — and the
+# vendor had not responded to disclosure at publication. So this is a softer
+# "reported" advisory, not a confirmed practical exploit, with no known fix yet.
+#
+# Sources (public, clean-room): UC San Diego, "2 million cars with anti-theft
+# systems installed by dealers are at higher risk of theft" (2026).
+#
+# BLE identification is INFERRED from the product name "Rockledge"; the exact
+# advertised name/UUID is not published. Low-confidence, WARN-ONLY.
+
+device:
+  name: "Rockledge Vehicle Alarm"
+  manufacturer: "Rockledge"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "warning"
+  integration: "identify_only"
+  testing:
+    status: untested
+    notes: >
+      Not hardware-verified. The advertisement match (BLE local name starting
+      "Rockledge") is inferred from the product name; the exact BLE name/UUID is
+      not public. Low-confidence, WARN-ONLY.
+  security_advisory:
+    severity: "reported"
+    summary: >
+      Reported Bluetooth weakness — an attacker who can intercept and replay a
+      live exchange may be able to control the alarm.
+    detail: >
+      The UC San Diego research that broke KARR/SWDS also flagged Rockledge
+      devices as vulnerable, but harder to attack: rather than one universal
+      key, an attacker must intercept and replay the digital exchange between
+      the app and the device. The vendor had not responded to the researchers'
+      disclosure at the time of publication, and there is no known fix. This is
+      a reported, not-yet-independently-confirmed concern — worth knowing about,
+      lower certainty and harder to exploit than the KARR case.
+    advisory_url: "https://today.ucsd.edu/story/2-million-cars-with-anti-theft-systems-installed-by-dealers-are-at-higher-risk-of-theft"
+  setup:
+    required: false
+    confidence: low
+    notes: >
+      Nothing to set up: this app never connects to the device. It recognises
+      the BLE advertisement and warns; the match is inferred from the
+      advertised name (see testing.notes), hence low confidence.
+    methods:
+      - type: "none"
+        description: "Passive: the device advertises over BLE, we match the name and warn. No connection is made."
+        verified: false
+    factory_reset:
+      applicable: false
+      confidence: low
+      effect: >
+        Not applicable — this app never connects to or configures the device,
+        so it has nothing to reset. Any real reset is done at the device.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Recognised on sight wherever it advertises; nothing is stored."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No credential crosses to this app; it never connects."
+  discovery:
+    # Match on the advertised BLE local name; inferred, not captured (see
+    # testing.notes). identification.local_name_prefixes carries the same name.
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Rockledge"
+    identity:
+      stable_keys: ["address"]
+      display: "name"
+  identification:
+    local_name_prefixes: ["Rockledge"]

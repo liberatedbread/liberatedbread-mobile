@@ -29,14 +29,21 @@ class _FakeNetworkScanService implements NetworkScanService {
   /// see that the catalogue's targets reach the transport.
   final List<List<String>> extraTargetsPerScan = [];
 
+  /// The extra mDNS service types the screen asked for, per scan — the same
+  /// evidence for the direct-query transport a device deaf to the meta-query
+  /// depends on.
+  final List<List<String>> extraMdnsTypesPerScan = [];
+
   _FakeNetworkScanService({this.devices = const [], this.error});
 
   @override
   Stream<NetworkDevice> scan({
     Duration timeout = const Duration(seconds: 8),
     List<String> extraSearchTargets = const [],
+    List<String> extraMdnsServiceTypes = const [],
   }) {
     extraTargetsPerScan.add(extraSearchTargets);
+    extraMdnsTypesPerScan.add(extraMdnsServiceTypes);
     if (error != null) return Stream<NetworkDevice>.error(error!);
     return Stream.fromIterable(devices);
   }
@@ -52,6 +59,7 @@ final _spec = DeviceSpecDto(
   protocol: 'wifi',
   category: 'hub',
   localNamePrefixes: const [],
+  localNames: const [],
   serviceUuids: const [],
   companyIds: Uint16List(0),
   macPrefixes: const [],
@@ -320,6 +328,7 @@ void main() {
         protocol: 'wifi',
         category: 'tv',
         localNamePrefixes: const [],
+        localNames: const [],
         serviceUuids: const [],
         companyIds: Uint16List(0),
         macPrefixes: const [],
@@ -335,6 +344,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.extraTargetsPerScan.single, contains('roku:ecp'));
+  });
+
+  testWidgets("the catalogue's mDNS service types ride along with the scan",
+      (tester) async {
+    // The mDNS twin of the SSDP case above: a Snapmaker U1's responder ignores
+    // the `_services._dns-sd._udp.local` meta-query, so the screen must hand
+    // the transport the exact `_vendor._tcp` type from the catalogue or the
+    // device is never resolved. `_spec` declares `_hue._tcp.local.`.
+    final service = _FakeNetworkScanService();
+    await tester.pumpWidget(_wrap(service));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    expect(service.extraMdnsTypesPerScan.single, contains('_hue._tcp.local.'));
   });
 
   testWidgets('a chatty device cannot overflow the details sheet',

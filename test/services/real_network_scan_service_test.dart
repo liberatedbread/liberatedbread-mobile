@@ -133,6 +133,266 @@ void main() {
     });
   });
 
+  group('normalizeMdnsServiceType', () {
+    test(
+        'strips the trailing dot a spec writes so it dedupes with the '
+        'meta-query', () {
+      // Specs declare `_snapmaker._tcp.local.`; the enumeration and the
+      // `resolving` set carry `_snapmaker._tcp.local`. Without stripping the
+      // dot a direct query would re-resolve a type the enumeration found.
+      expect(normalizeMdnsServiceType('_snapmaker._tcp.local.'),
+          '_snapmaker._tcp.local');
+      expect(normalizeMdnsServiceType('_hue._tcp.local'), '_hue._tcp.local');
+      expect(normalizeMdnsServiceType('  _coap._udp.local.  '),
+          '_coap._udp.local');
+    });
+
+    test('drops anything not shaped like a DNS-SD service type', () {
+      // A malformed catalogue entry must not become a junk PTR query.
+      expect(normalizeMdnsServiceType(''), isNull);
+      expect(normalizeMdnsServiceType('snapmaker'), isNull);
+      expect(normalizeMdnsServiceType('_snapmaker.local'), isNull);
+      expect(normalizeMdnsServiceType('http://x'), isNull);
+    });
+  });
+
+  group('mDNS source-capture wire helpers', () {
+    test('mdnsPtrQuery encodes the name as length-prefixed labels + PTR/IN',
+        () {
+      final q = mdnsPtrQuery('_snapmaker._tcp.local');
+      // Header: 12 bytes, qdcount 1.
+      expect(q.sublist(0, 12), [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+      // Labels: <len>_snapmaker <len>_tcp <len>local <root>.
+      expect(q[12], 10); // len("_snapmaker")
+      expect(String.fromCharCodes(q.sublist(13, 23)), '_snapmaker');
+      expect(q[23], 4); // len("_tcp")
+      // Ends with the root label then QTYPE PTR (12) + QCLASS IN (1).
+      expect(q.sublist(q.length - 5), [0, 0, 12, 0, 1]);
+    });
+
+    test('mdnsFirstLabelBytes returns the vendor label, or null when tiny', () {
+      expect(
+          String.fromCharCodes(mdnsFirstLabelBytes('_snapmaker._tcp.local')!),
+          '_snapmaker');
+      // A 2-char label is too weak a discriminator.
+      expect(mdnsFirstLabelBytes('_x._tcp.local'), isNull);
+    });
+
+    test('containsBytes finds a contiguous subsequence', () {
+      // The wire carries `\x0a_snapmaker`, so the label bytes appear verbatim.
+      final packet = [
+        1,
+        2,
+        10,
+        ...'_snapmaker'.codeUnits,
+        4,
+        ...'_tcp'.codeUnits
+      ];
+      expect(containsBytes(packet, '_snapmaker'.codeUnits), isTrue);
+      expect(containsBytes(packet, '_printer'.codeUnits), isFalse);
+      expect(containsBytes(packet, const []), isFalse);
+    });
+  });
+
+  group('parseUbiquitiDiscovery', () {
+    test('reads hostname, platform and MAC from a real TLV reply', () {
+      // Shape captured from an EdgeSwitch 10X: v1 header, then 0x0c platform,
+      // 0x0b hostname, 0x01 MAC.
+      final reply = <int>[
+        0x01, 0x00, 0x00, 0x82, // version 1, cmd 0, length
+        0x0c, 0x00, 0x06, ...'ES-10X'.codeUnits, // platform
+        0x0b, 0x00, 0x11, ...'livingroom-switch'.codeUnits, // hostname (17)
+        0x01, 0x00, 0x06, 0x74, 0xac, 0xb9, 0x01, 0x02, 0x03, // MAC
+      ];
+      final p = parseUbiquitiDiscovery(reply);
+      expect(p.hostname, 'livingroom-switch');
+      expect(p.platform, 'ES-10X');
+      expect(p.mac, '74:ac:b9:01:02:03');
+    });
+
+    test('rejects a non-v1 datagram and a truncated one', () {
+      expect(
+          parseUbiquitiDiscovery(const [0x02, 0x00, 0x00, 0x00]).mac, isNull);
+      expect(parseUbiquitiDiscovery(const [0x01]).hostname, isNull);
+    });
+
+    test('ubiquitiPictogram maps the platform to a glyph token', () {
+      expect(ubiquitiPictogram('UVC G4 Pro'), 'ip-camera');
+      expect(ubiquitiPictogram('UVC G4 Doorbell'), 'video-doorbell');
+      expect(ubiquitiPictogram('UNVR'), 'nvr');
+      expect(ubiquitiPictogram('UNASPRO'), 'nas');
+      expect(ubiquitiPictogram('ES-10X'), 'network-switch');
+      expect(ubiquitiPictogram('UFP-UAP-B'), 'wifi-ap');
+      expect(ubiquitiPictogram('U6-LR'), 'wifi-ap');
+      expect(ubiquitiPictogram('UDM-Pro'), 'cloud-key');
+      // Unknown platform falls back to the generic spec glyph.
+      expect(ubiquitiPictogram('SomethingNew'), isNull);
+      expect(ubiquitiPictogram(null), isNull);
+    });
+  });
+
+  group('parseMndp (MikroTik)', () {
+    test('reads identity, MAC and version from a real beacon', () {
+      // Captured from a "Pleakley-switch": 4-byte header, then 0x0001 MAC,
+      // 0x0005 Identity, 0x0007 Version. Types and lengths are 2 bytes BE.
+      final beacon = <int>[
+        0x00, 0x02, 0x6e, 0xb6, // header
+        0x00, 0x01, 0x00, 0x06, 0x18, 0xfd, 0x74, 0x41, 0x73, 0xd7, // MAC
+        0x00, 0x05, 0x00, 0x0f, ...'Pleakley-switch'.codeUnits, // identity
+        0x00, 0x07, 0x00, 0x03, ...'7.9'.codeUnits, // version
+      ];
+      final p = parseMndp(beacon);
+      expect(p.identity, 'Pleakley-switch');
+      expect(p.mac, '18:fd:74:41:73:d7');
+      expect(p.version, '7.9');
+    });
+
+    test('mikrotikPictogram picks switch vs router', () {
+      expect(mikrotikPictogram(identity: 'CoreSwitch'), 'network-switch');
+      expect(mikrotikPictogram(board: 'CRS328-24P-4S+'), 'network-switch');
+      expect(mikrotikPictogram(board: 'RB4011', identity: 'newhouse-core'),
+          'router');
+    });
+  });
+
+  group('mdnsPictogram', () {
+    test('a legacy printer type (no _ipp) still resolves to printer', () {
+      // A Brother DCP-7065DN advertises only _printer._tcp / _pdl-datastream,
+      // never _ipp._tcp, so it fails the IPP spec match — the per-device
+      // pictogram is what draws its glyph.
+      expect(mdnsPictogram(['_printer._tcp.local']), 'printer');
+      expect(mdnsPictogram(['_pdl-datastream._tcp.local.']), 'printer');
+      expect(mdnsPictogram(['_ipp._tcp']), 'printer');
+      expect(mdnsPictogram(['_ipps._tcp.local']), 'printer');
+    });
+
+    test('the trailing dot and .local suffix do not matter', () {
+      expect(mdnsPictogram(['_PRINTER._TCP.LOCAL.']), 'printer');
+    });
+
+    test('a non-printer type resolves to nothing', () {
+      expect(mdnsPictogram(['_http._tcp.local']), isNull);
+      expect(mdnsPictogram(['_snapmaker._tcp.local']), isNull);
+      expect(mdnsPictogram(const []), isNull);
+    });
+
+    test('a printer type anywhere in the list wins', () {
+      expect(mdnsPictogram(['_http._tcp.local', '_pdl-datastream._tcp.local']),
+          'printer');
+    });
+  });
+
+  group('parseWizReply', () {
+    test('reads mac / module / firmware from a getSystemConfig reply', () {
+      const reply = '{"method":"getSystemConfig","id":1,"result":'
+          '{"mac":"a8bb50123456","moduleName":"ESP01_SHRGB1C_31",'
+          '"fwVersion":"1.25.0"}}';
+      final p = parseWizReply(reply.codeUnits)!;
+      expect(p.mac, 'a8bb50123456');
+      expect(p.moduleName, 'ESP01_SHRGB1C_31');
+      expect(p.fwVersion, '1.25.0');
+    });
+
+    test('our own probe (method, no result) and non-Wiz JSON are rejected', () {
+      expect(
+          parseWizReply('{"method":"getSystemConfig","params":{}}'.codeUnits),
+          isNull);
+      expect(parseWizReply('{"foo":"bar"}'.codeUnits), isNull);
+      expect(parseWizReply('not json'.codeUnits), isNull);
+    });
+  });
+
+  group('parseYeelight', () {
+    test('reads id / model / name / location from an M-SEARCH reply', () {
+      const reply = 'HTTP/1.1 200 OK\r\n'
+          'Location: yeelight://192.168.1.55:55443\r\n'
+          'id: 0x0000000012345678\r\n'
+          'model: color\r\n'
+          'name: Bedroom\r\n';
+      final p = parseYeelight(reply)!;
+      expect(p.id, '0x0000000012345678');
+      expect(p.model, 'color');
+      expect(p.name, 'Bedroom');
+      expect(p.location, 'yeelight://192.168.1.55:55443');
+    });
+
+    test('a payload with neither id nor a yeelight:// location is rejected',
+        () {
+      expect(parseYeelight('HTTP/1.1 200 OK\r\nServer: x\r\n'), isNull);
+    });
+  });
+
+  group('parseGoveeReply', () {
+    test('reads device / sku / ip from a scan reply', () {
+      const reply = '{"msg":{"cmd":"scan","data":{"ip":"192.168.1.66",'
+          '"device":"AA:BB:CC:DD:EE:FF","sku":"H6159"}}}';
+      final p = parseGoveeReply(reply.codeUnits)!;
+      expect(p.device, 'AA:BB:CC:DD:EE:FF');
+      expect(p.sku, 'H6159');
+      expect(p.ip, '192.168.1.66');
+    });
+
+    test('the wrong cmd, or no device, is rejected', () {
+      expect(parseGoveeReply('{"msg":{"cmd":"turn","data":{}}}'.codeUnits),
+          isNull);
+      expect(parseGoveeReply('{"msg":{"cmd":"scan","data":{}}}'.codeUnits),
+          isNull);
+    });
+  });
+
+  group('parseIrobotReply', () {
+    test('reads hostname / robotname / blid from a Roomba reply', () {
+      const reply = '{"ver":"3","hostname":"Roomba-3117C012345678AB",'
+          '"robotname":"Living Room","ip":"192.168.1.77",'
+          '"mac":"80:91:33:AA:BB:CC","sku":"R980020"}';
+      final p = parseIrobotReply(reply.codeUnits)!;
+      expect(p.hostname, 'Roomba-3117C012345678AB');
+      expect(p.robotname, 'Living Room');
+      expect(p.blid, '3117C012345678AB');
+      expect(p.sku, 'R980020');
+      expect(p.mac, '80:91:33:AA:BB:CC');
+    });
+
+    test('a binary MNDP beacon on the same :5678 socket is not an iRobot', () {
+      // The guard that lets MNDP and iRobot share the port: the MikroTik beacon
+      // bytes are not JSON, so they parse to null here (and to a device via
+      // parseMndp).
+      final beacon = <int>[
+        0x00, 0x02, 0x6e, 0xb6, //
+        0x00, 0x05, 0x00, 0x04, ...'core'.codeUnits,
+      ];
+      expect(parseIrobotReply(beacon), isNull);
+      expect(parseIrobotReply('{"hostname":"NotARobot"}'.codeUnits), isNull);
+    });
+  });
+
+  group('parseKnxSearchResponse', () {
+    test('reads name / individual address / serial / mac from a DIB', () {
+      final packet = <int>[
+        0x06, 0x10, 0x02, 0x02, 0x00, 0x44, // header (SEARCH_RESPONSE, len 68)
+        0x08, 0x01, 0xc0, 0xa8, 0x01, 0x58, 0x0e, 0x57, // HPAI
+        0x36, 0x01, 0x02, 0x00, // DIB len 54, device-info, TP1, status
+        0x11, 0x0a, // individual address 1.1.10
+        0x00, 0x01, // project installation id
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // serial
+        0xe0, 0x00, 0x17, 0x0c, // multicast address
+        0x00, 0x05, 0x26, 0xaa, 0xbb, 0xcc, // MAC
+        ...'KNX IP Router'.codeUnits,
+        ...List<int>.filled(30 - 'KNX IP Router'.length, 0), // name padding
+      ];
+      final p = parseKnxSearchResponse(packet)!;
+      expect(p.name, 'KNX IP Router');
+      expect(p.individualAddress, '1.1.10');
+      expect(p.serial, '001122334455');
+      expect(p.mac, '00:05:26:aa:bb:cc');
+    });
+
+    test('a non-SEARCH_RESPONSE or too-short datagram is rejected', () {
+      expect(parseKnxSearchResponse(List<int>.filled(68, 0)), isNull);
+      expect(parseKnxSearchResponse([0x06, 0x10, 0x02, 0x06]), isNull);
+    });
+  });
+
   group('NetworkScanCoalescer', () {
     test('a first sighting is emitted', () {
       final coalescer = NetworkScanCoalescer();

@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -141,6 +141,16 @@ Future<Uint8List> kasaEncryptDatagram({required String json}) =>
 Future<String> kasaDecodeDatagram({required List<int> datagram}) =>
     RustLib.instance.api
         .crateApiDeviceApiKasaDecodeDatagram(datagram: datagram);
+
+/// Parse a Tuya discovery datagram (UDP 6666 plaintext or 6667 fixed-key
+/// AES-128-ECB) into the identity it advertises, or `None` when the bytes are
+/// not a Tuya broadcast we can read. Identify-only: the cipher here unwraps the
+/// device's own beacon, never its control channel (which needs the per-device
+/// local key this project does not hold). The decrypt stays in Rust under test,
+/// like the Kasa cipher, rather than being re-implemented in Dart.
+Future<TuyaBroadcastDto?> tuyaParseBroadcast({required List<int> datagram}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiTuyaParseBroadcast(datagram: datagram);
 
 /// Render a named `transport: udp` command into the envelope JSON to send —
 /// the Rabbit Air sibling of [`render_network_kasa_command`]. `request_id` is
@@ -666,6 +676,14 @@ Future<int?> matchSoftApSsid(
     RustLib.instance.api
         .crateApiDeviceApiMatchSoftApSsid(profiles: profiles, ssid: ssid);
 
+/// The renderable `device.setup` instructions for one spec, or null when the
+/// spec carries none (or fails to parse). Fed the single YAML the caller
+/// resolved for a device — on a connect failure, the scan matcher's best
+/// `spec_index` — so it can show "how to connect / why it won't / how to reset"
+/// without any device present.
+Future<SetupInstructionsDto?> setupInstructions({required String specYaml}) =>
+    RustLib.instance.api.crateApiDeviceApiSetupInstructions(specYaml: specYaml);
+
 /// Every `ConnectHomeNetwork` request worth sending to join `ssid`, rendered
 /// and ready to POST — the Wemo counterpart of `render_lifx_set_access_point`.
 ///
@@ -688,7 +706,9 @@ Future<List<SoapRequestDto>> renderWemoConnectRequests(
         required String auth,
         required String encrypt,
         required String channel,
-        required String passphrase}) =>
+        required String passphrase,
+        PlatformInt64? rtos,
+        PlatformInt64? iot}) =>
     RustLib.instance.api.crateApiDeviceApiRenderWemoConnectRequests(
         specYaml: specYaml,
         metaInfo: metaInfo,
@@ -696,7 +716,9 @@ Future<List<SoapRequestDto>> renderWemoConnectRequests(
         auth: auth,
         encrypt: encrypt,
         channel: channel,
-        passphrase: passphrase);
+        passphrase: passphrase,
+        rtos: rtos,
+        iot: iot);
 
 /// Interpret a `GetNetworkStatus` reply's `NetworkStatus` value.
 Future<WemoJoinStatus> wemoNetworkStatus({required String code}) =>
@@ -925,6 +947,23 @@ class DeviceSpecDto {
   /// category added upstream after this build still reaches Dart, which
   /// decides what to do with a value it does not recognise.
   final String? category;
+
+  /// Finer-grained glyph token than `category` (`nas`, `power-strip`, `phone`,
+  /// …), carried as the raw string; the Dart resolver owns the table and
+  /// falls back to the category icon for one it does not know.
+  final String? pictogram;
+
+  /// URL template to the device's own admin page, `{address}` for the host.
+  final String? adminUrl;
+
+  /// `supported` (default) vs `identify_only` — whether this app drives the
+  /// device or only recognises it and hands off. Raw string, absent =
+  /// supported.
+  final String? integration;
+
+  /// A known security problem with this device, when the spec declares one —
+  /// the app warns rather than controls. See [`SecurityAdvisoryDto`].
+  final SecurityAdvisoryDto? securityAdvisory;
   final String? notes;
 
   /// Every BLE local name prefix this device family advertises under, in
@@ -932,6 +971,10 @@ class DeviceSpecDto {
   /// several -- the Inkbird thermometer ships under eight names with no
   /// shared prefix. Empty when the spec declares none.
   final List<String> localNamePrefixes;
+
+  /// EXACT advertised names this spec matches whole-string (not a prefix).
+  /// Empty when the spec declares none.
+  final List<String> localNames;
   final List<String> serviceUuids;
 
   /// Bluetooth SIG company IDs this device family advertises in its
@@ -984,8 +1027,13 @@ class DeviceSpecDto {
     required this.manufacturerStatus,
     required this.protocol,
     this.category,
+    this.pictogram,
+    this.adminUrl,
+    this.integration,
+    this.securityAdvisory,
     this.notes,
     required this.localNamePrefixes,
+    required this.localNames,
     required this.serviceUuids,
     required this.companyIds,
     required this.macPrefixes,
@@ -1006,8 +1054,13 @@ class DeviceSpecDto {
       manufacturerStatus.hashCode ^
       protocol.hashCode ^
       category.hashCode ^
+      pictogram.hashCode ^
+      adminUrl.hashCode ^
+      integration.hashCode ^
+      securityAdvisory.hashCode ^
       notes.hashCode ^
       localNamePrefixes.hashCode ^
+      localNames.hashCode ^
       serviceUuids.hashCode ^
       companyIds.hashCode ^
       macPrefixes.hashCode ^
@@ -1030,8 +1083,13 @@ class DeviceSpecDto {
           manufacturerStatus == other.manufacturerStatus &&
           protocol == other.protocol &&
           category == other.category &&
+          pictogram == other.pictogram &&
+          adminUrl == other.adminUrl &&
+          integration == other.integration &&
+          securityAdvisory == other.securityAdvisory &&
           notes == other.notes &&
           localNamePrefixes == other.localNamePrefixes &&
+          localNames == other.localNames &&
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
           macPrefixes == other.macPrefixes &&
@@ -1331,6 +1389,60 @@ class EntityWriteDto {
           bytes == other.bytes;
 }
 
+/// `setup.factory_reset` — what a reset clears and how to trigger it.
+class FactoryResetDto {
+  final String? effect;
+  final List<FactoryResetProcedureDto> procedures;
+
+  const FactoryResetDto({
+    this.effect,
+    required this.procedures,
+  });
+
+  @override
+  int get hashCode => effect.hashCode ^ procedures.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FactoryResetDto &&
+          runtimeType == other.runtimeType &&
+          effect == other.effect &&
+          procedures == other.procedures;
+}
+
+/// One named way to factory-reset the device.
+class FactoryResetProcedureDto {
+  final String name;
+  final int? holdSeconds;
+  final String? indicator;
+  final List<SetupStepDto> steps;
+
+  const FactoryResetProcedureDto({
+    required this.name,
+    this.holdSeconds,
+    this.indicator,
+    required this.steps,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      holdSeconds.hashCode ^
+      indicator.hashCode ^
+      steps.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FactoryResetProcedureDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          holdSeconds == other.holdSeconds &&
+          indicator == other.indicator &&
+          steps == other.steps;
+}
+
 class FormatFieldDto {
   final String name;
   final String fieldType;
@@ -1563,6 +1675,10 @@ class LifxAccessPointDto {
   /// straight back in the `SetAccessPoint` for the chosen network.
   final int security;
 
+  /// Whether this is an open network (no passphrase) — resolved from
+  /// [security] here so the caller never re-spells the OPEN value.
+  final bool isOpen;
+
   /// Signal strength as the device reported it (higher is stronger).
   final int strength;
   final int channel;
@@ -1570,13 +1686,18 @@ class LifxAccessPointDto {
   const LifxAccessPointDto({
     required this.ssid,
     required this.security,
+    required this.isOpen,
     required this.strength,
     required this.channel,
   });
 
   @override
   int get hashCode =>
-      ssid.hashCode ^ security.hashCode ^ strength.hashCode ^ channel.hashCode;
+      ssid.hashCode ^
+      security.hashCode ^
+      isOpen.hashCode ^
+      strength.hashCode ^
+      channel.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1585,6 +1706,7 @@ class LifxAccessPointDto {
           runtimeType == other.runtimeType &&
           ssid == other.ssid &&
           security == other.security &&
+          isOpen == other.isOpen &&
           strength == other.strength &&
           channel == other.channel;
 }
@@ -2534,6 +2656,35 @@ class RabbitAirRequestDto {
           requestId == other.requestId;
 }
 
+/// `setup.rejoin` — whether a dropped device reconnects in place, and why it
+/// usually dropped.
+class RejoinDto {
+  final bool? inPlaceSupported;
+  final bool? requiresFactoryReset;
+  final String? notes;
+
+  const RejoinDto({
+    this.inPlaceSupported,
+    this.requiresFactoryReset,
+    this.notes,
+  });
+
+  @override
+  int get hashCode =>
+      inPlaceSupported.hashCode ^
+      requiresFactoryReset.hashCode ^
+      notes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RejoinDto &&
+          runtimeType == other.runtimeType &&
+          inPlaceSupported == other.inPlaceSupported &&
+          requiresFactoryReset == other.requiresFactoryReset &&
+          notes == other.notes;
+}
+
 /// One spec that a scanned device might be, and why we think so.
 class ScanMatch {
   /// Position of the matched identity in the list that was passed in, so the
@@ -2545,6 +2696,19 @@ class ScanMatch {
   /// The matched spec's device class, copied through from
   /// [`SpecIdentityDto::category`]. `None` when the spec states none.
   final String? category;
+
+  /// The matched spec's finer glyph token, admin-page URL template, and
+  /// integration mode, copied through so the scan tile can draw the right
+  /// pictogram, offer an admin deep link, and badge recognise-only devices
+  /// without fetching the whole spec back.
+  final String? pictogram;
+  final String? adminUrl;
+  final String? integration;
+
+  /// The matched spec's security advisory, copied through so a scan result
+  /// can warn or alert the moment it is recognised. `None` for a device with
+  /// no known problem.
+  final SecurityAdvisoryDto? securityAdvisory;
   final MatchConfidence confidence;
   final bool matchedByNamePrefix;
 
@@ -2566,6 +2730,10 @@ class ScanMatch {
     required this.deviceName,
     required this.manufacturer,
     this.category,
+    this.pictogram,
+    this.adminUrl,
+    this.integration,
+    this.securityAdvisory,
     required this.confidence,
     required this.matchedByNamePrefix,
     required this.matchedServiceUuids,
@@ -2580,6 +2748,10 @@ class ScanMatch {
       deviceName.hashCode ^
       manufacturer.hashCode ^
       category.hashCode ^
+      pictogram.hashCode ^
+      adminUrl.hashCode ^
+      integration.hashCode ^
+      securityAdvisory.hashCode ^
       confidence.hashCode ^
       matchedByNamePrefix.hashCode ^
       matchedServiceUuids.hashCode ^
@@ -2596,6 +2768,10 @@ class ScanMatch {
           deviceName == other.deviceName &&
           manufacturer == other.manufacturer &&
           category == other.category &&
+          pictogram == other.pictogram &&
+          adminUrl == other.adminUrl &&
+          integration == other.integration &&
+          securityAdvisory == other.securityAdvisory &&
           confidence == other.confidence &&
           matchedByNamePrefix == other.matchedByNamePrefix &&
           matchedServiceUuids == other.matchedServiceUuids &&
@@ -2650,6 +2826,50 @@ class ScannedDeviceDto {
           macAddress == other.macAddress;
 }
 
+/// A device's known security problem, flattened for the FFI. The mitigation is
+/// split into two optional scalars rather than a nested struct so the whole
+/// advisory crosses as one flat record. See [`SecurityAdvisory`].
+class SecurityAdvisoryDto {
+  /// `vulnerable`, `reported`, or `malicious` — the app colours and words the
+  /// warning by this, and treats `malicious` (a skimmer) as a scan alert.
+  final String severity;
+  final String summary;
+  final String? detail;
+  final String? advisoryUrl;
+  final String? mitigationSummary;
+  final String? mitigationUrl;
+
+  const SecurityAdvisoryDto({
+    required this.severity,
+    required this.summary,
+    this.detail,
+    this.advisoryUrl,
+    this.mitigationSummary,
+    this.mitigationUrl,
+  });
+
+  @override
+  int get hashCode =>
+      severity.hashCode ^
+      summary.hashCode ^
+      detail.hashCode ^
+      advisoryUrl.hashCode ^
+      mitigationSummary.hashCode ^
+      mitigationUrl.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SecurityAdvisoryDto &&
+          runtimeType == other.runtimeType &&
+          severity == other.severity &&
+          summary == other.summary &&
+          detail == other.detail &&
+          advisoryUrl == other.advisoryUrl &&
+          mitigationSummary == other.mitigationSummary &&
+          mitigationUrl == other.mitigationUrl;
+}
+
 class ServiceDto {
   final String uuid;
   final String name;
@@ -2672,6 +2892,100 @@ class ServiceDto {
           uuid == other.uuid &&
           name == other.name &&
           characteristics == other.characteristics;
+}
+
+/// One spec's `device.setup` block, rendered-ready.
+class SetupInstructionsDto {
+  final String? notes;
+  final List<SetupMethodDto> methods;
+  final FactoryResetDto? factoryReset;
+  final RejoinDto? rejoin;
+
+  const SetupInstructionsDto({
+    this.notes,
+    required this.methods,
+    this.factoryReset,
+    this.rejoin,
+  });
+
+  @override
+  int get hashCode =>
+      notes.hashCode ^
+      methods.hashCode ^
+      factoryReset.hashCode ^
+      rejoin.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SetupInstructionsDto &&
+          runtimeType == other.runtimeType &&
+          notes == other.notes &&
+          methods == other.methods &&
+          factoryReset == other.factoryReset &&
+          rejoin == other.rejoin;
+}
+
+/// One `setup.methods[]` entry as human-readable prose.
+class SetupMethodDto {
+  /// `ble_direct`, `button_pairing`, … — labels the method.
+  final String? methodType;
+  final String? description;
+  final List<SetupStepDto> steps;
+  final List<TroubleshootingDto> troubleshooting;
+
+  const SetupMethodDto({
+    this.methodType,
+    this.description,
+    required this.steps,
+    required this.troubleshooting,
+  });
+
+  @override
+  int get hashCode =>
+      methodType.hashCode ^
+      description.hashCode ^
+      steps.hashCode ^
+      troubleshooting.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SetupMethodDto &&
+          runtimeType == other.runtimeType &&
+          methodType == other.methodType &&
+          description == other.description &&
+          steps == other.steps &&
+          troubleshooting == other.troubleshooting;
+}
+
+/// One `action`/`actor`/`expect` triple from a setup or reset step list.
+class SetupStepDto {
+  final String action;
+
+  /// Who does it (`user` / `client`), when the spec says.
+  final String? actor;
+
+  /// What confirms it worked, when the spec says.
+  final String? expect;
+
+  const SetupStepDto({
+    required this.action,
+    this.actor,
+    this.expect,
+  });
+
+  @override
+  int get hashCode => action.hashCode ^ actor.hashCode ^ expect.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SetupStepDto &&
+          runtimeType == other.runtimeType &&
+          action == other.action &&
+          actor == other.actor &&
+          expect == other.expect;
 }
 
 /// A rendered SOAP request, ready for Dart to POST.
@@ -2798,7 +3112,27 @@ class SpecIdentityDto {
   /// that has to index back into its own list to draw an icon will sooner or
   /// later index into a stale one.
   final String? category;
+
+  /// Finer-grained glyph token than `category`, carried so the scan list can
+  /// draw a NAS/power-strip/phone glyph without fetching the whole spec back.
+  final String? pictogram;
+
+  /// URL template to the device's own admin page (`{address}` for the host),
+  /// so a recognise-only scan result can offer an "Open admin" deep link.
+  final String? adminUrl;
+
+  /// `supported` vs `identify_only`, so the scan badge can say "recognised,
+  /// not controlled" instead of claiming a device it cannot drive.
+  final String? integration;
+
+  /// The matched spec's security advisory, carried so the scan list can badge
+  /// (and alert on) a known-bad device without fetching the whole spec back.
+  final SecurityAdvisoryDto? securityAdvisory;
   final List<String> localNamePrefixes;
+
+  /// EXACT advertised names this spec matches whole-string (not a prefix) —
+  /// a bare factory-default name only. Empty when the spec declares none.
+  final List<String> localNames;
   final List<String> serviceUuids;
   final Uint16List companyIds;
   final List<MacPrefixDto> macPrefixes;
@@ -2822,7 +3156,12 @@ class SpecIdentityDto {
     required this.deviceName,
     required this.manufacturer,
     this.category,
+    this.pictogram,
+    this.adminUrl,
+    this.integration,
+    this.securityAdvisory,
     required this.localNamePrefixes,
+    required this.localNames,
     required this.serviceUuids,
     required this.companyIds,
     required this.macPrefixes,
@@ -2837,7 +3176,12 @@ class SpecIdentityDto {
       deviceName.hashCode ^
       manufacturer.hashCode ^
       category.hashCode ^
+      pictogram.hashCode ^
+      adminUrl.hashCode ^
+      integration.hashCode ^
+      securityAdvisory.hashCode ^
       localNamePrefixes.hashCode ^
+      localNames.hashCode ^
       serviceUuids.hashCode ^
       companyIds.hashCode ^
       macPrefixes.hashCode ^
@@ -2854,7 +3198,12 @@ class SpecIdentityDto {
           deviceName == other.deviceName &&
           manufacturer == other.manufacturer &&
           category == other.category &&
+          pictogram == other.pictogram &&
+          adminUrl == other.adminUrl &&
+          integration == other.integration &&
+          securityAdvisory == other.securityAdvisory &&
           localNamePrefixes == other.localNamePrefixes &&
+          localNames == other.localNames &&
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
           macPrefixes == other.macPrefixes &&
@@ -3026,6 +3375,66 @@ class StoredUploadPlanDto {
           playWrite == other.playWrite &&
           responseCharacteristicUuid == other.responseCharacteristicUuid &&
           cid == other.cid;
+}
+
+/// A `symptom` + its likely `causes` — the "it won't connect" list.
+class TroubleshootingDto {
+  final String symptom;
+  final List<String> causes;
+
+  const TroubleshootingDto({
+    required this.symptom,
+    required this.causes,
+  });
+
+  @override
+  int get hashCode => symptom.hashCode ^ causes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TroubleshootingDto &&
+          runtimeType == other.runtimeType &&
+          symptom == other.symptom &&
+          causes == other.causes;
+}
+
+/// What a Tuya discovery broadcast identifies about its sender — the FFI face
+/// of [`crate::protocol::tuya::TuyaBroadcast`]. Every field optional: a partial
+/// datagram still identifies the device by whatever it carried.
+class TuyaBroadcastDto {
+  final String? gwId;
+  final String? ip;
+  final String? version;
+  final String? productKey;
+  final bool encrypted;
+
+  const TuyaBroadcastDto({
+    this.gwId,
+    this.ip,
+    this.version,
+    this.productKey,
+    required this.encrypted,
+  });
+
+  @override
+  int get hashCode =>
+      gwId.hashCode ^
+      ip.hashCode ^
+      version.hashCode ^
+      productKey.hashCode ^
+      encrypted.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TuyaBroadcastDto &&
+          runtimeType == other.runtimeType &&
+          gwId == other.gwId &&
+          ip == other.ip &&
+          version == other.version &&
+          productKey == other.productKey &&
+          encrypted == other.encrypted;
 }
 
 /// One network out of a Wemo `GetApList` reply.
