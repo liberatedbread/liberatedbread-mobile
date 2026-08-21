@@ -145,4 +145,45 @@ void main() {
     expect(device.ssdpTargets, ['roku:ecp']);
     expect(device.sources, {NetworkDiscoverySource.ssdp});
   });
+
+  group('TXT survives the round trip', () {
+    // Some devices keep their IDENTITY in TXT rather than in the address: a
+    // Roomba's `blid` is what its stored password is filed under. Dropping
+    // the map on the way to storage left an adopted robot unopenable from
+    // Saved Devices, asking to be scanned again while its credential sat in
+    // the store.
+    final robot = SavedNetworkDevice(
+      id: 'hn:roomba.local',
+      name: 'Dorita',
+      lastSeen: DateTime(2026, 2, 3),
+      host: '192.168.1.50',
+      hostname: 'roomba.local',
+      port: 8883,
+      txt: const {'blid': 'ABC123', 'ha_entity_id': 'vacuum.dorita'},
+    );
+
+    test('toNetworkDevice carries the identity keys back', () {
+      final device = robot.toNetworkDevice();
+      expect(device.txt['blid'], 'ABC123');
+      expect(device.txt['ha_entity_id'], 'vacuum.dorita');
+    });
+
+    test('toJson/fromJson preserves it', () {
+      final restored = SavedNetworkDevice.fromJson(robot.toJson());
+      expect(restored, isNotNull);
+      expect(restored!.txt['blid'], 'ABC123');
+      expect(restored.txt['ha_entity_id'], 'vacuum.dorita');
+    });
+
+    test('a record saved before TXT was stored still reads', () {
+      final legacy = SavedNetworkDevice.fromJson(const {
+        'id': 'hn:old.local',
+        'name': 'Old',
+        'lastSeen': '2026-02-03T00:00:00.000',
+        'host': '192.168.1.9',
+      });
+      expect(legacy, isNotNull);
+      expect(legacy!.txt, isEmpty);
+    });
+  });
 }

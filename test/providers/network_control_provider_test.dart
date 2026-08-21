@@ -61,6 +61,39 @@ const _request = NetworkControlRequest(
   ssdpTargets: ['urn:Belkin:device:crockpot:1'],
 );
 
+/// A Kasa power strip's outlet: an instanced child, but reached directly over
+/// `tcp-json` with no pairing step.
+const _kasaAction = NetworkActionDto(
+  role: 'turn_on',
+  commandName: 'turn_on',
+  transport: 'tcp-json',
+  userParams: [],
+  readBack: [],
+  credentials: [],
+  instanceParams: [],
+);
+
+/// A hub child: instanced, and reached over a transport that needs pairing.
+const _hubAction = NetworkActionDto(
+  role: 'turn_on',
+  commandName: 'turn_on',
+  transport: 'http',
+  userParams: [],
+  readBack: [],
+  credentials: [],
+  instanceParams: [],
+);
+
+NetworkEntityDto _instanced(List<NetworkActionDto> actions) => NetworkEntityDto(
+      isInstanced: true,
+      name: 'Child',
+      platform: 'switch',
+      stateCommand: 'get',
+      options: const [],
+      actions: actions,
+    );
+
+
 void main() {
   test('resolves the matched spec and its declared controls', () async {
     late List<String> asked;
@@ -145,5 +178,38 @@ void main() {
       isNot(const NetworkControlRequest(
           deviceName: 'X', manufacturer: 'Y', ssdpTargets: ['other'])),
     );
+  });
+
+  group('NetworkControls.isHub', () {
+    // Regression: a merge once dropped the transport half of this test, which
+    // routed Kasa power strips to the Hue pairing screen and made the
+    // per-outlet switches unreachable. Instanced children are necessary but
+    // not sufficient — a hub is the subset that must be paired with.
+    test('a Kasa power strip is NOT a hub, though its outlets are instanced',
+        () {
+      final controls = NetworkControls(
+        specYaml: 'spec',
+        entities: [
+          _instanced(const [_kasaAction])
+        ],
+      );
+      expect(controls.isHub, isFalse);
+    });
+
+    test('an instanced child on a pairing transport IS a hub', () {
+      final controls = NetworkControls(
+        specYaml: 'spec',
+        entities: [
+          _instanced(const [_hubAction])
+        ],
+      );
+      expect(controls.isHub, isTrue);
+    });
+
+    test('a device with no instanced entities is never a hub', () {
+      const controls =
+          NetworkControls(specYaml: 'spec', entities: [_plugEntity]);
+      expect(controls.isHub, isFalse);
+    });
   });
 }

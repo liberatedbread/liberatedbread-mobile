@@ -234,7 +234,13 @@ class NetworkControls {
   /// must be paired with and enumerated. This is what routes the tap: Roku is
   /// `http` too but has no instanced children and no pairing, so it keeps the
   /// ordinary control screen; only a hub gets the paired one.
-  bool get isHub => entities.any((e) => e.isInstanced);
+  ///
+  /// Instanced-but-not-a-hub is a real case, which is why the transport is
+  /// part of the test: a Kasa power strip's outlets are instanced children,
+  /// but they are driven directly over `tcp-json` with no pairing step, and
+  /// they belong on the ordinary screen where the per-outlet switches live.
+  bool get isHub => entities.any(
+      (e) => e.isInstanced && !e.actions.any((a) => a.transport == 'tcp-json'));
 }
 
 /// Resolve what the catalogue lets us control on one network device.
