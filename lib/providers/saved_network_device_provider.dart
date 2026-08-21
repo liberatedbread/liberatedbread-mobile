@@ -53,6 +53,10 @@ class SavedNetworkDevicesNotifier
       ssdpPort: device.ssdpPort,
       ssdpDescriptionPath: device.ssdpDescriptionPath,
       ssdpTargets: device.ssdpTargets,
+      // Merged, not replaced: a later sighting over a transport that carries
+      // no TXT (a plain SSDP answer for a device first found over mDNS) must
+      // not erase an identity key an earlier one established.
+      txt: {...?existing?.txt, ...device.txt},
       category: category ?? existing?.category,
       specKey: specKey ?? existing?.specKey,
     );

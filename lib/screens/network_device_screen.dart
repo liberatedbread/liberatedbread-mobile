@@ -1149,7 +1149,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               // the pad) and not the keyboard (placed by whether it's usable,
               // below), so a Roku's remote keeps a stable position whether the
               // app list is still loading or just came back.
-              for (final entity in _entities.where((entity) =>
+              for (final entity in _drawableEntities.where((entity) =>
                   entity.platform != 'button' &&
                   entity.platform != 'select' &&
                   entity.platform != 'text' &&

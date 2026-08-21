@@ -136,12 +136,11 @@ const _goveeRecvPort = 4002;
 const _goveeLanProtocol = 'govee-lan';
 const _goveeProbe = '{"msg":{"cmd":"scan","data":{"account_topic":"reserve"}}}';
 
-/// iRobot Roomba/Braava answer the ASCII probe `irobotmcs` broadcast to UDP
-/// 5678 — the SAME port MikroTik MNDP uses — with a JSON blob. Detection rides
-/// on the MikroTik transport's :5678 socket (one probe pair, both reply shapes
-/// parsed). Tagged with the lan-protocol the Roomba spec declares.
-const _irobotProbe = 'irobotmcs';
-const _irobotLanProtocol = 'irobot-mqtt';
+// iRobot Roomba/Braava answer an ASCII probe broadcast to UDP 5678 — the SAME
+// port MikroTik MNDP uses — with a JSON blob. Discovery lives in the roomba
+// transport (`_runRoomba`), which takes its probe from the spec and builds the
+// record carrying the control port; the MNDP socket, bound to the same port,
+// recognises those replies only so it does not log them as junk.
 
 /// KNXnet/IP routers/interfaces answer a SEARCH_REQUEST multicast to
 /// 224.0.23.12:3671 with a SEARCH_RESPONSE (device-info DIB). The HPAI in the
@@ -1153,10 +1152,12 @@ class RealNetworkScanService implements NetworkScanService {
     final seen = <String>{};
     try {
       final target = InternetAddress(_lifxBroadcast);
-      final irobotProbe = utf8.encode(_irobotProbe);
+      // Only the MNDP probe goes out here. iRobot shares this port but has
+      // its own transport now (_runRoomba), which sends the spec's probe and
+      // builds the richer record; sending it from both put two probes on the
+      // wire per scan and raced two NetworkDevices for one robot.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(_mikrotikProbe, target, _mikrotikPort);
-        socket.send(irobotProbe, target, _mikrotikPort);
         if (await session
             .sleepUnlessStopped(const Duration(milliseconds: 250))) {
           break;
@@ -1193,28 +1194,16 @@ class RealNetworkScanService implements NetworkScanService {
           ));
           continue;
         }
-        // Otherwise a JSON iRobot reply on the same port. Keyed on the BLID
-        // (stable), namespaced so it cannot collide with a MikroTik host key.
+        // A JSON iRobot reply on the same port — either a robot answering
+        // _runRoomba's broadcast, or that broadcast itself echoed back to a
+        // socket bound to 5678. Recognised so it is not logged as junk, but
+        // deliberately NOT emitted: the roomba transport owns robot
+        // discovery and produces the record that carries the control port.
+        // Emitting here too gave one robot two rows, and which one won was a
+        // race between the transports.
         final robot = parseIrobotReply(datagram.data);
         if (robot != null) {
           heard = true;
-          if (!seen.add('irobot:${robot.blid ?? robot.hostname ?? host}')) {
-            continue;
-          }
-          emit(NetworkDevice(
-            host: host,
-            name: robot.robotname ?? robot.hostname ?? '',
-            answeredLanProtocols: const [_irobotLanProtocol],
-            pictogram: 'robot',
-            txt: {
-              if (robot.hostname != null) 'hostname': robot.hostname!,
-              if (robot.blid != null) 'blid': robot.blid!,
-              if (robot.sku != null) 'sku': robot.sku!,
-              if (robot.mac != null) 'mac': robot.mac!,
-            },
-            sources: const {NetworkDiscoverySource.lanProbe},
-            discoveredAt: DateTime.now(),
-          ));
           continue;
         }
         // Neither shape — our own 4-byte MNDP echo, or an unrecognized reply.

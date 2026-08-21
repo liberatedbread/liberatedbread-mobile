@@ -48,6 +48,15 @@ class SavedNetworkDevice {
   final String? ssdpDescriptionPath;
   final List<String> ssdpTargets;
 
+  /// The discovery TXT answers, cached with the rest of the sighting. Kept
+  /// because some devices carry their IDENTITY here rather than in the
+  /// address: a Roomba's `blid` is what its stored password is filed under,
+  /// and a Home-Assistant-driven one is reached by `ha_entity_id`. Dropping
+  /// the map on the way to storage left an adopted robot unopenable from
+  /// Saved Devices — it would ask to be scanned again while its credential
+  /// sat in the store.
+  final Map<String, String> txt;
+
   const SavedNetworkDevice({
     required this.id,
     required this.name,
@@ -58,6 +67,7 @@ class SavedNetworkDevice {
     this.ssdpPort,
     this.ssdpDescriptionPath,
     this.ssdpTargets = const [],
+    this.txt = const {},
     this.category,
     this.specKey,
   });
@@ -85,6 +95,7 @@ class SavedNetworkDevice {
         ssdpPort: ssdpPort,
         ssdpDescriptionPath: ssdpDescriptionPath,
         ssdpTargets: ssdpTargets,
+        txt: txt,
         sources: {
           if (ssdpPort != null || ssdpTargets.isNotEmpty)
             NetworkDiscoverySource.ssdp
@@ -105,6 +116,7 @@ class SavedNetworkDevice {
         if (ssdpDescriptionPath != null)
           'ssdpDescriptionPath': ssdpDescriptionPath,
         if (ssdpTargets.isNotEmpty) 'ssdpTargets': ssdpTargets,
+        if (txt.isNotEmpty) 'txt': txt,
         if (category != null) 'category': category,
         if (specKey != null) 'specKey': specKey,
       };
@@ -127,6 +139,14 @@ class SavedNetworkDevice {
     final ssdpPort = json['ssdpPort'];
     final descriptionPath = json['ssdpDescriptionPath'];
     final targets = json['ssdpTargets'];
+    final rawTxt = json['txt'];
+    final txt = rawTxt is Map
+        ? {
+            for (final e in rawTxt.entries)
+              if (e.key is String && e.value is String)
+                e.key as String: e.value as String,
+          }
+        : const <String, String>{};
     return SavedNetworkDevice(
       id: id,
       name: name,
@@ -145,6 +165,7 @@ class SavedNetworkDevice {
                 if (entry is String && entry.isNotEmpty) entry,
             ]
           : const [],
+      txt: txt,
       category: category is String && category.isNotEmpty ? category : null,
       specKey: specKey is String && specKey.isNotEmpty ? specKey : null,
     );
