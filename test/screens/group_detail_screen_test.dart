@@ -7,14 +7,18 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
+import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/scan_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/group_detail_screen.dart';
+import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -284,5 +288,108 @@ void main() {
 
     expect(find.text('Could not reach this device.'), findsNWidgets(2));
     expect(find.byIcon(Icons.error_outline), findsNWidgets(2));
+  });
+
+  testWidgets(
+      'a mixed group runs both transports: BLE writes and a network send '
+      'from one tap', (tester) async {
+    // One saved bulb (BLE) and one saved Wi-Fi light in the same category
+    // bucket — the arbitrary-grouping case, on the automatic group.
+    SharedPreferences.setMockInitialValues({
+      ..._twoBulbs(),
+      'saved_network_devices_v1': jsonEncode([
+        {
+          'id': 'hn:strip.local',
+          'name': 'Wifi Strip',
+          'lastSeen': '2026-08-11T10:00:00.000',
+          'host': '192.0.2.9',
+          'ssdpPort': 8060,
+          'category': 'light',
+          'specKey': 'Wifi Strip|Acme Corp',
+        },
+      ]),
+    });
+    _prefs = await SharedPreferences.getInstance();
+
+    final wifiSpec = DeviceSpecDto(
+      deviceName: 'Wifi Strip',
+      manufacturer: 'Acme Corp',
+      manufacturerStatus: 'active',
+      protocol: 'wifi',
+      category: 'light',
+      localNamePrefixes: const [],
+      localNames: const [],
+      serviceUuids: const [],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      services: const [],
+      entities: const [],
+    );
+    const wifiPower = NetworkEntityDto(
+      name: 'Power',
+      platform: 'light',
+      stateCommand: '',
+      transport: 'http',
+      isInstanced: false,
+      options: [],
+      actions: [
+        NetworkActionDto(
+          role: 'turn_off',
+          commandName: 'strip_off',
+          transport: 'http',
+          userParams: [],
+          readBack: [],
+          credentials: [],
+          instanceParams: [],
+        ),
+      ],
+    );
+
+    final received = <Uri>[];
+    final ble = writableBle();
+    final codec = FakeSpecCodec(
+      spec: _bulbSpec,
+      networkEntities: (targets) => const [wifiPower],
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        bleServiceProvider.overrideWithValue(ble),
+        specCodecProvider.overrideWithValue(codec),
+        scanGuessProvider.overrideWith((ref, identity) async => null),
+        parsedDeviceSpecsProvider.overrideWith((ref) async => [
+              (spec: _bulbSpec, yaml: 'bulb-yaml'),
+              (spec: wifiSpec, yaml: 'wifi-yaml'),
+            ]),
+        httpControlClientProvider.overrideWithValue(
+            HttpControlClient(httpClient: MockClient((request) async {
+          received.add(request.url);
+          return http.Response('', 200);
+        }))),
+      ],
+      child: const MaterialApp(
+        home: GroupDetailScreen(category: DeviceCategory.light),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // Both transports' members render in the one group.
+    expect(find.text('ACME_Living_Room'), findsOneWidget);
+    expect(find.text('Wifi Strip'), findsOneWidget);
+
+    // The strip's pre-run summary also reads "Turn all off", so target the
+    // button explicitly.
+    await tester.tap(find.ancestor(
+      of: find.text('Turn all off'),
+      matching: find.byWidgetPredicate((w) => w is FilledButton),
+    ));
+    await tester.pumpAndSettle();
+
+    // The bulbs got their GATT writes, the strip its HTTP POST — one tap.
+    expect(ble.writes, hasLength(2));
+    expect(received.single.path, '/fake/strip_off');
+    expect(find.text('1 command sent'), findsNWidgets(3));
   });
 }
