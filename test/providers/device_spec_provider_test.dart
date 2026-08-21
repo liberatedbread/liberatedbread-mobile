@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
@@ -37,6 +39,27 @@ void main() {
         contains(
             'vendor/protocol-specs/device-specs/devices/ipp-network-printer.yaml'),
         reason: 'the temp index must surface specs absent from index.json');
+  });
+
+  testWidgets(
+      'the catalogue never probes an absent asset, even when the load '
+      'outlives the test body', (tester) async {
+    // Regression. `rootBundle.loadString` on an absent asset raises through
+    // FlutterError, and flutter_test fails the CURRENT test on any such error
+    // that surfaces after its body completed — EVEN WHEN application code
+    // caught it. index-temp.json is gitignored and therefore absent in any
+    // checkout that has not run the vendor scripts, so probing for it by
+    // loading was a race: green on a machine where the load resolved in-body,
+    // red on CI where it resolved late. It took out two whole-app tests in
+    // app_real_ble_path_test.dart that have nothing to do with asset loading.
+    //
+    // The read is deliberately NOT awaited: leaving the catalogue load in
+    // flight as this body returns is precisely the shape that failed, and
+    // awaiting it would test nothing.
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    unawaited(container.read(deviceSpecsProvider.future));
+    await tester.pump();
   });
 
   test('specs map is defensively typed', () async {

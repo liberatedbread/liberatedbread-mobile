@@ -3,7 +3,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
@@ -58,14 +58,21 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   // All ~70 loads in flight together: these are independent asset-channel
   // round trips on the startup path, and awaiting each before starting the
   // next made the catalogue load O(specs) in latency instead of O(1).
-  final paths = await _bundledSpecPaths();
+  final bundled = await _bundledAssetKeys();
+  final paths = await _bundledSpecPaths(bundled);
   final loads = await Future.wait(paths.map((path) async {
+    // Listed in the index but not bundled: skip rather than fail the whole
+    // catalogue, and skip WITHOUT loading — an absent-asset error that lands
+    // after a test body completes fails that test even when caught (see
+    // [_bundledAssetKeys]). The sync script keeps index and bundle in step;
+    // this guards a hand-edited index.
+    if (bundled.isNotEmpty && !bundled.contains(path)) {
+      debugPrint('Spec listed in manifest but not bundled: $path');
+      return null;
+    }
     try {
       return (path: path, yaml: await rootBundle.loadString(path));
     } on FlutterError {
-      // Listed in the manifest but not bundled: skip rather than fail the whole
-      // catalogue. The sync script keeps the two in step; this guards a
-      // hand-edited manifest.
       debugPrint('Spec listed in manifest but not bundled: $path');
       return null;
     } catch (e, st) {
@@ -93,13 +100,43 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
 /// Falls back to the example bulb when the index is missing or unreadable, so a
 /// broken vendoring degrades to the previous behaviour (mock mode still works)
 /// rather than an app with no specs at all.
-Future<List<String>> _bundledSpecPaths() async {
+/// Asset keys this build actually bundles, read once from the generated
+/// `AssetManifest`.
+///
+/// Asking the manifest instead of trying the load and catching is not a
+/// style preference — a `loadString` for an absent asset raises through
+/// `FlutterError`, and `flutter_test` fails the CURRENT test on any such
+/// error that surfaces after its body completed, EVEN WHEN application code
+/// caught it. The temp index below is absent in every checkout that has not
+/// run the vendor scripts, so probing for it by loading raced the end of
+/// whichever test happened to trigger the catalogue load: green on a machine
+/// where the load resolved in-body, red on CI where it resolved late.
+/// Consulting the manifest first means the absent case is never an error at
+/// all. See `test/providers/device_spec_provider_test.dart`.
+Future<Set<String>> _bundledAssetKeys() async {
+  try {
+    final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+    return manifest.listAssets().toSet();
+  } catch (e, st) {
+    // The generated manifest is always bundled, so this is a broken build
+    // rather than a missing file. Degrade to "assume present" and let the
+    // per-asset guards below decide, exactly as before this check existed.
+    Log.spec.warning('asset manifest unreadable', error: e, stackTrace: st);
+    return const {};
+  }
+}
+
+Future<List<String>> _bundledSpecPaths(Set<String> bundled) async {
   // The local temp index wins when it is bundled: it is the freshest list of
   // vendored specs (rebuilt from them by the run/vendor scripts), where the
   // committed index.json may lag on a branch CI has not indexed. Fall back to
   // upstream's index.json, then to the example bulb, so a broken or absent
   // index degrades to "mock mode still works" rather than an empty catalogue.
   for (final manifest in const [specManifestTempPath, specManifestPath]) {
+    // Skipped rather than attempted when the build does not carry it: see
+    // [_bundledAssetKeys] for why asking beats catching. An empty set means
+    // the manifest itself was unreadable, in which case every path is tried.
+    if (bundled.isNotEmpty && !bundled.contains(manifest)) continue;
     final paths = await _pathsFromManifest(manifest);
     if (paths != null && paths.isNotEmpty) return paths;
   }
