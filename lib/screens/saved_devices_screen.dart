@@ -16,8 +16,7 @@ import '../services/saved_device_store.dart';
 import '../services/saved_network_device_store.dart';
 import '../widgets/device_list_tile.dart';
 import 'device_screen.dart';
-import 'hub_device_screen.dart';
-import 'network_device_screen.dart';
+import 'network_controls_launcher.dart';
 
 /// The devices the user has already paired with.
 ///
@@ -82,17 +81,18 @@ class SavedDevicesScreen extends ConsumerWidget {
   /// host/ports are the last sighting, so a device whose lease moved fails
   /// with the screen's own "could not reach — try scanning again" rather
   /// than anything new.
+  ///
+  /// Goes through the same launcher the scan list uses, so a saved robot whose
+  /// password is not on this handset reaches the adoption wizard instead of a
+  /// control screen that can only report errors.
   Future<void> _openNetwork(BuildContext context, WidgetRef ref,
-      SavedNetworkDevice saved, NetworkControls controls) async {
-    final device = saved.toNetworkDevice();
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => controls.isHub
-            ? HubDeviceScreen(device: device, controls: controls)
-            : NetworkDeviceScreen(device: device, controls: controls),
-      ),
-    );
-  }
+          SavedNetworkDevice saved, NetworkControls controls) =>
+      openNetworkControls(
+        context: context,
+        ref: ref,
+        device: saved.toNetworkDevice(),
+        controls: controls,
+      );
 
   Future<void> _forgetNetwork(
       BuildContext context, WidgetRef ref, SavedNetworkDevice saved) async {

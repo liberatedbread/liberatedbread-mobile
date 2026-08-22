@@ -103,7 +103,22 @@ class _StubHubClient extends HubHttpClient {
   /// writes — how the initial-load auth-failure path is exercised.
   bool errorOnGet = false;
 
+  /// The `/api/config` identity the screen probes for on every load. An
+  /// advertised bridgeid is only a claim — it scopes the credential and the
+  /// pin — so the screen confirms it against the device itself, and a stub
+  /// that answered nothing here would dial the documentation address.
+  String configBody = '{"bridgeid":"$_bridgeId","modelid":"BSB002"}';
+  String? observedCn = _bridgeId;
+  int configFetches = 0;
+
   _StubHubClient(HubCredentialStore store) : super(credentials: store);
+
+  @override
+  Future<HubConfigProbe> fetchConfig(String host,
+      {String? expectedBridgeId}) async {
+    configFetches++;
+    return HubConfigProbe(body: configBody, observedCn: observedCn);
+  }
 
   @override
   Future<String> send(
@@ -280,6 +295,31 @@ void main() {
     expect(find.byType(HubChildLightCard), findsNothing);
     // The misleading transport banner must not be what the user sees.
     expect(find.textContaining('try scanning again'), findsNothing);
+  });
+
+  testWidgets('a cached bridgeid the device disagrees with is refused',
+      (tester) async {
+    // Regression. The advertised id used to be trusted outright whenever it
+    // was 16 characters, which skipped the probe entirely on a saved device —
+    // and that id scopes both the stored pairing credential and the pinned
+    // certificate. So a cached host whose lease has moved to another device
+    // would fetch the OLD bridge's whitelist username and send it there.
+    await store.saveCredentials(
+        _bridgeId, const HubCredentials(username: 'testuser'));
+    client.configBody = '{"bridgeid":"001788FFFE999999","modelid":"BSB002"}';
+    client.observedCn = '001788FFFE999999';
+
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    expect(client.configFetches, 1,
+        reason: 'the probe must run even when the sighting carried an id');
+    expect(find.byType(HubChildLightCard), findsNothing);
+    expect(
+        find.textContaining('forget it below and pair again'), findsOneWidget);
+    expect(client.sent, isEmpty,
+        reason: 'the credential for the id we no longer trust must not be '
+            'sent to whatever device now holds that address');
   });
 
   testWidgets('forgetting the bridge clears the pairing after confirmation',

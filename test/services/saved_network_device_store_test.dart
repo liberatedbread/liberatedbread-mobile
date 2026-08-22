@@ -146,6 +146,75 @@ void main() {
     expect(device.sources, {NetworkDiscoverySource.ssdp});
   });
 
+  group('the whole sighting is persisted, not a subset of it', () {
+    // The record used to carry the address fields and TXT alone, and to
+    // SYNTHESISE `sources` from which of them happened to be set. A robot
+    // found by a LAN probe therefore came back claiming mDNS — a transport it
+    // never answered on, and one the matcher weighs — and everything the
+    // transport had learned about it (the protocol it answered, the glyph it
+    // earned) was gone.
+    final robot = SavedNetworkDevice(
+      id: 'mac:AABBCCDDEEFF',
+      name: 'Dorita',
+      lastSeen: DateTime(2026, 2, 3),
+      host: '192.168.1.50',
+      port: 8883,
+      answeredLanProtocols: const ['irobot-mqtt'],
+      serviceTypes: const ['_amzn-alexa._tcp.local'],
+      server: 'Unspecified, UPnP/1.0',
+      pictogram: 'robot-vacuum',
+      sources: const {NetworkDiscoverySource.lanProbe},
+    );
+
+    test('toNetworkDevice reports the source the device actually answered on',
+        () {
+      final device = robot.toNetworkDevice();
+      expect(device.sources, {NetworkDiscoverySource.lanProbe});
+      expect(device.answeredLanProtocols, ['irobot-mqtt']);
+      expect(device.serviceTypes, ['_amzn-alexa._tcp.local']);
+      expect(device.server, 'Unspecified, UPnP/1.0');
+      expect(device.pictogram, 'robot-vacuum');
+    });
+
+    test('toJson/fromJson preserves them', () {
+      final restored =
+          SavedNetworkDevice.fromJson(jsonDecode(jsonEncode(robot.toJson())));
+      expect(restored, isNotNull);
+      expect(restored!.sources, {NetworkDiscoverySource.lanProbe});
+      expect(restored.answeredLanProtocols, ['irobot-mqtt']);
+      expect(restored.serviceTypes, ['_amzn-alexa._tcp.local']);
+      expect(restored.server, 'Unspecified, UPnP/1.0');
+      expect(restored.pictogram, 'robot-vacuum');
+    });
+
+    test('a record saved before sources were stored keeps the old derivation',
+        () {
+      final legacy = SavedNetworkDevice.fromJson(const {
+        'id': 'hn:old.local',
+        'name': 'Old',
+        'lastSeen': '2026-02-03T00:00:00.000',
+        'host': '192.168.1.9',
+        'ssdpPort': 8060,
+      });
+      expect(legacy!.sources, isEmpty);
+      expect(legacy.toNetworkDevice().sources, {NetworkDiscoverySource.ssdp},
+          reason: 'a record with no recorded sources falls back rather than '
+              'coming back with none at all');
+    });
+
+    test('a source this build has not heard of is dropped, not fatal', () {
+      final restored = SavedNetworkDevice.fromJson(const {
+        'id': 'hn:new.local',
+        'name': 'New',
+        'lastSeen': '2026-02-03T00:00:00.000',
+        'host': '192.168.1.9',
+        'sources': ['mdns', 'matter-fabric'],
+      });
+      expect(restored, isNotNull);
+      expect(restored!.sources, {NetworkDiscoverySource.mdns});
+    });
+  });
+
   group('TXT survives the round trip', () {
     // Some devices keep their IDENTITY in TXT rather than in the address: a
     // Roomba's `blid` is what its stored password is filed under. Dropping

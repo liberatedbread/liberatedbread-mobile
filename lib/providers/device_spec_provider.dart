@@ -66,7 +66,7 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
     // after a test body completes fails that test even when caught (see
     // [_bundledAssetKeys]). The sync script keeps index and bundle in step;
     // this guards a hand-edited index.
-    if (bundled.isNotEmpty && !bundled.contains(path)) {
+    if (bundled != null && !bundled.contains(path)) {
       debugPrint('Spec listed in manifest but not bundled: $path');
       return null;
     }
@@ -95,13 +95,9 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   return specs;
 });
 
-/// Asset paths of every spec listed in the vendored index.
-///
-/// Falls back to the example bulb when the index is missing or unreadable, so a
-/// broken vendoring degrades to the previous behaviour (mock mode still works)
-/// rather than an app with no specs at all.
 /// Asset keys this build actually bundles, read once from the generated
-/// `AssetManifest`.
+/// `AssetManifest` — or null when the manifest itself could not be read, which
+/// is a different answer from "this build bundles nothing".
 ///
 /// Asking the manifest instead of trying the load and catching is not a
 /// style preference — a `loadString` for an absent asset raises through
@@ -113,7 +109,7 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
 /// where the load resolved in-body, red on CI where it resolved late.
 /// Consulting the manifest first means the absent case is never an error at
 /// all. See `test/providers/device_spec_provider_test.dart`.
-Future<Set<String>> _bundledAssetKeys() async {
+Future<Set<String>?> _bundledAssetKeys() async {
   try {
     final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
     return manifest.listAssets().toSet();
@@ -121,12 +117,20 @@ Future<Set<String>> _bundledAssetKeys() async {
     // The generated manifest is always bundled, so this is a broken build
     // rather than a missing file. Degrade to "assume present" and let the
     // per-asset guards below decide, exactly as before this check existed.
+    // Null rather than an empty set: an empty set is a real answer (a build
+    // that genuinely bundles nothing), and conflating the two would silently
+    // disable the guards this whole path exists to provide.
     Log.spec.warning('asset manifest unreadable', error: e, stackTrace: st);
-    return const {};
+    return null;
   }
 }
 
-Future<List<String>> _bundledSpecPaths(Set<String> bundled) async {
+/// Asset paths of every spec listed in the vendored index.
+///
+/// Falls back to the example bulb when the index is missing or unreadable, so a
+/// broken vendoring degrades to the previous behaviour (mock mode still works)
+/// rather than an app with no specs at all.
+Future<List<String>> _bundledSpecPaths(Set<String>? bundled) async {
   // The local temp index wins when it is bundled: it is the freshest list of
   // vendored specs (rebuilt from them by the run/vendor scripts), where the
   // committed index.json may lag on a branch CI has not indexed. Fall back to
@@ -134,9 +138,9 @@ Future<List<String>> _bundledSpecPaths(Set<String> bundled) async {
   // index degrades to "mock mode still works" rather than an empty catalogue.
   for (final manifest in const [specManifestTempPath, specManifestPath]) {
     // Skipped rather than attempted when the build does not carry it: see
-    // [_bundledAssetKeys] for why asking beats catching. An empty set means
-    // the manifest itself was unreadable, in which case every path is tried.
-    if (bundled.isNotEmpty && !bundled.contains(manifest)) continue;
+    // [_bundledAssetKeys] for why asking beats catching. Null means the
+    // manifest itself was unreadable, in which case every path is tried.
+    if (bundled != null && !bundled.contains(manifest)) continue;
     final paths = await _pathsFromManifest(manifest);
     if (paths != null && paths.isNotEmpty) return paths;
   }

@@ -53,6 +53,80 @@ void main() {
     expect(saved.specKey, 'Roku External Control Protocol|Roku');
   });
 
+  group('a thinner sighting never erases what a richer one established', () {
+    // Sightings are not equally rich: the same device answers mDNS with a TXT
+    // map and no SSDP targets one session, and SSDP with targets and no TXT
+    // the next. Blind-overwriting lost whichever half the latest transport did
+    // not carry, which is how an adopted robot became unopenable from Saved
+    // Devices and a Wemo stopped resolving its controls.
+    NetworkDevice thin({
+      String host = '192.168.1.20',
+      String? hostname = 'tv.local',
+      Map<String, String> txt = const {},
+    }) =>
+        NetworkDevice(
+          host: host,
+          name: 'Living Room TV',
+          hostname: hostname,
+          sources: const {NetworkDiscoverySource.mdns},
+          discoveredAt: DateTime(2026, 1, 2),
+          txt: txt,
+        );
+
+    test('the SSDP answers and ports survive a sighting that carries none',
+        () async {
+      final c = await container();
+      final notifier = c.read(savedNetworkDevicesProvider.notifier);
+
+      await notifier.touch(_sighting());
+      await notifier.touch(thin());
+
+      final saved = c.read(savedNetworkDevicesProvider).single;
+      expect(saved.ssdpTargets, ['roku:ecp'],
+          reason: 'the targets are what narrow a family spec to this model');
+      expect(saved.ssdpPort, 8060);
+      expect(saved.port, 8060);
+      expect(saved.hostname, 'tv.local');
+    });
+
+    test('a TXT-less sighting rejoins its record instead of forking a second',
+        () async {
+      // The record is filed under `mac:` — read out of TXT. A sighting with no
+      // TXT proposes `hn:` instead, so looking up by the proposed id alone
+      // found nothing and wrote a SECOND row: the user saw two robots, and the
+      // one they tapped had no blid to find the password by.
+      final c = await container();
+      final notifier = c.read(savedNetworkDevicesProvider.notifier);
+
+      final first = await notifier.touch(thin(
+        txt: const {'mac': 'AA:BB:CC:DD:EE:FF', 'blid': 'ABC123'},
+      ));
+      expect(first.id, startsWith('mac:'));
+
+      await notifier.touch(thin(host: '192.168.1.77'));
+
+      final saved = c.read(savedNetworkDevicesProvider).single;
+      expect(saved.id, first.id);
+      expect(saved.host, '192.168.1.77', reason: 'the lease still refreshes');
+      expect(saved.txt['blid'], 'ABC123');
+    });
+
+    test('a bare TXT flag does not blank an established identity', () async {
+      // A TXT record may carry a key with no value, which the parser stores as
+      // an empty string. An empty blid is not an identity — it looks up no
+      // password — so it must not replace the one already known.
+      final c = await container();
+      final notifier = c.read(savedNetworkDevicesProvider.notifier);
+
+      await notifier.touch(thin(txt: const {'blid': 'ABC123'}));
+      await notifier.touch(thin(txt: const {'blid': '', 'sku': 'j7'}));
+
+      final saved = c.read(savedNetworkDevicesProvider).single;
+      expect(saved.txt['blid'], 'ABC123');
+      expect(saved.txt['sku'], 'j7', reason: 'a real new key still lands');
+    });
+  });
+
   test('forgetNetworkDevice prunes the namespaced membership first', () async {
     final c = await container();
     final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);

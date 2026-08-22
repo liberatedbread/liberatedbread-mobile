@@ -73,14 +73,16 @@ const _kasaAction = NetworkActionDto(
   instanceParams: [],
 );
 
-/// A hub child: instanced, and reached over a transport that needs pairing.
+/// A hub child: instanced, and reached by a command that fills a parameter
+/// from a stored pairing credential — the thing HubDeviceScreen consumes, and
+/// what makes a device a hub rather than a direct-drive strip.
 const _hubAction = NetworkActionDto(
   role: 'turn_on',
   commandName: 'turn_on',
   transport: 'http',
   userParams: [],
   readBack: [],
-  credentials: [],
+  credentials: [NetworkSourceParamDto(param: 'username', name: 'username')],
   instanceParams: [],
 );
 
@@ -92,7 +94,6 @@ NetworkEntityDto _instanced(List<NetworkActionDto> actions) => NetworkEntityDto(
       options: const [],
       actions: actions,
     );
-
 
 void main() {
   test('resolves the matched spec and its declared controls', () async {
@@ -181,7 +182,7 @@ void main() {
   });
 
   group('NetworkControls.isHub', () {
-    // Regression: a merge once dropped the transport half of this test, which
+    // Regression: a merge once dropped the pairing half of this test, which
     // routed Kasa power strips to the Hue pairing screen and made the
     // per-outlet switches unreachable. Instanced children are necessary but
     // not sufficient — a hub is the subset that must be paired with.
@@ -196,7 +197,7 @@ void main() {
       expect(controls.isHub, isFalse);
     });
 
-    test('an instanced child on a pairing transport IS a hub', () {
+    test('an instanced child reached with a credential IS a hub', () {
       final controls = NetworkControls(
         specYaml: 'spec',
         entities: [
@@ -204,6 +205,18 @@ void main() {
         ],
       );
       expect(controls.isHub, isTrue);
+    });
+
+    // Regression: the previous form asked `!actions.any(tcp-json)`, which is
+    // vacuously true for an entity with no actions at all — so a per-outlet
+    // energy reading on a Kasa strip would have routed the whole strip to the
+    // pairing screen. A pure reading needs no pairing.
+    test('an instanced child with no actions is not a hub', () {
+      final controls = NetworkControls(
+        specYaml: 'spec',
+        entities: [_instanced(const [])],
+      );
+      expect(controls.isHub, isFalse);
     });
 
     test('a device with no instanced entities is never a hub', () {

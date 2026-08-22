@@ -235,12 +235,20 @@ class NetworkControls {
   /// `http` too but has no instanced children and no pairing, so it keeps the
   /// ordinary control screen; only a hub gets the paired one.
   ///
-  /// Instanced-but-not-a-hub is a real case, which is why the transport is
-  /// part of the test: a Kasa power strip's outlets are instanced children,
-  /// but they are driven directly over `tcp-json` with no pairing step, and
-  /// they belong on the ordinary screen where the per-outlet switches live.
+  /// Instanced-but-not-a-hub is a real case, which is why pairing is part of
+  /// the test: a Kasa power strip's outlets are instanced children, but they
+  /// are driven directly over `tcp-json` with no pairing step, and they
+  /// belong on the ordinary screen where the per-outlet switches live.
+  ///
+  /// "Must be paired with" is asked of the actions' credentials rather than
+  /// of the transport. That is the thing the hub screen actually consumes
+  /// (`action.credentials`), and it is the only form of the question that
+  /// generalises: blacklisting `tcp-json` answers for Kasa alone, so the next
+  /// direct-drive child on udp/mqtt/websocket re-opens this bug. It is also
+  /// the only signal left for an entity with no actions at all — a per-outlet
+  /// energy reading is instanced, but it is not a hub.
   bool get isHub => entities.any(
-      (e) => e.isInstanced && !e.actions.any((a) => a.transport == 'tcp-json'));
+      (e) => e.isInstanced && e.actions.any((a) => a.credentials.isNotEmpty));
 }
 
 /// Resolve what the catalogue lets us control on one network device.

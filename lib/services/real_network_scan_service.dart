@@ -155,6 +155,7 @@ const _knxProbe = [
   0x06, 0x10, 0x02, 0x01, 0x00, 0x0e, //
   0x08, 0x01, 0, 0, 0, 0, 0, 0,
 ];
+
 /// iRobot Roomba discovery: a broadcast of the nine ASCII bytes `irobotmcs` to
 /// UDP 5678, which every iRobot robot on the segment answers with a JSON
 /// datagram carrying its BLID, name, address and firmware. The probe and the
@@ -782,7 +783,7 @@ class RealNetworkScanService implements NetworkScanService {
             return TransportOutcome.failed;
           }),
           // MikroTik RouterOS answers only MNDP on UDP 5678 (no mDNS/SSDP).
-          _runMikrotik(session, emit, timeout).catchError((Object e) {
+          _runMikrotik(session, emit, timeout, codec).catchError((Object e) {
             Log.net.warning('MikroTik discovery failed', error: e);
             return TransportOutcome.failed;
           }),
@@ -804,7 +805,7 @@ class RealNetworkScanService implements NetworkScanService {
             }),
           // Vendor light protocols that answer only their own UDP probe, each
           // deaf to mDNS/SSDP: Wiz (38899), Yeelight (multicast 1982), Govee
-          // LAN (4001/4002). iRobot rides on the MikroTik :5678 transport.
+          // LAN (4001/4002). iRobot has a transport of its own, below.
           _runWiz(session, emit, timeout).catchError((Object e) {
             Log.net.warning('Wiz discovery failed', error: e);
             return TransportOutcome.failed;
@@ -1124,18 +1125,24 @@ class RealNetworkScanService implements NetworkScanService {
     }
   }
 
-  /// Discover MikroTik RouterOS devices over MNDP AND iRobot robots over their
-  /// discovery protocol — both live on UDP 5678. Must BIND :5678: a solicited
-  /// MNDP device broadcasts its TLV beacon back to :5678 (not the sender's
-  /// port), and a Roomba unicasts its JSON reply to the probe's source port,
-  /// which is also :5678 here. So one bound socket, two probes (the 4-byte MNDP
-  /// solicitation and the ASCII `irobotmcs`), and each reply is dispatched by
-  /// shape — a binary TLV beacon to [parseMndp], a JSON blob to
-  /// [parseIrobotReply] — and tagged with the matching spec's lan-protocol.
+  /// Discover MikroTik RouterOS devices over MNDP, on UDP 5678. Must BIND
+  /// :5678: a solicited MNDP device broadcasts its TLV beacon back to :5678
+  /// rather than to the sender's port.
+  ///
+  /// Only the MNDP solicitation goes out from here — robot discovery belongs
+  /// to [_runRoomba], which sends the spec's own probe from an ephemeral port
+  /// and receives the unicast answers there. But iRobot shares this port, and
+  /// a robot that ANNOUNCES itself broadcasts to :5678, which no ephemeral
+  /// socket can hear. So replies are still dispatched by shape — a binary TLV
+  /// beacon to [parseMndp], a JSON blob to [parseIrobotReply] — and a robot
+  /// heard here is built by the SAME [roombaDeviceFrom] the roomba transport
+  /// uses. Identical records merge; it was emitting a different, poorer record
+  /// from here that once raced two rows for one robot.
   Future<TransportOutcome> _runMikrotik(
     _ScanSession session,
     void Function(NetworkDevice) emit,
     Duration timeout,
+    SpecCodec? codec,
   ) async {
     final RawDatagramSocket socket;
     try {
@@ -1194,16 +1201,23 @@ class RealNetworkScanService implements NetworkScanService {
           ));
           continue;
         }
-        // A JSON iRobot reply on the same port — either a robot answering
-        // _runRoomba's broadcast, or that broadcast itself echoed back to a
-        // socket bound to 5678. Recognised so it is not logged as junk, but
-        // deliberately NOT emitted: the roomba transport owns robot
-        // discovery and produces the record that carries the control port.
-        // Emitting here too gave one robot two rows, and which one won was a
-        // race between the transports.
+        // A JSON iRobot blob on the same port: a robot announcing itself by
+        // broadcast (which only a socket bound to :5678 hears), a robot whose
+        // answer went to the broadcast port rather than to the sender's, or
+        // _runRoomba's own probe echoed back to us.
+        //
+        // Built through [roombaDeviceFrom], so what is emitted here is the
+        // same record the roomba transport would emit — same control port,
+        // same lan-protocol tag, same identity — and the two merge instead of
+        // racing. Dropping it instead left an announce-only robot with no path
+        // to a NetworkDevice at all, while the scan still reported "heard", so
+        // nothing diagnosed it.
         final robot = parseIrobotReply(datagram.data);
         if (robot != null) {
           heard = true;
+          if (codec == null || !seen.add(host)) continue;
+          final device = await roombaDeviceFrom(datagram, codec);
+          if (device != null) emit(device);
           continue;
         }
         // Neither shape — our own 4-byte MNDP echo, or an unrecognized reply.

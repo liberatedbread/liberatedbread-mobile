@@ -17,8 +17,10 @@ import 'prefs_json_list.dart';
 ///    [stableIdFor]: the advertised MAC when the device published one, else
 ///    the hostname (which usually embeds a serial), else the advertised
 ///    name, else — last resort, and honestly weak — the address itself.
-///  * [host]/[port]/[ssdpPort]/[ssdpDescriptionPath]/[ssdpTargets] are a
-///    CACHE of the last sighting, refreshed every time the device is seen.
+///  * [host] and everything the device answered discovery with — the ports,
+///    the SSDP targets and description path, the mDNS service types, the LAN
+///    protocols, the TXT map, the sources — are a CACHE of the last sighting,
+///    refreshed every time the device is seen.
 ///    They are what a group run connects to when the device has not been
 ///    scanned this session, and a lease change makes them stale, not wrong:
 ///    the run fails honestly ("could not reach") and the next scan heals
@@ -47,6 +49,16 @@ class SavedNetworkDevice {
   final int? ssdpPort;
   final String? ssdpDescriptionPath;
   final List<String> ssdpTargets;
+  final List<String> serviceTypes;
+  final List<String> answeredLanProtocols;
+  final String? server;
+  final String? pictogram;
+
+  /// How the device was found. Recorded rather than inferred: this record
+  /// used to synthesise it from which fields happened to be cached, which
+  /// told a lanProbe-discovered robot it had answered mDNS — a source it
+  /// never answered on, and one the matcher weighs.
+  final Set<NetworkDiscoverySource> sources;
 
   /// The discovery TXT answers, cached with the rest of the sighting. Kept
   /// because some devices carry their IDENTITY here rather than in the
@@ -67,6 +79,11 @@ class SavedNetworkDevice {
     this.ssdpPort,
     this.ssdpDescriptionPath,
     this.ssdpTargets = const [],
+    this.serviceTypes = const [],
+    this.answeredLanProtocols = const [],
+    this.server,
+    this.pictogram,
+    this.sources = const {},
     this.txt = const {},
     this.category,
     this.specKey,
@@ -84,9 +101,9 @@ class SavedNetworkDevice {
 
   /// Rebuild a [NetworkDevice] from the cached sighting, so screens built
   /// for live discoveries (the control screen) can open from a saved row.
-  /// The synthesized sighting is as honest as the cache: sources are
-  /// derived from what was cached (SSDP fields present means SSDP answered)
-  /// and the timestamp is the save's own.
+  /// The synthesized sighting is as honest as the cache: every field it
+  /// carries is one the device actually answered with, and the timestamp is
+  /// the save's own.
   NetworkDevice toNetworkDevice() => NetworkDevice(
         host: host,
         name: name,
@@ -95,15 +112,23 @@ class SavedNetworkDevice {
         ssdpPort: ssdpPort,
         ssdpDescriptionPath: ssdpDescriptionPath,
         ssdpTargets: ssdpTargets,
+        serviceTypes: serviceTypes,
+        answeredLanProtocols: answeredLanProtocols,
+        server: server,
+        pictogram: pictogram,
         txt: txt,
-        sources: {
-          if (ssdpPort != null || ssdpTargets.isNotEmpty)
-            NetworkDiscoverySource.ssdp
-          else
-            NetworkDiscoverySource.mdns,
-        },
+        sources: sources.isNotEmpty ? sources : _derivedSources(),
         discoveredAt: lastSeen,
       );
+
+  /// What a record written before [sources] was persisted must fall back to:
+  /// the old derivation, kept for those records alone.
+  Set<NetworkDiscoverySource> _derivedSources() => {
+        if (ssdpPort != null || ssdpTargets.isNotEmpty)
+          NetworkDiscoverySource.ssdp
+        else
+          NetworkDiscoverySource.mdns,
+      };
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -116,6 +141,13 @@ class SavedNetworkDevice {
         if (ssdpDescriptionPath != null)
           'ssdpDescriptionPath': ssdpDescriptionPath,
         if (ssdpTargets.isNotEmpty) 'ssdpTargets': ssdpTargets,
+        if (serviceTypes.isNotEmpty) 'serviceTypes': serviceTypes,
+        if (answeredLanProtocols.isNotEmpty)
+          'answeredLanProtocols': answeredLanProtocols,
+        if (server != null) 'server': server,
+        if (pictogram != null) 'pictogram': pictogram,
+        if (sources.isNotEmpty)
+          'sources': [for (final source in sources) source.name],
         if (txt.isNotEmpty) 'txt': txt,
         if (category != null) 'category': category,
         if (specKey != null) 'specKey': specKey,
@@ -139,6 +171,8 @@ class SavedNetworkDevice {
     final ssdpPort = json['ssdpPort'];
     final descriptionPath = json['ssdpDescriptionPath'];
     final targets = json['ssdpTargets'];
+    final server = json['server'];
+    final pictogram = json['pictogram'];
     final rawTxt = json['txt'];
     final txt = rawTxt is Map
         ? {
@@ -159,17 +193,33 @@ class SavedNetworkDevice {
           descriptionPath is String && descriptionPath.isNotEmpty
               ? descriptionPath
               : null,
-      ssdpTargets: targets is List
-          ? [
-              for (final entry in targets)
-                if (entry is String && entry.isNotEmpty) entry,
-            ]
-          : const [],
+      ssdpTargets: _strings(targets),
+      serviceTypes: _strings(json['serviceTypes']),
+      answeredLanProtocols: _strings(json['answeredLanProtocols']),
+      server: server is String && server.isNotEmpty ? server : null,
+      pictogram: pictogram is String && pictogram.isNotEmpty ? pictogram : null,
+      // Unknown names are dropped rather than failing the record: a build
+      // that has heard of a source this one has not must not make the device
+      // unreadable here.
+      sources: {
+        for (final name in _strings(json['sources']))
+          for (final source in NetworkDiscoverySource.values)
+            if (source.name == name) source,
+      },
       txt: txt,
       category: category is String && category.isNotEmpty ? category : null,
       specKey: specKey is String && specKey.isNotEmpty ? specKey : null,
     );
   }
+
+  /// The non-empty strings in a decoded JSON list, or nothing at all when the
+  /// value is not a list — the same tolerance [fromJson] applies everywhere.
+  static List<String> _strings(Object? value) => value is List
+      ? [
+          for (final entry in value)
+            if (entry is String && entry.isNotEmpty) entry,
+        ]
+      : const [];
 
   /// Identity equality, like every saved record: two snapshots of the same
   /// device are the same device.

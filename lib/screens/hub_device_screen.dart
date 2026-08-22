@@ -125,14 +125,19 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
     }
   }
 
-  /// The bridge's stable identity. mDNS TXT carries it outright; an
-  /// SSDP-only sighting asks the bridge itself, cross-checking the answer
-  /// against the certificate CN observed while fetching it.
+  /// The bridge's stable identity, taken from the bridge itself and
+  /// cross-checked against the certificate CN observed while fetching it.
+  ///
+  /// An advertised id is a CLAIM, never the answer. This id scopes both the
+  /// stored pairing credential and the pinned certificate, so a wrong one
+  /// does not fail — it succeeds against the wrong device: a cached sighting
+  /// whose host has since moved to another device (a new DHCP lease, a
+  /// replaced bridge) would fetch the OLD bridge's whitelist username and
+  /// send it there, in plaintext wherever the stored scheme is `http` and no
+  /// pin was recorded. So the probe runs on every path, and a sighting that
+  /// disagrees with what the device says is an error rather than a
+  /// preference — the same "forget it and pair again" the pin mismatch gets.
   Future<String> _resolveBridgeId() async {
-    final advertised = widget.device.txt['bridgeid'];
-    if (advertised != null && advertised.length == 16) {
-      return advertised.toUpperCase();
-    }
     final probe =
         await ref.read(hubHttpClientProvider).fetchConfig(widget.device.host);
     final claimed = _bridgeIdFromConfig(probe.body);
@@ -144,6 +149,14 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
     if (seenCn != null && seenCn.toUpperCase() != claimed) {
       throw HubTlsException(
           'the bridge claims id $claimed but its certificate says $seenCn');
+    }
+    final advertised = widget.device.txt['bridgeid'];
+    if (advertised != null &&
+        advertised.length == 16 &&
+        advertised.toUpperCase() != claimed) {
+      throw HubTlsException(
+          'this was saved as bridge ${advertised.toUpperCase()}, but the '
+          'device at ${widget.device.host} says it is $claimed');
     }
     return claimed;
   }

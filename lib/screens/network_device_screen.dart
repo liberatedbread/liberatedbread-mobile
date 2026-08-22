@@ -247,7 +247,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// guaranteed. Any failure leaves [_keyboardFocused] null and the card shows
   /// at the foot — the keyboard is never hidden on a device this cannot read.
   Future<void> _watchKeyboard() async {
-    final hasKeyboard = _entities.any((e) => e.platform == 'text');
+    final hasKeyboard = _drawableEntities.any((e) => e.platform == 'text');
     if (!hasKeyboard || !widget.device.ssdpTargets.contains('roku:ecp')) return;
     final session = await _sender.openSignedSession();
     if (session == null || !mounted) return;
@@ -406,7 +406,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   /// The robot's BLID, from the discovery announcement. Null means this screen
   /// was reached without one, which for a Roomba is not drivable.
-  String? get _blid => widget.device.txt['blid'];
+  ///
+  /// An EMPTY value counts as absent: a TXT record can carry a bare flag with
+  /// no value, which the parser stores as `''`, and an empty BLID looks up no
+  /// password and addresses no robot.
+  String? get _blid {
+    final blid = widget.device.txt['blid'];
+    return blid == null || blid.isEmpty ? null : blid;
+  }
 
   /// Entities this transport can actually drive.
   ///
@@ -414,6 +421,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// is not drawn at all. A button whose every press reports "unsupported" is
   /// worse than an absent one — it reads as a broken robot rather than as a
   /// server that does not offer that call.
+  ///
+  /// EVERY render path reads this rather than [_entities] — the switches, the
+  /// selects, the keyboard, the instanced children, and what is handed to a
+  /// child panel. Filtering one path and not its siblings draws exactly the
+  /// dead control this exists to remove; it is latent today only because the
+  /// robot spec happens to declare buttons and readings alone. [_entities]
+  /// stays for the questions that are about the SPEC rather than about what
+  /// to draw (does it declare a Kasa transport, does it need a description).
   List<NetworkEntityDto> get _drawableEntities {
     final roomba = _roomba;
     if (roomba == null) return _entities;
@@ -692,13 +707,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // is holding them. That is a real advantage of the route rather than an
     // implementation detail, and it is the only route that works for a robot
     // this phone cannot reach.
+    //
+    // The absent BLID is what makes this an HA device, so it is part of the
+    // test. A robot with both — seen once through HA and later adopted
+    // directly on the LAN, its cached TXT holding the union — is a robot this
+    // phone CAN reach, and the store below is what knows which route the user
+    // last chose (`credentials.haEntityId`). Taking the HA route on the mere
+    // presence of the key made that choice unchangeable: the key survives
+    // every later sighting, so a direct adoption could never take effect and
+    // the robot hard-failed whenever HA was not connected.
+    final blid = _blid;
     final deviceEntityId = _haEntityId;
-    if (deviceEntityId != null && deviceEntityId.isNotEmpty) {
+    if (blid == null && deviceEntityId != null && deviceEntityId.isNotEmpty) {
       await _connectViaHomeAssistant(deviceEntityId);
       return;
     }
 
-    final blid = _blid;
     if (blid == null) {
       throw const RoombaConnectionException(
         'This robot did not announce a BLID, so there is no identity to look '
@@ -708,6 +732,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final credentials =
         await ref.read(roombaCredentialStoreProvider).credentials(blid);
     if (credentials == null) {
+      // Nothing to drive it directly with. An entity id on the sighting is
+      // then the only route left, so a robot known to both this LAN and Home
+      // Assistant still opens — it just prefers the direct password when one
+      // exists, which is the choice the user made by adopting it.
+      if (deviceEntityId != null && deviceEntityId.isNotEmpty) {
+        await _connectViaHomeAssistant(deviceEntityId);
+        return;
+      }
       throw const RoombaConnectionException(
         'No password saved for this robot yet. Go back and adopt it first.',
       );
@@ -1124,7 +1156,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               RabbitAirControlsPanel(
                 key: _rabbitAirPanelKey,
                 specYaml: widget.controls.specYaml,
-                entities: _entities,
+                entities: _drawableEntities,
                 transport: RabbitAirLanTransport(
                   host: widget.device.host,
                   port: _rabbitAirHostPort,
@@ -1188,7 +1220,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ),
                 const SizedBox(height: 8),
               ],
-              for (final entity in _entities.where((e) => e.isInstanced))
+              for (final entity
+                  in _drawableEntities.where((e) => e.isInstanced))
                 for (final child in _instances[entity.name] ?? const []) ...[
                   _instanceSwitchCard(entity, child),
                   const SizedBox(height: 12),
@@ -1213,7 +1246,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               // or Prime matters, but it is the tap you reach for once —
               // not the D-pad you steer with — so it waits under the pad
               // rather than pushing the pad down when its options arrive.
-              for (final entity in _entities
+              for (final entity in _drawableEntities
                   .where((entity) => entity.platform == 'select')) ...[
                 _entityCard(entity),
                 const SizedBox(height: 12),
@@ -1245,7 +1278,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// channel picker when a field is focused, below it when the state is
   /// unknown, nowhere when the device says nothing is focused.
   Iterable<NetworkEntityDto> get _textEntities =>
-      _entities.where((entity) => entity.platform == 'text');
+      _drawableEntities.where((entity) => entity.platform == 'text');
 
   /// The note shown once a device has refused a command.
   ///
