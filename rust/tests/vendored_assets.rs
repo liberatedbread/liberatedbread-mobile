@@ -1018,3 +1018,41 @@ fn vendored_idotmatrix_spec_is_encodable_with_its_declared_bounds() {
         "the DIY opener's bytes come from the spec's enter_diy_mode template"
     );
 }
+
+/// The vendored LED name badge spec now reports its image uploads encodable.
+///
+/// Same gate as the iDotMatrix test above: the DTO's `encodable` must flip
+/// with the registry, carrying the spec's declared bounds (max_height only —
+/// badge width is variable by design), and the REAL vendored spec must
+/// encode: raw 16-byte chunks on the FEE1 Badge Data characteristic, opening
+/// with the header magic the spec's own `write_badge_data` value declares.
+#[test]
+fn vendored_led_badge_spec_is_encodable_with_its_declared_bounds() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("bluetooth-led-name-badge.yaml"))
+        .expect("badge spec should be readable");
+    let dto = load_device_spec(yaml.clone()).expect("badge spec loads");
+    let img = dto
+        .image_upload
+        .expect("the badge declares an image_upload feature");
+    assert_eq!(img.handler.as_deref(), Some("ledbadge_bitmap"));
+    assert!(img.encodable, "ledbadge_bitmap is implemented now");
+    assert_eq!((img.max_width, img.max_height), (None, Some(16)));
+    assert_eq!(img.format.as_deref(), Some("1bit-bitmap"));
+
+    let plan = encode_image_frame(yaml, 44, 11, vec![0xFF; 44 * 11 * 3], 0, 509)
+        .expect("the vendored badge spec must encode a bitmap transfer");
+    assert_eq!(plan.service_uuid, "0000fee0-0000-1000-8000-00805f9b34fb");
+    assert!(plan
+        .writes
+        .iter()
+        .all(|w| w.characteristic_uuid == "0000fee1-0000-1000-8000-00805f9b34fb"));
+    assert!(
+        plan.writes.iter().all(|w| w.bytes.len() == 16),
+        "the spec's framing.max_chunk_size drives the raw 16-byte chunks"
+    );
+    // 64-byte header (4 chunks) + 6 stripes x 11 rows = 66 bytes (5 chunks).
+    assert_eq!(plan.writes.len(), 9);
+    assert_eq!(&plan.writes[0].bytes[..4], b"wang");
+}

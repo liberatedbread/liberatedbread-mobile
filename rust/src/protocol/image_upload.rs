@@ -267,6 +267,21 @@ pub(crate) fn validate_rgb_canvas(
     Ok(())
 }
 
+/// Row-major brightness mask of an RGB888 canvas: `true` where the pixel's
+/// Rec. 601 luma (`0.299 R + 0.587 G + 0.114 B`) reaches 50% of full scale.
+/// The shared half of 1-bit conversion — what a bright pixel MEANS (a lit
+/// LED on the badge, unmarked paper in the printer) is each handler's
+/// polarity to choose.
+pub(crate) fn brightness_mask(rgb: &[u8]) -> Vec<bool> {
+    rgb.chunks_exact(3)
+        .map(|px| {
+            let luma = 299 * u32::from(px[0]) + 587 * u32::from(px[1]) + 114 * u32::from(px[2]);
+            // 50% of the 0..=255_000 luma scale.
+            luma >= 127_500
+        })
+        .collect()
+}
+
 /// The `image_upload` feature, if the spec declares one.
 pub fn image_feature(spec: &DeviceSpec) -> Option<&Feature> {
     spec.features

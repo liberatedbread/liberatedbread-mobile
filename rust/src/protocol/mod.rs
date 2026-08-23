@@ -10,6 +10,7 @@ pub mod http;
 pub mod idotmatrix;
 pub mod image_upload;
 pub mod kasa;
+pub mod ledbadge_bitmap;
 pub mod lifx;
 pub mod profiles;
 pub mod rabbit_air;
@@ -76,6 +77,10 @@ const IMAGE_UPLOAD_HANDLERS: &[ImageUploadHandler] = &[
     ImageUploadHandler {
         name: idotmatrix::HANDLER_NAME,
         encode: idotmatrix::encode_framed_upload,
+    },
+    ImageUploadHandler {
+        name: ledbadge_bitmap::HANDLER_NAME,
+        encode: ledbadge_bitmap::encode_badge_bitmap,
     },
 ];
 
