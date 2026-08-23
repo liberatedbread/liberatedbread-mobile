@@ -326,10 +326,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkActionDto dco_decode_network_action_dto(dynamic raw);
 
   @protected
+  NetworkCapabilitiesDto dco_decode_network_capabilities_dto(dynamic raw);
+
+  @protected
   NetworkDeviceDto dco_decode_network_device_dto(dynamic raw);
 
   @protected
   NetworkEntityDto dco_decode_network_entity_dto(dynamic raw);
+
+  @protected
+  NetworkEntitySurfaceDto dco_decode_network_entity_surface_dto(dynamic raw);
 
   @protected
   NetworkInstanceDto dco_decode_network_instance_dto(dynamic raw);
@@ -892,10 +898,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkActionDto sse_decode_network_action_dto(SseDeserializer deserializer);
 
   @protected
+  NetworkCapabilitiesDto sse_decode_network_capabilities_dto(
+      SseDeserializer deserializer);
+
+  @protected
   NetworkDeviceDto sse_decode_network_device_dto(SseDeserializer deserializer);
 
   @protected
   NetworkEntityDto sse_decode_network_entity_dto(SseDeserializer deserializer);
+
+  @protected
+  NetworkEntitySurfaceDto sse_decode_network_entity_surface_dto(
+      SseDeserializer deserializer);
 
   @protected
   NetworkInstanceDto sse_decode_network_instance_dto(
@@ -1514,12 +1528,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       NetworkActionDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_network_capabilities_dto(
+      NetworkCapabilitiesDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_network_device_dto(
       NetworkDeviceDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_network_entity_dto(
       NetworkEntityDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_entity_surface_dto(
+      NetworkEntitySurfaceDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_network_instance_dto(

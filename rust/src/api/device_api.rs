@@ -107,10 +107,21 @@ pub struct DeviceSpecDto {
     /// Default TCP port for the device's local API.
     pub default_port: Option<u16>,
     pub services: Vec<ServiceDto>,
+    /// Named consumer-side protocol handler (`daniao_ddp`, `rabbit_air`,
+    /// `roomba_mqtt`, …), when the spec declares one. Surfaced so Dart can
+    /// select a spec by the handler it implements instead of matching
+    /// discovery strings.
+    pub protocol_handler: Option<String>,
     /// Declared sensor/control surfaces that resolve to a real characteristic,
     /// in spec order. This is what lets the app render named readings with
     /// units instead of a raw GATT browser.
     pub entities: Vec<EntityDto>,
+    /// Names of declared entities that did NOT cross — nothing about them
+    /// resolves against this spec (their characteristic is absent, their
+    /// commands unsendable). The honest half of the hide rule: the UI hides
+    /// them as controls but can say "N controls not yet supported" instead
+    /// of silently pretending the spec never declared them.
+    pub hidden_entity_names: Vec<String>,
     /// The spec's `image_upload` feature, when it declares one — pixel
     /// displays (LED matrices, curtain lights, badges, printers) that accept
     /// a raster image and possibly animations. Drives the app's generic LED
@@ -288,6 +299,12 @@ pub struct ImageWritePlanDto {
 #[derive(Debug, Clone)]
 pub struct EntityDto {
     pub name: String,
+    /// Machine-stable semantic token from the spec's documented vocabulary
+    /// (`ok`, `volume_up`, `start`, `stop`, …), so a curated layout — a
+    /// remote grid, a treadmill card — can place this entity without
+    /// matching its English display name. `None` for the many entities that
+    /// need none.
+    pub key: Option<String>,
     /// e.g. "sensor". Absent in some hand-written specs.
     pub platform: Option<String>,
     /// e.g. "temperature", "battery". Drives icon/formatting choices.
@@ -338,6 +355,11 @@ pub struct EntityDto {
     pub color_red_field: Option<String>,
     pub color_green_field: Option<String>,
     pub color_blue_field: Option<String>,
+    /// Option table for a `select`, in declaration order — (raw, label)
+    /// pairs from `state_mapping.options`. Empty otherwise. Shares the
+    /// network side's option DTO because the shape is identical and the
+    /// consumer is the same select card.
+    pub options: Vec<NetworkOptionDto>,
     /// Sendable control actions resolved from the spec (`turn_on`,
     /// `set_brightness`, ...), in role order. Empty for sensors. Every entry
     /// is ready to send: encode the named command with the listed user
@@ -857,6 +879,28 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
 impl From<&DeviceSpec> for DeviceSpecDto {
     fn from(spec: &DeviceSpec) -> Self {
         let ident = spec.device.identification.as_ref();
+        // Only entities with something real behind them cross the FFI
+        // boundary: a resolvable state characteristic, at least one
+        // sendable action, or both. An entity with neither (its UUID is
+        // absent from `services` and no command qualifies) would put a
+        // permanently dead tile in the UI, so it is dropped — and its
+        // name recorded, so the screen can count what it is not showing.
+        // An `identify_only` spec resolves NO entities at all, whatever
+        // it declares: that is the integration field's meaning, and
+        // enforcing it here means a spec growing resolvable bindings
+        // later cannot leak controls past the handoff page.
+        let identify_only = spec.device.integration.as_deref() == Some("identify_only");
+        let mut entities = Vec::new();
+        let mut hidden_entity_names = Vec::new();
+        for entity in &spec.entities {
+            match (!identify_only)
+                .then(|| entity_dto(spec, entity))
+                .flatten()
+            {
+                Some(dto) => entities.push(dto),
+                None => hidden_entity_names.push(entity.name.clone()),
+            }
+        }
         Self {
             image_upload: image_upload_dto(spec),
             stored_upload: stored_upload_dto(spec),
@@ -895,16 +939,9 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .unwrap_or_default(),
             default_port: ident.and_then(|i| i.default_port),
             services: spec.services.iter().map(ServiceDto::from).collect(),
-            // Only entities with something real behind them cross the FFI
-            // boundary: a resolvable state characteristic, at least one
-            // sendable action, or both. An entity with neither (its UUID is
-            // absent from `services` and no command qualifies) would put a
-            // permanently dead tile in the UI, so it is dropped.
-            entities: spec
-                .entities
-                .iter()
-                .filter_map(|entity| entity_dto(spec, entity))
-                .collect(),
+            protocol_handler: spec.protocol_handler.clone(),
+            entities,
+            hidden_entity_names,
         }
     }
 }
@@ -966,6 +1003,12 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
     let color_fields = entity.color_rgb_fields();
     Some(EntityDto {
         name: entity.name.clone(),
+        key: entity.key.clone(),
+        options: entity
+            .options()
+            .into_iter()
+            .map(|(raw, label)| NetworkOptionDto { raw, label })
+            .collect(),
         platform: entity.platform.clone(),
         device_class: entity.device_class.clone(),
         icon: entity.icon.clone(),
@@ -1390,6 +1433,9 @@ pub struct QuerySourceDto {
 #[derive(Debug, Clone)]
 pub struct NetworkEntityDto {
     pub name: String,
+    /// Machine-stable semantic token from the spec's documented vocabulary
+    /// (`ok`, `volume_up`, …) for curated layouts — see [`EntityDto::key`].
+    pub key: Option<String>,
     pub platform: Option<String>,
     pub device_class: Option<String>,
     pub icon: Option<String>,
@@ -1560,6 +1606,7 @@ fn lifx_network_entities(spec: &DeviceSpec) -> Vec<NetworkEntityDto> {
         .into_iter()
         .map(|entity| NetworkEntityDto {
             name: entity.name,
+            key: None,
             platform: Some("light".to_string()),
             // The whole device screen routes on this: a lifx entity gets the
             // LIFX light card and the UDP client, not a SOAP/HTTP path.
@@ -1603,6 +1650,7 @@ fn roomba_network_entities(spec: &DeviceSpec) -> Vec<NetworkEntityDto> {
         .into_iter()
         .map(|entity| NetworkEntityDto {
             name: entity.name,
+            key: None,
             platform: Some(entity.platform),
             device_class: entity.device_class,
             icon: entity.icon,
@@ -1660,6 +1708,20 @@ fn resolve_query_source(
     })
 }
 
+/// A network device's whole control surface: what renders, and what the spec
+/// declares for this model that cannot render yet.
+///
+/// The two halves of the hide rule. `entities` is everything resolvable;
+/// `hidden_names` is every declared entity present on this model that
+/// resolves nothing — a transport this crate cannot send, a prose role
+/// binding, an `identify_only` spec — so the screen can count what it is not
+/// showing instead of silently pretending the spec never declared it.
+#[derive(Debug, Clone)]
+pub struct NetworkEntitySurfaceDto {
+    pub entities: Vec<NetworkEntityDto>,
+    pub hidden_names: Vec<String>,
+}
+
 /// The controls a spec declares for one discovered network device.
 ///
 /// `ssdp_targets` is what the device itself answered to — it is how a family
@@ -1670,27 +1732,39 @@ fn resolve_query_source(
 pub fn network_entities_for_device(
     spec_yaml: String,
     ssdp_targets: Vec<String>,
-) -> anyhow::Result<Vec<NetworkEntityDto>> {
+) -> anyhow::Result<NetworkEntitySurfaceDto> {
     let spec = parse_device_spec(&spec_yaml)?;
+    // An identify_only spec never resolves controls, whatever its entities
+    // declare (lutron-caseta carries descriptive entities with prose role
+    // bindings): the handoff page is its whole surface. Enforced here at the
+    // resolver so a future spec edit cannot leak controls past it.
+    if spec.device.integration.as_deref() == Some("identify_only") {
+        return Ok(NetworkEntitySurfaceDto {
+            entities: Vec::new(),
+            hidden_names: spec.entities.iter().map(|e| e.name.clone()).collect(),
+        });
+    }
     // LIFX is driven by a dedicated binary-UDP handler, not the generic
     // command resolver (which rejects a non-SOAP/HTTP transport). Its light
     // entities are synthesised from `features` before the generic path runs.
     if spec.protocol_handler.as_deref() == Some(crate::protocol::lifx::HANDLER_NAME) {
-        return Ok(lifx_network_entities(&spec));
+        return Ok(handler_surface(&spec, lifx_network_entities(&spec)));
     }
     // A Roomba pushes its readings on an MQTT topic; the generic resolver is
     // built around `state_command`, which asks a question and reads the reply.
     // There is no such question here, so the entities are synthesised the same
     // way LIFX's are.
     if spec.protocol_handler.as_deref() == Some(crate::protocol::roomba::HANDLER_NAME) {
-        return Ok(roomba_network_entities(&spec));
+        return Ok(handler_surface(&spec, roomba_network_entities(&spec)));
     }
-    Ok(bindings::network_entities_for_targets(&spec, &ssdp_targets)
+    let present = bindings::entities_for_targets(&spec, &ssdp_targets);
+    let entities: Vec<NetworkEntityDto> = bindings::network_entities_for_targets(&spec, &ssdp_targets)
         .into_iter()
         .map(|entity| {
             let actions = bindings::resolve_network_actions(&spec, entity);
             NetworkEntityDto {
                 name: entity.name.clone(),
+                key: entity.key.clone(),
                 platform: entity.platform.clone(),
                 device_class: entity.device_class.clone(),
                 icon: entity.icon.clone(),
@@ -1753,7 +1827,65 @@ pub fn network_entities_for_device(
         // all — no reading to show, no button to press. A stateful one still
         // renders as a reading, so only the stateless kind is dropped.
         .filter(|entity| !entity.state_command.is_empty() || !entity.actions.is_empty())
-        .collect())
+        .collect();
+    let hidden_names = present
+        .iter()
+        .filter(|e| !entities.iter().any(|dto| dto.name == e.name))
+        .map(|e| e.name.clone())
+        .collect();
+    Ok(NetworkEntitySurfaceDto {
+        entities,
+        hidden_names,
+    })
+}
+
+/// Wrap a protocol handler's synthesised entities in the surface DTO,
+/// counting as hidden every declared entity the handler did not synthesise —
+/// the handler owns its surface, and what it left out is exactly what the
+/// spec declares but the client cannot show.
+fn handler_surface(spec: &DeviceSpec, entities: Vec<NetworkEntityDto>) -> NetworkEntitySurfaceDto {
+    let hidden_names = spec
+        .entities
+        .iter()
+        .filter(|e| !entities.iter().any(|dto| dto.name == e.name))
+        .map(|e| e.name.clone())
+        .collect();
+    NetworkEntitySurfaceDto {
+        entities,
+        hidden_names,
+    }
+}
+
+/// Spec-declared capabilities of a network device's control path, so the
+/// Dart transport layer routes on what the spec says instead of on
+/// per-device discovery-string checks.
+#[derive(Debug, Clone)]
+pub struct NetworkCapabilitiesDto {
+    /// Authenticated-session protocol the device's control path prefers,
+    /// when the spec documents one — `ecp2` when the spec carries an `ecp2:`
+    /// block (Roku's signed WebSocket session; the block's presence IS the
+    /// capability). `None` for the plain paths.
+    pub signed_session: Option<String>,
+    /// The spec's declared control port. A Roku serves control on 8060
+    /// whatever port its SSDP LOCATION advertised.
+    pub default_port: Option<u16>,
+    /// The spec's declared URL scheme (`https` for the Envoy or SmartCast),
+    /// `None` meaning plain http.
+    pub default_scheme: Option<String>,
+}
+
+/// Read [`NetworkCapabilitiesDto`] out of a spec.
+pub fn network_capabilities(spec_yaml: String) -> anyhow::Result<NetworkCapabilitiesDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let ident = spec.device.identification.as_ref();
+    Ok(NetworkCapabilitiesDto {
+        signed_session: spec
+            .extensions
+            .contains_key("ecp2")
+            .then(|| "ecp2".to_string()),
+        default_port: ident.and_then(|i| i.default_port),
+        default_scheme: ident.and_then(|i| i.default_scheme.clone()),
+    })
 }
 
 /// Render a named command from the spec's `commands` block into a POSTable

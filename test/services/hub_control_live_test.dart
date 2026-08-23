@@ -165,8 +165,9 @@ void main() {
 
     // ── The controls the spec declares, through the native codec.
     const codec = RealSpecCodec();
-    final entities = await codec
-        .networkEntitiesForDevice(specYaml: specYaml, ssdpTargets: const []);
+    final entities = (await codec.networkEntitiesForDevice(
+            specYaml: specYaml, ssdpTargets: const []))
+        .entities;
     expect(entities, hasLength(1));
     final light = entities.single;
     expect(light.transport, 'http');

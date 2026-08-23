@@ -72,10 +72,11 @@ final rabbitAirBleControlsProvider = FutureProvider.autoDispose
     .family<List<NetworkEntityDto>?, String>((ref, specYaml) async {
   final codec = ref.watch(specCodecProvider);
   try {
-    final entities = await codec.networkEntitiesForDevice(
+    final entities = (await codec.networkEntitiesForDevice(
       specYaml: specYaml,
       ssdpTargets: const [],
-    );
+    ))
+        .entities;
     final isRabbitAir = entities.any((e) =>
         e.transport == 'udp' || e.actions.any((a) => a.transport == 'udp'));
     return isRabbitAir ? entities : null;
@@ -98,10 +99,11 @@ final rabbitAirSpecSurfaceProvider = FutureProvider.autoDispose<
   if (spec == null) return null;
   final codec = ref.watch(specCodecProvider);
   try {
-    final entities = await codec.networkEntitiesForDevice(
+    final entities = (await codec.networkEntitiesForDevice(
       specYaml: spec.yaml,
       ssdpTargets: const [],
-    );
+    ))
+        .entities;
     return (specYaml: spec.yaml, entities: entities);
   } catch (e) {
     Log.spec.warning('rabbit air spec surface failed to resolve', error: e);
@@ -228,7 +230,17 @@ class NetworkControls {
   final String specYaml;
   final List<NetworkEntityDto> entities;
 
-  const NetworkControls({required this.specYaml, required this.entities});
+  /// Declared entities present on this model that resolve nothing — a
+  /// transport the app cannot send yet, a prose role binding. The screen
+  /// counts these in a "not yet supported" note instead of silently
+  /// pretending the spec never declared them.
+  final List<String> hiddenNames;
+
+  const NetworkControls({
+    required this.specYaml,
+    required this.entities,
+    this.hiddenNames = const [],
+  });
 
   /// Whether these controls describe a hub — a device fronting children that
   /// must be paired with and enumerated. This is what routes the tap: Roku is
@@ -269,12 +281,16 @@ final networkControlsProvider = FutureProvider.autoDispose
 
   final codec = ref.watch(specCodecProvider);
   try {
-    final entities = await codec.networkEntitiesForDevice(
+    final surface = await codec.networkEntitiesForDevice(
       specYaml: match.first.yaml,
       ssdpTargets: request.ssdpTargets,
     );
-    if (entities.isEmpty) return null;
-    return NetworkControls(specYaml: match.first.yaml, entities: entities);
+    if (surface.entities.isEmpty) return null;
+    return NetworkControls(
+      specYaml: match.first.yaml,
+      entities: surface.entities,
+      hiddenNames: surface.hiddenNames,
+    );
   } catch (e) {
     Log.spec.warning(
         'network controls failed to resolve for "${request.deviceName}"',

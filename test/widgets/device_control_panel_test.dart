@@ -184,6 +184,7 @@ void main() {
     // `final`, not `const`: DeviceSpecDto.companyIds is a Uint16List, which has
     // no const form.
     final spec = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Example Smart Bulb',
       manufacturer: 'Acme',
       manufacturerStatus: 'abandoned',
@@ -393,6 +394,7 @@ void main() {
     // user to infer what the app decided, with nothing to check it against.
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Example Smart Bulb',
       manufacturer: 'Acme Corp',
       manufacturerStatus: 'abandoned',
@@ -446,6 +448,7 @@ void main() {
     const svcUuid = '0000fe00-0000-1000-8000-00805f9b34fb';
     const charUuid = '0000fe02-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Test Walking Pad',
       manufacturer: 'Acme Fitness',
       manufacturerStatus: 'active',
@@ -550,6 +553,7 @@ void main() {
       String? unit,
     }) =>
         EntityDto(
+          options: const [],
           name: name,
           platform: 'sensor',
           deviceClass: deviceClass,
@@ -563,6 +567,7 @@ void main() {
         );
 
     DeviceSpecDto airSpec({String category = 'sensor'}) => DeviceSpecDto(
+      hiddenEntityNames: const [],
           deviceName: 'Acme Air Monitor',
           manufacturer: 'Acme Corp',
           manufacturerStatus: 'active',
@@ -791,6 +796,7 @@ void main() {
     // render a stray separator or a placeholder saying nothing.
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Legacy Device',
       manufacturer: 'Acme Corp',
       manufacturerStatus: 'abandoned',
@@ -842,6 +848,7 @@ const _tieSvcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _tieCharUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 final _brandA = DeviceSpecDto(
+  hiddenEntityNames: const [],
   deviceName: 'Brand A Lights',
   manufacturer: 'Vendor A',
   manufacturerStatus: 'active',
@@ -882,6 +889,7 @@ final _brandA = DeviceSpecDto(
 );
 
 final _brandB = DeviceSpecDto(
+  hiddenEntityNames: const [],
   deviceName: 'Brand B Lights',
   manufacturer: 'Vendor B',
   manufacturerStatus: 'active',

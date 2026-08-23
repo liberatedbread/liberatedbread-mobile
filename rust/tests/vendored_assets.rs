@@ -884,3 +884,54 @@ fn specs_this_branch_unlocked_do_not_offer_commands_that_cannot_encode() {
     let blink = &blink_char.commands.as_ref().unwrap()["blink_led"];
     assert_eq!(unsupported_write_kind(blink_char, blink), None);
 }
+
+/// The network control surface against the real catalogue: the ratgdo garage
+/// door — one of the three `integration: supported` specs — resolves its
+/// cover, and an `identify_only` spec resolves an EMPTY surface however many
+/// entities it declares.
+#[test]
+fn vendored_specs_resolve_the_network_surface_honestly() {
+    use liberated_bread_core::api::device_api::{
+        network_capabilities, network_entities_for_device,
+    };
+
+    let yaml = |file: &str| {
+        let path = spec_path(file);
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+    };
+
+    // ratgdo: the stateless cover is admitted on its fixed motions and
+    // resolves the full role set over plain HTTP POST.
+    let surface = network_entities_for_device(yaml("ratgdo.yaml"), vec![])
+        .expect("ratgdo resolves a surface");
+    let door = surface
+        .entities
+        .iter()
+        .find(|e| e.name == "Garage Door")
+        .expect("ratgdo's Garage Door must be on the surface");
+    let roles: Vec<&str> = door.actions.iter().map(|a| a.role.as_str()).collect();
+    assert_eq!(
+        roles,
+        vec!["open_cover", "close_cover", "stop_cover", "set_cover_position"]
+    );
+    assert!(door.actions.iter().all(|a| a.transport == "http"));
+
+    // lutron-caseta declares descriptive entities with prose role bindings,
+    // and is identify_only: the surface must be empty with every declared
+    // entity counted hidden — a spec edit upstream cannot leak controls
+    // past the handoff page.
+    let lutron = network_entities_for_device(yaml("lutron-caseta-smart-bridge.yaml"), vec![])
+        .expect("lutron resolves");
+    assert!(lutron.entities.is_empty());
+    assert!(
+        !lutron.hidden_names.is_empty(),
+        "lutron's declared entities must be counted, not vanished"
+    );
+
+    // roku: the ecp2 block's presence is the signed-session capability, and
+    // control is definitionally on 8060.
+    let roku = network_capabilities(yaml("roku-ecp.yaml")).expect("roku capabilities");
+    assert_eq!(roku.signed_session.as_deref(), Some("ecp2"));
+    assert_eq!(roku.default_port, Some(8060));
+    assert_eq!(roku.default_scheme, None);
+}

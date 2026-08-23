@@ -10,6 +10,7 @@ import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 /// An entity carrying only what an icon choice looks at.
 EntityDto _entity({String? icon, String? deviceClass}) => EntityDto(
+  options: const [],
       name: 'Reading',
       icon: icon,
       deviceClass: deviceClass,

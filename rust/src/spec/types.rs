@@ -440,6 +440,13 @@ pub(crate) fn scalar_to_string(value: &serde_yaml::Value) -> Option<String> {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Entity {
     pub name: String,
+    /// Machine-stable semantic token from the schema's documented vocabulary
+    /// (`ok`, `volume_up`, `start`, `stop`, …), so a curated layout — a
+    /// remote grid, a treadmill card — can place this entity without
+    /// matching its English display name. Optional; `name` stays the human
+    /// label and the uniqueness handle.
+    #[serde(default)]
+    pub key: Option<String>,
     #[serde(default)]
     pub platform: Option<String>,
     #[serde(default)]

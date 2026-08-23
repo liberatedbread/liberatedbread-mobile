@@ -30,6 +30,7 @@ DeviceSpecDto _spec({
   required List<CommandDto> commands,
 }) =>
     DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Test Device',
       manufacturer: 'Test Co',
       manufacturerStatus: 'abandoned',

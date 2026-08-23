@@ -30,7 +30,8 @@ fn spec_yaml() -> String {
 
 #[test]
 fn the_sensors_resolve_as_http_state_readings() {
-    let entities = network_entities_for_device(spec_yaml(), vec![]).expect("spec resolves");
+    let entities = network_entities_for_device(spec_yaml(), vec![]).expect("spec resolves")
+    .entities;
 
     assert_eq!(entities.len(), 3, "three sensors, nothing else on screen");
     for (name, field, unit) in [

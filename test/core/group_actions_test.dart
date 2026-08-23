@@ -45,6 +45,7 @@ EntityDto _entity(
   String? unit,
 }) =>
     EntityDto(
+      options: const [],
       name: name,
       platform: platform,
       deviceClass: deviceClass,
@@ -64,6 +65,7 @@ DeviceSpecDto _spec({
   List<ServiceDto> services = const [],
 }) =>
     DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Test Device',
       manufacturer: 'Test Co',
       manufacturerStatus: 'abandoned',

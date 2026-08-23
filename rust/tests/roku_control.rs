@@ -170,7 +170,8 @@ fn the_channel_picker_resolves_with_its_sources_joined() {
         ROKU.to_string(),
         vec!["roku:ecp".to_string()],
     )
-    .expect("the vendored spec resolves");
+    .expect("the vendored spec resolves")
+    .entities;
     let channel = entities
         .iter()
         .find(|e| e.name == "Channel")
@@ -221,7 +222,8 @@ fn the_keyboard_types_one_lit_keypress_per_character() {
         ROKU.to_string(),
         vec!["roku:ecp".to_string()],
     )
-    .expect("the vendored spec resolves");
+    .expect("the vendored spec resolves")
+    .entities;
     let keyboard = entities
         .iter()
         .find(|e| e.name == "Keyboard")

@@ -24,6 +24,7 @@ final _noCompanyIds = Uint16List(0);
 // `final`, not `const`: DeviceSpecDto.companyIds is a Uint16List, and a typed
 // list cannot be a constant. Same reason for every other spec DTO below.
 final _spec = DeviceSpecDto(
+  hiddenEntityNames: const [],
   deviceName: 'Bulb',
   manufacturer: 'Acme',
   manufacturerStatus: 'abandoned',
@@ -140,6 +141,7 @@ void main() {
       // contradiction; the regression this pins is those devices silently
       // degrading to the raw browser.
       final advOnly = DeviceSpecDto(
+        hiddenEntityNames: const [],
         deviceName: 'Thermo',
         manufacturer: 'Govee-ish',
         manufacturerStatus: 'active',
@@ -178,6 +180,7 @@ void main() {
 
     test('a name-only match survives when the spec declares no services', () {
       final nameIsOnlyAxis = DeviceSpecDto(
+        hiddenEntityNames: const [],
         deviceName: 'NameOnly',
         manufacturer: 'X',
         manufacturerStatus: 'abandoned',
@@ -253,6 +256,7 @@ void main() {
   test('corroborated (name + uuid) beats uuid-only with more matched uuids',
       () async {
     final other = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Other',
       manufacturer: 'X',
       manufacturerStatus: 'abandoned',
@@ -297,6 +301,7 @@ void main() {
     // The regression this pins: a device whose GATT matched spec A must not
     // be claimed by spec B on the strength of a short name prefix alone.
     final byUuid = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'RightOne',
       manufacturer: 'X',
       manufacturerStatus: 'active',
@@ -316,6 +321,7 @@ void main() {
     // Declares no UUIDs, so its name match is not contradicted — it still
     // must rank below hard GATT evidence.
     final byName = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'NameGrabber',
       manufacturer: 'Y',
       manufacturerStatus: 'active',
@@ -385,6 +391,7 @@ void main() {
   test('two specs tying on evidence ask the user instead of guessing',
       () async {
     final brandA = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Brand A Lights',
       manufacturer: 'A',
       manufacturerStatus: 'active',
@@ -402,6 +409,7 @@ void main() {
       services: [],
     );
     final brandB = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Brand B Lights',
       manufacturer: 'B',
       manufacturerStatus: 'active',
@@ -454,6 +462,7 @@ void main() {
 
   test('a saved user choice resolves a tie and is marked as such', () async {
     final brandA = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Brand A Lights',
       manufacturer: 'A',
       manufacturerStatus: 'active',
@@ -471,6 +480,7 @@ void main() {
       services: [],
     );
     final brandB = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Brand B Lights',
       manufacturer: 'B',
       manufacturerStatus: 'active',
@@ -574,6 +584,7 @@ void main() {
     const svcA = '0000aaa0-0000-1000-8000-00805f9b34fb';
     const svcB = '0000bbb0-0000-1000-8000-00805f9b34fb';
     final specA = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Alpha',
       manufacturer: 'A',
       manufacturerStatus: 'abandoned',
@@ -591,6 +602,7 @@ void main() {
       services: const [],
     );
     final specB = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Beta',
       manufacturer: 'B',
       manufacturerStatus: 'abandoned',
@@ -612,6 +624,7 @@ void main() {
     // reference, so this does NOT `==` specB (what the old lookup relied on);
     // the runtime List.of keeps it a distinct instance.
     final specBRoundTrip = DeviceSpecDto(
+      hiddenEntityNames: const [],
       deviceName: 'Beta',
       manufacturer: 'B',
       manufacturerStatus: 'abandoned',

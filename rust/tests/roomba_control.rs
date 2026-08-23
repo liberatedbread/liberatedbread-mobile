@@ -32,7 +32,9 @@ const ROOMBA: &str = include_str!("specs/irobot-roomba.yaml");
 const EXAMPLE_EPOCH: i64 = 1_755_129_600;
 
 fn entities() -> Vec<liberated_bread_core::api::device_api::NetworkEntityDto> {
-    network_entities_for_device(ROOMBA.to_string(), vec![]).expect("the spec resolves")
+    network_entities_for_device(ROOMBA.to_string(), vec![])
+        .expect("the spec resolves")
+        .entities
 }
 
 // ── The control surface ──────────────────────────────────────────────────────

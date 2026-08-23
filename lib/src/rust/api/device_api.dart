@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -73,10 +73,16 @@ Future<EntityWriteDto> encodeEntityValue(
 /// A Wemo plug must not grow a Cook Mode picker because its spec also covers
 /// a slow cooker; when the model cannot be identified at all, scoped entities
 /// are dropped rather than guessed.
-Future<List<NetworkEntityDto>> networkEntitiesForDevice(
+Future<NetworkEntitySurfaceDto> networkEntitiesForDevice(
         {required String specYaml, required List<String> ssdpTargets}) =>
     RustLib.instance.api.crateApiDeviceApiNetworkEntitiesForDevice(
         specYaml: specYaml, ssdpTargets: ssdpTargets);
+
+/// Read [`NetworkCapabilitiesDto`] out of a spec.
+Future<NetworkCapabilitiesDto> networkCapabilities(
+        {required String specYaml}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiNetworkCapabilities(specYaml: specYaml);
 
 /// Render a named command from the spec's `commands` block into a POSTable
 /// request. `values` supplies the parameters the caller owns plus any
@@ -1143,10 +1149,23 @@ class DeviceSpecDto {
   final int? defaultPort;
   final List<ServiceDto> services;
 
+  /// Named consumer-side protocol handler (`daniao_ddp`, `rabbit_air`,
+  /// `roomba_mqtt`, …), when the spec declares one. Surfaced so Dart can
+  /// select a spec by the handler it implements instead of matching
+  /// discovery strings.
+  final String? protocolHandler;
+
   /// Declared sensor/control surfaces that resolve to a real characteristic,
   /// in spec order. This is what lets the app render named readings with
   /// units instead of a raw GATT browser.
   final List<EntityDto> entities;
+
+  /// Names of declared entities that did NOT cross — nothing about them
+  /// resolves against this spec (their characteristic is absent, their
+  /// commands unsendable). The honest half of the hide rule: the UI hides
+  /// them as controls but can say "N controls not yet supported" instead
+  /// of silently pretending the spec never declared them.
+  final List<String> hiddenEntityNames;
 
   /// The spec's `image_upload` feature, when it declares one — pixel
   /// displays (LED matrices, curtain lights, badges, printers) that accept
@@ -1181,7 +1200,9 @@ class DeviceSpecDto {
     required this.lanProtocols,
     this.defaultPort,
     required this.services,
+    this.protocolHandler,
     required this.entities,
+    required this.hiddenEntityNames,
     this.imageUpload,
     this.storedUpload,
   });
@@ -1208,7 +1229,9 @@ class DeviceSpecDto {
       lanProtocols.hashCode ^
       defaultPort.hashCode ^
       services.hashCode ^
+      protocolHandler.hashCode ^
       entities.hashCode ^
+      hiddenEntityNames.hashCode ^
       imageUpload.hashCode ^
       storedUpload.hashCode;
 
@@ -1237,7 +1260,9 @@ class DeviceSpecDto {
           lanProtocols == other.lanProtocols &&
           defaultPort == other.defaultPort &&
           services == other.services &&
+          protocolHandler == other.protocolHandler &&
           entities == other.entities &&
+          hiddenEntityNames == other.hiddenEntityNames &&
           imageUpload == other.imageUpload &&
           storedUpload == other.storedUpload;
 }
@@ -1342,6 +1367,13 @@ class EntityActionDto {
 class EntityDto {
   final String name;
 
+  /// Machine-stable semantic token from the spec's documented vocabulary
+  /// (`ok`, `volume_up`, `start`, `stop`, …), so a curated layout — a
+  /// remote grid, a treadmill card — can place this entity without
+  /// matching its English display name. `None` for the many entities that
+  /// need none.
+  final String? key;
+
   /// e.g. "sensor". Absent in some hand-written specs.
   final String? platform;
 
@@ -1407,6 +1439,12 @@ class EntityDto {
   final String? colorGreenField;
   final String? colorBlueField;
 
+  /// Option table for a `select`, in declaration order — (raw, label)
+  /// pairs from `state_mapping.options`. Empty otherwise. Shares the
+  /// network side's option DTO because the shape is identical and the
+  /// consumer is the same select card.
+  final List<NetworkOptionDto> options;
+
   /// Sendable control actions resolved from the spec (`turn_on`,
   /// `set_brightness`, ...), in role order. Empty for sensors. Every entry
   /// is ready to send: encode the named command with the listed user
@@ -1424,6 +1462,7 @@ class EntityDto {
 
   const EntityDto({
     required this.name,
+    this.key,
     this.platform,
     this.deviceClass,
     this.icon,
@@ -1441,6 +1480,7 @@ class EntityDto {
     this.colorRedField,
     this.colorGreenField,
     this.colorBlueField,
+    required this.options,
     required this.actions,
     this.setpointMin,
     this.setpointMax,
@@ -1450,6 +1490,7 @@ class EntityDto {
   @override
   int get hashCode =>
       name.hashCode ^
+      key.hashCode ^
       platform.hashCode ^
       deviceClass.hashCode ^
       icon.hashCode ^
@@ -1467,6 +1508,7 @@ class EntityDto {
       colorRedField.hashCode ^
       colorGreenField.hashCode ^
       colorBlueField.hashCode ^
+      options.hashCode ^
       actions.hashCode ^
       setpointMin.hashCode ^
       setpointMax.hashCode ^
@@ -1478,6 +1520,7 @@ class EntityDto {
       other is EntityDto &&
           runtimeType == other.runtimeType &&
           name == other.name &&
+          key == other.key &&
           platform == other.platform &&
           deviceClass == other.deviceClass &&
           icon == other.icon &&
@@ -1495,6 +1538,7 @@ class EntityDto {
           colorRedField == other.colorRedField &&
           colorGreenField == other.colorGreenField &&
           colorBlueField == other.colorBlueField &&
+          options == other.options &&
           actions == other.actions &&
           setpointMin == other.setpointMin &&
           setpointMax == other.setpointMax &&
@@ -2169,6 +2213,44 @@ class NetworkActionDto {
           max == other.max;
 }
 
+/// Spec-declared capabilities of a network device's control path, so the
+/// Dart transport layer routes on what the spec says instead of on
+/// per-device discovery-string checks.
+class NetworkCapabilitiesDto {
+  /// Authenticated-session protocol the device's control path prefers,
+  /// when the spec documents one — `ecp2` when the spec carries an `ecp2:`
+  /// block (Roku's signed WebSocket session; the block's presence IS the
+  /// capability). `None` for the plain paths.
+  final String? signedSession;
+
+  /// The spec's declared control port. A Roku serves control on 8060
+  /// whatever port its SSDP LOCATION advertised.
+  final int? defaultPort;
+
+  /// The spec's declared URL scheme (`https` for the Envoy or SmartCast),
+  /// `None` meaning plain http.
+  final String? defaultScheme;
+
+  const NetworkCapabilitiesDto({
+    this.signedSession,
+    this.defaultPort,
+    this.defaultScheme,
+  });
+
+  @override
+  int get hashCode =>
+      signedSession.hashCode ^ defaultPort.hashCode ^ defaultScheme.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkCapabilitiesDto &&
+          runtimeType == other.runtimeType &&
+          signedSession == other.signedSession &&
+          defaultPort == other.defaultPort &&
+          defaultScheme == other.defaultScheme;
+}
+
 /// What a scanner saw about one device on the local network.
 ///
 /// The Wi-Fi counterpart of [`ScannedDeviceDto`]. Separate because the signals
@@ -2232,6 +2314,10 @@ class NetworkDeviceDto {
 /// where its state comes from, and what each role sends.
 class NetworkEntityDto {
   final String name;
+
+  /// Machine-stable semantic token from the spec's documented vocabulary
+  /// (`ok`, `volume_up`, …) for curated layouts — see [`EntityDto::key`].
+  final String? key;
   final String? platform;
   final String? deviceClass;
   final String? icon;
@@ -2283,6 +2369,7 @@ class NetworkEntityDto {
 
   const NetworkEntityDto({
     required this.name,
+    this.key,
     this.platform,
     this.deviceClass,
     this.icon,
@@ -2304,6 +2391,7 @@ class NetworkEntityDto {
   @override
   int get hashCode =>
       name.hashCode ^
+      key.hashCode ^
       platform.hashCode ^
       deviceClass.hashCode ^
       icon.hashCode ^
@@ -2327,6 +2415,7 @@ class NetworkEntityDto {
       other is NetworkEntityDto &&
           runtimeType == other.runtimeType &&
           name == other.name &&
+          key == other.key &&
           platform == other.platform &&
           deviceClass == other.deviceClass &&
           icon == other.icon &&
@@ -2343,6 +2432,35 @@ class NetworkEntityDto {
           setpointMin == other.setpointMin &&
           setpointMax == other.setpointMax &&
           setpointStep == other.setpointStep;
+}
+
+/// A network device's whole control surface: what renders, and what the spec
+/// declares for this model that cannot render yet.
+///
+/// The two halves of the hide rule. `entities` is everything resolvable;
+/// `hidden_names` is every declared entity present on this model that
+/// resolves nothing — a transport this crate cannot send, a prose role
+/// binding, an `identify_only` spec — so the screen can count what it is not
+/// showing instead of silently pretending the spec never declared it.
+class NetworkEntitySurfaceDto {
+  final List<NetworkEntityDto> entities;
+  final List<String> hiddenNames;
+
+  const NetworkEntitySurfaceDto({
+    required this.entities,
+    required this.hiddenNames,
+  });
+
+  @override
+  int get hashCode => entities.hashCode ^ hiddenNames.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkEntitySurfaceDto &&
+          runtimeType == other.runtimeType &&
+          entities == other.entities &&
+          hiddenNames == other.hiddenNames;
 }
 
 /// One child behind a hub, as enumerated from a state reply.

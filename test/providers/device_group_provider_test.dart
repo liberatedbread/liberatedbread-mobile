@@ -29,6 +29,7 @@ const _svc = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _chr = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 DeviceSpecDto _bulbSpec({String name = 'Example Smart Bulb'}) => DeviceSpecDto(
+  hiddenEntityNames: const [],
       deviceName: name,
       manufacturer: 'Acme Corp',
       manufacturerStatus: 'abandoned',
@@ -43,6 +44,7 @@ DeviceSpecDto _bulbSpec({String name = 'Example Smart Bulb'}) => DeviceSpecDto(
       services: const [],
       entities: const [
         EntityDto(
+          options: [],
           name: 'Bulb',
           platform: 'light',
           canNotify: false,

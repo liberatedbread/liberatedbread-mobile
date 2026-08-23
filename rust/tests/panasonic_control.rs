@@ -123,7 +123,8 @@ fn the_remote_resolves_from_the_devices_own_search_target() {
         VIERA.to_string(),
         vec!["urn:panasonic-com:device:p00RemoteController:1".to_string()],
     )
-    .expect("the spec resolves");
+    .expect("the spec resolves")
+    .entities;
     let buttons = entities
         .iter()
         .filter(|e| e.platform.as_deref() == Some("button"))

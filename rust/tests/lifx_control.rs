@@ -41,7 +41,8 @@ fn params(pairs: &[(&str, f64)]) -> HashMap<String, f64> {
 #[test]
 fn the_spec_declares_the_controls_a_client_draws() {
     let entities =
-        network_entities_for_device(LIFX.to_string(), vec![]).expect("LIFX entities resolve");
+        network_entities_for_device(LIFX.to_string(), vec![]).expect("LIFX entities resolve")
+    .entities;
     assert_eq!(entities.len(), 1, "one light entity");
     let light = &entities[0];
     assert_eq!(light.name, "LIFX Z Multizone Strip");

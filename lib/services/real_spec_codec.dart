@@ -133,7 +133,7 @@ class RealSpecCodec implements SpecCodec {
       );
 
   @override
-  Future<List<NetworkEntityDto>> networkEntitiesForDevice({
+  Future<NetworkEntitySurfaceDto> networkEntitiesForDevice({
     required String specYaml,
     required List<String> ssdpTargets,
   }) =>

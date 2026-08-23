@@ -14,6 +14,7 @@ import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import '../fakes/fake_spec_codec.dart';
 
 final _spec = DeviceSpecDto(
+  hiddenEntityNames: const [],
   deviceName: 'Ember Mug',
   manufacturer: 'Ember',
   manufacturerStatus: 'active',

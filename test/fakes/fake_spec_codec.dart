@@ -91,6 +91,10 @@ class FakeSpecCodec implements SpecCodec {
   final List<NetworkEntityDto> Function(List<String> ssdpTargets)?
       networkEntities;
 
+  /// The hidden-entity names [networkEntitiesForDevice]'s surface carries —
+  /// declared controls the resolver could not offer.
+  final List<String> networkHiddenNames;
+
   /// Returned by [renderNetworkCommand] / [renderNetworkStateRequest]; the
   /// action/soapAction carry the command or state-command name so a transport
   /// test can tell requests apart.
@@ -185,6 +189,7 @@ class FakeSpecCodec implements SpecCodec {
     this.encodeEntityValueError,
     this.entityWrite,
     this.networkEntities,
+    this.networkHiddenNames = const [],
     this.networkRequest,
     this.networkHttpRequest,
     this.networkReading,
@@ -352,11 +357,14 @@ class FakeSpecCodec implements SpecCodec {
   }
 
   @override
-  Future<List<NetworkEntityDto>> networkEntitiesForDevice({
+  Future<NetworkEntitySurfaceDto> networkEntitiesForDevice({
     required String specYaml,
     required List<String> ssdpTargets,
   }) async =>
-      networkEntities?.call(ssdpTargets) ?? const [];
+      NetworkEntitySurfaceDto(
+        entities: networkEntities?.call(ssdpTargets) ?? const [],
+        hiddenNames: networkHiddenNames,
+      );
 
   @override
   Future<SoapRequestDto> renderNetworkCommand({

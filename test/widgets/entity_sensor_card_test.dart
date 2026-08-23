@@ -21,6 +21,7 @@ const _tempChar = 'fc540002-236c-4c94-8fa9-944a3e5353fa';
 EntityDto _tempEntity(
         {double? scale, String? valueField, bool canNotify = false}) =>
     EntityDto(
+      options: const [],
       name: 'Current Temperature',
       platform: 'sensor',
       deviceClass: 'temperature',
@@ -237,6 +238,7 @@ void main() {
     // describes. That is a spec gap, and saying so is more useful than an
     // empty tile that looks broken.
     const entity = EntityDto(
+      options: [],
       name: 'Probe Temperature',
       platform: 'sensor',
       deviceClass: 'temperature',
@@ -291,6 +293,7 @@ void main() {
   testWidgets('falls back to the format field unit when the entity has none',
       (tester) async {
     const entity = EntityDto(
+      options: [],
       name: 'Temperature',
       platform: 'sensor',
       deviceClass: 'temperature',
@@ -327,6 +330,7 @@ void main() {
 
   group('verdict chips', () {
     EntityDto entity({String? deviceClass, String? unit}) => EntityDto(
+      options: const [],
           name: 'Reading',
           platform: 'sensor',
           deviceClass: deviceClass,
@@ -425,6 +429,7 @@ void main() {
     testWidgets('carries the same reading, unit and verdict as the row',
         (tester) async {
       const entity = EntityDto(
+        options: [],
         name: 'Radon 24h Average',
         platform: 'sensor',
         deviceClass: null,

@@ -92,7 +92,12 @@ pub struct ResolvedAction<'a> {
     pub max: Option<i64>,
 }
 
-/// How a role finds and qualifies its command.
+/// How a role finds and qualifies its command — the one role vocabulary,
+/// consumed by BOTH resolvers. The BLE path uses every field; the network
+/// path (binding-only by design) reads `aliases` and `takes_value` and
+/// ignores the rest. One table serving both is the point: two tables that
+/// disagreed about what `switch` offers would give one device different
+/// controls depending on how it happened to connect.
 struct RoleSpec {
     role: &'static str,
     /// Keys in the entity's `commands:` map that bind this role. Multiple
@@ -110,6 +115,12 @@ struct RoleSpec {
     /// the role at all: a `set_color` that never takes red/green/blue would
     /// render a color picker that changes nothing.
     required_user_params: &'static [&'static str],
+    /// Whether the control supplies a value. On the network side a valued
+    /// role needs exactly one blank in the command and a fixed one needs
+    /// none; on the BLE side a valued role with an empty `user_params`
+    /// vocabulary resolves structurally — the bound command's single
+    /// un-defaulted parameter is the value slot, however the spec named it.
+    takes_value: bool,
 }
 
 impl RoleSpec {
@@ -127,6 +138,7 @@ const TURN_ON: RoleSpec = RoleSpec {
     fallback_suffixes: &["_turn_on", "_power_on"],
     user_params: &[],
     required_user_params: &[],
+    takes_value: false,
 };
 
 const TURN_OFF: RoleSpec = RoleSpec {
@@ -136,6 +148,7 @@ const TURN_OFF: RoleSpec = RoleSpec {
     fallback_suffixes: &["_turn_off", "_power_off"],
     user_params: &[],
     required_user_params: &[],
+    takes_value: false,
 };
 
 /// The one role that FLIPS state instead of setting it (spec-evolution P13):
@@ -152,6 +165,7 @@ const TOGGLE: RoleSpec = RoleSpec {
     fallback_suffixes: &[],
     user_params: &[],
     required_user_params: &[],
+    takes_value: false,
 };
 
 const PRESS: RoleSpec = RoleSpec {
@@ -161,6 +175,7 @@ const PRESS: RoleSpec = RoleSpec {
     fallback_suffixes: &["_press"],
     user_params: &[],
     required_user_params: &[],
+    takes_value: false,
 };
 
 const SET_BRIGHTNESS: RoleSpec = RoleSpec {
@@ -171,6 +186,7 @@ const SET_BRIGHTNESS: RoleSpec = RoleSpec {
     // `level` is sp107e/sp110e's name for the same knob.
     user_params: &["brightness", "level"],
     required_user_params: &[],
+    takes_value: true,
 };
 
 const SET_COLOR: RoleSpec = RoleSpec {
@@ -182,11 +198,126 @@ const SET_COLOR: RoleSpec = RoleSpec {
     // color role may carry the brightness value along.
     user_params: &["red", "green", "blue", "brightness"],
     required_user_params: &["red", "green", "blue"],
+    takes_value: true,
 };
+
+/// A role a spec must OPT INTO by binding it in an entity's `commands:` map —
+/// no name inference. Every role below is this shape: they were added after
+/// the fallback lists' lesson was learned (a guessed command on a garage
+/// door or a text field is worse than a missing control), and the specs that
+/// want them carry explicit bindings.
+const fn bound_role(
+    role: &'static str,
+    aliases: &'static [&'static str],
+    takes_value: bool,
+) -> RoleSpec {
+    RoleSpec {
+        role,
+        aliases,
+        fallback_exact: &[],
+        fallback_suffixes: &[],
+        user_params: &[],
+        required_user_params: &[],
+        takes_value,
+    }
+}
+
+/// A light's effect/animation picker — valued, the effect id.
+const SET_EFFECT: RoleSpec = bound_role("set_effect", &["set_effect"], true);
+
+/// The role a heat-level picker needs, and the one nothing in the catalogue
+/// could resolve before a Crock-Pot turned up: its modes are 0/50/51/52,
+/// which is a choice from a list and not a number anybody can slide between.
+const SELECT_OPTION: RoleSpec =
+    bound_role("select_option", &["select_option", "set_option"], true);
+
+/// Text entry into whatever field the device has focused: one valued send
+/// per keystroke (Roku's Lit_ key form), because the wire carries no string
+/// type.
+const SUBMIT: RoleSpec = bound_role("submit", &["submit", "type"], true);
+
+/// A fan's speed as a percentage. `set_value`/`set_speed` are accepted as
+/// binding spellings; the emitted role is always `set_percentage`.
+const SET_PERCENTAGE: RoleSpec = bound_role(
+    "set_percentage",
+    &["set_percentage", "set_speed", "set_value"],
+    true,
+);
+
+/// A fan's oscillation — valued (0/1) because the specs that declare it
+/// (Dyson) write it as a parameterized command, not an on/off pair.
+const SET_OSCILLATING: RoleSpec =
+    bound_role("set_oscillating", &["set_oscillating"], true);
+
+/// The cover trio plus position. Fixed roles for the motions, a valued one
+/// for the setpoint — a garage door is the flagship (ratgdo), which is
+/// exactly why nothing here is ever name-inferred.
+const OPEN_COVER: RoleSpec = bound_role("open_cover", &["open_cover"], false);
+const CLOSE_COVER: RoleSpec = bound_role("close_cover", &["close_cover"], false);
+const STOP_COVER: RoleSpec = bound_role("stop_cover", &["stop_cover"], false);
+const SET_COVER_POSITION: RoleSpec =
+    bound_role("set_cover_position", &["set_cover_position", "set_position"], true);
+
+/// The number/climate setpoint as a table entry, for the network resolver.
+/// (The BLE path short-circuits those platforms into [`resolve_set_value`]
+/// before consulting the table — its structural fallbacks predate the table
+/// and stay exactly as they were.)
+const SET_VALUE: RoleSpec = bound_role(SET_VALUE_ROLE, SETPOINT_ALIASES, true);
+
+/// Roles each platform offers — the single table BOTH resolvers consume.
+/// `sensor`/`binary_sensor` are readings and deliberately absent. Order is
+/// presentation order for the resolved actions.
+const PLATFORM_ROLES: &[(&str, &[&RoleSpec])] = &[
+    ("switch", &[&TURN_ON, &TURN_OFF, &TOGGLE, &PRESS]),
+    (
+        "light",
+        &[
+            &TURN_ON,
+            &TURN_OFF,
+            &TOGGLE,
+            &SET_BRIGHTNESS,
+            &SET_COLOR,
+            &SET_EFFECT,
+        ],
+    ),
+    // A momentary action: one fixed role, nothing to fill in. The platform a
+    // remote key is — Roku's whole control surface is twenty-odd of these.
+    ("button", &[&PRESS]),
+    ("select", &[&SELECT_OPTION]),
+    // `submit` types one keystroke; the optional fixed `press` is the
+    // deletion key beside the field — a text entity without it simply
+    // cannot delete.
+    ("text", &[&SUBMIT, &PRESS]),
+    ("number", &[&SET_VALUE]),
+    ("climate", &[&SET_VALUE]),
+    (
+        "fan",
+        &[
+            &TURN_ON,
+            &TURN_OFF,
+            &TOGGLE,
+            &SET_PERCENTAGE,
+            &SET_OSCILLATING,
+        ],
+    ),
+    (
+        "cover",
+        &[&OPEN_COVER, &CLOSE_COVER, &STOP_COVER, &SET_COVER_POSITION],
+    ),
+];
+
+/// The table row for one platform, or none for a reading platform.
+fn platform_roles(platform: Option<&str>) -> Option<&'static [&'static RoleSpec]> {
+    let platform = platform?;
+    PLATFORM_ROLES
+        .iter()
+        .find(|(name, _)| *name == platform)
+        .map(|(_, roles)| *roles)
+}
 
 /// Resolve every control action a spec supports for one entity.
 ///
-/// Only `switch` and `light` platforms resolve today; other platforms return
+/// Every platform in [`PLATFORM_ROLES`] resolves; reading platforms return
 /// no actions and keep rendering as they already do. `set_brightness` is
 /// special-cased to require a user parameter: a fixed "brightness" command
 /// with no input is a button, not a slider, and pretending otherwise puts a
@@ -201,16 +332,46 @@ pub fn resolve_entity_actions<'a>(
         return resolve_set_value(spec, entity).into_iter().collect();
     }
 
-    let roles: &[&RoleSpec] = match entity.platform.as_deref() {
-        Some("switch") => &[&TURN_ON, &TURN_OFF, &TOGGLE, &PRESS],
-        Some("light") => &[&TURN_ON, &TURN_OFF, &SET_BRIGHTNESS, &SET_COLOR],
-        _ => return Vec::new(),
+    let Some(roles) = platform_roles(entity.platform.as_deref()) else {
+        return Vec::new();
     };
 
     roles
         .iter()
-        .filter_map(|role| resolve_role(spec, entity, role))
+        .filter_map(|role| {
+            // A valued role with no parameter vocabulary (select_option,
+            // submit, set_percentage, set_cover_position…) resolves
+            // structurally: its bound command's single un-defaulted
+            // parameter is the value slot, however the spec named it —
+            // exactly the setpoint rule, reporting the role's own name.
+            if role.takes_value && role.user_params.is_empty() {
+                resolve_bound_value_role(spec, entity, role)
+            } else {
+                resolve_role(spec, entity, role)
+            }
+        })
         .collect()
+}
+
+/// Resolve a binding-only valued role ([`bound_role`] shape) through the
+/// setpoint qualification: exactly one un-defaulted parameter, which
+/// receives the value.
+fn resolve_bound_value_role<'a>(
+    spec: &'a DeviceSpec,
+    entity: &'a Entity,
+    role: &RoleSpec,
+) -> Option<ResolvedAction<'a>> {
+    for alias in role.aliases {
+        let Some(bound) = entity.command_for_role(alias) else {
+            continue;
+        };
+        if let Some((service, characteristic, name, command)) =
+            find_command(spec, entity, |n| n == bound)
+        {
+            return qualify_valued(role.role, service, characteristic, name, command);
+        }
+    }
+    None
 }
 
 /// Command names a setpoint entity's `commands:` map may bind, and the
@@ -255,7 +416,7 @@ fn resolve_set_value<'a>(spec: &'a DeviceSpec, entity: &'a Entity) -> Option<Res
         if let Some((service, characteristic, name, command)) =
             find_command(spec, entity, |n| n == bound)
         {
-            return qualify_set_value(service, characteristic, name, command);
+            return qualify_valued(SET_VALUE_ROLE, service, characteristic, name, command);
         }
     }
 
@@ -263,7 +424,7 @@ fn resolve_set_value<'a>(spec: &'a DeviceSpec, entity: &'a Entity) -> Option<Res
         if let Some((service, characteristic, name, command)) =
             find_command(spec, entity, |n| n == *fallback)
         {
-            if let Some(action) = qualify_set_value(service, characteristic, name, command) {
+            if let Some(action) = qualify_valued(SET_VALUE_ROLE, service, characteristic, name, command) {
                 return Some(action);
             }
         }
@@ -272,9 +433,11 @@ fn resolve_set_value<'a>(spec: &'a DeviceSpec, entity: &'a Entity) -> Option<Res
     resolve_direct_write(spec, entity)
 }
 
-/// Qualify a command for the `set_value` role: it must reference exactly one
-/// un-defaulted parameter, which then receives the setpoint.
-fn qualify_set_value<'a>(
+/// Qualify a command for a valued role: it must reference exactly one
+/// un-defaulted parameter, which then receives the value. `set_value` is the
+/// original tenant; every [`bound_role`]-shaped valued role shares the rule.
+fn qualify_valued<'a>(
+    role: &'static str,
     service: &'a Service,
     characteristic: &'a Characteristic,
     name: &'a str,
@@ -318,7 +481,7 @@ fn qualify_set_value<'a>(
         .as_ref()
         .and_then(|set| set.params.get(value_param));
     Some(ResolvedAction {
-        role: SET_VALUE_ROLE,
+        role,
         service,
         characteristic,
         command_name: Some(name),
@@ -696,128 +859,9 @@ pub struct NetworkAction<'a> {
     pub max: Option<f64>,
 }
 
-/// One role a network entity can bind, and how to tell whether a command can
-/// serve it.
-struct NetworkRole {
-    /// Canonical name, reported to the caller.
-    role: &'static str,
-    /// Keys in the entity's `commands:` map that bind this role, in order.
-    aliases: &'static [&'static str],
-    /// Whether the control supplies a value. A valued role needs exactly one
-    /// blank in the command; a fixed one needs none.
-    takes_value: bool,
-}
-
 /// The setpoint role's aliases, shared by every platform that has one so a
 /// `number` and a `climate` cannot drift into different vocabularies.
 const SETPOINT_ALIASES: &[&str] = &["set_value", "set_temperature", "set_target"];
-
-const NETWORK_SETPOINT: NetworkRole = NetworkRole {
-    role: SET_VALUE_ROLE,
-    aliases: SETPOINT_ALIASES,
-    takes_value: true,
-};
-
-/// Roles each platform offers on the network path.
-///
-/// Kept beside the BLE `RoleSpec` table, and using the same role names on
-/// purpose: two tables that disagreed about what `switch` offers would give
-/// one device different controls depending on how it happened to connect.
-const NETWORK_ROLES: &[(&str, &[NetworkRole])] = &[
-    (
-        "switch",
-        &[
-            NetworkRole {
-                role: TURN_ON.role,
-                aliases: TURN_ON.aliases,
-                takes_value: false,
-            },
-            NetworkRole {
-                role: TURN_OFF.role,
-                aliases: TURN_OFF.aliases,
-                takes_value: false,
-            },
-            NetworkRole {
-                role: TOGGLE.role,
-                aliases: TOGGLE.aliases,
-                takes_value: false,
-            },
-        ],
-    ),
-    (
-        "button",
-        &[NetworkRole {
-            // A momentary action: one fixed role, nothing to fill in. The
-            // platform a remote key is — Roku's whole control surface is
-            // twenty-odd of these.
-            role: PRESS.role,
-            aliases: PRESS.aliases,
-            takes_value: false,
-        }],
-    ),
-    (
-        "light",
-        &[
-            NetworkRole {
-                role: TURN_ON.role,
-                aliases: TURN_ON.aliases,
-                takes_value: false,
-            },
-            NetworkRole {
-                role: TURN_OFF.role,
-                aliases: TURN_OFF.aliases,
-                takes_value: false,
-            },
-            NetworkRole {
-                role: SET_BRIGHTNESS.role,
-                aliases: SET_BRIGHTNESS.aliases,
-                takes_value: true,
-            },
-        ],
-    ),
-    (
-        "select",
-        &[NetworkRole {
-            // The role a heat-level picker needs, and the one nothing in the
-            // catalogue could resolve before a Crock-Pot turned up: its modes
-            // are 0/50/51/52, which is a choice from a list and not a number
-            // anybody can slide between.
-            role: "select_option",
-            aliases: &["select_option", "set_option"],
-            takes_value: true,
-        }],
-    ),
-    (
-        "text",
-        &[
-            NetworkRole {
-                // Text entry into whatever field the device has focused:
-                // one valued send per keystroke (Roku's Lit_ key form),
-                // because the wire carries no string type.
-                role: "submit",
-                aliases: &["submit", "type"],
-                takes_value: true,
-            },
-            NetworkRole {
-                // The deletion key beside the field — backspace. Optional:
-                // a text entity without it simply cannot delete.
-                role: PRESS.role,
-                aliases: PRESS.aliases,
-                takes_value: false,
-            },
-        ],
-    ),
-    ("number", &[NETWORK_SETPOINT]),
-    ("climate", &[NETWORK_SETPOINT]),
-    (
-        "fan",
-        &[NetworkRole {
-            role: SET_VALUE_ROLE,
-            aliases: &["set_value", "set_speed"],
-            takes_value: true,
-        }],
-    ),
-];
 
 /// Resolve every control action a spec supports for one network entity.
 ///
@@ -831,8 +875,7 @@ pub fn resolve_network_actions<'a>(
     if !on_network_surface(spec, entity) {
         return Vec::new();
     }
-    let platform = entity.platform.as_deref().unwrap_or_default();
-    let Some((_, roles)) = NETWORK_ROLES.iter().find(|(name, _)| *name == platform) else {
+    let Some(roles) = platform_roles(entity.platform.as_deref()) else {
         return Vec::new();
     };
 
@@ -843,9 +886,14 @@ pub fn resolve_network_actions<'a>(
 /// check. Factored out because [`on_network_surface`] itself needs it — a
 /// stateless `switch` is admitted on the strength of what resolves — and
 /// calling the public function from the gate would recurse.
+///
+/// Consumes the same [`PLATFORM_ROLES`] rows the BLE resolver does, reading
+/// only `aliases` and `takes_value`: network resolution is binding-only by
+/// design, so the fallback and vocabulary fields simply have no meaning
+/// here.
 fn resolve_network_roles<'a>(
     spec: &'a DeviceSpec,
-    roles: &[NetworkRole],
+    roles: &[&RoleSpec],
     entity: &'a Entity,
 ) -> Vec<NetworkAction<'a>> {
     roles
@@ -990,6 +1038,7 @@ fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
             .as_ref()
             .is_some_and(|source| http::endpoint_request(spec, &source.command).is_some())
         || is_assumed_state_switch(spec, entity)
+        || is_assumed_state_cover(spec, entity)
 }
 
 /// The switch carve-out of [`on_network_surface`], separated so the P13
@@ -998,12 +1047,31 @@ fn is_assumed_state_switch(spec: &DeviceSpec, entity: &Entity) -> bool {
     if entity.platform.as_deref() != Some("switch") {
         return false;
     }
-    let Some((_, roles)) = NETWORK_ROLES.iter().find(|(name, _)| *name == "switch") else {
+    assumed_state_actions_resolve(spec, "switch", entity)
+}
+
+/// The cover spelling of the same carve-out: a garage door whose spec binds
+/// open/close/stop but no state yet (ratgdo before its state_mapping landed)
+/// is admitted on the strength of its FIXED motions resolving. A resolving
+/// `set_cover_position` alone does not admit — a stateless position slider
+/// is the toggle problem wearing a track: the client cannot honestly draw a
+/// thumb it has no reading for.
+fn is_assumed_state_cover(spec: &DeviceSpec, entity: &Entity) -> bool {
+    if entity.platform.as_deref() != Some("cover") {
+        return false;
+    }
+    assumed_state_actions_resolve(spec, "cover", entity)
+}
+
+/// Whether any qualifying action beyond the state-requiring ones (`toggle`,
+/// `set_cover_position`) resolves for `entity` under `platform`'s roles.
+fn assumed_state_actions_resolve(spec: &DeviceSpec, platform: &str, entity: &Entity) -> bool {
+    let Some(roles) = platform_roles(Some(platform)) else {
         return false;
     };
     resolve_network_roles(spec, roles, entity)
         .iter()
-        .any(|action| action.role != TOGGLE.role)
+        .any(|action| action.role != TOGGLE.role && action.role != SET_COVER_POSITION.role)
 }
 
 /// Entities a spec drives over the network — see [`on_network_surface`] for
@@ -1036,9 +1104,22 @@ pub fn network_entities_for_targets<'a>(
     spec: &'a DeviceSpec,
     ssdp_targets: &[String],
 ) -> Vec<&'a Entity> {
-    let matched = matched_variant_names(spec, ssdp_targets);
-    network_entities(spec)
+    entities_for_targets(spec, ssdp_targets)
         .into_iter()
+        .filter(|e| on_network_surface(spec, e))
+        .collect()
+}
+
+/// Every declared entity present on the model the SSDP targets identify —
+/// the variant narrowing of [`network_entities_for_targets`] WITHOUT the
+/// surface admission. This is the honest denominator for the hide rule: an
+/// entity scoped to a model the device is not simply does not exist here,
+/// while one that is present but resolves nothing is *hidden* and worth
+/// counting on screen.
+pub fn entities_for_targets<'a>(spec: &'a DeviceSpec, ssdp_targets: &[String]) -> Vec<&'a Entity> {
+    let matched = matched_variant_names(spec, ssdp_targets);
+    spec.entities
+        .iter()
         .filter(|entity| match entity_variants(entity) {
             None => true,
             Some(scoped) => scoped.iter().any(|name| matched.contains(name)),
@@ -2134,4 +2215,246 @@ entities:
     commands:
       turn_on: press_me
 "#;
+
+    // ── The platforms the unified table added ───────────────────────────────
+
+    /// A ratgdo-shaped garage door: cover trio over plain HTTP POST, plus a
+    /// position setpoint, with no state binding yet.
+    const GARAGEISH_COVER: &str = r#"
+device:
+  name: Test Garage
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+commands:
+  door_open:
+    description: Open the door.
+    transport: http
+    method: POST
+    path: /cover/door/open
+  door_close:
+    description: Close the door.
+    transport: http
+    method: POST
+    path: /cover/door/close
+  door_stop:
+    description: Stop the door.
+    transport: http
+    method: POST
+    path: /cover/door/stop
+  door_set_position:
+    description: Drive the door to a position.
+    transport: http
+    method: POST
+    path: /cover/door/set?position={position}
+    parameters:
+      position:
+        type: float
+        min: 0
+        max: 1
+entities:
+  - name: Garage Door
+    platform: cover
+    commands:
+      open_cover: door_open
+      close_cover: door_close
+      stop_cover: door_stop
+      set_cover_position: door_set_position
+"#;
+
+    #[test]
+    fn a_stateless_cover_is_admitted_on_its_fixed_motions_and_resolves_all_four_roles() {
+        let spec = parse_device_spec(GARAGEISH_COVER).expect("test spec should parse");
+        let entity = &spec.entities[0];
+        assert!(
+            network_entities(&spec).iter().any(|e| e.name == "Garage Door"),
+            "open/close/stop resolving must admit the stateless cover"
+        );
+        let actions = resolve_network_actions(&spec, entity);
+        let roles: Vec<&str> = actions.iter().map(|a| a.role).collect();
+        assert_eq!(
+            roles,
+            vec!["open_cover", "close_cover", "stop_cover", "set_cover_position"]
+        );
+        let position = actions.last().unwrap();
+        assert_eq!(position.user_params, vec!["position"]);
+        assert_eq!((position.min, position.max), (Some(0.0), Some(1.0)));
+    }
+
+    #[test]
+    fn a_position_only_cover_is_not_admitted() {
+        // A stateless position slider is the toggle problem wearing a track:
+        // with no reading there is no honest thumb to draw, so position alone
+        // must not put the entity on the surface.
+        let yaml = GARAGEISH_COVER.replace("      open_cover: door_open\n", "");
+        let yaml = yaml.replace("      close_cover: door_close\n", "");
+        let yaml = yaml.replace("      stop_cover: door_stop\n", "");
+        let spec = parse_device_spec(&yaml).expect("test spec should parse");
+        assert!(network_entities(&spec).is_empty());
+    }
+
+    #[test]
+    fn a_fan_resolves_power_percentage_and_oscillation() {
+        const FAN: &str = r#"
+device:
+  name: Test Fan
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+commands:
+  fan_on:
+    description: On.
+    transport: http
+    method: POST
+    path: /fan/on
+  fan_off:
+    description: Off.
+    transport: http
+    method: POST
+    path: /fan/off
+  fan_speed:
+    description: Speed percent.
+    transport: http
+    method: POST
+    path: /fan/speed?value={value}
+    parameters:
+      value:
+        type: int
+        min: 0
+        max: 100
+  fan_swing:
+    description: Oscillation on/off.
+    transport: http
+    method: POST
+    path: /fan/swing?value={value}
+    parameters:
+      value:
+        type: int
+        min: 0
+        max: 1
+  fan_state:
+    description: Read state.
+    transport: http
+    method: GET
+    path: /fan/state
+entities:
+  - name: Fan
+    platform: fan
+    state_command: fan_state
+    commands:
+      turn_on: fan_on
+      turn_off: fan_off
+      set_percentage: fan_speed
+      set_oscillating: fan_swing
+"#;
+        let spec = parse_device_spec(FAN).expect("test spec should parse");
+        let actions = resolve_network_actions(&spec, &spec.entities[0]);
+        let roles: Vec<&str> = actions.iter().map(|a| a.role).collect();
+        assert_eq!(
+            roles,
+            vec!["turn_on", "turn_off", "set_percentage", "set_oscillating"]
+        );
+        let speed = actions.iter().find(|a| a.role == "set_percentage").unwrap();
+        assert_eq!((speed.min, speed.max), (Some(0.0), Some(100.0)));
+    }
+
+    /// The BLE side of the new platforms: a select and a text entity resolve
+    /// through the structural valued path (single un-defaulted parameter),
+    /// and a button through `press` — none of which resolved at all before
+    /// the unified table.
+    #[test]
+    fn ble_select_text_and_button_resolve_through_the_table() {
+        const BLEISH: &str = r#"
+device:
+  name: Test Panel
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: ble
+services:
+  - uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+    name: Control
+    characteristics:
+      - uuid: 0000fff1-0000-1000-8000-00805f9b34fb
+        name: Command
+        properties: [write]
+        commands:
+          set_mode:
+            description: Pick a mode.
+            template: [0xA1, "{mode}"]
+            parameters:
+              mode:
+                type: uint8
+                allowed: [0, 1, 2]
+          type_char:
+            description: Type one keystroke.
+            template: [0xA2, "{char_code}"]
+            parameters:
+              char_code:
+                type: uint8
+          beep:
+            description: Beep once.
+            value: [0xA3, 0x01]
+entities:
+  - name: Screen Mode
+    platform: select
+    state_mapping:
+      options:
+        0: "Off"
+        1: "Clock"
+        2: "Art"
+    commands:
+      select_option: set_mode
+  - name: Keyboard
+    platform: text
+    commands:
+      submit: type_char
+  - name: Beep
+    platform: button
+    commands:
+      press: beep
+"#;
+        let spec = parse_device_spec(BLEISH).expect("test spec should parse");
+
+        let select = resolve_entity_actions(&spec, &spec.entities[0]);
+        assert_eq!(select.len(), 1);
+        assert_eq!(select[0].role, "select_option");
+        assert_eq!(select[0].user_params, vec!["mode"]);
+
+        let text = resolve_entity_actions(&spec, &spec.entities[1]);
+        assert_eq!(text.len(), 1);
+        assert_eq!(text[0].role, "submit");
+        assert_eq!(text[0].user_params, vec!["char_code"]);
+
+        let button = resolve_entity_actions(&spec, &spec.entities[2]);
+        assert_eq!(button.len(), 1);
+        assert_eq!(button[0].role, "press");
+        assert!(button[0].user_params.is_empty());
+    }
+
+    /// The new roles are binding-only: a spec that merely NAMES its commands
+    /// suggestively (open_cover as a command name, not a binding) resolves
+    /// nothing — a guessed write on a garage door is worse than a missing
+    /// control.
+    #[test]
+    fn cover_roles_are_never_name_inferred() {
+        const NAMED_ONLY: &str = r#"
+device:
+  name: Test Garage
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+commands:
+  open_cover:
+    description: Open.
+    transport: http
+    method: POST
+    path: /open
+entities:
+  - name: Garage Door
+    platform: cover
+"#;
+        let spec = parse_device_spec(NAMED_ONLY).expect("test spec should parse");
+        assert!(resolve_network_actions(&spec, &spec.entities[0]).is_empty());
+        assert!(network_entities(&spec).is_empty());
+    }
 }

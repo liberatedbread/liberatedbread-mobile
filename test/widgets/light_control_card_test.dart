@@ -37,6 +37,7 @@ EntityActionDto _action(
 /// elk-bledom's resolved shape: brightness (bounded 0..100) and color, no
 /// power.
 EntityDto _stripEntity() => EntityDto(
+  options: const [],
       name: 'LED Strip',
       platform: 'light',
       canNotify: false,
@@ -140,6 +141,7 @@ void main() {
     // brightness. Committing the slider before any color is known must NOT
     // invent a color to send.
     final entity = EntityDto(
+      options: const [],
       name: 'LED',
       platform: 'light',
       canNotify: false,
@@ -181,6 +183,7 @@ void main() {
   testWidgets('power toggle sends and reports the assumed state',
       (tester) async {
     final entity = EntityDto(
+      options: const [],
       name: 'Bulb',
       platform: 'light',
       canNotify: false,
@@ -210,6 +213,7 @@ void main() {
     // example-bulb's shape: readable power/brightness/color. The card must
     // open showing what the device reports, not defaults.
     final entity = EntityDto(
+      options: const [],
       name: 'Bulb',
       platform: 'light',
       stateCharacteristic: _stateChar,

@@ -16,6 +16,7 @@ const _stateChar = 'fc540007-236c-4c94-8fa9-944a3e5353fa';
 /// Ember's charging-base shape: a status byte where exactly `on_value` means
 /// docked.
 EntityDto _chargingEntity({int? onValue = 1, String? deviceClass}) => EntityDto(
+  options: const [],
       name: 'Charging Base',
       platform: 'binary_sensor',
       deviceClass: deviceClass,
@@ -113,6 +114,7 @@ void main() {
   testWidgets('reports a missing format block instead of a blank state',
       (tester) async {
     const entity = EntityDto(
+      options: [],
       name: 'Lid',
       platform: 'binary_sensor',
       stateCharacteristic: _stateChar,

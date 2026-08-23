@@ -43,6 +43,8 @@ export '../src/rust/api/device_api.dart'
         ProfileInfoDto,
         ProfileCharacteristicDto,
         NetworkEntityDto,
+        NetworkEntitySurfaceDto,
+        NetworkCapabilitiesDto,
         NetworkActionDto,
         NetworkOptionDto,
         NetworkReadBackDto,
@@ -198,13 +200,14 @@ abstract class SpecCodec {
     required List<List<int>> notifications,
   });
 
-  /// The controls a spec declares for one discovered network device — the
-  /// SOAP counterpart of a BLE spec's entities.
+  /// The control surface a spec declares for one discovered network device —
+  /// the SOAP counterpart of a BLE spec's entities, plus the names of
+  /// declared entities that resolve nothing (the hide-rule note's count).
   ///
   /// [ssdpTargets] is what the device itself answered to; it narrows a family
   /// spec's variant-scoped entities to the model actually found, so a Wemo
   /// plug never grows the slow cooker's controls.
-  Future<List<NetworkEntityDto>> networkEntitiesForDevice({
+  Future<NetworkEntitySurfaceDto> networkEntitiesForDevice({
     required String specYaml,
     required List<String> ssdpTargets,
   });

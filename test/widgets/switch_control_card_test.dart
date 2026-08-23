@@ -55,6 +55,7 @@ void main() {
     // govee's plug: commands only, no state characteristic at all. A toggle
     // would claim to know the current state; buttons promise nothing.
     final entity = EntityDto(
+      options: const [],
       name: 'Plug Outlet',
       platform: 'switch',
       canNotify: false,
@@ -88,6 +89,7 @@ void main() {
   testWidgets('a switch with readable state renders a toggle that sends',
       (tester) async {
     final entity = EntityDto(
+      options: const [],
       name: 'Temperature Control',
       platform: 'switch',
       stateCharacteristic: _stateChar,
@@ -136,6 +138,7 @@ void main() {
   testWidgets('a press action renders a momentary button', (tester) async {
     // SwitchBot's bot: press alongside on/off. All three must be sendable.
     final entity = EntityDto(
+      options: const [],
       name: 'Bot Press',
       platform: 'switch',
       canNotify: false,
@@ -170,6 +173,7 @@ void main() {
     // ember's temperature-control switch binds prose, not commands: live
     // state with no way to change it is exactly what the spec supports.
     const entity = EntityDto(
+      options: [],
       name: 'Temperature Control',
       platform: 'switch',
       stateCharacteristic: _stateChar,
@@ -204,6 +208,7 @@ void main() {
   testWidgets('an encode failure surfaces instead of pretending success',
       (tester) async {
     final entity = EntityDto(
+      options: const [],
       name: 'Plug Outlet',
       platform: 'switch',
       canNotify: false,
