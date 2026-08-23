@@ -54,9 +54,6 @@ use std::collections::HashMap;
 /// top-level `protocol_handler` key).
 pub const HANDLER_NAME: &str = "daniao_ddp";
 
-/// The platform's single custom GATT service (also declared in the spec).
-pub const SERVICE_UUID: &str = "00000074-1972-1925-3022-077119514e44";
-
 /// Named fragment scheme this handler understands (spec `framing.scheme`).
 /// Re-exported from the codec layer so the encodability gates and this
 /// registry cannot drift on the string.

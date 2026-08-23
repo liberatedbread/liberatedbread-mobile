@@ -978,3 +978,43 @@ fn vendored_specs_resolve_the_network_surface_honestly() {
     assert_eq!(roku.default_port, Some(8060));
     assert_eq!(roku.default_scheme, None);
 }
+
+/// The vendored iDotMatrix spec now reports its image uploads encodable.
+///
+/// This is the DTO the editor keys off: `encodable` must flip to true the
+/// moment the registry carries `idotmatrix_image` — with the spec's own
+/// declared bounds — and the encode path must actually produce a plan from
+/// the REAL vendored spec, not just from the handler's test fixture (the
+/// lesson of the smartdawn stripped-fixture regression above).
+#[test]
+fn vendored_idotmatrix_spec_is_encodable_with_its_declared_bounds() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("idotmatrix.yaml"))
+        .expect("idotmatrix spec should be readable");
+    let dto = load_device_spec(yaml.clone()).expect("idotmatrix spec loads");
+    let img = dto
+        .image_upload
+        .expect("idotmatrix declares an image_upload feature");
+    assert_eq!(img.handler.as_deref(), Some("idotmatrix_image"));
+    assert!(img.encodable, "idotmatrix_image is implemented now");
+    assert_eq!((img.max_width, img.max_height), (Some(64), Some(64)));
+    assert_eq!(img.format.as_deref(), Some("png"));
+
+    // And the real spec encodes: frame 0 = enter_diy_mode + the framed
+    // upload, every write on the 0xFA02 Write Data characteristic, inside
+    // the 0xFA02 service.
+    let plan = encode_image_frame(yaml, 16, 16, vec![0x20; 16 * 16 * 3], 0, 509)
+        .expect("the vendored idotmatrix spec must encode a framed image");
+    assert_eq!(plan.service_uuid, "0000fa02-0000-1000-8000-00805f9b34fb");
+    assert!(plan.writes.len() >= 2, "opener + at least one framed slice");
+    assert!(plan
+        .writes
+        .iter()
+        .all(|w| w.characteristic_uuid == "0000fa02-0000-1000-8000-00805f9b34fb"));
+    assert_eq!(
+        plan.writes[0].bytes,
+        vec![0x05, 0x00, 0x04, 0x01, 0x01],
+        "the DIY opener's bytes come from the spec's enter_diy_mode template"
+    );
+}

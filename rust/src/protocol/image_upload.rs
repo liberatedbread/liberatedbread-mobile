@@ -131,7 +131,7 @@ pub struct HandlerDefaults {
 
 /// The BLE 4.0 minimum ATT payload (MTU 23 - 3). Not a device fact — no link
 /// carries less — so it is the one dimension the spec has no say in.
-const MIN_PAYLOAD_PER_WRITE: usize = 20;
+pub(crate) const MIN_PAYLOAD_PER_WRITE: usize = 20;
 
 /// The `framing` block of a characteristic, read on demand: the shared
 /// `Characteristic` type keeps it untyped because most devices have none.
@@ -204,13 +204,67 @@ pub fn frame_command(
     })
 }
 
-fn is_writable(c: &Characteristic) -> bool {
+pub(crate) fn is_writable(c: &Characteristic) -> bool {
     c.properties.iter().any(|p| {
         matches!(
             p,
             CharacteristicProperty::Write | CharacteristicProperty::WriteWithoutResponse
         )
     })
+}
+
+/// The `framing.max_chunk_size` a characteristic declares, when it does. Read
+/// on demand by handlers whose devices frame at the application layer rather
+/// than through a registered [`FragmentScheme`] (the badge's raw 16-byte
+/// chunks, iDotMatrix's 4096-byte framed payloads).
+pub(crate) fn declared_max_chunk_size(c: &Characteristic) -> Option<usize> {
+    framing_of(c)
+        .and_then(|f| f.max_chunk_size)
+        .filter(|n| *n > 0)
+}
+
+/// Shared canvas validation for handlers that do not run [`encode_frame`]'s
+/// pipeline: the RGB buffer must match `width * height`, and every canvas
+/// bound the spec's `image_upload` feature declares is enforced — each axis
+/// independently, because a spec may bound only one (the badge declares
+/// `max_height` alone; its width is variable by design).
+pub(crate) fn validate_rgb_canvas(
+    spec: &DeviceSpec,
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<(), ProtocolError> {
+    let invalid = |reason: String| ProtocolError::ImageDimensionsInvalid { reason };
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|px| px.checked_mul(3))
+        .ok_or_else(|| invalid(format!("{width}x{height} overflows the pixel buffer size")))?;
+    if expected == 0 {
+        return Err(invalid(format!("{width}x{height} has no pixels")));
+    }
+    if rgb.len() != expected {
+        return Err(invalid(format!(
+            "expected {expected} bytes of RGB888 for {width}x{height}, got {}",
+            rgb.len()
+        )));
+    }
+    if let Some(feature) = image_feature(spec) {
+        if let Some(max_w) = feature.max_width {
+            if width > max_w {
+                return Err(invalid(format!(
+                    "width {width} exceeds the {max_w} the spec declares"
+                )));
+            }
+        }
+        if let Some(max_h) = feature.max_height {
+            if height > max_h {
+                return Err(invalid(format!(
+                    "height {height} exceeds the {max_h} the spec declares"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The `image_upload` feature, if the spec declares one.

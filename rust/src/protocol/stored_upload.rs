@@ -30,7 +30,7 @@ use super::daniao::fragment_packet;
 use super::daniao_store::{self, StoredProgram};
 use super::daniao_upload;
 use super::image_upload::FragmentRequest;
-use super::EncodedWrite;
+use super::{service_for_characteristic, EncodedWrite};
 use crate::codec::types::encode_command;
 use crate::error::ProtocolError;
 use crate::spec::types::{Characteristic, DeviceSpec, Feature};
@@ -244,22 +244,6 @@ fn assemble_plan(
         response_characteristic_uuid: feature.response_characteristic.clone(),
         cid,
     })
-}
-
-/// The UUID of the service that declares `char_uuid`. Every write in a stored
-/// upload targets one custom service, so resolving it once here spares the
-/// caller a spec walk per write.
-fn service_for_characteristic(spec: &DeviceSpec, char_uuid: &str) -> Option<String> {
-    for service in &spec.services {
-        if service
-            .characteristics
-            .iter()
-            .any(|c| c.uuid.eq_ignore_ascii_case(char_uuid))
-        {
-            return Some(service.uuid.clone());
-        }
-    }
-    None
 }
 
 /// Encode the play-by-id command and wrap it in the command channel's fragment
