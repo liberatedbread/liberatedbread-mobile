@@ -590,6 +590,7 @@ entities:
   # closest thing to "off" webOS offers.
   - platform: "switch"
     name: "Power"
+    key: "power"
     icon: "mdi:power"
     commands:
       turn_off: "power_off"
@@ -602,6 +603,7 @@ entities:
       switch whose on side is broken.
   - platform: "button"
     name: "Power Off"
+    key: "power_off"
     icon: "mdi:power"
     commands:
       press: "power_off"
@@ -620,59 +622,69 @@ entities:
     notes: "webOS 4+."
   - platform: "button"
     name: "Back"
+    key: "back"
     icon: "mdi:arrow-u-left-top"
     commands:
       press: "press_back"
     notes: "Pointer-socket button."
   - platform: "button"
     name: "Home"
+    key: "home"
     icon: "mdi:home"
     commands:
       press: "press_home"
     notes: "Pointer-socket button."
   - platform: "button"
     name: "Exit"
+    key: "exit"
     icon: "mdi:close"
     commands:
       press: "press_exit"
     notes: "Pointer-socket button."
   - platform: "button"
     name: "Up"
+    key: "up"
     icon: "mdi:chevron-up"
     commands:
       press: "press_up"
     notes: "Pointer-socket button."
   - platform: "button"
     name: "Left"
+    key: "left"
     icon: "mdi:chevron-left"
     commands:
       press: "press_left"
     notes: "Pointer-socket button."
   - platform: "button"
     name: "OK"
+    key: "ok"
     commands:
       press: "press_ok"
     notes: "Pointer-socket button; the wire name is ENTER."
   - platform: "button"
     name: "Right"
+    key: "right"
     icon: "mdi:chevron-right"
     commands:
       press: "press_right"
     notes: "Pointer-socket button."
   - platform: "button"
     name: "Down"
+    key: "down"
     icon: "mdi:chevron-down"
     commands:
       press: "press_down"
     notes: "Pointer-socket button."
   - platform: "button"
     name: "Info"
+    key: "info"
     icon: "mdi:information-outline"
     commands:
       press: "press_info"
     notes: "Pointer-socket button."
   - platform: "button"
     name: "Rewind"
+    key: "rewind"
     icon: "mdi:rewind"
     commands:
       press: "media_rewind"
@@ -693,21 +705,25 @@ entities:
       press: "media_stop"
   - platform: "button"
     name: "Fast Forward"
+    key: "fast_forward"
     icon: "mdi:fast-forward"
     commands:
       press: "media_fast_forward"
   - platform: "button"
     name: "Volume Down"
+    key: "volume_down"
     icon: "mdi:volume-minus"
     commands:
       press: "volume_down"
   - platform: "button"
     name: "Volume Up"
+    key: "volume_up"
     icon: "mdi:volume-plus"
     commands:
       press: "volume_up"
   - platform: "switch"
     name: "Mute"
+    key: "mute"
     icon: "mdi:volume-mute"
     commands:
       turn_on: "mute_on"
@@ -726,12 +742,14 @@ entities:
     notes: "Internal speakers only; with external audio, use the step buttons."
   - platform: "button"
     name: "Channel Up"
+    key: "channel_up"
     icon: "mdi:chevron-double-up"
     commands:
       press: "channel_up"
     notes: "Tuner input."
   - platform: "button"
     name: "Channel Down"
+    key: "channel_down"
     icon: "mdi:chevron-double-down"
     commands:
       press: "channel_down"

@@ -462,13 +462,23 @@ commands:
     path: /post
     body: '{"Command": "Channel/OnOffScreen", "OnOff": 0}'
     verification: reported
-  # NOTE: no set_brightness command, and the entity's role map still names one.
-  # The device does support it — Divoom's third-party docs list brightness
-  # alongside Channel/OnOffScreen — but this spec has never recorded the
-  # command string or its value range, and writing one from memory is how a
-  # wrong Command name ends up looking authoritative. The gap is ours, not the
-  # device's, so the `brightness` feature stays declared and this is left as
-  # the one thing to read off docin.divoom-gz.com and fill in.
+  set_brightness:
+    description: >-
+      Set the panel brightness. Same documented /post vocabulary as
+      Channel/OnOffScreen; read off Divoom's third-party API docs
+      (docin.divoom-gz.com), not replayed against hardware.
+    transport: http
+    method: POST
+    path: /post
+    body: '{"Command": "Channel/SetBrightness", "Brightness": {brightness}}'
+    parameters:
+      brightness:
+        type: integer
+        min: 0
+        max: 100
+        required: true
+        description: Brightness percent, 0-100, per the documented API.
+    verification: reported
 
 entities:
 - platform: light

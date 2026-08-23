@@ -217,6 +217,12 @@ http_endpoints:
     description: "Placeholder for the LEAP TLS JSON/WebSocket service on port 8081; control uses LEAP messages rather than plain unauthenticated REST."
 
 entities:
+  # DESCRIPTIVE DOCUMENTATION, not bindings: this spec is integration:
+  # identify_only — nothing drives LEAP yet, and the spec declares no LEAP
+  # commands a role could name, so these entities carry the recovered
+  # CommandType detail in `notes` rather than a role map pointing at prose.
+  # When a LEAP client lands, declare real commands and bind the roles.
+  #
   # CommandType spellings verified 2026-08-20 from the vendor app
   # (com.lutron.mmw 26.7.0.5, leaplib CommandTypeEnum + ZoneRequestCreator):
   # dimmers take GoToDimmedLevel with Body.Command.DimmedLevelParameter
@@ -227,21 +233,25 @@ entities:
   # in third-party integrations and may still be accepted by the bridge.
   - platform: "light"
     name: "Caseta Dimmer"
-    commands:
-      turn_on: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToDimmedLevel, DimmedLevelParameter Level=100"
-      turn_off: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToDimmedLevel, DimmedLevelParameter Level=0"
-      set_brightness: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToDimmedLevel, DimmedLevelParameter Level 0-100"
+    notes: >
+      Unbound (identify_only): a dimmer is driven by a LEAP CreateRequest to
+      /zone/{id}/commandprocessor with CommandType GoToDimmedLevel and
+      DimmedLevelParameter {Level: 0-100} — Level 100 for on, 0 for off, the
+      value in between for brightness. Documented for a future LEAP client;
+      no declared command exists to bind.
   - platform: "switch"
     name: "Caseta Switch"
-    commands:
-      turn_on: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToSwitchedLevel, SwitchedLevelParameter SwitchedLevel=On"
-      turn_off: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToSwitchedLevel, SwitchedLevelParameter SwitchedLevel=Off"
+    notes: >
+      Unbound (identify_only): a switch is driven by a LEAP CreateRequest to
+      /zone/{id}/commandprocessor with CommandType GoToSwitchedLevel and
+      SwitchedLevelParameter {SwitchedLevel: On|Off}.
   - platform: "cover"
     name: "Lutron Shade"
-    commands:
-      open_cover: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToShadeLevel"
-      close_cover: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToShadeLevel"
-      set_cover_position: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToShadeLevel (tilt uses GoToTilt)"
+    notes: >
+      Unbound (identify_only): a shade is driven by a LEAP CreateRequest to
+      /zone/{id}/commandprocessor with CommandType GoToShadeLevel (open =
+      level 100, closed = 0, position in between); tilt uses GoToTilt, and
+      Raise/Lower/Stop exist for jog control.
 
 
 helpful_urls:

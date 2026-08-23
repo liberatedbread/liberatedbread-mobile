@@ -187,6 +187,21 @@ device:
           away. commands.create_user is this flow as an executable command —
           poll it every couple of seconds; error type 101 means keep waiting,
           not failure.
+        issues_credentials:
+          username:
+            command: "create_user"
+            reply_path: "[0].success.username"
+            notes: >
+              The value every later request's `credential:username` parameter
+              names. Store it keyed by bridgeid, not IP.
+          clientkey:
+            command: "create_user"
+            reply_path: "[0].success.clientkey"
+            request_condition: "generateclientkey: true"
+            notes: >
+              Entertainment DTLS PSK, issued only at create time — a re-pair
+              without generateclientkey never sees it again, which is why
+              create_user sends it unconditionally.
         steps:
           - action: "POST /api with a devicetype string to confirm the bridge rejects unauthorized clients."
             actor: "client"

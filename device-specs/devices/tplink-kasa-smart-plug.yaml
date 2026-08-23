@@ -26,7 +26,11 @@ device:
       firmware) still answer plaintext 9999, so the KP125M-era port closure
       is not universal. Not exercised: any state-changing write
       (system.set_relay_state and friends) — the switch controls real
-      lighting and nobody authorized a toggle.
+      lighting and nobody authorized a toggle. The Smart Bulb / Light Strip
+      variant state_probes and the two variant-scoped light entities'
+      bindings are likewise unexercised against hardware (the strip's
+      commands themselves were verified on a KL430; the probe and the
+      entity state paths were not).
   protocol: "wifi"
   category: "switch"
   transport: "tcp-json"
@@ -186,15 +190,17 @@ device:
         only transport protection during provisioning. Post-setup control is
         unauthenticated: anything that can reach port 9999 can drive the plug.
 
-  # The models this one spec covers. They differ in exactly one thing that
-  # changes the control surface: whether the plug has metering hardware. The
-  # transport, cipher, framing and relay commands are identical across all of
-  # them, which is why they share a spec — but the four emeter sensors exist
-  # only on the metering models, and a consumer that draws them on an HS100
-  # draws four tiles that are permanently unavailable, because get_emeter on a
-  # plug with no meter answers with an error rather than a reading. The
-  # sensors carry `variants:` naming the models below that actually have the
-  # hardware.
+  # The models this one spec covers. The plug models differ in exactly one
+  # thing that changes the control surface: whether the plug has metering
+  # hardware. The transport, cipher, framing and relay commands are identical
+  # across all of them, which is why they share a spec — but the four emeter
+  # sensors exist only on the metering models, and a consumer that draws them
+  # on an HS100 draws four tiles that are permanently unavailable, because
+  # get_emeter on a plug with no meter answers with an error rather than a
+  # reading. The sensors carry `variants:` naming the models below that
+  # actually have the hardware. The two smartbulb-class variants at the end
+  # (Smart Bulb, Light Strip) speak the same wire protocol through different
+  # service calls; their light entities are variant-scoped the same way.
   #
   # Matching a device to a variant: get_sysinfo's `model` carries a region
   # suffix ("HS110(US)", "KP115(US)"), so compare it against `model_prefix` as
@@ -245,6 +251,40 @@ device:
         the plain SI float family; the milli-unit fallback is HS110 hw v1
         only. Vendor-documented capability, not replayed against hardware by
         this project.
+    # The smartbulb-class devices that answer the same protocol. Their
+    # variant identity is best read from the reply SHAPE (state_probe), not a
+    # model table: a bulb's get_sysinfo carries `light_state` where a plug
+    # carries `relay_state`, and a strip additionally reports `length` (its
+    # LED count) — the exact discriminator the light-command comments in
+    # `commands` below document. The model_prefix is the coarse pre-poll
+    # hint: bulbs are the KL1xx family (KL110/KL130), strips KL4xx
+    # (KL400/KL430).
+    - model: "Smart Bulb"
+      identification:
+        model_prefix: "KL1"
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["light_state"]
+          keys_absent: ["length"]
+      notes: >
+        Kasa smart bulbs (KL110/KL130 …): same transport/cipher/framing, but
+        switching and dimming go through the lightingservice's
+        transition_light_state (light_on / light_off / set_brightness), and
+        state lives in get_sysinfo.light_state. `keys_absent: length` is
+        what separates a bulb from a light strip, which a bulb call is
+        silently ignored by.
+    - model: "Light Strip"
+      identification:
+        model_prefix: "KL4"
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["light_state", "length"]
+      notes: >
+        Kasa light strips (KL400/KL430): smartbulb-class, but driven through
+        smartlife.iot.lightStrip.set_light_state (strip_on / strip_off /
+        strip_brightness) — the bulb's lightingservice call is silently
+        ignored. `length` (LED count) in get_sysinfo is the field that marks
+        a strip; the strip commands were verified on a KL430.
 
 protocol_handler: "tplink_smarthome"
 
@@ -648,6 +688,48 @@ entities:
     notes: >
       Metering models only. `total` (kWh) on current firmware; HS110 hw v1
       sends `total_wh` (watt-hours) instead.
+
+  # The smartbulb-class light surfaces, scoped to the variants whose
+  # state_probe identifies them (a bulb's get_sysinfo has light_state and no
+  # length; a strip has both). Two entities rather than one because the two
+  # families dim through DIFFERENT service calls and a strip silently ignores
+  # the bulb's — binding both to one entity would make half the fleet a
+  # silent no-op. State for both lives in get_sysinfo.light_state
+  # {on_off 0/1, brightness 1-100}, read with the same bare-key convention
+  # the Outlet's relay_state uses (paths relative to the flattened sysinfo
+  # object).
+  - platform: "light"
+    name: "Bulb"
+    variants: ["Smart Bulb"]
+    state_command: "get_sysinfo"
+    state_mapping:
+      is_on: "light_state.on_off"
+      on_when: "nonzero"
+      brightness: "light_state.brightness"
+    commands:
+      turn_on: "light_on"
+      turn_off: "light_off"
+      set_brightness: "set_brightness"
+    notes: >
+      Kasa smart bulb (KL1xx): lightingservice.transition_light_state does
+      the switching and dimming. Brightness is 1-100, the same range
+      get_sysinfo.light_state.brightness reports.
+  - platform: "light"
+    name: "Light Strip"
+    variants: ["Light Strip"]
+    state_command: "get_sysinfo"
+    state_mapping:
+      is_on: "light_state.on_off"
+      on_when: "nonzero"
+      brightness: "light_state.brightness"
+    commands:
+      turn_on: "strip_on"
+      turn_off: "strip_off"
+      set_brightness: "strip_brightness"
+    notes: >
+      Kasa light strip (KL4xx): smartlife.iot.lightStrip.set_light_state
+      does the switching and dimming (verified on a KL430); the bulb-class
+      call is silently ignored on a strip. Brightness is 1-100.
 
 helpful_urls:
   - title: "softScheck — Reverse Engineering the TP-Link HS110 (2016)"

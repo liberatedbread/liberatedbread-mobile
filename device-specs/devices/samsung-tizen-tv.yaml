@@ -836,6 +836,7 @@ entities:
   # Power-on is Wake-on-LAN; no power state is readable.
   - platform: "switch"
     name: "Power"
+    key: "power"
     icon: "mdi:power"
     commands:
       turn_off: "press_power"
@@ -855,47 +856,56 @@ entities:
     notes: "The raw remote key, distinct from the Power switch above: it promises a keypress, not a direction. Network power-off only; power-on is Wake-on-LAN (samsung_remote_common.power)."
   - platform: "button"
     name: "Home"
+    key: "home"
     icon: "mdi:home"
     commands:
       press: "press_home"
   - platform: "button"
     name: "Back"
+    key: "back"
     icon: "mdi:arrow-u-left-top"
     commands:
       press: "press_back"
     notes: "The physical Return key; KEY_RETURN on the wire."
   - platform: "button"
     name: "Exit"
+    key: "exit"
     icon: "mdi:close-box-outline"
     commands:
       press: "press_exit"
   - platform: "button"
     name: "Up"
+    key: "up"
     icon: "mdi:chevron-up"
     commands:
       press: "press_up"
   - platform: "button"
     name: "Left"
+    key: "left"
     icon: "mdi:chevron-left"
     commands:
       press: "press_left"
   - platform: "button"
     name: "OK"
+    key: "ok"
     commands:
       press: "press_enter"
     notes: "D-pad centre; KEY_ENTER on the wire, and the trailing key of direct channel entry."
   - platform: "button"
     name: "Right"
+    key: "right"
     icon: "mdi:chevron-right"
     commands:
       press: "press_right"
   - platform: "button"
     name: "Down"
+    key: "down"
     icon: "mdi:chevron-down"
     commands:
       press: "press_down"
   - platform: "button"
     name: "Menu"
+    key: "menu"
     icon: "mdi:menu"
     commands:
       press: "press_menu"
@@ -906,6 +916,7 @@ entities:
       press: "press_guide"
   - platform: "button"
     name: "Info"
+    key: "info"
     icon: "mdi:information-outline"
     commands:
       press: "press_info"
@@ -916,21 +927,25 @@ entities:
       press: "press_tools"
   - platform: "button"
     name: "Volume Up"
+    key: "volume_up"
     icon: "mdi:volume-plus"
     commands:
       press: "press_volume_up"
   - platform: "button"
     name: "Mute"
+    key: "mute"
     icon: "mdi:volume-mute"
     commands:
       press: "press_volume_mute"
   - platform: "button"
     name: "Volume Down"
+    key: "volume_down"
     icon: "mdi:volume-minus"
     commands:
       press: "press_volume_down"
   - platform: "button"
     name: "Channel Up"
+    key: "channel_up"
     icon: "mdi:chevron-double-up"
     commands:
       press: "press_channel_up"
@@ -941,6 +956,7 @@ entities:
       press: "press_previous_channel"
   - platform: "button"
     name: "Channel Down"
+    key: "channel_down"
     icon: "mdi:chevron-double-down"
     commands:
       press: "press_channel_down"
@@ -951,6 +967,7 @@ entities:
       press: "press_channel_list"
   - platform: "button"
     name: "Rewind"
+    key: "rewind"
     icon: "mdi:rewind"
     commands:
       press: "press_rewind"
@@ -972,6 +989,7 @@ entities:
       press: "press_stop"
   - platform: "button"
     name: "Fast Forward"
+    key: "fast_forward"
     icon: "mdi:fast-forward"
     commands:
       press: "press_fast_forward"

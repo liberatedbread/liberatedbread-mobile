@@ -344,11 +344,15 @@ commands:
         type: "float"
         min: 0
         max: 1
+        scale: 100
+        unit: "%"
         description: >
           Target position on ESPHome's cover scale: 0.0 fully closed, 1.0 fully
-          open. NOT a percentage — a UI with a 0-100 slider divides by 100
-          before sending. The device clamps out-of-range values, so sending 50
-          for "half open" drives the door fully open instead.
+          open — `min`/`max` bound the RAW wire value. NOT a percentage on the
+          wire, so `scale: 100` states the decoded terms: a UI's 0-100% slider
+          value divides by 100 to encode (raw = value / scale). The device
+          clamps out-of-range values, so sending a raw 50 for "half open"
+          drives the door fully open instead.
     notes: >
       The position argument rides the query string
       (`/cover/Door/set?position=0.5`), which is how ESPHome's web_server takes
@@ -402,7 +406,17 @@ entities:
       set_cover_position: "door_set_position"
     state_topic: "/cover/Door"
     state_topic_fallback: "/cover/door"
-    notes: "Entity name 'Door' (object_id 'door' on ESPHome <= 2025.12). JSON `state` is OPEN or CLOSED; travel is reported separately in `current_operation` (OPENING/CLOSING/IDLE)."
+    state_mapping:
+      state: "state"
+      position: "position"
+      current_operation: "current_operation"
+    notes: >
+      Entity name 'Door' (object_id 'door' on ESPHome <= 2025.12). JSON
+      `state` is OPEN or CLOSED; travel is reported separately in
+      `current_operation` (OPENING/CLOSING/IDLE). The state_mapping paths
+      are the reply fields the JSON-shape example in device.notes shows;
+      `position` (0.0..1.0) is absent on Security+ 1.0 covers, which do not
+      support position.
   - platform: "light"
     name: "Garage Light"
     commands:
@@ -410,6 +424,14 @@ entities:
       turn_off: "light_turn_off"
     state_topic: "/light/Light"
     state_topic_fallback: "/light/light"
+    state_mapping:
+      is_on: "state"
+      on_value: "ON"
+    notes: >
+      The light reply's `state` field is the string "ON" or "OFF" (the same
+      state-string convention the binary_sensor example in device.notes
+      shows), per the ESPHome Web Server API doc — reported, not yet read
+      from hardware.
   - platform: "switch"
     name: "Lock Remotes"
     commands:
@@ -417,26 +439,41 @@ entities:
       turn_off: "unlock_remotes"
     state_topic: "/lock/Lock%20remotes"
     state_topic_fallback: "/lock/lock_remotes"
+    state_mapping:
+      is_on: "state"
+      on_value: "LOCKED"
     notes: >
       ESPHome exposes this in the `lock` domain (entity name 'Lock remotes',
       lock/unlock); modelled here as a switch (on = remotes locked out) because
       this schema's entity vocabulary has no lock platform. On = the opener
-      ignores its RF remotes.
+      ignores its RF remotes. The lock reply's `state` field carries the
+      lock-domain state string, LOCKED or UNLOCKED, per the ESPHome Web
+      Server API doc — reported, not yet read from hardware.
   - platform: "binary_sensor"
     name: "Obstruction"
     device_class: "problem"
     state_topic: "/binary_sensor/Obstruction"
     state_topic_fallback: "/binary_sensor/obstruction"
+    state_mapping:
+      value: "value"
+    notes: >
+      The reply's `value` field is JSON true/false (the shape example in
+      device.notes: {"value":true,"state":"ON"}), so it needs no
+      on_when/on_value — the value IS the on/off.
   - platform: "binary_sensor"
     name: "Motion"
     device_class: "motion"
     state_topic: "/binary_sensor/Motion"
     state_topic_fallback: "/binary_sensor/motion"
+    state_mapping:
+      value: "value"
   - platform: "sensor"
     name: "Openings"
     state_topic: "/sensor/Openings"
     state_topic_fallback: "/sensor/openings"
-    notes: "Cumulative door-open counter (entity name 'Openings')."
+    state_mapping:
+      value: "value"
+    notes: "Cumulative door-open counter (entity name 'Openings'); the reply's numeric `value` field carries the count."
 
 helpful_urls:
   - url: "https://github.com/ratgdo/esphome-ratgdo"

@@ -408,7 +408,10 @@ ecp2:
     mechanism itself is documented here because it is how the protocol
     works. Roku can rotate or revoke the id in a firmware update at any
     time, so a client should treat ECP2 as an enhancement over plain ECP
-    with fallback, never the only path.
+    with fallback, never the only path. Consumers may treat this block's
+    presence in a spec as the signed-session capability signal: a device
+    spec carrying `ecp2` supports the authenticated WebSocket session, and
+    one without it is plain-ECP only.
 
 http_endpoints:
   - method: "GET"
@@ -836,6 +839,7 @@ entities:
   # TV's power, not what state the panel is in).
   - platform: "switch"
     name: "Power"
+    key: "power"
     icon: "mdi:power"
     commands:
       turn_on: "press_power_on"
@@ -847,148 +851,175 @@ entities:
       state is readable over ECP.
   - platform: "button"
     name: "Power On"
+    key: "power_on"
     icon: "mdi:power"
     commands:
       press: "press_power_on"
     notes: "TV-class key; see commands.press_power_on for the standby caveat."
   - platform: "button"
     name: "Power Off"
+    key: "power_off"
     icon: "mdi:power-off"
     commands:
       press: "press_power_off"
     notes: "TV-class key."
   - platform: "button"
     name: "Back"
+    key: "back"
     icon: "mdi:arrow-u-left-top"
     commands:
       press: "press_back"
   - platform: "button"
     name: "Home"
+    key: "home"
     icon: "mdi:home"
     commands:
       press: "press_home"
   - platform: "button"
     name: "Up"
+    key: "up"
     icon: "mdi:chevron-up"
     commands:
       press: "press_up"
   - platform: "button"
     name: "Left"
+    key: "left"
     icon: "mdi:chevron-left"
     commands:
       press: "press_left"
   - platform: "button"
     name: "OK"
+    key: "ok"
     commands:
       press: "press_select"
   - platform: "button"
     name: "Right"
+    key: "right"
     icon: "mdi:chevron-right"
     commands:
       press: "press_right"
   - platform: "button"
     name: "Down"
+    key: "down"
     icon: "mdi:chevron-down"
     commands:
       press: "press_down"
   - platform: "button"
     name: "Replay"
+    key: "replay"
     icon: "mdi:replay"
     commands:
       press: "press_instant_replay"
   - platform: "button"
     name: "Options"
+    key: "options"
     icon: "mdi:asterisk"
     commands:
       press: "press_info"
     notes: "The * key. Named Options because that is what it does; Info is the wire spelling."
   - platform: "button"
     name: "Rewind"
+    key: "rewind"
     icon: "mdi:rewind"
     commands:
       press: "press_rev"
   - platform: "button"
     name: "Play/Pause"
+    key: "play_pause"
     icon: "mdi:play-pause"
     commands:
       press: "press_play"
   - platform: "button"
     name: "Fast Forward"
+    key: "fast_forward"
     icon: "mdi:fast-forward"
     commands:
       press: "press_fwd"
   - platform: "button"
     name: "Volume Down"
+    key: "volume_down"
     icon: "mdi:volume-minus"
     commands:
       press: "press_volume_down"
     notes: "TV-class key."
   - platform: "button"
     name: "Mute"
+    key: "mute"
     icon: "mdi:volume-mute"
     commands:
       press: "press_volume_mute"
     notes: "TV-class key."
   - platform: "button"
     name: "Volume Up"
+    key: "volume_up"
     icon: "mdi:volume-plus"
     commands:
       press: "press_volume_up"
     notes: "TV-class key."
   - platform: "button"
     name: "Channel Up"
+    key: "channel_up"
     icon: "mdi:chevron-double-up"
     commands:
       press: "press_channel_up"
     notes: "TV-class key; meaningful on the tuner input."
   - platform: "button"
     name: "Channel Down"
+    key: "channel_down"
     icon: "mdi:chevron-double-down"
     commands:
       press: "press_channel_down"
     notes: "TV-class key; meaningful on the tuner input."
   - platform: "button"
     name: "Search"
+    key: "search"
     icon: "mdi:magnify"
     commands:
       press: "press_search"
   - platform: "button"
     name: "Find Remote"
+    key: "find_remote"
     icon: "mdi:remote"
     commands:
       press: "press_find_remote"
   - platform: "button"
     name: "HDMI 1"
+    key: "input_hdmi1"
     icon: "mdi:hdmi-port"
     commands:
       press: "press_input_hdmi1"
     notes: "TV-class key."
   - platform: "button"
     name: "HDMI 2"
+    key: "input_hdmi2"
     icon: "mdi:hdmi-port"
     commands:
       press: "press_input_hdmi2"
     notes: "TV-class key."
   - platform: "button"
     name: "HDMI 3"
+    key: "input_hdmi3"
     icon: "mdi:hdmi-port"
     commands:
       press: "press_input_hdmi3"
     notes: "TV-class key."
   - platform: "button"
     name: "HDMI 4"
+    key: "input_hdmi4"
     icon: "mdi:hdmi-port"
     commands:
       press: "press_input_hdmi4"
     notes: "TV-class key."
   - platform: "button"
     name: "AV"
+    key: "input_av"
     icon: "mdi:video-input-component"
     commands:
       press: "press_input_av1"
     notes: "TV-class key."
   - platform: "button"
     name: "Antenna"
+    key: "input_tuner"
     icon: "mdi:antenna"
     commands:
       press: "press_input_tuner"
@@ -1000,6 +1031,7 @@ entities:
   # is the submit, exactly as on the physical remote.
   - platform: "text"
     name: "Keyboard"
+    key: "keyboard"
     icon: "mdi:keyboard"
     commands:
       submit: "type_char"

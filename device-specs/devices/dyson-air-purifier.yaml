@@ -300,21 +300,20 @@ entities:
   - platform: "fan"
     name: "Purifier Fan"
     state_topic: "{productType}/{serial}/status/current"
-    commands:
-      turn_on: "{productType}/{serial}/command"
-      turn_off: "{productType}/{serial}/command"
-      set_percentage: "{productType}/{serial}/command"
-      set_oscillating: "{productType}/{serial}/command"
     notes: >
-      INCOMPLETE BINDING, recorded rather than guessed. All four roles name the
-      same MQTT topic because on this device every command is one topic and the
-      direction lives in the STATE-SET payload — but which state keys carry
-      power, speed and oscillation was not recovered, so the roles are
-      indistinguishable as they stand. A consumer cannot turn this fan on from
-      the spec alone. Do not fill these in from another Dyson generation: the
-      key names differ across product types. Capture a STATE-SET publish from
-      the app for this productType and replace these with discrete commands
-      whose arguments are already chosen, the way spec-format.md describes.
+      NO COMMAND BINDINGS, recorded rather than guessed. An earlier revision
+      bound turn_on / turn_off / set_percentage / set_oscillating, all four
+      to the same "{productType}/{serial}/command" MQTT topic — a topic is
+      not a command, and on this device every command is that one topic with
+      the direction living in the STATE-SET payload. Which state keys carry
+      power, speed and oscillation was never recovered, so the four roles
+      were indistinguishable and a consumer could not turn this fan on from
+      the spec alone; the role map was deleted as the honest state rather
+      than left pointing at prose. Do not fill commands in from another
+      Dyson generation: the key names differ across product types. Capture a
+      STATE-SET publish from the app for this productType and add discrete
+      commands whose arguments are already chosen, the way spec-format.md
+      describes — then re-bind the roles to them.
   - platform: "sensor"
     name: "Air Quality"
     state_topic: "{productType}/{serial}/status/current"
