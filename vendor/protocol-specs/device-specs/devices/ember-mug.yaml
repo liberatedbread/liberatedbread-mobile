@@ -59,6 +59,11 @@ device:
       from 52% drained to radio-dead in under an hour, and the radio stayed
       down through 60+ minutes back on the coaster until a button press
       powered the mug back up.
+
+      2026-08: the set_target_temp_off constant command and the Temperature
+      Control switch's rebinding to it restate the hardware-exercised
+      2026-08-16 0x0000 write as a declared command; the new binding itself
+      has not been driven through a spec-driven consumer.
   protocol: "ble"
   category: "appliance"
   notes: >
@@ -525,6 +530,16 @@ services:
           an empty mug is not established and this is not a claim that the heater
           engaged.
         commands:
+          set_target_temp_off:
+            verification: "confirmed"
+            description: >
+              Disable temperature control: the constant 0x0000 write (both
+              bytes of the little-endian uint16 zero). The exact write the
+              2026-08-16 hardware run in this characteristic's notes
+              exercised against a running heat cycle — the invocable form of
+              set_target_temp's 0x0000 case, so the Temperature Control
+              switch's turn_off can name a declared command.
+            value: [0x00, 0x00]
           set_target_temp:
             verification: "confirmed"
             description: "Set target temperature (value * 0.01 = degrees C; 0x0000 disables heater)"
@@ -1466,8 +1481,14 @@ entities:
       value: "target_temp_raw"
       on_when: "nonzero"
     commands:
-      turn_off: "set target temp raw to 0x0000"
-      turn_on: "restore previous nonzero target temperature"
+      turn_off: "set_target_temp_off"
+    notes: >
+      turn_off is the declared set_target_temp_off (write 0x0000). There is
+      deliberately NO turn_on: switching back on means restoring the
+      previous nonzero target temperature, which the device does not store —
+      that is client-side statefulness (remember the last nonzero
+      target_temp_raw and re-send it via set_target_temp), not a command
+      this spec can declare.
 
   - platform: "select"
     name: "Temperature Unit"

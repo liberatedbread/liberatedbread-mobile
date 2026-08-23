@@ -208,6 +208,32 @@ device:
           j-series firmware is reported to reset the TLS connection on the
           first attempt or two before answering, so a client should retry
           within the window rather than treat one reset as a refusal.
+        # What this flow yields, machine-readably: the MQTT username/password
+        # pair. Neither value comes out of a named JSON-replying command —
+        # the disclosure exchange is raw binary (see
+        # irobot_lan_protocol.password_disclosure) and the BLID's easier read
+        # is the discovery datagram — so the entries lean on `notes` for the
+        # part a dotted path cannot say.
+        issues_credentials:
+          blid:
+            reply_path: "hostname"
+            notes: >
+              The MQTT username. The stated reply_path is a field of the
+              UDP-5678 DISCOVERY reply, not of this exchange's binary reply
+              (which also carries the BLID, less conveniently): `hostname` is
+              'Roomba-<blid>' or 'iRobot-<blid>', and the BLID is the
+              substring after the first hyphen.
+          password:
+            reply_path: "."
+            notes: >
+              The MQTT password, and the whole point of this method. The
+              disclosure exchange is a raw binary TLS exchange with no JSON
+              reply, so reply_path '.' means the reply itself: apply
+              irobot_lan_protocol.password_disclosure.password_extraction
+              (drop the 2-byte header and any leading non-printable bytes,
+              decode UTF-8, strip trailing NULs — the WHOLE remaining string
+              is the password). Store it keyed by BLID; it survives a
+              network rejoin and changes only on factory reset.
         steps:
           - action: "Put the robot on its dock, powered on, and close the iRobot app on every phone — the robot serves one client at a time."
             actor: "user"

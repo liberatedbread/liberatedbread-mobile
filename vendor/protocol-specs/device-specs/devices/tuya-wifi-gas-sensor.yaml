@@ -494,6 +494,49 @@ commands:
     command: "0x07"
     body: '{"dps":{"9":true}}'
     verification: "reported"
+  # Per-DP invocations for the writable settings, so entity roles name
+  # declared commands rather than prose. Same CONTROL (0x07) write and short
+  # dps-object body as muffle_alarm/self_test above; DP numbers and value
+  # types are from the DP table this spec documents.
+  audible_alarm_on:
+    description: "Enable the buzzer (DP 12 = true). SAFETY: the buzzer is the primary local alert."
+    transport: "tcp-json"
+    command: "0x07"
+    body: '{"dps":{"12":true}}'
+    verification: "reported"
+  audible_alarm_off:
+    description: "Disable the buzzer (DP 12 = false). SAFETY: silences the primary local alert."
+    transport: "tcp-json"
+    command: "0x07"
+    body: '{"dps":{"12":false}}'
+    verification: "reported"
+  set_alarm_duration:
+    description: "Set how long the alarm sounds (DP 3, seconds)."
+    transport: "tcp-json"
+    command: "0x07"
+    body: '{"dps":{"3":{duration}}}'
+    parameters:
+      duration:
+        type: "integer"
+        min: 0
+        max: 180
+        required: true
+        description: "Alarm duration in seconds, 0-180 (the number entity's range)."
+    verification: "reported"
+  set_alarm_melody:
+    description: "Pick the alarm melody (DP 8, enum). RQ400A: five melodies."
+    transport: "tcp-json"
+    command: "0x07"
+    body: '{"dps":{"8":"{melody}"}}'
+    parameters:
+      melody:
+        type: "string"
+        enum: ["0", "1", "2", "3", "4"]
+        required: true
+        description: >
+          Melody index as the STRING the enum DP carries on the wire —
+          "0".."4", matching the select entity's option keys.
+    verification: "reported"
 
 entities:
   - platform: "binary_sensor"
@@ -541,8 +584,8 @@ entities:
     state_command: "dp_query"
     state_field: "dps.12"
     commands:
-      turn_on: "set_dp dps.12=true"
-      turn_off: "set_dp dps.12=false"
+      turn_on: "audible_alarm_on"
+      turn_off: "audible_alarm_off"
     notes: >
       SAFETY: turning this off disables the buzzer — the primary local
       alert. Surface accordingly.
@@ -568,7 +611,7 @@ entities:
     state_command: "dp_query"
     state_field: "dps.3"
     commands:
-      set_value: "set_dp dps.3=<value>"
+      set_value: "set_alarm_duration"
   - platform: "select"
     name: "Alarm Melody"
     icon: "mdi:music"
@@ -582,7 +625,7 @@ entities:
         "3": "Melody 4"
         "4": "Melody 5"
     commands:
-      select_option: "set_dp dps.8=<value>"
+      select_option: "set_alarm_melody"
     notes: "RQ400A: five melodies (0–4); the labels are ordinal placeholders — the firmware does not name them."
   - platform: "binary_sensor"
     name: "Sensor Preheat"

@@ -396,17 +396,48 @@ def test_both_reply_shapes_decode_through_one_reader(sensors):
 
 
 def test_variants_are_identifiable_from_a_sysinfo_reply(variants, commands):
-    """Every variant declares a model_prefix, and get_sysinfo declares the
-    `model` field a consumer matches it against — a variant table nothing in
-    the protocol can be matched to is decoration."""
+    """Every variant can be matched to the protocol — a variant table nothing
+    in the protocol can be matched to is decoration.
+
+    Two matching schemes coexist. A plug variant is a literal model number,
+    so its model_prefix must prefix its own `model` and get_sysinfo must
+    declare the `model` (and `feature`) fields the prefix is compared
+    against. A smartbulb-class variant is a FAMILY ("Smart Bulb",
+    "Light Strip") identified by reply shape instead — its `state_probe`
+    must name the declared get_sysinfo poll and at least one discriminating
+    key, and no two probes may state identical conditions, or the variants
+    they identify are indistinguishable.
+    """
     assert variants, "the spec covers more than one model; they must be listed"
     returned = {r["name"] for r in commands["get_sysinfo"]["returns"]}
     assert "model" in returned and "feature" in returned
+    probes = []
     for variant in variants:
-        prefix = variant["identification"]["model_prefix"]
-        assert variant["model"].startswith(prefix)
-        # A region suffix must not defeat the match — this is a prefix test.
-        assert f"{prefix}(US)".startswith(prefix)
+        ident = variant["identification"]
+        probe = ident.get("state_probe")
+        if probe is not None:
+            assert probe["command"] in commands, (
+                f"{variant['model']}: state_probe names an undeclared command"
+            )
+            assert probe.get("keys_present") or probe.get("keys_absent"), (
+                f"{variant['model']}: a probe with no conditions matches "
+                "everything"
+            )
+            conditions = (
+                frozenset(probe.get("keys_present") or []),
+                frozenset(probe.get("keys_absent") or []),
+            )
+            assert conditions not in probes, (
+                f"{variant['model']}: another variant states the identical "
+                "probe conditions"
+            )
+            probes.append(conditions)
+        else:
+            prefix = ident["model_prefix"]
+            assert variant["model"].startswith(prefix)
+            # A region suffix must not defeat the match — this is a prefix
+            # test.
+            assert f"{prefix}(US)".startswith(prefix)
 
 
 def test_the_emeter_sensors_are_scoped_to_metering_models(sensors, variants):
