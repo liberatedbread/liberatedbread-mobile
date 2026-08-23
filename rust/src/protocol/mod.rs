@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod cat_printer;
 pub mod daniao;
 pub mod daniao_store;
 pub mod daniao_upload;
@@ -81,6 +82,10 @@ const IMAGE_UPLOAD_HANDLERS: &[ImageUploadHandler] = &[
     ImageUploadHandler {
         name: ledbadge_bitmap::HANDLER_NAME,
         encode: ledbadge_bitmap::encode_badge_bitmap,
+    },
+    ImageUploadHandler {
+        name: cat_printer::HANDLER_NAME,
+        encode: cat_printer::encode_print_job,
     },
 ];
 

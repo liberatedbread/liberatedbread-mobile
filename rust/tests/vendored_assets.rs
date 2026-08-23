@@ -1056,3 +1056,43 @@ fn vendored_led_badge_spec_is_encodable_with_its_declared_bounds() {
     assert_eq!(plan.writes.len(), 9);
     assert_eq!(&plan.writes[0].bytes[..4], b"wang");
 }
+
+/// The vendored cat printer spec now reports its image uploads encodable.
+///
+/// This one is also the gate on the parser's device-nested tolerance:
+/// cat-printer.yaml declares `features` and `protocol_handler` under
+/// `device:`, so until they were hoisted the spec loaded with no image
+/// capability at all — a declared printer rendered as a device with no
+/// pixel surface. The DTO must carry the handler and the 384-dot paper
+/// bound, and the REAL spec must encode a job onto the 0xAE01 TX
+/// characteristic of the identifying 0xAE30 service.
+#[test]
+fn vendored_cat_printer_spec_is_encodable_with_its_declared_bounds() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("cat-printer.yaml"))
+        .expect("cat printer spec should be readable");
+    let dto = load_device_spec(yaml.clone()).expect("cat printer spec loads");
+    let img = dto
+        .image_upload
+        .expect("the cat printer declares an image_upload feature (under device:)");
+    assert_eq!(img.handler.as_deref(), Some("cat_printer"));
+    assert!(img.encodable, "cat_printer is implemented now");
+    assert_eq!((img.max_width, img.max_height), (Some(384), Some(65535)));
+    assert_eq!(img.format.as_deref(), Some("1bit-bitmap"));
+
+    let plan = encode_image_frame(yaml, 384, 4, vec![0x00; 384 * 4 * 3], 0, 509)
+        .expect("the vendored cat printer spec must encode a print job");
+    assert_eq!(plan.service_uuid, "0000ae30-0000-1000-8000-00805f9b34fb");
+    assert!(plan
+        .writes
+        .iter()
+        .all(|w| w.characteristic_uuid == "0000ae01-0000-1000-8000-00805f9b34fb"));
+    // The stream opens with the get_device_state frame the sequence starts
+    // on, and its 12 fixed frames + 4 rows are the logical packet count.
+    assert_eq!(
+        &plan.writes[0].bytes[..9],
+        &[0x51, 0x78, 0xA3, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF]
+    );
+    assert_eq!(plan.next_frame_index, 16);
+}
