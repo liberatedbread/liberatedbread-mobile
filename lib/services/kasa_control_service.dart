@@ -105,9 +105,13 @@ Future<Uint8List> _socketExchange(
 ///
 /// The reply is nested (`{"system":{"get_sysinfo":{...}}}`); this lifts the
 /// sysinfo object and stringifies its scalar members (so `relay_state` becomes
-/// `"1"`), dropping arrays and objects. A reply that is not a sysinfo answer
-/// (an on/off ack, say) yields an empty map, which reads as "no state here" —
-/// the screen re-polls for state separately.
+/// `"1"`). Nested objects flatten to dotted keys (`light_state.on_off`, the
+/// path a bulb's entity `state_mapping` names) and an array lands under its
+/// own key as JSON — so a variant `state_probe` can see that `children` or
+/// `light_state` is PRESENT, which is how the spec tells a strip, a bulb and
+/// a plug apart from this one reply. A reply that is not a sysinfo answer (an
+/// on/off ack, say) yields an empty map, which reads as "no state here" — the
+/// screen re-polls for state separately.
 Map<String, String> kasaSysinfoFields(String replyJson) {
   final Object? decoded;
   try {
@@ -121,11 +125,20 @@ Map<String, String> kasaSysinfoFields(String replyJson) {
   if (sysinfo is! Map) return const {};
 
   final out = <String, String>{};
-  sysinfo.forEach((key, value) {
-    if (value is String || value is num || value is bool) {
-      out[key.toString()] = value.toString();
-    }
-  });
+  void flatten(Map node, String prefix) {
+    node.forEach((key, value) {
+      final path = '$prefix$key';
+      if (value is String || value is num || value is bool) {
+        out[path] = value.toString();
+      } else if (value is Map) {
+        flatten(value, '$path.');
+      } else if (value is List) {
+        out[path] = jsonEncode(value);
+      }
+    });
+  }
+
+  flatten(sysinfo, '');
   return out;
 }
 

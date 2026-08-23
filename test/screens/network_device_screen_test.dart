@@ -1669,8 +1669,53 @@ void main() {
     }) async {
       relayState = initial;
       final entities = [...kasaEntities, if (emeter) ...emeterEntities];
+      // The variant-scoped light the spec resolves for a smartbulb-class
+      // reply (light_state present; a strip also reports length): the plug
+      // family's relay switch is scoped away and this takes its place.
+      // The Rust kasa suite pins the real probe narrowing; this fake mirrors
+      // its contract for the screen.
+      final light = NetworkEntityDto(
+        name: strip ? 'Light Strip' : 'Bulb',
+        platform: 'light',
+        transport: 'tcp-json',
+        stateCommand: 'get_sysinfo',
+        options: const [],
+        isInstanced: false,
+        actions: [
+          for (final (role, command) in [
+            ('turn_on', strip ? 'strip_on' : 'light_on'),
+            ('turn_off', strip ? 'strip_off' : 'light_off'),
+          ])
+            NetworkActionDto(
+              role: role,
+              commandName: command,
+              transport: 'tcp-json',
+              userParams: const [],
+              readBack: const [],
+              credentials: const [],
+              instanceParams: const [],
+            ),
+          NetworkActionDto(
+            role: 'set_brightness',
+            commandName: strip ? 'strip_brightness' : 'set_brightness',
+            transport: 'tcp-json',
+            userParams: const ['brightness'],
+            min: 1,
+            max: 100,
+            readBack: const [],
+            credentials: const [],
+            instanceParams: const [],
+          ),
+        ],
+      );
       kasaCodec = FakeSpecCodec(
         networkEntities: (_) => entities,
+        networkEntitiesForState: (replies) => (replies['get_sysinfo']
+                    ?.keys
+                    .any((k) => k.startsWith('light_state')) ??
+                false)
+            ? [light]
+            : entities,
         networkKasaRequest: (name, _) => KasaRequestDto(
           json: switch (name) {
             'relay_on' => '{"system":{"set_relay_state":{"state":1}}}',
@@ -1684,6 +1729,16 @@ void main() {
             final on = (int.tryParse(returned['relay_state'] ?? '0') ?? 0) != 0;
             return NetworkReadingDto(
                 kind: NetworkReadingKind.onOff, isOn: on, raw: on ? '1' : '0');
+          }
+          if (entity == 'Bulb' || entity == 'Light Strip') {
+            // The dotted keys the flattener now emits for light_state.
+            final on = returned['light_state.on_off'] == '1';
+            return NetworkReadingDto(
+                kind: NetworkReadingKind.onOff,
+                isOn: on,
+                number:
+                    double.tryParse(returned['light_state.brightness'] ?? ''),
+                raw: on ? '1' : '0');
           }
           // The sensors: the dotted path the flattener keys the reply by.
           final field = switch (entity) {
@@ -1787,34 +1842,46 @@ void main() {
 
     testWidgets('a Kasa light gets real on/off and brightness controls',
         (tester) async {
-      // A KL430 answers the plug protocol but reports light_state, not
-      // relay_state. Drive it as a light: an on/off switch reflecting
-      // light_state.on_off and a brightness slider, over the lightingservice.
+      // A KL-class bulb answers the plug protocol but reports light_state,
+      // not relay_state. The first poll settles the surface on the spec's
+      // Bulb light — the plug's relay switch is gone — and the light card
+      // drives it through the lightingservice over the same socket.
       await pumpPlug(tester, bulb: true);
 
-      // On/off reflects light_state.on_off (on), plus a brightness slider at 75.
+      expect(find.text('Bulb'), findsOneWidget);
+      expect(find.text('Outlet'), findsNothing);
+      // On/off reflects light_state.on_off (on); the brightness slider is
+      // bounded by the spec's 1..100, seeded at the reported 75.
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
-      expect(find.byType(Slider), findsOneWidget);
-      expect(find.text('75%'), findsOneWidget);
-      // Named by the bulb's alias, not the generic "Outlet".
-      expect(find.text('Reading Lamp'), findsOneWidget);
+      final slider = tester.widget<Slider>(find.byType(Slider));
+      expect((slider.min, slider.max), (1.0, 100.0));
+      expect(slider.value, 75.0);
 
       // Toggling sends light_off (the lightingservice), not set_relay_state.
       await tester.tap(find.byType(Switch));
       await tester.pumpAndSettle();
-      expect(
-        kasaCodec.renderNetworkKasaCommandCalls.map((c) => c.commandName),
-        contains('light_off'),
-      );
+      final sent =
+          kasaCodec.renderNetworkKasaCommandCalls.map((c) => c.commandName);
+      expect(sent, contains('light_off'));
+      expect(sent, isNot(contains('relay_off')));
       expect(find.textContaining('Could not reach'), findsNothing);
+
+      // Brightness rides the action's own parameter name.
+      await tester.drag(find.byType(Slider), const Offset(-40, 0));
+      await tester.pumpAndSettle();
+      final brightness = kasaCodec.renderNetworkKasaCommandCalls
+          .lastWhere((c) => c.commandName == 'set_brightness');
+      expect(brightness.values.keys, ['brightness']);
     });
 
     testWidgets('a Kasa light STRIP switches over the lightStrip service',
         (tester) async {
       // A KL430 reports a `length` (LED count) and silently ignores the bulb's
-      // lightingservice — it must be driven through lightStrip.set_light_state.
+      // lightingservice — the spec's Light Strip variant binds the strip
+      // commands, and the surface settles on it.
       await pumpPlug(tester, bulb: true, strip: true);
 
+      expect(find.text('Light Strip'), findsOneWidget);
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
       await tester.tap(find.byType(Switch));
       await tester.pumpAndSettle();
@@ -1841,8 +1908,9 @@ void main() {
     );
 
     const stripEntities = [
-      // The plain single-outlet switch the shared spec also declares — hidden
-      // on a strip, which has no top-level relay_state to read.
+      // The plain single-outlet switch the shared spec also declares — drawn
+      // optimistically before the first poll, scoped away by it (the spec
+      // scopes it to the plug family, and a strip is not one).
       NetworkEntityDto(
         name: 'Outlet',
         platform: 'switch',
@@ -1917,6 +1985,11 @@ void main() {
       childOn = {'8006AAA00': true, '8006AAA01': false, '8006AAA02': true};
       stripCodec = FakeSpecCodec(
         networkEntities: (_) => stripEntities,
+        // The spec scopes the plain Outlet to the plug family and the
+        // instanced Outlets to the strip family; a children-bearing reply
+        // settles the surface on the latter.
+        networkEntitiesForState: (_) =>
+            stripEntities.where((e) => e.isInstanced).toList(),
         instances: children,
         instanceReadings: (id) => [
           NetworkRoleReadingDto(
@@ -2627,6 +2700,7 @@ void main() {
       posts = [];
       codec = FakeSpecCodec(
         networkEntities: (_) => entities,
+        networkHiddenNames: hiddenNames,
         networkReading: readUtility,
       );
       codec.networkRequest = (name, values) => SoapRequestDto(

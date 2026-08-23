@@ -64,6 +64,12 @@ class NetworkLightCard extends ConsumerStatefulWidget {
   final Future<void> Function(
       NetworkActionDto action, Map<String, String> values)? sendAction;
 
+  /// The generic path's live state, from the screen's ordinary poll: the
+  /// entity's decoded on/off and brightness readings. A LIFX light reads its
+  /// own state and ignores these. Null means the poll has not said.
+  final bool? initialOn;
+  final double? initialBrightness;
+
   const NetworkLightCard({
     super.key,
     required this.entity,
@@ -71,6 +77,8 @@ class NetworkLightCard extends ConsumerStatefulWidget {
     required this.host,
     required this.targetMac,
     this.sendAction,
+    this.initialOn,
+    this.initialBrightness,
   });
 
   /// Whether this entity rides the dedicated LIFX binary-UDP handler.
@@ -118,6 +126,14 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       _setBrightness != null ||
       (_setColor?.userParams.contains('brightness') ?? false);
 
+  /// The brightness slider's range: LIFX's 0..255 on its own path; on the
+  /// generic path whatever the resolved action declares (Kasa's 1..100),
+  /// falling back to 0..255 when the spec states no bounds.
+  double get _brightnessMin =>
+      widget.isLifx ? 0 : (_setBrightness?.min ?? 0).toDouble();
+  double get _brightnessMax =>
+      widget.isLifx ? 255 : (_setBrightness?.max ?? 255).toDouble();
+
   @override
   void initState() {
     super.initState();
@@ -128,6 +144,22 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       // immediately and correct themselves if the device answers.
       unawaited(_readState());
       if (_setZoneColor != null) unawaited(_readZones());
+    } else {
+      _assumedOn = widget.initialOn;
+      _brightness = widget.initialBrightness ?? _brightnessMax;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant NetworkLightCard old) {
+    super.didUpdateWidget(old);
+    // A fresh poll reading supersedes the assumed position on the generic
+    // path, exactly as a LIFX live read does.
+    if (widget.isLifx || _sending) return;
+    if (widget.initialOn != old.initialOn) _assumedOn = widget.initialOn;
+    if (widget.initialBrightness != null &&
+        widget.initialBrightness != old.initialBrightness) {
+      _brightness = widget.initialBrightness!;
     }
   }
 
@@ -175,10 +207,16 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
         if (resolved == null || send == null) {
           throw StateError('no generic path for $action');
         }
-        await send(resolved, {
+        // The card names its values by role vocabulary ('brightness'); a
+        // one-value action takes them under whatever the spec called its
+        // parameter, so the name is remapped rather than assumed.
+        final owned = resolved.userParams;
+        final values = <String, String>{
           for (final entry in params.entries)
-            entry.key: entry.value.round().toString(),
-        });
+            (owned.length == 1 && params.length == 1 ? owned.first : entry.key):
+                entry.value.round().toString(),
+        };
+        await send(resolved, values);
       }
       if (!mounted) return;
       setState(() {
@@ -334,9 +372,9 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                       size: 18, color: scheme.onSurfaceVariant),
                   Expanded(
                     child: Slider(
-                      min: 0,
-                      max: 255,
-                      value: _brightness.clamp(0, 255),
+                      min: _brightnessMin,
+                      max: _brightnessMax,
+                      value: _brightness.clamp(_brightnessMin, _brightnessMax),
                       label: '${_brightness.round()}',
                       onChanged: _sending
                           ? null

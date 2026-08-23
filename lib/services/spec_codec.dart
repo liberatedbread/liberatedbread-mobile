@@ -212,6 +212,17 @@ abstract class SpecCodec {
     required List<String> ssdpTargets,
   });
 
+  /// [networkEntitiesForDevice] with the device's state replies in hand:
+  /// variants the spec identifies by reply shape (`state_probe`) resolve
+  /// strictly against the flattened replies instead of optimistically, so
+  /// the surface settles on what the device actually is. [stateKeys] maps
+  /// each state command's name to the flattened key→value map of its reply.
+  Future<NetworkEntitySurfaceDto> networkEntitiesForStateKeys({
+    required String specYaml,
+    required List<String> ssdpTargets,
+    required Map<String, Map<String, String>> stateKeys,
+  });
+
   /// Spec-declared capabilities of a network device's control path — the
   /// signed-session protocol it prefers, its declared control port and URL
   /// scheme — so the transport layer routes on what the spec says instead of

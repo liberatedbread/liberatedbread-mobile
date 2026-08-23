@@ -24,6 +24,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
+  Map<String, Map<String, String>>
+      dco_decode_Map_String_Map_String_String_None_None(dynamic raw);
+
+  @protected
   Map<String, String> dco_decode_Map_String_String_None(dynamic raw);
 
   @protected
@@ -274,6 +278,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<(String, double)> dco_decode_list_record_string_f_64(dynamic raw);
 
   @protected
+  List<(String, Map<String, String>)>
+      dco_decode_list_record_string_map_string_string_none(dynamic raw);
+
+  @protected
   List<(String, String)> dco_decode_list_record_string_string(dynamic raw);
 
   @protected
@@ -455,6 +463,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   (String, double) dco_decode_record_string_f_64(dynamic raw);
 
   @protected
+  (String, Map<String, String>) dco_decode_record_string_map_string_string_none(
+      dynamic raw);
+
+  @protected
   (String, String) dco_decode_record_string_string(dynamic raw);
 
   @protected
@@ -549,6 +561,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+
+  @protected
+  Map<String, Map<String, String>>
+      sse_decode_Map_String_Map_String_String_None_None(
+          SseDeserializer deserializer);
 
   @protected
   Map<String, String> sse_decode_Map_String_String_None(
@@ -836,6 +853,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<(String, Map<String, String>)>
+      sse_decode_list_record_string_map_string_string_none(
+          SseDeserializer deserializer);
+
+  @protected
   List<(String, String)> sse_decode_list_record_string_string(
       SseDeserializer deserializer);
 
@@ -1047,6 +1069,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer);
 
   @protected
+  (String, Map<String, String>) sse_decode_record_string_map_string_string_none(
+      SseDeserializer deserializer);
+
+  @protected
   (String, String) sse_decode_record_string_string(
       SseDeserializer deserializer);
 
@@ -1153,6 +1179,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_AnyhowException(
       AnyhowException self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_Map_String_Map_String_String_None_None(
+      Map<String, Map<String, String>> self, SseSerializer serializer);
 
   @protected
   void sse_encode_Map_String_String_None(
@@ -1462,6 +1492,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<(String, double)> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_record_string_map_string_string_none(
+      List<(String, Map<String, String>)> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_record_string_string(
       List<(String, String)> self, SseSerializer serializer);
 
@@ -1683,6 +1717,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_record_string_f_64(
       (String, double) self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_record_string_map_string_string_none(
+      (String, Map<String, String>) self, SseSerializer serializer);
 
   @protected
   void sse_encode_record_string_string(

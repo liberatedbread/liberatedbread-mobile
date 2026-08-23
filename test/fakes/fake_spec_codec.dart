@@ -98,6 +98,16 @@ class FakeSpecCodec implements SpecCodec {
   /// Returned by [networkCapabilities]; null answers an empty capability set.
   final NetworkCapabilitiesDto? networkCapabilitiesResult;
 
+  /// Answers [networkEntitiesForStateKeys] as a function of the flattened
+  /// state replies — the probe-narrowed surface. Null falls back to
+  /// [networkEntities], i.e. "the replies changed nothing".
+  final List<NetworkEntityDto> Function(
+      Map<String, Map<String, String>> stateKeys)? networkEntitiesForState;
+
+  /// Every [networkEntitiesForStateKeys] call's replies, in order.
+  final List<Map<String, Map<String, String>>>
+      networkEntitiesForStateKeysCalls = [];
+
   /// Returned by [renderNetworkCommand] / [renderNetworkStateRequest]; the
   /// action/soapAction carry the command or state-command name so a transport
   /// test can tell requests apart.
@@ -194,6 +204,7 @@ class FakeSpecCodec implements SpecCodec {
     this.networkEntities,
     this.networkHiddenNames = const [],
     this.networkCapabilitiesResult,
+    this.networkEntitiesForState,
     this.networkRequest,
     this.networkHttpRequest,
     this.networkReading,
@@ -369,6 +380,20 @@ class FakeSpecCodec implements SpecCodec {
         entities: networkEntities?.call(ssdpTargets) ?? const [],
         hiddenNames: networkHiddenNames,
       );
+
+  @override
+  Future<NetworkEntitySurfaceDto> networkEntitiesForStateKeys({
+    required String specYaml,
+    required List<String> ssdpTargets,
+    required Map<String, Map<String, String>> stateKeys,
+  }) async {
+    networkEntitiesForStateKeysCalls.add(stateKeys);
+    final refined = networkEntitiesForState?.call(stateKeys);
+    return NetworkEntitySurfaceDto(
+      entities: refined ?? networkEntities?.call(ssdpTargets) ?? const [],
+      hiddenNames: networkHiddenNames,
+    );
+  }
 
   @override
   Future<NetworkCapabilitiesDto> networkCapabilities({

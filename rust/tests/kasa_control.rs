@@ -266,3 +266,94 @@ fn a_sysinfo_reply_decodes_to_the_switch_state() {
         .expect("the reply carries the switch's value");
     assert_eq!(reading.is_on, Some(true));
 }
+
+/// The family variants are shape-identified from the one poll the screen
+/// already makes: before it answers, every probe-scoped entity draws (the
+/// spec's own pre-poll contract); after it, the surface settles on what the
+/// device actually is.
+#[test]
+fn the_state_probe_settles_the_surface_on_the_reply_shape() {
+    use liberated_bread_core::api::device_api::network_entities_for_state_keys;
+    use std::collections::HashMap;
+
+    let names = |surface: &liberated_bread_core::api::device_api::NetworkEntitySurfaceDto| {
+        surface
+            .entities
+            .iter()
+            .map(|e| e.name.clone())
+            .collect::<Vec<_>>()
+    };
+    let reply = |pairs: &[(&str, &str)]| {
+        HashMap::from([(
+            "get_sysinfo".to_string(),
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect::<HashMap<_, _>>(),
+        )])
+    };
+
+    // Pre-poll: undecided, so everything probe-scoped is offered.
+    let optimistic = network_entities_for_device(spec_yaml(), vec![]).unwrap();
+    for expected in ["Outlet", "Outlets", "Bulb", "Light Strip", "Voltage"] {
+        assert!(
+            names(&optimistic).contains(&expected.to_string()),
+            "{expected} draws before the first poll"
+        );
+    }
+
+    // A plain relay plug: the switch, nothing bulb-shaped, no meter tiles.
+    let plug = network_entities_for_state_keys(
+        spec_yaml(),
+        vec![],
+        reply(&[("relay_state", "1"), ("alias", "Desk"), ("feature", "TIM")]),
+    )
+    .unwrap();
+    assert_eq!(names(&plug), vec!["Outlet"]);
+    assert!(
+        plug.hidden_names.is_empty(),
+        "entities scoped to families this device is not are absent, not hidden"
+    );
+
+    // A metering plug: the capability list carries ENE, so the meter draws.
+    let metering = network_entities_for_state_keys(
+        spec_yaml(),
+        vec![],
+        reply(&[("relay_state", "0"), ("feature", "TIM:ENE")]),
+    )
+    .unwrap();
+    assert!(names(&metering).contains(&"Outlet".to_string()));
+    assert!(names(&metering).contains(&"Voltage".to_string()));
+
+    // A bulb: light_state without length — its light, and no dead switch.
+    let bulb = network_entities_for_state_keys(
+        spec_yaml(),
+        vec![],
+        reply(&[
+            ("light_state.on_off", "1"),
+            ("light_state.brightness", "60"),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(names(&bulb), vec!["Bulb"]);
+
+    // A light strip: length marks it, and the bulb's probe (length absent)
+    // must not also claim it.
+    let strip = network_entities_for_state_keys(
+        spec_yaml(),
+        vec![],
+        reply(&[("light_state.on_off", "0"), ("length", "16")]),
+    )
+    .unwrap();
+    assert_eq!(names(&strip), vec!["Light Strip"]);
+
+    // A power strip: children present, so the instanced Outlets and not the
+    // plain switch.
+    let power_strip = network_entities_for_state_keys(
+        spec_yaml(),
+        vec![],
+        reply(&[("children", "[…]"), ("alias", "Rack")]),
+    )
+    .unwrap();
+    assert_eq!(names(&power_strip), vec!["Outlets"]);
+}

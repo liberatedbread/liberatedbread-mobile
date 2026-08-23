@@ -21,6 +21,7 @@ use super::types::{
 };
 use crate::codec::types::unsupported_encoding_kind;
 use crate::protocol::{http, kasa, rabbit_air, soap};
+use std::collections::HashMap;
 
 /// Whether a characteristic's payloads must pass through a byte transform
 /// this crate does not implement, making any raw write to it wrong on the
@@ -1120,7 +1121,46 @@ pub fn network_entities_for_targets<'a>(
 /// while one that is present but resolves nothing is *hidden* and worth
 /// counting on screen.
 pub fn entities_for_targets<'a>(spec: &'a DeviceSpec, ssdp_targets: &[String]) -> Vec<&'a Entity> {
-    let matched = matched_variant_names(spec, ssdp_targets);
+    // Before the first state poll a probe-identified variant is UNDECIDED,
+    // so every probe variant counts as matched — probe-scoped entities draw
+    // optimistically (the Kasa spec's own consumer contract) and settle when
+    // the reply arrives through [`entities_for_state_keys`].
+    let mut matched = matched_variant_names(spec, ssdp_targets);
+    matched.extend(probe_variant_names(spec));
+    entities_for_variants(spec, &matched)
+}
+
+/// [`entities_for_targets`] with the state replies in hand: probe-identified
+/// variants resolve STRICTLY against the flattened reply keys, so a bulb's
+/// dead relay switch leaves the surface the moment get_sysinfo answers.
+/// `state_keys` maps a state command's name to the flattened key→value map
+/// of its reply (dotted keys for nested members, exactly as the entity
+/// `state_mapping` paths are written — the same map the reply decoder
+/// reads).
+pub fn entities_for_state_keys<'a>(
+    spec: &'a DeviceSpec,
+    ssdp_targets: &[String],
+    state_keys: &HashMap<String, HashMap<String, String>>,
+) -> Vec<&'a Entity> {
+    let mut matched = matched_variant_names(spec, ssdp_targets);
+    matched.extend(probe_matched_variant_names(spec, state_keys));
+    entities_for_variants(spec, &matched)
+}
+
+/// The network surface for a device whose state replies are in hand — the
+/// post-poll sibling of [`network_entities_for_targets`].
+pub fn network_entities_for_state_keys<'a>(
+    spec: &'a DeviceSpec,
+    ssdp_targets: &[String],
+    state_keys: &HashMap<String, HashMap<String, String>>,
+) -> Vec<&'a Entity> {
+    entities_for_state_keys(spec, ssdp_targets, state_keys)
+        .into_iter()
+        .filter(|e| on_network_surface(spec, e))
+        .collect()
+}
+
+fn entities_for_variants<'a>(spec: &'a DeviceSpec, matched: &[String]) -> Vec<&'a Entity> {
     spec.entities
         .iter()
         .filter(|entity| match entity_variants(entity) {
@@ -1128,6 +1168,95 @@ pub fn entities_for_targets<'a>(spec: &'a DeviceSpec, ssdp_targets: &[String]) -
             Some(scoped) => scoped.iter().any(|name| matched.contains(name)),
         })
         .collect()
+}
+
+/// Names of the `device.variants` entries carrying a `state_probe` — the
+/// variants a consumer cannot decide before its first state poll.
+fn probe_variant_names(spec: &DeviceSpec) -> Vec<String> {
+    variant_entries(spec)
+        .filter(|variant| {
+            variant
+                .get("identification")
+                .and_then(|i| i.get("state_probe"))
+                .is_some()
+        })
+        .filter_map(variant_name)
+        .collect()
+}
+
+/// Names of the probe variants whose declared conditions hold against the
+/// reply: every `keys_present` path present, every `keys_absent` path
+/// absent, and every `value_contains` entry's value carrying its substring —
+/// evaluated against the named command's flattened reply. A probe whose
+/// command has no reply yet matches nothing: absence of evidence keeps the
+/// variant undecided, and the caller falls back to the optimistic pre-poll
+/// surface until evidence arrives.
+fn probe_matched_variant_names(
+    spec: &DeviceSpec,
+    state_keys: &HashMap<String, HashMap<String, String>>,
+) -> Vec<String> {
+    let path_present = |reply: &HashMap<String, String>, path: &str| {
+        reply
+            .keys()
+            .any(|k| k == path || k.strip_prefix(path).is_some_and(|r| r.starts_with('.')))
+    };
+    variant_entries(spec)
+        .filter_map(|variant| {
+            let probe = variant.get("identification")?.get("state_probe")?;
+            let command = probe.get("command")?.as_str()?;
+            let reply = state_keys.get(command)?;
+            let listed = |field: &str| -> Vec<String> {
+                probe
+                    .get(field)
+                    .and_then(|v| v.as_sequence())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            };
+            let present_ok = listed("keys_present")
+                .iter()
+                .all(|p| path_present(reply, p));
+            let absent_ok = listed("keys_absent")
+                .iter()
+                .all(|p| !path_present(reply, p));
+            let contains_ok = probe
+                .get("value_contains")
+                .and_then(|v| v.as_mapping())
+                .into_iter()
+                .flatten()
+                .all(|(path, needle)| {
+                    match (path.as_str(), needle.as_str()) {
+                        (Some(path), Some(needle)) => {
+                            reply.get(path).is_some_and(|value| value.contains(needle))
+                        }
+                        // A malformed entry can never be satisfied — the
+                        // honest reading of a condition nobody can evaluate.
+                        _ => false,
+                    }
+                });
+            (present_ok && absent_ok && contains_ok)
+                .then(|| variant_name(variant))
+                .flatten()
+        })
+        .collect()
+}
+
+fn variant_entries(spec: &DeviceSpec) -> impl Iterator<Item = &serde_yaml::Value> {
+    spec.device
+        .variants
+        .as_ref()
+        .and_then(|v| v.as_sequence())
+        .into_iter()
+        .flatten()
+}
+
+fn variant_name(variant: &serde_yaml::Value) -> Option<String> {
+    variant
+        .get("name")
+        .or_else(|| variant.get("model"))
+        .and_then(|n| n.as_str())
+        .map(str::to_string)
 }
 
 /// Names of the `device.variants` entries whose declared device type (or an

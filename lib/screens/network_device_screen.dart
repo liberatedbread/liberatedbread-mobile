@@ -1,7 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -91,7 +90,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// The brightness the user is dragging on a Kasa light's slider, held locally
   /// until they let go (then sent). Null when not dragging — the slider shows
   /// the device's reported brightness.
-  double? _kasaBrightnessDraft;
 
   /// Names of entities a send is in flight for, disabling their controls.
   ///
@@ -284,7 +282,44 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     _keyboardPoll = Timer.periodic(const Duration(seconds: 3), (_) => poll());
   }
 
-  List<NetworkEntityDto> get _entities => widget.controls.entities;
+  /// The surface settled against the device's own state replies — variants
+  /// the spec identifies by reply shape (`state_probe`) resolve strictly
+  /// once the first poll answers, so a Kasa bulb sheds the plug family's
+  /// relay switch and gains its light. Null until then: the optimistic
+  /// pre-poll surface the resolver handed over draws meanwhile.
+  List<NetworkEntityDto>? _refinedEntities;
+  List<String>? _refinedHiddenNames;
+  bool _surfaceRefined = false;
+
+  List<NetworkEntityDto> get _entities =>
+      _refinedEntities ?? widget.controls.entities;
+
+  List<String> get _hiddenNames =>
+      _refinedHiddenNames ?? widget.controls.hiddenNames;
+
+  /// Settle the surface on the state replies, once: variant identity does
+  /// not change while a screen is open, so one resolution after the first
+  /// successful poll is the whole job.
+  Future<void> _refineSurface() async {
+    if (_surfaceRefined || _stateByCommand.isEmpty) return;
+    _surfaceRefined = true;
+    try {
+      final surface =
+          await ref.read(specCodecProvider).networkEntitiesForStateKeys(
+                specYaml: widget.controls.specYaml,
+                ssdpTargets: widget.device.ssdpTargets,
+                stateKeys: _stateByCommand,
+              );
+      if (!mounted) return;
+      setState(() {
+        _refinedEntities = surface.entities;
+        _refinedHiddenNames = surface.hiddenNames;
+      });
+    } catch (e) {
+      Log.spec.warning('surface refinement failed for ${widget.device.host}',
+          error: e);
+    }
+  }
 
   /// Every distinct state call the declared entities need — usually one.
   ///
@@ -315,47 +350,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// "Outlet" switch, which on a strip would only ever read "State unknown".
   bool get _hasInstanceChildren => _entities
       .any((e) => e.isInstanced && (_instances[e.name]?.isNotEmpty ?? false));
-
-  /// A Kasa SMARTBULB (KL430 and kin) answering the plug spec: it reports a
-  /// `light_state` object, not a top-level `relay_state`, so the plug's on/off
-  /// switch would be a dead control — no state to read, and the bulb ignores
-  /// set_relay_state. We recognise it and hide that switch, pointing on/off and
-  /// brightness at the Kasa app for now, rather than render a switch that lies.
-  bool get _isKasaBulb =>
-      _rawStateReply.values.any((reply) => reply.contains('"light_state"'));
-
-  /// A Kasa light STRIP (KL400/KL430) rather than a bulb: it is SMARTBULB-class
-  /// but switches and dims through smartlife.iot.lightStrip.set_light_state, not
-  /// the bulb's lightingservice.transition_light_state — a strip silently
-  /// ignores the bulb call. Told apart by the `length` (LED count) field
-  /// get_sysinfo carries. Selects the strip_* commands over the bulb light_*.
-  bool get _isKasaLightStrip =>
-      _stateByCommand['get_sysinfo']?.containsKey('length') ?? false;
-
-  /// The bulb's current on/off and brightness, parsed from the raw get_sysinfo
-  /// light_state. When off, on_off is 0 and the last brightness lives under
-  /// `dft_on_state`; when on it is at the top of light_state. Null when there
-  /// is no light_state to read.
-  ({bool on, int brightness})? get _kasaLight {
-    for (final reply in _rawStateReply.values) {
-      try {
-        final decoded = jsonDecode(reply);
-        final system = decoded is Map ? decoded['system'] : null;
-        final sysinfo = system is Map ? system['get_sysinfo'] : null;
-        final ls = sysinfo is Map ? sysinfo['light_state'] : null;
-        if (ls is! Map) continue;
-        final on = ls['on_off'] is num && (ls['on_off'] as num) != 0;
-        final source = on
-            ? ls
-            : (ls['dft_on_state'] is Map ? ls['dft_on_state'] as Map : ls);
-        final b = source['brightness'];
-        return (on: on, brightness: b is num ? b.toInt() : 0);
-      } catch (_) {
-        // Malformed reply — fall through to the note.
-      }
-    }
-    return null;
-  }
 
   /// The address a Kasa send/poll uses.
   int get _kasaHostPort => widget.device.port ?? _kasaPort;
@@ -862,6 +856,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// step shared by both transports' state refresh, so a reading means the
   /// same thing whichever socket carried it.
   Future<void> _decodeEntities() async {
+    await _refineSurface();
     final codec = ref.read(specCodecProvider);
     for (final entity in _entities) {
       // Instanced entities are read per-child in _decodeInstances, not here.
@@ -1071,39 +1066,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
   }
 
-  /// Fixed busy key for the Kasa light card — one control surface, so a write
-  /// disables the whole card rather than one widget.
-  static const _kasaLightKey = '__kasa_light__';
-
-  /// Send a Kasa bulb command (on/off, brightness) and re-poll so the card
-  /// snaps to the bulb's true light_state.
-  Future<void> _sendKasaLight(
-      String commandName, Map<String, String> values) async {
-    setState(() {
-      _sending.add(_kasaLightKey);
-      _error = null;
-    });
-    try {
-      final codec = ref.read(specCodecProvider);
-      final request = await codec.renderNetworkKasaCommand(
-        specYaml: widget.controls.specYaml,
-        commandName: commandName,
-        values: values,
-      );
-      await ref
-          .read(kasaControlClientProvider)
-          .send(widget.device.host, _kasaHostPort, request);
-      await _refreshState();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = friendlyErrorText(e,
-          context: 'device control',
-          fallback: 'The light did not accept that. Try again.'));
-    } finally {
-      if (mounted) setState(() => _sending.remove(_kasaLightKey));
-    }
-  }
-
   NetworkActionDto? _actionFor(NetworkEntityDto entity, String role) {
     for (final action in entity.actions) {
       if (action.role == role) return action;
@@ -1202,19 +1164,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   entity.platform != 'select' &&
                   entity.platform != 'text' &&
                   // Instanced entities render per-outlet below, not here.
-                  !entity.isInstanced &&
-                  // On a strip, the plain "Outlet" switch has no top-level
-                  // relay_state to read, so it would only ever show "State
-                  // unknown" beside the real per-outlet switches — hide it.
-                  !(_hasInstanceChildren && entity.platform == 'switch') &&
-                  // A Kasa light answering the plug spec has no relay to switch;
-                  // hide the dead switch and show the note below instead.
-                  !(_isKasaBulb && entity.platform == 'switch'))) ...[
+                  // Which family's controls apply (a strip's per-outlet
+                  // switches, a bulb's light, a plug's relay) is the spec's
+                  // variant scoping, settled by _refineSurface — not a rule
+                  // here.
+                  !entity.isInstanced)) ...[
                 _entityCard(entity),
-                const SizedBox(height: 12),
-              ],
-              if (_isKasaBulb) ...[
-                _kasaLightCard(),
                 const SizedBox(height: 12),
               ],
               // A power strip's outlets: one switch per child, named by its
@@ -1277,7 +1232,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   _entityCard(entity),
                   const SizedBox(height: 12),
                 ],
-              if (widget.controls.hiddenNames.isNotEmpty) ...[
+              if (_hiddenNames.isNotEmpty) ...[
                 _hiddenControlsNote(),
                 const SizedBox(height: 12),
               ],
@@ -1305,7 +1260,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// and one muted line says so instead of silently pretending they were
   /// never declared.
   Widget _hiddenControlsNote() {
-    final names = widget.controls.hiddenNames;
+    final names = _hiddenNames;
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final label = names.length == 1
@@ -1376,126 +1331,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
   }
 
-  /// A Kasa smart light answering the plug spec: recognise it and point on/off
-  /// and brightness at the Kasa app, rather than render a switch that cannot
-  /// work. See [_isKasaBulb].
-  Widget _kasaBulbNote() {
-    final text = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      margin: EdgeInsets.zero,
-      color: scheme.secondaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.lightbulb_outline, color: scheme.onSecondaryContainer),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'This is a Kasa smart light',
-                    style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSecondaryContainer),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'It answers the same protocol as a Kasa plug, so this app '
-                    'recognises it — but it switches and dims through a '
-                    'light_state the plug controls do not drive. Use the Kasa '
-                    'app for on/off and brightness for now.',
-                    style: text.bodySmall
-                        ?.copyWith(color: scheme.onSecondaryContainer),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Real on/off + brightness for a Kasa smart bulb, driven over the same
-  /// socket as a plug but through the lightingservice (see the spec's light_on
-  /// / light_off / set_brightness). Falls back to [_kasaBulbNote] only if the
-  /// light_state can't be parsed. The brightness slider commits on release.
-  Widget _kasaLightCard() {
-    final light = _kasaLight;
-    if (light == null) return _kasaBulbNote();
-    final busy = _sending.contains(_kasaLightKey);
-    final alias = _stateByCommand['get_sysinfo']?['alias'];
-    final title = (alias != null && alias.isNotEmpty) ? alias : 'Light';
-    final brightness =
-        (_kasaBrightnessDraft ?? light.brightness.toDouble()).clamp(1, 100);
-    // A strip and a bulb take on/off and brightness over different services.
-    final strip = _isKasaLightStrip;
-    final onCmd = strip ? 'strip_on' : 'light_on';
-    final offCmd = strip ? 'strip_off' : 'light_off';
-    final brightnessCmd = strip ? 'strip_brightness' : 'set_brightness';
-    final text = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
-
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(title,
-                    style: text.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
-              ),
-              if (busy)
-                const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-              else
-                Switch(
-                  value: light.on,
-                  onChanged: (on) =>
-                      unawaited(_sendKasaLight(on ? onCmd : offCmd, const {})),
-                ),
-            ],
-          ),
-          Row(
-            children: [
-              Icon(Icons.brightness_6_outlined, color: scheme.onSurfaceVariant),
-              Expanded(
-                child: Slider(
-                  value: brightness.toDouble(),
-                  min: 1,
-                  max: 100,
-                  divisions: 99,
-                  label: '${brightness.round()}%',
-                  onChanged: busy
-                      ? null
-                      : (v) => setState(() => _kasaBrightnessDraft = v),
-                  onChangeEnd: (v) {
-                    setState(() => _kasaBrightnessDraft = null);
-                    unawaited(_sendKasaLight(
-                        brightnessCmd, {'brightness': v.round().toString()}));
-                  },
-                ),
-              ),
-              SizedBox(
-                width: 44,
-                child: Text('${brightness.round()}%',
-                    textAlign: TextAlign.end, style: text.bodyMedium),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _entityCard(NetworkEntityDto entity) {
     switch (entity.platform) {
       case 'switch':
@@ -1516,12 +1351,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // live reads. Any other light rides the screen's ordinary send
         // pipeline, routed by each action's declared transport; the card
         // itself only presents.
+        final reading = _readings[entity.name];
         return NetworkLightCard(
           entity: entity,
           specYaml: widget.controls.specYaml,
           host: widget.device.host,
           targetMac: widget.device.advertisedMac ?? '',
           sendAction: (action, values) => _send(entity, action, values: values),
+          initialOn: reading?.isOn,
+          initialBrightness: reading?.number,
         );
       default:
         return _sensorCard(entity);

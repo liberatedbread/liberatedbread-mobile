@@ -7,13 +7,38 @@ device:
   manufacturer: "TP-Link"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Read path verified live 2026-08-14 against a real HS210 3-way switch
+      ("Bonus Lights", mac 00:31:92:AA:BB:CC), driving the protocol exactly
+      as documented in kasa_protocol below. UDP discovery: the XOR-autokey
+      get_sysinfo broadcast to 255.255.255.255:9999 (no length prefix) drew
+      unauthenticated replies from EIGHT Kasa devices on the LAN across five
+      model families — KP200, HS210, HS300, KL430, EP40 — each decoding to a
+      valid sysinfo with model/alias/sw_ver. TCP control channel: a
+      get_sysinfo to port 9999 with the documented 4-byte big-endian length
+      prefix + XOR-autokey body returned the full sysinfo (model HS210(US),
+      dev_name "Smart Wi-Fi 3-Way Light Switch", relay_state 0, rssi -59)
+      with no authentication — confirming the length framing, the 0xAB
+      running-key cipher (encrypt and decrypt directions) and the
+      no-auth property together. These KP200/EP40/KL430 builds (2024-2025
+      firmware) still answer plaintext 9999, so the KP125M-era port closure
+      is not universal. Not exercised: any state-changing write
+      (system.set_relay_state and friends) — the switch controls real
+      lighting and nobody authorized a toggle. The Smart Bulb / Light Strip
+      variant state_probes and the two variant-scoped light entities'
+      bindings are likewise unexercised against hardware (the strip's
+      commands themselves were verified on a KL430; the probe and the
+      entity state paths were not).
   protocol: "wifi"
   category: "switch"
   transport: "tcp-json"
   notes: >
     The Kasa-era TP-Link smart plugs — HS100 and HS110 (HS110 adds energy
-    monitoring), plus the same-protocol HS103/HS105 and KP105/KP115 — speak a
+    monitoring), plus the same-protocol HS103/HS105 and KP105/KP115 (KP115
+    meters too; see device.variants for which models have the hardware, since
+    that is the one difference that changes the entity surface) — speak a
     plaintext local protocol on TCP port 9999: JSON commands wrapped in a
     trivial XOR "autokey" cipher (initial key 0xAB), with no authentication of
     any kind. softScheck reverse-engineered it in 2016 and python-kasa (which
@@ -165,6 +190,141 @@ device:
         only transport protection during provisioning. Post-setup control is
         unauthenticated: anything that can reach port 9999 can drive the plug.
 
+  # The models this one spec covers. The plug models differ in exactly one
+  # thing that changes the control surface: whether the plug has metering
+  # hardware. The transport, cipher, framing and relay commands are identical
+  # across all of them, which is why they share a spec — but the four emeter
+  # sensors exist only on the metering models, and a consumer that draws them
+  # on an HS100 draws four tiles that are permanently unavailable, because
+  # get_emeter on a plug with no meter answers with an error rather than a
+  # reading. The sensors carry `variants:` naming the models below that
+  # actually have the hardware. The two smartbulb-class variants at the end
+  # (Smart Bulb, Light Strip) speak the same wire protocol through different
+  # service calls; their light entities are variant-scoped the same way.
+  #
+  # Matching a device to a variant: get_sysinfo's `model` carries a region
+  # suffix ("HS110(US)", "KP115(US)"), so compare it against `model_prefix` as
+  # a prefix, never for equality.
+  #
+  # Better still, when the reply carries it: get_sysinfo's `feature` field is
+  # a colon-separated capability list and "ENE" in it means this unit has the
+  # emeter module — that is a statement by the device about itself, and it is
+  # the test python-kasa's has_emeter makes. Prefer `feature`; the table below
+  # is for deciding what to draw before the first poll returns, and for units
+  # whose firmware omits the field.
+  variants:
+    - model: "HS100"
+      identification:
+        model_prefix: "HS100"
+      notes: >
+        The original plug: relay only, no metering hardware — get_emeter
+        answers with an error. Hardware v4 on firmware 1.1.0 (~2020) closed
+        port 9999 entirely; such a unit speaks none of this spec.
+    - model: "HS103"
+      identification:
+        model_prefix: "HS103"
+      notes: "Slim relay-only plug. No metering hardware."
+    - model: "HS105"
+      identification:
+        model_prefix: "HS105"
+      notes: "Mini relay-only plug. No metering hardware."
+    - model: "HS110"
+      identification:
+        model_prefix: "HS110"
+      notes: >
+        The metering plug this spec's emeter surface exists for: HS100 plus an
+        energy meter. Two field families are in the field — hardware v1
+        reports the emeter reply in milli-units
+        (voltage_mv/current_ma/power_mw/total_wh) while later hardware reports
+        plain SI floats, so the sensors below bind both (see their
+        state_mapping `value_fallback`).
+    - model: "KP105"
+      identification:
+        model_prefix: "KP105"
+      notes: "Slim relay-only plug, Kasa-protocol generation. No metering hardware."
+    - model: "KP115"
+      identification:
+        model_prefix: "KP115"
+      notes: >
+        Slim plug WITH energy monitoring — the KP-generation counterpart of
+        the HS110, and the other model the emeter sensors apply to. Reports
+        the plain SI float family; the milli-unit fallback is HS110 hw v1
+        only. Vendor-documented capability, not replayed against hardware by
+        this project.
+    # The smartbulb-class devices that answer the same protocol. Their
+    # variant identity is best read from the reply SHAPE (state_probe), not a
+    # model table: a bulb's get_sysinfo carries `light_state` where a plug
+    # carries `relay_state`, and a strip additionally reports `length` (its
+    # LED count) — the exact discriminator the light-command comments in
+    # `commands` below document. The model_prefix is the coarse pre-poll
+    # hint: bulbs are the KL1xx family (KL110/KL130), strips KL4xx
+    # (KL400/KL430).
+    - model: "Smart Bulb"
+      identification:
+        model_prefix: "KL1"
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["light_state"]
+          keys_absent: ["length"]
+      notes: >
+        Kasa smart bulbs (KL110/KL130 …): same transport/cipher/framing, but
+        switching and dimming go through the lightingservice's
+        transition_light_state (light_on / light_off / set_brightness), and
+        state lives in get_sysinfo.light_state. `keys_absent: length` is
+        what separates a bulb from a light strip, which a bulb call is
+        silently ignored by.
+    - model: "Light Strip"
+      identification:
+        model_prefix: "KL4"
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["light_state", "length"]
+      notes: >
+        Kasa light strips (KL400/KL430): smartbulb-class, but driven through
+        smartlife.iot.lightStrip.set_light_state (strip_on / strip_off /
+        strip_brightness) — the bulb's lightingservice call is silently
+        ignored. `length` (LED count) in get_sysinfo is the field that marks
+        a strip; the strip commands were verified on a KL430.
+    # The two FAMILY variants the switch entities scope to, shape-identified
+    # like the smartbulb pair so one poll decides what the device is. They sit
+    # beside the per-model plug variants rather than replacing them: the model
+    # table scopes the emeter sensors (a per-model hardware fact), these scope
+    # the control surface (a per-family protocol fact).
+    - model: "Smart Plug"
+      identification:
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["relay_state"]
+          keys_absent: ["children"]
+      notes: >
+        The single-outlet relay family (every HS1xx/KP1xx above): a top-level
+        relay_state and no children array. The plain Outlet switch applies
+        here and nowhere else — a bulb ignores set_relay_state and a strip
+        switches per child.
+    - model: "Power Strip"
+      identification:
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["children"]
+      notes: >
+        The multi-outlet family (HS300, KP200, KP303, EP40): outlets arrive
+        as a `children` array, each switched by scoping the write with
+        context.child_ids. The instanced Outlets entity applies here; the
+        plain Outlet switch has no top-level relay_state to read on these.
+    - model: "Metering Plug"
+      identification:
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["relay_state"]
+          value_contains:
+            feature: "ENE"
+      notes: >
+        The energy-metering members of the plug family (HS110, KP115 …),
+        identified the way the model table's own comment recommends: the
+        device's `feature` capability list carries "ENE" exactly when it has
+        the emeter module. The four emeter sensors scope here, so a plug
+        without a meter never draws four tiles that never fill.
+
 protocol_handler: "tplink_smarthome"
 
 # The TP-Link Kasa local protocol, byte for byte — the role soap_common plays
@@ -219,13 +379,15 @@ tplink_smarthome_protocol:
   command_tree:
     system.get_sysinfo: "Device info + current relay_state. The state poll and the discovery probe."
     system.set_relay_state: "Set the outlet relay: {state: 1} on, {state: 0} off."
-    emeter.get_realtime: "HS110 only — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below."
+    emeter.get_realtime: "Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below; see device.variants for which models have the hardware."
     netif.set_stainfo: "Provisioning: join the plug to a Wi-Fi network (see device.setup)."
   multi_outlet_note: >
-    Power strips (HS300 / KP303 / EP40) report a `children` array in
+    Power strips (HS300 / KP200 / KP303 / EP40) report a `children` array in
     get_sysinfo and address each outlet by wrapping a command in
-    {"context":{"child_ids":["<deviceId>0N"]}}. That is a separate spec; this
-    one covers single-relay plugs only.
+    {"context":{"child_ids":["<deviceId>0N"]}}. Handled here now: the instanced
+    "Outlets" switch enumerates the children, and relay_on_child /
+    relay_off_child scope the write. A single-relay plug reports no `children`,
+    so the plain "Outlet" switch covers it.
 
 # A stub access surface so the schema's "document at least one access surface"
 # rule is satisfied; control is the tcp-json protocol above, not REST. The
@@ -266,6 +428,88 @@ commands:
     body: '{"system":{"set_relay_state":{"state":0}}}'
     example_body: '{"system":{"set_relay_state":{"state":0}}}'
     verification: "reported"
+  relay_on_child:
+    description: >
+      Close one outlet's relay on a power strip — the same set_relay_state,
+      scoped to a single child by its id via the context.child_ids envelope.
+    transport: "tcp-json"
+    body: '{"context":{"child_ids":["{child_id}"]},"system":{"set_relay_state":{"state":1}}}'
+    example_body: '{"context":{"child_ids":["8006ABCDEF0123456789AB00"]},"system":{"set_relay_state":{"state":1}}}'
+    parameters:
+      child_id:
+        type: "string"
+        source: "instance:id"
+        description: "The strip's own id for the outlet (deviceId + 2-digit outlet index), from get_sysinfo's children[].id."
+    verification: "reported"
+  relay_off_child:
+    description: "Open one outlet's relay on a power strip. See relay_on_child."
+    transport: "tcp-json"
+    body: '{"context":{"child_ids":["{child_id}"]},"system":{"set_relay_state":{"state":0}}}'
+    example_body: '{"context":{"child_ids":["8006ABCDEF0123456789AB00"]},"system":{"set_relay_state":{"state":0}}}'
+    parameters:
+      child_id:
+        type: "string"
+        source: "instance:id"
+        description: "The strip's own id for the outlet; see relay_on_child."
+    verification: "reported"
+  # Kasa SMART BULBS (KL110/KL130/KL430 …) answer the same protocol as a plug
+  # but switch and dim through the lightingservice's transition_light_state, not
+  # set_relay_state, and report their state in get_sysinfo.light_state
+  # {on_off, brightness 1-100}. A consumer that finds light_state (not
+  # relay_state) drives the bulb with these instead of the outlet relay.
+  light_on:
+    description: "Turn a Kasa smart bulb on."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":0}}}'
+    example_body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":0}}}'
+    verification: "reported"
+  light_off:
+    description: "Turn a Kasa smart bulb off."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":0}}}'
+    example_body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":0}}}'
+    verification: "reported"
+  set_brightness:
+    description: "Set a Kasa smart bulb's brightness (1-100), switching it on."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"brightness":{brightness},"transition_period":0}}}'
+    example_body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"brightness":50,"transition_period":0}}}'
+    parameters:
+      brightness:
+        type: "integer"
+        min: 1
+        max: 100
+        description: "Brightness percent, 1-100, from get_sysinfo.light_state.brightness."
+    verification: "reported"
+  # Kasa LIGHT STRIPS (KL400/KL430) are SMARTBULB-class too, but switch and dim
+  # through a DIFFERENT service — smartlife.iot.lightStrip.set_light_state, not
+  # the bulb's lightingservice.transition_light_state (a strip silently ignores
+  # the bulb call). A strip is told apart from a bulb by the `length` field
+  # (LED count) get_sysinfo carries. Verified on a KL430.
+  strip_on:
+    description: "Turn a Kasa light strip on."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":1,"transition_period":0}}}'
+    example_body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":1,"transition_period":0}}}'
+    verification: "confirmed"
+  strip_off:
+    description: "Turn a Kasa light strip off."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":0,"transition_period":0}}}'
+    example_body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":0,"transition_period":0}}}'
+    verification: "confirmed"
+  strip_brightness:
+    description: "Set a Kasa light strip's brightness (1-100), switching it on."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":1,"brightness":{brightness},"transition_period":0}}}'
+    example_body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":1,"brightness":50,"transition_period":0}}}'
+    parameters:
+      brightness:
+        type: "integer"
+        min: 1
+        max: 100
+        description: "Brightness percent, 1-100, from get_sysinfo.light_state.brightness."
+    verification: "confirmed"
   get_sysinfo:
     description: >
       Read device info and current relay state. This is both the state poll
@@ -282,7 +526,19 @@ commands:
         description: "User-assigned device name."
       - name: "model"
         type: "string"
-        description: "Hardware model, e.g. HS100(US)."
+        description: >
+          Hardware model with a region suffix, e.g. HS100(US). Match it
+          against a `device.variants` entry's `model_prefix` as a PREFIX — the
+          suffix varies by region and hardware revision.
+      - name: "feature"
+        type: "string"
+        description: >
+          Colon-separated capability list the device states about itself:
+          "TIM" on a relay-only plug, "TIM:ENE" on a metering one. "ENE" is
+          the runtime test for whether the emeter module — and therefore the
+          four sensor entities — exist on this unit, and it is the check
+          python-kasa's has_emeter makes. Prefer it over the model table when
+          the reply carries it.
       - name: "deviceId"
         type: "string"
         description: "Stable device identity."
@@ -292,40 +548,59 @@ commands:
     verification: "reported"
   get_emeter:
     description: >
-      Read the energy meter's instantaneous readings. HS110 only — the HS100
-      has no metering hardware and answers with an error. This is the state
-      poll for the four emeter sensor entities below.
+      Read the energy meter's instantaneous readings. Metering models only
+      (HS110, KP115) — a plug with no metering hardware answers with an error
+      rather than a reading, so a consumer should decide from get_sysinfo's
+      `feature`/`model` (see device.variants) whether to poll this at all.
+      This is the state poll for the four emeter sensor entities below.
     transport: "tcp-json"
     body: '{"emeter":{"get_realtime":null}}'
     example_body: '{"emeter":{"get_realtime":null}}'
     returns:
+      # TWO FIELD FAMILIES, one reading each. A reply carries one family or
+      # the other, never both: current firmware reports plain SI floats, HS110
+      # hardware v1 reports integers in milli-units under different NAMES. The
+      # milli-unit names are declared here as their own fields rather than
+      # described in prose only, because the sensor entities bind them as
+      # `value_fallback` paths — a consumer resolving a dotted path needs the
+      # legacy key to exist in the spec, not a sentence telling it to divide a
+      # key that is absent from the reply.
       - name: "voltage"
         type: "number"
         description: >
-          Mains voltage in V. The field NAME varies by hardware/firmware:
-          current firmware reports `voltage` (float, volts) while HS110
-          hardware v1 reports `voltage_mv` in millivolts instead — consumers
-          must normalize to V (divide by 1000), exactly as python-kasa's
-          EmeterStatus does. Both code paths exist in the vendor app (see
-          evidence).
+          Mains voltage in V (float). Current firmware. Absent on HS110
+          hardware v1, which sends `voltage_mv` instead.
       - name: "current"
         type: "number"
-        description: >
-          Load current in A — `current` (float, amperes) on current firmware,
-          `current_ma` (milliamperes) on HS110 hw v1; normalize to A.
+        description: "Load current in A (float). Current firmware; see `current_ma`."
       - name: "power"
         type: "number"
-        description: >
-          Instantaneous load power in W — `power` (float, watts) on current
-          firmware, `power_mw` (milliwatts) on HS110 hw v1; normalize to W.
+        description: "Instantaneous load power in W (float). Current firmware; see `power_mw`."
       - name: "total"
         type: "number"
+        description: "Accumulated consumption in kWh (float). Current firmware; see `total_wh`."
+      - name: "voltage_mv"
+        type: "integer"
         description: >
-          Accumulated consumption in kWh — `total` (float, kWh) on current
-          firmware, `total_wh` (watt-hours) on HS110 hw v1; normalize to kWh.
+          The HS110 hardware v1 spelling of `voltage`: millivolts. Divide by
+          1000 for V. Present INSTEAD OF `voltage`, not alongside it — this is
+          the same normalization python-kasa's EmeterStatus performs, and both
+          code paths exist in the vendor app (see evidence).
+      - name: "current_ma"
+        type: "integer"
+        description: "HS110 hw v1 spelling of `current`: milliamperes. Divide by 1000 for A."
+      - name: "power_mw"
+        type: "integer"
+        description: "HS110 hw v1 spelling of `power`: milliwatts. Divide by 1000 for W."
+      - name: "total_wh"
+        type: "integer"
+        description: "HS110 hw v1 spelling of `total`: watt-hours. Divide by 1000 for kWh."
       - name: "err_code"
         type: "integer"
-        description: "0 = no error, present on every method reply in this protocol."
+        description: >
+          0 = no error, present on every method reply in this protocol. A
+          non-zero code is what a plug with no metering hardware answers this
+          command with.
     verification: "reported"
 
 # One control: the outlet, as an on/off switch. state_command polls
@@ -337,6 +612,12 @@ entities:
     name: "Outlet"
     device_class: "outlet"
     icon: "mdi:power-socket"
+    # Scoped to the shape-identified plug family: on a bulb this switch's
+    # write is ignored and its state key absent, and on a power strip the
+    # per-child Outlets entity below is the real surface. A consumer that
+    # cannot evaluate the state_probe yet (before its first poll) draws
+    # probe-scoped entities optimistically and settles on the reply.
+    variants: ["Smart Plug"]
     state_command: "get_sysinfo"
     state_mapping:
       value: "relay_state"
@@ -345,57 +626,156 @@ entities:
       turn_on: "relay_on"
       turn_off: "relay_off"
 
-  # The HS110's energy meter, as four sensors polled by get_emeter. The
-  # state_mapping values are dotted JSON paths from the reply ROOT
+  # The power-strip case: a HS300 / KP200 / KP303 / EP40 reports its outlets as
+  # a `children` array in get_sysinfo, each with its own id, alias and integer
+  # `state`, and one outlet is switched by scoping the write with
+  # context.child_ids (relay_on_child / relay_off_child). This instanced switch
+  # enumerates those outlets — one on/off per child, named by its alias. It
+  # yields nothing on a single-outlet plug (which reports no `children`), so a
+  # consumer shows the plain "Outlet" switch above there and these per-outlet
+  # switches on a strip, keyed on whether get_sysinfo carried a children array.
+  - platform: "switch"
+    name: "Outlets"
+    device_class: "outlet"
+    icon: "mdi:power-socket"
+    variants: ["Power Strip"]
+    instances:
+      keyed_by: "id"
+      children_path: "system.get_sysinfo.children"
+      id_field: "id"
+      label_path: "alias"
+    state_command: "get_sysinfo"
+    state_mapping:
+      is_on: "state"
+      on_when: "nonzero"
+    commands:
+      turn_on: "relay_on_child"
+      turn_off: "relay_off_child"
+
+  # The energy meter, as four sensors polled by get_emeter. The state_mapping
+  # values are dotted JSON paths from the reply ROOT
   # ({"emeter":{"get_realtime":{...}}}) — not flattened keys, because the
   # reference app's flattener (kasaSysinfoFields in
   # liberatedbread-mobile/lib/services/kasa_control_service.dart) currently
   # lifts only system.get_sysinfo replies and returns an empty map for an
   # emeter reply; it must be extended to flatten nested replies before these
-  # sensors resolve there. All four are HS110-only: the HS100 has no metering
-  # hardware. Field names follow CURRENT firmware; HS110 hardware v1 reports
-  # voltage_mv/current_ma/power_mw/total_wh in milli-units instead — see the
-  # get_emeter command's returns for the normalization rule.
+  # sensors resolve there.
+  #
+  # Two scoping rules, both machine-readable so a consumer does not have to
+  # read prose to avoid drawing a dead tile:
+  #
+  #   `variants:` — these four exist only on the metering models. On an
+  #   HS100/HS103/HS105/KP105 there is no meter, get_emeter answers an error,
+  #   and a consumer that stamps them out anyway shows four sensors that never
+  #   have a value. Drop them when the connected plug's model is not listed
+  #   (or, better, when get_sysinfo's `feature` has no "ENE" — see
+  #   device.variants).
+  #
+  #   `value_fallback` — HS110 hardware v1 does not merely scale these
+  #   readings, it NAMES them differently: voltage_mv/current_ma/power_mw/
+  #   total_wh, in milli-units. The primary path finds nothing on such a unit,
+  #   so each sensor declares the legacy path and the factor that brings it
+  #   back to the entity's `unit`. Try the primary first; use the fallback
+  #   only when the primary key is absent from the reply.
   - platform: "sensor"
     name: "Voltage"
     device_class: "voltage"
     unit: "V"
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.voltage"
+      value_fallback:
+        path: "emeter.get_realtime.voltage_mv"
+        scale: 0.001
     notes: >
-      HS110 only. `voltage` on current firmware; HS110 hw v1 reports
-      `voltage_mv` (millivolts) — normalize to V before applying this path.
+      Metering models only. `voltage` (volts) on current firmware; HS110 hw v1
+      sends `voltage_mv` (millivolts) instead — the value_fallback path, times
+      its scale, is that reading in V.
   - platform: "sensor"
     name: "Current"
     device_class: "current"
     unit: "A"
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.current"
+      value_fallback:
+        path: "emeter.get_realtime.current_ma"
+        scale: 0.001
     notes: >
-      HS110 only. `current` on current firmware; HS110 hw v1 reports
-      `current_ma` (milliamperes) — normalize to A before applying this path.
+      Metering models only. `current` (amperes) on current firmware; HS110 hw
+      v1 sends `current_ma` (milliamperes) instead.
   - platform: "sensor"
     name: "Power"
     device_class: "power"
     unit: "W"
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.power"
+      value_fallback:
+        path: "emeter.get_realtime.power_mw"
+        scale: 0.001
     notes: >
-      HS110 only. `power` on current firmware; HS110 hw v1 reports
-      `power_mw` (milliwatts) — normalize to W before applying this path.
+      Metering models only. `power` (watts) on current firmware; HS110 hw v1
+      sends `power_mw` (milliwatts) instead.
   - platform: "sensor"
     name: "Total Consumption"
     device_class: "energy"
     unit: "kWh"
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.total"
+      value_fallback:
+        path: "emeter.get_realtime.total_wh"
+        scale: 0.001
     notes: >
-      HS110 only. `total` on current firmware; HS110 hw v1 reports
-      `total_wh` (watt-hours) — normalize to kWh before applying this path.
+      Metering models only. `total` (kWh) on current firmware; HS110 hw v1
+      sends `total_wh` (watt-hours) instead.
+
+  # The smartbulb-class light surfaces, scoped to the variants whose
+  # state_probe identifies them (a bulb's get_sysinfo has light_state and no
+  # length; a strip has both). Two entities rather than one because the two
+  # families dim through DIFFERENT service calls and a strip silently ignores
+  # the bulb's — binding both to one entity would make half the fleet a
+  # silent no-op. State for both lives in get_sysinfo.light_state
+  # {on_off 0/1, brightness 1-100}, read with the same bare-key convention
+  # the Outlet's relay_state uses (paths relative to the flattened sysinfo
+  # object).
+  - platform: "light"
+    name: "Bulb"
+    variants: ["Smart Bulb"]
+    state_command: "get_sysinfo"
+    state_mapping:
+      is_on: "light_state.on_off"
+      on_when: "nonzero"
+      brightness: "light_state.brightness"
+    commands:
+      turn_on: "light_on"
+      turn_off: "light_off"
+      set_brightness: "set_brightness"
+    notes: >
+      Kasa smart bulb (KL1xx): lightingservice.transition_light_state does
+      the switching and dimming. Brightness is 1-100, the same range
+      get_sysinfo.light_state.brightness reports.
+  - platform: "light"
+    name: "Light Strip"
+    variants: ["Light Strip"]
+    state_command: "get_sysinfo"
+    state_mapping:
+      is_on: "light_state.on_off"
+      on_when: "nonzero"
+      brightness: "light_state.brightness"
+    commands:
+      turn_on: "strip_on"
+      turn_off: "strip_off"
+      set_brightness: "strip_brightness"
+    notes: >
+      Kasa light strip (KL4xx): smartlife.iot.lightStrip.set_light_state
+      does the switching and dimming (verified on a KL430); the bulb-class
+      call is silently ignored on a strip. Brightness is 1-100.
 
 helpful_urls:
   - title: "softScheck — Reverse Engineering the TP-Link HS110 (2016)"
@@ -407,3 +787,6 @@ helpful_urls:
   - title: "softScheck/tplink-smartplug — original client + Wireshark dissector"
     url: "https://github.com/softScheck/tplink-smartplug"
     description: "The tplink-smarthome-commands.txt reference and a pcap dissector."
+  - url: "https://www.home-assistant.io/integrations/tplink/"
+    title: "Home Assistant TP-Link Kasa integration"
+    description: "HA core integration (python-kasa) controlling Kasa plugs locally with this protocol."

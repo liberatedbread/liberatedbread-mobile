@@ -141,6 +141,15 @@ class RealSpecCodec implements SpecCodec {
           specYaml: specYaml, ssdpTargets: ssdpTargets);
 
   @override
+  Future<NetworkEntitySurfaceDto> networkEntitiesForStateKeys({
+    required String specYaml,
+    required List<String> ssdpTargets,
+    required Map<String, Map<String, String>> stateKeys,
+  }) =>
+      rust.networkEntitiesForStateKeys(
+          specYaml: specYaml, ssdpTargets: ssdpTargets, stateKeys: stateKeys);
+
+  @override
   Future<NetworkCapabilitiesDto> networkCapabilities({
     required String specYaml,
   }) =>

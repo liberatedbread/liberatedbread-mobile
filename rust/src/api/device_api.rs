@@ -1730,7 +1730,32 @@ pub fn network_entities_for_device(
     spec_yaml: String,
     ssdp_targets: Vec<String>,
 ) -> anyhow::Result<NetworkEntitySurfaceDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    network_surface_for(&spec_yaml, &ssdp_targets, None)
+}
+
+/// [`network_entities_for_device`] with the device's state replies in hand:
+/// probe-identified variants (`identification.state_probe`) resolve strictly
+/// against the flattened reply keys instead of optimistically, so the surface
+/// settles on what the device actually is — a Kasa bulb loses the plug
+/// family's relay switch and gains its variant's light the moment
+/// get_sysinfo answers. `state_keys` maps each state command's name to the
+/// flattened key→value map of its reply (dotted keys for nested members,
+/// exactly as the entity `state_mapping` paths are written — the map the
+/// reply decoder already reads).
+pub fn network_entities_for_state_keys(
+    spec_yaml: String,
+    ssdp_targets: Vec<String>,
+    state_keys: HashMap<String, HashMap<String, String>>,
+) -> anyhow::Result<NetworkEntitySurfaceDto> {
+    network_surface_for(&spec_yaml, &ssdp_targets, Some(&state_keys))
+}
+
+fn network_surface_for(
+    spec_yaml: &str,
+    ssdp_targets: &[String],
+    state_keys: Option<&HashMap<String, HashMap<String, String>>>,
+) -> anyhow::Result<NetworkEntitySurfaceDto> {
+    let spec = parse_device_spec(spec_yaml)?;
     // An identify_only spec never resolves controls, whatever its entities
     // declare (lutron-caseta carries descriptive entities with prose role
     // bindings): the handoff page is its whole surface. Enforced here at the
@@ -1754,78 +1779,84 @@ pub fn network_entities_for_device(
     if spec.protocol_handler.as_deref() == Some(crate::protocol::roomba::HANDLER_NAME) {
         return Ok(handler_surface(&spec, roomba_network_entities(&spec)));
     }
-    let present = bindings::entities_for_targets(&spec, &ssdp_targets);
-    let entities: Vec<NetworkEntityDto> =
-        bindings::network_entities_for_targets(&spec, &ssdp_targets)
-            .into_iter()
-            .map(|entity| {
-                let actions = bindings::resolve_network_actions(&spec, entity);
-                NetworkEntityDto {
-                    name: entity.name.clone(),
-                    key: entity.key.clone(),
-                    platform: entity.platform.clone(),
-                    device_class: entity.device_class.clone(),
-                    icon: entity.icon.clone(),
-                    unit: entity.unit.clone(),
-                    state_endpoint: entity.state_endpoint.clone(),
-                    // Present for every stateful entity —
-                    // `network_entities_for_targets` requires it of them. Empty
-                    // for a `button`, which has no state to poll; a caller
-                    // gathering state commands must skip the empty string rather
-                    // than render a request from it.
-                    state_command: entity.state_command.clone().unwrap_or_default(),
-                    // Every resolved action on one entity rides one transport —
-                    // a spec binding a light's toggle to SOAP and its slider to
-                    // HTTP would be describing two devices — so the first
-                    // action's answer is the entity's. A pure reading has no
-                    // action to answer for it; its transport is the one its state
-                    // command declares (the Envoy's http telemetry poll), so the
-                    // screen can route the poll without guessing.
-                    transport: actions
-                        .first()
-                        .map(|a| {
-                            a.command
-                                .transport
-                                .clone()
-                                .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string())
-                        })
-                        .or_else(|| {
-                            entity
-                                .state_command
-                                .as_deref()
-                                .and_then(|name| spec.commands.get(name))
-                                .and_then(|command| command.transport.clone())
-                        }),
-                    is_instanced: entity.instances.is_some(),
-                    value_field: entity.value_field().map(str::to_string),
-                    options: entity
-                        .options()
-                        .into_iter()
-                        .map(|(raw, label)| NetworkOptionDto { raw, label })
-                        .collect(),
-                    options_source: resolve_query_source(&spec, entity.options_source.as_ref()),
-                    state_source: resolve_query_source(&spec, entity.state_source.as_ref()),
-                    actions: actions.iter().map(NetworkActionDto::from).collect(),
-                    setpoint_min: entity.setpoint_min().or_else(|| {
-                        actions
-                            .iter()
-                            .find(|a| a.role == "set_value")
-                            .and_then(|a| a.min)
+    let present = match state_keys {
+        Some(keys) => bindings::entities_for_state_keys(&spec, ssdp_targets, keys),
+        None => bindings::entities_for_targets(&spec, ssdp_targets),
+    };
+    let surfaced = match state_keys {
+        Some(keys) => bindings::network_entities_for_state_keys(&spec, ssdp_targets, keys),
+        None => bindings::network_entities_for_targets(&spec, ssdp_targets),
+    };
+    let entities: Vec<NetworkEntityDto> = surfaced
+        .into_iter()
+        .map(|entity| {
+            let actions = bindings::resolve_network_actions(&spec, entity);
+            NetworkEntityDto {
+                name: entity.name.clone(),
+                key: entity.key.clone(),
+                platform: entity.platform.clone(),
+                device_class: entity.device_class.clone(),
+                icon: entity.icon.clone(),
+                unit: entity.unit.clone(),
+                state_endpoint: entity.state_endpoint.clone(),
+                // Present for every stateful entity —
+                // `network_entities_for_targets` requires it of them. Empty
+                // for a `button`, which has no state to poll; a caller
+                // gathering state commands must skip the empty string rather
+                // than render a request from it.
+                state_command: entity.state_command.clone().unwrap_or_default(),
+                // Every resolved action on one entity rides one transport —
+                // a spec binding a light's toggle to SOAP and its slider to
+                // HTTP would be describing two devices — so the first
+                // action's answer is the entity's. A pure reading has no
+                // action to answer for it; its transport is the one its state
+                // command declares (the Envoy's http telemetry poll), so the
+                // screen can route the poll without guessing.
+                transport: actions
+                    .first()
+                    .map(|a| {
+                        a.command
+                            .transport
+                            .clone()
+                            .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string())
+                    })
+                    .or_else(|| {
+                        entity
+                            .state_command
+                            .as_deref()
+                            .and_then(|name| spec.commands.get(name))
+                            .and_then(|command| command.transport.clone())
                     }),
-                    setpoint_max: entity.setpoint_max().or_else(|| {
-                        actions
-                            .iter()
-                            .find(|a| a.role == "set_value")
-                            .and_then(|a| a.max)
-                    }),
-                    setpoint_step: entity.setpoint_step(),
-                }
-            })
-            // A stateless entity that resolved no sendable action is nothing at
-            // all — no reading to show, no button to press. A stateful one still
-            // renders as a reading, so only the stateless kind is dropped.
-            .filter(|entity| !entity.state_command.is_empty() || !entity.actions.is_empty())
-            .collect();
+                is_instanced: entity.instances.is_some(),
+                value_field: entity.value_field().map(str::to_string),
+                options: entity
+                    .options()
+                    .into_iter()
+                    .map(|(raw, label)| NetworkOptionDto { raw, label })
+                    .collect(),
+                options_source: resolve_query_source(&spec, entity.options_source.as_ref()),
+                state_source: resolve_query_source(&spec, entity.state_source.as_ref()),
+                actions: actions.iter().map(NetworkActionDto::from).collect(),
+                setpoint_min: entity.setpoint_min().or_else(|| {
+                    actions
+                        .iter()
+                        .find(|a| a.role == "set_value")
+                        .and_then(|a| a.min)
+                }),
+                setpoint_max: entity.setpoint_max().or_else(|| {
+                    actions
+                        .iter()
+                        .find(|a| a.role == "set_value")
+                        .and_then(|a| a.max)
+                }),
+                setpoint_step: entity.setpoint_step(),
+            }
+        })
+        // A stateless entity that resolved no sendable action is nothing at
+        // all — no reading to show, no button to press. A stateful one still
+        // renders as a reading, so only the stateless kind is dropped.
+        .filter(|entity| !entity.state_command.is_empty() || !entity.actions.is_empty())
+        .collect();
     let hidden_names = present
         .iter()
         .filter(|e| !entities.iter().any(|dto| dto.name == e.name))
