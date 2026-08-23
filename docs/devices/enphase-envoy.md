@@ -45,3 +45,5 @@ there.
 
 Machine-readable spec: `device-specs/devices/enphase-envoy.yaml`
 
+Home Assistant: the core [Enphase Envoy integration](https://www.home-assistant.io/integrations/enphase_envoy/) consumes this local API (owner-token auth on newer firmware).
+

@@ -222,6 +222,12 @@ def build_manifest(
             "checksum": spec.checksum,
         })
 
+    # Sort by device id, not by the filename order iter_spec_files() yields.
+    # The two disagree whenever one id is a prefix of another: `cat-printer`
+    # sorts before `cat-printer-mxw01`, but `cat-printer.yaml` sorts after
+    # `cat-printer-mxw01.yaml` because '-' < '.'.
+    device_entries.sort(key=lambda entry: entry["id"])
+
     schema_id = schema.get("$id", "")
     return {
         "api_version": "1",

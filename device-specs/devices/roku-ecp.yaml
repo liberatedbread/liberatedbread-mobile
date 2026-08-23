@@ -245,18 +245,17 @@ evidence:
       - endpoint: "GET /query/active-app"
         observed: "200"
     apk_teardown: >
-      The Roku App (Official) 14.0.0.9462138 (com.roku.remote, XAPK via
-      APKCombo) decompiled with jadx: in Limited mode the official app rides
-      "ECP2", an authenticated WebSocket session (package
-      com.roku.mobile.ecp) on the same port 8060. The teardown plus a live
-      re-implementation against this fleet the same day showed the session
-      accepts client-id auth whose secret ships in the APK — no Roku account
+      Static analysis of the official Roku app: in Limited mode it rides
+      "ECP2", an authenticated WebSocket session on the same port 8060. The
+      teardown plus a live re-implementation against this fleet the same day
+      showed the session accepts client-id auth whose secret ships in the
+      app — no Roku account
       needed — and that query-apps and key-press both answer 200 over it on
       a Limited-mode TV. The full protocol is the top-level `ecp2` block.
-      A line-by-line re-audit of the decompiled sources on 2026-08-13
+      A line-by-line re-audit of the app's code on 2026-08-13
       confirmed every ECP2 mechanism that block records: the client-id
       secret's encoded UUID, its nibble transform and the SHA-1 + Base64
-      response construction (ClientIdChallengeResponseStrategy), port 8060,
+      response construction (the app's client-id challenge strategy), port 8060,
       the roku:ecp SSDP search target, the ecp-2 WebSocket subprotocol with
       the Android origin header on /ecp-session, the
       v1/ecp/token?assert=true JWT endpoint and its ecp2_jwt.enabled
@@ -348,8 +347,8 @@ ecp_common:
         below, which Limited mode does not refuse.
 
 # ECP2: the authenticated session the official Roku app uses, and the way
-# through Limited mode. Reverse-engineered from The Roku App (Official)
-# 14.0.0.9462138 (jadx teardown: package com.roku.mobile.ecp) and verified
+# through Limited mode. Reverse-engineered from the official Roku app's
+# ECP session layer and verified
 # live against the fleet on 2026-08-11 — see evidence.limited_mode_probe.
 ecp2:
   transport: "websocket"
@@ -380,7 +379,7 @@ ecp2:
       needs NO account: answer {"request":
       "authenticate", "request-id": "1", "param-response":
       base64(SHA-1(challenge + secret))}. The secret is the app's own
-      client id, shipped in the APK (ClientIdChallengeResponseStrategy):
+      client id, shipped in the APK (the client-id challenge strategy):
       the UUID 95E610D0-7C29-44EF-FB0F-97F1FCE4C297 with every hex nibble
       n replaced by (24 - n) & 15, i.e.
       F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1. A successful answer gets
@@ -397,8 +396,8 @@ ecp2:
         repeated cyclically over the token length.
       confidence: "medium"
       confidence_notes: >
-        Read from the decompiled app source (JwtChallengeResponseStrategy)
-        but never exercised against hardware: the fleet session
+        Read from the app's JWT challenge-response strategy but never
+        exercised against hardware: the fleet session
         authenticated with client-id, and the ecp2_jwt.enabled flag gates
         the jwt path off by default, so this construction is app-derived
         only.

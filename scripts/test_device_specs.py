@@ -221,10 +221,12 @@ def test_factory_reset_is_described_not_just_declared(specs):
     rather than carrying an invented procedure, which on safety-relevant
     hardware is worse than an admission of nothing to document.
 
-    `applicable: unknown` is the third answer, for a device that probably has a
-    reset that nobody has established yet. It is deliberately uncomfortable —
-    low confidence, no procedures — because the alternative is a plausible
-    guess that reads exactly like a verified one.
+    `applicable: unknown` is the third answer, for a device nobody has
+    established a reset on. It may still list what to try — dropping a likely
+    procedure throws away real knowledge, and it is the first thing someone
+    holding the device should attempt — but every procedure under it is a
+    candidate by definition, so each must say `verified: false` and cite a
+    `basis`. That keeps it usable without letting it read as confirmed.
     """
     for device_id, setup in setups(specs):
         reset = setup["factory_reset"]
@@ -240,26 +242,39 @@ def test_factory_reset_is_described_not_just_declared(specs):
             )
             continue
 
-        if reset.get("applicable") == "unknown":
-            assert not reset.get("procedures"), (
-                f"{device_id}: factory_reset is marked unknown but still lists "
-                "procedures — say which one you established instead"
-            )
+        unestablished = reset.get("applicable") == "unknown"
+        if unestablished:
             assert reset.get("confidence") == "low", (
                 f"{device_id}: an unestablished factory reset is low confidence"
             )
-            continue
-
-        assert reset.get("confidence") in CONFIDENCE_VALUES, (
-            f"{device_id}: factory_reset needs a confidence level"
-        )
-        procedures = reset.get("procedures", [])
-        assert procedures, f"{device_id}: factory_reset needs at least one procedure"
-        for procedure in procedures:
-            assert procedure.get("name"), f"{device_id}: a reset procedure has no name"
-            assert procedure.get("steps"), (
-                f"{device_id}: reset procedure {procedure.get('name')!r} has no steps"
+        else:
+            assert reset.get("confidence") in CONFIDENCE_VALUES, (
+                f"{device_id}: factory_reset needs a confidence level"
             )
+
+        procedures = reset.get("procedures", [])
+        # An established reset must show its work. An unestablished one need
+        # not — sometimes there is genuinely nothing to suggest.
+        if not unestablished:
+            assert procedures, f"{device_id}: factory_reset needs at least one procedure"
+
+        for procedure in procedures:
+            label = f"{device_id}: reset procedure {procedure.get('name')!r}"
+            assert procedure.get("name"), f"{device_id}: a reset procedure has no name"
+            assert procedure.get("steps"), f"{label} has no steps"
+            if unestablished:
+                assert procedure.get("verified") is False, (
+                    f"{label} sits under an unestablished reset, so it must say "
+                    "`verified: false` — it is a candidate, not a confirmed flow"
+                )
+            # Any procedure that admits it is unverified owes the reader its
+            # source: a vendor manual and a guess-by-analogy are both useful,
+            # and they are not equally trustworthy.
+            if procedure.get("verified") is False:
+                assert procedure.get("basis"), (
+                    f"{label} is unverified and must cite a `basis` saying where "
+                    "it came from"
+                )
 
 
 def test_rejoin_answers_the_router_replacement_question(specs):
@@ -606,6 +621,49 @@ def test_entity_keys_are_declared_in_the_schema(specs):
                 f"to schema.json if it is genuinely new. Declared: "
                 f"{sorted(declared)}"
             )
+
+
+def test_entity_names_are_unique_per_variant(specs):
+    """Two controls with one name are indistinguishable on screen and in a
+    consumer's send-in-flight bookkeeping, which keys on the name.
+
+    Not a flat uniqueness rule, because one legitimate case repeats a name:
+    a family spec declares the same logical sensor once per model, each with
+    its own characteristic, and `variants` says which models it applies to.
+    Only one of those is ever instantiated, because a client knows which model
+    it is talking to. So a name may repeat while its entities stay pairwise
+    variant-disjoint. An entity with no `variants` applies to every model, so
+    it collides with any sibling sharing its name.
+
+    `instances` is a second way a name could honestly repeat -- an entity that
+    stands for a set of children keyed by id. Nothing in the catalogue does
+    that today, so this rule does not model it; if a spec ever needs to,
+    extend the disjointness test rather than exempting the file.
+    """
+    for device_id, spec in specs.items():
+        by_name: dict[str, list[frozenset]] = {}
+        for entity in spec.get("entities") or []:
+            name = entity.get("name")
+            if not name:
+                continue
+            by_name.setdefault(name, []).append(frozenset(entity.get("variants") or []))
+        for name, variant_sets in by_name.items():
+            if len(variant_sets) < 2:
+                continue
+            for i in range(len(variant_sets)):
+                for j in range(i + 1, len(variant_sets)):
+                    left, right = variant_sets[i], variant_sets[j]
+                    assert left and right and not (left & right), (
+                        f"{device_id}: {len(variant_sets)} entities are named "
+                        f"{name!r} and at least two of them can be present on "
+                        f"the same device (variants {sorted(left) or 'all models'} "
+                        f"and {sorted(right) or 'all models'}). A consumer keys "
+                        "on the name, so it cannot tell them apart. Give them "
+                        "distinct names -- a remote key alongside a stateful "
+                        "control is conventionally 'Power Key' next to 'Power' "
+                        "-- or scope each to the models it applies to with "
+                        "`variants`."
+                    )
 
 
 def test_format_field_keys_are_declared_in_the_schema(specs):
@@ -1031,3 +1089,46 @@ def test_testing_status_is_stated(specs):
         and not _has_hardware_verified_setup(spec)
     )
     assert not missing, f"specs without a device.testing block: {missing}"
+
+
+# --------------------------------------------------------------------------
+# Schema guards for candidate reset procedures.
+#
+# The rules below are enforced by schema.json, not by the loops above, so they
+# hold for specs nobody has written yet. They are tested by mutation: take a
+# real spec, break one rule, and require the schema to notice. Without this a
+# future schema edit could drop a guard and every existing spec would still
+# validate, because none of them break the rule today.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def candidate_reset_spec() -> dict:
+    """A real spec whose factory_reset is unestablished with a candidate."""
+    return load(DEVICES_DIR / "govee-h6001-bulb.yaml")
+
+
+def test_candidate_reset_spec_is_valid_to_begin_with(candidate_reset_spec):
+    """Guards the mutation tests: they prove nothing if the base is invalid."""
+    validator = Draft202012Validator(_schema())
+    assert not list(validator.iter_errors(candidate_reset_spec))
+
+
+def test_unverified_reset_procedure_must_cite_a_basis(candidate_reset_spec):
+    """'Try this' is only useful if the reader can weigh where it came from."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(candidate_reset_spec)
+    spec["device"]["setup"]["factory_reset"]["procedures"][0].pop("basis")
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted an unverified reset procedure with no basis"
+    )
+
+
+def test_unestablished_reset_cannot_hold_a_verified_procedure(candidate_reset_spec):
+    """The whole point of `applicable: unknown` is that nothing under it is confirmed."""
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(candidate_reset_spec)
+    spec["device"]["setup"]["factory_reset"]["procedures"][0]["verified"] = True
+    assert list(validator.iter_errors(spec)), (
+        "schema accepted a verified procedure under an unestablished reset"
+    )

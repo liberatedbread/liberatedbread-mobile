@@ -146,6 +146,11 @@ helpful_urls:
       Hardware reverse engineering of the ESN00 from HCI snoop plus noble against a real scale; one
       of the two independent confirmations of the packet format, and the source of the Web Bluetooth
       connect-by-name behaviour noted here.
+  - title: "ronnnnnnnnnnnnn/etekcity_fitness_scale_ble (HACS)"
+    url: "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble"
+    description: >-
+      Home Assistant (HACS) BLE integration for Etekcity fitness scales (ESF-551; ESF24 in beta) —
+      same vendor family, active-connect path; does not decode the ESN00 kitchen-scale broadcast format.
   - title: "Hacking a BLE kitchen scale"
     url: "https://dev.to/hertzg/hacking-ble-kitchen-scale-55io"
     description: "hertzg's write-up of that reverse engineering."
@@ -160,3 +165,6 @@ helpful_urls:
   - title: "FCC ID 2AB22-ESN00"
     url: "https://fccid.io/2AB22-ESN00"
     description: "FCC filing for the scale; the source of the FCC ID and variant recorded here."
+  - url: "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble"
+    title: "etekcity_fitness_scale_ble (HACS custom integration)"
+    description: "HACS custom integration decoding Etekcity BLE scale advertisements locally."

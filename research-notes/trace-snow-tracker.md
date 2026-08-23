@@ -11,8 +11,8 @@
 - Users stranded: [NYSkiBlog thread 2020-12-31](https://nyskiblog.com/forum/threads/ski-tracking-apps-and-stats.791/page-3) ("the app went away so abruptly and without warning"). Slopes built an importer for orphaned Trace recordings ([getslopes.com/import/trace](https://getslopes.com/import/trace)).
 
 ## Local feasibility — strong
-- **Full named GATT table recovered** from the app's own sync SDK (`com/traceup/core/sync/sdk/TRCSDK.java`) — see below. Recording start/stop, file listing, disk space, LED control, firmware version, GPS satellite status are all plain named characteristics.
-- Device advertises with name **"Trace"** (`BluetoothPairingManager.java` matches `d.getName().equalsIgnoreCase("Trace")`).
+- **Full named GATT table recovered** from the app's own sync SDK — see below. Recording start/stop, file listing, disk space, LED control, firmware version, GPS satellite status are all plain named characteristics.
+- Device advertises with name **"Trace"** (its pairing manager matches the name exactly, case-insensitively).
 - Prior community RE: [github.com/wfraser/arz](https://github.com/wfraser/arz) — reverse-engineers Trace Snow's internal `.arz` session file format (files pulled from `Android/data/com.alpinereplay...`), useful for decoding sessions after BLE offload.
 - No pairing crypto evident at triage depth. Cloud was only needed for leaderboards/social/3D replay.
 
@@ -23,7 +23,7 @@
 - **Version**: 5.6.3 (2017-01-07, per Uptodown/apk.gold metadata)
 - **Framework**: native Java, unobfuscated sync SDK (`com.traceup.core.sync.sdk`)
 
-## BLE UUIDs (from TRCSDK.java — all named in source)
+## BLE UUIDs (from the app's bundled Trace SDK — all named in source)
 | UUID | Role |
 |------|------|
 | `0000A100-8501-11e3-ba12-0002a5d5c51b` | TRACE_SERVICE |

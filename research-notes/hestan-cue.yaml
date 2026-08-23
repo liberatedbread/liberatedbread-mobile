@@ -67,7 +67,7 @@ ble:
         - uuid: "00001537-1212-efde-1523-785feabcd123"
           name: dfu_char_2
 
-  device_models:  # from tb/s.java enum
+  device_models:  # from the app's device-model enum
     - CUE_BURNER_V1
     - CUE_BURNER_V1_100V
     - CUE_BURNER_V1_220V
@@ -76,7 +76,7 @@ ble:
 
 protocol:
   note: >
-    Service selection is by device type (burner vs thermometer) in ec/c.java.
+    Service selection is by device type (burner vs thermometer) in the app's BLE manager.
     Thermometer data characteristic 0xfa84 carries a fixed 6-byte little-endian
     frame. Burner command encoding (set target temp, power level) not yet
     decoded — likely writes to one of 1542/1543. Closed-loop control was done

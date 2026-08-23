@@ -31,17 +31,16 @@ files. Company dead, cloud dead — but the hardware doesn't need either.
   old-school clean Java)
 
 ## Transport
-- Bluetooth Classic **SPP/RFCOMM, standard SPP UUID `00001101-0000-1000-8000-00805F9B34FB`**
-  (`com/jawbone/bluetooth/Bluetooth.java`), insecure-socket capable; HFP + A2DP for audio.
+- Bluetooth Classic **SPP/RFCOMM, standard SPP UUID `00001101-0000-1000-8000-00805F9B34FB`**, insecure-socket capable; HFP + A2DP for audio.
 - Mini Jambox is BT 4.0 (A2DP 1.2, HFP 1.6) but app control stays on SPP.
-- Speaker is CSR BC03/BC05/BC07-based (`com/jawbone/jci/BC03.java` etc.) — the JCI
+- Speaker is CSR BC03/BC05/BC07-based — the JCI
   layer sits on top of the usual CSR headset stack (PSKeys, DSP apps).
 
 ## JCI protocol (from `com/jawbone/jci/`)
-Framing (`JciRequest.java`): 6-byte header + payload, total `(size*2)+6` bytes:
+Framing: 6-byte header + payload, total `(size*2)+6` bytes:
 - byte 0: signature `0xA0`; byte 1: command id; bytes 2–3: 16-bit tag
   (client tag counter starts at -275); byte 4: attr; byte 5: size in 16-bit words.
-- Responses (`JciResponse.java`): tag, cmd, result code, attr, size, payload.
+- Responses: tag, cmd, result code, attr, size, payload.
 
 Command IDs (`JciCommands.CommandType`):
 GetHeadsetVersion=1, ReadPSKey=2, WritePSKey=3, PostMessage=5, CancelMessage=6,
@@ -52,7 +51,7 @@ SetLocator=27, SetCustomEQ=28.
 
 Result codes include PSKeyWriteFailure=9, DSPnotStarted=23, etc. (`CommandResult`).
 
-Feature surface (`JciFeatures.java`): LiveAudio toggle, voice announcements,
+Feature surface: LiveAudio toggle, voice announcements,
 voice caller-ID, TapTap / ShakeShake / MultiShake modes, paired-device priority
 list, custom EQ, friendly name. Exactly the MyTALK-era personalisation, done locally.
 
@@ -81,5 +80,5 @@ list, custom EQ, friendly name. Exactly the MyTALK-era personalisation, done loc
 ## Open questions
 - Does the app gate device features behind Jawbone account login? (mitigation:
   third-party client — protocol is unauthenticated at SPP level)
-- JCI tag byte order + Authentication payload semantics (read `JciDevice.java` deeper).
+- JCI tag byte order + Authentication payload semantics (read the app's JCI device class deeper).
 - Whether Mini Jambox exposes any BLE control (BT 4.0) in addition to SPP.

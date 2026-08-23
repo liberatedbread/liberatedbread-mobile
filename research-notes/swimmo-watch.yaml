@@ -64,7 +64,7 @@ ble:
 
 protocol:
   note: >
-    Unobfuscated app; all UUIDs from BLEFunction/UUIDAdresses.java. Frame builders/
+    Unobfuscated app; all UUIDs from its BLE UUID address table. Frame builders/
     parsers live in BLEFunction/{Workout,Configuration,WorkoutCharacteristic,
     ConfigCharacteristics,CRC32Function,FirmwareUpdate}. Pairing security is a
     device-local password via the authorization characteristic, not a cloud token.

@@ -21,7 +21,7 @@ ble:
   services:
     - uuid: "be7386e3-8627-cf85-d743-dab853c7da70"
       name: cap_service
-      description: Earin proprietary CAP protocol service (CapUuids.java)
+      description: Earin proprietary CAP protocol service
       characteristics:
         - uuid: "19df2d7b-c4d0-47ff-a8f4-61173f363a42"
           name: cap_requests
@@ -40,7 +40,7 @@ ble:
 protocol:
   note: >
     CAP is a request/response GATT protocol: app writes command strings to
-    cap_requests and receives responses/events on cap_events; CapProtocol.java
+    cap_requests and receives responses/events on cap_events; the app's CAP protocol class
     matches responses by command-string prefix. Commands cover bass boost, L/R
     balance, gain, battery readout, custom name. Command vocabulary not yet
     extracted but present in cleartext in com.earin.earin.communication.cap.

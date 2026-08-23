@@ -99,8 +99,12 @@ beacon, re-randomised per advert), optional `[0x04, antennaOffset]`, slow mode
 cloud API's lockId). Format 2 (21 B): `[0x02][16B UUID BE][u32 LE]` under
 company `0x015E`; legacy format 1 (17 B): `[16B UUID][u8]` under company
 `0x5E01` — the same ID byte-swapped, a firmware quirk; filter for both. A
-wildcard `0x015E` filter finds any lock. Trailing u32/u8 semantics unknown
-(capture item).
+wildcard `0x015E` filter finds any lock. The trailing u32/u8 is the lock's
+**state-change sequence number**: the app stages it per lock and only treats
+an advert as "new data available" when it differs from the last committed
+value (committing on connect; 0 resets the baseline). The same counter comes
+back in the result certificate (LIC field `0xBC`, u32 LE) after lock actions
+and status queries.
 
 ### GATT profile (hosted by the controller; the lock is the client)
 
@@ -163,12 +167,58 @@ All pure Java (JCA + vendored Tink) — no native code:
   from cert field 0x35), msg = lockNonce ‖ phoneNonce)`, both nonces 32 bytes.
 - **Challenge-response**: `HMAC-SHA256(key = sharedSecret, msg = nonce XOR
   cmd)` as above.
-- Certificates: UniKey TLV `[field:1][len:2 LE][value]`; fields include
-  `0x30` role, `0x32` UUID, `0x35` X25519 pub, `0x36` Ed25519 pub, `0xB7`
-  expiry. Post-auth certs are HMAC-signed (field `0x22` =
-  `HMAC-SHA256(sharedSecret, serializedCert XOR nonce)`); nonces rotate every
-  connection, so captured certs don't replay.
+- Certificates: UniKey TLV `[field:1][len:2 LE][value]`; int fields are LE.
+  Recovered tags (from use sites — names were compile-time-stripped):
+  `0x11` cert type (1 = device public cert, `0x22` = server-verified
+  permission cert, `0x70` = DIQ/DIQR), `0x13` serialization version,
+  `0x14`/`0xB9` creation unix time (u32 LE, both set at cert generation),
+  `0x30` role (phone = 6), `0x32` device UUID, `0x35` X25519 pub, `0x36`
+  Ed25519 pub, `0xB7` device settings (nested TLV map), `0x73` hardware type
+  (u16; 19 = RPU gateway), `0x74` product descriptor (UTF-8, e.g. "RPU1").
+  Post-auth certs are HMAC-signed (field `0x22` =
+  `HMAC-SHA256(sharedSecret, serializedCert XOR nonce)`, computed with
+  fields `0x22` **and** `0x21` removed — `0x21` is a server/CA signature
+  field, also stripped from the firmware header cert before it is sent to
+  the lock); nonces rotate every connection, so captured certs don't replay.
 - Firmware blocks: CRC-16/BUYPASS (poly `0x8005`).
+
+### Lock Information Certificate (LIC)
+
+The result certificate the lock returns after DIQR commands; field layout
+recovered from the app's lock-information certificate class:
+
+| Tag | Meaning |
+|-----|---------|
+| `0x13` | serialization version (u8; server-timing-info path needs ≥ 3) |
+| `0x17` | latest client nonce |
+| `0x50` | device version, 3 bytes `[patch, minor, major]` → "major.minor.patch" |
+| `0x60` | lock history cert (response to `0x19`); the same tag carries the server timing cert when written *to* the lock (command `0x18`) |
+| `0xA5` | session certificate |
+| `0xB4` | battery level (u8) |
+| `0xB5` | lock status (u8): 0 unknown, 1 locked, 2 unlocked, 8 jammed, 9 jammed-locked, 10 jammed-unlocked |
+| `0xBC` | state-change sequence number (u32 LE) — same counter as the advert trailer |
+| `0xBD` | result code |
+| `0xBE` | door position (2 B: position + change enum 0 none / 1 manual / 2 powered / 3 pending) |
+| `0xC1` | battery charge status (gateway: 0 unknown / 1 charging / 2 not charging) |
+| `0xC2` | main power status (gateway: 0 unknown / 1 available / 2 disconnected) |
+
+**Time sync is cloud-mediated**: the app PUTs the base64 LIC to
+`/Locks/{lockId}/Communications`; the 200 response field
+`serverTimingInformationCertificate` is then relayed to the lock as DIQR
+command `0x18` in cert field `0x60`. The server-side computation is not in
+the app, so post-shutdown time sync (and thus scheduled-eKey fidelity) needs
+that step reimplemented. Lock history paging: request DIQR field `0xBC` =
+last-seen history sequence number (low 4 B LE); result code 2 (CONTINUE)
+means more pages — re-issue `0x19`. The history record layout inside the
+field-`0x60` cert was only ever parsed server-side (POST
+`/Locks/{lockId}/History`).
+
+Firmware payloads came from `GET /Locks/{lockId}/Firmwares` → JSON
+`{certificate, image, version}` (base64 TLV header cert, opaque image blob,
+version string). UPC transport: header nested in DIQR field `0x60` with
+field `0x21` stripped, 900-byte image chunks in field `0x9C`, next offset
+u32 LE in result field `0x9B`. The app never parses the image; its
+format/signing is lock-side and no image has been obtained.
 
 ### There is no LAN protocol
 
@@ -195,9 +245,10 @@ and are the most interesting unexplored local surface.
 - A local controller gains TTO-level trust; treat its BLE credential store
   accordingly.
 - What still needs an over-the-air capture (no link-layer encryption, so any
-  LE sniffer works): lock-side nonce/fragmentation behaviour, TLV field names,
-  LIC/time-sync layout, lock-advert trailing bytes, firmware image format, and
-  long-term acceptance of self-enrolled devices without cloud.
+  LE sniffer works): lock-side nonce/fragmentation behaviour, firmware image
+  blob format, and long-term acceptance of self-enrolled devices without
+  cloud. Not recoverable from the app at all: the server-side computation
+  behind time sync, and the history record layout (parsed only server-side).
 
 ## Tools Used
 

@@ -25,10 +25,10 @@ Bluetooth Classic temperature/humidity data logger from Lascar Electronics (UK).
 
 ## Protocol (recovered from DEX)
 Connection: SPP UUID `00001101-0000-1000-8000-00805F9B34FB`
-(`Globals.java` -> `SerialPortServiceClass_UUID`, classic BluetoothChat-style
+(the app's globals define `SerialPortServiceClass_UUID`; classic BluetoothChat-style
 ConnectThread/ConnectedThread).
 
-ASCII command set (`Logger_Connected.java:114-120`), each command is a short
+ASCII command set (from the app's connected-logger screen), each command is a short
 slash-prefixed string written raw to the socket, followed by the payload/response:
 
 | Command | Meaning |
@@ -48,7 +48,7 @@ Other recovered details:
   (temp/RH high/low), delayed start, RTC fields, min/max, channel slope/offset
   calibration doubles, battery level.
 - Integrity: CRC-16 (reflected, init 0xFFFF — CCITT/Kermit style) computed in
-  `crc16()` at `Logger_Connected.java:783`.
+  a `crc16()` helper in the same screen.
 - Firmware update header constant: `FFFFFFFF4354424C00BF0100E60E0000`
   (contains ASCII `CTBL`), sent after `/WH`.
 - Downloaded logs are stored on-device as plain `.txt` files.
@@ -64,7 +64,7 @@ Other recovered details:
   — needs one HCI snoop or live session.
 - Whether `/WF` OTA is safe to re-host (firmware.srec no longer distributed).
 
-## Files analyzed
-- `com/LascarElectronics/EasyLogBT/Globals.java` — SPP UUID, socket threads
-- `com/LascarElectronics/EasyLogBT/Logger_Connected.java` — command set, CRC16, OTA
-- `com/LascarElectronics/EasyLogBT/Helpers/ConfigBlock.java` — 85-byte config layout
+## App areas analysed
+- SPP UUID, socket threads
+- command set, CRC16, OTA
+- 85-byte config layout

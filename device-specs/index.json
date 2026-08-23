@@ -169,6 +169,123 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Beurer PO60 Pulse Oximeter",
+    "path": "device-specs/devices/beurer-po60-pulse-oximeter.yaml",
+    "protocol": "ble",
+    "category": "health",
+    "manufacturer": "Beurer GmbH",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Shreyan1/Beurer-PO60-PulseOximeter-Bluetooth-Integration",
+        "url": "https://github.com/Shreyan1/Beurer-PO60-PulseOximeter-Bluetooth-Integration",
+        "description": "Third-party bleak (Python) script that polls a real PO60 with the same FF01/FF02 UUIDs and the 90 05 15 / 99 00 19 command bytes documented here — the closest thing to a working reference client, and the right starting point for a Home Assistant polling script."
+      },
+      {
+        "title": "beurer HealthManager Pro on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.beurer.healthmanager",
+        "description": "Current vendor app (v1.22.0, Aug 2026); the v1.17.1 APK analysed for this spec is an older release of the same package."
+      },
+      {
+        "title": "openScale: Beurer/Sanitas BLE handlers",
+        "url": "https://github.com/oliexdev/openScale",
+        "description": "Open-source implementations of the sibling Beurer/Sanitas BLE protocols (scales on the FFE0 service) from the same ilink SDK family — useful context for the shared stack, though the PO60's FF12 protocol is its own."
+      },
+      {
+        "title": "Bluetooth SIG Pulse Oximeter profile (PLX, 0x1822)",
+        "url": "https://www.bluetooth.com/specifications/specs/pulse-oximeter-service-1-0/",
+        "description": "The standard profile the PO60 notably does NOT implement — listed so an implementer does not wait for PLX notifications that will never come."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Beurer Series 800 (Premium 800 / BM92) Blood Pressure Monitor",
+    "path": "device-specs/devices/beurer-series800-blood-pressure.yaml",
+    "protocol": "ble",
+    "category": "health",
+    "manufacturer": "Beurer",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Beurer Premium 800 (BM92) product page",
+        "url": "https://www.shop-beurer.com/products/copy-of-beurer-blood-pressure-arm-monitor-auto-400",
+        "description": "Vendor product page establishing that the US \"Series 800\"/\"Premium 800\" is model BM92, with its feature set (voice output, 2x120 memory, WHO indicator, cuff-position and arrhythmia detection)."
+      },
+      {
+        "title": "beurer HealthManager Pro on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.beurer.healthmanager",
+        "description": "The required companion app for the BM92; its store listing states the app is fully usable locally without registering an account."
+      },
+      {
+        "title": "beurer HealthManager (classic) on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.beurer.connect.healthmanager",
+        "description": "The older-generation app; being essentially unobfuscated made it the best source for the BP record format and the family UUID map."
+      },
+      {
+        "title": "smurfix/ble-stuff",
+        "url": "https://github.com/smurfix/ble-stuff",
+        "description": "Python/bleak reader for the Beurer BM85 over the standard 0x1810/0x2A35 path; independently documents the big-endian-SFLOAT quirk and proves cloud-free local sync of this device family."
+      },
+      {
+        "title": "openScale issue #111 (Beurer BF700 protocol notes)",
+        "url": "https://github.com/oliexdev/openScale/issues/111",
+        "description": "Community reverse-engineering notes for a Beurer scale; scales only, useful family context."
+      },
+      {
+        "title": "beep-projects/bpconnect",
+        "url": "https://github.com/beep-projects/bpconnect",
+        "description": "USB (HID) reader for Beurer BP monitors; not applicable to the BLE-only BM92, listed for completeness."
+      },
+      {
+        "title": "curzon01/bm58",
+        "url": "https://github.com/curzon01/bm58",
+        "description": "USB/serial reader for the Beurer BM58; not applicable to the BM92, listed for completeness."
+      },
+      {
+        "title": "device.report Beurer BM92 page",
+        "url": "https://device.report/beurer/bm92",
+        "description": "Lists a Beurer BM92 FCC filing dated 2023-08-30; the page is bot-blocked, so the exact FCC ID was not retrieved (the printed Premium 800 manual should carry it)."
+      },
+      {
+        "title": "Bluetooth SIG Blood Pressure Profile",
+        "url": "https://www.bluetooth.com/specifications/specs/blood-pressure-profile-1-1-1/",
+        "description": "The published profile this device implements; authoritative for the 0x1810/0x2A35/0x2A49 structure, subject to the Beurer quirks this spec documents on top."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "BIO-key TouchLock BT family",
+    "path": "device-specs/devices/biokey-touchlock-fingerprint-lock.yaml",
+    "protocol": "ble",
+    "category": "lock",
+    "manufacturer": "BIO-key International, Inc. (locks built on a shared OEM platform; the companion app is published by a third-party developer)",
+    "manufacturer_status": "abandoned",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "TouchLock BT companion app on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.champion.lock"
+      },
+      {
+        "title": "FCC ID 2AIKJ-BL — TouchLock BT padlocks (models BL0509/BL1209/BS1609)",
+        "url": "https://fcc.report/FCC-ID/2AIKJBL"
+      },
+      {
+        "title": "FCC manual mirror (model list BL0509/BL1209/BS1609)",
+        "url": "https://fccid.io/m/a149d2e83326ce6fab053504a390ff868f705671805d3463519992b539bceadb.pdf"
+      },
+      {
+        "title": "BIO-key International (company status; SEC filings)",
+        "url": "https://www.bio-key.com"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "BLE Fingertip Pulse Oximeter (SP001 / \"F7\")",
     "path": "device-specs/devices/ble-pulse-oximeter.yaml",
     "protocol": "ble",
@@ -320,6 +437,122 @@
     "manufacturer_status": "active",
     "testing_status": "untested",
     "testing_detail": "capture-verified",
+    "helpful_urls": [
+      {
+        "title": "Xunil99/ha-bosch-ebike (HACS)",
+        "url": "https://github.com/Xunil99/ha-bosch-ebike",
+        "description": "HACS integration for Bosch eBike Smart System bikes (Performance Line CX); ride/bike sensors via the Bosch Data Act API."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Brava Oven",
+    "path": "device-specs/devices/brava-oven.yaml",
+    "protocol": "wifi",
+    "category": "appliance",
+    "manufacturer": "Brava Home Inc. (acquired by Middleby Corporation, 2019)",
+    "manufacturer_status": "shutdown",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "FCC filing 2AOGABRAVAONE",
+        "url": "https://fccid.io/2AOGABRAVAONE",
+        "description": "Brava Home 'BRAVAONE' grant (2018-10-05): Wi-Fi 2.4 GHz DTS and 5 GHz UNII only, no Bluetooth — the radio evidence for the no-BLE conclusion. Internal photos not yet mined for the Wi-Fi module identity."
+      },
+      {
+        "title": "Brava support site / shutdown notice",
+        "url": "https://support.brava.com/",
+        "description": "Vendor's cessation-of-operations notice (effective 2026-03-06): cloud and recipe library 'currently operational' but may be limited or discontinued at any time."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Brother QL-1110NWB Label Printer",
+    "path": "device-specs/devices/brother-ql-1110nwb.yaml",
+    "protocol": "wifi",
+    "category": "printer",
+    "manufacturer": "Brother Industries",
+    "manufacturer_status": "active",
+    "protocol_handler": "brother_ql_raster",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "brother_ql — open Python implementation of the QL raster language",
+        "url": "https://github.com/pklaus/brother_ql",
+        "description": "Hardware-tested reference implementation: job builder, per-model geometry (raster.py/models.py/labels.py), status decoder, network and USB backends. Source of the per-model numbers in this spec.\n"
+      },
+      {
+        "title": "Brother Raster Command Reference (QL series)",
+        "url": "https://www.jarcomputers.com/images/custom/docs/b471757576aff4ef4eb7f8bd96a113c575133c95_1722315_ql820nwbcyj1_icecat_multimedia_other_digital_assets_2_en_gb-1725017762.pdf",
+        "description": "Brother's own software developer's manual for the raster command set — the vendor-authoritative text this spec summarizes.\n"
+      },
+      {
+        "title": "Brother developer FAQ — command printing",
+        "url": "https://support.brother.com/g/s/es/dev/en/command/faq/index.html?navi=offall",
+        "description": "Network transports for command printing (TCP 9100 / LPR / FTP) and the SNMP status OID.\n"
+      },
+      {
+        "title": "QL-1110NWB product page (interfaces, BT profiles)",
+        "url": "https://www.brother-usa.com/p/desktop-label-printers/QL1110NWB",
+        "description": "Vendor spec sheet: BT 2.1+EDR with SPP/BIP/OPP/HCRP/iAP, Wi-Fi b/g/n, Ethernet, Wireless Direct, USB host.\n"
+      },
+      {
+        "title": "QL-1110NWB user manual — reset procedures",
+        "url": "https://www.manualslib.com/manual/1361694/Brother-Ql-1110nwb.html?page=141",
+        "description": "Button-based reset ladder (Cutter ×2 network / ×4 data+settings / ×6 full factory reset) documented in device.setup.factory_reset.\n"
+      },
+      {
+        "url": "https://www.home-assistant.io/integrations/brother/",
+        "title": "Home Assistant Brother integration",
+        "description": "HA core integration monitoring Brother network printers over SNMP; covers the QL label-printer family."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Cat Printer MXW01 Mini Thermal Printer",
+    "path": "device-specs/devices/cat-printer-mxw01.yaml",
+    "protocol": "ble",
+    "category": "printer",
+    "manufacturer": "Unbranded / various OEMs",
+    "manufacturer_status": "unsupported",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "MaikelChan/CatPrinterBLE",
+        "url": "https://github.com/MaikelChan/CatPrinterBLE",
+        "description": "First full MXW01 client (C#/.NET), built from decompiling the vendor app and tested on a purchased unit. Source of the eject/retract, battery, print-type and version commands, the 4bpp grayscale mode, and the status-payload field offsets used here."
+      },
+      {
+        "title": "jeremy46231/MXW01-catprinter",
+        "url": "https://github.com/jeremy46231/MXW01-catprinter",
+        "description": "Python/bleak client with a PROTOCOL.md protocol write-up; hardware-tested. Note its \"Payload[N]\" indices include the 6-byte frame header, and its \"CRC-8/DALLAS-MAXIM\" label actually describes plain CRC-8 (poly 0x07)."
+      },
+      {
+        "title": "dave9123/MXW01-catprinter",
+        "url": "https://github.com/dave9123/MXW01-catprinter",
+        "description": "Fork/continuation of the jeremy46231 Python client."
+      },
+      {
+        "title": "eerimoq/moblin (CatPrinter integration)",
+        "url": "https://github.com/eerimoq/moblin/tree/main/Moblin/Integrations/CatPrinter",
+        "description": "Earliest known MXW01 implementation (Swift, iOS, in production). Independently corroborates the frame format, the 0x22 0x21 preamble, print modes 0 (1bpp) / 2 (4bpp), and the status-payload offsets at payload[6]/payload[7]."
+      },
+      {
+        "title": "clementvp/mxw01-thermal-printer",
+        "url": "https://github.com/clementvp/mxw01-thermal-printer",
+        "description": "Framework-agnostic TypeScript library (Web Bluetooth, Node, Bun) built on the dropalltables/jeremy46231 lineage; practical intensity guidance (0x5D default, >150 risks paper damage)."
+      },
+      {
+        "title": "Legacy cat-printer spec",
+        "url": "https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/cat-printer.yaml",
+        "description": "Sibling spec for the older GB01/MX05 family — same BLE service UUIDs, incompatible 0x51 0x78 command protocol."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -546,6 +779,13 @@
     "manufacturer_status": "active",
     "testing_status": "verified",
     "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "url": "https://www.home-assistant.io/integrations/dyson/",
+        "title": "Home Assistant Dyson integration",
+        "description": "HA core integration speaking this same local MQTT protocol to Dyson purifiers/fans once device credentials are known."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -556,6 +796,13 @@
     "manufacturer": "Unbranded / various OEMs (Zhiling/DuoCo etc.)",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "dave-code-ruiz/elkbledom (HACS)",
+        "url": "https://github.com/dave-code-ruiz/elkbledom",
+        "description": "Home Assistant (HACS) custom component controlling ELK-BLEDOM/MELK/LEDBLE strips over BLE; a production consumer of the command set documented here."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -571,12 +818,7 @@
       {
         "title": "Ember app on Google Play",
         "url": "https://play.google.com/store/apps/details?id=com.embertech",
-        "description": "Vendor app listing; com.embertech is the package this spec's static analysis used."
-      },
-      {
-        "title": "Ember app on APKPure",
-        "url": "https://apkpure.com/ember/com.embertech",
-        "description": "Mirror the analysed XAPK came from (app 4.5.9, versionCode 220)."
+        "description": "Vendor app listing — the app this spec's static analysis is based on."
       },
       {
         "title": "orlopau/ember-mug",
@@ -695,6 +937,75 @@
     "manufacturer_status": "active",
     "testing_status": "verified",
     "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant Enphase Envoy integration",
+        "url": "https://www.home-assistant.io/integrations/enphase_envoy/",
+        "description": "HA core integration over the local Envoy API (owner-token auth); the production consumer of the endpoints documented here."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Enphase IQ Battery / IQ System Controller (BLE)",
+    "path": "device-specs/devices/enphase-iqbattery-ble.yaml",
+    "protocol": "ble",
+    "category": "energy",
+    "manufacturer": "Enphase Energy",
+    "manufacturer_status": "active",
+    "openness": "hostile",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant Enphase Envoy integration",
+        "url": "https://www.home-assistant.io/integrations/enphase_envoy/",
+        "description": "HA core integration; exposes IQ Battery telemetry (state of charge, power) as reported through the site Envoy gateway — the production consumer of the data these BLE-commissioned units report."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "ESPHome Node (generic)",
+    "path": "device-specs/devices/esphome-device.yaml",
+    "protocol": "wifi",
+    "category": "other",
+    "manufacturer": "Various (ESPHome open-source firmware)",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "url": "https://esphome.io/web-api/",
+        "title": "ESPHome Web Server API",
+        "description": "The REST grammar, per-domain payloads and actions, and the /events event-source contract — including the id/name_id identifier formats this spec's ADDRESSING section summarises."
+      },
+      {
+        "url": "https://esphome.io/components/web_server/",
+        "title": "ESPHome web_server component",
+        "description": "Whether the HTTP surface exists on a given node, its port, auth, CORS and the web-OTA warning."
+      },
+      {
+        "url": "https://esphome.io/components/api/",
+        "title": "ESPHome native API component",
+        "description": "TCP 6053 protobuf, the Noise encryption key, and the removal of the legacy password."
+      },
+      {
+        "url": "https://esphome.io/components/mdns/",
+        "title": "ESPHome mDNS component",
+        "description": "How a node announces itself, and how a config adds extra services."
+      },
+      {
+        "url": "https://github.com/esphome/esphome",
+        "title": "esphome/esphome",
+        "description": "The firmware itself: mdns_component.cpp for the TXT records, web_server.cpp for URL matching, api_frame_helper_*.cpp for the native-API framing."
+      },
+      {
+        "url": "https://esphome.io/components/captive_portal/",
+        "title": "ESPHome captive portal",
+        "description": "The fallback hotspot and its 192.168.4.1 setup page — the recovery path when a router changes."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -710,6 +1021,11 @@
         "title": "hertzg/metekcity",
         "url": "https://github.com/hertzg/metekcity",
         "description": "Hardware reverse engineering of the ESN00 from HCI snoop plus noble against a real scale; one of the two independent confirmations of the packet format, and the source of the Web Bluetooth connect-by-name behaviour noted here."
+      },
+      {
+        "title": "ronnnnnnnnnnnnn/etekcity_fitness_scale_ble (HACS)",
+        "url": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble",
+        "description": "Home Assistant (HACS) BLE integration for Etekcity fitness scales (ESF-551; ESF24 in beta) — same vendor family, active-connect path; does not decode the ESN00 kitchen-scale broadcast format."
       },
       {
         "title": "Hacking a BLE kitchen scale",
@@ -730,6 +1046,11 @@
         "title": "FCC ID 2AB22-ESN00",
         "url": "https://fccid.io/2AB22-ESN00",
         "description": "FCC filing for the scale; the source of the FCC ID and variant recorded here."
+      },
+      {
+        "url": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble",
+        "title": "etekcity_fitness_scale_ble (HACS custom integration)",
+        "description": "HACS custom integration decoding Etekcity BLE scale advertisements locally."
       }
     ],
     "schema_version": "2020-12"
@@ -755,6 +1076,16 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Flowtoys Connect Props (capsule 2 / vision) via Connect Bridge",
+    "path": "device-specs/devices/flowtoys-props.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Flowtoys",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Frigidaire WiFi Portable Air Conditioner",
     "path": "device-specs/devices/frigidaire-portable-ac.yaml",
     "protocol": "wifi",
@@ -762,6 +1093,13 @@
     "manufacturer": "Frigidaire (Electrolux)",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "bm1549/home-assistant-frigidaire (HACS)",
+        "url": "https://github.com/bm1549/home-assistant-frigidaire",
+        "description": "HACS custom component for Frigidaire ACs via the Electrolux cloud API; cloud fallback where the local path documented here is unavailable."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -772,6 +1110,13 @@
     "manufacturer": "Frigidaire (Electrolux)",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "bm1549/home-assistant-frigidaire (HACS)",
+        "url": "https://github.com/bm1549/home-assistant-frigidaire",
+        "description": "HACS custom component for Frigidaire ACs via the Electrolux cloud API; cloud fallback where the local path documented here is unavailable."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -867,6 +1212,11 @@
         "title": "egold555/Govee-Reverse-Engineering",
         "url": "https://github.com/egold555/Govee-Reverse-Engineering",
         "description": "Community protocol notes for Govee devices. H5080.md is the document this spec's UUIDs and frames were verified against."
+      },
+      {
+        "title": "LaggAt/hacs-govee (HACS)",
+        "url": "https://github.com/LaggAt/hacs-govee",
+        "description": "HACS Govee integration covering the cloud-API switches/plugs; no Home Assistant integration speaks this BLE protocol directly yet."
       }
     ],
     "schema_version": "2020-12"
@@ -909,6 +1259,102 @@
         "title": "axelson/govee_phx",
         "url": "https://github.com/axelson/govee_phx",
         "description": "Elixir controller for Govee BLE bulbs."
+      },
+      {
+        "title": "Home Assistant Govee lights local integration",
+        "url": "https://www.home-assistant.io/integrations/govee_light_local/",
+        "description": "HA core LAN-API integration; the H6001 supports Govee's local Wi-Fi API alongside the BLE protocol documented here."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Govee H6101/H6104 TV Backlight",
+    "path": "device-specs/devices/govee-h6101-backlight.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Govee (Shenzhen Intellirocks Tech / iHoment)",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "egold555/Govee-Reverse-Engineering",
+        "url": "https://github.com/egold555/Govee-Reverse-Engineering",
+        "description": "Community protocol notes for Govee devices; the shared 20-byte framing and mode sub-commands this spec relies on are documented there per model."
+      },
+      {
+        "title": "chvolkmann/govee_btled",
+        "url": "https://github.com/chvolkmann/govee_btled",
+        "description": "Python client for legacy Govee BLE lights; its LedMode command bytes are the cross-reference for the color/scene/music sub-modes."
+      },
+      {
+        "title": "Reverse-engineering Govee smart lights",
+        "url": "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/",
+        "description": "Write-up of the shared Govee BLE command protocol with an on-device GATT dump."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Govee RGB Lights (classic, non-segmented)",
+    "path": "device-specs/devices/govee-rgb-light.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Govee (Shenzhen Intellirocks Tech / iHoment)",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "chvolkmann/govee_btled",
+        "url": "https://github.com/chvolkmann/govee_btled",
+        "description": "Python client for legacy Govee BLE lights; the cross-reference for this family's core command bytes including the Kelvin-shade white form."
+      },
+      {
+        "title": "egold555/Govee-Reverse-Engineering",
+        "url": "https://github.com/egold555/Govee-Reverse-Engineering",
+        "description": "Per-model community protocol notes (H6127.md and siblings) covering the UUID table and the colour-mode sub-commands."
+      },
+      {
+        "title": "Reverse-engineering Govee smart lights",
+        "url": "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/",
+        "description": "Write-up with an on-device GATT dump of the shared 00010203 command profile."
+      },
+      {
+        "title": "Home Assistant Govee lights local integration",
+        "url": "https://www.home-assistant.io/integrations/govee_light_local/",
+        "description": "HA core integration for the firmware-side LAN API that WiFi models in this family can expose once enabled."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Govee RGBIC / DreamColor Lights (segmented)",
+    "path": "device-specs/devices/govee-rgbic-light.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Govee (Shenzhen Intellirocks Tech / iHoment)",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "egold555/Govee-Reverse-Engineering",
+        "url": "https://github.com/egold555/Govee-Reverse-Engineering",
+        "description": "Per-model community protocol notes; the segment bitmasks and colour-mode sub-commands were cross-checked against these."
+      },
+      {
+        "title": "Reverse-engineering Govee smart lights",
+        "url": "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/",
+        "description": "Write-up with an on-device GATT dump of the shared 00010203 command profile."
+      },
+      {
+        "title": "chvolkmann/govee_btled",
+        "url": "https://github.com/chvolkmann/govee_btled",
+        "description": "Python client for the legacy command subset (power/brightness/color/scene/music)."
+      },
+      {
+        "title": "Home Assistant Govee lights local integration",
+        "url": "https://www.home-assistant.io/integrations/govee_light_local/",
+        "description": "HA core integration for the firmware-side LAN API (UDP 4001/4002/4003) that WiFi models expose once the local-network-API function is enabled."
       }
     ],
     "schema_version": "2020-12"
@@ -1012,6 +1458,40 @@
     "manufacturer_status": "active",
     "testing_status": "verified",
     "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant Philips Hue integration",
+        "url": "https://www.home-assistant.io/integrations/hue/",
+        "description": "HA core integration over the local Hue bridge API v2 (CLIP); where this protocol runs in production."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Hyperice Hypervolt Plus",
+    "path": "device-specs/devices/hyperice-hypervolt-plus.yaml",
+    "protocol": "ble",
+    "category": "fitness",
+    "manufacturer": "Hyperice, Inc.",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Hyperice app on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.hyperice.app",
+        "description": "Vendor app listing — the app this spec's static analysis is based on."
+      },
+      {
+        "title": "Hypervolt Plus product page",
+        "url": "https://hyperice.com/products/hypervolt-plus/",
+        "description": "Vendor product page (hardware specs: 90 W motor, 3 speeds, 5 heads)."
+      },
+      {
+        "title": "Hyperice on device.report",
+        "url": "https://device.report/hyperice",
+        "description": "Device database listing carrying the Hypervolt Plus model number 54020 001-00 (the page bot-blocks plain HTTP clients; open in a browser)."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1033,6 +1513,13 @@
     "manufacturer_status": "unsupported",
     "protocol_handler": "idotmatrix_image",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "adriantukendorf/iDotMatrix-HomeAssistant (HACS)",
+        "url": "https://github.com/adriantukendorf/iDotMatrix-HomeAssistant",
+        "description": "HACS integration driving iDotMatrix BLE pixel boards locally (native adapter or Bluetooth proxy)."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1152,6 +1639,49 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "iPixel Color LED Matrix Panel (TIRO/Heaton)",
+    "path": "device-specs/devices/ipixel-color-led-panel.yaml",
+    "protocol": "ble",
+    "category": "display",
+    "manufacturer": "Shenzhen Heaton Technology Co., Ltd. / TIRO (OEM; sold under dozens of storefront brands and marketplace SKUs)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "lucagoc/pypixelcolor (iPixel-CLI)",
+        "url": "https://github.com/lucagoc/pypixelcolor",
+        "description": "Actively maintained Python client/CLI with the cleanest command builders; this spec's byte formats are cross-checked against it."
+      },
+      {
+        "title": "cagcoach/ha-ipixel-color",
+        "url": "https://github.com/cagcoach/ha-ipixel-color",
+        "description": "Home Assistant HACS integration plus iPIXEL-Protocol-Documentation.md (derived from yyewolf/go-ipxl and sdolphin-JP/ipixel-ctrl)."
+      },
+      {
+        "title": "DonKracho/ESPHome-component-iPixel-ble",
+        "url": "https://github.com/DonKracho/ESPHome-component-iPixel-ble",
+        "description": "ESPHome component emulating the app — embedded/MicroPython-friendly reference."
+      },
+      {
+        "title": "yewolf RE write-up",
+        "url": "https://yewolf.fr/blog/reverse-engineering-a-cheap-led-matrix/",
+        "description": "Original reverse-engineering blog post for the family."
+      },
+      {
+        "title": "iPixel Color on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.wifiled.ipixels",
+        "description": "Vendor companion app — the app this spec's static analysis is based on."
+      },
+      {
+        "title": "ipixelcolor.net",
+        "url": "https://ipixelcolor.net/",
+        "description": "Vendor site; credits Shenzhen Heaton Technology Co., Ltd."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Network Printer (IPP / AirPrint / IPP Everywhere)",
     "path": "device-specs/devices/ipp-network-printer.yaml",
     "protocol": "wifi",
@@ -1219,6 +1749,16 @@
         "title": "homebridge-plugins/homebridge-roomba — where the j-series TLS quirks are recorded",
         "url": "https://github.com/homebridge-plugins/homebridge-roomba",
         "description": "HomeKit bridge over the same protocol. Its issue tracker is the best public record of j7-era firmware resetting the TLS connection during the password handshake, and of the retry timings that get past it.\n"
+      },
+      {
+        "title": "MikroTik — Neighbor Discovery (MNDP), the other protocol on UDP 5678",
+        "url": "https://help.mikrotik.com/docs/spaces/ROS/pages/24805517/Neighbor+discovery",
+        "description": "MNDP broadcasts on UDP 5678, the same port as the Roomba discovery probe, so a single `irobotmcs` broadcast also draws MNDP replies from any MikroTik gear on the segment. This spec's 2026-08-14 field test saw exactly that: two MikroTik devices answered the probe with big-endian TLV records (not JSON). The vendor reference for telling that traffic apart from a robot's.\n"
+      },
+      {
+        "title": "packetmischief.ca — 'Roomba Stuck at Verify password' (discovery and ports across subnets)",
+        "url": "https://www.packetmischief.ca/2023/01/15/roomba-stuck-at-verify-password/",
+        "description": "A real-world debugging write-up: the vendor app hangs at 'Verify password' when UDP 5678 discovery and TCP 8883 cannot reach the robot across a subnet boundary. The clearest public confirmation that both ports must reach the robot and that discovery is broadcast-scoped — useful for telling a robot that is asleep apart from one the scanner cannot route to.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1243,15 +1783,20 @@
     "schema_version": "2020-12"
   },
   {
-    "name": "Johnson JLX LDM330 / LDM130 Laser Distance Meter (Winho OEM platform)",
+    "name": "Johnson JLX LDM330 / LDM130 Laser Distance Meter (Precaster Enterprises OEM platform)",
     "path": "device-specs/devices/jlx-laser-distance-meter.yaml",
     "protocol": "ble",
     "category": "sensor",
-    "manufacturer": "Johnson Level & Tool (Winho OEM)",
+    "manufacturer": "Johnson Level & Tool (Precaster Enterprises OEM)",
     "manufacturer_status": "active",
     "testing_status": "verified",
     "testing_detail": "minimally-verified",
     "helpful_urls": [
+      {
+        "title": "Precaster Enterprises (OEM)",
+        "url": "https://www.precaster.com.tw/",
+        "description": "OEM of the shared platform. The Measure-Up app's only hardcoded URL is a Precaster about page, and Precaster's iM2 app is the flagship build of the same codebase."
+      },
       {
         "title": "Johnson LDM330 product page",
         "url": "https://www.johnsonlevel.com/P/1762/LaserDistanceMeterwAngleSensorandBluetooth",
@@ -1263,14 +1808,67 @@
         "description": "Vendor manual. Covers the display units the measurement frame's unit code reports, and the button sequence that puts the meter into Bluetooth mode."
       },
       {
-        "title": "Measure-Up on APKPure",
+        "title": "Measure-Up companion app",
         "url": "https://apkpure.net/measure-up/com.winho.measure_up",
-        "description": "Mirror the analysed APK came from (com.winho.measure_up v1.0.1) — this whole spec is static analysis of that build."
+        "description": "The vendor companion app this spec's static analysis is based on."
       },
       {
         "title": "ImageMeter: supported Bluetooth laser distance meters",
         "url": "https://www.imagemeter.com/manual/bluetooth/devices/",
-        "description": "Third-party app's catalogue of which meters it speaks to and how, useful for placing this Winho OEM platform among the other vendors' protocols."
+        "description": "Third-party app's catalogue of which meters it speaks to and how, useful for placing this Precaster OEM platform among the other vendors' protocols."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "June Intelligent Oven",
+    "path": "device-specs/devices/june-oven.yaml",
+    "protocol": "wifi",
+    "category": "appliance",
+    "manufacturer": "June Life, Inc. (acquired by Weber-Stephen Products LLC, Jan 2021)",
+    "manufacturer_status": "shutdown",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "keithah/homebridge-june-oven",
+        "url": "https://github.com/keithah/homebridge-june-oven",
+        "description": "Clean-room June integration spec plus working TypeScript/Python clients, verified end-to-end against a physical gen-3 oven (provenance: Android emulator + Frida, hooking libsodium and conscrypt). The primary protocol source for this spec. Already supports baseUrl/wsUrl overrides — the durable client design; its protocol-decode layer hardcodes the camera hosts, which is the PR a replacement-cloud future needs."
+      },
+      {
+        "title": "mvanhorn/printing-press-library — June conformance vectors",
+        "url": "https://github.com/mvanhorn/printing-press-library",
+        "description": "internal/june/testdata/vectors.json: byte-exact synthetic test vectors for the 72-byte frame signature, SRP-6a exchange, Damm check digit and NaCl secretbox seal. The test oracle for any reimplementation — no real credentials needed, ever."
+      },
+      {
+        "title": "Weber FAQ: What is happening to the June app",
+        "url": "https://consumer-care.weber.com/s/article/What-is-happening-to-the-June-App",
+        "description": "The shutdown notice: all June app/cloud services retire 2026-09-22; the oven keeps working from its touchscreen. Vendor source for the deadline and the survival list."
+      },
+      {
+        "title": "FCC grantee 2AJGA (June Life)",
+        "url": "https://fccid.io/2AJGA",
+        "description": "FCC filings for all three oven generations (JCP01 gen 1, gen 2 Wi-Fi-only grants, JCH03 gen 3): radio complements per generation, label exhibits."
+      },
+      {
+        "title": "June (company) — Wikipedia",
+        "url": "https://en.wikipedia.org/wiki/June_(company)",
+        "description": "Corporate history: June Life, the Weber-Stephen acquisition (Jan 2021), product generations."
+      },
+      {
+        "title": "Owner thread: reset ovens brick after 2026-09-22",
+        "url": "https://www.reddit.com/r/Juneoven/comments/1v75wr7/new_and_reset_ovens_will_be_bricks_after_922/",
+        "description": "Community documentation of the first-boot software-download dependency — the brick-risk population. Includes the former June engineer's first-hand comments (final firmware 1.24.1.34 preserved privately; ADB removed in user mode; oven firmware bespoke)."
+      },
+      {
+        "title": "Petition: final firmware with local network access",
+        "url": "https://www.change.org/p/demand-a-final-firmware-update-for-june-ovens",
+        "description": "Owner petition asking Weber for a local-control firmware release. Recorded as context, not as evidence of any capability."
+      },
+      {
+        "title": "sanjay900/igrill (adjacent Weber product, NOT this device)",
+        "url": "https://github.com/sanjay900/igrill",
+        "description": "BLE integration for the Weber iGrill probe. Shares no protocol surface with the June oven — the link is corporate, not technical. Listed only so nobody conflates the two."
       }
     ],
     "schema_version": "2020-12"
@@ -1314,12 +1912,22 @@
       {
         "url": "https://github.com/mcdax/walkingpad-controller/blob/main/docs/ks-fit-reverse-engineering.md",
         "title": "KS Fit reverse-engineering log (mcdax)",
-        "description": "blutter (Dart AOT) decompilation log of KS Fit v5.9.10/v6.0.7: model detection prefixes, ODM/supplement channels, FTMS routing."
+        "description": "Dart AOT analysis log of the KS Fit app: model detection prefixes, ODM/supplement channels, FTMS routing."
       },
       {
         "url": "https://github.com/darnfish/walkingpad",
         "title": "darnfish/walkingpad",
         "description": "JavaScript/Node BLE client for the WiLink protocol."
+      },
+      {
+        "url": "https://home.miot-spec.com/spec/ksmb.walkingpad.v1",
+        "title": "MIOT spec: ksmb.walkingpad.v1",
+        "description": "Xiaomi's public MIOT spec for the Wi-Fi/CN WalkingPad variant (on/off, speed-level, status, distance/time/steps/calories; start/stop actions). Also registered: ksmb.treadmill.v1 and ksmb.treadmill.v2. Control path: python-miio / Home Assistant Xiaomi MIOT."
+      },
+      {
+        "url": "https://github.com/indiefan/king_smith",
+        "title": "king_smith (HACS custom integration)",
+        "description": "HACS custom integration controlling KingSmith WalkingPad treadmills over BLE."
       }
     ],
     "schema_version": "2020-12"
@@ -1332,6 +1940,51 @@
     "manufacturer": "Kwikset / ASSA ABLOY (UniKey Technologies platform)",
     "manufacturer_status": "shutdown",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "gaggle331/home-assistant-kevo",
+        "url": "https://github.com/gaggle331/home-assistant-kevo",
+        "description": "Home Assistant custom component for Kevo locks via the Kevo Plus gateway cloud API (pykevoplus); CAPTCHA changes broke lock-id discovery, so a manual lock_id is required."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Smart LED Helmet Display (TIRO/Heaton)",
+    "path": "device-specs/devices/led-helmet-display.yaml",
+    "protocol": "ble",
+    "category": "display",
+    "manufacturer": "TIRO Innovation Technology (Shenzhen) Co., Ltd. (OEM; sold under dozens of storefront brands)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Shining Display on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.shiningdisplay.shiningdisplay",
+        "description": "Vendor companion app — the app this spec's static analysis is based on."
+      },
+      {
+        "title": "TIRO Innovation Technology",
+        "url": "https://www.tiro.cc/",
+        "description": "OEM behind the panel and the Shining Display app (site live 2026-08-18)."
+      },
+      {
+        "title": "GoneUp/mask-go",
+        "url": "https://github.com/GoneUp/mask-go",
+        "description": "Open client for the SIBLING Shining Mask family (Quintic QPP, AES-128-ECB) — a different protocol from this panel; useful approach reference only."
+      },
+      {
+        "title": "beclamide/mask-controller",
+        "url": "https://github.com/beclamide/mask-controller",
+        "description": "Another sibling-family (Shining Mask) client; approach reference only, not this protocol."
+      },
+      {
+        "title": "shawnrancatore/shining-mask",
+        "url": "https://github.com/shawnrancatore/shining-mask",
+        "description": "Sibling-family notes (Shining Mask); approach reference only, not this protocol."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1353,6 +2006,13 @@
     "manufacturer": "Shenzhen Sperll Optoelectronic (SPLED)",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "monty68/uniled — UniLED (HACS)",
+        "url": "https://github.com/monty68/uniled",
+        "description": "HACS integration for SP LED / BanlanX-family BLE controllers (LED Chord / SP107E, LED Hue / SP110E); a production Home Assistant consumer of the SP107E command set this spec documents. Does not cover the later SPOTLED-app panel generation."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1401,6 +2061,32 @@
     "manufacturer_status": "active",
     "protocol_handler": "lifx_lan_udp",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant LIFX integration",
+        "url": "https://www.home-assistant.io/integrations/lifx/",
+        "description": "HA core integration speaking the LIFX LAN binary protocol documented here (UDP 56700)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "LimitlessLED / Mi-Light WiFi Bridge (legacy)",
+    "path": "device-specs/devices/limitlessled-milight-bridge.yaml",
+    "protocol": "wifi",
+    "category": "hub",
+    "manufacturer": "LimitlessLED / Mi-Light (Futlight)",
+    "manufacturer_status": "abandoned",
+    "protocol_handler": "limitlessled_legacy_8899",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "url": "https://www.home-assistant.io/integrations/limitlessled/",
+        "title": "Home Assistant LimitlessLED integration",
+        "description": "HA core integration driving MiLight/LimitlessLED bridges with the UDP v6 protocol documented here."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1412,6 +2098,13 @@
     "manufacturer_status": "active",
     "testing_status": "verified",
     "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant Lutron Caséta integration",
+        "url": "https://www.home-assistant.io/integrations/lutron_caseta/",
+        "description": "HA core integration over the Smart Bridge LEAP/LAP protocol documented here."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1514,6 +2207,11 @@
         "url": "https://github.com/boundary/wireshark/blob/master/epan/dissectors/packet-mndp.c",
         "title": "Wireshark MNDP dissector",
         "description": "Authoritative TLV type table and big-endian framing."
+      },
+      {
+        "url": "https://www.home-assistant.io/integrations/mikrotik/",
+        "title": "Home Assistant MikroTik integration",
+        "description": "HA core integration (RouterOS API device tracker/presence) for this router family."
       }
     ],
     "schema_version": "2020-12"
@@ -1536,6 +2234,13 @@
     "manufacturer": "NIIMBOT (Wuhan Jingchen Intelligent Identification Technology Co., Ltd., FCC ID 2ARXB)",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "eigger/hass-niimbot (HACS)",
+        "url": "https://github.com/eigger/hass-niimbot",
+        "description": "HACS integration printing to Niimbot BLE label printers (D110 family) from Home Assistant."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1546,6 +2251,13 @@
     "manufacturer": "Niu Technologies",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "marcelwestrahome/home-assistant-niu-component (HACS)",
+        "url": "https://github.com/marcelwestrahome/home-assistant-niu-component",
+        "description": "HACS custom component surfacing NIU scooter telemetry in Home Assistant (cloud API)."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1885,6 +2597,53 @@
         "url": "https://api.purpleair.com/",
         "title": "PurpleAir API (cloud) reference",
         "description": "Cloud API; field names overlap the local JSON and help disambiguate cf_1 vs atm."
+      },
+      {
+        "url": "https://www.home-assistant.io/integrations/purpleair/",
+        "title": "Home Assistant PurpleAir integration",
+        "description": "HA core integration; can poll a sensor's local JSON API directly instead of the cloud."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Qianghe HappyLighting (Triones/QHM) BLE LED Strip Controller",
+    "path": "device-specs/devices/qh-happylighting-led-strips.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Shenzhen Qianghe Technology Co., Ltd. (qh-tek.com)",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant led_ble integration",
+        "url": "https://www.home-assistant.io/integrations/led_ble/",
+        "description": "Official Home Assistant support for this Triones/HappyLighting family — the easiest working third-party implementation to crib from.\n"
+      },
+      {
+        "title": "sysofwan/ha-triones (archived)",
+        "url": "https://github.com/sysofwan/ha-triones",
+        "description": "Original community Triones integration; archived after the protocol was merged into Home Assistant core as led_ble.\n"
+      },
+      {
+        "title": "8none1/pytrionesmqtt",
+        "url": "https://github.com/8none1/pytrionesmqtt",
+        "description": "Python MQTT bridge for Triones/HappyLighting controllers."
+      },
+      {
+        "title": "MikeCoder96/HappyLighting-py",
+        "url": "https://github.com/MikeCoder96/HappyLighting-py",
+        "description": "Python client for QHM controllers, built by reversing the same vendor app analyzed here.\n"
+      },
+      {
+        "title": "HA community thread: Triones/HappyLighting BLE lights",
+        "url": "https://community.home-assistant.io/t/356011",
+        "description": "User reports on which advertised names and hardware revisions are in the wild."
+      },
+      {
+        "title": "App Store: HappyLighting-life with smart (id1145694075)",
+        "url": "https://apps.apple.com/app/id1145694075",
+        "description": "iOS companion app listing (same vendor family)."
       }
     ],
     "schema_version": "2020-12"
@@ -1898,7 +2657,8 @@
     "manufacturer_status": "active",
     "protocol_handler": "rabbit_air_lan",
     "openness": "documented_api",
-    "testing_status": "untested",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "url": "https://github.com/rabbit-air/python-rabbitair",
@@ -1914,6 +2674,11 @@
         "url": "https://pypi.org/project/python-rabbitair/",
         "title": "python-rabbitair on PyPI",
         "description": "Released packages 0.0.2-0.0.8 (0.0.1 yanked); 0.0.8 is the version pinned by Home Assistant."
+      },
+      {
+        "url": "https://github.com/yepher/RabbiteAirProtocol",
+        "title": "yepher/RabbiteAirProtocol",
+        "description": "Independent 2021 research on the earlier iOS app; corroborates the BLE service/characteristic UUID roles, the setup-AP address 192.168.10.1:9009, and the AES-CBC + appended-IV construction."
       }
     ],
     "schema_version": "2020-12"
@@ -1927,6 +2692,13 @@
     "manufacturer_status": "active",
     "testing_status": "verified",
     "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant Rachio integration",
+        "url": "https://www.home-assistant.io/integrations/rachio/",
+        "description": "HA core integration for Rachio irrigation controllers."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1946,7 +2718,12 @@
       {
         "url": "https://esphome.io/components/web_server/",
         "title": "ESPHome web_server component",
-        "description": "REST scheme (/<domain>/<object_id>/<action>), /events SSE, versions, auth."
+        "description": "Configuring the web server: versions, auth, CORS, the OTA platform."
+      },
+      {
+        "url": "https://esphome.io/web-api/",
+        "title": "ESPHome Web Server API",
+        "description": "The REST scheme (/<domain>/<entity_name>/<action>), per-domain payloads and parameters, and the /events event-source contract — including the id/name_id identifier formats."
       },
       {
         "url": "https://esphome.io/components/api/",
@@ -1996,6 +2773,33 @@
       {
         "title": "RoMote — open-source Android ECP remote",
         "url": "https://github.com/wseemann/RoMote"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "SafeTech Products Bluetooth Smart Padlock (Quicklock)",
+    "path": "device-specs/devices/safetech-smart-padlock.yaml",
+    "protocol": "ble",
+    "category": "lock",
+    "manufacturer": "SafeTech Products LLC (SDK by Itonsoft)",
+    "manufacturer_status": "shutdown",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "DEF CON 24 — Picking Bluetooth Low Energy Locks from a Quarter Mile Away (Rose & Ramsey)",
+        "url": "https://defcon.org/html/defcon-24/dc-24-speakers.html",
+        "description": "2016 survey of 16 BLE locks; the Quicklock padlocks (this product family) were among those tested and shown to use static, sniffable cleartext credentials — corroborates the no-crypto finding here. Slides/video via media.defcon.org.\n"
+      },
+      {
+        "title": "Bluetooth SIG company identifiers",
+        "url": "https://www.bluetooth.com/specifications/assigned-numbers/",
+        "description": "Company ID 0x04CD is assigned to Safetech Products LLC (identification hint only; advert usage unconfirmed)."
+      },
+      {
+        "title": "Wayback Machine — safetechproducts.com",
+        "url": "https://web.archive.org/web/2022/https://safetechproducts.com/",
+        "description": "Last real captures late 2022; site parked/offline from ~Feb 2023. Vendor/product documentation survives only here."
       }
     ],
     "schema_version": "2020-12"
@@ -2052,6 +2856,13 @@
     "manufacturer_status": "active",
     "openness": "undocumented",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "url": "https://www.home-assistant.io/integrations/schlage/",
+        "title": "Home Assistant Schlage integration",
+        "description": "HA core integration for Schlage Encode WiFi locks (cloud-based; no local API exists on these locks)."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2072,6 +2883,28 @@
     "manufacturer": "SensorPush",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "url": "https://www.sensorpush.com/bluetooth-api",
+        "title": "SensorPush Bluetooth API (vendor)",
+        "description": "Official open GATT table for the 2nd-generation models (HTP.xw, HT.w, TC.x): every characteristic, access mode and encoding."
+      },
+      {
+        "url": "https://www.home-assistant.io/integrations/sensorpush/",
+        "title": "Home Assistant SensorPush integration",
+        "description": "Core integration (advertisement-based, built on sensorpush-ble) covering HT1/HT.w/HTP.xw."
+      },
+      {
+        "url": "https://github.com/Bluetooth-Devices/sensorpush-ble",
+        "title": "Bluetooth-Devices/sensorpush-ble",
+        "description": "Actively maintained parser library: advertisement decoding and device-type detection for the full model family."
+      },
+      {
+        "url": "https://github.com/cryptomcgrath/sensorpush-bleak",
+        "title": "cryptomcgrath/sensorpush-bleak",
+        "description": "Original community GATT client: V1 characteristic table, write-then-read pattern, bulk-history decode."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2123,14 +2956,9 @@
         "description": "Vendor storefront listing the product families this spec covers."
       },
       {
-        "title": "SmartDawn on Google Play (com.daniaokeji.smartdawn)",
+        "title": "SmartDawn companion app on Google Play",
         "url": "https://play.google.com/store/apps/details?id=com.daniaokeji.smartdawn",
-        "description": "Official companion app; v1.2.4 was the source of this protocol map (jadx decompile)."
-      },
-      {
-        "title": "Vendor-hosted SmartDawn APK (daniaokeji.com CDN)",
-        "url": "http://file.daniaokeji.com/download/SmartDawn.apk",
-        "description": "Direct download of the companion APK from the ODM's own server; v1.2.4 sha256 58aaf3d6027c59aa5ab7876930fb16661d224d28220f58f227e35c2ddeca07aa (fetched 2026-08-08, also matches the 2026-08-03 research-store copy)."
+        "description": "Official companion app — the source of this protocol map."
       },
       {
         "title": "Hangzhou Daniao Technology (ODM)",
@@ -2154,6 +2982,13 @@
     "manufacturer_status": "active",
     "testing_status": "verified",
     "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant SmartThings integration",
+        "url": "https://www.home-assistant.io/integrations/smartthings/",
+        "description": "HA core integration for the SmartThings platform (cloud API; not the local hub protocol documented here)."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2260,6 +3095,13 @@
     "manufacturer": "Wonderlabs, Inc. (SwitchBot)",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant SwitchBot integration",
+        "url": "https://www.home-assistant.io/integrations/switchbot/",
+        "description": "HA core BLE integration; the production consumer of the SwitchBot BLE command set documented here."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2293,6 +3135,13 @@
     "manufacturer": "ThermoPro (Adsmart)",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "vitalybibikov/ha-thermopro-meat (HACS)",
+        "url": "https://github.com/vitalybibikov/ha-thermopro-meat",
+        "description": "Home Assistant (HACS) integration for the active-BLE ThermoPro meat thermometers (TP902/TP920/TP960 incl. TempSpike, TP25W) built on this reverse-engineered protocol; the HA core thermopro integration covers only the passive-advertising climate sensors."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2343,6 +3192,11 @@
         "title": "pasky/tp357",
         "url": "https://github.com/pasky/tp357",
         "description": "Original TP357 connected-mode client, and the source of the history opcodes and the record-buffer limits recorded here."
+      },
+      {
+        "url": "https://www.home-assistant.io/integrations/thermopro/",
+        "title": "Home Assistant ThermoPro integration",
+        "description": "HA core integration passively decoding TP357/TP358/TP393 BLE advertisements."
       }
     ],
     "schema_version": "2020-12"
@@ -2373,6 +3227,11 @@
         "title": "softScheck/tplink-smartplug — original client + Wireshark dissector",
         "url": "https://github.com/softScheck/tplink-smartplug",
         "description": "The tplink-smarthome-commands.txt reference and a pcap dissector."
+      },
+      {
+        "url": "https://www.home-assistant.io/integrations/tplink/",
+        "title": "Home Assistant TP-Link Kasa integration",
+        "description": "HA core integration (python-kasa) controlling Kasa plugs locally with this protocol."
       }
     ],
     "schema_version": "2020-12"
@@ -2442,6 +3301,50 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Tuya Bluetooth Soil Tester (zwjcy / SGS01 family)",
+    "path": "device-specs/devices/tuya-bt-soil-tester.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "Tuya (platform) / Shenzhen HaiHao Electronic Co., LTD (canonical SGS01) + white-label clones",
+    "manufacturer_status": "active",
+    "protocol_handler": "tuya_ble",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "PlusPlus-ua/python-tuya-ble — Tuya BLE protocol implementation",
+        "url": "https://github.com/PlusPlus-ua/python-tuya-ble",
+        "description": "Reference implementation of the transport documented here: pairing, encrypted framing, function codes, DP types. The executable companion to this spec.\n"
+      },
+      {
+        "title": "garnser/ha_tuya_ble — Home Assistant custom integration",
+        "url": "https://github.com/garnser/ha_tuya_ble",
+        "description": "Local BLE integration with cloud-fetched keys; per-product DP maps for gvygg3m8, ojzlzzsw and tv6peegl (the DP tables above).\n"
+      },
+      {
+        "title": "haraldapp/SGS01BTHome — custom BTHome firmware for the SGS01",
+        "url": "https://github.com/haraldapp/SGS01BTHome",
+        "description": "Full replacement firmware (BTHome v2, GATT config, OTA) plus the hardware teardown: BT3L/TLSR8250, SWS pads, factory data above 0x70000. The no-Tuya-at-all path. Does not support the 2026 SGS01B revision.\n"
+      },
+      {
+        "title": "Home Assistant discussion #949 — SGS01 product ids",
+        "url": "https://github.com/home-assistant/core/discussions/949",
+        "description": "Older product id aao3yzhs vs current gvygg3m8."
+      },
+      {
+        "title": "ble_monitor issue #1161 — SGS01 cannot be passive",
+        "url": "https://github.com/custom-components/ble_monitor/issues/1161",
+        "description": "Confirms the stock firmware never broadcasts readings — connected GATT only."
+      },
+      {
+        "title": "Home Assistant issue #93536 — zwjcy cloud schema",
+        "url": "https://github.com/home-assistant/core/issues/93536",
+        "description": "Cloud DP codes (humidity, temp_current, battery_state, battery_percentage)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Tuya-Based Smart Device (Smart Life / white-label IoT)",
     "path": "device-specs/devices/tuya-generic-device.yaml",
     "protocol": "wifi",
@@ -2465,6 +3368,60 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Tuya WiFi Combustible Gas Sensor (rqbj family)",
+    "path": "device-specs/devices/tuya-wifi-gas-sensor.yaml",
+    "protocol": "wifi",
+    "category": "sensor",
+    "manufacturer": "Tuya (platform) / anonymous Shenzhen white-label OEMs",
+    "manufacturer_status": "active",
+    "protocol_handler": "tuya_lan",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "ESPHome device page — Tuya DY-RQ400A combustible gas alarm",
+        "url": "https://devices.esphome.io/devices/tuya-dy-rq400a-combustible-gas-alarm/",
+        "description": "Teardown of the canonical rqbj unit: WB2S + RunJet MCU, UART flashing procedure with pin photos, and a complete ESPHome config mapping all 12 DPs.\n"
+      },
+      {
+        "title": "tinytuya — Tuya LAN protocol reference implementation",
+        "url": "https://github.com/jasonacox/tinytuya",
+        "description": "Framing, crypto, discovery, command codes; includes the setup wizard for one-time local-key extraction and a network scanner that dumps a unit's real DPS set.\n"
+      },
+      {
+        "title": "tuyapi — Tuya LAN protocol library",
+        "url": "https://github.com/codetheweb/tuyapi",
+        "description": "Independent implementation of the same LAN protocol."
+      },
+      {
+        "title": "make-all/tuya-local — Home Assistant integration",
+        "url": "https://github.com/make-all/tuya-local",
+        "description": "Ships ready-made configs for this family (rq400a_gasalarm, digma_disenseg1_gassensor, boundless_pa210w_gasalarm).\n"
+      },
+      {
+        "title": "tuya-local issue #2434 — C2 gas sensor cloud model dump",
+        "url": "https://github.com/make-all/tuya-local/issues/2434",
+        "description": "Cloud-side DP model for the gas+CO combo variant (protocol 3.4)."
+      },
+      {
+        "title": "housetuya — Tuya LAN protocol writeup",
+        "url": "https://github.com/pascal-fb-martin/housetuya",
+        "description": "Independent protocol documentation."
+      },
+      {
+        "title": "FCC ID 2ANDL-WB2S (Tuya WB2S module)",
+        "url": "https://fccid.io/2ANDL-WB2S",
+        "description": "Module-level certification (grantee 2ANDL, Hangzhou Tuya); no device-level FCC ID exists for these white-label goods.\n"
+      },
+      {
+        "title": "LibreTiny / ltchiptool — BK7231 flashing toolchain",
+        "url": "https://github.com/libretiny-eu/libretiny",
+        "description": "UART flashing of WB2S/CB2S modules for the firmware-replacement path (ESPHome config in the first link).\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Ubiquiti UniFi / EdgeMAX Device (AP / switch / gateway / NVR / NAS)",
     "path": "device-specs/devices/ubiquiti-unifi-device.yaml",
     "protocol": "wifi",
@@ -2483,6 +3440,11 @@
         "url": "https://www.rapid7.com/blog/post/2019/02/01/ubiquiti-discovery-service-exposures/",
         "title": "Rapid7 — Ubiquiti discovery service",
         "description": "Packet layout (01 00 00 00 probe) and TLV offsets."
+      },
+      {
+        "url": "https://www.home-assistant.io/integrations/unifi/",
+        "title": "Home Assistant UniFi Network integration",
+        "description": "HA core integration against the UniFi controller that adopts and manages these devices."
       }
     ],
     "schema_version": "2020-12"
@@ -2520,6 +3482,11 @@
         "url": "https://help.ui.com/hc/en-us/articles/217879287-UniFi-Protect-RTSP-Streaming",
         "title": "Ubiquiti — UniFi Protect RTSP streaming",
         "description": "How to enable RTSP per camera; the 7447/7441 stream ports."
+      },
+      {
+        "url": "https://www.home-assistant.io/integrations/unifiprotect/",
+        "title": "Home Assistant UniFi Protect integration",
+        "description": "HA core integration over the local Protect API documented here (built on the uiprotect library)."
       }
     ],
     "schema_version": "2020-12"
@@ -2542,7 +3509,7 @@
       {
         "url": "https://play.google.com/store/apps/details?id=com.urevo.app",
         "title": "UREVO app (Google Play)",
-        "description": "Official companion app; the protocol source for this spec (v3.6.22, 26042201)."
+        "description": "Official companion app — the protocol source for this spec."
       }
     ],
     "schema_version": "2020-12"
@@ -2595,6 +3562,88 @@
         "title": "PA AG complaint against Digital Dream Labs",
         "url": "https://www.attorneygeneral.gov/wp-content/uploads/2024/09/DDL-Combined-Complaint-for-FIling-1.pdf",
         "description": "September 2024 Court of Common Pleas filing: PA AG Henry v. Digital Dream Labs and CEO Hanchar over unfulfilled prepaid robot orders (>$4M in sales, ~14,000 orders Nov 2020-Jan 2024 per the AG's announcement)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Veryfit 2.0 Fitness Band (ID107 / ID111 class)",
+    "path": "device-specs/devices/veryfit-2-fitness-band.yaml",
+    "protocol": "ble",
+    "category": "fitness",
+    "manufacturer": "Unknown ODM (ID107-class bands sold under Makibes and many other brands; companion app Veryfit 2.0)",
+    "manufacturer_status": "abandoned",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Bluetooth Low Energy on the Raspberry Pi (ID107 HR on-wire GATT capture)",
+        "url": "https://www.g7smy.co.uk/2017/05/bluetooth-low-energy-ble-on-the-raspberry-pi/",
+        "description": "BlueZ/bluetoothctl session against a real ID107 HR band: advertises as \"ID107 HR\" with company ID 0x001C manufacturer data carrying the band's own MAC, and exposes exactly the 00000af0/af6/af7/af1/af2 layout with a 20-byte 02 A0 real-time frame on af7. The hardware corroboration for this spec's GATT table."
+      },
+      {
+        "title": "Veryfit 2.0 version history (uptodown)",
+        "url": "https://veryfit-2-0.en.uptodown.com/android/versions",
+        "description": "Version listing confirming V2.0.37 (the exact APK this spec was derived from) as the final Veryfit 2.0 release."
+      },
+      {
+        "title": "4PDA: ID107 smart band thread",
+        "url": "https://4pda.to/forum/index.php?showtopic=777752",
+        "description": "Community thread associating the ID107/ID111-class bands with the Veryfit 2.0 app; hardware notes (nRF51822, Si1142 sensor) for this band generation."
+      },
+      {
+        "title": "ID107 (Makibes) hardware notes",
+        "url": "https://saturn.ffzg.hr/rot13/index.cgi?action=unplug",
+        "description": "Hardware data for a Makibes ID107: Nordic nRF51822, Silicon Labs Si1142 pulse sensor, Kionix kx022-1020 accelerometer, VeryFit 2.0 as the companion app."
+      },
+      {
+        "title": "M6 Smart Fitness Band spec (mis-attribution history)",
+        "url": "https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/m6-fitness-band.yaml",
+        "description": "Sibling spec whose appendix this analysis was promoted from; documents why the 0xAF0 protocol does NOT apply to the Telink-based M6."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Vevor VT256 Thermal Imager (Hti-Xintai HT-W01)",
+    "path": "device-specs/devices/vevor-vt256-thermal-imager.yaml",
+    "protocol": "wifi",
+    "category": "camera",
+    "manufacturer": "Vevor (brand); OEM Dongguan Xintai Instrument Co., Ltd. (Hti-Xintai / HTI / htimeter)",
+    "manufacturer_status": "active",
+    "protocol_handler": "ht_w01_command",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Hti HT-W01 product/spec page (hti-instrument.com)",
+        "url": "https://hti-instrument.com/products/ht-w01-wifi-thermal-imaging-camera-256-192",
+        "description": "OEM hardware specifications: 256x192 VOx detector, 8-14 um, <=25 Hz, -20..550 C, 640x480 visible camera."
+      },
+      {
+        "title": "Hti app download page (htimeter.m.icoc.me)",
+        "url": "https://htimeter.m.icoc.me/h-col-103.html",
+        "description": "Official source of the \"W01\" companion app — the page Vevor's own product QR decodes to; also lists sibling Hti apps (HT-203U, HT-301, Thermal View, IRImageTools)."
+      },
+      {
+        "title": "Vevor support FAQ for the VT256 SKU",
+        "url": "https://www.vevor.com/goods/faq/inquiry?goodSn=KDSRCXY2561956M8NV0",
+        "description": "Rebadge evidence: answers name the 'W01' app, the Wi-Fi connection model and the HT-W01 manual."
+      },
+      {
+        "title": "manuals.plus — VEVOR HT-W01 manual (covers YXP160/YXP256/VT256)",
+        "url": "https://manuals.plus/asin/B0FV77VZP9",
+        "description": "The Vevor-branded manual documenting the HT-W01-* SSID and 12345678 passphrase."
+      },
+      {
+        "title": "LeoDJ/P2Pro-Viewer (Infiray P2 Pro — NOT this device)",
+        "url": "https://github.com/LeoDJ/P2Pro-Viewer",
+        "description": "The mature FOSS driver for the other 256x192 phone thermal camera; linked to make the non-applicability explicit."
+      },
+      {
+        "title": "marcelrv's thermal-imager open-resources gist",
+        "url": "https://gist.github.com/marcelrv/e81253c14053bcd78753554df1230dd3",
+        "description": "Collected open resources for thermal imagers; useful starting point for a clean-room HT-W01 client."
       }
     ],
     "schema_version": "2020-12"
@@ -2669,6 +3718,13 @@
     "manufacturer_status": "active",
     "openness": "open_by_design",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant WLED integration",
+        "url": "https://www.home-assistant.io/integrations/wled/",
+        "description": "HA core integration over the WLED JSON/HTTP and WebSocket API documented here."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2678,7 +3734,67 @@
     "category": "sensor",
     "manufacturer": "Xiaomi",
     "manufacturer_status": "active",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "url": "https://www.home-assistant.io/integrations/xiaomi_ble/",
+        "title": "Home Assistant Xiaomi BLE integration",
+        "description": "HA core integration passively decoding LYWSD03MMC advertisements (bindkey for stock firmware; plaintext with ATC custom firmware)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Xiaomi Body Composition Scale S400",
+    "path": "device-specs/devices/xiaomi-mi-scale-s400.yaml",
+    "protocol": "ble",
+    "category": "scale",
+    "manufacturer": "Xiaomi",
+    "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "openScale (MiScaleS400Handler)",
+        "url": "https://github.com/oliexdev/openScale",
+        "description": "Production Android app; MiScaleS400Handler + S400Decryptor/S400Aggregator implement the passive 0x181B broadcast path."
+      },
+      {
+        "title": "lswiderski/mi-scale-exporter",
+        "url": "https://github.com/lswiderski/mi-scale-exporter",
+        "description": "Original S400 AES-CCM advertisement decryption credited by openScale."
+      },
+      {
+        "title": "nokistin/xiaomi-s400-live",
+        "url": "https://github.com/nokistin/xiaomi-s400-live",
+        "description": "Hardware-tested GATT path: Mi Home v2 login + encrypted CMTP live/final CSV frames (firmware 2.1.1_0006)."
+      },
+      {
+        "title": "Bluetooth-Devices/xiaomi-ble",
+        "url": "https://github.com/Bluetooth-Devices/xiaomi-ble",
+        "description": "Home Assistant's MiBeacon parser; obj6e16 decodes the S400 measurement object; product IDs 0x30D9/0x3BD5/0x48CF = MJTZC01YM."
+      },
+      {
+        "title": "dnandha/miauth",
+        "url": "https://github.com/dnandha/miauth",
+        "description": "Mi Home v2 BLE auth protocol reverse engineering (login handshake, HKDF key derivation)."
+      },
+      {
+        "title": "mnm-matin/miscale",
+        "url": "https://github.com/mnm-matin/miscale",
+        "description": "Independent S400 MiBeacon frame decoder and body-composition toolkit."
+      },
+      {
+        "title": "Xiaomi Mi Scale (v1/v2 family spec)",
+        "url": "https://github.com/liberatedbread/liberatedbread-protocol-specs",
+        "description": "Sibling spec xiaomi-mi-scale.yaml — the older plaintext 0x2A2F protocol this device does NOT use."
+      },
+      {
+        "url": "https://www.home-assistant.io/integrations/xiaomi_ble/",
+        "title": "Home Assistant Xiaomi BLE integration",
+        "description": "HA core integration covering Xiaomi Mi body scales' BLE advertisements."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2694,6 +3810,11 @@
         "title": "openScale",
         "url": "https://github.com/oliexdev/openScale",
         "description": "Production Android app and the cited source for the Mi Scale weight frame, history sync and impedance handling."
+      },
+      {
+        "title": "ESPHome Xiaomi Miscale sensor component",
+        "url": "https://esphome.io/components/sensor/xiaomi_miscale/",
+        "description": "ESPHome BLE-tracker component decoding the Mi Scale advertisement frames documented here (XMTZC01/02/04/05)."
       }
     ],
     "schema_version": "2020-12"
@@ -2716,6 +3837,107 @@
     "manufacturer": "XKGlow",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Yeelight Cube Smart Lamp",
+    "path": "device-specs/devices/yeelight-cube-lamp.yaml",
+    "protocol": "wifi",
+    "category": "light",
+    "manufacturer": "Qingdao Yeelink Information Technology Co., Ltd. (Yeelight)",
+    "manufacturer_status": "active",
+    "protocol_handler": "yeelight_lan",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Yeelight Wi-Fi Light Inter-Operation Specification (vendor PDF)",
+        "url": "https://www.yeelight.com/download/Yeelight_Inter-Operation_Spec.pdf",
+        "description": "The authoritative document for the baseline LAN protocol: discovery, TCP 55443 framing and the standard command set."
+      },
+      {
+        "title": "Yeelight forum — CubeMatrix: set_segment_rgb parameters (topic 33649)",
+        "url": "https://forum.yeelight.com/t/topic/33649",
+        "description": "The community thread that worked out set_segment_rgb; also documents the unsolved per-LED brightness question in update_leds."
+      },
+      {
+        "title": "VladFlorinIlie/YeelightMatrix — per-pixel driver + Home Assistant integration",
+        "url": "https://github.com/VladFlorinIlie/YeelightMatrix",
+        "description": "Reference implementation of activate_fx_mode/update_leds and the frame encoder (3 raw RGB bytes per LED, base64 quads, 25 LEDs per 5x5 module)."
+      },
+      {
+        "title": "danielp370-msft/yeelight-cube — per-pixel control + server",
+        "url": "https://github.com/danielp370-msft/yeelight-cube",
+        "description": "Independent community driver for the modular cube; evidence the lamp answers the LAN protocol out of the box."
+      },
+      {
+        "title": "Max-src/yeelight-cube-lite — Cube Lite for Home Assistant",
+        "url": "https://github.com/Max-src/yeelight-cube-lite",
+        "description": "Cube Lite (clt* family, NOT this device) — mined the Yeelight Station PC app for effect/clock tables; the GIF-via-Matter observation comes from here."
+      },
+      {
+        "title": "fetinin/cubik — web UI for Cube Lite",
+        "url": "https://github.com/fetinin/cubik",
+        "description": "Browser-based Cube Lite controller; Cube Lite family reference."
+      },
+      {
+        "title": "Home Assistant — Yeelight integration",
+        "url": "https://www.home-assistant.io/integrations/yeelight/",
+        "description": "Core integration covering basic on/off/colour for Yeelight LAN lights, including the cube at that level."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Generic ZigBee Soil Tester (Tuya TS0601 family)",
+    "path": "device-specs/devices/zigbee-soil-tester.yaml",
+    "protocol": "zigbee",
+    "category": "sensor",
+    "manufacturer": "Tuya-based white-label OEMs (GIEX, Qoto, HOBEIAN, COOLO, AOYAN, Haozee and others)",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Zigbee2MQTT: TS0601_soil (classic 2-DP group)",
+        "url": "https://www.zigbee2mqtt.io/devices/TS0601_soil.html",
+        "description": "Pairing procedure (hold button ~5-6 s), exposed entities and options for the classic group; sibling pages cover TS0601_soil_2 and TS0601_soil_3."
+      },
+      {
+        "title": "Zigbee2MQTT: HOBEIAN ZG-303Z",
+        "url": "https://www.zigbee2mqtt.io/devices/ZG-303Z.html",
+        "description": "Device page for the air temp/humidity variant with the 102-112 DP layout."
+      },
+      {
+        "title": "Koenkk/zigbee-herdsman-converters — src/devices/tuya.ts",
+        "url": "https://github.com/Koenkk/zigbee-herdsman-converters/blob/master/src/devices/tuya.ts",
+        "description": "The reference implementation: TS0601_soil/_2/_3, ZG-303Z and CS-201Z converter blocks. Source of every DP map and fingerprint in this spec (snapshot sha256 in sources)."
+      },
+      {
+        "title": "Blakadder Zigbee compatibility DB — Qoto QT-07S (Yieryi THE01840)",
+        "url": "https://zigbee.blakadder.com/Yieryi_THE01840.html",
+        "description": "Cross-coordinator compatibility (Z2M, ZHA, deCONZ, Domoticz, Homey) for a classic-group rebadge."
+      },
+      {
+        "title": "SmartHomeScene review: Tuya ZigBee plant soil sensor GXM-01",
+        "url": "https://smarthomescene.com/reviews/tuya-zigbee-plant-soil-sensor-gxm-01-review/",
+        "description": "Teardown/review of a classic-group probe; hardware context for the family."
+      },
+      {
+        "title": "zha-device-handlers issues #4144 and #4541 — TS0601 soil quirk requests",
+        "url": "https://github.com/zigpy/zha-device-handlers/issues/4144",
+        "description": "Evidence that stock ZHA support is quirk-dependent and arrived piecemeal in 2025; several fingerprints still need custom quirks."
+      },
+      {
+        "title": "Zigbee2MQTT issue #31965 — °F/stale-value quirks on TS0601 soil sensors",
+        "url": "https://github.com/Koenkk/zigbee2mqtt/issues/31965",
+        "description": "Known firmware bugs: some units report °F regardless of the unit DP, and stale 0 values after a battery swap until re-interview."
+      },
+      {
+        "title": "Zigbee2MQTT issue #30576 — ZG-303Z external converter history",
+        "url": "https://github.com/Koenkk/zigbee2mqtt/issues/30576",
+        "description": "How the ZG-303Z support landed; background on the DP layout."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {

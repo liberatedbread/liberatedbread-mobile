@@ -19,8 +19,8 @@ ble:
   advertising:
     name_patterns: ["Boosted"]  # inferred; app scans by service UUID, not name
     service_uuids:
-      - "7dc55a86-c61f-11e5-9912-ba0be0483c18"  # V2/V3 boards (scan filter, f.java)
-      - "da2b84f1-6279-48de-bdc0-afbea0226079"  # V1 boards (scan filter, f.java)
+      - "7dc55a86-c61f-11e5-9912-ba0be0483c18"  # V2/V3 boards (scan filter)
+      - "da2b84f1-6279-48de-bdc0-afbea0226079"  # V1 boards (scan filter)
 
   services:
     - uuid: "7dc55a86-c61f-11e5-9912-ba0be0483c18"
@@ -52,7 +52,7 @@ ble:
   alternate_services:
     - uuid: "da2b84f1-6279-48de-bdc0-afbea0226079"
       name: boosted_board_v1_service
-      description: V1 board protocol path (ble/e0/a.java)
+      description: V1 board protocol path
       characteristics:
         - {uuid: "99564a02-dc01-4d3c-b04e-3bb1ef0571b2", name: v1_char1}
         - {uuid: "a87988b9-694c-479c-900e-95dfa6c00a24", name: v1_char2}

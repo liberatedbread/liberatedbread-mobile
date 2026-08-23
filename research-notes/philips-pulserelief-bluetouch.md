@@ -21,12 +21,12 @@ exclusively over BLE by the "Philips Treatment" app:
   (per APK mirror metadata). Devices have no local controls — no app = brick.
 
 ## Local BLE feasibility: HIGH (confirmed by static analysis)
-- App scans by **advertised service UUID** (BluetoothScanner.java,
+- App scans by **advertised service UUID** (its BLE scanner,
   `ScanFilter.setServiceUuid`):
   - PulseRelief: `de18f4e1-9352-4d9c-a802-58f25ec97cc3`
   - BlueTouch: `d25f1008-5579-46e5-a115-5068c9961894`
 - Full characteristic maps for both devices recovered from
-  `model/meta/PulseReliefCharacteristics.java` and `BlueTouchCharacteristics.java`
+  the per-device characteristic metadata classes for PulseRelief and BlueTouch
   (see YAML). Semantics are self-describing: SELECTED_PROGRAM, CHANNEL_INTENSITY,
   TREATMENT_TIME_REMAINING, SET_PROGRAM_NUMBER, SET_TREATMENT_TIME,
   INCREMENT/DECREMENT/ZERO_CHANNEL, ELECTRODE_CONNECTION_STATUS, BATTERY_LEVEL, etc.
@@ -49,7 +49,7 @@ exclusively over BLE by the "Philips Treatment" app:
 - Log/diag channel: START_GET_LOG, CONTINUE_NEXT_BLOCK, LOGDATA, SEND_LOG_FINISHED.
 - BlueTouch has a parallel but distinct UUID set (see YAML).
 - Value encodings TBD (byte-level formats need HCI snoop or deeper read of
-  `bluetooth/device/PulseReliefDevice.java` handlers).
+  the app's PulseRelief device handlers).
 
 ## Open questions
 1. Byte encodings for program/intensity/time writes.

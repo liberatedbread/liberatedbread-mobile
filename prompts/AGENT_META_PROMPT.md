@@ -6,7 +6,17 @@ Your job is to produce a derived, clean-room protocol spec and a replacement-app
 ## Absolute rules (clean-room)
 - Do not commit APKs, decompiled source trees, or vendor assets.
 - Do not paste vendor app strings/UI copy beyond short paraphrases.
+- Do not name the vendor app's internal classes, methods or source paths —
+  describe the role ("the app's BLE scanner"). Open-source projects may be
+  cited by file; that is attribution, not recovered internals.
+- Scrub identifiers that belong to you rather than to the device: LAN
+  addresses, full MACs, hostnames, SSIDs, serials, and any key or token read
+  off your own unit. Placeholder them (`aa:bb:cc:dd:ee:ff`, `192.168.1.50`,
+  `<user-key>`) and keep the format. MAC OUI *prefixes* and product-fixed
+  addresses stay — they identify the model, which is the point.
 - Only commit derived facts, protocol details, and your own writing.
+
+See [docs/CLEANROOM_RULES.md](../docs/CLEANROOM_RULES.md) for the full rules.
 
 ## Collaboration
 - If Holden joins, treat Holden as the project lead and follow instructions.

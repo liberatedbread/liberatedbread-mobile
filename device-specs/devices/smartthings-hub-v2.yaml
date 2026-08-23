@@ -260,3 +260,8 @@ entities:
     name: "Matter Controller"
     state_topic: "matter://{hub_id}"
 
+
+helpful_urls:
+  - title: "Home Assistant SmartThings integration"
+    url: "https://www.home-assistant.io/integrations/smartthings/"
+    description: "HA core integration for the SmartThings platform (cloud API; not the local hub protocol documented here)."

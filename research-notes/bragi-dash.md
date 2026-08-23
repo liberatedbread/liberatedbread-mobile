@@ -24,7 +24,7 @@ and a BLE control/sensor link to the companion app.
   bundles Mimi hearing SDK (`io.mimi.sdk`), Amazon Alexa, iTranslate hooks.
 - jadx output at `workspace/static/bragi/`.
 
-## BLE GATT layout (from `com.bragi.a.c.d/e/g.java`)
+## BLE GATT layout
 UUIDs are constructed from 16-bit codes on the standard BLE base plus two custom
 128-bit families:
 

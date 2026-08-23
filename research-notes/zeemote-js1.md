@@ -59,5 +59,5 @@ Bluez-IME on Android or any reimplementation from the spec below.
 - lightreading.com — "Zeemote Acquired by Aplix" (2011)
 - wlog.flatlib.jp/2011/12/02/n1540/ — three modes, HID vs SPP (Japanese)
 - fdroid.gitlab.io package page + F-Droid archive APK — Bluez-IME 1.20
-- workspace/static/zeemote-js1/.../ZeemoteReader.java — protocol constants
+- Bluez-IME (open source, com.hexad.bluezime) `ZeemoteReader.java` — protocol constants
 - explusalpha.com/contents/emuex/bluetooth-old — native emulator support

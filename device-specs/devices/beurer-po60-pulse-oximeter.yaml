@@ -1,0 +1,504 @@
+# Beurer PO60 Pulse Oximeter — Device Spec (BLE, fully local)
+# Reverse-engineered by static analysis of the two Beurer companion apps —
+# HealthManager Pro (Kotlin, obfuscated, RxAndroidBle) and the older classic
+# HealthManager (largely unobfuscated) — cross-verified against each other,
+# 2026-08. Both carry a PO60 implementation and they agree. A third-party
+# hardware-tested bleak script
+# (Shreyan1/Beurer-PO60-PulseOximeter-Bluetooth-Integration) independently
+# corroborates the UUIDs and the command bytes below.
+#
+# Nothing here has been replayed against a PO60 by this project; every
+# protocol fact is static-analysis-derived (plus the third-party script).
+
+device:
+  name: "Beurer PO60 Pulse Oximeter"
+  manufacturer: "Beurer GmbH"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No hardware on the bench. All protocol facts were recovered by static
+      analysis of the classic HealthManager and HealthManager Pro apps and
+      agree between the two; a third-party bleak script (Shreyan1, see
+      sources) reports working against a real PO60 with the same UUIDs and
+      command bytes — that supports per-fact `reported`, not this flag.
+  protocol: "ble"
+  category: "health"
+  type: "pulse-oximeter"
+  models:
+    - "Beurer PO60"
+  notes: >
+    Bluetooth Smart (BLE 4.0) fingertip pulse oximeter by Beurer (Ulm,
+    Germany — company founded 1919, alive and shipping; the Pro app was still
+    updated as of v1.22.0, Aug 2026). Measures SpO2 and pulse rate, stores up
+    to 100 measurement sessions on-device, color OLED display. Advertises as
+    `PO60` (confirmed in both apps' scan filters).
+
+    The device speaks ONE custom GATT service (FF12 on the standard
+    0000xxxx-0000-1000-8000-00805f9b34fb base) with a write characteristic
+    (FF01) for commands and a notify characteristic (FF02) for acks and
+    history data. It does NOT implement the standard BLE Pulse Oximeter
+    profile (0x1822 PLX) — per both apps; no on-air confirmation yet.
+
+    The interaction model is history sync, not live streaming: the app bonds
+    (standard BLE passkey, 6-digit PIN from the device manual), enables
+    notifications, sets the clock, then pages the stored-session log with a
+    3-command protocol until an end-of-transfer record arrives, and
+    disconnects. No command for streaming an in-progress measurement was
+    found in either app — whether the hardware can do that at all is unknown.
+
+    OEM is unidentified. The BLE stack is the same "ilink" SDK
+    (com.ilink.bleapi) that drives the whole Beurer/Sanitas medical line
+    (BF scales, BM blood-pressure monitors, GL glucose, AS activity sensors,
+    FT thermometers), so the PO60 firmware almost certainly comes from
+    Beurer's usual Chinese ODM; no rebranded sibling is known.
+
+    FCC ID: not found — the US manual carries only a generic Part 15
+    statement and no FCC ID string; needs a label photo or fccid.io visual
+    search.
+
+    No firmware update path exists: neither app contains any DFU/OTA code
+    for the PO60 (the only FirmwareRevisionString reads in the codebase are
+    on scales), and no firmware URLs were found.
+
+  identification:
+    local_name_prefix: "PO60"
+    service_uuids:
+      - "0000ff12-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "PO60"
+          service_uuids:
+            - "0000ff12-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: medium
+    notes: >
+      Nothing to provision — no network, no account. The one gate is BLE
+      bonding: the PO60 appears in the apps' pairing-key device list, i.e.
+      pairing is standard BLE passkey entry with the 6-digit PIN printed in
+      the device manual. Whether some firmware revisions accept Just-Works
+      instead, and whether an unbonded client can already write the time-set
+      command, is unknown (needs hardware). Confidence medium: read from both
+      companion apps, not replayed here.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for `PO60`, connect, bond with the 6-digit passkey from the
+          device manual, enable notifications on FF02, sync the clock, then
+          page the measurement log.
+        ble:
+          advertised_name: "PO60"
+          pairing_required: true
+          pin_source: "6-digit passkey printed in the device manual (app prompts for it as a pairing key)"
+        steps:
+          - action: "Power on the PO60 and scan for the exact local name `PO60`."
+            actor: "client"
+            expect: "Advertisement with name PO60."
+          - action: "Connect and complete BLE passkey bonding (6-digit PIN from the manual)."
+            actor: "user"
+            expect: "Bonded link; GATT service FF12 with characteristics FF01 (write) and FF02 (notify)."
+          - action: "Enable notifications on FF02 (write the CCC descriptor)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Enable notifications on 0000ff02"
+          - action: "Set the device clock (command 0x83 on FF01; both apps do this immediately after bonding)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "set_datetime"
+            expect: "Ack F3 00 notified on FF02."
+          - action: "Read storage info (90 05 15), then page the log with 99 00 19 / 99 01 1A until an E9 4x end-of-transfer record arrives."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "read_storage_info / get_measurements_page"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. The device holds up to 100 measurement records plus
+        BLE bonding state, but no reset procedure was found in either
+        companion app or in the US manual text examined. Do not guess one.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Rebinding to a new phone is ordinary BLE bonding: remove the old bond
+        in the previous phone's OS Bluetooth settings if the device refuses
+        to pair, then bond again with the manual PIN. Measurement history
+        survives on the device.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "BLE bond (link-layer keys) per paired phone"
+        - "Measurement history (up to 100 sessions) — health data, at rest unencrypted, readable by any bonded client"
+      issued_to_client:
+        - "Nothing beyond the BLE bond itself; there are no per-device application credentials"
+
+  # The cloud block below records the phone-app services for completeness.
+  # The PO60 itself has no radio but BLE and never talks to any of this.
+cloud:
+  required: false
+  vendor_service: "beurer HealthManager / HealthManager Pro cloud (optional account sync from the phone app)"
+  hosts:
+    - "https://sync.connect-beurer.com/BHMCWebAPI/ (legacy HealthManager: login, user management, measurement sync up/down)"
+    - "https://hmpro.connect.beurer.com (HealthManager Pro, EU)"
+    - "https://hmpro-us.connect.beurer.com (HealthManager Pro, US)"
+    - "https://sso.connect.beurer.com and https://appsso.beurer.de (Pro SSO)"
+    - "https://matomo.connect.beurer.com (Pro analytics)"
+  auth:
+    type: "other"
+    notes: >
+      Classic HealthManager uses a login API on the BHMCWebAPI host; the Pro
+      app authenticates via its SSO hosts. Not mapped further — the device
+      never contacts any cloud, so none of this is on the local-control path.
+  failure_mode: >
+    Nothing breaks on the device. The PO60 is phone-to-device over BLE only;
+    the cloud exists solely as optional account/sync storage inside the
+    companion apps (both of which also work in guest/local mode). Beurer GmbH
+    is alive and the Pro app is actively maintained, so there is no shutdown
+    risk today — and even a total cloud shutdown would leave measurement,
+    storage and sync to any BLE client fully functional.
+  data_leaves_device:
+    - "SpO2/pulse measurement history uploaded by the phone app, only when the user signs into an account"
+    - "Account identity and profile data (app-side)"
+  notes: >
+    Device imagery for the Pro app is served from an Azure CDN
+    (beur-hm-api-cdn-endpoint-prod / -produs .azureedge.net) — cosmetic only.
+
+local_access:
+  status: "native"
+  summary: >
+    Fully local by design: the only radio is BLE, and the complete documented
+    function set (clock sync + full measurement-history pull) is reachable
+    with the three commands in this spec from any BLE host.
+  covers:
+    - "Full stored-measurement sync: per-session start/end time plus SpO2 and pulse-rate min/max/avg, paged over FF02 notifications"
+    - "Device clock set (command 0x83)"
+    - "Stored-record count query (90 05 15)"
+  not_covered:
+    - "Live/streaming SpO2 during a reading — no such command exists in either app; unknown whether the hardware supports it at all"
+    - "Firmware update — no OTA/DFU path exists in either app and no firmware image is public"
+    - "Deleting records from the device — no such command was found"
+
+services:
+  - uuid: "0000ff12-0000-1000-8000-00805f9b34fb"
+    name: "Beurer Pulse Oximeter Service"
+    notes: >
+      The only application service. 16-bit alias FF12 on the standard BLE
+      base UUID. The device does NOT expose the SIG Pulse Oximeter profile
+      (0x1822 PLX) per both apps; whether a battery service or PLX
+      shows up alongside FF12 on-air is an open question. No encryption
+      anywhere in the protocol — plain BLE bonding is the only protection,
+      and all multi-byte values are plain 7-bit-masked integers.
+    characteristics:
+      - uuid: "0000ff01-0000-1000-8000-00805f9b34fb"
+        name: "Command (write)"
+        properties: ["write"]
+        notes: >
+          All commands are written here. Checksum rule (both apps): low-7-bit
+          additive — CKS = (sum of the preceding bytes) & 0x7F, except the
+          0x99 page command, whose last byte is (pp - 103) & 0x7F. The
+          concrete command bytes below match the third-party hardware-tested
+          bleak script (Shreyan1).
+        commands:
+          read_storage_info:
+            description: "Query the number of stored measurement records; the device answers on FF02"
+            value: [0x90, 0x05, 0x15]
+            verification: "reported"
+          set_datetime:
+            description: >
+              Set the device clock. CKS = (sum of bytes 0..7) & 0x7F. Device
+              acks on FF02 with F3 00. The legacy app wrote placeholder
+              05 05 05 in the seconds/pad positions; HealthManager Pro sends
+              real seconds — send real time.
+            template: [0x83, "{year}", "{month}", "{day}", "{hour}", "{minute}", "{second}", 0x00, 0x00, "{checksum}"]
+            verification: "reported"
+            parameters:
+              year:
+                type: "uint8"
+                min: 0
+                max: 99
+                description: "Year minus 2000 (2026 -> 0x1A)"
+              month:
+                type: "uint8"
+                min: 1
+                max: 12
+              day:
+                type: "uint8"
+                min: 1
+                max: 31
+              hour:
+                type: "uint8"
+                min: 0
+                max: 23
+              minute:
+                type: "uint8"
+                min: 0
+                max: 59
+              second:
+                type: "uint8"
+                min: 0
+                max: 59
+              checksum:
+                type: "uint8"
+                min: 0
+                max: 127
+                description: >
+                  (0x83 + year + month + day + hour + minute + second + 0x00
+                  + 0x00) & 0x7F. NOT expressible as the schema's `auto:
+                  checksum` (that is sum mod 256); compute it per this rule.
+          get_measurements_page:
+            description: >
+              Request a page of the stored-measurement log on FF02. pp = 0x00
+              starts the transfer, pp = 0x01 fetches the next page (the app
+              pages every 12 records until the E9 4x end-of-transfer record).
+              Checksum for this command is (pp - 103) & 0x7F, giving the
+              observed on-the-wire bytes 99 00 19 and 99 01 1A.
+            template: [0x99, "{page}", "{checksum}"]
+            verification: "reported"
+            parameters:
+              page:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["start", "next"]
+                description: "0x00 = START (begin log dump), 0x01 = NEXT (continue paging)"
+              checksum:
+                type: "uint8"
+                allowed: [0x19, 0x1A]
+                description: "(page - 0x67) & 0x7F — 0x19 for START, 0x1A for NEXT"
+
+      - uuid: "0000ff02-0000-1000-8000-00805f9b34fb"
+        name: "Response / measurement data (notify)"
+        properties: ["notify"]
+        notes: >
+          Ack and data channel. Known frame types (app-parsed):
+          - Time-set ack: F3 00.
+          - Storage-info response to 90 05 15: carries the stored-record
+            count; exact length/offset of the count byte is NOT yet pinned
+            down (open question).
+          - Measurement records: stream as 20-byte notification chunks; the
+            client reassembles and slices 24-byte records (see `format` for
+            the record layout). A record whose byte 1 has high nibble 0x4
+            marks end-of-transfer; the app disconnects about 3 s later.
+          All numeric fields are plain 7-bit integers (mask 0x7F); pulse-rate
+          values >= 128 escape via the flag byte at offset 14 (bit 2 -> +128
+          to PR max, bit 3 -> PR min, bit 4 -> PR avg).
+        format:
+          - offset: 0
+            length: 1
+            name: "header"
+            type: "uint8"
+            values:
+              233: "measurement record (0xE9)"
+            notes: "Every record starts 0xE9. NOTE: this format describes the reassembled 24-byte record, NOT a single notification value — notifications arrive as 20-byte chunks and must be concatenated before slicing."
+          - offset: 1
+            length: 1
+            name: "record_index"
+            type: "uint8"
+            notes: "Low nibble = packet/record index. High nibble 0x4 marks end-of-transfer (no more pages; client may disconnect)."
+          - offset: 2
+            length: 1
+            name: "start_year"
+            type: "uint8"
+            value_offset: 2000
+            unit: "years"
+            notes: "Year minus 2000."
+          - offset: 3
+            length: 1
+            name: "start_month"
+            type: "uint8"
+          - offset: 4
+            length: 1
+            name: "start_day"
+            type: "uint8"
+          - offset: 5
+            length: 1
+            name: "start_hour"
+            type: "uint8"
+          - offset: 6
+            length: 1
+            name: "start_minute"
+            type: "uint8"
+          - offset: 7
+            length: 1
+            name: "start_second"
+            type: "uint8"
+          - offset: 8
+            length: 1
+            name: "end_year"
+            type: "uint8"
+            value_offset: 2000
+            unit: "years"
+            notes: "Measurement end time, same layout as start."
+          - offset: 9
+            length: 1
+            name: "end_month"
+            type: "uint8"
+          - offset: 10
+            length: 1
+            name: "end_day"
+            type: "uint8"
+          - offset: 11
+            length: 1
+            name: "end_hour"
+            type: "uint8"
+          - offset: 12
+            length: 1
+            name: "end_minute"
+            type: "uint8"
+          - offset: 13
+            length: 1
+            name: "end_second"
+            type: "uint8"
+          - offset: 14
+            length: 1
+            name: "pr_escape_flags"
+            type: "uint8"
+            notes: "Bit 2 -> add 128 to PR max, bit 3 -> add 128 to PR min, bit 4 -> add 128 to PR avg. Escape for pulse values that exceed the 7-bit field range."
+          - offset: 17
+            length: 1
+            name: "spo2_max"
+            type: "uint8"
+            unit: "%"
+          - offset: 18
+            length: 1
+            name: "spo2_min"
+            type: "uint8"
+            unit: "%"
+          - offset: 19
+            length: 1
+            name: "spo2_avg"
+            type: "uint8"
+            unit: "%"
+          - offset: 20
+            length: 1
+            name: "pr_max"
+            type: "uint8"
+            unit: "bpm"
+            notes: "Add 128 when bit 2 of pr_escape_flags is set."
+          - offset: 21
+            length: 1
+            name: "pr_min"
+            type: "uint8"
+            unit: "bpm"
+            notes: "Add 128 when bit 3 of pr_escape_flags is set."
+          - offset: 22
+            length: 1
+            name: "pr_avg"
+            type: "uint8"
+            unit: "bpm"
+            notes: "Add 128 when bit 4 of pr_escape_flags is set."
+
+protocol:
+  framing:
+    byte_order: "big (all fields are single bytes; the year field is year-2000)"
+    checksum: >
+      Low-7-bit additive: CKS = (sum of preceding frame bytes) & 0x7F for the
+      0x83 time-set command; the 0x99 page command uses (page - 103) & 0x7F.
+      No CRC, no length prefix, no encryption.
+    notes: >
+      Notification path reassembly: measurement data arrives as 20-byte
+      chunks on FF02; concatenate and slice into 24-byte records starting at
+      each 0xE9 header. Bytes 15, 16 and 23 of the record are unused/unknown.
+  session_flow:
+    description: >
+      Post-connect sequence, as both apps drive it:
+      1. Bond (BLE passkey, PIN from manual) and enable notifications on FF02.
+      2. Write set_datetime (0x83 ...) to FF01; expect ack F3 00 on FF02.
+      3. Write read_storage_info (90 05 15); the FF02 response carries the
+         stored-record count (exact response layout still unpinned).
+      4. Write get_measurements_page START (99 00 19); records stream on FF02
+         as 20-byte chunks.
+      5. Every 12 records, write NEXT (99 01 1A) to page onward (page size 12
+         is inferred from the classic app's record-index constant, not
+         hardware-confirmed).
+      6. Stop at the end-of-transfer record (header E9, byte 1 high nibble
+         0x4). The app disconnects about 3 s later.
+    verification: "reported"
+    verification_note: "Read from both companion apps; corroborated by a third-party hardware-tested bleak script; not replayed by this project."
+  remaining_unknowns:
+    - "Whether the PO60 also exposes standard PLX (0x1822) or a battery service alongside FF12 (the app code says no; confirm on-air)"
+    - "Exact format/length of the storage-info response to 90 05 15"
+    - "Page-size semantics of the 0x99 command (12 records/page inferred, not confirmed)"
+    - "Whether the bonding passkey is fixed per device (printed in manual) or Just-Works on some firmware revisions"
+    - "Whether an unbonded client can already write the time-set command (decides whether third-party clients need the PIN at all)"
+    - "FCC ID (absent from the US manual; needs a device-label photo)"
+    - "Record bytes 15, 16 and 23"
+
+helpful_urls:
+  - title: "Shreyan1/Beurer-PO60-PulseOximeter-Bluetooth-Integration"
+    url: "https://github.com/Shreyan1/Beurer-PO60-PulseOximeter-Bluetooth-Integration"
+    description: >-
+      Third-party bleak (Python) script that polls a real PO60 with the same
+      FF01/FF02 UUIDs and the 90 05 15 / 99 00 19 command bytes documented
+      here — the closest thing to a working reference client, and the right
+      starting point for a Home Assistant polling script.
+  - title: "beurer HealthManager Pro on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.beurer.healthmanager"
+    description: >-
+      Current vendor app (v1.22.0, Aug 2026); the v1.17.1 APK analysed for
+      this spec is an older release of the same package.
+  - title: "openScale: Beurer/Sanitas BLE handlers"
+    url: "https://github.com/oliexdev/openScale"
+    description: >-
+      Open-source implementations of the sibling Beurer/Sanitas BLE protocols
+      (scales on the FFE0 service) from the same ilink SDK family — useful
+      context for the shared stack, though the PO60's FF12 protocol is its own.
+  - title: "Bluetooth SIG Pulse Oximeter profile (PLX, 0x1822)"
+    url: "https://www.bluetooth.com/specifications/specs/pulse-oximeter-service-1-0/"
+    description: >-
+      The standard profile the PO60 notably does NOT implement — listed so an
+      implementer does not wait for PLX notifications that will never come.
+
+sources:
+  - type: "static_analysis"
+    artifact: "com.beurer.healthmanager (beurer HealthManager Pro) v1.17.1"
+    sha256: "52f1810278f181bda7e89f8d78f6349e2b77af3295692129610e7210873c0e30"
+    obtained_via: "third-party APK mirror, 2026-08 (a v1.17.2 partial download was discarded; v1.17.1 is complete)"
+    description: >
+      Static analysis of the beurer HealthManager Pro app (2026-08) — the
+      currently maintained companion. Kotlin, obfuscated, built on
+      RxAndroidBle; its PO60 sync repository is the cross-check for the
+      record layout and command bytes.
+  - type: "static_analysis"
+    artifact: "com.beurer.connect.healthmanager (beurer HealthManager, legacy) v2.17"
+    sha256: "ea3ec53ef9f9a6bc2eaf56237d7383af90f4e99b778036b4a2034d0ea4468a51"
+    obtained_via: "third-party APK mirror, 2026-08"
+    description: >
+      Static analysis of the classic beurer HealthManager app (2026-08) —
+      the older, essentially unobfuscated companion. Its shared BLE API and
+      pulse-oximeter utilities are where the record layout, the supported
+      service map and the command bytes were read first, then cross-checked
+      against the Pro app.
+  - type: "public_research"
+    url: "https://github.com/Shreyan1/Beurer-PO60-PulseOximeter-Bluetooth-Integration"
+    description: >
+      Independent corroboration: bleak script using FF01/FF02, the 90 05 15
+      and 99 00 19 commands, and E9-framed record parsing — matches the
+      static analysis. Reported working against real hardware.
+  - type: "vendor_manual"
+    description: >
+      Beurer PO60 US manual (PDF), sha256
+      f2c3d26895185f31dace54a52c952e8520944ebd50fd89c4dae4d73bc20f31a2.
+      Source of the 6-digit pairing PIN and the 100-session storage claim;
+      contains only a generic FCC Part 15 statement — no FCC ID.
+  - type: "not_examined"
+    description: >
+      beurer HealthCoach, the app named in the US manual, is pulled from
+      stores and was not examined. Judged obsolete: same underlying BLE
+      stack, superseded by HealthManager/Pro — no protocol fact here depends
+      on it.

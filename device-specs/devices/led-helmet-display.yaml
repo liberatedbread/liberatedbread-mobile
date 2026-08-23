@@ -1,0 +1,571 @@
+# Smart LED Helmet Display (TIRO/Heaton) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Smart LED Helmet Display (TIRO/Heaton)"
+  manufacturer: "TIRO Innovation Technology (Shenzhen) Co., Ltd. (OEM; sold under dozens of storefront brands)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Everything here comes from static analysis of the companion app
+      ("Shining Display", whose protocol logic lives in a React Native
+      Hermes bundle) and live probes of the vendor cloud API on
+      2026-08-18. No BLE traffic was captured and no hardware was driven;
+      the command frames below are read out of the app's command-builder
+      functions, not replayed against a panel.
+  protocol: "ble"
+  category: "display"
+  type: "led-matrix-panel"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+  notes: >
+    Generic OEM Bluetooth RGB LED matrix panel (12x48 pixels, per the
+    firmware project name TR2302_1248_ble) that straps onto a bicycle or
+    motorcycle helmet: handlebar remote, turn-signal display fed by an
+    accelerometer in the panel, speedometer ("ride info"), DIY
+    image/animation/text upload, music-rhythm (mic) mode, daily on/off
+    timers. Sold on Amazon/AliExpress/Shopify under many brand names
+    (listings variously say Dpofirs, OPPWONG, Gelrova, YouRfocus, PChero,
+    Masdio and others); current listings instruct buyers to install the
+    "Shining Display" app.
+
+    COMPANION APP: "Shining Display" for Android (~27K Play downloads;
+    developer listed as TIRO INNOVATION TECHNOLOGY (SHENZHEN) CO., LTD.,
+    tiro.cc — company alive, site live 2026-08-18). The app is React Native; all protocol logic is
+    in the Hermes bundle. Internal product-type string translates to
+    "helmet screen". Device/project identifiers found in the app:
+    advertising-name prefix TR2023-1248, OTA project_no TR2302_1248_ble,
+    a second variant pair TR2411R015_000102_ble / TR2411R015_000102_mcu
+    (dual BLE+MCU OTA project, possibly a newer revision — unverified).
+
+    HARDWARE PLATFORM: JieLi BLE SoC. The app bundles the JieLi OTA SDK
+    (com.jieli.jl_bt_ota) plus a TIRO wrapper (com.tiro.jlotalibrary);
+    firmware images use the JieLi .ufw format (JLUFW update containers
+    with plaintext section strings: JLUFW, JLBTSDK, btstack, ble_ota.bin
+    / ble_app_ota.bin). SoC MIGRATION OBSERVED: the older helmet image
+    TR2306R009-2.ufw (2024-03, for project TR2302_1248_ble) targets
+    AC632N (BR22 platform), while the newer TR2411R014-02.ufw (fetched
+    2026-08-19 for the TR2411R015_000102_mcu project, changelog dated
+    2025-01-07) carries AC695x / BR22 markers — Heaton moved this
+    product line from AC632N to AC695N during 2024. That newer image
+    embeds the internal project string hTR2306R004 and is the
+    MCU-companion half of the dual BLE+MCU OTA project, which is
+    therefore confirmed to be a newer hardware revision, not just a
+    variant code.
+
+    FAMILY BOUNDARY — do not conflate. Two older/other "LED helmet display"
+    ecosystems exist: (1) the LOY family (LOY PLAY com.yskj.loy / LOY EYES
+    com.yskj.lysd, Shenzhen Yanse, BLE service FFF0, popled.cn cloud) —
+    a different OEM with a different protocol; (2) the Shining Mask /
+    Shining Glasses / Magic Display family (Quintic QPP platform,
+    AES-128-ECB encrypted 16-byte ASCII commands; see shining-mask.yaml,
+    shining-glasses.yaml, magic-display.yaml) — also different despite the
+    overlapping seller/developer names ("tirohk"). THIS spec covers only
+    the TIRO/Heaton JieLi-based panel driven by the Shining Display app,
+    identified by the FA02 command characteristic. Unlike the Quintic
+    family, no encryption or pairing was found anywhere in the command
+    path — plain GATT writes.
+
+    CLOUD: backend operated by Heaton (manage.heaton.com.cn /
+    images.heaton.com.cn, both alive 2026-08-18; the same backend serves
+    sibling apps Magic Display and Magical LED). The device itself is
+    BLE-only and never touches the internet — only the phone app does, and
+    only for the preset material library and OTA checks. See the cloud
+    block.
+
+    CONFIDENCE: MEDIUM for the GATT layout (FA02 write, JieLi AE00/AE01/
+    AE02 OTA service) and the command table — read straight out of the
+    app's builder functions, but not exercised on hardware. LOW for the
+    advertising name prefix (code constant, needs an on-air scan), the
+    flag-byte semantics, the direction value map, and everything about the
+    bulk pixel/program upload pipeline beyond the dispatch-function names.
+  identification:
+    # App-code constant, not yet confirmed by an on-air scan.
+    local_name_prefix: "TR2023-1248"
+    service_uuids:
+      - "0000ae00-0000-1000-8000-00805f9b34fb"
+    notes: >
+      The advertising name prefix TR2023-1248 is a string constant in the
+      app, unconfirmed on-air. The JieLi OTA service 0000ae00-… comes from
+      the bundled JieLi SDK constants; whether it appears in the
+      advertisement (as opposed to the GATT table after connect) is
+      unknown. The app discovers services dynamically and matches the
+      command channel by characteristic UUID 0000fa02-…, so clients should
+      do the same rather than trusting a containing-service UUID.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "TR2023-1248"
+          notes: >
+            Name prefix is an app-code constant pending on-air
+            confirmation. Fallback: connect and enumerate — the command
+            characteristic 0000fa02-0000-1000-8000-00805f9b34fb (and the
+            JieLi OTA service 0000ae00-…) identify this family regardless
+            of the advertised name.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        BLE address type (public vs random-static) is unverified; if the
+        address rotates, re-resolve by scanning for the name prefix /
+        FA02 characteristic.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision: no Wi-Fi, no account, no cloud. Power the
+      panel on, scan, connect. App-derived, not replayed on hardware.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the TR2023-1248 name prefix, connect, enumerate
+          services, and locate the FA02 write characteristic and the JieLi
+          AE02 notify characteristic. No pairing/bonding or encryption
+          appears anywhere in the app's command path.
+        ble:
+          advertised_name: "TR2023-1248"
+          pairing_required: false
+          pin_source: "None — plain GATT writes, no bonding seen in the app's command path."
+        steps:
+          - action: "Power on the helmet display panel."
+            actor: "user"
+            expect: "Panel advertises with a TR2023-1248-prefixed name (app-code constant; confirm on-air)."
+          - action: "Connect and discover services; find the characteristic 0000fa02-0000-1000-8000-00805f9b34fb by UUID."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Enable notifications on 0000ae02-0000-1000-8000-00805f9b34fb (JieLi OTA service) — the app does this at connect time and receives command ACKs / disconnect events there."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Negotiate MTU (the app reacts to the negotiated MTU and chunks large writes to fit)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Optionally sync the clock (sync_time command). The app sends it on connect; whether the panel requires it before accepting other commands is unverified."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "sync_time"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        App exposes a "reset device" command (reset_device below, opcode
+        0x03 flag 0x80, no payload). What it actually clears — user
+        programs, name, timers — is inferred from the UI label, not
+        observed; no hardware button procedure was found in listings or
+        the app.
+      procedures:
+        - name: "BLE reset command"
+          steps:
+            - action: "Write the reset_device frame (04 00 03 80) to the FA02 characteristic."
+              actor: "client"
+              request:
+                protocol: "ble_gatt"
+                action: "reset_device"
+              notes: >
+                App-derived only; behaviour on the panel (reboot, LED
+                signal, what survives) is unverified.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network to rebind. The usual connection failure is another
+        central still holding the link — close the vendor app before
+        connecting from another client.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      notes: "No credentials of any kind: the panel is BLE-only and the command path carries no authentication."
+
+services:
+  - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
+    name: "Helmet Display Command Service"
+    verification: "hypothesis"
+    notes: >
+      CONTAINING SERVICE UUID UNKNOWN — this entry's UUID is a stand-in
+      equal to the command characteristic's. The app never pins the
+      service: it enumerates all services and selects the characteristic
+      0000fa02-… by UUID (the bundled JieLi SDK likewise binds AE00 by
+      constant). A full string-table sweep of the app's Hermes bundle
+      (17,247 strings) finds exactly one 16-bit-based vendor UUID, FA02.
+      Clients MUST locate the characteristic by enumeration, not by this
+      service UUID, and MUST NOT match this entry as a service.
+    characteristics:
+      - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
+        name: "Display Command"
+        properties: ["write"]
+        framing:
+          length_prefix: true
+        notes: >
+          All display commands are raw byte arrays written here. Frame
+          layout recovered from the app's command builders:
+
+            byte 0: total frame length N (covers the whole frame)
+            byte 1: 0x00
+            byte 2: command opcode
+            byte 3: flag byte — 0x01 or 0x80 observed on ordinary
+                    commands, 0x55 on the OTA-start command
+            byte 4..: payload
+
+          The flag byte at offset 3 appears to act as a sub-command
+          selector sharing opcodes (0x03 flag 0x80 = factory reset vs
+          0x03 flag 0x01 = text scroll speed; 0x0B flag 0x01 = gesture
+          switch vs 0x0B flag 0x80 = microphone/music-rhythm) —
+          HYPOTHESIS, verify on-air. The app negotiates MTU and chunks
+          large payloads to the negotiated limit (its limitLength /
+          cutArray helpers); bulk visual data (DIY canvas, image/text
+          upload, playlists, screen mirroring) uses the same
+          length-prefixed framing chunked by MTU, but the byte-level
+          bitmap packing (12x48 RGB layout, getSendData pipeline) was not
+          fully traced — see remaining_unknowns. No response is read back
+          on this characteristic; device-to-app feedback arrives as AE02
+          notifications on the JieLi OTA service.
+        commands:
+          sync_time:
+            description: >
+              Sync time/date to the panel (7 payload bytes built by the
+              app's getDateInfo helper). The field layout of the 7 payload
+              bytes (year/month/day/hour/minute/second/weekday packing)
+              was not traced out of the helper — capture on hardware
+              before relying on this.
+            template: [0x0B, 0x00, 0x01, 0x80, "{t0}", "{t1}", "{t2}", "{t3}", "{t4}", "{t5}", "{t6}"]
+            parameters:
+              t0: {type: "uint8", min: 0, max: 255}
+              t1: {type: "uint8", min: 0, max: 255}
+              t2: {type: "uint8", min: 0, max: 255}
+              t3: {type: "uint8", min: 0, max: 255}
+              t4: {type: "uint8", min: 0, max: 255}
+              t5: {type: "uint8", min: 0, max: 255}
+              t6: {type: "uint8", min: 0, max: 255}
+          reset_device:
+            description: "Factory/reset the device (no payload)"
+            value: [0x04, 0x00, 0x03, 0x80]
+            advanced: true
+            advanced_reason: >
+              Resets the panel; user programs, schedules and settings are
+              presumed lost (the exact effect is unverified). Recovery is
+              re-sending your configuration from a client.
+          set_text_speed:
+            description: "Set text scroll speed (shares opcode 0x03 with reset, selected by flag byte 0x01)"
+            template: [0x05, 0x00, 0x03, 0x01, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "Range/stepping unverified — the app builder takes a single byte."
+          set_brightness:
+            description: "Set display brightness"
+            template: [0x05, 0x00, 0x04, 0x80, "{level}"]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "Raw byte; the app's UI scale-to-wire mapping was not traced."
+          set_direction:
+            description: "Set riding / turn-signal direction display"
+            template: [0x05, 0x00, 0x06, 0x80, "{direction}"]
+            parameters:
+              direction:
+                type: "uint8"
+                allowed: [0, 1, 2, 3, 4, 5]
+                notes: >
+                  UI index 0-5. The index-to-meaning map (off / left /
+                  right / hazard / brake / ?) is NOT verified — the six
+                  values come from the app's direction picker; capture or
+                  hardware test needed.
+          set_power:
+            description: "Display power on/off"
+            template: [0x05, 0x00, 0x07, 0x01, "{state}"]
+            parameters:
+              state:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          # Discrete pair for the on/off roles. `set_power` carries a
+          # parameter, and a role binding is a name with no room for an
+          # argument, so turn_on and turn_off would resolve to the same
+          # frame; these are that frame with the byte already chosen.
+          power_on:
+            description: "Display power ON (set_power with state=1)."
+            template: [0x05, 0x00, 0x07, 0x01, 0x01]
+          power_off:
+            description: "Display power OFF (set_power with state=0)."
+            template: [0x05, 0x00, 0x07, 0x01, 0x00]
+          set_ride_info:
+            description: "Send ride-info / speedometer data (3 payload bytes; byte meanings — speed encoding, units — not traced)"
+            template: [0x07, 0x00, 0x08, 0x80, "{d0}", "{d1}", "{d2}"]
+            parameters:
+              d0: {type: "uint8", min: 0, max: 255}
+              d1: {type: "uint8", min: 0, max: 255}
+              d2: {type: "uint8", min: 0, max: 255}
+          set_gesture_switch:
+            description: "Gesture-sensing switch (shares opcode 0x0B with the mic command, selected by flag byte 0x01)"
+            template: [0x05, 0x00, 0x0B, 0x01, "{state}"]
+            parameters:
+              state:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          set_mic:
+            description: "Microphone / music-rhythm mode command (6-byte frame; 2 payload bytes, meanings not traced)"
+            template: [0x06, 0x00, 0x0B, 0x80, "{m0}", "{m1}"]
+            parameters:
+              m0: {type: "uint8", min: 0, max: 255}
+              m1: {type: "uint8", min: 0, max: 255}
+          gesture_on:
+            description: "Gesture sensing ON (set_gesture_switch with state=1)."
+            template: [0x05, 0x00, 0x0B, 0x01, 0x01]
+          gesture_off:
+            description: "Gesture sensing OFF (set_gesture_switch with state=0)."
+            template: [0x05, 0x00, 0x0B, 0x01, 0x00]
+          set_voice_switch:
+            description: "Voice-activation switch"
+            template: [0x05, 0x00, 0x0C, 0x01, "{state}"]
+            parameters:
+              state:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          voice_on:
+            description: "Voice activation ON (set_voice_switch with state=1)."
+            template: [0x05, 0x00, 0x0C, 0x01, 0x01]
+          voice_off:
+            description: "Voice activation OFF (set_voice_switch with state=0)."
+            template: [0x05, 0x00, 0x0C, 0x01, 0x00]
+          ota_start:
+            description: "Begin firmware update: 0xAA opcode with flag 0x55, then JieLi OTA data flows over AE01/AE02"
+            template: [0x05, 0x00, 0xAA, 0x55, "{v}"]
+            parameters:
+              v:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "Payload byte meaning not traced (possibly a mode or image-slot selector)."
+            advanced: true
+            advanced_reason: >
+              Starts a firmware update session on the JieLi OTA service.
+              An interrupted or wrong-image update can leave the panel
+              unbootable; only proceed with a known-good .ufw for this
+              exact project (TR2302_1248_ble).
+
+  - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
+    name: "JieLi OTA Service"
+    notes: >
+      Standard JieLi (jl_bt_ota SDK) firmware-update service. UUIDs come
+      from the SDK's BluetoothConstant class bundled in the app. The app
+      enables AE02 notifications at connect time and also routes ordinary
+      command ACKs / disconnect events through it (via the BLE-manager
+      characteristic-updated event), so AE02 is worth subscribing to even
+      when not updating firmware. Firmware images are JieLi .ufw (JLUFW)
+      containers with plaintext section strings. Live images for both
+      known OTA projects were fetched from the vendor cloud (see
+      sources).
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "JieLi OTA Write"
+        properties: ["write"]
+        notes: "OTA data channel. Wire format is the JieLi OTA protocol's own (SDK-internal), not traced here."
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "JieLi OTA Notify"
+        properties: ["notify"]
+        notes: >
+          OTA result channel, and the app's general device-to-app feedback
+          path (command ACKs, disconnect events). Payload format unknown —
+          whether battery level or handlebar-remote button events also
+          surface here is an open question.
+
+cloud:
+  required: false
+  vendor_service: "Heaton cloud (TIRO backend)"
+  hosts:
+    - "https://manage.heaton.com.cn"
+    - "https://images.heaton.com.cn"
+  failure_mode: >
+    Loss of the preset material library (cloud-hosted pattern/animation
+    downloads) and of firmware-update checks. Everything else — DIY
+    images/animations/text, programs, brightness, power, turn signals,
+    timers, screen mirroring, the handlebar remote — is local BLE and
+    keeps working. The panel itself has no radio but BLE and never
+    contacts the cloud directly.
+  endpoints:
+    - path: "/api/rm/getFirmwareInfo"
+      method: "POST"
+      name: "firmware_info"
+      returns: "JSON: need_update, force, desc_cn/desc_en, version_no, file_path"
+      verification: "confirmed"
+      notes: >
+        Form body appid=141&project_no=TR2302_1248_ble&version=<int>
+        (version must be an integer, built from the major/minor digits;
+        the server enforces a floor — version=1 returns "no data",
+        ~100+ works). Exercised live 2026-08-18: returned version_no 101
+        with a downloadable .ufw on images.heaton.com.cn (see sources).
+        Unauthenticated; the server answers unsigned requests with a
+        browser-like User-Agent (bare curl gets an nginx 403), images
+        download only with Referer: https://manage.heaton.com.cn/, and
+        the server rate-limits aggressively (HTTP 429 after ~100 rapid
+        queries; ~5 s spacing works). A systematic 2026-08-19 harvest
+        confirmed appid 141 serves exactly two projects:
+        TR2302_1248_ble (the same v101 image) and
+        TR2411R015_000102_mcu (see the second firmware_image source).
+        A staging host tmanage.heaton.com.cn is also referenced in the
+        app.
+    - path: "/api/rm/getMaterialUnderCategory"
+      method: "GET"
+      name: "material_library"
+      returns: "Cloud material (preset pattern/animation) library entries"
+      verification: "reported"
+      notes: "Found in the app's disassembly; not exercised by us."
+    - path: "/index.php/api/rn/product"
+      method: "GET"
+      name: "product_metadata"
+      returns: "Product metadata (signed request, Java side of the app)"
+      verification: "reported"
+      notes: "Found in the app's disassembly; not exercised by us."
+    - path: "/index.php/api/rn/resource"
+      method: "GET"
+      name: "resource_metadata"
+      returns: "Resource metadata (signed request, Java side of the app)"
+      verification: "reported"
+      notes: "Found in the app's disassembly; not exercised by us."
+  data_leaves_device: []
+  notes: >
+    The device is BLE-only; only the companion app talks to these hosts.
+    Whether the app uploads telemetry or account data was not audited.
+    Firmware and material files are served from
+    https://images.heaton.com.cn/uploads/… .
+
+local_access:
+  status: "native"
+  summary: >
+    The panel speaks plain unauthenticated BLE GATT as shipped; the cloud
+    is an optional content store, not a control path. A minimal client is
+    ~5-byte writes to characteristic FA02 (e.g. from bleak).
+  covers:
+    - "display power, brightness, text scroll speed"
+    - "turn-signal direction display and gesture/voice switches"
+    - "DIY image/animation/text upload, programs/playlists, daily on/off timers, screen mirroring (byte-level formats partially untraced — see remaining_unknowns)"
+    - "clock sync and ride-info/speedometer data"
+  not_covered:
+    - "preset material library download (cloud-hosted)"
+    - "firmware update checks and image hosting (cloud-hosted; a captured .ufw can in principle be flashed without the cloud via the JieLi OTA service)"
+
+entities:
+  # No entity binds `state_characteristic`. The command channel 0000fa02 is
+  # write-only, so a consumer honouring that field would issue a read or a
+  # CCCD subscribe and get ATT 0x02 / 0x0E; the only notify characteristic on
+  # the device, 0000ae02, is the JieLi OTA channel and carries no entity
+  # state. These controls are write-only in fact, and say so rather than
+  # naming a characteristic that cannot answer.
+  - platform: "switch"
+    name: "Display Power"
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+    notes: >
+      Write-only channel, and deliberately so: no entity here binds
+      state_characteristic because the command channel 0000fa02 is write-only
+      — a consumer honouring that field would issue a read or a CCCD subscribe
+      and get ATT 0x02 / 0x0E — and the device's only notify characteristic,
+      0000ae02, is the JieLi OTA channel, which carries no entity state. There
+      is no state readback to offer, so a consumer must track what it sent.
+
+  - platform: "number"
+    name: "Brightness"
+    commands:
+      set_value: "set_brightness"
+    notes: "Raw 0-255 byte; UI mapping unverified."
+
+  - platform: "number"
+    name: "Text Scroll Speed"
+    commands:
+      set_value: "set_text_speed"
+
+  - platform: "select"
+    name: "Turn Signal Direction"
+    commands:
+      select_option: "set_direction"
+    notes: "Six raw indices 0-5; the index-to-direction map is unverified."
+
+  - platform: "switch"
+    name: "Gesture Sensing"
+    commands:
+      turn_on: "gesture_on"
+      turn_off: "gesture_off"
+    notes: >
+      Shares opcode 0x0B with the mic command, selected by flag byte 0x01.
+      Write-only channel; no state readback is documented, so a consumer must
+      track what it sent.
+
+  - platform: "switch"
+    name: "Voice Activation"
+    commands:
+      turn_on: "voice_on"
+      turn_off: "voice_off"
+    notes: >
+      Write-only channel; no state readback is documented, so a consumer must
+      track what it sent.
+
+helpful_urls:
+  - title: "Shining Display on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.shiningdisplay.shiningdisplay"
+    description: "Vendor companion app — the app this spec's static analysis is based on."
+  - title: "TIRO Innovation Technology"
+    url: "https://www.tiro.cc/"
+    description: "OEM behind the panel and the Shining Display app (site live 2026-08-18)."
+  - title: "GoneUp/mask-go"
+    url: "https://github.com/GoneUp/mask-go"
+    description: "Open client for the SIBLING Shining Mask family (Quintic QPP, AES-128-ECB) — a different protocol from this panel; useful approach reference only."
+  - title: "beclamide/mask-controller"
+    url: "https://github.com/beclamide/mask-controller"
+    description: "Another sibling-family (Shining Mask) client; approach reference only, not this protocol."
+  - title: "shawnrancatore/shining-mask"
+    url: "https://github.com/shawnrancatore/shining-mask"
+    description: "Sibling-family notes (Shining Mask); approach reference only, not this protocol."
+
+sources:
+  - type: "static_analysis"
+    artifact: "com.shiningdisplay.shiningdisplay 1.6.4"
+    sha256: "202be55006a98db3131a384d25352d03bcb54039651b59b6701ec185024733d3"
+    xapk_sha256: "6907fd4a434e714c823495730d35aca4600db4f8d1fdaab0c64498e51de78f50"
+    obtained_via: "third-party APK mirror (XAPK), 2026-08-18"
+    description: >
+      Static analysis of the "Shining Display" Android companion app
+      (2026-08-18). It is a React Native build: all protocol logic lives in
+      its Hermes bytecode bundle, which was disassembled in full (string
+      table plus code) to recover the command builders. The Java side
+      contributed the JieLi OTA UUIDs AE00/AE01/AE02 and the OEM's wrapper
+      around the JieLi OTA SDK.
+  - type: "firmware_image"
+    url: "https://images.heaton.com.cn/uploads/firmware/141/11/TR2302_1248_ble/20240321/TR2306R009-2.ufw"
+    sha256: "2e8b34f8f038bc15ed22121d29b0a3639d14ef8042ba9bb2b3fa7de79cdbb9a2"
+    description: "Panel firmware version_no 101 (changelog 'Fix bug', dated 2024-03-21), 512,256 bytes, fetched live from the vendor API 2026-08-18. JieLi JLUFW update container (plaintext section strings JLUFW / JLBTSDK / ble_ota.bin); strings triage places it on the AC632N (BR22) platform."
+  - type: "firmware_image"
+    sha256: "1abb48864edefce87055f10cd565b31cc3e338e3cedd9cac4c48d1a80025307c"
+    description: "TR2411R014-02.ufw — MCU-companion firmware for the dual BLE+MCU OTA project TR2411R015_000102_mcu (appid 141, queried at version 202; changelog dated 2025-01-07, 'Modified the default brightness'), fetched live 2026-08-19 during a systematic harvest of the vendor OTA API. JLUFW container with AC695x / BR22 markers (JieLi AC695N — the line migrated from AC632N during 2024); embeds the internal project string hTR2306R004. Archived locally with checksums alongside the rest of that harvest (referenced, not committed)."
+  - type: "public_implementation"
+    url: "https://github.com/GoneUp/mask-go"
+    description: "Sibling-family (Shining Mask) open client — confirms the broader product family's design patterns; the helmet panel itself shows NO encryption in its command path."
+  - type: "sibling_apps_acquired"
+    description: "Same-family and adjacent companion apps looked at for comparison (2026-08-18): Magic Display, Magical LED, iPixel Pro and SDJ from the same OEM, plus the LOY PLAY / LOY EYES pair. Only skimmed, not analysed in depth; the LOY apps were confirmed to be a different OEM family from their bundled JS assets."
+
+remaining_unknowns:
+  - "Flag byte (offset 3) semantics: 0x01 vs 0x80 looks like a sub-command selector sharing opcodes; verify on-air"
+  - "Direction command value map (indices 0-5 to off/left/right/hazard/brake)"
+  - "Advertising name prefix TR2023-1248 needs an on-air scan; the containing service UUID of FA02 is unpinned (app matches by characteristic)"
+  - "Pixel/program upload byte-level formats: getSendData pipeline, 12x48 RGB packing, sendTool_sendDiyData / sendPicWithData / sendTextData / sendWordData / sendTool_sendPraseModle / sendClockModel / sendTool_toupingWithData dispatch functions identified but not fully traced"
+  - "Device-to-app feedback format on AE02 (ACKs; battery? handlebar-remote button events?)"
+  - "Whether TR2411R015_000102_ble/mcu (dual BLE+MCU OTA project) is a newer helmet revision — RESOLVED 2026-08-19: its MCU-companion image TR2411R014-02.ufw carries AC695x/BR22 markers vs the older panel image's AC632N, so it is a newer (2025) hardware revision on the AC695N SoC"
+  - "FCC ID unknown (no listing carries one; Chinese SRRC CMIIT ID may be on the hardware label)"
+  - "JieLi .ufw decryption (chip-series key) if firmware internals are wanted"

@@ -26,7 +26,7 @@ needed at the protocol level. Full GATT map and command frames recovered from th
 Device name contains one of: `BLE-watch`, `FINIS-HRM`, `FINIS SWIMSENSE`
 (from `FinisDeviceScanner.isFinisDevice()`).
 
-### GATT (from `com/intellectsoft/finis/ble/BleConstants.java`)
+### GATT
 | UUID | Role |
 |------|------|
 | `0000fff0-0000-1000-8000-00805f9b34fb` | FINIS service |
@@ -42,7 +42,7 @@ Device name contains one of: `BLE-watch`, `FINIS-HRM`, `FINIS SWIMSENSE`
 - Workout data: date `AA 08 80 00 FF`, part1 `AA 08 90 00 FF`, part2 `AA 08 91 00 FF`,
   free `AA 08 92 00 FF`, breast `AA 08 93 00 FF`, fly `AA 08 94 00 FF`, back `AA 08 95 00 FF`
 - Set watch time: `AA 08 B6 <12 bytes> FF`; HR strap frames use 0xC4/0x89/0xC2 leads
-Response parsing lives in `com/intellectsoft/finis/ble/FinisBluetoothService.java` — a full
+Response parsing lives in the app — a full
 protocol spec can be finished from the decompiled tree alone, no device capture required.
 
 ## APK Provenance

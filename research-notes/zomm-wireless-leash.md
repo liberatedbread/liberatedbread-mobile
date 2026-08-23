@@ -21,9 +21,9 @@ speakerphone, and panic/emergency-call button. Company **dead**: site dark by
   hands-free/headset — Newegg-hosted official manual).
 - Android app talks to the fob over RFCOMM with a **custom SPP UUID**:
   `5a4f4d4d-5f41-4e44-524f-49445f534543` — ASCII for `ZOMM_ANDROID_SEC`
-  (from `bluetooth/ZBluetooth.java:130`).
+  (from the app's Bluetooth layer).
 - App also opens a listening RFCOMM socket on standard SPP UUID
-  `00001101-0000-1000-8000-00805f9b34fb` (`ZBluetoothService.java:75`).
+  `00001101-0000-1000-8000-00805f9b34fb` (from its Bluetooth service).
 
 ## Protocol (from com.zomm v2.0.16 DEX)
 The app emulates the HFP Audio-Gateway side with canned AT responses and adds

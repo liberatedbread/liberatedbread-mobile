@@ -18,7 +18,7 @@ bluetooth:
   rfcomm:
     - uuid: "00001101-0000-1000-8000-00805f9b34fb"
       name: spp
-      note: from com/gopoint/bt1/scanmgr/a.java
+      note: from the app's scan manager
   pairing:
     note: hardware pairing button on dongle; no fixed PIN dependency documented
 

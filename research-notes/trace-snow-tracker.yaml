@@ -23,12 +23,12 @@ transport:
 
 ble:
   advertising:
-    name_patterns: ["Trace"]  # exact match in BluetoothPairingManager.java
+    name_patterns: ["Trace"]  # exact match in the app's pairing manager
     service_uuids: []
   services:
     - uuid: "0000A100-8501-11e3-ba12-0002a5d5c51b"
       name: trace_service
-      description: Trace puck primary service (all UUIDs named in TRCSDK.java)
+      description: Trace puck primary service (all UUIDs named in the bundled Trace SDK)
       characteristics:
         - {uuid: "0000a101-8501-11e3-ba12-0002a5d5c51b", name: recording, description: start/stop recording control}
         - {uuid: "0000a102-8501-11e3-ba12-0002a5d5c51b", name: status}

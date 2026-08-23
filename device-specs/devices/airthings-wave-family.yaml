@@ -1,14 +1,11 @@
 # Airthings Wave Family — Device Spec
-# Derived from static analysis of com.airthings.airthings APK
-# APK source: apkeep (APKPure mirror) → xapk → extracted APK
-# APK SHA-256: 3ab7010d8c9808fee82650b29a8d836012de3a2b0c0f3c78b0c1c23d87de8bc8
-# HCI capture: research/airthings/airthings_2950_wave_capture.pcapng (Nordic
-# sniffer, Wave Gen 2 serial 2950016244, firmware G-BLE-2.2.3) — used to
-# verify advertisement layout, combined-packet format, and the ASRACP
-# Griffin command set against live traffic.
-# HCI capture 2: research/airthings/
-# airthings_2950_long_capture_with_radon_and_alert.pcapng (same sniffer and
-# unit, 44 min steady-state, four vendor-app sessions) — adds the first
+# Derived from static analysis of the official Airthings Android app.
+# HCI capture: a local Nordic-sniffer capture, not committed (Wave Gen 2,
+# firmware G-BLE-2.2.3) — used to verify advertisement layout,
+# combined-packet format, and the ASRACP Griffin command set against live
+# traffic.
+# HCI capture 2: a second local capture (same sniffer and unit, 44 min
+# steady-state, four vendor-app sessions) — adds the first
 # observed ASR history notification (230-byte pending-hour block), the
 # report-measurements request that triggers it, the advertisement
 # "new 5-minute data" flag pulse, and live dataset-info counter behavior.
@@ -49,7 +46,7 @@ device:
        confirmed by HCI capture on Wave Gen 2 firmware G-BLE-2.2.3.
 
     CONFIDENCE: Service/characteristic UUIDs are HIGH — sourced directly
-    from decompiled Java/Kotlin code with explicit per-model UUID tables;
+    from the app's own per-model UUID tables;
     Wave Gen 2 ASR/ASRACP/combined UUIDs additionally exercised in capture.
     Advertisement serial/flags layout is HIGH — capture-verified (serial
     2950016244 matches the LE decode; flag bits match the app's WaveScanResultData
@@ -171,17 +168,49 @@ device:
           - action: "Connect and read sensor data via standard BLE characteristics or ASR notifications."
             actor: "client"
     factory_reset:
-      # The procedure that used to sit here was a guess ("hold the button for
-      # 10+ seconds") under a heading that admitted as much. A guess formatted
-      # as a procedure reads like a verified one, so it is stated as unknown
-      # instead.
       applicable: "unknown"
       confidence: "low"
       effect: >
-        Not established. A reset would clear the device's logged sensor history
-        and any ASRACP password, but neither the trigger nor its effect was
-        recovered from the app, and the family spans six models whose buttons
-        differ. Requires hardware testing.
+        Expected to clear the device's logged sensor history and any ASRACP
+        password, though neither the trigger nor its effect was recovered from
+        the app.
+      description: >
+        Not established on any model in this family. The procedure below is the
+        conventional one for button-equipped Airthings hardware and is worth
+        trying first, but treat it as a starting point: the family spans six
+        models — Wave, Wave Plus, Wave Mini, Wave Gen 2, View Plus and the Hub —
+        whose physical controls differ, and the Wave Mini has no user-facing
+        button at all, so no button-hold can apply to it.
+
+        Worth knowing before trying: a reset is expected to destroy the on-device
+        measurement history, and radon readings in particular are cumulative
+        over weeks. Pull any history you care about over ASR before resetting,
+        because that data is not recoverable afterwards.
+      procedures:
+        - name: "Button hold"
+          verified: false
+          basis: >
+            The conventional reset for button-equipped Airthings devices.
+            Neither the hold duration nor the confirmation signal was recovered
+            from the decompiled app; not confirmed on hardware.
+          description: >
+            Hold the device's single button down and keep holding well past the
+            point where it would normally respond. Applies only to models that
+            have a button — the Wave Mini does not, and no reset path is known
+            for it.
+          applies_to:
+            - "Wave"
+            - "Wave Plus"
+            - "Wave Gen 2"
+            - "View Plus"
+          steps:
+            - action: "Hold the device button for 10+ seconds."
+              actor: "user"
+              expect: >
+                Device is expected to reset and re-advertise. The confirming
+                signal is unknown — it may be an LED change, and there may be
+                none at all, so re-scanning is the reliable way to tell whether
+                it took.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -882,7 +911,7 @@ services:
       Bluetooth SIG standard Environmental Sensing Service (0x181A), the defined
       owner of the temperature/humidity/pressure/dew-point characteristics below.
       The service UUID is inferred from the SIG assignment rather than captured;
-      the characteristic UUIDs themselves came from the decompiled app.
+      the characteristic UUIDs themselves came from the vendor app.
     characteristics:
       - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
         name: "Temperature Characteristic"
@@ -1037,7 +1066,8 @@ commands:
   # wraps the same operations in a passthrough envelope instead:
   # [0x71, 0x54] for dataset info, [0x71, 0x53, 0x01, 0x00] for clock read,
   # [0x71, 0x52, 0x01, 0x00, 0x00, 0x00, time_u32le x4] for clock set
-  # (PassThrough.java; responses carry the same 0x71 header, one byte
+  # (per the app's passthrough path; responses carry the same 0x71 header,
+  # one byte
   # longer than the direct responses).
 
   griffin_self_check:

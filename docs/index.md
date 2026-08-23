@@ -21,6 +21,11 @@ and check out the [recommended tools](getting-started/tools.md).
 
 Browse our [device registry](devices/index.md) to see what's been documented so far.
 
+Already running Home Assistant or another local controller? The
+[keeping devices alive](keeping-devices-alive.md) guide maps every documented
+device family to its realistic keep-alive path — local API, cloud redirection,
+replacement firmware, or BLE — with an honest list of the dead ends.
+
 ## Contributing
 
 Found an abandoned device? Check our [contribution guide](contributing/index.md)

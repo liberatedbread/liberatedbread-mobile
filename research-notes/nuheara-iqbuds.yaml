@@ -22,7 +22,7 @@ bluetooth_classic:
       name: spp
     - uuid: "00001107-d102-11e1-9b23-00025b00a5a5"
       name: gaia_service  # from com.nuheara.gaialibrary.GaiaLink
-  device_name_prefix: "IQbuds"  # IQBudsScanner.java; names: iqbuds/boost/max/2max
+  device_name_prefix: "IQbuds"  # from the app's scanner; names: iqbuds/boost/max/2max
   notes: >
     Vendor command layer in com.nuheara.iqbudsapp.communication (NuhearaCommands,
     NuhearaPacket, NuhearaPayloadParser; payloads: AudiogramDataPayload, LiveEQPayload,
@@ -57,7 +57,7 @@ ble:
 
 protocol:
   note: >
-    Buds: GAIA vendor commands (map in NuhearaCommands.java — not yet extracted).
+    Buds: GAIA vendor commands (map in the app's command class — not yet extracted).
     IQstream: simple GATT reads/writes on the 7cb85d0x family.
     No cloud in the device-control path; account/registration optional.
   cloud_required: false

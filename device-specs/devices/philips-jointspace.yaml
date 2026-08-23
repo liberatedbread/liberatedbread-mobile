@@ -705,9 +705,13 @@ commands:
     description: >
       Put the TV in standby through the powerstate resource rather than a key
       code — the same endpoint the Power State sensor reads, written instead
-      of read. The non-key off for sets that ignore the PowerOff key
-      (spec-evolution P13 bound this; the endpoint itself was documented under
-      http_endpoints all along). v6 only, like the read.
+      of read (spec-evolution P13 bound this; the endpoint itself was
+      documented under http_endpoints all along). v6 only, like the read, and
+      "support varies by firmware" even there — so this is NOT a fallback for
+      sets that ignore the PowerOff key: those are the older sets, which have
+      no powerstate resource at all. It is the off for a v6 set that answers
+      powerstate but does not honour the key, and an explicit state request
+      rather than a keypress whose effect depends on the model's key map.
     transport: "http"
     method: "POST"
     path: "/{api_version}/powerstate"
@@ -1311,9 +1315,13 @@ entities:
       toggle: "press_standby"
     state_topic: "/{api_version}/powerstate"
     notes: >
-      powerstate "On" when on, "Standby" otherwise. turn_off maps to Standby
-      on Android models anyway; set_power_standby is the non-key alternative
-      for sets that ignore the PowerOff key. turn_on only reaches a TV still
+      powerstate "On" when on, "Standby" otherwise. turn_off binds the
+      PowerOff key, which maps to Standby on Android; key availability varies
+      by model, and the one key every model takes is Standby — bound here as
+      the toggle, so a consumer that has read the state has a universal off
+      even where PowerOff is ignored. set_power_standby is the other discrete
+      off, but it is v6-only and so narrower in reach than the key, not a
+      fallback for the sets that ignore it. turn_on only reaches a TV still
       listening on the network — Wake-on-LAN is the documented route
       otherwise.
   - platform: "button"

@@ -17,9 +17,9 @@ fully local by design (predates cloud-everything).
 ## Local Feasibility: CONFIRMED
 - **Transport**: Bluetooth Classic 2.1, SPP/RFCOMM, standard SPP UUID
   `00001101-0000-1000-8000-00805F9B34FB`. Confirmed in the official app:
-  `com/sonyericsson/extras/liveview/btdisplay/JerryBTManager.java:364`
+  the app's Bluetooth display manager
   (`createRfcommSocketToServiceRecord(JERRY_UUID)`), `JERRY_UUID` defined in
-  `JerryDisplayService.java`. No cloud involvement at any layer.
+  its display service. No cloud involvement at any layer.
 - **Community RE (2011-2012)**: XDA thread "LiveView reverse-engineering effort"
   (xdaforums.com/t/liveview-reverse-engineering-effort.1422106/) — protocol
   mapped by archivator/boombuler/pedrodh; open-source replacement app

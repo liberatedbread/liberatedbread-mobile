@@ -54,7 +54,7 @@ protocol:
     presets: /api/audio/preset/activate|save|remove|clear_all|current/get  # /download was cloud
     spatializer: /api/audio/sound_effect/enabled|angle|room_size/get|set
     misc: /api/system/head_detection/enabled/set, /api/system/auto_power_off/*, /api/system/flight_mode/get, /api/audio/source/get, /api/audio/track/metadata/get
-  endpoint_count: ~60 in ZikAPI.java
+  endpoint_count: ~60 in the app's Zik API class
 
 status:
   apk_acquired: true            # com.parrot.zik2 v1.91 from apk-pure

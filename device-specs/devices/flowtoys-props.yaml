@@ -1,0 +1,369 @@
+# Flowtoys Connect LED Flow-Arts Props (capsule 2, vision props) + Connect Bridge
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Flowtoys Connect Props (capsule 2 / vision) via Connect Bridge"
+  manufacturer: "Flowtoys"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "light"
+  notes: >
+    Flowtoys LED flow-arts props (capsule 2.0 light engines, podpoi, vision
+    poi/staff/club/wand) do NOT speak BLE themselves. They communicate over a
+    proprietary 2.4 GHz "flowtoys connect" radio protocol that runs on
+    nRF24L01+-compatible radios. A hardware "connect bridge" (USB or pocket
+    bridge; ESP32 + nRF24) translates between the phone and the props. The
+    official companion app is "flowtoys connect" (Android package
+    com.flowtoys.app, Flutter); accounts, playlists and shows sync through the
+    vendor cloud at api.flowtoys.com, but prop control itself is local.
+
+    ARCHITECTURE: phone --(BLE or WiFi/OSC)--> bridge --(nRF24 RF)--> prop
+    groups. The app addresses GROUPS, never individual props: each group has
+    a 16-bit radio ID shared by every prop in it. Five "public" groups use
+    fixed IDs 1-5 (community builds label them orange/green/aqua/blue/
+    purple); user-created private groups get other 16-bit IDs (the open
+    bridge firmware supports up to 100). To group props: from off, hold the
+    prop button ~10 s until the LEDs flash/turn white. To let a bridge learn
+    a group, the props must be awake on their sync page/mode (page 2 mode 1
+    on older firmware; the current app instructs page 5 mode 1) while the
+    bridge is in sync mode.
+
+    BRIDGE BLE — TWO GENERATIONS. The published open-source bridge firmware
+    (github.com/benkuper/FlowtoysConnectBridge, written for Flowtoys) and its
+    companion Flutter app (benkuper/FlowtoysConnect) use the Nordic UART
+    Service: service 6E400001-B5A3-F393-E0A9-E50E24DCCA9E, phone writes ASCII
+    command strings to 6E400002 (write / write-no-response), bridge notifies
+    on 6E400003. The bridge advertises as "FlowConnect <name>" and the app
+    requests MTU 48. The production app (com.flowtoys.app, decompiled) instead
+    targets a vendor-specific service 49550001-AAD5-59BD-934C-023D807E01D5
+    with characteristics 49550002-..., 49550003-... and 49550005-... — their
+    exact roles are not recoverable from the Flutter AOT binary's string
+    table alone (the Dart command encoder is compiled, not string-visible).
+    Treat the NUS command set below as the documented baseline and the
+    4955000x service as the production equivalent pending capture.
+
+    ASCII COMMAND SET (open bridge firmware, SerialManager; same parser is
+    fed by USB serial at 115200 and by BLE NUS writes; messages end at '\n'
+    or 0xFF):
+      's'<timeout_s>   start RF group sync (float seconds, 0 = no timeout)
+      'S'              stop sync
+      'a'              reset sync (forget all private groups)
+      'n'<ssid>,<pass> set WiFi credentials
+      'g'<name>,<mode> set bridge name + radio mode (0=WiFi, 1=BLE, 2=both);
+                       bridge reboots after this
+      'w'<group> / 'W'<group>   wake up group (capital = public group ID 1-5)
+      'z'<group> / 'Z'<group>   power off group (capital = public)
+      'r'              restart the bridge ESP32
+      'p'<g>,<page>,<mode>,<actives>,<hue>,<sat>,<val>,<speed>,<density>,<lfo1..4>
+                       set pattern on private group g ('P' = public group).
+                       13 comma-separated decimal fields; actives is a
+                       bitmask: bit0 LFO, bit1 hue, bit2 saturation,
+                       bit3 value/brightness, bit4 speed, bit5 density;
+                       hue/sat/val/speed/density/lfo are uint8 (0-255).
+                       A solid color is page 2, mode 7, actives 0xFF with
+                       hue/sat/val from HSV.
+
+    RF LINK (nRF24L01+, from the same firmware): 250 kbps, channel 2,
+    3-byte addresses, TX/RX address bytes {0x01, 0x07, 0xF1}, CRC-16, no
+    auto-ack. Props are synchronized by a fixed 20-byte packed SyncPacket
+    broadcast per group at ~30 ms cadence (5 repeats per change, plus a
+    forced resend every 1 s): uint16 group_id (byte-swapped on the wire),
+    uint32 padding/sequence counter, uint8 lfo[4], uint8 hue, sat, val,
+    speed, density, a 6-bit "active" flags byte (lfo/hue/sat/val/speed/
+    density), 2 reserved bytes, uint8 page, uint8 mode, and a flags byte
+    (adjust, wakeup, poweroff, force_reload, save, delete, alternate).
+    Any nRF24 node with these parameters can therefore drive props
+    directly without the vendor bridge.
+
+    WIFI/OSC ALTERNATE PATH: the bridge joins a configured WLAN (firmware
+    defaults SSID "flowspace"/"flowarts") or falls back to AP
+    "FlowConnect <name>" (WPA2 password "findyourflow") at 192.168.4.1.
+    It advertises mDNS _osc._udp (instance "flowtoysconnect") and listens
+    for OSC 1.x over UDP (open firmware port 9000; the early companion app
+    sends to port 8888 — check both). OSC addresses: /wakeUp (int group,
+    int isPublic), /powerOff (same), /sync (float timeout), /stopSync,
+    /resetSync, /pattern (14 ints: group, isPublic, page, mode, actives,
+    hue, sat, brightness, speed, density, lfo1-4), /wifiSettings (2
+    strings), /globalConfig (string name, int mode), /play (string),
+    /stop, /pause, /resume, /seek (float), /rgb/brightness (float).
+
+    CONFIDENCE: HIGH for the RF packet layout, RF link parameters, NUS
+    UUIDs, ASCII command grammar and OSC addresses — all read directly
+    from the bridge firmware source Flowtoys commissioned and published,
+    cross-checked against the open companion app source. MEDIUM for the
+    production app's 4955000x BLE service (UUIDs extracted from the
+    official APK's compiled Dart library; characteristic roles unknown).
+    Mode metadata (base_modes.json inside the APK) confirms the page/mode
+    model: modes are numbered within pages, each with default
+    hue/saturation/brightness/speed/density in 0.0-1.0.
+
+  identification:
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      - "49550001-aad5-59bd-934c-023d807e01d5"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+            - "49550001-aad5-59bd-934c-023d807e01d5"
+          local_name:
+            match: "prefix"
+            value: "FlowConnect"
+      - type: "mdns"
+        mdns:
+          service_type: "_osc._udp.local."
+          port: 9000
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No BLE pairing or bonding on the bridge — connect and write. Props
+      must be grouped before the app/bridge can address them: from off,
+      hold the prop button ~10 s until the LEDs flash or turn white; each
+      quick-group creates/uses a group radio ID. For the bridge to learn a
+      private group, put the props on their sync page/mode (page 2 mode 1
+      on older firmware, page 5 mode 1 per the current app) and start sync
+      ('s' command or /sync OSC) on the bridge.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the "FlowConnect <name>" advertisement (NUS service
+          6E400001 on the open firmware, 49550001 on production bridges),
+          connect, request MTU 48, subscribe to the notify characteristic
+          and write ASCII commands to the write characteristic.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the bridge from any USB source (dim solid red LED)."
+            actor: "user"
+            request:
+              protocol: "ble_gatt"
+          - action: >
+              Scan for name prefix "FlowConnect" / service 6E400001 (or
+              49550001) and connect; no pairing.
+            actor: "client"
+          - action: "Group the props (button hold ~10 s from off) if not already grouped."
+            actor: "user"
+          - action: >
+              Send sync ('s10'), wait for the group to be learned, then drive
+              the group with 'p'/'w'/'z' commands.
+            actor: "client"
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Bridge: clearing the ESP32 NVS ("bridge" preferences namespace)
+        forgets WiFi credentials, device name and learned private group IDs;
+        the open firmware has no reset button — reflash or clear NVS. Props:
+        group membership lives in the prop; re-grouping with the ~10 s
+        button hold overwrites it.
+      procedures:
+        - name: "Re-group a prop"
+          steps:
+            - action: "From off, hold the prop button ~10 s until the LEDs flash/turn white."
+              actor: "user"
+              expect: "Prop joins/creates a group with a fresh radio ID."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No bonding on BLE; any phone can take over the bridge (only one BLE
+        central at a time — drop the other phone's Bluetooth to hand over).
+        WiFi credentials are replaced in place with the 'n' command.
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device: ["wifi_ssid", "wifi_password", "group_ids"]
+      issued_to_client: []
+      notes: >
+        WiFi credentials are sent to the bridge as a cleartext ASCII 'n'
+        command over BLE (no link encryption) and stored in ESP32 NVS.
+        The bridge fallback AP itself uses WPA2 with the fixed password
+        "findyourflow" in the published firmware.
+
+  variants:
+    - model: "capsule 2.0 / 2.C light engine (podpoi, capsule poi, staffs, batons)"
+      notes: >
+        Connect-capable light engine; USB-C (2.C) or micro-USB (2.0)
+        charging and firmware updates via the desktop Flowtoys Updater.
+    - model: "vision props (vision poi/staff/club/wand, spin)"
+      notes: >
+        Higher-resolution connect props; same group/RF control model.
+    - model: "connect bridge (USB / pocket)"
+      notes: >
+        ESP32 + nRF24 translator; the BLE/WiFi surface documented here
+        lives on this device, not on the props.
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART Service (open bridge firmware)"
+    notes: >
+      Standard NUS on the published open-source bridge firmware. The phone
+      writes ASCII command strings (terminated by '\n' or 0xFF) to RX
+      (6E400002); bridge status/feedback is notified on TX (6E400003).
+      Request MTU 48 as the companion app does. The production app uses
+      the 49550001 service instead — see the second service entry.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "RX (command write)"
+        properties: ["write", "write_without_response"]
+        notes: >
+          ASCII command strings; all values are decimal, comma-separated.
+          Capital command letters target public groups 1-5, lowercase
+          target private (learned) groups. Group ID 0 means all groups.
+        commands:
+          sync_groups:
+            description: >
+              Start RF sync so the bridge learns private group IDs from
+              props currently on their sync page/mode. Payload is ASCII
+              's' followed by a timeout in seconds (float, 0 = no
+              timeout), e.g. "s10".
+            parameters:
+              timeout_seconds:
+                type: "string"
+                description: "ASCII decimal float; 0 disables the timeout."
+            verification: "reported"
+          stop_sync:
+            description: "Stop sync immediately. Single byte 'S' (0x53)."
+            value: [0x53]
+            verification: "reported"
+          reset_sync:
+            description: "Forget all learned private groups. Single byte 'a' (0x61)."
+            value: [0x61]
+            verification: "reported"
+          set_wifi_credentials:
+            description: >
+              Set the WLAN the bridge joins: ASCII "n<ssid>,<password>".
+              Sent cleartext over an unencrypted BLE link.
+            advanced: true
+            advanced_reason: >
+              Writes WiFi credentials to the bridge and may drop it off the
+              current network; the password travels in cleartext.
+            parameters:
+              ssid:
+                type: "string"
+                description: "ASCII SSID."
+              password:
+                type: "string"
+                description: "ASCII password."
+            verification: "reported"
+          set_bridge_config:
+            description: >
+              Set bridge device name and radio mode:
+              ASCII "g<name>,<mode>" with mode 0=WiFi only, 1=BLE only,
+              2=both. Empty name ("*") resets to default. The bridge
+              reboots ~0.5 s after this command.
+            parameters:
+              name:
+                type: "string"
+                description: "New bridge name (max 10 chars), or \"*\" to reset."
+              mode:
+                type: "string"
+                description: "0, 1 or 2 (WiFi / BLE / both)."
+            verification: "reported"
+          wake_group:
+            description: >
+              Wake a group from sleep: "w<groupId>" for a private group,
+              "W<groupId>" (capital) for a public group 1-5, group 0 = all.
+            parameters:
+              group_id:
+                type: "string"
+                description: "ASCII decimal group ID."
+              public:
+                type: "string"
+                description: "Use the capital 'W' form for public groups."
+            verification: "reported"
+          power_off_group:
+            description: >
+              Power off a group: "z<groupId>" private / "Z<groupId>"
+              public, group 0 = all.
+            parameters:
+              group_id:
+                type: "string"
+                description: "ASCII decimal group ID."
+              public:
+                type: "string"
+                description: "Use the capital 'Z' form for public groups."
+            verification: "reported"
+          restart_bridge:
+            description: "Restart the bridge ESP32. Single byte 'r' (0x72)."
+            value: [0x72]
+            verification: "reported"
+          set_pattern:
+            description: >
+              Set the pattern on a group. ASCII
+              "p<group>,<page>,<mode>,<actives>,<hue>,<sat>,<brightness>,<speed>,<density>,<lfo1>,<lfo2>,<lfo3>,<lfo4>"
+              (use capital 'P' for public groups). actives is a bitmask:
+              bit0 LFO, bit1 hue, bit2 saturation, bit3 brightness,
+              bit4 speed, bit5 density. All other fields are uint8 0-255.
+              Solid color: page 2, mode 7, actives 255, hue/sat/brightness
+              from the desired HSV color.
+            parameters:
+              group_id: { type: "string", description: "ASCII decimal group ID; 0 = all groups." }
+              page: { type: "string", description: "Mode page number." }
+              mode: { type: "string", description: "Mode number within the page." }
+              actives: { type: "string", description: "Bitmask of which parameter fields are applied (0-63+)." }
+              hue: { type: "string", description: "0-255." }
+              saturation: { type: "string", description: "0-255." }
+              brightness: { type: "string", description: "0-255." }
+              speed: { type: "string", description: "0-255." }
+              density: { type: "string", description: "0-255." }
+              lfo1: { type: "string", description: "0-255." }
+              lfo2: { type: "string", description: "0-255." }
+              lfo3: { type: "string", description: "0-255." }
+              lfo4: { type: "string", description: "0-255." }
+            verification: "reported"
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "TX (notify)"
+        properties: ["notify"]
+        notes: >
+          Bridge-to-phone notifications (NUS TX). The open firmware
+          primarily logs to USB serial; the companion app does not depend
+          on notify content for basic control.
+  - uuid: "49550001-aad5-59bd-934c-023d807e01d5"
+    name: "Flowtoys Connect service (production app)"
+    notes: >
+      Vendor-specific service the production "flowtoys connect" app
+      (com.flowtoys.app) connects to. UUIDs recovered from the compiled
+      Dart library of the official APK; characteristic roles and the
+      on-wire encoding are NOT yet established (Flutter AOT hides the
+      command builder). Candidates: 49550002 write, 49550003 notify,
+      49550005 auxiliary (e.g. show/file transfer) — unverified. The CCC
+      descriptor 0x2902 is referenced. Needs one BLE capture against a
+      production bridge to pin down.
+    characteristics:
+      - uuid: "49550002-aad5-59bd-934c-023d807e01d5"
+        name: "Characteristic 2 (role unknown)"
+        properties: ["write"]
+        notes: "Referenced by the production app; presumed command write."
+      - uuid: "49550003-aad5-59bd-934c-023d807e01d5"
+        name: "Characteristic 3 (role unknown)"
+        properties: ["notify"]
+        notes: "Referenced by the production app; presumed notifications."
+      - uuid: "49550005-aad5-59bd-934c-023d807e01d5"
+        name: "Characteristic 5 (role unknown)"
+        properties: ["write", "notify"]
+        notes: "Referenced by the production app; purpose unknown."
+
+entities:
+  - platform: "light"
+    name: "Flowtoys prop group"
+    features: ["brightness", "color", "effect"]
+    notes: >
+      Control is per GROUP, not per prop: each group ID maps to one light
+      entity. Color/effect go through the set_pattern command (page/mode
+      select the effect; hue/sat/brightness set the color); wake/power-off
+      map to the light's on/off.

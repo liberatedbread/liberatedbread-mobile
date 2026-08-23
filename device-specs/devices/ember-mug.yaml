@@ -63,12 +63,9 @@ device:
   category: "appliance"
   notes: >
     Covers Ember Mug 2 (10/14 oz), Travel Mug 2/2+, Cup (6 oz), Tumbler (16 oz).
-    Official Android app package is `com.embertech`; APKPure XAPK inspected:
-    Ember app 4.5.9 / versionCode 220 (XAPK `manifest.json:1`: version_name
-    4.5.9, version_code 220). The decompiled Android manifest confirms BLE
-    permissions, package `com.embertech`, and Nordic DFU services
-    (AndroidManifest.xml:256-287, eight `dev.steenbakker.nordicdfu.DfuService*`
-    foreground-service entries); Flutter
+    The official Ember Android app was inspected statically: its manifest
+    confirms BLE permissions and Nordic DFU services (eight DFU
+    foreground-service entries); its Flutter
     AOT strings expose the Ember Bluetooth model names and characteristic helper
     names such as `characteristicForTargetTemperature`, `characteristicForLED`,
     `characteristicForPushEvent`, `characteristicForDSK`, and
@@ -693,7 +690,7 @@ services:
           round-trips the value and the error has never had a chance to show.
 
 
-          Ember's own app 4.5.9 does not reference this
+          Ember's own app does not reference this
           characteristic at all. Its Dart layer names sixteen characteristics and
           this is not among them, so whatever sets the clock, it is not the current
           app on the normal path.
@@ -953,7 +950,7 @@ services:
 
           HARDWARE: present on a Mug 2 and write only, confirming the property
           list. Not written to, so the payload format is still unknown, and Ember's
-          own app 4.5.9 does not reference this characteristic at all: its Dart
+          own app does not reference this characteristic at all: its Dart
           layer names sixteen and this is not among them. Whatever writes a
           location, it is not the current app on the normal path.
 
@@ -1095,8 +1092,8 @@ services:
           python-ember-mug calls this UDSK, used for auth in the app. It treats
           all-zero 20-byte reads as missing and attempts to write a base64-encoded
           random string in `make_writable()` when normal writes fail. The app's
-          Dart layer corroborates an active handshake: libapp.so AOT strings
-          reference `package:core/udsk_utils.dart` with `generateUdsk` and
+          Dart layer corroborates an active handshake: its AOT strings
+          reference a UDSK utility module with `generateUdsk` and
           `verifyUdsk` helpers and log a write-then-read-back verification when
           the fetched value mismatches the generated UDSK (app-confirmed, not
           hardware-tested).
@@ -1597,10 +1594,7 @@ helpful_urls:
   - title: "Ember app on Google Play"
     url: "https://play.google.com/store/apps/details?id=com.embertech"
     description: >-
-      Vendor app listing; com.embertech is the package this spec's static analysis used.
-  - title: "Ember app on APKPure"
-    url: "https://apkpure.com/ember/com.embertech"
-    description: "Mirror the analysed XAPK came from (app 4.5.9, versionCode 220)."
+      Vendor app listing — the app this spec's static analysis is based on.
   - title: "orlopau/ember-mug"
     url: "https://github.com/orlopau/ember-mug"
     description: >-

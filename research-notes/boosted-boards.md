@@ -22,11 +22,11 @@ and cloud ride logging.
   firmware hosting) are dead, but none are needed for control.
 - Decompiled APK confirms scan-by-service-UUID discovery: V2 boards advertise
   `7DC55A86-C61F-11E5-9912-BA0BE0483C18`, V1 boards advertise
-  `DA2B84F1-6279-48DE-BDC0-AFBEA0226079` (`com/boostedboards/android/ble/f.java`).
+  `DA2B84F1-6279-48DE-BDC0-AFBEA0226079`.
 
 ## BLE map (recovered from DEX, `com.boostedboards.android.ble`)
 ### Board service V2/V3 — `7DC55A86-C61F-11E5-9912-BA0BE0483C18` family
-Characteristic enum (`ble/h0/g.java`, name → UUID, notify flag):
+Characteristic enum in the app's BLE layer (name → UUID, notify flag):
 | Characteristic | UUID | Notify |
 |---|---|---|
 | VEHICLE_ID / VEHICLE_NAME | 7DC5BB39-C61F-11E5-9912-BA0BE0483C18 | n |
@@ -53,7 +53,7 @@ Characteristic enum (`ble/h0/g.java`, name → UUID, notify flag):
 Plus standard DIS: MOTORDRIVER_FW_VERSION on `00002a26`, SCOOTER_SERIAL on `00002a25`.
 Note: the VEHICLE_ID/VEHICLE_NAME pair share one UUID in the enum — verify on hardware.
 
-### V1 board path — `ble/e0/a.java`
+### V1 board path
 Service `DA2B84F1-6279-48DE-BDC0-AFBEA0226079`; characteristics
 `99564A02-DC01-4D3C-B04E-3BB1EF0571B2`, `A87988B9-694C-479C-900E-95DFA6C00A24`,
 `BF03260C-7205-4C25-AF43-93B1C299D159`, `18CDA784-4BD3-4370-85BB-BFED91EC86AF`,

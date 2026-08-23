@@ -25,7 +25,7 @@ device:
     requests on 0xFF02.
 
     APP CONFIRMATION (2026-08, com.sf.meizhi Android APK, Flutter/Dart):
-    the app's libapp.so string table contains the full UUIDs
+    the app's Dart snapshot string table contains the full UUIDs
     000000ff-…/0000ff01-…/0000ff02-… and no "0000ff00" string anywhere —
     vindicating the 0x00FF choice over the cr0ssn0tice README's 0xFF00.
     The JSON method names getDevSta, setLight, setBlower, getSysSta,
@@ -37,7 +37,7 @@ device:
     community codebases (hardware-verified there), setFanj is listed with
     the undocumented methods.
 
-    ALSO APP-CONFIRMED (method names present as libapp.so strings;
+    ALSO APP-CONFIRMED (method names present as snapshot strings;
     payload formats NOT recovered — string-table presence only, no Dart
     disassembly performed):
     - Scheduling/timers exist: setCustAD, setRunDays, setPlant, plus
@@ -93,7 +93,7 @@ device:
     - on: 0=off, 1=on; light level: 0-100
 
     DISCOVERY: the app matches on the name prefix "SF-GGS-" (the only
-    name string in libapp.so; app-confirmed). The prefix covers the
+    name string in the snapshot; app-confirmed). The prefix covers the
     family: the SF-GGS-CB controller, the SF-GGS-PS5 / SF-GGS-PS10 power
     strips and the SF-GGS-LC light controller. Whether a service UUID is
     present in the advertisement is unverified.
@@ -108,7 +108,7 @@ device:
     fragmentation/reassembly is a vendor protocol layer. This frame
     layout comes solely from that community ESP32 codebase — no
     corresponding structure (0xAAAA0003 magic, msgtype table) was found
-    in the app's libapp.so strings, so it is UNVERIFIABLE from the APK
+    in the app's snapshot strings, so it is UNVERIFIABLE from the app
     without Dart disassembly. Kept here as the best available
     description, not as app-confirmed fact. The ESP32 MQTT bridge
     example at

@@ -49,7 +49,7 @@ Variable-length bytearrays written to `0xFA02`.
 
 The recovered app (service `0xFEE9`, characteristic `d44bc439-…-925416129600`) sends
 GIF / image / text as framed 4096-byte payload chunks, each prefixed by a 16-byte
-header. This is the authoritative layout, derived from `GifAgreement.java` (see the
+header. This is the authoritative layout, derived from the app's GIF-agreement class (see the
 evidence report and the device-spec YAML, which use the same layout):
 
 | Offset | Length | Field |
@@ -85,6 +85,7 @@ confidence and needs live-capture confirmation.
 - [derkalle4/python3-idotmatrix-library](https://github.com/derkalle4/python3-idotmatrix-library) (archived)
 - [8none1/idotmatrix](https://github.com/8none1/idotmatrix)
 - [markusressel/idotmatrix-api-client](https://github.com/markusressel/idotmatrix-api-client)
+- [adriantukendorf/iDotMatrix-HomeAssistant — HACS integration](https://github.com/adriantukendorf/iDotMatrix-HomeAssistant)
 
 ## Contributors
 

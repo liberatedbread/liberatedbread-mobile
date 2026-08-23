@@ -36,8 +36,8 @@ Watch for an advertisement matching ALL of:
   `DNxxxxxx`.
 - **Service UUID in adv data**: `00000074-1972-1925-3022-077119514e44` —
   the app scans with a `ScanFilter` on exactly this UUID
-  (`BleUtils5.java:312`).
-- **Manufacturer-data record**: 14 bytes, layout (from `MFD.java`):
+  (the app's BLE utility class).
+- **Manufacturer-data record**: 14 bytes, layout:
   fw_ver u16 / fact_id u16 / prod_type u16 / width u8 / height u8 /
   group u16 / vendor u16 / flags u8 (low nibble = runMode, bit 4 =
   isLeader) / pad u8. For a 20×20 curtain expect width=0x14, height=0x14.
@@ -62,7 +62,7 @@ in the repo's 78 specs advertises that UUID.
 
 Connect with nRF Connect / `bluetoothctl` and dump services.
 
-Expected (from `BleUtils5.java:64-70`):
+Expected (from the same BLE utility class):
 
 | UUID | Name | Properties to confirm |
 |---|---|---|

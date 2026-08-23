@@ -15,6 +15,11 @@ local — no cloud account on the wire — and has been reverse engineered
 independently three times: userx14/omblepy (Python CLI + per-model drivers),
 ichernev/omron-rs7-intelli-it (HCI-snoop protocol notes), and
 eigger/hass-omron (Home Assistant integration, 12 models verified).
+A 2026-08 teardown of the vendor app (Japanese OMRON connect
+`jp.co.omron.healthcare.omron_connect`; the US/Canada app is
+`com.omronhealthcare.omronconnect`) confirms the UUID set, the
+split-channel reassembly rule and the pairing exchange below, and ships
+per-model EEPROM memory-map configs for 86 model variants.
 
 ## Hardware
 

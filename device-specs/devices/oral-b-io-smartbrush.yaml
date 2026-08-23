@@ -20,7 +20,7 @@ device:
   testing:
     status: untested
   notes: |
-    Extracted from com.pg.oralb.oralbapp v10.x (211MB APK, decompiled via jadx).
+    Extracted by static analysis of the official Oral-B Android app.
     Uses A0F0XXXX-5047-4D53-8208-4F72616C2D42 UUID scheme where XXXX is a
     16-bit short UUID. Suffix "4F72616C2D42" decodes to "Oral-B" in ASCII.
     Manufacturer ID 0x00DC (220) = Procter & Gamble; the advertisement carries
@@ -71,7 +71,7 @@ device:
       the brush is not bound to it.
 
       Confidence is medium: the UUID scheme and device classes are recovered
-      from the decompiled app, but the connect flow has not been exercised
+      from the vendor app, but the connect flow has not been exercised
       against hardware here. Note that discovery is by manufacturer data, not by
       service UUID — a scanner filtering on services will not see the brush.
     methods:
@@ -104,7 +104,7 @@ device:
       effect: >
         Not established. The brush stores brushing session history and per-mode
         configuration that a reset would clear, but no reset command was
-        identified in the decompiled app, and the same characteristic set
+        identified in the vendor app, and the same characteristic set
         carries the OTA firmware path — a wrong guess there risks the firmware,
         not just the settings.
     rejoin:
@@ -138,7 +138,8 @@ services:
         name: DeviceState
         properties: ["read"]
         description: >
-          Current device state. State enum (app v10, DeviceState.java):
+          Current device state. State enum (from the app's device-state
+          model):
           0=UNKNOWN, 1=INIT, 2=IDLE, 3=RUN, 4=CHARGE, 5=SETUP,
           6=FLIGHT_MENU, 7=CHARGE_FORBIDDEN, 8=PRE_RUN, 9=PAUSE,
           10=POST_BRUSHING_STATISTICS, 113=FINAL_TEST, 114=PCB_TEST,
@@ -284,7 +285,7 @@ services:
 
 advertising:
   discovery_method: manufacturer_data
-  # Byte map from the app's own Advertisement.java (v10.8.0, 15-byte
+  # Byte map from the app's own advertisement model (15-byte
   # serialization), corroborated field-for-field by MatrixEditor/oralb-io
   # brush.py and Bluetooth-Devices/oralb-ble parser.py. There is no battery
   # byte — battery level comes from the FF05 GATT read.
@@ -445,8 +446,7 @@ protocol_changelog:
   V009: "Added SMART_ADAPT_MODE (0x0B) and GENTLE_WHITE (0x0C) modes."
 
 source:
-  apk: com.pg.oralb.oralbapp v10.x (211MB)
-  decompiled: jadx (25266 classes)
+  static_analysis: "Official Oral-B Android app"
   date_extracted: "2026-07-28"
 
 helpful_urls:

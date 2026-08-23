@@ -22,7 +22,8 @@ device:
     name "CQ60"). If a network capture ever shows a local advertisement, add a
     Wi-Fi discovery method then; the captures on hand are BLE (Bluetooth H4) only.
     Uses BLE for probe communication and Wi-Fi provisioning; Wi-Fi for cloud (AWS IoT MQTT).
-    React Native app with Hermes bytecode (v96); protocol logic decompiled via hermes-dec.
+    React Native app whose protocol logic lives in a Hermes bytecode bundle,
+    recovered by static analysis.
     Five BLE UUID families for different device generations and functions.
     BLE manufacturer ID: 0x05CD. Device name: exactly "CQ60".
     Temperatures are IEEE 754 single-precision floats; the unit on the wire is
@@ -32,12 +33,27 @@ device:
     Probe data uses TLV (Tag-Length-Value) binary encoding with typed attribute IDs.
     Three command channels: thermometer (048A), system (9C6F), FTP/OTA (F640).
     Cloud: api.chefiq.com (REST), graph.chefiq.com (GraphQL), iot.chefiq.com (MQTT).
+    The same endpoints also appear verbatim in the app's string resources,
+    which additionally name media.chefiq.com,
+    {service}-api.chefiq.com/v1, and the link.chefiq.com deep-link domain.
+    Firmware-update metadata comes from the REST API: GET /check-for-updates
+    with an x-api-key header (key embedded in the app; value not reproduced
+    here) and query params model_number, manifest_version, generation,
+    hw_version, esp_version, msp_version. The
+    binary itself is delivered to the hub as an ota_server_url pushed over
+    the MQTT 'ota' config key, then transferred device-side; the BLE F640
+    FTP service is the alternative app-driven transfer path.
     Auth: AWS Cognito. The identity-pool id us-east-1:f95270e2-a024-41dc-bf5e-2d5df159f259
     is a PUBLIC client-side identifier (region:uuid format), NOT a secret credential -- it
-    ships in every copy of the app and grants nothing without a valid user login. Retained
+    ships in every copy of the app (present both in the Hermes bundle and in
+    the app's string resources as COGNITO_IDENTITY_POOL_ID) and grants nothing
+    without a valid user login. Retained
     here (and in docs/devices/chef-iq-sense.md) for interoperability; no vendor secret is
     published. No certificate pinning.
-    MQTT topics: ciq-v2/dt/thermometer/{cognito_id}~{device_id}/+.
+    MQTT topics: ciq-v2/dt/thermometer/{cognito_id}~{device_id}/+ (the app's
+    subscribe list also includes ciq-v2/cmd/app/.../res/+,
+    ciq-v2/evt/thermometer/.../ota-response and .../notification/+ plus the
+    $aws/events/presence topics).
     Wi-Fi provisioning over BLE via Family C (8A71) characteristics, versioned V1/V2/V3.
     ADVERTISEMENT PATH (connectionless, no GATT needed): probes broadcast
     temperatures and battery unauthenticated in manufacturer data 0x05CD -- a
@@ -155,7 +171,7 @@ device:
             request:
               protocol: "ble_gatt"
               action: "Write 8a71ffa3 (Set Wi-Fi Network)"
-            notes: "Payload encoding is version-dependent and has not been replayed against hardware here."
+            notes: "Payload is a UTF-8 JSON object ({\"connect\": {...}} to join, {\"forget\": \"<ssid>\"} to forget) — see the Set Wi-Fi Network characteristic notes."
           - action: "Subscribe to the network info characteristic for the join result."
             actor: "client"
             request:
@@ -202,8 +218,8 @@ services:
           (parseBytesData is a plain readFloatLE), so the unit on the wire
           is NOT determinable from the code; it is governed by the writable
           9C6FFFC0 Temperature Unit characteristic. TLV frame layout, read directly
-          from the app's own parser (processBLEData / parseBytesData in the
-          v5.3.0 Hermes bundle decompile; research/chef-iq-sense/app/): a
+          from the app's own parser (processBLEData / parseBytesData in its
+          Hermes bundle): a
           sequence of attribute entries, each
           [attr_id uint16 LE][type uint8][length uint8][value length bytes].
           The per-entry type byte (DataTypeEnum: 0 bool, 1-6 signed/unsigned
@@ -213,7 +229,7 @@ services:
           drives decoding. One notification can carry several per-probe
           records: a new record starts when an attribute ID repeats, and
           attribute 16 (probe_address, MAC) is the record delimiter.
-          Attribute IDs (AttributeEnum, confirmed in the same decompile):
+          Attribute IDs (AttributeEnum, confirmed in the same bundle):
           0 Timestamp (u32), 16 ProbeAddress (MAC), 17 Type (i8),
           19 HwVersion (str), 20 FwVersion (str), 21 SerialNumber (str),
           22 ServiceConfig (u8), 23 Name (str), 24 Registered (bool),
@@ -243,8 +259,8 @@ services:
         notes: >
           TLV-encoded like 048af000 Probe Data (same frame layout and
           per-entry DataTypeEnum); records are split on attribute 48
-          (SessionId) as the delimiter. Session attribute IDs from the app
-          v5.3.0 decompile (AttributeEnum): 48 SessionId (str),
+          (SessionId) as the delimiter. Session attribute IDs from the app's
+          attribute enum: 48 SessionId (str),
           49 CookingCategory (u8), 50 CookingMethod (u8), 51 PresetId (str),
           56 CookingTime (u32), 57 EstimatedCookingTime (u32),
           59 TargetTemp (f32), 60 RecipeId (str), 61 GuidedId (str),
@@ -253,8 +269,14 @@ services:
           83 FlipStatus (bool), 84 OperatingState (u8),
           85 OperatingWarning (u8), 86 OperatingError (u8),
           88 RemainingCookingTime (u32), 89 SessionInternalTemp (f32),
-          90 SessionAmbientTemp (f32). The enum further defines
-          notification attributes 91-123 (93 NotificationConditionStatus,
+          90 SessionAmbientTemp (f32). The same enum also defines session
+          metadata attributes the earlier listing skipped: 52 SessionName
+          (str), 53 SessionIcon (str), 54 SessionImage (str),
+          55 SessionDescription (str),
+          58 SessionIdleTimeout, 63 NotificationKey, 87
+          CookingStateNotificationId, 91 IsReminder, 92
+          CookingStateIsRunning. The enum further defines
+          notification attributes 93-123 (93 NotificationConditionStatus,
           94 NotificationConditionMetCount, 112 NotificationId,
           113 NotificationCategory, 114 NotificationDescription,
           115 NotificationStepIndex, 116 NotificationReminder,
@@ -269,35 +291,44 @@ services:
       - uuid: "048af010-cd06-4d57-a048-ccd5cb9f8f43"
         name: "Docked List"
         properties: ["read", "notify"]
+        notes: >
+          Registry data type is ProbeData — carries the same TLV
+          per-probe records as 048af000. Evidence: the app's characteristic registry.
 
       - uuid: "048af011-cd06-4d57-a048-ccd5cb9f8f43"
         name: "Registered List"
         properties: ["read"]
+        notes: >
+          Registry data type is ProbeData — same TLV per-probe records
+          as 048af000. Evidence: the app's characteristic registry.
 
       - uuid: "048af014-cd06-4d57-a048-ccd5cb9f8f43"
         name: "Session Probe List"
         properties: ["read", "notify"]
+        notes: >
+          Registry data type is SessionData — TLV session records like
+          048af001. Evidence: the app's characteristic registry.
 
       - uuid: "048af020-cd06-4d57-a048-ccd5cb9f8f43"
         name: "System Notification"
         properties: ["notify"]
         notes: >
           Payload is a plain UTF-8 JSON object (JSON.parse of the raw
-          bytes) — NOT TLV. Evidence: app v5.3.0 decompile.
+          bytes) — NOT TLV. Evidence: the vendor app.
 
       - uuid: "048af021-cd06-4d57-a048-ccd5cb9f8f43"
         name: "Session Notification"
         properties: ["notify"]
         notes: >
           Payload is a plain UTF-8 JSON object (JSON.parse of the raw
-          bytes) — NOT TLV. Evidence: app v5.3.0 decompile.
+          bytes) — NOT TLV. Evidence: the vendor app.
 
       - uuid: "048af022-cd06-4d57-a048-ccd5cb9f8f43"
         name: "Cooking State Notification"
         properties: ["notify"]
         notes: >
           Payload is a plain UTF-8 JSON object (JSON.parse of the raw
-          bytes) — NOT TLV. Evidence: app v5.3.0 decompile.
+          bytes) — NOT TLV. Evidence: the vendor app.
 
       - uuid: "048afff0-cd06-4d57-a048-ccd5cb9f8f43"
         name: "Thermometer Command Request"
@@ -384,9 +415,8 @@ services:
           -2 ERR_INVALID_COMMAND, -3 ERR_HEAP_ALLOC, -4 ERR_MOUNT_POINT,
           -5 ERR_PARTITION, -6 ERR_DIGEST, -7 ERR_SIZE, -8 ERR_WRITE; the
           enum sits beside the FTP command constants and appears shared
-          across the command services. Evidence: app v5.3.0
-          decompile (processHeaderInfo; CommandAPIResponse at
-          bundle.js:~851484, consumed ~2485200-2485255). Confidence:
+          across the command services. Evidence: the app's header-processing
+          path and its CommandAPIResponse enum. Confidence:
           app-derived, not hardware-verified.
 
   - uuid: "9c6f00fc-0420-41c1-bd98-7a015c45dc5a"
@@ -412,8 +442,7 @@ services:
         notes: >
           Charge state enum: 0 = discharging, 1 = charging (BatteryStatus
           enum in the app; an absent value defaults to discharging).
-          Evidence: app v5.3.0 Hermes bundle decompile
-          (research/chef-iq-sense/app/).
+          Evidence: the app's Hermes bundle.
         format:
           - offset: 0
             length: 1
@@ -428,8 +457,7 @@ services:
           value directly as the battery level (0-100 % by usage — no
           explicit range check in code). The app's characteristic registry
           declares read+notify and subscribes to it (the earlier read-only
-          listing was wrong). Evidence: app v5.3.0 Hermes bundle decompile
-          (research/chef-iq-sense/app/).
+          listing was wrong). Evidence: the app's Hermes bundle.
         format:
           - offset: 0
             length: 2
@@ -450,8 +478,8 @@ services:
         properties: ["read", "write", "notify"]
         format:
           # Signed int16 LE (app registry type SignedInt16, parsed with
-          # readInt16LE; stored under audio.volume). Evidence: app v5.3.0
-          # Hermes bundle decompile (research/chef-iq-sense/app/).
+          # readInt16LE; stored under audio.volume). Evidence: the app's
+          # Hermes bundle.
           - offset: 0
             length: 2
             name: "volume"
@@ -496,6 +524,8 @@ services:
       - uuid: "9c6fffb0-0420-41c1-bd98-7a015c45dc5a"
         name: "Signature"
         properties: ["read"]
+        notes: >
+          Registry data type String (UTF-8). Evidence: the app's characteristic registry.
 
       - uuid: "9c6fffc0-0420-41c1-bd98-7a015c45dc5a"
         name: "Temperature Unit"
@@ -524,10 +554,25 @@ services:
       - uuid: "9c6fffc1-0420-41c1-bd98-7a015c45dc5a"
         name: "Data Update Interval"
         properties: ["read", "write", "notify"]
+        notes: >
+          Registry key dt_update_interval, data type UnsignedInt32
+          (uint32 LE) — the probe-data telemetry cadence. Evidence:
+          the app's characteristic registry.
+        format:
+          - offset: 0
+            length: 4
+            name: "dt_update_interval"
+            type: "uint32"
 
       - uuid: "9c6ffff0-0420-41c1-bd98-7a015c45dc5a"
         name: "System Command Request"
         properties: ["write"]
+        notes: >
+          Command IDs confirmed against the app's system-command enum.
+          Quirk: the enum spells command 1 "FactoryVersion", but the CQ60
+          registry maps that same enum member to the key 'factory-reset'
+          — command 1 is the factory-reset
+          command; the enum name is a vendor typo.
         commands:
           get_version:
             description: "Get firmware version"
@@ -563,6 +608,12 @@ services:
 
   - uuid: "8a7100fe-babe-b7ae-074f-86d0c0b50089"
     name: "Wi-Fi Provisioning Service (Family C)"
+    notes: >
+      Every characteristic in this service is registered with data type
+      String (UTF-8) in the CQ60 profile of the app's characteristic
+      registry. Payloads are
+      JSON: the app serializes writes with JSON.stringify. Scanned-network entries carry
+      {ssid, auth, rssi} fields.
     characteristics:
       - uuid: "8a71ffa0-babe-b7ae-074f-86d0c0b50089"
         name: "Network Info"
@@ -579,6 +630,14 @@ services:
       - uuid: "8a71ffa3-babe-b7ae-074f-86d0c0b50089"
         name: "Set Wi-Fi Network"
         properties: ["write"]
+        notes: >
+          Payload is a UTF-8 JSON object. To join a network the app
+          writes {"connect": <network>} where <network> is the selected
+          scan entry (fields ssid/auth/rssi, extended with the entered
+          passphrase); to forget one it writes {"forget": "<ssid>"}.
+          Evidence: the app's connectToWifi and forgetNetwork sagas; the
+          exact passphrase field name inside the connect object is not
+          pinned down there.
 
       - uuid: "8a71ffa4-babe-b7ae-074f-86d0c0b50089"
         name: "Wi-Fi Mode"
@@ -647,8 +706,8 @@ entities:
     state_characteristic: "048af000-cd06-4d57-a048-ccd5cb9f8f43"
     notes: >
       Consumes TLV attribute 36 (InternalTemp, float32) from the Probe
-      Data notify — attribute ID and type confirmed in the app v5.3.0
-      decompile; see that characteristic's notes for the TLV frame layout
+      Data notify — attribute ID and type confirmed in the vendor app;
+      see that characteristic's notes for the TLV frame layout
       (no fixed offsets — parse the envelope). Unit source is a device
       setting, not fixed: the wire float32 carries no unit (the app applies
       no conversion in the decode path), so read the active unit from the

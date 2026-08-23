@@ -11,7 +11,7 @@
 ## BLE UUIDs (Recovered from DEX)
 
 ### Nordic UART Service (Primary)
-From `BleService.java`:
+From the app:
 | UUID | Role |
 |------|------|
 | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | RX Service (Nordic UART) |
@@ -19,7 +19,7 @@ From `BleService.java`:
 | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | TX Characteristic (Notify from device) |
 
 ### SMART_BRACELET Service (Alternate/Custom)
-From `GattAttributes.java`:
+From the app:
 | UUID | Role |
 |------|------|
 | `0000fff0-0000-1000-8000-00805f9b34fb` | SMART_BRACELET Service |
@@ -40,10 +40,10 @@ From `GattAttributes.java`:
 | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | Configuration (same as TX_CHAR) |
 
 ## Architecture
-- `BleService.java` — Main BLE service with Nordic UART implementation
-- `BluetoothLeService.java` — Secondary BLE service
-- `GattAttributes.java` — UUID lookup table
-- `BleUtil.java` — BLE utility functions
+- Main BLE service with Nordic UART implementation
+- Secondary BLE service
+- UUID lookup table
+- BLE utility functions
 - Uses Nordic DFU library (`no.nordicsemi.android.dfu`) for firmware updates
 - Packet-based data transfer (SEND_PACKET_SIZE = 20 bytes, MTU-3)
 - Event-driven via EventBus (`de.greenrobot.event.EventBus`)
@@ -69,9 +69,9 @@ From `GattAttributes.java`:
 3. The `chignon` package may contain the data frame parser — analyze for measurement encoding
 4. Compare with jcomas/PulseOximeterSP001 repo for known frame format
 
-## Files Analyzed
-- `com/wakeup/smartspo/model/ble/GattAttributes.java` — UUID definitions
-- `com/wakeup/smartspo/ble_service/BleService.java` — Main BLE service
-- `com/wakeup/smartspo/service/BluetoothLeService.java` — Secondary BLE service
-- `com/wakeup/smartspo/utils/BleUtil.java` — BLE utilities
+## App areas analysed
+- UUID definitions
+- Main BLE service
+- Secondary BLE service
+- BLE utilities
 - `com/phy/ota/sdk/` — OTA firmware update SDK

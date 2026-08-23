@@ -1,0 +1,362 @@
+# Xiaomi Body Composition Scale S400 (MJTZC01YM)
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Xiaomi Body Composition Scale S400"
+  manufacturer: "Xiaomi"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "scale"
+  notes: >
+    Xiaomi Body Composition Scale S400, product model MJTZC01YM (MiOT
+    model `yunmai.scales.ms104`; S400 Pro is MJTZC03YM and shares the
+    format family). Dual-frequency BIA scale: weight, impedance, and
+    heart rate. BLE 5.0, 3x AAA batteries, 0.1-150 kg range. Unlike the
+    older Mi Scale v1/v2 (see xiaomi-mi-scale.yaml), the S400 does NOT
+    speak the plaintext 0x2A2F frame protocol — every measurement is
+    AES-CCM encrypted with a per-device 16-byte BLE bindkey that lives
+    in the Xiaomi cloud account the scale is paired to, so a bindkey
+    extraction step (e.g. Xiaomi-cloud-tokens-extractor) is a hard
+    prerequisite for ANY third-party client.
+
+    Two independent access paths are documented in the public prior art:
+
+    PASSIVE BROADCAST (openScale 3.x MiScaleS400Handler, built on
+    lswiderski/mi-scale-exporter; independently confirmed by
+    mnm-matin/miscale and by Bluetooth-Devices/xiaomi-ble as used by
+    Home Assistant): the scale emits Service Data (AD type 0x16) for
+    the Body Composition Service UUID 0x181B — 24 bytes of
+    MiBeacon-style AES-CCM ciphertext — plus standard encrypted
+    Xiaomi MiBeacon frames on service 0xFE95 whose decrypted payload
+    carries measurement object 0x6E16. No GATT connection needed; the
+    final reading is broadcast a few seconds after the measurement
+    settles (mnm-matin/miscale notes frames may stop while Xiaomi Home
+    is connected, and idle frames between weighings carry no data).
+
+    DECRYPTION (0x181B service data, 24 bytes; strip a leading 2-byte
+    UUID header first if 26 bytes arrive): nonce (12 bytes) =
+    reversed MAC (6) || data[2:5] (3) || data[len-7:len-4] (3);
+    AAD = single byte 0x11; 32-bit tag. Ciphertext = data[5:len-7]
+    followed by the 4-byte MIC at data[len-4:]. Decrypt AES-CCM with
+    the bindkey. The plaintext embeds a 9-byte object at bytes 3..11
+    (bytes 0..2 are a MiBeacon object header; byte 3 is a profile id);
+    read a little-endian u32 at plaintext bytes 4..7 and split:
+    bits 0-10 = weight raw (x0.1 kg, so /10), bits 11-17 = heart rate
+    raw (+50 bpm, valid only when raw is 1..126), bits 18-31 =
+    impedance raw (x0.1 ohm, /10). xiaomi-ble's obj6e16 parser unpacks
+    the identical layout from MiBeacon object 0x6E16 as
+    `profile_id:u8, word:u32le, pad:u16` — cross-confirmation of the
+    bit field widths.
+
+    TWO PACKETS PER WEIGHING: one packet carries weight (+ heart rate,
+    + one impedance band); a second packet carries weight=0 and the
+    other impedance band; mass==0 && hr==0 && impedance==0 is an
+    idle/stepped-off reset frame. Sources DISAGREE on which band rides
+    with the weight: openScale/lswiderski treat the weight packet's
+    impedance as the HIGH-frequency band and the weightless packet's
+    as LOW; xiaomi-ble comments the opposite (weight packet = 50 kHz
+    low band, the weightless trailing packet = 250 kHz high band and
+    marks the measurement stabilized). Both halves must be aggregated
+    (openScale uses a 10 s session window plus a short dedup window);
+    older firmware reportedly never sends the second packet, in which
+    case the single band is used for both.
+
+    GATT / HISTORY PATH (nokistin/xiaomi-s400-live, tested by its
+    author against firmware 2.1.1_0006; auth layer from
+    dnandha/miauth): connecting and running the standard Xiaomi Mi
+    Home v2 BLE login on the 0xFE95 GATT service unlocks an encrypted
+    command channel that streams live weight (~0.3 s cadence) while
+    the user is standing on the scale and then delivers the final
+    stored measurement (weight, both impedances, device unix
+    timestamp, on-scale profile id) — the post-login "final" frames
+    are the effective history/record-download surface. Login requires
+    the 12-byte BLE token from the same Xiaomi cloud account; the
+    token ROTATES on factory reset or remove/re-add in Xiaomi Home
+    (HMAC mismatch = stale token). Handshake: exchange 16-byte random
+    keys on AVDTP (commands on UPNP: CMD_LOGIN 0x24, framed parcels
+    with headers 0000000b0100 / 0000000a0200), derive
+    dev_key/app_key/dev_iv/app_iv via HKDF-SHA256(token,
+    salt=app_rand||dev_rand, info="mible-login-info"), verify with
+    HMAC-SHA256, success = `21 00 00 00` on UPNP (failure `23`).
+    Post-login messages ride CMTP (device->app) / VEND1A (app->device)
+    as multi-frame AES-CCM parcels; decrypted CMTP plaintext contains
+    an 0xA0 marker byte followed by an ASCII CSV payload —
+    live frames are 2 fields "weight_x10,stable_flag", final frames
+    are 32 fields with weight_x10 at index 3, stable flag index 4,
+    device unix timestamp index 6, and the two impedances (x0.1 ohm)
+    as the last two fields.
+
+    BODY COMPOSITION: computed client-side from weight + impedance +
+    profile (sex/age/height), as with the older scales; openScale
+    ports Xiaomi-family formulas (selectable bone/BMR variants),
+    xiaomi-s400-live credits mnm-matin/miscale. Values are estimates,
+    not medical measurements.
+
+    DISCOVERY: firmware/region-dependent advertised names; openScale
+    matches "SCALE S400" (observed form "Xiaomi Scale S400 XXXX" with
+    the last 4 MAC hex digits), raw model-style names "XMTZC14HM", and
+    the generic "XMTZC" prefix. xiaomi-ble maps MiBeacon product IDs
+    0x30D9, 0x3BD5, 0x48CF to MJTZC01YM (and treats MJTZC01YM/MJTZC03YM
+    as the sleepy S400 family). Firmware seen in the field includes
+    2.1.1_0057.0077; xiaomi-s400-live was verified on 2.1.1_0006.
+
+    CONFIDENCE: HIGH for the need-a-bindkey model, the 0x181B/0xFE95
+    advertisement surface, the AES-CCM parameters, and the decrypted
+    bit layout — three independent implementations (openScale/
+    lswiderski, xiaomi-ble, mnm-matin/miscale) agree. MEDIUM for the
+    impedance high/low band assignment (sources contradict), the
+    exact advertised-name strings, and the GATT CSV field indices
+    (single hardware-tested but young source). This spec is itself
+    untested on hardware by us.
+
+  identification:
+    service_uuids:
+      - "0000fe95-0000-1000-8000-00805f9b34fb"
+    local_name_prefix: "XMTZC"
+    discovery_notes: >
+      MiBeacon service 0xFE95 in advertisements is the reliable tell
+      (product IDs 0x30D9/0x3BD5/0x48CF = MJTZC01YM); measurement data
+      arrives as Service Data for 0x181B. Name prefixes vary by
+      firmware/region: "Xiaomi Scale S400 XXXX", "XMTZC14HM", generic
+      "XMTZC" — treat exact names as unverified.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "XMTZC"
+          service_uuids:
+            - "0000fe95-0000-1000-8000-00805f9b34fb"
+          notes: >
+            Passive-only reading is possible: scan for 0xFE95 MiBeacon
+            advertisements and 0x181B Service Data; decrypt with the
+            per-device bindkey. A GATT connection is only needed for
+            the live-stream/history path and requires the 12-byte Mi
+            cloud login token.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "high"
+    notes: >
+      The scale must be paired to a Xiaomi Home account once; both
+      access paths then need secrets from that account: the 16-byte
+      BLE bindkey (advertisement decryption) and, for the GATT path,
+      the 12-byte BLE login token. Extract via
+      PiotrMachowski/Xiaomi-cloud-tokens-extractor (handles 2FA).
+      Token rotates on factory reset or remove/re-add — clients must
+      re-extract on HMAC failure.
+    methods:
+      # The account pairing is listed first because it is a prerequisite, not
+      # an alternative: both BLE paths below consume secrets that only exist
+      # once the scale has been bound to a Xiaomi Home account. Without this
+      # method the spec would declare setup.required with nothing but
+      # ble_direct ("usable by scanning and connecting, no credential
+      # exchange"), which is not how this scale works.
+      - type: "cloud_account"
+        verified: false
+        description: >
+          One-time binding: pair the scale to a Xiaomi Home account and take
+          one in-app measurement, then extract the per-device secrets from
+          that account — the 16-byte BLE bindkey for advertisement
+          decryption and, for the GATT path, the 12-byte BLE login token.
+        steps:
+          - action: "Pair the scale to Xiaomi Home and complete one in-app measurement."
+            actor: "user"
+          - action: >
+              Extract the BLE bindkey (and the login token, for the GATT
+              path) from the Xiaomi cloud account — e.g. with
+              PiotrMachowski/Xiaomi-cloud-tokens-extractor, which handles 2FA.
+            actor: "user"
+            request:
+              protocol: "http"
+            expect: >
+              Bindkey and token in hand. Both rotate on factory reset or
+              remove/re-add, so re-extract whenever HMAC validation fails.
+        cloud:
+          provider: "Xiaomi Home / Mi Cloud"
+          local_alternative: >
+            None for the initial binding — the bindkey and token are issued
+            by the account and there is no local path to obtain them. After
+            extraction, though, runtime is fully local and cloud-free: both
+            the passive advertisement path and the GATT session run entirely
+            over BLE with no further cloud contact.
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Passive: scan advertisements, decrypt 0x181B Service Data
+          (or 0xFE95 MiBeacon object 0x6E16) with the extracted
+          bindkey; aggregate the weight packet and the weightless
+          second-impedance packet within a ~10 s session window.
+          Active: connect, subscribe to UPNP/AVDTP/CMTP/VEND1A, run
+          Mi Home v2 login with the 12-byte token, then read live and
+          final CSV frames from the encrypted CMTP channel.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Pair scale to Xiaomi Home and complete one in-app measurement."
+            actor: "user"
+          - action: "Extract BLE bindkey (and token for GATT) from the Xiaomi cloud account."
+            actor: "client"
+            request:
+              protocol: "http"
+          - action: "Step on scale; scan for 0xFE95/0x181B advertisements."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Decrypt service data with bindkey; aggregate both impedance packets into one measurement."
+            actor: "client"
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Clears the Mi Home binding and rotates the BLE login token;
+        previously extracted bindkey/token become invalid.
+      procedures:
+        - name: "Remove from Xiaomi Home / battery pull"
+          steps:
+            - action: "Remove the device in Xiaomi Home (or pull a battery) to unbind."
+              actor: "user"
+              expect: "Scale returns to pairable state; old cloud secrets stop working."
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: false
+      notes: >
+        No Wi-Fi. Rebinding to a new Mi account rotates the token;
+        re-extract secrets after any re-pair.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: ["ble_bindkey", "ble_login_token"]
+      issued_to_client: ["ble_bindkey (16B hex)", "ble_login_token (12B)"]
+      notes: >
+        Secrets are account-bound and cloud-issued. Health data —
+        handle with privacy awareness.
+
+helpful_urls:
+  - title: "openScale (MiScaleS400Handler)"
+    url: "https://github.com/oliexdev/openScale"
+    description: "Production Android app; MiScaleS400Handler + S400Decryptor/S400Aggregator implement the passive 0x181B broadcast path."
+  - title: "lswiderski/mi-scale-exporter"
+    url: "https://github.com/lswiderski/mi-scale-exporter"
+    description: "Original S400 AES-CCM advertisement decryption credited by openScale."
+  - title: "nokistin/xiaomi-s400-live"
+    url: "https://github.com/nokistin/xiaomi-s400-live"
+    description: "Hardware-tested GATT path: Mi Home v2 login + encrypted CMTP live/final CSV frames (firmware 2.1.1_0006)."
+  - title: "Bluetooth-Devices/xiaomi-ble"
+    url: "https://github.com/Bluetooth-Devices/xiaomi-ble"
+    description: "Home Assistant's MiBeacon parser; obj6e16 decodes the S400 measurement object; product IDs 0x30D9/0x3BD5/0x48CF = MJTZC01YM."
+  - title: "dnandha/miauth"
+    url: "https://github.com/dnandha/miauth"
+    description: "Mi Home v2 BLE auth protocol reverse engineering (login handshake, HKDF key derivation)."
+  - title: "mnm-matin/miscale"
+    url: "https://github.com/mnm-matin/miscale"
+    description: "Independent S400 MiBeacon frame decoder and body-composition toolkit."
+  - title: "Xiaomi Mi Scale (v1/v2 family spec)"
+    url: "https://github.com/liberatedbread/liberatedbread-protocol-specs"
+    description: "Sibling spec xiaomi-mi-scale.yaml — the older plaintext 0x2A2F protocol this device does NOT use."
+  - url: "https://www.home-assistant.io/integrations/xiaomi_ble/"
+    title: "Home Assistant Xiaomi BLE integration"
+    description: "HA core integration covering Xiaomi Mi body scales' BLE advertisements."
+
+services:
+  - uuid: "0000fe95-0000-1000-8000-00805f9b34fb"
+    name: "Xiaomi MiBeacon / Mi Auth Service"
+    notes: >
+      Advertised service (encrypted MiBeacon frames; measurement object
+      0x6E16 after bindkey decryption) and the GATT auth service for
+      the Mi Home v2 login. Characteristic UUIDs per
+      nokistin/xiaomi-s400-live (standard Xiaomi short IDs under the
+      Bluetooth base UUID).
+    characteristics:
+      - uuid: "00000010-0000-1000-8000-00805f9b34fb"
+        name: "UPNP (auth commands)"
+        properties: ["write", "notify"]
+        notes: >
+          Client->device auth commands as 4-byte LE opcodes:
+          CMD_GET_INFO 0xA2, CMD_SET_KEY 0x15, CMD_LOGIN 0x24,
+          CMD_AUTH 0x13. Results arrive on notify: register OK 0x11 /
+          login OK `21 00 00 00`, failures 0x12 / 0x23, auth errors
+          0xE0-0xE3.
+      - uuid: "00000019-0000-1000-8000-00805f9b34fb"
+        name: "AVDTP (auth data)"
+        properties: ["write", "notify"]
+        notes: >
+          Bidirectional framed parcels for the login handshake
+          (16-byte random key exchange, device info). Frame headers:
+          send-key `00 00 00 0b 01 00`, send-info `00 00 00 0a 02 00`,
+          send-data `00 00 00 03 04 00`; receiver acks RCV_RDY
+          `00 00 01 01`, RCV_OK `00 00 01 00`.
+      - uuid: "0000001a-0000-1000-8000-00805f9b34fb"
+        name: "VEND1A (app to device, encrypted)"
+        properties: ["write"]
+        notes: "Post-login AES-CCM encrypted command channel toward the scale."
+      - uuid: "0000001b-0000-1000-8000-00805f9b34fb"
+        name: "CMTP (device to app, encrypted)"
+        properties: ["notify"]
+        notes: >
+          Post-login encrypted measurement stream: multi-frame AES-CCM
+          parcels (dev_key/dev_iv + counter). Decrypted plaintext holds
+          an 0xA0 marker then ASCII CSV: live = "weight_x10,stable"
+          (2 fields); final = 32 fields with weight_x10 idx 3, stable
+          idx 4, device unix timestamp idx 6, impedance x10 as the
+          last two fields (the record/history payload).
+      - uuid: "00000017-0000-1000-8000-00805f9b34fb"
+        name: "AVCTP"
+        properties: ["notify"]
+        notes: "Present on the auth service; subscribed by xiaomi-s400-live but role undocumented."
+      - uuid: "0000001c-0000-1000-8000-00805f9b34fb"
+        name: "VEND1C"
+        properties: ["notify"]
+        notes: "Present on the auth service; role undocumented."
+
+  - uuid: "0000181b-0000-1000-8000-00805f9b34fb"
+    name: "Body Composition Service (advertisement data)"
+    notes: >
+      Not a GATT surface on this device in the documented
+      implementations — 0x181B appears as the Service Data UUID (AD
+      type 0x16) carrying the 24-byte AES-CCM encrypted measurement
+      broadcast. Decrypt with bindkey: nonce = MAC_reversed ||
+      data[2:5] || data[-7:-4], AAD 0x11, 32-bit MIC at data[-4:],
+      ciphertext data[5:-7]. Plaintext u32le at bytes 4-7: bits 0-10
+      weight x0.1 kg, bits 11-17 heart rate raw (+50, valid 1-126),
+      bits 18-31 impedance x0.1 ohm. Weight packet and weightless
+      second-band packet must be aggregated; which band is high vs
+      low frequency is contradicted between sources (medium
+      confidence).
+
+entities:
+  # The three readings the encrypted CMTP channel actually carries. Its
+  # decrypted CSV is weight_x10 / stable / timestamp / impedance /
+  # impedance_low — confirmed against two independent implementations.
+  - platform: "sensor"
+    name: "Weight"
+    state_characteristic: "0000001b-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Impedance"
+    state_characteristic: "0000001b-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Impedance Low"
+    state_characteristic: "0000001b-0000-1000-8000-00805f9b34fb"
+  # Deliberately unbound: heart rate is NOT in the CMTP payload. It arrives
+  # only in the advertisement (MiBeacon object 0x6E16, bits 11-17 plus a +50
+  # offset), which this schema has no `state_characteristic` for — binding it
+  # to 0x001b promised a field that channel never sends, so the sensor could
+  # only ever read unavailable.
+  - platform: "sensor"
+    name: "Heart Rate"
+    notes: >
+      Deliberately unbound, and it cannot be bound as this schema stands.
+      Heart rate is NOT in the CMTP payload the other sensors read: it arrives
+      only in the advertisement (MiBeacon object 0x6E16, bits 11-17, plus a
+      +50 offset), and there is no `state_characteristic` for an advertisement
+      field. Binding it to 0x001b would promise a value that channel never
+      sends, so the sensor could only ever read unavailable. It is declared so
+      the name and platform are settled, and so the gap is visible; a consumer
+      should either decode the advertisement itself or not render this at all.

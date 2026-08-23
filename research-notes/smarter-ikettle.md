@@ -41,9 +41,9 @@ Two generations of connectivity:
   SHA-256 `192b4315a71690dc788a452687b3d10f494ac0ba2da44ad95cca1134374069fd`, 24 MB.
 
 ## Protocol recovered (jadx triage of legacy app)
-Transport: UDP 2081 broadcast discovery (`c/b.java`, 2-byte payload `{100,126}`),
+Transport: UDP 2081 broadcast discovery (2-byte payload `{100,126}`),
 TCP control session; **all frames terminated by `0x7E`**; reads loop until 0x7E.
-Kettle opcodes from `models/d.java` (semantics from KettleControlPanel call sites,
+Kettle opcodes from the app's kettle model (semantics from its KettleControlPanel call sites,
 partially inferred):
 
 | Frame (hex) | Meaning |
@@ -67,7 +67,7 @@ Cross-check against iBrew's published command list before writing the spec.
    raw range 2080–2250).
 3. Gen-3: any local fallback after Electric Imp unblessing? Needs hardware.
 4. Smarter Coffee 1 command set (same framing, different opcodes) — in same app,
-   `CoffeeControlPanel.java`.
+   its CoffeeControlPanel.
 
 ## Safety
 Kettle = unattended heating appliance. Water-level sensor reading must gate any

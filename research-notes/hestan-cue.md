@@ -34,8 +34,8 @@ burner and subscribe to pan temperature notifications. No community RE found as 
   (account cloud), Nordic DFU library, RxAndroidBle/polidea-style BLE stack
 
 ## BLE UUIDs recovered (jadx static triage, obfuscated names)
-From `sources/ec/c.java`, `ec/b.java`, `tb/o.java` (roles inferred from
-`DeviceType` switch in `ec/c.java`):
+From the app's BLE and device classes (roles inferred from
+`DeviceType` switch in the app):
 
 | UUID | Role |
 |------|------|
@@ -52,7 +52,7 @@ From `sources/ec/c.java`, `ec/b.java`, `tb/o.java` (roles inferred from
 | `00001530-1212-efde-1523-785feabcd123` | Nordic legacy DFU service (firmware update) |
 | `00001535-...-785feabcd123`, `00001537-...` | DFU characteristics |
 
-Device model enum (`tb/s.java`): `CUE_BURNER_V1`, `_100V`, `_220V`,
+Device model enum: `CUE_BURNER_V1`, `_100V`, `_220V`,
 `_220V_THERMOMIX` variants plus thermometer device types.
 
 ## What needs cloud
@@ -63,7 +63,7 @@ app. Core temperature control is believed fully local BLE — unverified by capt
 ## Open questions
 1. Exact command encoding for set-temperature / power on the burner service
    (which of 1542/1543/1545 is the write char; byte layout) — needs HCI snoop or
-   deeper decompile of `ec/c.java`.
+   deeper static analysis of the app's BLE manager.
 2. Advertising name prefixes ("Cue"? "Hestan"?) — not recovered statically.
 3. Does the burner enforce an app handshake/auth before accepting writes?
 4. Whether the 220 V/Thermomix variants share the same GATT layout.

@@ -51,7 +51,7 @@ protocol:
   note: >
     inRide computes power from a calibrated fluid-trainer power curve in the pod.
     Standard BLE path needs no RE. Custom e9410xxx service opcodes need jadx of
-    InRideSensor.java / InRide2Service.kt or HCI snoop.
+    the app's InRide sensor / service classes, or an HCI snoop.
   expected_measurements:
     - power_watts
     - cadence_rpm

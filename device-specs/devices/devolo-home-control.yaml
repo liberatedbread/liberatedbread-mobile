@@ -282,8 +282,8 @@ cloud:
       from the gateway's cloud record. Shape only — no real tokens
       recorded. The local API itself is documented by the
       devolo_home_control_api Python library that powers the Home
-      Assistant integration. App facts read from the decompiled v1.9.7
-      APK, not replayed against hardware.
+      Assistant integration. App facts read statically from the companion
+      app, not replayed against hardware.
     verification: "reported"
   failure_mode: >
     Shutdown executed 2025-12-31. The app and web portal are gone; no
@@ -359,12 +359,10 @@ helpful_urls:
   - title: "HA community: Danfoss LC13 (aka POPP/devolo) temperature offset"
     url: "https://community.home-assistant.io/t/danfoss-lc13-aka-popp-devolo-temperature-calibration-set-permanent-offset/971303"
 
-# APK status (companion app; NOT purely cloud-routed, see cloud block):
-#   package_id: com.devolo.homecontrol
-#   sha256 (Play build fetched 2026-08-04): d6115cd03e19ae69...
+# Companion-app status (NOT purely cloud-routed, see cloud block):
 #   Delisted from the store fronts with the shutdown, but still fetchable
-#   via the Play API by package id as of 2026-08-04 (apkeep). Static
-#   inspection (jadx, v1.9.7): de.devolo.mprm Retrofit REST + RxWebSocket
+#   by package id as of 2026-08-04. Static inspection: a Retrofit REST +
+#   RxWebSocket
 #   client against homecontrol.mydevolo.com / www.mydevolo.com/v1/ with
 #   session-cookie auth (persistent CookieJar), event channel
 #   /remote/events/. On the LAN the app bypasses the cloud: mDNS

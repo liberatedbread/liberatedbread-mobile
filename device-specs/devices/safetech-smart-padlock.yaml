@@ -1,0 +1,631 @@
+# SafeTech Products Bluetooth Smart Padlock ("Quicklock") — Device Spec (BLE)
+# Reverse-engineered by static analysis of the vendor's Android app — a
+# ~2017-era, unobfuscated build, examined 2026-08.
+#
+# The app is a thin UI over an embedded lock SDK shared by the whole
+# SafeTech Products family: padlock, door lock, deadbolt and the Gunbox
+# biometric safes. What it contributed:
+#   lock session layer  (session flow, GATT plumbing)
+#   SDK UUID constants  (service/characteristic UUIDs)
+#
+# Nothing here has been replayed against a lock: every protocol fact is read
+# out of that app. There is no over-the-air capture, no hardware, and no
+# obtainable firmware (the app contains no DFU/OTA path at all).
+# Open questions needing hardware are listed in protocol.remaining_unknowns.
+
+device:
+  name: "SafeTech Products Bluetooth Smart Padlock (Quicklock)"
+  manufacturer: "SafeTech Products LLC (SDK by Itonsoft)"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      No hardware, no over-the-air capture. All protocol facts come from
+      static analysis of the vendor's Android app.
+      The findings are corroborated in kind — not in detail — by the
+      DEF CON 24 smart-lock survey (Rose/Ramsey 2016), which tested
+      Quicklock padlocks and documented the same class of weakness
+      (static cleartext password, no link-layer protection).
+  security_advisory:
+    severity: "vulnerable"
+    summary: >
+      The unlock secret is a static 4-byte password sent in the clear —
+      anyone within Bluetooth range can sniff it once and replay it to open
+      the lock.
+    detail: >
+      There is no BLE pairing or bonding, no link-layer encryption and no
+      challenge-response. Authentication is a static 4-byte password written
+      in cleartext to characteristic 0xFFD6; on a positive result at 0xFFD7,
+      writing 0x01 to 0xFFD9 opens the lock. Because the link is unencrypted,
+      any commodity LE sniffer captures the password on a single legitimate
+      unlock, and replaying it is the whole attack. Rose and Ramsey
+      demonstrated this class of weakness against Quicklock padlocks at
+      DEF CON 24 (2016). The vendor is shut down, so no firmware fix is
+      coming.
+    advisory_url: "https://defcon.org/html/defcon-24/dc-24-speakers.html"
+    # No `mitigation` block on purpose: the schema reserves it for a fix the
+    # vendor shipped, and absent is how a spec says there is none. There is
+    # none here and there cannot be — the password is the only secret, it
+    # crosses the air in the clear on every unlock, nothing client-side can
+    # harden that, and the vendor is shut down.
+  category: "lock"
+  type: "ble_padlock"
+  protocol: "ble"
+  transport: "ble-gatt"
+  models:
+    - "Quicklock Padlock (BLE advert lock-type byte 0x31 = ASCII '1')"
+    - "Quicklock DoorLock (0x32 = '2')"
+    - "Quicklock Deadbolt (0x33 = '3')"
+    - "TheGunbox / Gunbox Echo / Gunbox SK-1 'Big Bertha' (0x34/0x35 = '4'/'5', adds fingerprint/SureSet service 0xFFC0)"
+    - "Medbox (mentioned in vendor marketing; not seen as a distinct lock type in the app code)"
+  notes: >
+    Zinc-alloy BLE padlock marketed from ~2015 as the "world's first
+    Bluetooth + RF/NFC padlock"; Li-Po battery charged over USB. One SDK
+    (and one companion app) covers the whole family, differentiated by an
+    ASCII device-type digit in the BLE scan record: '1' padlock, '2' door
+    lock, '3' deadbolt, '4'/'5' Gunbox safes.
+
+    The protocol is strikingly simple and strikingly weak: no BLE
+    pairing/bonding, no link-layer encryption, no challenge-response.
+    Authentication is a static 4-byte password written in cleartext to
+    characteristic 0xFFD6; after a positive result on 0xFFD7, writing 0x01
+    to 0xFFD9 opens the lock. Anyone in radio range can sniff the password
+    and replay it. This matches what Rose & Ramsey showed for this family
+    on stage at DEF CON 24 (2016).
+
+    Leftover constants in the SDK (TI keyfob demo UUIDs, a generic
+    0xFF00/0xFF01/0xFF02 UART service, classic-BT SPP 0x1101 constants)
+    point to a TI CC254x-class BLE stack on the lock. WiFi-setup and
+    Z-Wave screens exist in the app but serve other family products; the
+    padlock itself is BLE-only with no LAN surface of any kind.
+
+    There is NO cloud in the protocol at all: the only HTTP URLs in the
+    app are marketing storefronts and two dead share-link templates. The
+    vendor company is defunct (sites parked/offline since ~2023, app
+    removed from Google Play) and nothing about the device breaks because
+    of it — pairing is phone<->lock only and the password lives in the
+    lock and in the app's local database. The only loss is the app itself.
+
+    Research status: GATT map, session flow and discovery filter read out
+    of the vendor app. Password encoding (raw hex bytes vs ASCII
+    digits), factory-default password, history-record layout and RFID
+    frame format all need one over-the-air capture against real hardware
+    (trivially easy — the link is unencrypted, any LE sniffer works).
+
+  identification:
+    # CONFIDENCE: low. The app identifies locks by scanning for a literal
+    # byte 0x2C (ASCII ',') anywhere in the scan record and reading the
+    # byte after it as an ASCII device-type digit '1'..'5' — crude parsing,
+    # and the exact advertised local-name format was never confirmed against
+    # hardware (open question #1 in the research dossier). The app also
+    # matches stored family names ("PadLock", "DoorLock", ...) against the
+    # advertised name, which implies the type string is embedded in the
+    # name, but no capture exists to say exactly where.
+    local_name_prefixes:
+      - "PadLock"
+      - "DoorLock"
+      - "Deadbolt"
+      - "Gunbox"
+    # Safetech Products LLC holds Bluetooth SIG company identifier 0x04CD,
+    # but the app never filters on manufacturer data, so whether the lock
+    # actually advertises under it is unknown. Recorded for ranking only.
+    manufacturer_data:
+      company_id: 1229
+      company_id_hex: "0x04CD"
+      description: >
+        Bluetooth SIG assignment to Safetech Products LLC. NOT confirmed on
+        the air: the app's scanner keys on a ',' + type-digit pattern in the
+        scan record, not on this company ID. Treat a match as a weak hint.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^(PadLock|DoorLock|Deadbolt|Gunbox)"
+        # Notes, because this method is weak: the reliable discriminator
+        # per the app is byte 0x2C (',') in the scan record followed by an
+        # ASCII digit '1' (padlock) .. '5' (Gunbox). That byte-level rule
+        # cannot be expressed in this block; implementers should apply it
+        # after the name regex above narrows candidates. Unverified against
+        # hardware (no capture).
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: medium
+    notes: >
+      There is nothing to provision — no network, no account, no pairing.
+      Any GATT client that knows the password can open the lock. What the
+      vendor app calls pairing is: connect, write the password to 0xFFD6,
+      and (first time) update it with the 0x01 sub-command. Whether a
+      factory-fresh lock ships with a known default password (the vendor
+      manual suggests the user sets it at first pairing; a default such as
+      00000000 is unverified) is open question #2 — needs hardware. Three
+      wrong passwords trigger a lockout timer, but that timer is enforced
+      APP-SIDE only; the lock itself appears to accept retries.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the type byte, connect, authenticate with the 4-byte
+          password, unlock. No credential exchange beyond the password.
+        ble:
+          advertised_name: "PadLock (padlock variant; family names embed the type string — see identification)"
+          pairing_required: false
+          pin_source: "None — no BLE bonding exists. The only secret is the 4-byte lock password."
+        steps:
+          - action: "Scan BLE; identify the device by the ',' (0x2C) + ASCII type-digit pattern in the scan record ('1' = padlock)."
+            actor: client
+            expect: "Advertised name contains the family type string."
+          - action: "Connect and discover services; enable notifications on 0xFFD7 (password result)."
+            actor: client
+          - action: "Write the password to 0xFFD6: first byte 0x00 (input/check) + 4-byte password (the app UI takes 8 hex characters; whether firmware stores raw hex bytes or ASCII digits is UNVERIFIED)."
+            actor: client
+            expect: "0xFFD7 notifies [1] (main password OK) or [1,1] (share password OK); [0] means wrong password. Codes 2/3 exist but their meaning is unknown."
+          - action: "On success: enable notifications on 0xFFDA (lock state), sync the clock (write uint32 LE seconds since 2000-01-01 local time to 0x1805/0x2A2B), read battery (0x180F/0x2A19) and firmware revision (0x180A/0x2A26)."
+            actor: client
+          - action: "Optionally set a new password: write 0x01 + new 4-byte password to 0xFFD6."
+            actor: client
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No factory-reset procedure was found in the app or in
+        recovered vendor material, so it is unknown whether the lock has
+        one. The credential-rotation path that DOES exist is the password
+        update write (0x01 + new 4-byte password to 0xFFD6), which requires
+        knowing the current password first. RFID tags and share codes have
+        their own delete commands (0xFFE3, 0xFFC5 on biometric models).
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is no network to rejoin. Any controller that knows the
+        current password can connect and operate the lock at any time; a
+        new phone/controller simply repeats the authenticate-and-unlock
+        flow. Losing the only copy of the password is unrecoverable by any
+        documented path.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "4-byte lock password (main and share passwords)"
+        - "RFID/NFC tag ID list (padlock's RF side)"
+        - "Share codes, including time-windowed codes (0xFFE8/0xFFE9)"
+      issued_to_client: []
+      notes: >
+        The password is user-chosen, never device-issued. It is sent
+        CLEARTEXT over an unencrypted, unbonded BLE link on every
+        authentication — trivially sniffable, and the DEF CON 24 survey
+        demonstrated exactly this against this product family. Treat the
+        password as publicly known the moment it is used in range of an
+        attacker.
+
+ble:
+  connection:
+    transport: "le"
+    bonding_required: false
+    mtu_negotiation: false
+    roles: >
+      Normal roles: the lock is the peripheral/GATT server, the phone (or
+      local controller) is the central/GATT client. No pairing, no bonding,
+      no encryption — any central can connect.
+
+services:
+  - uuid: "0000FFD0-0000-1000-8000-00805F9B34FB"
+    name: "Lock main service (16-bit 0xFFD0)"
+    description: >
+      Core lock control: password authentication, open/close, state,
+      auto-relock timing, LED timing and tamper-alarm config.
+    characteristics:
+      - uuid: "0000FFD6-0000-1000-8000-00805F9B34FB"
+        name: "Password (0xFFD6)"
+        type: "command"
+        properties: ["write"]
+        description: >
+          Write [sub-command] + 4-byte password. Sub-command 0x00 = input
+          (check/unlock attempt), 0x01 = update (set new password). The app
+          UI has the user enter 8 hex characters; whether firmware compares
+          raw hex bytes or ASCII-encoded digits is UNVERIFIED.
+        commands:
+          password_input:
+            description: "Authenticate: [0x00][4-byte password]. Result arrives on 0xFFD7."
+            verification: "reported"
+          password_update:
+            description: "Set a new password: [0x01][new 4-byte password]."
+            verification: "reported"
+      - uuid: "0000FFD7-0000-1000-8000-00805F9B34FB"
+        name: "Password result (0xFFD7)"
+        type: "status"
+        properties: ["notify"]
+        description: >
+          Authentication verdict: [0] = wrong password; [1] = main password
+          OK; [1,1] = share password OK; values 2 and 3 exist in code but
+          their meaning is unknown (open question #5).
+      - uuid: "0000FFD8-0000-1000-8000-00805F9B34FB"
+        name: "Auto-open / relock time (0xFFD8)"
+        type: "config"
+        properties: ["read", "write"]
+        description: "1 byte, seconds: how long before the lock re-secures itself."
+      - uuid: "0000FFD9-0000-1000-8000-00805F9B34FB"
+        name: "Lock control (0xFFD9)"
+        type: "command"
+        properties: ["write"]
+        description: "Write 0x01 = open/unlock, 0x00 = close/lock. Only honoured after a successful password exchange."
+        commands:
+          unlock:
+            description: "Write 0x01 to open the shackle / unlock."
+            verification: "reported"
+          lock:
+            description: "Write 0x00 to close / re-lock."
+            verification: "reported"
+      - uuid: "0000FFDA-0000-1000-8000-00805F9B34FB"
+        name: "Lock state (0xFFDA)"
+        type: "status"
+        properties: ["read", "notify"]
+        description: "0x01 = open. Notify-capable; the app enables notifications after authenticating."
+      - uuid: "0000FFDB-0000-1000-8000-00805F9B34FB"
+        name: "LED time (0xFFDB)"
+        type: "config"
+        properties: ["write"]
+        description: "Padlock/lock LED duration (exact encoding not decoded in the app)."
+      - uuid: "0000FFDC-0000-1000-8000-00805F9B34FB"
+        name: "Tamper alarm config (0xFFDC)"
+        type: "config"
+        properties: ["read", "write"]
+        description: "2 bytes: {alarm on/off, minutes}."
+  - uuid: "0000FFF0-0000-1000-8000-00805F9B34FB"
+    name: "History service (16-bit 0xFFF0)"
+    description: >
+      Access-event history dump and the lock's stored user name.
+    characteristics:
+      - uuid: "0000FFF1-0000-1000-8000-00805F9B34FB"
+        name: "History control (0xFFF1)"
+        type: "command"
+        properties: ["write"]
+        description: "Write 0x01 to start the history dump on 0xFFF2."
+      - uuid: "0000FFF2-0000-1000-8000-00805F9B34FB"
+        name: "History records (0xFFF2)"
+        type: "data"
+        properties: ["notify"]
+        description: >
+          8-byte history frames; the end of the dump is marked by eight
+          0xE0 bytes. Per the app's UI format string a record carries
+          type/ID/user/time, but the exact byte offsets are not decoded in
+          the app (parsed elsewhere) — layout needs a capture (open
+          question #3).
+      - uuid: "0000FFF3-0000-1000-8000-00805F9B34FB"
+        name: "User name (0xFFF3)"
+        type: "config"
+        properties: ["read", "write"]
+        description: "Format [length][name bytes], up to 15 bytes of name."
+  - uuid: "0000FFE0-0000-1000-8000-00805F9B34FB"
+    name: "RFID / share-code service (16-bit 0xFFE0)"
+    description: >
+      Manages the padlock's RF/NFC tag list and share codes (single-use /
+      counted and time-windowed guest codes).
+    characteristics:
+      - uuid: "0000FFE1-0000-1000-8000-00805F9B34FB"
+        name: "RFID list dump (0xFFE1)"
+        type: "data"
+        properties: ["write", "notify"]
+        description: >
+          Write 0x01 to dump the enrolled RFID tag list; frames arrive as
+          notifications with an eight-times-0xE0 end marker. Frame format
+          and tag-ID length unknown (open question #4).
+      - uuid: "0000FFE3-0000-1000-8000-00805F9B34FB"
+        name: "Delete RFID (0xFFE3)"
+        type: "command"
+        properties: ["write"]
+        description: "Write <tag ID bytes> + 0xE0 terminator to delete a tag."
+      - uuid: "0000FFE4-0000-1000-8000-00805F9B34FB"
+        name: "Add RFID (0xFFE4)"
+        type: "command"
+        properties: ["write", "notify"]
+        description: >
+          Write 0x01 to enter learn mode, then present the tag. Result
+          notification: 0 = busy, 1 = success, 0xFF = timeout.
+      - uuid: "0000FFE8-0000-1000-8000-00805F9B34FB"
+        name: "Share code (0xFFE8)"
+        type: "config"
+        properties: ["read", "write"]
+        description: "4-byte share code + 1-byte remaining-use count."
+      - uuid: "0000FFE9-0000-1000-8000-00805F9B34FB"
+        name: "Time-windowed share code (0xFFE9)"
+        type: "config"
+        properties: ["read", "write"]
+        description: >
+          17 bytes: code[4] + startSeconds[4] + endSeconds[4] +
+          startMinute[2] + endMinute[2] + flag[1]. Timestamps are seconds
+          since 2000-01-01, LOCAL time (the same epoch as clock sync).
+  - uuid: "0000FFC0-0000-1000-8000-00805F9B34FB"
+    name: "Fingerprint / SureSet service (16-bit 0xFFC0)"
+    description: >
+      Present on the Gunbox biometric models only (type bytes '4'/'5');
+      manages fingerprint enrolment and the SureSet feature.
+    characteristics:
+      - uuid: "0000FFC1-0000-1000-8000-00805F9B34FB"
+        name: "Fingerprint status (0xFFC1)"
+        type: "status"
+        properties: ["read"]
+        description: "Fingerprint subsystem status (exact encoding not decoded in the app)."
+      - uuid: "0000FFC3-0000-1000-8000-00805F9B34FB"
+        name: "Fingerprint enroll (0xFFC3)"
+        type: "command"
+        properties: ["write"]
+        description: "Write 0x01 to start fingerprint enrolment."
+      - uuid: "0000FFC5-0000-1000-8000-00805F9B34FB"
+        name: "Fingerprint delete-all (0xFFC5)"
+        type: "command"
+        properties: ["write"]
+        description: "Write 0xFF to delete all enrolled fingerprints."
+      - uuid: "0000FFC2-0000-1000-8000-00805F9B34FB"
+        name: "SureSet (0xFFC2)"
+        type: "command"
+        properties: ["write"]
+        description: "SureSet control write (Gunbox feature; exact payloads not decoded in the app)."
+  - uuid: "0000FFB0-0000-1000-8000-00805F9B34FB"
+    name: "Z-Wave module service (16-bit 0xFFB0)"
+    description: >
+      Status of an optional Z-Wave module on family products that have one.
+      Not present on the padlock.
+    characteristics:
+      - uuid: "0000FFB1-0000-1000-8000-00805F9B34FB"
+        name: "Z-Wave control (0xFFB1)"
+        type: "command"
+        properties: ["write"]
+        description: "Z-Wave module control write (payloads not decoded)."
+      - uuid: "0000FFB2-0000-1000-8000-00805F9B34FB"
+        name: "Z-Wave status (0xFFB2)"
+        type: "status"
+        properties: ["read", "notify"]
+        description: "0 = not connected, 1 = connected, 0xFF = module absent."
+  - uuid: "00001805-0000-1000-8000-00805F9B34FB"
+    name: "Current Time Service (standard 0x1805)"
+    description: "Used only for clock sync after authentication."
+    characteristics:
+      - uuid: "00002A2B-0000-1000-8000-00805F9B34FB"
+        name: "Current Time (0x2A2B)"
+        type: "config"
+        properties: ["write"]
+        description: >
+          Clock sync: uint32 little-endian seconds since 2000-01-01, LOCAL
+          time (not the standard 0x2A2B day-date-time structure — the app
+          writes a bare 4-byte epoch). Written on every authenticated
+          session.
+  - uuid: "0000180A-0000-1000-8000-00805F9B34FB"
+    name: "Device Information Service (standard 0x180A)"
+    characteristics:
+      - uuid: "00002A24-0000-1000-8000-00805F9B34FB"
+        name: "Model Number String (0x2A24)"
+        type: "status"
+        properties: ["read"]
+        description: "Model string."
+      - uuid: "00002A26-0000-1000-8000-00805F9B34FB"
+        name: "Firmware Revision String (0x2A26)"
+        type: "status"
+        properties: ["read"]
+        description: "Firmware revision, 2 bytes."
+      - uuid: "00002A23-0000-1000-8000-00805F9B34FB"
+        name: "System ID / MAC (0x2A23)"
+        type: "status"
+        properties: ["read"]
+        description: "Device MAC address."
+  - uuid: "0000180F-0000-1000-8000-00805F9B34FB"
+    name: "Battery Service (standard 0x180F)"
+    characteristics:
+      - uuid: "00002A19-0000-1000-8000-00805F9B34FB"
+        name: "Battery Level (0x2A19)"
+        type: "status"
+        properties: ["read"]
+        description: "Battery percentage."
+  - uuid: "0000FF00-0000-1000-8000-00805F9B34FB"
+    name: "Generic UART service (16-bit 0xFF00)"
+    notes: >
+      Defined in the SDK's UUID table (TX 0xFF01 / RX 0xFF02) but NOT used
+      by any lock flow in the app — likely leftover boilerplate from the TI
+      CC254x stack or used by other family products. Recorded so nobody
+      chases it; the lock flow uses the 0xFFD0 family above.
+    characteristics:
+      - uuid: "0000FF01-0000-1000-8000-00805F9B34FB"
+        name: "UART TX (0xFF01)"
+        type: "data"
+        properties: ["notify"]
+        description: "Defined in the SDK; unused by the lock flows."
+      - uuid: "0000FF02-0000-1000-8000-00805F9B34FB"
+        name: "UART RX (0xFF02)"
+        type: "data"
+        properties: ["write"]
+        description: "Defined in the SDK; unused by the lock flows."
+
+protocol:
+  framing:
+    byte_order: "little-endian (multi-byte integers, e.g. the clock-sync uint32)"
+    notes: >
+      Values are single bytes or short fixed-length arrays; there is no
+      packet envelope, header, checksum or CRC anywhere — each
+      characteristic IS the message. History and RFID dumps are streams of
+      8-byte notification frames terminated by eight 0xE0 bytes.
+
+  crypto:
+    primitives: []
+    implementation: >
+      None. No encryption, no challenge-response, no key exchange, no BLE
+      pairing/bonding. The entire security model is a static 4-byte
+      password written in cleartext to 0xFFD6. Sniffing one authentication
+      yields permanent access until the password is changed. This is the
+      finding Rose & Ramsey demonstrated against this product family at
+      DEF CON 24 (2016).
+
+  session_flow:
+    description: >
+      Normal authenticate-and-operate session (from the app's lock activity
+      and home fragment):
+      1. Scan; identify the device by the 0x2C (',') + ASCII type-digit
+         pattern in the scan record.
+      2. Connect; discover services.
+      3. Enable notifications on 0xFFD7; write [0x00 + 4-byte password] to
+         0xFFD6.
+      4. On a positive verdict ([1] main / [1,1] share): enable
+         notifications on 0xFFDA, read lock state, sync the clock (uint32
+         LE seconds since 2000-01-01 local to 0x1805/0x2A2B), read battery
+         (0x180F/0x2A19) and firmware revision (0x180A/0x2A26).
+      5. Unlock: write 0x01 to 0xFFD9. Lock: write 0x00.
+      Three consecutive wrong passwords start a lockout timer that is
+      enforced by the APP only — the lock-side behaviour is unknown.
+    verification: "reported"
+    verification_note: "Read from the vendor app; never replayed against a lock."
+
+  commands:
+    unlock:
+      hex: "0x01"
+      target: "characteristic 0xFFD9"
+      direction: "client_to_device"
+      description: "Open the shackle / unlock (after successful password exchange)"
+      verification: "reported"
+    lock:
+      hex: "0x00"
+      target: "characteristic 0xFFD9"
+      direction: "client_to_device"
+      description: "Close / re-lock"
+      verification: "reported"
+    password_input:
+      hex: "0x00 + 4-byte password"
+      target: "characteristic 0xFFD6"
+      direction: "client_to_device"
+      description: "Authenticate; verdict notified on 0xFFD7 ([0] wrong, [1] main OK, [1,1] share OK)"
+      verification: "reported"
+    password_update:
+      hex: "0x01 + new 4-byte password"
+      target: "characteristic 0xFFD6"
+      direction: "client_to_device"
+      description: "Change the lock password (requires the current one first)"
+      verification: "reported"
+    history_dump:
+      hex: "0x01"
+      target: "characteristic 0xFFF1"
+      direction: "client_to_device"
+      description: "Start history dump; 8-byte frames on 0xFFF2, end marker 8x0xE0"
+      verification: "reported"
+    rfid_dump:
+      hex: "0x01"
+      target: "characteristic 0xFFE1"
+      direction: "client_to_device"
+      description: "Dump enrolled RFID tags; notification frames, end marker 8x0xE0"
+      verification: "reported"
+    rfid_add:
+      hex: "0x01"
+      target: "characteristic 0xFFE4"
+      direction: "client_to_device"
+      description: "Enter RFID learn mode; result 0=busy / 1=success / 0xFF=timeout"
+      verification: "reported"
+    rfid_delete:
+      hex: "<tag ID> + 0xE0"
+      target: "characteristic 0xFFE3"
+      direction: "client_to_device"
+      description: "Delete an enrolled RFID tag"
+      verification: "reported"
+    fingerprint_enroll:
+      hex: "0x01"
+      target: "characteristic 0xFFC3"
+      direction: "client_to_device"
+      description: "Start fingerprint enrolment (Gunbox biometric models only)"
+      verification: "reported"
+    fingerprint_delete_all:
+      hex: "0xFF"
+      target: "characteristic 0xFFC5"
+      direction: "client_to_device"
+      description: "Delete all enrolled fingerprints (Gunbox biometric models only)"
+      verification: "reported"
+      advanced: true
+      advanced_reason: "Irreversibly wipes every enrolled fingerprint from the device; on a gun safe this changes who can open it. No undo except re-enrolling each finger."
+    clock_sync:
+      hex: "uint32 LE seconds since 2000-01-01 local time"
+      target: "characteristic 0x1805/0x2A2B"
+      direction: "client_to_device"
+      description: "Set the lock clock; needed for time-windowed share codes and history timestamps"
+      verification: "reported"
+
+  remaining_unknowns:
+    - "Exact advertised local-name format and where the ',' + type byte sits in the scan record (app parsing is crude: first literal 0x2C byte wins)"
+    - "Password encoding at firmware level (raw hex bytes vs ASCII digits) and whether a factory default password exists"
+    - "History record 8-byte frame layout (type/ID/user/time per the UI format string; offsets not decoded in the app)"
+    - "RFID frame format on 0xFFE1 and tag-ID length"
+    - "Meaning of password-result codes 2 and 3 on 0xFFD7"
+    - "Whether later hardware revisions (post-2017 '2.0' Gunbox hardware) added encryption"
+
+cloud:
+  required: false
+  vendor_service: "None — the app contains no vendor cloud API at all"
+  hosts: []
+  failure_mode: >
+    Nothing breaks — and that failure mode has already happened in full.
+    SafeTech Products is defunct: safetechproducts.com went parked/offline
+    after ~Feb 2023 (last real Wayback capture 2022-11), the storefronts
+    thequicklock.com and thegunbox.com are dead, and the app was removed
+    from Google Play. The device never talked to any of it: the only HTTP
+    URLs in the app are those marketing storefronts plus two dead
+    share-link templates. No accounts, no OTA, no telemetry beyond
+    Crashlytics. The lock works indefinitely with any GATT client; the
+    only real loss is the official app itself.
+  notes: >
+    Pairing is phone<->lock only; the password is stored in the lock and
+    in the app's local SQLite database. There is no firmware-update
+    mechanism of any kind, so no firmware images exist to lose.
+
+local_access:
+  status: "native"
+  summary: >
+    The device is local-only by design: BLE GATT, no cloud, no account, no
+    pairing. A password write to 0xFFD6 followed by 0x01 to 0xFFD9 opens
+    it. Trivially scriptable with any GATT client (e.g. bleak).
+  covers:
+    - "lock / unlock / lock-state over local BLE with no cloud involved"
+    - "password change, auto-relock time, LED time, tamper-alarm config"
+    - "access-history pull (0xFFF1/0xFFF2) and user name"
+    - "RFID tag management and share codes (incl. time-windowed codes)"
+    - "clock sync, battery level, model/firmware/MAC via standard services"
+    - "fingerprint enrolment/deletion on Gunbox biometric models"
+  not_covered:
+    - "nothing is cloud-dependent, but several byte layouts remain undecoded: history record fields, RFID frames, password encoding, password-result codes 2/3 — all need one over-the-air capture (the link is unencrypted, so any LE sniffer works)"
+    - "no existing Home Assistant or ESPHome integration and no public RE repos were found for this family — the HA path would be a new ESPHome bluetooth_proxy + script or a small bleak-based custom component"
+    - "firmware: none obtainable (no OTA path ever existed); if needed it must be dumped from hardware (TI CC254x-class SoC)"
+
+helpful_urls:
+  - title: "DEF CON 24 — Picking Bluetooth Low Energy Locks from a Quarter Mile Away (Rose & Ramsey)"
+    url: "https://defcon.org/html/defcon-24/dc-24-speakers.html"
+    description: >
+      2016 survey of 16 BLE locks; the Quicklock padlocks (this product
+      family) were among those tested and shown to use static, sniffable
+      cleartext credentials — corroborates the no-crypto finding here.
+      Slides/video via media.defcon.org.
+  - title: "Bluetooth SIG company identifiers"
+    url: "https://www.bluetooth.com/specifications/assigned-numbers/"
+    description: "Company ID 0x04CD is assigned to Safetech Products LLC (identification hint only; advert usage unconfirmed)."
+  - title: "Wayback Machine — safetechproducts.com"
+    url: "https://web.archive.org/web/2022/https://safetechproducts.com/"
+    description: "Last real captures late 2022; site parked/offline from ~Feb 2023. Vendor/product documentation survives only here."
+
+sources:
+  - type: "static_analysis"
+    artifact: "com.itonsoft.safetech v2.0 (versionCode 26, ~2017-02; developer RPH Engineering)"
+    sha256: "23eeaf15ea2d10135556ce1505cd8b70c7b5d82539449560033ab82e59036f9d"
+    obtained_via: "third-party APK mirror, 2026-08 (the Play listing was removed)"
+    description: >
+      Static analysis of the vendor's Android app (2026-08) — a small,
+      unobfuscated ~2017-era build wrapping the OEM lock SDK. Source of the
+      session flow, the GATT plumbing and the service/characteristic UUID
+      constants.
+  - type: "public_research"
+    url: "https://defcon.org/html/defcon-24/dc-24-speakers.html"
+    description: "DEF CON 24 'Picking Bluetooth Low Energy Locks from a Quarter Mile Away' (Rose/Ramsey 2016) — Quicklock family tested; cleartext static-password weakness demonstrated"
+  - type: "vendor_archive"
+    url: "https://web.archive.org/web/2022/https://safetechproducts.com/"
+    description: "Vendor site, last real capture 2022-11; parked/offline since ~Feb 2023. thequicklock.com / thegunbox.com likewise dead."
+  - type: "assigned_numbers"
+    url: "https://www.bluetooth.com/specifications/assigned-numbers/"
+    description: "Bluetooth SIG company ID 0x04CD = Safetech Products LLC"

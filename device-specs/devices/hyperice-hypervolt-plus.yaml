@@ -1,0 +1,442 @@
+# Hyperice Hypervolt Plus (legacy Hypervolt BLE family) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Hyperice Hypervolt Plus"
+  manufacturer: "Hyperice, Inc."
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No hardware has been driven from this spec. Every protocol fact below was
+      recovered by static analysis of the vendor Android app (2026-08);
+      the cloud host was probed unauthenticated only
+      (returned HTTP 401, i.e. alive). The password-derivation bit mixing in
+      particular is a register-level transcription and is marked hypothesis
+      pending a hardware check.
+  protocol: "ble"
+  type: "percussion-massager"
+  category: "fitness"
+  notes: >
+    Hypervolt Plus (Bluetooth) — 90 W percussion massage gun, 3 speeds,
+    5 heads, model 54020 001-00 per the device.report listing. One spec covers
+    the whole "legacy" Hypervolt family sharing one GATT layout and one app
+    manager: Hypervolt, Hypervolt Plus, Hypervolt 2, Hypervolt 2 Pro, and the
+    Vyper 3 / Vyper Go rollers. Hyperice is alive and healthy (Hypervolt 3
+    line launched March 2026); there is no cloud-shutdown risk today, and —
+    more to the point — the device needs no cloud at all: all control is
+    local BLE.
+
+    App taxonomy (device-type model numbers, from the vendor app):
+    HYPERVOLT=1, HYPERVOLT_PLUS=2, HYPERVOLT_2=5, HYPERVOLT_2_PRO=6,
+    VYPER_GO=3, VYPER_3=4. Advertised local-name prefixes are matched
+    case-insensitively and END IN A SEMICOLON: `HV;` Hypervolt, `HV+;`
+    Hypervolt Plus, `HV2;` / `HV2P;` Hypervolt 2 / 2 Pro, `VY3;` / `VYGO;`
+    Vyper 3 / Go. Bluetooth SIG company IDs seen in this product line's
+    advertising: 2234 (0x08BA) = Hyperice; 89 (0x0059) = Nordic Semiconductor
+    (seen on the Normatec 2 family, likely DFU-mode adverts).
+
+    The BLE core of the app still lives in the package namespace of RelaxRoll,
+    the company Hyperice acquired — the 2019-era RelaxRoll "Hyperice" app is
+    superseded by a single unified Hyperice app.
+
+    Not present on this family: no battery characteristic (battery shows on the
+    device's LED ring only), and no OTA/DFU characteristic — the legacy manager
+    has no firmware-update path at all (its update routine is a no-op). Newer
+    Hyperice families in the same app (Hypervolt 3, Normatec, Venom 2,
+    Hyperice X) use different UUID bases and Nordic DFU and are NOT covered
+    here.
+
+    Open questions (need hardware):
+    1. Does the secure characteristic's seed read back 00 00 00 on a fresh
+       unit (making the password write unnecessary), or a random seed per
+       connection?
+    2. Exact level range/semantics: expected 0-3 (off + 3 speeds); unverified
+       whether notifications echo the speed or a force-sensor pressure band.
+    3. The containing GATT service UUID for the two custom characteristics is
+       not pinned in the app (it matches characteristics by UUID only) — the
+       service UUID recorded below is an inference, not an observation.
+    4. The Hypervolt Plus-specific FCC ID (grantee code for Hyperice is
+       2AY3Y, per sibling products' filings).
+  identification:
+    local_name_prefix: "HV+;"
+    manufacturer_data:
+      company_id: 2234
+      company_id_hex: "0x08BA"
+      description: >
+        Hyperice's Bluetooth SIG company identifier, listed by the research as
+        used in this product line's advertising. The app itself matches on the
+        advertised local-name prefix, so the company ID is a secondary signal.
+    service_uuids: []
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "HV+;"
+          manufacturer_data:
+            company_id: 2234
+            match: "prefix"
+            description: "Hyperice manufacturer data under Bluetooth SIG company ID 0x08BA."
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        Whether the BLE address is public or rotates was not established from
+        the app; if a unit turns out to use a resolvable private address, key
+        on the local name instead (it carries the model prefix).
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "low"
+    notes: >
+      Nothing to provision — no network, no account, no cloud. The gun works
+      standalone from its physical speed button; BLE adds app control. The one
+      complication is the per-connection handshake on the "secure"
+      characteristic: after connecting, read the 3-byte seed from
+      31CB4570-..., and unless the seed is 00 00 00 (in which case nothing is
+      written), derive the 4-byte password documented on that characteristic
+      and write it back with response. Confidence is low because the flow was
+      read from the app's dispatch code, not replayed against a device.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the `HV+;` name prefix, connect, run the seed/password
+          handshake, then subscribe to the level characteristic and write
+          single-byte levels. The app's own connection builder uses a 15 s
+          timeout with 7 retries.
+        ble:
+          advertised_name: "HV+;"
+          pairing_required: false
+          pin_source: "None — no BLE bonding; authorization is the derived-password write on the secure characteristic."
+        steps:
+          - action: "Scan for a BLE peripheral whose local name starts with HV+; (case-insensitive)."
+            actor: "client"
+            expect: "Advertisement with local name HV+;… (and typically Hyperice company ID 0x08BA)."
+          - action: "Connect and discover services."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+            timeout_seconds: 15
+          - action: "Read the secure characteristic and take its last 3 bytes as the session seed."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Read 31CB4570-3C31-4E56-8C2B-E8F479D2B056"
+            expect: "A value whose last 3 bytes are the seed; 00 00 00 means no password is needed."
+          - action: "If the seed is nonzero, write the derived 4-byte password back to the secure characteristic (write with response)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Write password to 31CB4570-3C31-4E56-8C2B-E8F479D2B056"
+            notes: >
+              Derivation documented on the characteristic below; it mixes the
+              device MAC with the seed through a fixed 256-entry lookup table
+              recovered from the app. Structure ({0x01, b1, b2, b3}, the seed
+              read, the table) is certain; bit-mixing details are a
+              register-level transcription — verify against hardware.
+          - action: "Subscribe to notifications on the level characteristic."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Enable notifications on 31CB456C-3C31-4E56-8C2B-E8F479D2B056"
+            expect: "Notifications carrying the current level as a single byte."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        No factory-reset procedure was found in the app for this family, and
+        the pairing model (a per-connection derived password, not a stored
+        bond) suggests there may be no persistent pairing state to clear.
+        Unknown whether a button-combination reset exists on the hardware.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE-only device with no network binding: a new phone/controller simply
+        scans, connects and runs the handshake. The realistic failure mode is
+        another client still holding the single BLE connection — close the
+        vendor app before expecting a third-party client to connect.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Session seed served by the secure characteristic (per research; whether it is static or per-connection is unknown)"
+      issued_to_client:
+        - "4-byte session password derived from the device MAC and seed (written back, not stored)"
+  variants:
+    - model: "Hypervolt"
+      identification:
+        local_name_prefix: "HV;"
+    - model: "Hypervolt Plus"
+      identification:
+        local_name_prefix: "HV+;"
+    - model: "Hypervolt 2"
+      identification:
+        local_name_prefix: "HV2;"
+    - model: "Hypervolt 2 Pro"
+      identification:
+        local_name_prefix: "HV2P;"
+    - model: "Vyper 3"
+      identification:
+        local_name_prefix: "VY3;"
+    - model: "Vyper Go"
+      identification:
+        local_name_prefix: "VYGO;"
+
+initialization:
+  - characteristic: "31CB4570-3c31-4e56-8c2b-e8f479d2b056"
+    read: true
+
+services:
+  - uuid: "31cb4500-3c31-4e56-8c2b-e8f479d2b056"
+    name: "Hypervolt Legacy Service"
+    notes: >
+      HYPOTHESIS (like the jlx-laser-distance-meter spec): the containing
+      service UUID is not pinned anywhere in the app — it discovers services
+      and matches the two characteristics below by UUID alone. 31cb4500 is
+      inferred from the shared 31CB45xx base of the characteristic UUIDs and
+      must be confirmed with a scan; clients should match the characteristics,
+      not this service.
+    characteristics:
+      - uuid: "31cb4570-3c31-4e56-8c2b-e8f479d2b056"
+        name: "Secure (seed read / password write)"
+        properties: ["read", "write"]
+        notes: >
+          Read yields a value whose LAST 3 bytes are the session seed
+          (s[0..2]). If the seed is 00 00 00, no password is written (the app
+          writes an empty array). Otherwise the app derives a 4-byte password
+          P = {0x01, b1, b2, b3} from the seed and the device MAC (mac[0..5])
+          and writes it back WITH RESPONSE (write type 2). Derivation,
+          transcribed from the app's bytecode (uses a fixed 256-entry
+          lookup table T stored in the app, beginning
+          1,128,64,32,16,8,132,66,33,144,72,164,…):
+
+            A  = s[0] ^ mac[5]
+            b1 = (((mac[5] | mac[1]) & 0xff) ^ T[(mac[4] ^ s[2]) & 0xff]) >> (s[2] & 1)
+            b2 = s[2] ^ ((T[(mac[2] & s[1]) & 0xff] + mac[3]) & 0xffff)
+            b3 = ((mac[0] ^ T[A & 0xff]) & 0xff) << (s[1] & 1)
+
+          with results truncated to bytes. The full table T is recoverable
+          from the vendor app (see sources). STRUCTURE CERTAIN
+          (4-byte password headed 0x01, 3-byte seed, table-driven mixing);
+          BIT-MIXING DETAILS HYPOTHESIS — verify against hardware before
+          trusting an implementation.
+        commands:
+          write_password:
+            description: >
+              Write the derived 4-byte session password {0x01, b1, b2, b3}.
+              b1-b3 are computed from the device MAC and the seed just read
+              from this same characteristic — they are not user-settable, so a
+              generic consumer cannot emit this command without implementing
+              the derivation in the notes above.
+            verification: "reported"
+            template: [0x01, "{b1}", "{b2}", "{b3}"]
+            parameters:
+              b1:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Derived byte 1 (see derivation in characteristic notes)."
+              b2:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Derived byte 2 (see derivation in characteristic notes)."
+              b3:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Derived byte 3 (see derivation in characteristic notes)."
+        format:
+          - offset: 0
+            length: 3
+            name: "seed"
+            type: "bytes"
+            notes: >
+              The LAST 3 bytes of the read value are the seed; the read value
+              may be longer (its leading bytes were not characterized). All
+              zero means no password required this session.
+
+      - uuid: "31cb456c-3c31-4e56-8c2b-e8f479d2b056"
+        name: "Level Control"
+        properties: ["notify", "write_without_response"]
+        notes: >
+          Single-byte level in both directions. Writes (without response, write
+          type 1) set the percussion level; notifications report the current
+          level back to the app, parsed as one integer byte. Whether the
+          notification echoes the commanded speed or a force-sensor pressure
+          band is unverified (open question). Level range expected 0-3 on the
+          Hypervolt Plus (off + its 3 hardware speeds) — unverified.
+        commands:
+          stop:
+            description: "Stop the motor / reset the level to 0."
+            verification: "reported"
+            value: [0x00]
+          set_level:
+            description: >
+              Set the percussion level (single byte, written without
+              response). Hypervolt Plus hardware has 3 speeds, so expect
+              0-3 (0 = off); the upper bound is unverified and other family
+              variants (e.g. Vyper rollers) may accept a wider range.
+            verification: "reported"
+            template: ["{level}"]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 3
+                description: "Percussion level; 0 = off. Max of 3 is expected from the hardware spec, not wire-verified."
+        format:
+          - offset: 0
+            length: 1
+            name: "level"
+            type: "uint8"
+            notes: >
+              Notification payload: current level as one integer byte. Exact
+              semantics (commanded speed vs. pressure band) unverified.
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information Service"
+    characteristics:
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number String"
+        properties: ["read"]
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision String"
+        properties: ["read"]
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+
+entities:
+  - platform: "number"
+    name: "Percussion Level"
+    icon: "mdi:car-turbocharger"
+    min: 0
+    max: 3
+    step: 1
+    state_characteristic: "31cb456c-3c31-4e56-8c2b-e8f479d2b056"
+    state_mapping:
+      value: "level"
+    commands:
+      set_value: "set_level"
+    notes: >
+      0 = off, 1-3 = the gun's three hardware speeds (expected range, not
+      wire-verified). State arrives via notifications on the same
+      characteristic; whether it echoes the commanded speed or a pressure
+      band is an open question.
+
+  - platform: "button"
+    name: "Stop"
+    commands:
+      press: "stop"
+
+cloud:
+  required: false
+  vendor_service: "Hyperice cloud"
+  hosts:
+    - "https://app.hyperice.com"
+    - "https://auth.hyperice.com"
+  auth:
+    type: "oauth2"
+    endpoint: "/v1/auth/okta-token-exchange"
+    notes: >
+      Okta OIDC against auth.hyperice.com, then a token exchange at
+      POST app.hyperice.com/v1/auth/okta-token-exchange mints the JWT every
+      other call needs. Unauthenticated probes return 401 INVALID_JWT.
+    verification: "reported"
+  endpoints:
+    - path: "/v1/device"
+      method: "GET"
+      returns: "Device catalog entries carrying firmwareVersion and firmwareUrl fields."
+      verification: "reported"
+    - path: "/v1/paired-device"
+      method: "GET"
+      returns: "The account's paired devices."
+      verification: "reported"
+    - path: "/v1/routine"
+      method: "GET"
+      returns: "Guided 'HyperSmart' routine library (auto-adjusts speed during a session)."
+      verification: "reported"
+    - path: "/v1/custom-routine-done"
+      method: "POST"
+      returns: "Sync of completed custom routines."
+      verification: "reported"
+    - path: "/v1/firmware/update"
+      method: "POST"
+      returns: >
+        Request body is a list of {deviceId, version, type, submodel?};
+        response is {url, hash, version, deviceId, type}. Requires a valid
+        account JWT (401 without); no firmware URLs are hardcoded in the app.
+        NOTE: the legacy Hypervolt family has no in-app OTA path anyway, so
+        this endpoint matters to the newer families, not to this device.
+      verification: "reported"
+  failure_mode: >
+    Nothing on the device stops working. All control is local BLE, and the gun
+    also runs standalone from its physical speed button. What dies with the
+    cloud is phone-side: account login, the guided routine library and
+    routine-completion sync, and firmware-update metadata for the newer
+    families. Confirmed alive 2026-08-18 (unauthenticated calls return 401).
+  data_leaves_device:
+    - "account identity and paired-device list (phone-side)"
+    - "routine usage / completion sync (phone-side; the BLE device itself has no network interface)"
+  notes: >
+    Endpoint set and auth shape read from the vendor Android app.
+    Other app-side dependencies seen: Firebase (Realtime Database, FCM,
+    Analytics), Amplitude, Sentry, and Lokalise for OTA string translations.
+
+local_access:
+  status: "native"
+  summary: >
+    Full local control over BLE as shipped: scan for the `HV+;` name prefix,
+    connect, run the seed/password handshake on the secure characteristic,
+    then write single-byte levels and read level notifications. No account,
+    no cloud, no DNS redirect. An esphome_ble_client or Home Assistant BLE
+    integration is straightforward once the handshake is implemented — and may
+    be trivial if fresh units answer the seed read with 00 00 00 (unverified).
+  covers:
+    - "start/stop and percussion level 0-3 (expected range)"
+    - "level state via notifications"
+    - "serial number, firmware/hardware/software revision via standard DIS"
+  not_covered:
+    - "battery level — not exposed over BLE at all on this family (device LED ring only)"
+    - "guided HyperSmart routines (cloud library; they are phone-side speed programs, not device firmware features)"
+    - "firmware updates (no OTA path exists on this family, cloud or otherwise)"
+
+helpful_urls:
+  - title: "Hyperice app on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.hyperice.app"
+    description: "Vendor app listing — the app this spec's static analysis is based on."
+  - title: "Hypervolt Plus product page"
+    url: "https://hyperice.com/products/hypervolt-plus/"
+    description: "Vendor product page (hardware specs: 90 W motor, 3 speeds, 5 heads)."
+  - title: "Hyperice on device.report"
+    url: "https://device.report/hyperice"
+    description: "Device database listing carrying the Hypervolt Plus model number 54020 001-00 (the page bot-blocks plain HTTP clients; open in a browser)."
+
+sources:
+  - type: "static_analysis"
+    artifact: "com.hyperice.app v2.7.0 (versionCode 280020700), base APK from the XAPK bundle"
+    sha256: "708168663868e8580824619a04bd5bcd2fe345fac8b15b2b81259b515adc7204"
+    xapk_sha256: "14cff4e52bedaee45d7a4d9cf4e0cdf76f726eb8b4b8c749583512020fda77b2"
+    obtained_via: "third-party APK mirror (XAPK), 2026-08"
+    description: >
+      Static analysis of the vendor Android app (2026-08). Obfuscated, but
+      every relevant BLE class reads cleanly. Source of the two custom
+      characteristic UUIDs and the DIS UUIDs, the fixed 256-entry password
+      lookup table, the password-derivation routine, and the legacy Hypervolt
+      family device manager whose dispatch defines the command set.
+  - type: "live_probe"
+    url: "https://app.hyperice.com/v1/"
+    description: "Unauthenticated probe 2026-08-18 returned 401 INVALID_JWT — cloud alive, JWT-gated."
+    verification: "confirmed"
+  - type: "web_lookup"
+    url: "https://device.report/hyperice"
+    description: "Hypervolt Plus model number 54020 001-00."
+    verification: "reported"

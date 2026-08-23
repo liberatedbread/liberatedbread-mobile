@@ -51,8 +51,9 @@ protocol:
   note: >
     Simple request/response on the 0xFFF0 service. Commands are written to 0xFFF5 as
     short frames: lead byte 0xAA, a length/opcode pair, payload, terminator 0xFF.
-    All command constants are in BleConstants.java; response decoders are in
-    FinisBluetoothService.java (com.intellectsoft.finis.ble). No authentication.
+    All command constants live in the app's BLE constants class; response
+    decoders live in its Bluetooth service (com.intellectsoft.finis.ble).
+    No authentication.
   commands:
     get_settings: "AA 00 B1 FF"
     get_stats: "AA 01 B5 FF"

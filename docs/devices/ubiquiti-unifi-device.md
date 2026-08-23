@@ -35,3 +35,4 @@ an EdgeSwitch 10X, a UniFi NAS Pro (`UNASPRO`), a UNVR and a Cloud Key Gen2+
 
 - <https://nmap.org/nsedoc/scripts/ubiquiti-discovery.html>
 - <https://www.rapid7.com/blog/post/2019/02/01/ubiquiti-discovery-service-exposures/>
+- [Home Assistant UniFi Network integration](https://www.home-assistant.io/integrations/unifi/)

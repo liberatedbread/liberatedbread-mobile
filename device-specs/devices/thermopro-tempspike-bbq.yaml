@@ -10,9 +10,9 @@ device:
   testing:
     status: untested
   notes: |
-    Extracted from com.thermopro.thermopro v1.21 (48MB, TempPro APKPure XAPK).
-    Decompiled: 14,930 classes. Package: cn.com.adsmart.wifibbq.
-    Adsmart is the OEM behind ThermoPro's connected devices.
+    Extracted by static analysis of the official ThermoPro companion app.
+    Its BLE stack is the OEM's (Adsmart, the OEM behind ThermoPro's
+    connected devices), not ThermoPro-specific code.
 
     TRANSPORT IS PLAIN BLE GATT — NOT BLE MESH. The app contains no mesh stack
     (no/nordicsemi/android/ holds only ble/ + support/; no Mesh Proxy 0x1828,
@@ -24,9 +24,9 @@ device:
     fabricated.
 
     THERE IS NO SINGLE UNIVERSAL UUID SET. The app picks one of FIVE
-    per-family BLE configs at connect time (MyBleManager.java:103-128,
-    ble/config/*Config.java; 16-bit codes expand to
-    0000XXXX-0000-1000-8000-00805F9B34FB via UUIDUtil):
+    per-family BLE configs at connect time — its BLE manager picks one of
+    five per-family config classes (16-bit codes expand to
+    0000XXXX-0000-1000-8000-00805F9B34FB):
     - TP9012 family (deviceType 7/8, TP90XConfig): service
       0B863E05-BA64-4F7A-922D-007FD52DCAA9 — NOT 1086FFF0 — write FFF1,
       notify FFF2.
@@ -41,7 +41,8 @@ device:
     - Default (all other deviceTypes, incl. TP920/TP25W and TP980,
       TPBleConfig): service 1086FFF0-3343-4817-8BB2-B32206336CE8, write
       FFF1, notify FFF2.
-    Clients must identify the family (advertised name, per ScanConfig.java)
+    Clients must identify the family (advertised name, per the app's scan
+    config)
     before choosing a service; 1086FFF0 is the fallback, not the universal
     case.
 
@@ -87,18 +88,17 @@ device:
     52.317286 * tanh(v/273.624277936 - 8.76485439394) + 51.06925, clamped
     0-100 (tp96_battery).
 
-    FIRMWARE/DFU: the app carries TWO OTA paths (ble/config/DfuConfig.java,
-    OtaConfig.java). There is a DFU-mode GATT service 0x1850 (write 0x2C00,
+    FIRMWARE/DFU: the app carries TWO OTA paths (a DFU config and an OTA
+    config). There is a DFU-mode GATT service 0x1850 (write 0x2C00,
     notify 0x2C01), and two vendor OTA profiles with bundled firmware
     images: ASR560X (service 0917fe11-5d37-816d-8000-00805f9b34fb, write
-    09170001-…, notify 09170002-…; bundled res/raw/ast6s53_v25_ota.bin,
-    version 2.5, string app-2.5.0-20251011.1000, archived in the research
-    store — TempSpike-era hardware is ASR560X-based, not Nordic) and
+    09170001-…, notify 09170002-…; a bundled ASR560X OTA image, version 2.5,
+    string app-2.5.0-20251011.1000 — TempSpike-era hardware is ASR560X-based, not Nordic) and
     Silicon Labs (OTA service 1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0, control
     f7bf3564-fb6d-4e53-88a4-5e37e0326063, write
-    984227f3-34fc-4045-a5d0-2c581f81a153; bundled
-    res/raw/ota_hpyke25_2101_v117, version 1.17). Images are pushed to
-    devices over BLE by OTAUtil/OtaConfig.
+    984227f3-34fc-4045-a5d0-2c581f81a153; a bundled Silicon Labs OTA image,
+    version 1.17). Images are pushed to devices over BLE by the app's OTA
+    layer.
 
     ThermoPro is rebranding to "TempPro" (announced ~April 2026; temppro.com);
     the app already references both buythermopro.com and temppro.com.
@@ -115,13 +115,13 @@ device:
       models even the connection is optional — temperatures and battery
       arrive passively in advertisements.
 
-      Confidence is medium: the flows are read from the decompiled app and two
+      Confidence is medium: the flows are read from the vendor app and two
       independent RE projects, but have not been run against a device here.
     methods:
       - type: ble_direct
         description: >
           Scan for the advertised name (TP940R, TP980R, TP960R, Thermopro,
-          SmartBBQ, ... per ScanConfig.java), identify the family from the
+          SmartBBQ, ... per the app's scan config), identify the family from the
           name, connect to the family's service (see the five configs in
           device.notes — 1086FFF0-… is only the default for TP920/TP980 and
           others, write FFF1 / notify FFF2; TP940/TP960 use
@@ -172,9 +172,9 @@ device:
         the same capability on opcodes 0x60-0x67 (writes: scanWifi 0x60,
         connectWifi 0x62, checkWifi 0x63, unBound 0x64, checkDid 0x66;
         notifications: wifiScanReturn 0x61, wifiConnectReturn 0x63/0x67,
-        boundNotification 0x65, checkDidReturn 0x66 — TP920Data.java:193-244,
-        TP920DataChangeUtils.java:60). Unlike the TP980 set, no decimal/hex
-        confusion applies to these: the decompiled literals are decimal
+        boundNotification 0x65, checkDidReturn 0x66 — from the app's TP920
+        command and parse classes). Unlike the TP980 set, no decimal/hex
+        confusion applies to these: the literals in the app are decimal
         96-103, which equal hex 0x60-0x67 exactly as written here. The
         apparent write/notify overlaps are real request/response opcode
         sharing — the device's reply notification echoes the request's
@@ -257,7 +257,7 @@ services:
       - uuid: "0000FF03-0000-1000-8000-00805F9B34FB"
         name: Read
         properties: ["read"]
-        description: "Additional read characteristic (tp960ReadUUID, MyBleManager.java)."
+        description: "Additional read characteristic (tp960ReadUUID in the app's BLE manager)."
 
   # TP426 infrared (TP426Config, deviceType 50)
   - uuid: "0F86FFF0-63E8-4762-9DFB-7B6FE113376A"
@@ -292,7 +292,7 @@ services:
       - uuid: "09170001-5d37-816d-8000-00805f9b34fb"
         name: OTA Write
         properties: ["write"]
-        description: "ASR560X OTA image write. Bundled firmware: res/raw/ast6s53_v25_ota.bin (version 2.5)."
+        description: "ASR560X OTA image write. The app bundles a matching image (version 2.5)."
       - uuid: "09170002-5d37-816d-8000-00805f9b34fb"
         name: OTA Notification
         properties: ["notify"]
@@ -303,7 +303,7 @@ services:
       - uuid: "f7bf3564-fb6d-4e53-88a4-5e37e0326063"
         name: OTA Control
         properties: ["write"]
-        description: "Silicon Labs OTA control point — the app writes an OTA_CONTROL_START command here (MyBleManager.java:552,633). Bundled firmware: res/raw/ota_hpyke25_2101_v117 (version 1.17)."
+        description: "Silicon Labs OTA control point — the app writes an OTA_CONTROL_START command here. Bundled firmware: a Silicon Labs OTA image, version 1.17."
       - uuid: "984227f3-34fc-4045-a5d0-2c581f81a153"
         name: OTA Data Write
         properties: ["write"]
@@ -383,7 +383,7 @@ device_families:
       setTemp(0..3) sequential-probing flow belongs to TP980. Other opcodes:
       0x02 unit, 0x04 alarm setting, 0x05 alarm close, 0x06 device close,
       0x67 color. Battery: raw×33 for both probes and box
-      (TP940ChangeUtils.java:81,97,117) — note this is the INVERSE of the
+      (per the app's TP940 parser) — note this is the INVERSE of the
       TP9012 formula (100 − 33×raw).
 
   - model: TP960 (TempSpike)
@@ -391,8 +391,8 @@ device_families:
     probe_count: 1
     temperature_encoding: u16le_minus_30
     temperature_encoding_detail: >
-      Connected mode: u16 LE minus 30 °C (temp = raw - 30;
-      TP960ChangeUtils.getProTemp:242+) — the SAME encoding as the TP96x
+      Connected mode: u16 LE minus 30 °C (temp = raw - 30) — the SAME
+      encoding as the TP96x
       passive-advertisement layout, NOT the TP940 BCD scheme. Sentinels:
       0xFF,0xFF → -999.9, and raw - 30 ≤ -30 → -999.9. Passive mode layout
       per TEMPSPIKE PASSIVE MODE in device.notes.
@@ -406,7 +406,7 @@ device_families:
       CONNECTED-MODE opcodes (spec previously had no TP96x GATT block despite
       being named "tempspike"). Service 93bb7cab-…, write FF02 / notify FF01,
       raw frames with NO checksum. Notifications (opcode at offset 0,
-      TP960ChangeUtils.java:90-91): 0x01 current temp, 0x02 history upload
+      per the app's TP960 parser): 0x01 current temp, 0x02 history upload
       first frame, 0x05 low battery upload, 0x06 box battery upload, 0x10
       auto temp return, 0x11 low battery (alt), 0x12 probe connect upload,
       0x13 temp alarm close, 0x14 ambient temp alarm close. Writes
@@ -422,13 +422,13 @@ device_families:
     description: TempSpike multi-probe variants (scan names TP962R, TP963, TP965R, TP966R)
     probe_count: 2
     temperature_encoding: u16le_minus_30
-    temperature_encoding_detail: "Same u16 LE − 30 °C encoding as TP960 (TP962ChangeUtils.getProTemp, TP968ChangeUtils.getProTempC/getProTemp); sentinel 0xFF,0xFF → -999.9."
+    temperature_encoding_detail: "Same u16 LE − 30 °C encoding as TP960 (per the app's TP962/TP968 parsers); sentinel 0xFF,0xFF → -999.9."
     features:
       - passive_advertisement_decoding
       - sequential_multi_probe_read
     protocol_notes: |
       Same service/framing as TP960 but a WIDER notification dispatch
-      (TP962ChangeUtils.java:95-115, TP968ChangeUtils.java) adding a
+      (per the app's TP962/TP968 parsers) adding a
       sequential setTemp-probing state machine: 0x81 readNextProTemp,
       0x04/0x84 setTempReturn, 0x06/0x16 box battery, 0x09/0x89 setUnitReturn,
       plus 0x10 auto temp, 0x12 probe connect, 0x13/0x14 alarm close, 0x17
@@ -455,8 +455,8 @@ device_families:
       History upload: multi-chunk transfer with a first frame (opcode 0x02)
       and continuation frames, 6 bytes/record. Probe reading uses the
       setTemp(0..3) / readNextProTemp sequential state machine
-      (TP980ChangeUtils — an earlier revision of this spec misattributed it
-      to TP940). Notification opcodes (TP980ChangeUtils.java:115): 0x11 temp
+      (the app's TP980 parser — an earlier revision of this spec
+      misattributed it to TP940). Notification opcodes: 0x11 temp
       return, 0x12 probe connect, 0x13 temp alarm close, 0x14 ambient temp
       alarm close, 0x17 charge state change, 0x18 device close, 0x19 temp
       unit change, 0x1A probe color check, 0x20 temp auto-return, and
@@ -474,7 +474,7 @@ advertising:
     - "Thermopro"
     - "SmartBBQ"
   notes: >
-    Exact advertised names from ScanConfig.java, grouped as: thermoproNames
+    Exact advertised names from the app's scan config, grouped as: thermoproNames
     (Thermopro, TP901, TP902, TP922, TP939, TP938, P900, TP903, TP904, TP25,
     TP910, TP920, TP930, TP923, TP924), tempSpike (TP960R, TP962R, I61,
     TP970R, TP960W, I61W, TP971R/972R, TP963, TP971S/972S, TP973R, TP965R,
@@ -482,32 +482,21 @@ advertising:
     legacy SmartBBQ. "TempPro" and "iBBQ" are NOT advertised names.
 
 source:
-  apk: com.thermopro.thermopro v1.21 (TempPro_1.21_APKPure.xapk, 48MB)
-  decompiled: jadx (14,930 classes)
-  key_sdk_paths:
-    - cn/com/adsmart/wifibbq/ble/config/TPBleConfig.java
-    - cn/com/adsmart/wifibbq/ble/config/TP90XConfig.java
-    - cn/com/adsmart/wifibbq/ble/config/TP922Config.java
-    - cn/com/adsmart/wifibbq/ble/config/TP940Config.java
-    - cn/com/adsmart/wifibbq/ble/config/TP960Config.java
-    - cn/com/adsmart/wifibbq/ble/config/TP426Config.java
-    - cn/com/adsmart/wifibbq/ble/config/DfuConfig.java
-    - cn/com/adsmart/wifibbq/ble/config/OtaConfig.java
-    - cn/com/adsmart/wifibbq/ble/config/ScanConfig.java
-    - cn/com/adsmart/wifibbq/ble/MyBleManager.java
-    - cn/com/adsmart/wifibbq/ble/device_data/TP9012Data.java
-    - cn/com/adsmart/wifibbq/ble/device_data/TP920Data.java
-    - cn/com/adsmart/wifibbq/ble/device_data/TP960Data.java
-    - cn/com/adsmart/wifibbq/ble/utils/TP9012ChangeUtils.java
-    - cn/com/adsmart/wifibbq/ble/utils/TP920DataChangeUtils.java
-    - cn/com/adsmart/wifibbq/ble/utils/TP940ChangeUtils.java
-    - cn/com/adsmart/wifibbq/ble/utils/TP960ChangeUtils.java
-    - cn/com/adsmart/wifibbq/ble/utils/TP962ChangeUtils.java
-    - cn/com/adsmart/wifibbq/ble/utils/TP968ChangeUtils.java
-    - cn/com/adsmart/wifibbq/ble/utils/TP980ChangeUtils.java
-    - cn/com/adsmart/wifibbq/ble/utils/ParserUtils.java
+  static_analysis: >
+    Static analysis of the official ThermoPro companion app. Its OEM BLE
+    stack is where the five per-family configs (UUID sets, framing), the
+    scan-name table, the per-model command and parser classes, and the two
+    OTA paths were read.
   reference_implementations:
     - "github.com/daniel-corbett/thermopro-cli (TP25W/TP920/TP930/TP960, Python/bleak, MIT)"
     - "github.com/Bluetooth-Devices/thermopro-ble (passive advertisement parser used by Home Assistant)"
-  bundled_firmware: "res/raw/ast6s53_v25_ota.bin — ASR560X OTA image, version app-2.5.0-20251011.1000 (archived in the research store); res/raw/ota_hpyke25_2101_v117 — Silicon Labs OTA image, version 1.17"
+  bundled_firmware: "Two OTA images ship inside the app: an ASR560X image, version app-2.5.0-20251011.1000, and a Silicon Labs image, version 1.17."
   date_extracted: "2026-07-28"
+
+helpful_urls:
+  - title: "vitalybibikov/ha-thermopro-meat (HACS)"
+    url: "https://github.com/vitalybibikov/ha-thermopro-meat"
+    description: >-
+      Home Assistant (HACS) integration for the active-BLE ThermoPro meat thermometers
+      (TP902/TP920/TP960 incl. TempSpike, TP25W) built on this reverse-engineered protocol;
+      the HA core thermopro integration covers only the passive-advertising climate sensors.

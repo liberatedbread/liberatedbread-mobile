@@ -60,3 +60,4 @@ reachability but a fully offline device still serves `/json`.
 
 - <https://community.purpleair.com/t/local-json-documentation/6917>
 - <https://api.purpleair.com/>
+- [Home Assistant PurpleAir integration](https://www.home-assistant.io/integrations/purpleair/) — HA core; can poll the sensor's local JSON API directly

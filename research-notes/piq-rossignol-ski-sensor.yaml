@@ -28,7 +28,7 @@ ble:
   services:
     - uuid: "01000000-0000-0000-0000-000000000080"
       name: piq_primary_service
-      description: PIQ/Octonion primary GATT service (from BleSchema.java)
+      description: PIQ/Octonion primary GATT service
       characteristics:
         - uuid: "02000000-0000-0000-0000-000000000080"
           name: data_packet_1
@@ -52,9 +52,9 @@ ble:
 protocol:
   note: >
     Custom Octonion BLE stack (com.octonion.android.common.source.ble).
-    Command/data/fw-image channel layout recovered from BleSchema.java.
+    Command/data/fw-image channel layout recovered from the app's BLE schema.
     Master/slave sensor roles supported (dual-sensor kits). Packet framing
-    in PacketFormatter.java; frame format NOT yet decoded.
+    in the app's packet formatter; frame format NOT yet decoded.
     WARNING: stock app pairs via server-side activation (ActivationActivity,
     ActivationUtils.ServerActivationErrorCode) using the boxed "connection
     code" — dead cloud means the stock app cannot activate new sensors.

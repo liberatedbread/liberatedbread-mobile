@@ -15,9 +15,27 @@ device:
     HEM-6xxx wrist families; global names M2/M3/M4/M7 Intelli IT, RS2/RS7
     Intelli IT, EVOLV, Complete, Platinum, BP5xxx/BP7xxx) store readings
     in on-device EEPROM and sync them over BLE to the vendor app
-    (jp.co.omron.healthcare.omronconnect, "OMRON connect"). The sync
+    ("OMRON connect"; Japanese app package
+    jp.co.omron.healthcare.omron_connect, US/Canada app
+    com.omronhealthcare.omronconnect). The sync
     protocol is local: no cloud account, broker or vendor key is involved
     on the wire.
+
+    Vendor-app confirmation (2026-08-20 teardown of the Japanese app,
+    jp.co.omron.healthcare.omron_connect 006.003.00001): the legacy 4x4
+    channel UUID set and the unlock characteristic below appear verbatim
+    in the app; the app reassembles the split response by computing the
+    channel count as ((length byte - 1) / 16) + 1 across the four TX
+    channels; the pairing writes (02 || 16x00 expecting an 0x82-leading
+    reply, 01 || key expecting 0x81) match the flow below. The app also
+    ships per-model EEPROM memory-map configs for 86 model variants
+    (BP monitors plus HBF body-composition, MC thermometer and HJA
+    activity families on the same sync stack); its HEM-7322T-E map uses
+    settings read/write addresses 0x0260/0x0286, 100 records per user and
+    an unread-counter clear value of 0x8000, matching the worked example
+    in this spec. Note the vendor maps number record bits from the END
+    of the byte-reversed record, so their offsets are not comparable to
+    the forward byte offsets used below.
 
     Sources (no APK teardown used): userx14/omblepy (Python CLI with a
     per-model support matrix and the message-framing documentation),
@@ -322,6 +340,13 @@ model_variants:
   - model: "HEM-7196T (M4/X4 Connect AFib)"
     status: "UNSUPPORTED - encrypted traffic"
     notes: "omblepy: pairing and readout both blocked by encryption not yet reverse engineered."
+  - model: "HEM-9601T / HEM-9700T / HEM-8732T / HEM-8733T (plus HBF body-composition, MC-652LC thermometer, HJA-405T activity families)"
+    status: "vendor-app memory-map configs only (not in omblepy/hass-omron)"
+    notes: >
+      The OMRON connect app ships EEPROM memory-map configs for these
+      (86 variants total) on the same sync stack; layouts not yet ported
+      to an open driver. Note vendor map bit offsets count from the end
+      of the byte-reversed record.
 
 entities:
   - platform: "sensor"

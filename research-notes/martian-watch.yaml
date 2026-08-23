@@ -21,7 +21,7 @@ transport:
   local_only: true
   rfcomm:
     service_uuid: "0000fff0-0000-1000-8000-00805F9B34FB"  # watch-hosted RFCOMM server
-    source: SpwatchService.java:169,519,603 (jadx, app v3.0.1)
+    source: the app's watch service (static analysis, app v3.0.1)
     note: >
       Voice models additionally present standard HFP — they work as a generic
       Bluetooth speakerphone with ANY phone and no vendor app. Smart features

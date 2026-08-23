@@ -1,10 +1,10 @@
 # Nuki Smart Lock — Device Spec (BLE)
-# Reverse-engineered from io.nuki APK v2026.7.1 (jadx decompilation)
+# Reverse-engineered by static analysis of the official Nuki Android app
 # Cross-referenced with public Nuki BLE API docs at developer.nuki.io
 #
-# APK SHA-256: b737cd2f... (114 MB, 26,111 classes)
-# Key source files: BleConstants.java, BleResponse.java, KeyturnerStatesResponse.java,
-#   LockState.java, LockAction.kt, Utils.kt, ErrorReportResponse.java
+# What the app contributed: the BLE constants (UUIDs, command IDs), the
+# response frame layout, the keyturner-state and lock-state enums, the
+# lock-action set, the error-report codes and the CRC-16 implementation.
 
 device:
   name: "Nuki Smart Lock"
@@ -40,8 +40,8 @@ device:
     but sharing the same command/response protocol over a GATT data
     characteristic.
 
-    Research status: APK decompiled, full UUID map and command IDs recovered.
-    Message frame format confirmed via BleResponse.java disassembly.
+    Research status: app analysed, full UUID map and command IDs recovered.
+    Message frame format confirmed against the app's response parser.
     Lock state enum and error codes fully enumerated.
     Pairing/auth flow understood at protocol level from public docs.
     CRC-16 implementation confirmed (CRC-16/CCITT-FALSE, poly 0x1021,
@@ -71,7 +71,7 @@ device:
       is deliberate: it means possession of the door, not proximity to it, is
       what authorises a new client.
 
-      Confidence is medium — the flow is understood from the decompiled app and
+      Confidence is medium — the flow is understood from the vendor app and
       Nuki's public BLE API documentation, but has not been run against a lock
       here. Treat the step ordering as documented rather than observed.
     methods:
@@ -153,7 +153,7 @@ ble:
     phy_preference: "le_1m"
     mtu_negotiation: true
     # No verifiable preferred MTU: the app accepts any MTU 23-517
-    # (C7538iv.java:1846, "mtu must be between 23 and 517"); the official BLE
+    # ("mtu must be between 23 and 517"); the official BLE
     # API only notes MTU exchange is supported since FW 1.9.3/2.7.20. An
     # earlier revision stated 185 — unverifiable, dropped.
     # No BLE bonding: security is application-layer NaCl (Curve25519 DH +
@@ -764,8 +764,8 @@ protocol:
       description: "Error response with code and optional message (0x0012 per official BLE API V2.3.0 — 0x0007 is Authorization-ID, not Error Report)"
 
   error_codes:
-    # Codes 1-5, 130/131 and 224/225 are app-derived (ErrorReportResponse,
-    # decompiled C12525xP0.java) — the official BLE API V2.3.0 error tables
+    # Codes 1-5, 130/131 and 224/225 are app-derived (from its error-report
+    # response class) — the official BLE API V2.3.0 error tables
     # list only 0xFD-0xFF general, 0x10-0x13 pairing and the 0x20+ keyturner
     # codes. 4 and 225 are NOT duplicates: the app names them distinctly —
     # generic 4 ERROR_ALREADY_CONFIGURED vs keyturner 225 (0xE1)
@@ -919,18 +919,13 @@ additional_devices:
     description: "Nuki Box (wall-mounted access point)"
 
 sources:
-  - type: "apk_decompilation"
-    path: "~/research/nuki/nuki-decompiled/"
-    apk: "io.nuki v2026.7.1"
-    decompiler: "jadx"
-    key_files:
-      - "sources/android/content/C4173Xt.java (BleConstants.java)"
-      - "sources/android/content/AbstractC5828du.java (BleResponse.java)"
-      - "sources/android/content/C6385fW1.java (KeyturnerStatesResponse.java)"
-      - "sources/android/content/C12525xP0.java (ErrorReportResponse.java)"
-      - "sources/android/content/D52.java (LockState.java)"
-      - "sources/android/content/C7538iv.java (BluetoothPeripheral.kt)"
-      - "sources/android/content/V74.java (Utils.kt — CRC-16 implementation)"
+  - type: "static_analysis"
+    artifact: "io.nuki v2026.7.1"
+    description: >
+      Static analysis of the official Nuki Android app. Source of the BLE
+      constants (UUIDs, command IDs), the response frame layout, the
+      keyturner-state and lock-state enums, the error-report code table, the
+      peripheral layer's MTU bounds, and the CRC-16 implementation.
   - type: "public_documentation"
     url: "https://developer.nuki.io/"
     description: "Nuki BLE API (publicly documented)"

@@ -6,8 +6,7 @@
 #         attachment; the login-free moto17 repack's contents match the protocol
 #         strings described here but its hashes differ, inner TigerTool.exe
 #         43b372a5..., so treat the cited hash as unverified)
-#         and independently confirmed by decompiling TuneECU 23
-#         (SHA-256 f724294669a3bc008d81dbb590a8c0bfa1b4ac4a223d524e040c85bc885408eb).
+#         and independently confirmed by static analysis of the TuneECU tool.
 #         Two unrelated codebases build the same command with the same scaling.
 #         Derived from tool binaries, NOT yet reproduced on a bike, so these carry
 #         `verification: reported` rather than `confirmed`.
@@ -207,7 +206,7 @@ obd:
         29-bit addressing, target 0xD5, source (tester) 0xF1. Functional broadcast is
         0x18DB33F1. A second ECU answers on 0x18DAF1D6 (address 0xD6) during tune checks.
 
-        TuneECU's full init for this stack (MainActivity.java), which an implementer
+        TuneECU's full init for this stack, which an implementer
         needs verbatim to receive multiframe UDS responses: ATE0, ATL0, ATS0, ATCAF0,
         ATPB0101, ATSPB, ATSH18DAD5F1, then the flow-control setup ATFCSH18DAD5F1,
         ATFCSD300008 (BS=0, STmin=8), ATFCSM1, then the receive filter ATCM1FFFFF00,
@@ -512,7 +511,7 @@ obd:
       notes: >
         DISPUTED between the two tools: this entry records the request as 00 with a
         0B ?? reply, but TuneECU's immobiliser init sequence ends by transmitting
-        0B00 on CAN 0x604 (MainActivity.java) — i.e. TuneECU sends the two-byte
+        0B00 on CAN 0x604 — i.e. TuneECU sends the two-byte
         0B00 rather than a bare 00. One of the two readings misattributes request
         and reply; neither has been run against a bike.
     - name: "immobiliser_access"

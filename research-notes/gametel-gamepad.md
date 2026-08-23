@@ -20,7 +20,7 @@ registry confirmation pulled — last press 2013, domain gone).
   (`BtOutConnectHandler.handleUuidsFetched`).
 
 ## Vendor Protocol (from com.fructel.gametel v1.5.3 DEX)
-Framing (`bluetooth/protocol/Parser.java`):
+Framing:
 - `STX 0x02` ... payload ... `ETX 0x03`
 - Escape: `0x1B` followed by `byte XOR 0x20` (escapes 0x02, 0x03, 0x1B)
 - RX buffer 100 bytes.
@@ -39,7 +39,7 @@ Commands (2nd byte = command id):
 | 19 | SendReport (payload: report id, e.g. feature-report readback) |
 | 20 | GetMac |
 
-Reports (`Reports/Report.java`): 16=FeatureReport, 17=ButtonReport,
+Reports: 16=FeatureReport, 17=ButtonReport,
 18=StatusReport (1 byte status; bit 1 = battery low).
 
 ## What the app did (and what is lost)

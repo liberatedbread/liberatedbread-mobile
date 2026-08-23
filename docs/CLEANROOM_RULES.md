@@ -5,6 +5,8 @@
 - Decompiled Java/Kotlin sources, smali, resources.arsc outputs
 - Vendor images, fonts, animations, strings copied from the vendor app/UI
 - Vendor documentation text beyond short, fair-use quotations (prefer paraphrase)
+- Identifiers belonging to the researcher's own network or unit — see
+  [Scrub your own identifiers](#scrub-your-own-identifiers)
 
 ## What we MAY commit (derived facts)
 - Hashes, package IDs, version codes, manifest-level permissions lists (summarized)
@@ -12,6 +14,42 @@
 - Wire protocols: message formats, opcodes, CRCs, state machines
 - Local network endpoints, ports, multicast discovery outputs (summarized)
 - Test matrices and reproduction steps
+
+## Scrub your own identifiers
+
+Verifying against hardware means the evidence arrives full of values that
+identify *your* house and *your* unit. They are not protocol facts, nobody can
+reuse them, and a spec is a public document — replace them with a placeholder
+before committing.
+
+**Scrub:**
+
+- LAN addresses a capture happened to assign — whatever your DHCP handed out
+- Full BLE or Wi-Fi MACs of a specific unit
+- Hostnames, mDNS instance names, SSIDs, and device names you set
+- Serial numbers, Thing IDs, account emails, and anything key-shaped — user
+  keys, bindkeys, tokens, pairing PINs. A key read off your own device is
+  still a live credential.
+
+**Keep — these are the fact, not your fingerprint:**
+
+- OUI/MAC *prefixes*, which is how a scanner identifies the model at all
+- Addresses fixed by the product rather than by your router: a SoftAP's
+  `10.10.100.254`, a hub's factory default, a documented multicast group
+- Ports, service types, and the *shape* of a reply
+
+**Placeholders.** Prefer one already used here so the reader recognises it on
+sight: `aa:bb:cc:dd:ee:ff` for a MAC, `192.168.1.50` for a LAN host,
+`<serial>` / `<user-key>` for a secret. RFC 7042 reserves
+`00:00:5E:00:53:00`–`00:00:5E:00:53:FF` for documentation if you want a MAC
+that cannot be mistaken for real. Keep the *format* intact — the digit count
+and separators are part of what an implementer needs.
+
+An example is worth more than a redaction, so change the value and keep the
+line: `ip,mac,module` with a placeholder still shows the reply's shape.
+
+This applies to `research-notes/` and `docs/devices/` exactly as it does to
+`device-specs/` — a verification note is as public as a spec.
 
 ## Scope limitations
 - Exclude safety-critical medical devices.

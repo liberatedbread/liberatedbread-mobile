@@ -19,7 +19,7 @@ transport:
   local_only: true
   rfcomm:
     service_uuid: "00001101-0000-1000-8000-00805F9B34FB"  # standard SPP UUID
-    source: com/getpebble/android/bluetooth/j/b.java:18 (jadx, app v4.4.3)
+    source: the app's Bluetooth layer (static analysis, app v4.4.3)
     note: >
       Phone connects as RFCOMM client to the watch over standard SPP.
       Time-series watches also expose BLE GATT / PPoGATT on later firmware,

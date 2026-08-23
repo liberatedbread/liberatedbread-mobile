@@ -310,3 +310,6 @@ helpful_urls:
     description: >-
       Original TP357 connected-mode client, and the source of the history opcodes and the
       record-buffer limits recorded here.
+  - url: "https://www.home-assistant.io/integrations/thermopro/"
+    title: "Home Assistant ThermoPro integration"
+    description: "HA core integration passively decoding TP357/TP358/TP393 BLE advertisements."

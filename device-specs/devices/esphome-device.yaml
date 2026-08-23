@@ -1,0 +1,673 @@
+# ESPHome Node (generic, any device) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: ESPHome's own documentation (esphome.io/web-api, /components/
+# web_server, /components/api, /components/mdns, /components/captive_portal)
+# and the ESPHome sources those pages describe — mdns_component.cpp for the
+# TXT records a node publishes, web_server.cpp for how a URL is matched to an
+# entity, api_frame_helper_{plaintext,noise}.cpp for the native-API framing.
+# ESPHome is open-source firmware: nothing here was reverse engineered, and
+# upstream is authoritative.
+#
+# This spec is the ESPHome PLATFORM. Individual products built on it get their
+# own spec and narrow themselves with a `project_name` TXT matcher — ratgdo.yaml
+# is the worked example. Anything that does not match one of those is this.
+
+device:
+  name: "ESPHome Node (generic)"
+  manufacturer: "Various (ESPHome open-source firmware)"
+  manufacturer_status: "active"
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/esphome/esphome"
+    license: "GPL-3.0 for the C++/runtime code, MIT for the Python and the rest (see the project's LICENSE)"
+    upstream_docs:
+      - url: "https://esphome.io/web-api/"
+        title: "ESPHome — Web Server API"
+        covers: "The REST scheme /<domain>/<entity_name>[/<action>], the per-domain JSON payloads and action parameters, and the /events event-source contract including the id/name_id identifier formats."
+      - url: "https://esphome.io/components/web_server/"
+        title: "ESPHome — web_server component"
+        covers: "Whether the HTTP surface exists at all, its port, auth, CORS rules and the web-OTA platform."
+      - url: "https://esphome.io/components/api/"
+        title: "ESPHome — native API component"
+        covers: "Port 6053, the encryption key, connection limits, user-defined actions."
+      - url: "https://esphome.io/components/mdns/"
+        title: "ESPHome — mDNS component"
+        covers: "That a node announces itself over mDNS, and how extra services are added."
+      - url: "https://esphome.io/components/captive_portal/"
+        title: "ESPHome — captive portal"
+        covers: "The fallback hotspot a node raises when Wi-Fi fails, and the 192.168.4.1 setup page."
+  testing:
+    status: untested
+    notes: >
+      Written from ESPHome's published documentation and its source, both
+      authoritative — this is open firmware, not a reconstruction. No node has
+      been driven from this file yet by this project. The two things worth
+      confirming first on real hardware are which ADDRESSING generation a given
+      board's firmware accepts (below) and that the entity list recovered from
+      /events is enough to draw a UI without any per-product knowledge.
+  protocol: "wifi"
+  category: "other"
+  pictogram: "smart-device"
+  type: "esphome-node"
+  transport: "http"
+  integration: "identify_only"
+  admin_url: "http://{address}/"
+  notes: >
+    ESPHome is open-source firmware that turns an ESP32/ESP8266/RP2040/nRF52
+    (and LibreTiny-supported) board into a locally-controlled device. It is a
+    PLATFORM, not a product: a node can be a temperature sensor, a plug, a
+    bluetooth proxy, a presence sensor, a sprinkler valve, a garage-door
+    controller, or a one-off somebody built on a breadboard. They all announce
+    the same mDNS service type and all speak the same two APIs. What a node IS
+    can only be learned by asking it — which is what this spec is for.
+
+    WHY THIS SPEC EXISTS. `_esphomelib._tcp.local.` is the service type of the
+    firmware, so a consumer that maps a service type to a device spec labels
+    every ESPHome node with whichever product spec claimed that service type
+    first. That is not a hypothetical: with ratgdo.yaml the only claimant, every
+    ESPHome node on the LAN rendered as a garage-door opener, complete with
+    open/close controls that pointed at entities the node does not have. Product
+    specs on this platform now carry an `identification.mdns_txt_match` on the
+    project_name TXT record, and this spec is the deliberate catch-all
+    (`platform_fallback: true`) for everything that matches none of them. That
+    flag is set on the _esphomelib._tcp method ONLY: the _http._tcp method
+    below is narrowed by a TXT condition and nothing else, because being the
+    catch-all for a service type ESPHome does not own would rebuild this bug
+    with printers in it.
+
+    WHAT identify_only MEANS HERE, AND WHAT WOULD CHANGE IT. `integration` says
+    what a consumer of this registry actually DOES with a device, and today the
+    honest answer for an unrecognised node is: name it, show it, and hand the
+    user to its own web UI. Two facts hold that line. First, this file declares
+    no `entities` and cannot — the control surface is whatever its owner
+    compiled in — so a consumer has controls only once it implements the
+    runtime enumeration described below, and until then there is nothing for it
+    to draw. Second, the HTTP surface is OPTIONAL: `web_server:` is a choice the
+    builder makes, and a great many nodes run `api:` alone and answer nothing on
+    :80, so the `http_endpoints` and `commands` here describe a surface that may
+    not exist on the node in front of you — they are the grammar for a client
+    that has already found one, not a promise that every node has it. The
+    native API is the surface that is always there, and it is documented here as
+    prose because a length-delimited protobuf schema is not something this file
+    can carry executably. When a consumer implements enumeration over either
+    API, this spec becomes `supported` with no other change to it; that is the
+    intended path, not a caveat about the platform's openness.
+
+    WHAT A NODE PUBLISHES ABOUT ITSELF (mDNS TXT on _esphomelib._tcp, from
+    ESPHome's mdns component):
+      friendly_name   the human name, absent when the config sets none
+      version         the ESPHome version the firmware was built with
+      mac             the board's MAC, the stable identity key
+      board / platform  e.g. d1_mini / ESP32 — hardware, not function
+      network         wifi | ethernet | thread
+      config_hash     hash of the config, changes when the node is reflashed
+      project_name / project_version   present only when the firmware sets
+                      `esphome: project:` — this is what names a PRODUCT
+                      ('ratgdo.v25iboard_secplus2'). A hand-rolled node has no
+                      project_name at all, which is itself informative.
+      api_encryption  the native API needs Noise with a PSK
+      api_encryption_supported   the build can do Noise but has no key set, so
+                      it still accepts plaintext
+      api_provisioning=zero-psk  no key is set and one may be provisioned over
+                      a zero-PSK Noise connection
+      package_import_url   present on dashboard-importable builds
+    A node with NO native API publishes `_http._tcp` instead, carrying
+    version/mac/config_hash. Two different builds land there: one with
+    web_server (port 80 answers), and one with neither api nor web_server,
+    which ESPHome still advertises so that .local resolution works at all —
+    on that one nothing is listening on 80. So this service says "an ESPHome
+    node lives at this address", not "there is an HTTP surface here": probe
+    before offering one.
+
+    THE TWO LOCAL APIS. Both are direct device<->client; there is no cloud and
+    no broker anywhere in ESPHome.
+    1. WEB SERVER (HTTP, port 80 by default) — present only when the config
+       includes `web_server:`, which is a choice the builder made, so a node
+       that answers nothing on :80 is normal rather than broken. Grammar:
+         GET  /<domain>/<entity>            -> JSON state
+         GET  /<domain>/<entity>?detail=all -> adds name/device and, for a
+              select, its option list
+         POST /<domain>/<entity>/<action>[?params]
+         GET  /events                       -> text/event-stream
+       Domains the web server routes (ESPHome 2026.8): sensor, binary_sensor,
+       text_sensor, event, switch, button, fan, light, cover, number, date,
+       time, datetime, text, select, climate, lock, valve,
+       alarm_control_panel, update, water_heater, infrared, radio_frequency.
+       Each is compiled in only when the node has one, so an unknown domain in
+       an enumerated entity means a newer ESPHome, not a broken node — carry it
+       through as read-only rather than dropping the entity.
+       Sub-device entities insert a device segment: GET
+       /<domain>/<device>/<entity>, POST /<domain>/<device>/<entity>/<action>.
+    2. NATIVE API (TCP 6053, protobuf) — what Home Assistant uses, and always
+       present unless the builder removed `api:`. Length-delimited protobuf
+       frames whose first byte is the indicator: 0x00 plaintext, 0x01
+       Noise-encrypted (Noise_NNpsk0_25519_ChaChaPoly_SHA256, prologue ASCII
+       "NoiseAPIInit", 32-byte base64 PSK from `api: encryption: key:`).
+       Sequence: Hello -> Connect -> DeviceInfo -> ListEntities (each entity
+       arrives with a numeric key) -> SubscribeStates; commands carry the key.
+       The legacy `api: password:` was removed in ESPHome 2026.1.0. Richer and
+       cheaper than HTTP, but much more work to implement — prefer the web
+       server for a first client, and fall back to the native API for nodes
+       built without one.
+
+    ENUMERATION — HOW A CLIENT LEARNS WHAT THIS NODE IS. There is no
+    "list entities" URL on the web server. Connect to /events: on connect the
+    node sends a `state` event for EVERY entity it has, so one connection
+    yields the whole surface, and the same connection then carries live updates
+    (plus `ping` keepalives and, when `log:` is on, `log` events). Each state
+    event's JSON carries the entity identifier, its human `state` string and
+    the typed value(s) for its domain. Build the UI from that list: the domain
+    gives the control type, and the entity's own name is the label. On the
+    native API the equivalent is ListEntities. Do not infer a device type from
+    the product name, the board or the pictogram — the entity list IS the
+    device.
+
+    ADDRESSING — WHICH IDENTIFIER GOES IN THE URL. ESPHome changed this, and a
+    client that assumes one form silently breaks on the other half of the fleet:
+      * ESPHome <= 2025.12: the URL segment is the entity's slugified object_id
+        and the JSON `id` field is `<domain>-<object_id>` — /sensor/outside_temp,
+        {"id":"sensor-outside_temp"}.
+      * 2026.1.0 .. 2026.6: URLs match the entity NAME first and fall back to
+        object_id with a deprecation warning, so both work. From 2026.1.3 the
+        state JSON also carries `name_id` with the new-format identifier beside
+        the legacy `id`.
+      * 2026.7: the object_id fallback is gone from URL matching — URLs are the
+        entity NAME, percent-encoded (/sensor/Outside%20Temp) — but the JSON
+        `id` is STILL the legacy `<domain>-<object_id>`, with the new form in
+        `name_id`. The two boundaries are one release apart, and this is the
+        release that punishes a client for deriving a URL from `id`.
+      * >= 2026.8: the JSON catches up. `id` itself carries
+        `<domain>/<entity_name>` and `name_id` is no longer sent.
+      The robust client reads the identifier out of the /events payload rather
+      than deriving it: prefer `name_id`, else `id`, and treat an identifier
+      containing '/' as the name form (split on the first '/' for the domain)
+      and one containing '-' as the legacy form. Then send to the form the node
+      handed you. A wrong identifier answers 404, never a silent no-op, so a
+      client may also just try and fall back.
+
+    AUTH AND EXPOSURE. The web server has no auth unless the builder added
+    `web_server: auth:`, and where the web-OTA platform is enabled anyone who
+    can reach the node can flash it — which is upstream's own warning, not a
+    defect of any one product. Cross-origin requests to entity endpoints are
+    rejected unless the origin matches or is listed in `allowed_origins`, so a
+    browser-based client needs the node's own address. None of this changes
+    what a native app must do; it changes what it must not assume it may do
+    from a web view.
+
+    SAFETY. Because a node can be anything, a generic client cannot know what a
+    control does: `switch/Pump`, `cover/Gate` and `light/Desk` render
+    identically. Treat cover, lock, valve, alarm_control_panel and
+    climate actions as advanced — confirm before sending, show the reported
+    state, and never fire one as part of a bulk action.
+  identification:
+    # Deliberately NO mdns_txt_match: this spec is the platform, and its job is
+    # to catch every node no product spec claimed. A consumer resolves the
+    # service type to the spec with the most satisfied txt_match conditions and
+    # lands here only when none matched — see discovery.methods[].platform_fallback.
+    mdns_service_type: "_esphomelib._tcp.local."
+    # The native API, which is the service _esphomelib._tcp advertises and the
+    # one surface a node has unless its builder removed `api:`. The web server
+    # is :80 when the build includes it, which many do not — see
+    # WHAT identify_only MEANS in device.notes.
+    default_port: 6053
+    identity_keys:
+      primary: "mac"
+      display: "friendly_name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_esphomelib._tcp.local."
+          port: 6053
+          platform_fallback: true
+          txt_record_keys: ["friendly_name", "version", "config_hash", "mac", "platform", "board", "network", "api_encryption", "api_encryption_supported", "api_provisioning", "project_name", "project_version", "package_import_url"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:mac"
+                key: "mac"
+            display:
+              source: "txt:friendly_name"
+        notes: >
+          The SRV port here is the native API's (6053), not the web server's —
+          the service belongs to `api:`. A node without `api:` does not publish
+          this service at all; see the _http._tcp method below. Use this method
+          only after every product spec's txt_match has been tried: matching it
+          first is what turns somebody's ESPHome thermometer into a garage-door
+          opener.
+      - type: "mdns"
+        mdns:
+          service_type: "_http._tcp.local."
+          port: 80
+          # Deliberately NOT platform_fallback. _http._tcp belongs to every web
+          # server on the link, not to ESPHome, so this method may only ever
+          # claim what its txt_match proves — being the catch-all HERE would
+          # rebuild the original bug one service type over, with printers and
+          # routers rendered as ESPHome nodes. The two keys are exclusive by
+          # construction: `txt_match` is a precondition, `platform_fallback` is
+          # what a consumer reaches for when no precondition was met.
+          txt_record_keys: ["version", "mac", "config_hash"]
+          txt_match:
+            - key: "config_hash"
+              match: "present"
+              description: >
+                ESPHome's mdns component publishes version/mac/config_hash on
+                the _http._tcp service only when the node has NO native API —
+                otherwise those records live on _esphomelib._tcp. config_hash
+                is the ESPHome-specific key of the three, so its presence is
+                what separates this from the printers, routers and NAS boxes
+                that also advertise _http._tcp.
+          identity_mapping:
+            stable_keys:
+              - source: "txt:mac"
+                key: "mac"
+            display:
+              source: "name"
+        notes: >
+          For API-less builds, which publish no _esphomelib._tcp service at
+          all. Weaker than that method in two ways. First, _http._tcp is every
+          web server on the link, and this one leans entirely on the TXT set,
+          so a node failing the config_hash condition is simply not matched
+          here — not claimed by default. Second, the port is a convention, not
+          a promise: ESPHome publishes this service for a build with NEITHER
+          api nor web_server too (so that .local resolution works), and there
+          nothing answers on 80. Treat a match as "an ESPHome node is at this
+          address" and confirm with an actual request before offering anything.
+    identity:
+      stable_keys: ["mac"]
+      display: "friendly_name"
+    static_ip_required: false
+    notes: >
+      Key on the TXT `mac`, which survives a rename, a DHCP move and a
+      reflash. Do not key on `config_hash` (it changes on every config change),
+      on the friendly name (users rename and reuse), or on the address.
+
+  setup:
+    required: true
+    confidence: medium
+    notes: >
+      An ESPHome node is built and flashed by its owner, so "setup" here is the
+      network half: how a flashed board joins Wi-Fi and becomes reachable.
+      Confidence medium — these are ESPHome's documented flows, not ones this
+      project has run. The device is on the LAN and answering before any of
+      this spec's control surface applies.
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          Fallback hotspot + captive portal. When `wifi: ap:` and
+          `captive_portal:` are configured, a node that fails to join its
+          configured network for one minute raises its own AP using the
+          credentials from the config; joining it opens (or you browse to)
+          http://192.168.4.1/ where Wi-Fi credentials can be set and firmware
+          uploaded. This is also the recovery path when a router is replaced.
+        steps:
+          - action: "Join the node's fallback AP (SSID and password come from the node's own config, so they vary per build)."
+            actor: user
+          - action: "Open http://192.168.4.1/ and submit the new Wi-Fi credentials."
+            actor: user
+          - action: "Find the node again on the LAN via _esphomelib._tcp (or _http._tcp for an API-less build) and read its TXT records."
+            actor: client
+            expect: "TXT mac identifies the same board; project_name, when present, says which product it is."
+      - type: "ble_provisioning"
+        verified: false
+        description: >
+          Improv over BLE (`esp32_improv:`), where supported by the build: the
+          node advertises the Improv Wi-Fi service and takes credentials over
+          GATT. ESPHome also ships Improv over serial for USB provisioning,
+          which is the same protocol on a different link.
+        ble:
+          pairing_required: false
+    factory_reset:
+      applicable: true
+      confidence: medium
+      effect: >
+        ESPHome's factory reset invalidates every preference the node stored in
+        flash and reboots: saved states, counters, globals, and — for a node
+        configured through the captive portal — its Wi-Fi credentials, which
+        takes the node off the network until it is provisioned again from its
+        fallback AP. A native-API encryption key provisioned at runtime rather
+        than set in YAML is likewise cleared. The FLASHED CONFIG is untouched,
+        so the node comes back as its YAML describes it. Upstream's own warning
+        applies: the data is physically erased and cannot be recovered.
+        Whether a given node exposes the reset at all is the builder's choice —
+        a hand-rolled node may expose none, and then re-flashing is the reset.
+      procedures:
+        - name: "Factory Reset button or switch entity"
+          verified: false
+          basis: >
+            ESPHome's documented factory_reset button and factory_reset switch
+            components. Not run here, and present only when the node's config
+            includes one — which is why this is the first thing to look for in
+            the enumerated entity list rather than a step to assume.
+          description: >
+            A node whose config declares `button: - platform: factory_reset`
+            (or the equivalent switch) exposes it like any other entity, so it
+            appears in the /events enumeration and can be pressed over the web
+            server or the native API. There is no confirmation step on the
+            device — the press is the reset.
+          steps:
+            - action: "Enumerate the node's entities from GET /events and look for a button or switch whose name says factory reset."
+              actor: client
+            - action: "Confirm with the owner that they mean to erase the node's stored preferences, including its Wi-Fi credentials if it was provisioned by captive portal."
+              actor: user
+            - action: "POST /button/<entity>/press (or /switch/<entity>/turn_on for the switch form)."
+              actor: client
+              expect: "The node reboots; preferences are cleared. A captive-portal-provisioned node does not come back on the LAN and must be re-provisioned from its fallback AP."
+        - name: "Re-flash the firmware"
+          verified: false
+          basis: >
+            The universal path for a node that exposes no reset entity: ESPHome
+            firmware is installed over USB (esptool / the web installer) or by
+            OTA, and a fresh install starts from the config's defaults.
+          description: >
+            Works on any node, needs physical access for the USB route, and is
+            the only option when the config declares no factory_reset entity.
+            Re-flashing replaces the config as well as clearing it, so it is
+            also how a node changes what it is.
+          steps:
+            - action: "Connect the board over USB (or reach it over OTA) and install the firmware image."
+              actor: user
+              expect: "The node boots the newly flashed config and, unless credentials were flashed with it, raises its fallback AP for provisioning."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Standard Wi-Fi rejoin, and the captive portal above is the in-place
+        path when the old network is gone. Identity keys on the board MAC, so a
+        DHCP move or a rename loses nothing.
+    credentials:
+      wifi_passphrase_protection: device_encrypted
+      stored_on_device:
+        - "Home Wi-Fi credentials"
+        - "Native-API Noise PSK, when the build uses encryption"
+        - "Optional web_server basic/digest credentials"
+      issued_to_client:
+        - "The native-API Noise PSK, which the owner must hand to the client — a node with `api_encryption` in its TXT records will not talk protobuf without it"
+      notes: >
+        Nothing here is issued by a vendor cloud; every secret is one the
+        owner set when they built the firmware. A client should treat a missing
+        PSK as "ask the owner", not as a failure to work around: the web server
+        is the path that needs no secret, when the build has one.
+
+  local_access:
+    status: native
+    summary: >
+      Local by construction, and note that this says something different from
+      `integration: identify_only` above: control is entirely possible here —
+      the web server is served from the board and the native API is a direct
+      socket, with no vendor account, no broker and nothing to shut down. What
+      is missing is a consumer that enumerates a node's entities at runtime,
+      not a way in.
+    covers:
+      - "Enumerate every entity the node exposes and its current state"
+      - "Drive any entity the firmware exposes as controllable"
+      - "Subscribe to live state changes without polling"
+
+http_endpoints:
+  # ESPHome web_server, port 80 by default, present only when the build
+  # includes `web_server:`. Paths use the entity-NAME form current firmware
+  # requires; see ADDRESSING in device.notes for older boards. `{entity}` is
+  # percent-encoded — names may contain spaces and UTF-8.
+  - method: "GET"
+    path: "/events"
+    name: "Event Stream (enumeration + live state)"
+    description: >
+      text/event-stream. On connect the node emits one `state` event per
+      entity, which is how a client enumerates a node it has never seen; the
+      stream then carries updates as they happen, `ping` keepalives, and `log`
+      events when logging is enabled. Each `state` payload identifies its
+      entity (`name_id` where present, else `id`) and carries the same JSON the
+      matching REST GET returns.
+  - method: "GET"
+    path: "/{domain}/{entity}"
+    name: "Entity State"
+    description: >
+      Current state of one entity as JSON. Every domain returns `id` and a
+      human-readable `state`; most add a typed `value` (a float for sensor, a
+      bool for binary_sensor/switch/fan, 0.0..1.0 for cover position, the
+      chosen string for select). `state` is a LABEL, not the full picture — a
+      cover reads OPEN or CLOSED whatever it is doing, and its travel is in the
+      separate `current_operation` (OPENING/CLOSING/IDLE). Fields a device
+      cannot report are simply absent rather than null: a cover with no
+      position support sends no `position` key, a light without colour no
+      `color`. Add `?detail=all` for the entity's `name`, its sub-device
+      `device` when it has one, and a select's `option` list.
+  - method: "GET"
+    path: "/{domain}/{device}/{entity}"
+    name: "Sub-Device Entity State"
+    description: >
+      Same, for an entity that belongs to a sub-device of the node. Three-
+      segment URLs are read as device+entity on GET and as entity+action on
+      POST — the method is what disambiguates them.
+  - method: "POST"
+    path: "/{domain}/{entity}/{action}"
+    name: "Entity Action"
+    description: >
+      Perform an action on an entity. The action vocabulary is per domain:
+      switch/light/fan turn_on|turn_off|toggle; cover open|close|stop|toggle|set;
+      button press; number set; select set; lock lock|unlock|open;
+      alarm_control_panel arm_away|arm_home|arm_night|arm_vacation|disarm.
+      Parameters ride the query string. A 200 means the command was accepted,
+      not that the device did it — read the state back.
+  - method: "POST"
+    path: "/{domain}/{device}/{entity}/{action}"
+    name: "Sub-Device Entity Action"
+    description: >
+      The four-segment form, POST only: a GET against it is an error, because
+      the fourth segment is always an action.
+
+commands:
+  # A generic invocation per common domain. Unlike a product spec, nothing here
+  # binds to an `entities` list — this file cannot know which entities a node
+  # has, and inventing them is exactly the failure this spec exists to fix. A
+  # consumer enumerates entities from /events (or ListEntities) and fills
+  # {domain}/{entity} from what the node reported.
+  entity_state:
+    description: "Read one entity's current state as JSON."
+    transport: "http"
+    method: "GET"
+    path: "/{domain}/{entity}"
+    parameters:
+      domain:
+        type: "string"
+        required: true
+        description: "Entity domain as the node reports it: sensor, binary_sensor, switch, light, cover, fan, climate, number, select, button, lock, text_sensor, valve, ..."
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier from the node's own state payload, percent-encoded. Name form on ESPHome >= 2026.1, slugified object_id before that."
+    verification: "reported"
+  entity_state_detailed:
+    description: "Read one entity's state with the extra descriptive fields, including a select's available options."
+    transport: "http"
+    method: "GET"
+    path: "/{domain}/{entity}"
+    arguments:
+      detail: "{detail}"
+    parameters:
+      domain:
+        type: "string"
+        required: true
+        description: "Entity domain."
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+      detail:
+        type: "string"
+        default: "all"
+        description: "Only `all` is defined; it adds name, device and (for a select) the option list."
+    verification: "reported"
+  entity_turn_on:
+    description: "Turn an on/off entity on — switch, light, fan."
+    transport: "http"
+    method: "POST"
+    path: "/{domain}/{entity}/turn_on"
+    parameters:
+      domain:
+        type: "string"
+        required: true
+        description: "switch, light or fan."
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+    notes: >
+      Optional query parameters depend on the domain: a light takes brightness
+      (0-255), r/g/b (0-255), white_value, color_temp (mireds), effect,
+      transition and flash (seconds); a fan takes speed_level and oscillation.
+    verification: "reported"
+  entity_turn_off:
+    description: "Turn an on/off entity off."
+    transport: "http"
+    method: "POST"
+    path: "/{domain}/{entity}/turn_off"
+    parameters:
+      domain:
+        type: "string"
+        required: true
+        description: "switch, light or fan."
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+    verification: "reported"
+  entity_toggle:
+    description: "Flip an on/off entity. Do not send this without reading the state first — it is a flip, not a set."
+    transport: "http"
+    method: "POST"
+    path: "/{domain}/{entity}/toggle"
+    parameters:
+      domain:
+        type: "string"
+        required: true
+        description: "switch, light, fan or cover."
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+    verification: "reported"
+  button_press:
+    description: "Press a button entity. A button is momentary and has no state to read back."
+    transport: "http"
+    method: "POST"
+    path: "/button/{entity}/press"
+    parameters:
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+    verification: "reported"
+  number_set:
+    description: "Set a number entity to a value within its own min/max, which the entity reports."
+    transport: "http"
+    method: "POST"
+    path: "/number/{entity}/set"
+    arguments:
+      value: "{value}"
+    parameters:
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+      value:
+        type: "float"
+        required: true
+        description: "The new value. Outside the entity's range the node ignores it rather than clamping, so read the range from the entity first."
+    verification: "reported"
+  select_set:
+    description: "Set a select entity to one of its options."
+    transport: "http"
+    method: "POST"
+    path: "/select/{entity}/set"
+    arguments:
+      option: "{option}"
+    parameters:
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+      option:
+        type: "string"
+        required: true
+        description: "One of the strings from the entity's option list (GET the entity with detail=all to obtain it). An unknown option is rejected."
+    verification: "reported"
+  cover_open:
+    description: "Open a cover. ADVANCED: a cover can be a garage door, a gate or a shutter — moving one has physical consequences a generic client cannot see."
+    transport: "http"
+    method: "POST"
+    path: "/cover/{entity}/open"
+    parameters:
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+    verification: "reported"
+  cover_close:
+    description: "Close a cover. ADVANCED, and the more dangerous direction: a closing cover is the one that can trap something."
+    transport: "http"
+    method: "POST"
+    path: "/cover/{entity}/close"
+    parameters:
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+    verification: "reported"
+  cover_stop:
+    description: "Halt a cover mid-travel. Not every cover supports it."
+    transport: "http"
+    method: "POST"
+    path: "/cover/{entity}/stop"
+    parameters:
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+    verification: "reported"
+  cover_set_position:
+    description: "Drive a cover to a position. ADVANCED, as cover_open."
+    transport: "http"
+    method: "POST"
+    path: "/cover/{entity}/set"
+    arguments:
+      position: "{position}"
+    parameters:
+      entity:
+        type: "string"
+        required: true
+        description: "Entity identifier, percent-encoded."
+      position:
+        type: "float"
+        min: 0
+        max: 1
+        required: true
+        description: >
+          Target position on ESPHome's scale: 0.0 fully closed, 1.0 fully open.
+          NOT a percentage — a 0-100 slider divides by 100 first. The node
+          answers 409 if this cover does not report position at all.
+    verification: "reported"
+
+helpful_urls:
+  - url: "https://esphome.io/web-api/"
+    title: "ESPHome Web Server API"
+    description: "The REST grammar, per-domain payloads and actions, and the /events event-source contract — including the id/name_id identifier formats this spec's ADDRESSING section summarises."
+  - url: "https://esphome.io/components/web_server/"
+    title: "ESPHome web_server component"
+    description: "Whether the HTTP surface exists on a given node, its port, auth, CORS and the web-OTA warning."
+  - url: "https://esphome.io/components/api/"
+    title: "ESPHome native API component"
+    description: "TCP 6053 protobuf, the Noise encryption key, and the removal of the legacy password."
+  - url: "https://esphome.io/components/mdns/"
+    title: "ESPHome mDNS component"
+    description: "How a node announces itself, and how a config adds extra services."
+  - url: "https://github.com/esphome/esphome"
+    title: "esphome/esphome"
+    description: "The firmware itself: mdns_component.cpp for the TXT records, web_server.cpp for URL matching, api_frame_helper_*.cpp for the native-API framing."
+  - url: "https://esphome.io/components/captive_portal/"
+    title: "ESPHome captive portal"
+    description: "The fallback hotspot and its 192.168.4.1 setup page — the recovery path when a router changes."

@@ -37,3 +37,4 @@ Camera control (PTZ, settings) is out of scope — this is feed + identity only.
 - <https://github.com/hjdhjd/unifi-protect>
 - <https://github.com/uilibs/uiprotect>
 - <https://help.ui.com/hc/en-us/articles/217879287-UniFi-Protect-RTSP-Streaming>
+- [Home Assistant UniFi Protect integration](https://www.home-assistant.io/integrations/unifiprotect/)

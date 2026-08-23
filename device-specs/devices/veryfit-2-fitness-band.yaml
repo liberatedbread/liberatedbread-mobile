@@ -1,0 +1,430 @@
+# Veryfit 2.0 Fitness Band (ID107 / ID111 class) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Promoted 2026-08-20 from the mis-attribution appendix of
+# m6-fitness-band.yaml: the 0xAF0 protocol analysis preserved there turned
+# out to be a byte-accurate spec of the Veryfit 2.0 app (and of the
+# ID107/ID111-class bands it actually targets), NOT of the Telink-based M6 —
+# see device-specs/devices/m6-fitness-band.yaml for that history.
+#
+# Protocol RE: clean-room static analysis of the "Veryfit 2.0" companion app
+#   (2026-07). Every UUID, command ID and sub-key below was verified against
+#   its code; no app artifacts are committed.
+#
+# Independent corroboration:
+#   - g7smy.co.uk (2017) connected a BlueZ/bluetoothctl client to a real
+#     "ID107 HR" band and captured its GATT table on the wire: primary
+#     service 00000af0 with characteristics 00000af6/00000af7/00000af1/
+#     00000af2 and CCCDs on af7/af2 — matching the app's UUID table exactly.
+#     A read of af7 returned a 20-byte frame starting 02 A0 (get-info,
+#     real-time key), matching the frame layout below.
+#   - Public band documentation pairs the Veryfit
+#     2.0 app with ID107/ID111-class bands on Nordic nRF51822 hardware.
+
+device:
+  name: "Veryfit 2.0 Fitness Band (ID107 / ID111 class)"
+  manufacturer: "Unknown ODM (ID107-class bands sold under Makibes and many other brands; companion app Veryfit 2.0)"
+  manufacturer_status: "abandoned"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+  testing:
+    status: untested
+    notes: >
+      No one on this project has driven an ID107-class band from this spec.
+      All protocol facts are static analysis of the Veryfit 2.0 V2.0.37 APK
+      (hash in header), cross-checked against a third-party on-wire GATT
+      capture of a real ID107 HR band (g7smy.co.uk, 2017) which confirms the
+      service/characteristic layout and one real-time-data frame — that
+      supports per-fact `reported`, not this flag.
+  protocol: "ble"
+  category: "fitness"
+  type: "fitness-band"
+  models:
+    - "ID107"
+    - "ID107 HR"
+    - "ID111"
+  notes: >
+    The ID107/ID111-class fitness bands (~2016 generation, Nordic nRF51822
+    SoC, Si1142 optical heart-rate sensor, Kionix kx022 accelerometer — per
+    public hardware notes) are driven by the Veryfit 2.0 Android app
+    (Veryfit 2.0). The bands advertise as e.g. "ID107 HR" with
+    manufacturer data under company ID 0x001C embedding the device's own
+    public MAC address, and expose a single vendor GATT service 00000af0
+    (confirmed on the wire by g7smy.co.uk's BlueZ session with a real band).
+
+    All commands and responses are 20-byte fixed frames, zero-padded: byte 0
+    = command ID, byte 1 = key, bytes 2..19 = key-specific payload (max 18
+    bytes; DeviceBaseCommand in the app zero-fills the frame and copies the
+    payload starting at byte 2). Normal commands are written to 00000af6 and
+    answered on 00000af7; health-data sync (command ID 0x08) runs over the
+    parallel channel 00000af1 (write) / 00000af2 (notify) — the app routes
+    any frame whose command ID is 0x08 to the health channel.
+
+    Command IDs (from the app's base command table): firmware update 0x01,
+    get-info 0x02, settings 0x03, bind/unbind 0x04, phone→band notify 0x05,
+    app control 0x06, BLE control 0x07, health data 0x08, dump-stack 0x20,
+    log 0x21, restart 0xF0, factory 0xAA. Get-info keys: basic 0x01,
+    function 0x02, time 0x03, MAC 0x04, battery 0x05, real-time 0xA0.
+    Settings keys: time 0x01, alarm 0x02, multi-target 0x03, user info 0x10,
+    units 0x11, sedentary 0x20, anti-lost 0x21, hand 0x22, OS 0x23,
+    HR range 0x24, HR mode 0x25, find-phone 0x26, one-key restore 0x27,
+    wrist gesture 0x28, DND 0x29, music 0x2A, H/V mode 0x2B, telegram 0x30,
+    message 0x31. Notify keys: incoming call 0x01, call status 0x02,
+    message 0x03, missed message 0x04; the message key's payload tags the
+    source app (WeChat 0x03, QQ 0x04, Facebook 0x06, Twitter 0x07,
+    WhatsApp 0x08, Messenger 0x09, Instagram 0x0A, LinkedIn 0x0B).
+    App-control keys: mic 0x01, camera 0x02, single-sport 0x03, find-band
+    0x04. Payload layouts beyond the key byte (set-time layout, real-time
+    field offsets, notification text encoding) are NOT established — the
+    2026-07 review of this analysis marked all byte-level payload formats
+    unverifiable without an HCI snoop; only the frame shape and the key
+    tables are solid.
+
+    Health-data sync (cmd 0x08 on the af1/af2 channel) keys: sync request
+    0x01, sync success 0x02, per-type data: sports-today 0x03,
+    sleep-today 0x04, sports-history 0x05, sleep-history 0x06,
+    heart-rate-today 0x07, heart-rate-history 0x08, send-finished 0xEE,
+    error 0xFF. Sync frames carry a mode byte (safe 0x01 / other 0x00), a
+    flag byte (foreground 0x01 / background 0x02) and a status
+    (start 0x01 / resend 0x03 / end 0x02).
+
+    OTA is the Nordic legacy buttonless DFU (service 00001530-…): the app
+    bundles no.nordicsemi.android.dfu and declares its DfuService. The DFU
+    characteristics are only present while the band is in its bootloader —
+    the on-wire capture of a running ID107 HR shows only GAP/GATT plus the
+    0xAF0 service.
+
+    SECURITY: no pairing, bonding or authentication exists anywhere in the
+    app protocol; any client in range can read the band's health history and
+    user data.
+
+    No Gadgetbridge support exists for the Veryfit/ID107 protocol family
+    (Gadgetbridge's cheap-band support covers the unrelated FitPro family
+    instead), and no other open-source implementation of this protocol was
+    found — the vendor app is the only known client.
+
+    IMPORTANT — this is NOT the protocol of the "M6 Smart Fitness Band"
+    (Telink TLSR8232 / LT716 platform, FitPro app, Nordic UART Service +
+    0xCD frames): the stock M6 firmware contains no 0xAF0 UUID anywhere.
+    This analysis was briefly mis-attributed to the M6; see
+    device-specs/devices/m6-fitness-band.yaml.
+  identification:
+    local_name_prefix: "ID107"
+    service_uuids:
+      - "00000af0-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 28
+      company_id_hex: "0x001C"
+      description: >
+        Observed on a real ID107 HR (g7smy.co.uk BlueZ session): company ID
+        0x001C with a payload containing the band's own public MAC address
+        (e.g. C5:E8:FB:AA:BB:CC) followed by a trailing byte. A matching
+        0xAF0 advertisement is the far stronger signal; treat this as
+        corroboration only.
+
+  setup:
+    required: false
+    confidence: medium
+    notes: >
+      The band needs no provisioning and no pairing — the app protocol has no
+      authentication anywhere (no bonding code paths in the app's BLE layer).
+      The app scans for the 0xAF0 service, connects, enables notifications on
+      00000af7 (and 00000af2 for health sync) via the standard CCCD
+      (00002902), then sends a bind command (cmd 0x04 key 0x01) whose payload
+      carries a platform marker 0x02, the phone's Android API level, and the
+      magic bytes 55 AA. Confidence medium: app-verified flow, partially
+      observed on the wire by a third party, never replayed by this project.
+    methods:
+      - type: ble_direct
+        description: >
+          Scan for service 00000af0 (local name typically "ID107 HR"-style),
+          connect over GATT, enable notifications on 00000af7, send the bind
+          frame, then drive the band with 20-byte command/key frames written
+          to 00000af6 (health sync: 00000af1, answers on 00000af2).
+        verified: false
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Scan for advertisements carrying service UUID 00000af0-0000-1000-8000-00805f9b34fb (name prefix ID107) and connect."
+            actor: client
+            expect: "GATT table with service 00000af0 and characteristics af6 (write), af7 (notify), af1 (write), af2 (notify)."
+          - action: "Enable notifications on 00000af7 via CCCD 00002902; also enable 00000af2 if health sync is wanted."
+            actor: client
+          - action: "Send bind: 04 01 02 <sdk_int> 55 AA, zero-padded to 20 bytes, written to 00000af6."
+            actor: client
+            expect: "Bind ack on 00000af7: same cmd/key, byte 2 = 0x00 on success."
+          - action: "Write further 20-byte command/key frames to 00000af6 (e.g. real-time data = 02 A0; find-band = 06 04)."
+            actor: client
+            expect: "Responses arrive as notifications on 00000af7."
+    factory_reset:
+      # A reset command demonstrably exists (settings cmd 0x03 key 0x27, plus
+      # an undocumented 0xAA), but no usable procedure was established: the
+      # payload bytes beyond the key are unknown and there is no known button
+      # sequence. `applicable: unknown` with the command recorded as an
+      # unverified candidate — dropping it would throw away the one real lead.
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        The app exposes a "one-key restore" settings command (cmd 0x03, key
+        0x27), i.e. an over-the-air factory reset exists — but its payload
+        bytes beyond the key are not established, and what exactly it clears
+        (user profile, stored health data, bind state) is unknown. A separate
+        command ID 0xAA (factory) exists in the app and is likewise
+        undocumented at the byte level. No hardware button procedure is
+        known.
+      procedures:
+        - name: "One-key restore over BLE (candidate)"
+          verified: false
+          basis: >
+            Read from the vendor app's settings command table, not run against
+            hardware: the app exposes a "one-key restore" as settings command
+            0x03 with key 0x27, and a separate command id 0xAA labelled
+            factory. Neither frame's payload bytes beyond the key were
+            established, so a client must expect to work the encoding out.
+          steps:
+            - action: >
+                Open the band's settings characteristic and send the settings
+                command 0x03 with key 0x27.
+              actor: "client"
+              expect: >
+                Unestablished. What it clears — user profile, stored health
+                data, bind state — was never observed.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The band joins no network and bonds with no client. Any client may
+        connect once the previous one disconnects (the band accepts one
+        connection at a time); "rebinding" is just the new client sending the
+        bind frame — the app also offers an explicit unbind (cmd 0x04,
+        key 0x02, payload 55 AA 55 AA).
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE-only; no credentials of any kind cross the link and there is no
+        authentication, so the band's stored health data is readable by
+        anyone in radio range.
+
+services:
+  - uuid: "00000af0-0000-1000-8000-00805f9b34fb"
+    name: "Veryfit 2.0 Command Service"
+    notes: >
+      Single vendor service carrying the whole protocol. Layout confirmed on
+      a real ID107 HR by g7smy.co.uk (af6, af7+CCCD, af2+CCCD, af1 in that
+      characteristic order) and in the app's BleGattAttributes
+      (SERVICE_UUID=af0, WRITE_UUID_NORMAL=af6, NOTIFY_UUID_NORMAL=af7,
+      WRITE_UUID_HEALTH=af1, NOTIFY_UUID_HEALTH=af2). Frame format: 20-byte
+      fixed frames, zero-padded; byte 0 = command ID, byte 1 = key,
+      bytes 2..19 = payload.
+    characteristics:
+      - uuid: "00000af6-0000-1000-8000-00805f9b34fb"
+        name: "Normal Write (command channel)"
+        properties: ["write", "write_without_response"]
+        notes: >
+          Command write characteristic (app's WRITE_UUID_NORMAL). All
+          commands except health sync (cmd 0x08) are written here. Command
+          IDs: firmware update 0x01, get-info 0x02, settings 0x03,
+          bind/unbind 0x04, notify 0x05, app control 0x06, BLE control 0x07,
+          dump-stack 0x20, log 0x21, restart 0xF0, factory 0xAA.
+        commands:
+          bind:
+            description: >
+              Bind the band to this client. Payload observed in the app:
+              byte 2 = 0x02 (platform marker, Android), byte 3 = the phone's
+              Android API level (Build.VERSION.SDK_INT), bytes 4-5 = magic
+              55 AA; the band acks on af7 with the same cmd/key and byte 2 =
+              0x00 on success.
+            command_id: 0x04
+            verification: "reported"
+            fixed_length: 20
+            template: [0x04, 0x01, 0x02, "{sdk_int}", 0x55, 0xAA]
+            parameters:
+              sdk_int:
+                type: uint8
+                min: 1
+                max: 255
+                default: 23
+                description: >
+                  Client platform's Android API level as the vendor app emits
+                  it (Build.VERSION.SDK_INT; the app's own minimum is 18).
+                  No evidence the band validates it — 23 (Android 6.0) is a
+                  plausible default for this app generation.
+          unbind:
+            description: "Unbind the band from the client (payload is the fixed magic 55 AA 55 AA, rest zero)."
+            command_id: 0x04
+            verification: "reported"
+            fixed_length: 20
+            value: [0x04, 0x02, 0x55, 0xAA, 0x55, 0xAA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_real_time:
+            description: >
+              Request the band's real-time data (get-info, key 0xA0). The
+              on-wire ID107 HR capture (g7smy.co.uk) shows the band's
+              real-time frame on af7 as `02 a0 23 00 00 00 01 00 00 00 19 00
+              00 00 92 00 00 00 00 00` — little-endian 32-bit counters after
+              the key byte (the first, 0x23 = 35, consistent with a step
+              count), but the field assignment is NOT established; treat
+              byte offsets as unknown.
+            command_id: 0x02
+            verification: "reported"
+            fixed_length: 20
+            value: [0x02, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_battery:
+            description: "Request battery level (get-info, key 0x05). Response field layout not established."
+            command_id: 0x02
+            verification: "reported"
+            fixed_length: 20
+            value: [0x02, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_basic_info:
+            description: "Request basic device info (get-info, key 0x01)."
+            command_id: 0x02
+            verification: "reported"
+            fixed_length: 20
+            value: [0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_function_table:
+            description: "Request the band's function/feature table (get-info, key 0x02)."
+            command_id: 0x02
+            verification: "reported"
+            fixed_length: 20
+            value: [0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_time:
+            description: "Request the band's clock (get-info, key 0x03)."
+            command_id: 0x02
+            verification: "reported"
+            fixed_length: 20
+            value: [0x02, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_mac:
+            description: "Request the band's MAC address (get-info, key 0x04)."
+            command_id: 0x02
+            verification: "reported"
+            fixed_length: 20
+            value: [0x02, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          find_band:
+            description: >
+              App-control, key 0x04 ("search wristband"): makes the band
+              alert (vibration/screen) so the user can locate it.
+            command_id: 0x06
+            locate: "both"
+            verification: "reported"
+            fixed_length: 20
+            value: [0x06, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          incoming_call:
+            description: >
+              Phone→band notification, key 0x01: signal an incoming call.
+              Payload beyond the key (caller string encoding) is not
+              established — an all-zero payload is the app's minimum frame,
+              not a confirmed working notification.
+            command_id: 0x05
+            verification: "hypothesis"
+            fixed_length: 20
+            value: [0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_time:
+            description: >
+              Settings, key 0x01: set the band's clock. The app builds the
+              payload from the current date/time, but the byte layout of the
+              payload was NOT recoverable with confidence (2026-07 review
+              marked all payload formats unverifiable without an HCI snoop)
+              — this entry documents the cmd/key only; do not send guessed
+              bytes.
+            command_id: 0x03
+            verification: "hypothesis"
+            fixed_length: 20
+          one_key_restore:
+            description: >
+              Settings, key 0x27: "one-key restore" — the app's over-the-air
+              factory reset. Payload bytes beyond the key not established.
+            command_id: 0x03
+            verification: "hypothesis"
+            fixed_length: 20
+            advanced: true
+            advanced_reason: >
+              Resets the band to factory state over the air, wiping the user
+              profile, stored health history and bind state. The payload
+              beyond the key byte is undocumented; what exactly is cleared
+              is unknown. Recover by re-binding from the client afterwards.
+
+      - uuid: "00000af7-0000-1000-8000-00805f9b34fb"
+        name: "Normal Notify (response channel)"
+        properties: ["notify"]
+        notes: >
+          Responses and band-initiated events for the af6 channel (app's
+          NOTIFY_UUID_NORMAL; CCCD 00002902). Same 20-byte frame format:
+          byte 0 echoes the command ID, byte 1 the key; success/failure
+          status lives in the payload (e.g. bind ack byte 2 = 0x00 success;
+          the app maps outcomes to bind-success 0x12 / unbind-success 0x14
+          internally).
+
+      - uuid: "00000af1-0000-1000-8000-00805f9b34fb"
+        name: "Health Write (health-sync command channel)"
+        properties: ["write", "write_without_response"]
+        notes: >
+          Health-data sync channel, write side (app's WRITE_UUID_HEALTH).
+          The app routes every frame with command ID 0x08 here. Keys: sync
+          request 0x01, sync success 0x02, data records sports-today 0x03 /
+          sleep-today 0x04 / sports-history 0x05 / sleep-history 0x06 /
+          heart-rate-today 0x07 / heart-rate-history 0x08, send-finished
+          0xEE, error 0xFF. Sync frames additionally carry a mode byte
+          (safe 0x01 / other 0x00), a flag byte (foreground 0x01 /
+          background 0x02) and a status (start 0x01 / resend 0x03 /
+          end 0x02); their exact positions in the frame are not established.
+
+      - uuid: "00000af2-0000-1000-8000-00805f9b34fb"
+        name: "Health Notify (health-sync response channel)"
+        properties: ["notify"]
+        notes: >
+          Health-data sync channel, notify side (app's NOTIFY_UUID_HEALTH;
+          CCCD 00002902). Carries the paged history records during sync.
+
+  - uuid: "00001530-1212-efde-1523-785feabcd123"
+    name: "Nordic Legacy DFU Service"
+    notes: >
+      Nordic legacy buttonless Device Firmware Update, used by the app for
+      OTA (command ID 0x01 "ware update" hands off to it; the app bundles
+      no.nordicsemi.android.dfu and declares its DfuService, and the UUID
+      set 1530/1531/1532/1534 is what that library implements). Consistent
+      with the nRF51822 hardware generation of the ID107-class bands.
+      Reported presence only: the DFU characteristics appear while the band
+      runs its bootloader — the on-wire capture of a normally-running ID107
+      HR shows no DFU service.
+    characteristics:
+      - uuid: "00001531-1212-efde-1523-785feabcd123"
+        name: "DFU Control Point"
+        properties: ["write", "notify"]
+      - uuid: "00001532-1212-efde-1523-785feabcd123"
+        name: "DFU Packet"
+        properties: ["write_without_response"]
+      - uuid: "00001534-1212-efde-1523-785feabcd123"
+        name: "DFU Version"
+        properties: ["read"]
+
+helpful_urls:
+  - title: "Bluetooth Low Energy on the Raspberry Pi (ID107 HR on-wire GATT capture)"
+    url: "https://www.g7smy.co.uk/2017/05/bluetooth-low-energy-ble-on-the-raspberry-pi/"
+    description: >-
+      BlueZ/bluetoothctl session against a real ID107 HR band: advertises as "ID107 HR" with
+      company ID 0x001C manufacturer data carrying the band's own MAC, and exposes exactly the
+      00000af0/af6/af7/af1/af2 layout with a 20-byte 02 A0 real-time frame on af7. The hardware
+      corroboration for this spec's GATT table.
+  - title: "Veryfit 2.0 version history (uptodown)"
+    url: "https://veryfit-2-0.en.uptodown.com/android/versions"
+    description: >-
+      Version listing confirming V2.0.37 (the exact APK this spec was derived from) as the final
+      Veryfit 2.0 release.
+  - title: "4PDA: ID107 smart band thread"
+    url: "https://4pda.to/forum/index.php?showtopic=777752"
+    description: >-
+      Community thread associating the ID107/ID111-class bands with the Veryfit 2.0 app; hardware
+      notes (nRF51822, Si1142 sensor) for this band generation.
+  - title: "ID107 (Makibes) hardware notes"
+    url: "https://saturn.ffzg.hr/rot13/index.cgi?action=unplug"
+    description: >-
+      Hardware data for a Makibes ID107: Nordic nRF51822, Silicon Labs Si1142 pulse sensor, Kionix
+      kx022-1020 accelerometer, VeryFit 2.0 as the companion app.
+  - title: "M6 Smart Fitness Band spec (mis-attribution history)"
+    url: "https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/m6-fitness-band.yaml"
+    description: >-
+      Sibling spec whose appendix this analysis was promoted from; documents why the 0xAF0 protocol
+      does NOT apply to the Telink-based M6.

@@ -23,12 +23,12 @@ transport:
 
 ble:
   advertising:
-    name_patterns: ["SNOW-1_L", "SNOW-1_R"]  # left/right bindings advertise separately (PairingActivity.java)
+    name_patterns: ["SNOW-1_L", "SNOW-1_R"]  # left/right bindings advertise separately
     service_uuids: []
   services:
     - uuid: "58952982-3C22-4A8C-B826-5F50EB52F1FB"
       name: xon_service
-      description: XON primary service (from BluetoothLeService.java)
+      description: XON primary service
       characteristics:
         - uuid: "58952982-3C22-4A8C-B826-5F50EB52F1FC"
           name: data_ch1

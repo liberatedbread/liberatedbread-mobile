@@ -27,7 +27,7 @@
 | Encode Plus (BE499) | WiFi + BLE + Thread + NFC | **uWeave BLE**, or HomeKit HAP over Thread/BLE + NFC Home Key | Yonomi cloud |
 | Encode Lever | WiFi + BLE | **uWeave BLE** | Yonomi cloud |
 
-Device codenames in the APK (enum in 3.6.0 `defpackage/x5.java`, extended in 6.3.1): SWORDFISH=NDE, JAGUAR=Control Lock, KRILL=MT20W, TRIDENT=ADE, GATEWAY=GWE, MARLIN=Sense, LEOPARD/DENALI=Encode family, JACKALOPE=Encode Plus (FCC ID XPB-JACKALOPE, Silicon Labs MGM12P EFR32MG12 BLE+Thread module + NXP NFC frontend with ECP for Apple Home Key), plus unreleased/flagged WALTON, SCHLAGE_SELENE_*/GAINSBOROUGH_SELENE_* and WIFI_KEYPAD_DEADBOLT ("Arrive").
+Device codenames in the APK (a codename enum present in 3.6.0 and extended in 6.3.1): SWORDFISH=NDE, JAGUAR=Control Lock, KRILL=MT20W, TRIDENT=ADE, GATEWAY=GWE, MARLIN=Sense, LEOPARD/DENALI=Encode family, JACKALOPE=Encode Plus (FCC ID XPB-JACKALOPE, Silicon Labs MGM12P EFR32MG12 BLE+Thread module + NXP NFC frontend with ECP for Apple Home Key), plus unreleased/flagged WALTON, SCHLAGE_SELENE_*/GAINSBOROUGH_SELENE_* and WIFI_KEYPAD_DEADBOLT ("Arrive").
 
 **Cloud boundary (for completeness):** consumer path = AWS Cognito SRP auth (user pool `us-west-2_2zhrVs9d4`), REST `https://api.allegion.yonomi.cloud/v1` with `X-Api-Key`, and realtime via per-device MQTT-over-WSS (`wssUri`/`clientId`/shadow topics `reported|desired|delta` supplied by the cloud). TLS pinning: `*.yonomi.cloud` pinned to Amazon Root CA 1–4 in `network_security_config.xml` (both APK versions) — so cloud MITM requires defeating pinning, another reason the BLE path is the practical local target. A commercial "Schlage Home API" exists at developer.allegion.com (OAuth2, webhooks) but excludes individual/hobbyist use.
 
@@ -35,7 +35,7 @@ Device codenames in the APK (enum in 3.6.0 `defpackage/x5.java`, extended in 6.3
 
 ## 3. BLE discovery and advertisement format
 
-From `bluetooth/SenseScanner.java` (6.3.1) and the 3.6.0 equivalent:
+From the app's BLE scanner (6.3.1) and its 3.6.0 equivalent:
 
 - **Unified/Android mode:** scan record bytes `[3..21)` equal `11 06` followed by the firmware **DataTransfer service UUID `1F6B43AA-94DE-4BA9-981C-DA38823117BD`** in BLE little-endian byte order (AD type 0x06, incomplete 128-bit service list). Commissioned unified-mode locks set scan-response byte 55 = `0x82`.
 - **HomeKit mode:** two AD 0x09 complete-local-name entries `"SENSE  "` (with trailing spaces) at fixed offsets; legacy SWORDFISH locks advertise Apple manufacturer data (company ID `0x004C`).
@@ -129,7 +129,7 @@ Enums: lockState 0=unlocked, 1=locked, 2=jammed, 3=unknown, 4=motorJammed, 5=pas
 
 ## 7. WiFi: commissioning vs runtime
 
-- **Commissioning is BLE-driven.** In 3.6.0 the app itself encrypted the WiFi payload: `key = SHA-256(secret + "|" + id[6:])`, AES/CBC/NoPadding with a **zero IV**, over `be64(counter) ‖ JSON({ssid,password})` zero-padded to 16 (`api/bridge/commission/model/WifiPayload.java`). In 6.3.1 this moved server-side: the encrypted "payload0" (JITR cert blob) is fetched from `factory.allegion.yonomi.cloud` (`GET …payload0?deviceType=…&physicalId=<SERIAL>`) and pushed to the lock over BLE trait 6 prop 2. So **onboarding a lock to WiFi requires Schlage's cloud once** (to mint its AWS IoT identity); after that, BLE remains fully functional cloud-free.
+- **Commissioning is BLE-driven.** In 3.6.0 the app itself encrypted the WiFi payload: `key = SHA-256(secret + "|" + id[6:])`, AES/CBC/NoPadding with a **zero IV**, over `be64(counter) ‖ JSON({ssid,password})` zero-padded to 16. In 6.3.1 this moved server-side: the encrypted "payload0" (JITR cert blob) is fetched from `factory.allegion.yonomi.cloud` (`GET …payload0?deviceType=…&physicalId=<SERIAL>`) and pushed to the lock over BLE trait 6 prop 2. So **onboarding a lock to WiFi requires Schlage's cloud once** (to mint its AWS IoT identity); after that, BLE remains fully functional cloud-free.
 - **BR400 WiFi adapter (legacy Sense):** commissioned over its own AP via local REST (`POST v2/prov/registration`, `GET v1/prov/networks`, `GET bridge/ble/scan`, `GET bridge/v1/commission/status`, `GET bridge/info`), then rediscovered by mDNS — commissioning-only, not a runtime control channel.
 - **Runtime local WiFi control: none.** Exhaustive search of both APKs found no socket/HTTP/mDNS runtime path to any lock. Path selection (`SenseDeviceServiceProvider`): no network / guest user / failed cloud session → **BLE**; WiFi-mode locks → cloud REST+MQTT. Identical command semantics on both paths.
 

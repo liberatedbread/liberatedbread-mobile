@@ -247,18 +247,24 @@ device:
       - type: "ble_scan"
         ble:
           local_name:
-            match: "prefix"
-            value: "GVH"
+            match: "regex"
+            value: "^(GVH5|Govee_H5)"
           manufacturer_data:
             company_id: 60552
             description: "Manufacturer ID 0xEC88 (Govee H5074/H5075/H5179). H5177 uses 0x0001."
         notes: >
-          The GVH prefix matches this unit, which advertises GVH5075_BBCC. It does
-          not match two of the models listed in device.variants: the H5074
-          advertises as Govee_H5074_XXXX and the H5179 as Govee_H5179_XXXX. Whether
-          that costs you those models depends on whether a consumer ANDs the name
-          and the manufacturer ID or ORs them, which this spec does not say. Matching
-          on the company ID alone finds all three.
+          Matches this unit, which advertises GVH5075_BBCC, and the two models in
+          device.variants that use the other name form (H5074 as Govee_H5074_XXXX,
+          H5179 as Govee_H5179_XXXX). The sku digit is pinned to 5 deliberately: a
+          bare "GVH" prefix — what this spec carried previously — also claims every
+          Govee light (GVH6…/GVH7…/GVH8…, see govee-rgb-light.yaml and
+          govee-rgbic-light.yaml), which speaks a different protocol on a different
+          service. It still overlaps the H5xxx plugs (govee-h5080-plug.yaml, whose
+          Pro units advertise GVH5086…); the manufacturer-data payload separates
+          them, since a plug carries a plug goodsType and no temp/humidity triple.
+          Whether the name and the manufacturer ID are ANDed or ORed is the
+          consumer's choice, which this spec does not make; matching on the company
+          ID alone finds all three thermo models.
     identity:
       stable_keys: ["address"]
       display: "local_name"

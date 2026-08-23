@@ -30,5 +30,7 @@ python scripts/dyson_discover.py --timeout 5
 | `<serial>/status/connection` | Subscribe | Connection/availability state |
 | `<serial>/command` | Publish | Power, mode, fan, oscillation, humidifier commands |
 
+Home Assistant: the core [Dyson integration](https://www.home-assistant.io/integrations/dyson/) speaks this same local MQTT protocol once device credentials are known.
+
 Machine-readable spec: `device-specs/devices/dyson-air-purifier.yaml`
 

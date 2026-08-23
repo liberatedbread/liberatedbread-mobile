@@ -52,7 +52,7 @@ status:
   hci_snoop_needed: false
   cloud_dependency: none
   references:
-    - F-Droid archive: com.hexad.bluezime 1.20 (ZeemoteReader.java)
+    - F-Droid archive: com.hexad.bluezime 1.20
     - github.com/Rakashazi/emu-ex-plus-alpha (native Zeemote support)
     - lightreading.com Zeemote/Aplix acquisition (2011)
     - wlog.flatlib.jp Buffalo JS1 review (2011-12)

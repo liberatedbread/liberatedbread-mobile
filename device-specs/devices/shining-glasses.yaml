@@ -25,10 +25,10 @@ device:
     No pairing required.
     Vendor is active: app v1.2.7 updated Dec 2025; design-patent judgment won
     Oct 2025. CONFIDENCE: command/UUID mapping and AES key HIGH (public
-    decompile of com.icwork.shiningglass v1.2.7,
+    static analysis of the vendor app,
     Jhan-vasquez-dev/shining-glasses, incl. HCI captures).
-    Evidence: com/icwork/shiningglass/base/App.java:21 (keyExpansionDefault);
-    model/data/DiyAgreement.java (command framing, REOK ack parsing).
+    Evidence: the app's startup path (native key expansion) and its DIY
+    protocol layer (command framing, REOK ack parsing).
   identification:
     service_uuids:
       - "0000fff0-0000-1000-8000-00805f9b34fb"

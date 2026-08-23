@@ -11,8 +11,8 @@
 
 ## Local feasibility — strong
 - App is a **pure local BLE client** — no login or cloud dependency seen at triage depth; settings live in local SharedPreferences (`snow1SharedPreferenceKey`). This is a genuinely local-first device.
-- Both bindings advertise separately: name prefixes **`SNOW-1_L`** and **`SNOW-1_R`** (`PairingActivity.java` scans with `name.startsWith(...)`).
-- Custom GATT service family recovered from `com/cerevo/snow1/services/BluetoothLeService.java`:
+- Both bindings advertise separately: name prefixes **`SNOW-1_L`** and **`SNOW-1_R`** (its pairing screen scans with `name.startsWith(...)`).
+- Custom GATT service family recovered from the app's BLE service:
 
 | UUID | Role |
 |------|------|

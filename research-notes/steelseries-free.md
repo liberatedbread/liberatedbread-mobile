@@ -50,4 +50,4 @@ Its absence changes nothing about local HID operation.
 - SteelSeries Free user guide (steelseriescdn.com PDF; archived in workspace/) —
   modes, pairing, PIN 0000, "Zeemote: SteelSeries Free" name
 - 148apps.com review (2012-12-11) — "Bluetooth keyboard emulation, similar to iCade"
-- workspace/static/zeemote-js1/.../ZeemoteReader.java — SteelSeries report type 0x1C
+- Bluez-IME (open source, com.hexad.bluezime) `ZeemoteReader.java` — SteelSeries report type 0x1C

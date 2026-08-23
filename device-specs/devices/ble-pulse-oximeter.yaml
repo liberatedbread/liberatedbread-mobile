@@ -1,8 +1,6 @@
 # BLE Pulse Oximeter (SP001 / "F7") — Device Spec
-# Generated from static analysis of com.wakeup.smartspo (Wearfit BO)
-# APK source: apkeep (Google Play mirror)
-# APK SHA-256: 82853e9c52db3eb2c8c7808af87bf3067f2e29d3948df034e9535ee75f2abc64
-# (37,834,803-byte bare APK)
+# Generated from static analysis of the vendor's companion Android app
+# ("Sapiential SpO2" / "Wearfit BO").
 
 device:
   name: 'BLE Fingertip Pulse Oximeter (SP001 / "F7")'
@@ -29,22 +27,21 @@ device:
     service 6e400001 it exposes after connection. Connection quirks: the
     device advertises only at power-up, accepts a single connection attempt,
     and will not reconnect after going out of range without a power cycle.
-    Companion apps: "Sapiential SpO2" (Android; display name of
-    com.wakeup.smartspo), "Wearfit BO" (iOS).
+    Companion apps: "Sapiential SpO2" (Android), "Wearfit BO" (iOS).
 
     OTA/DFU surface (app-derived, not hardware-verified): the app checked a
     vendor firmware API (now dead, verified 2026-07-30) and flashed via
-    Nordic DFU (service/DfuService.java), with OTA command characteristic
+    Nordic DFU, with OTA command characteristic
     0000ff03-0000-1000-8000-00805f9b34fb and ISP command characteristic
-    6e40ff03-b5a3-f393-e0a9-e50e24dcca9e referenced in BluetoothLeService.
-    A Dallas/Maxim CRC8 (dscrc_table) exists in utils/CRC8.java, most likely
+    6e40ff03-b5a3-f393-e0a9-e50e24dcca9e referenced in its BLE service.
+    A Dallas/Maxim CRC8 (dscrc_table) exists in its utilities, most likely
     used for DFU/packet integrity; no public firmware images could be
     obtained.
 
-    Research status: APK acquired, decompiled. Nordic UART service UUIDs
-    recovered. Poll/response frame format confirmed by the hardware-tested
-    OximeterF7Bridge (github.com/joba-1/OximeterF7Bridge) and the APK's
-    CommandManager — a replacement client can be implemented without further
+    Research status: app analysed. Nordic UART service UUIDs recovered.
+    Poll/response frame format confirmed by the hardware-tested
+    OximeterF7Bridge (github.com/joba-1/OximeterF7Bridge) and the app's own
+    command table — a replacement client can be implemented without further
     hardware capture.
     Reference: github.com/jcomas/PulseOximeterSP001 (existing partial implementation).
 
@@ -68,7 +65,7 @@ device:
       "clip it on and connect".
 
       Confidence is medium rather than high because this has not been run
-      against hardware here — the UUIDs come from a decompiled APK and the
+      against hardware here — the UUIDs come from the vendor app and the
       poll/response frame format from a third-party hardware-tested bridge
       (OximeterF7Bridge).
     methods:
@@ -125,7 +122,7 @@ services:
         notes: >
           RX characteristic (write commands to device). Host-to-device command
           frames are AB 00 <len> FF <cmd> 80 <args...>; recovered commands
-          (CommandManager.java): 0x20 = get version, 0x30 = measurement poll,
+          (from its command table): 0x20 = get version, 0x30 = measurement poll,
           0x93 = time sync, 0x25/0x28 = enter bootloader / bootloader MAC,
           0x99 = music control (byte at offset 6: 0=play/pause, 1=prev,
           2=next), 0x7E = weather update (3 arg bytes), 0x86 = body-temp
@@ -140,7 +137,7 @@ services:
               Poll one measurement. The device answers with a single ~9-byte
               notification on UART TX whose 3-byte payload at frame offset 6 is
               [PR bpm, SpO2 %, PI x10]. Hardware-tested via OximeterF7Bridge;
-              identical bytes in the APK's CommandManager.getData().
+              the vendor app's command builder emits identical bytes.
             value: [0xAB, 0x00, 0x03, 0xFF, 0x30, 0x80]
       - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
         name: "UART TX"
@@ -159,9 +156,9 @@ services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "Smart Bracelet Service"
     notes: >
-      Referenced-but-probably-absent. fff0/fff4 appear in the APK only in a
-      static UUID-to-name table (model/ble/GattAttributes.java, copied from
-      Google's BluetoothLeGatt sample); no code path ever reads or writes
+      Referenced-but-probably-absent. fff0/fff4 appear in the app only in a
+      static UUID-to-name table (copied from Google's BluetoothLeGatt
+      sample); no code path ever reads or writes
       fff4, and the hardware-tested OximeterF7Bridge found only the Nordic
       UART service on a real device.
     characteristics:

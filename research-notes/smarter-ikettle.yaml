@@ -32,7 +32,7 @@ lan:
 protocol:
   note: >
     Single-opcode commands with trailing 0x7E. Recovered from legacy app
-    (am.smarter.smarterandroid, models/d.java + FirmwareUpdateService.java);
+    (am.smarter.smarterandroid: its kettle model and firmware-update service);
     semantics partially inferred from KettleControlPanel call sites.
     Cross-check with iBrew (github.com/Tristan79/iBrew) and
     aslabicki/Smarter-iKettle-API before finalising.

@@ -866,3 +866,8 @@ entities:
     state_topic: "/json/info"
     state_mapping:
       state: "info.uptime"
+
+helpful_urls:
+  - title: "Home Assistant WLED integration"
+    url: "https://www.home-assistant.io/integrations/wled/"
+    description: "HA core integration over the WLED JSON/HTTP and WebSocket API documented here."

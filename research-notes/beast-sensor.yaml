@@ -30,7 +30,7 @@ ble:
         for service+characteristics; 6 characteristics (x = 001..006 as full UUIDs
         BEA5760D-503D-4920-B000-101E7306B001 .. B006 with the service itself
         ...B000). >=4 characteristics notification-enabled; others written.
-      source: com/thisisbeast/beast/c/f/b/a.java
+      source: app static analysis (obfuscated class; UUIDs are literals)
       characteristics:
         - uuid: "bea5760d-503d-4920-b000-101e7306b001"
           name: beast_a_char1

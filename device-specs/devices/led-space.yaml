@@ -50,7 +50,7 @@ device:
     CONFIDENCE: HIGH for the platform match — BLE UUIDs
     (fff0/fff1/fff2), JSON command strings, UDP port 9090 and popled.cn
     backend hosts (a.popled.cn, auth.popled.cn, wxbtapp.popled.cn:8443,
-    app.popled.cn) verified in the decompiled com.yj.led 1.3.6.32 app;
+    app.popled.cn) verified in the vendor app;
     MEDIUM for Wi-Fi wire details — taken from the app's UDP/TLV code path,
     not replayed against hardware by this project.
   identification:
@@ -201,7 +201,7 @@ popled_wifi_protocol:
       discovery: >
         TLV-serialized {"cmd":{"get":"dev_info"}} broadcast to
         255.255.255.255:9090. The app learns the device address from the
-        reply sender (UDPBuild.java) rather than hardcoding 192.168.4.1.
+        reply sender (as the app does) rather than hardcoding 192.168.4.1.
       framing: >
         Each datagram chunk carries an outer u16-LE length prefix followed by
         that many bytes of 0xAA55-framed TLV payload
@@ -276,7 +276,7 @@ services:
         name: "Notify"
         properties: ["notify"]
         notes: >
-          Notify characteristic (READ_ATTRIBUTE in com.yj.led Constant.java).
+          Notify characteristic (READ_ATTRIBUTE in the app's constants).
           Same semantics as the AUTOBABA spec: NOTIFY-only, enable the CCCD
           before writing or frames are not ACKed.
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
@@ -286,7 +286,7 @@ services:
           length_prefix: true
           max_chunk_size: 180
         notes: >
-          Write characteristic (WRITE_ATTRIBUTE in com.yj.led Constant.java).
+          Write characteristic (WRITE_ATTRIBUTE in the app's constants).
           Same wire frame and checksum rules as the AUTOBABA spec; commands
           are the JSON vocabulary documented there and in
           popled_wifi_protocol above, serialized to binary TLV before send.
@@ -338,7 +338,7 @@ services:
               Play programs. This com.yj.led (LED space) binding sends the whole
               playlist: {"cmd":{"pgm_play":{"model":0,"ids_pro":[1..60]}},
               "ids_dev":"<id_dev>","sno":N}, where ids_pro is the full 60-slot
-              program-id array (Constant.java pgm_play template). The sibling
+              program-id array (the app's pgm_play template). The sibling
               uni-app binding documented in autobaba-led-backpack.yaml instead
               sends a single-slot form, {"cmd":{"pgm_play":{"model":0,
               "index":N}},...}; both are real JSON shapes for the same LOY SPACE

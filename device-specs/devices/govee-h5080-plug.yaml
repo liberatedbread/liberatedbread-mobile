@@ -2,7 +2,7 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# Static analysis of com.govee.home APK (jadx 1.5.1), wire-verified against
+# Static analysis of the Govee Home Android app, wire-verified against
 # egold555/Govee-Reverse-Engineering (H5080.md) and virtuald/govee-ble-plugs.
 # Shares the 00010203-…-1910 GATT service family with Govee's legacy bulbs.
 
@@ -49,12 +49,13 @@ device:
       button is pressed; otherwise a random decoy)
     - 33B2 <16-byte key>: authenticate this connection
     - 3301 <byte>: set on/off. Single-plug H5080: 0xFF on / 0xF0 off
-      (all-ports selector — the app calls SwitchControllerV2(z, 15)).
+      (all-ports selector — what the app's switch controller emits when
+      it addresses every port at once).
     The device also sends unsolicited 3301 state notifications on
     physical-button presses, and the last manufacturer-data byte of the
     advertisement carries state (0x00/0x01; dual: bit0=right, bit1=left).
 
-    CmdTurn byte encoding (APK CmdTurn.java / SwitchControllerV2):
+    On/off byte encoding (from the app's switch controller):
     - bits 0-3: on-state per port (1=port0, 2=port1, 4=port2, 15=all)
     - bits 4-7: port selector (0x10=port0, 0x20=port1, 0x40=port2, 0xF0=all)
     e.g. 0x11 = port 0 on (0x10|0x01), 0x22 = port 1 on (0x20|0x02),
@@ -63,8 +64,9 @@ device:
 
     FIRMWARE LANDSCAPE: versions seen are 1.00.21 and 1.02.00 (RE
     captures) and 1.00.22 in the wild (2025-12 user report); the app
-    treats fw <= 1.00.08 as "old H5080" with reduced features
-    (Support.isOldH5080). OTA is in-app only — no public firmware
+    treats fw <= 1.00.08 as an "old H5080" with reduced features (a
+    dedicated capability check in its feature gating). OTA is in-app only
+    — no public firmware
     downloads.
 
     PHYSICAL: 15 A / 1800 W max, ETL + FCC certified (FCC-filed manual
@@ -73,35 +75,67 @@ device:
     CONFIDENCE: HIGH for wire format, UUIDs, command bytes, and the auth
     flow — all wire-verified by two independent implementations
     (egold555 Govee-Reverse-Engineering H5080.md @ fe0cd60; virtuald/
-    govee-ble-plugs plugs.py @ 2cf65db). Open items needing one nRF
-    capture: whether the 128-bit service UUID is in the ADV packet, and
-    the manufacturer company_id (both RE scripts accept any).
+    govee-ble-plugs plugs.py @ 2cf65db). The manufacturer company_id is
+    app-confirmed (0xEC88 = 60552; recorded in the identification and
+    discovery blocks). Two items still want a single nRF capture: whether
+    the 128-bit service UUID is in the ADV packet, and whether a plug uses
+    the leading-version-byte broadcast layout that makes hosts report
+    0x88XX — that layout is confirmed on Govee lights, not on a plug.
 
   identification:
     service_uuids:
       - "00010203-0405-0607-0809-0a0b0c0d1910"
+    local_name_prefixes:
+      # The three forms the two RE implementations actually record. Other
+      # family members are expected to follow one of the same two shapes
+      # (ihoment_H<sku>_… legacy, GVH<sku>… modern) but are not listed
+      # until a name is observed.
+      - "ihoment_H5080"
+      - "ihoment_H5082"
+      - "GVH5086"
+    manufacturer_data:
+      company_id: 60552
+      company_id_hex: "0xEC88"
+      additional_company_ids: [34818, 34819, 34883]
+      description: >
+        The app's broadcast parser requires the bytes 88 EC in the
+        manufacturer-specific AD structure (= company 0xEC88 / 60552 when
+        they lead the payload). A leading broadcast-version byte shifts
+        them to payload offset 1, making host stacks report 0x88XX
+        instead — 0x8802, 0x8803 and 0x8843 are the values seen on Govee
+        lights (2026-08-22), listed here because the broadcast layout is
+        shared across Govee families, not because they were observed on a
+        plug. Match on the bytes at payload offset 0 or 1, not on the
+        parsed company id. A previous revision of this spec claimed
+        63678, which appears in no source.
 
   discovery:
     methods:
       - type: "ble_scan"
         ble:
           local_name:
-            match: "prefix"
-            value: "ihoment_H5080"
+            match: "regex"
+            value: "^(ihoment_H5080|ihoment_H5082|GVH5086)"
           # Both RE implementations discover by local-name prefix
           # (ihoment_H5080_…, ihoment_H5082_…, GVH5086…); whether the
           # 128-bit service UUID below is actually in the ADV packet is
           # unverified (needs one capture).
           service_uuids:
             - "00010203-0405-0607-0809-0a0b0c0d1910"
-          # manufacturer_data: Govee parses goodsType from the
-          # manufacturer-specific scan-record bytes (app
-          # BleUtil.parseBleBroadcastPact). Plug goodsTypes: 43=single,
-          # 50 & 307=dual, 90=triple. Last byte = on/off state
-          # (0x00/0x01; dual: bit0=right, bit1=left). The company_id is
-          # unverified — no source records it (a previous revision of
-          # this spec claimed 63678, which appears in no source); both
-          # RE scripts accept any manufacturer ID.
+          manufacturer_data:
+            company_id: 60552
+            additional_company_ids: [34818, 34819, 34883]
+            description: >
+              Company id app-confirmed: the app's broadcast parser
+              requires the bytes 88 EC in the manufacturer-specific AD
+              structure, and reads goodsType as 2 bytes big-endian
+              immediately after them (AD payload offsets 3-4 in the
+              layout that carries a leading broadcast-version byte, 2-3
+              in the one that does not). That version byte is why hosts
+              may report company 0x88XX instead of 0xEC88 — match the
+              88 EC bytes at payload offset 0 or 1. Plug goodsTypes:
+              43=single, 50 & 307=dual, 90=triple. Last byte = on/off
+              state (0x00/0x01; dual: bit0=right, bit1=left).
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -201,15 +235,15 @@ services:
           [read, write-without-response] per H5080.md). 20-byte binary
           packets; requires 33B2 authentication first — unauthenticated
           3301 commands are ignored.
-          The on/off byte encodes port + state (APK CmdTurn.java /
-          SwitchControllerV2): bits 0-3 on-state per port (1=port0,
+          The on/off byte encodes port + state (from the app's
+          switch controller): bits 0-3 on-state per port (1=port0,
           2=port1, 4=port2, 15=all), bits 4-7 port selector (0x10=port0,
           0x20=port1, 0x40=port2, 0xF0=all).
           Example: byte 0x11 = port 0 on (0x10 | 0x01)
                    byte 0x22 = port 1 on (0x20 | 0x02)
                    byte 0x10 = port 0 off (0x10 | 0x00)
           The single-plug H5080 is driven with the all-ports form:
-          0xFF on / 0xF0 off (app: SwitchControllerV2(z, 15)).
+          0xFF on / 0xF0 off.
         commands:
           turn_on:
             description: "Turn outlet on (single-plug H5080, all-ports selector). Full frame: 33 01 ff 00×16 cd."
@@ -247,13 +281,28 @@ services:
             verification: "confirmed"
             value: [0xAA, 0xB1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1B]
           authenticate:
-            description: "33B2 <16-byte key>: authenticate this connection. Required before 3301 is honored; the app sends it immediately before every switch command (Model4Plug2.java)."
+            description: "33B2 <16-byte key>: authenticate this connection. Required before 3301 is honored; the app sends it immediately before every switch command. Full frame: 33 B2 <16 key bytes> 00 <xor>."
             encoding: "bytes"
             verification: "confirmed"
-            template: [0x33, 0xB2, "{key}", "{checksum}"]
+            fixed_length: 20
+            template: [0x33, 0xB2, "{key}", 0x00, "{checksum}"]
+            packet_layout:
+              "0": "0x33, set prefix"
+              "1": "0xB2, authenticate"
+              "2": "key, 16 bytes as read back from AAB1, bytes 2 to 17"
+              "18": "zero padding"
+              "19": "XOR of bytes 0 to 18"
             parameters:
-              key: { type: "bytes" }
-              checksum: { type: "uint8" }
+              key:
+                type: "bytes"
+                min_length: 16
+                max_length: 16
+                description: "The static 16-byte device key read with AAB1 while the physical button is held. Plugs use a 16-byte key; the Govee light families use an 8-byte one on the same AAB1/33B2 mechanism."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
 
 features: []
   # switch_control omitted — not in schema feature enum.
@@ -278,12 +327,19 @@ helpful_urls:
     description: >-
       Community protocol notes for Govee devices. H5080.md is the document this spec's UUIDs and
       frames were verified against.
+  - title: "LaggAt/hacs-govee (HACS)"
+    url: "https://github.com/LaggAt/hacs-govee"
+    description: >-
+      HACS Govee integration covering the cloud-API switches/plugs; no Home Assistant integration
+      speaks this BLE protocol directly yet.
 
 # RESOLVED (2026-07 verification, see research/govee-h5080-plug/CONFIRMATION.md):
 # wire format is 20-byte binary (not JSON), notify is on …2b10, single-plug
 # on/off is 0xFF/0xF0, and a button-gated token auth (AAB1/33B2) exists.
 # TO VALIDATE (still open):
 # - nRF capture: is the 128-bit service UUID in the ADV packet?
-# - nRF capture: manufacturer_data company_id (63678 appears in no source)
+# - nRF capture: confirm 0xEC88 / the 0x88XX version-byte form on a plug
+#   (app-confirmed and shared across Govee families, not yet seen on this
+#   hardware; 63678 appears in no source and is not it)
 # - Confirm H5085 Matter commissioning flow
 # - Factory reset procedure and what it clears

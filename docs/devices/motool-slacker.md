@@ -2,12 +2,12 @@
 
 > **Status**: In Progress
 > **Protocol**: BLE
-> **Manufacturer**: MoTool
-> **Manufacturer Status**: Server-dependent (subscription paywall on app features)
+> **Manufacturer**: Slacker LLC (formerly MoTool)
+> **Manufacturer Status**: Active (subscription gates app cloud features only; device control is local)
 
 ## Overview
 
-Digital motorcycle suspension sag measurement tool (V4/V5). Attaches to fork or shock and communicates over BLE to the companion Flutter app. The manufacturer added a subscription paywall (via RevenueCat) to the "Virtual Remote" feature, which allows triggering sag measurements from the phone instead of physically pressing the device button. The goal is to reverse engineer the BLE serial protocol to restore open virtual remote functionality.
+Digital motorcycle suspension sag measurement tool (V4/V5). Attaches to fork or shock and communicates over BLE to the companion Flutter app. Basic device control is NOT paywalled: the standalone "Slacker Virtual Remote" app is 100% free with full Reset/Auto Zero/display control, and the Service Assistant subscription (via RevenueCat) only gates cloud/notes/multi-bike features. The goal is to reverse engineer the BLE serial protocol so the device can be driven by any local client without the vendor app or cloud.
 
 The device uses a standard HM-10/HM-19-style BLE UART module (CC2541/CC2640 based), so the protocol is serial pass-through over a single BLE characteristic. All command construction is in Dart AOT-compiled code (`libapp.so`), so exact command bytes need HCI snoop capture confirmation.
 
@@ -42,7 +42,7 @@ The device uses a standard HM-10/HM-19-style BLE UART module (CC2541/CC2640 base
 
 ### Known Commands (from Dart string analysis)
 
-The app sends commands to the device via writes to `FFE1` and receives responses via notifications. From AOT binary string extraction:
+The app sends commands to the device via writes to `FFE1` and receives responses via notifications. From AOT binary string extraction (Service Assistant v7.1.0, `libapp.so`):
 
 | Command | Description | Direction |
 |---------|-------------|-----------|
@@ -50,6 +50,8 @@ The app sends commands to the device via writes to `FFE1` and receives responses
 | Auto Zero | Zero/tare the sensor reading | Phone -> Device |
 | Display Mode Change | Switch between mm and percentage display | Phone -> Device |
 | Travel Selection | Set fork/shock travel for percentage calculation | Phone -> Device |
+
+Write path (derived from the snapshot string table): commands are assembled as hex strings (`buildTravelHex` / `hexBuilder` / `masterHexValue`; debug logs "Hex Builder Travel Hex String Data", "Wrote Travel Hex String Data"), decoded to bytes with the `package:convert` HexDecoder, and written to `FFE1` via flutter_blue. Device->app traffic arrives as `FFE1` notifications parsed into `deviceState` / `mtbMode` / `currentReadingInt`. The exact command byte sequences are NOT statically recoverable (see Next Steps) and are deliberately not listed here — do not invent opcodes.
 
 ### Data Model (from Dart strings)
 
@@ -76,22 +78,23 @@ The app tracks these measurement values:
 
 | Component | Technology |
 |-----------|-----------|
+| App analyzed | Service Assistant v7.1.0 (versionCode 710, targetSdk 35; XAPK, armeabi-v7a only) |
 | Framework | Flutter (Dart AOT-compiled) |
-| BLE Plugin | flutter_blue (pauldemarco) |
-| Subscription | RevenueCat v9.2.0 (Google Play + Amazon IAP) |
+| BLE Plugin | flutter_blue (pauldemarco) — confirmed via `plugins.pauldemarco.com/flutter_blue/methods` channel string |
+| Subscription | RevenueCat (Google Play + Amazon IAP; paywall/customer-center activities in AndroidManifest.xml) |
 | Backend | Firebase (Firestore, Auth, Messaging) |
 | Firebase Project | motool-service-assistant |
 
 ### Subscription/Paywall
 
-The "Virtual Remote" feature is gated by RevenueCat entitlements. The paywall check and entitlement identifier are in the compiled Dart code. Subscription plans include: Weekly, Monthly, Bimonthly (2-month), Quarterly (3-month), Semiannual (6-month), Annual, and Lifetime.
+The Service Assistant subscription is gated by RevenueCat entitlements, but it only covers cloud/notes/multi-bike features — the standalone Slacker Virtual Remote app provides full basic device control for free. Subscription plans include: Weekly, Monthly, Bimonthly (2-month), Quarterly (3-month), Semiannual (6-month), Annual, and Lifetime.
 
 The BLE protocol itself has no authentication or subscription check — the paywall is entirely app-side.
 
 ### Next Steps
 
-1. **HCI snoop capture**: Record a BLE session during sag measurement to capture exact command bytes
-2. **Dart snapshot analysis**: Use `darter` or `reFlutter` to extract Dart symbols from `libapp.so`
+1. **HCI snoop capture**: Record a BLE session during sag measurement to capture exact command bytes (practical route)
+2. **Dart AOT snapshot analysis**: attempted 2026-08-18 — the snapshot is fully position-independent (no ELF relocations); heap objects in `.rodata` are serialized clusters and constants are referenced through the string table by index, so recovering the command-building logic needs a full Dart cluster deserializer. Existing tools (blutter, Doldrums) target ARM64 only, and this app ships armeabi-v7a only.
 3. **BLE proxy**: Use nRF Connect or a BLE proxy to intercept and replay commands
 4. **Protocol documentation**: Once command bytes are known, document the full serial protocol
 
@@ -105,7 +108,7 @@ The BLE protocol itself has no authentication or subscription check — the payw
 ## References
 
 - [Google Play: MoTool](https://play.google.com/store/apps/details?id=co.motool.serviceassistant)
-- [MoTool Website](https://motool.com)
+- [Slacker Website](https://getslacker.com) (legacy motool.com is dead; motool.co, used by the app's support links, 301-redirects to getslacker.com as of 2026-08-18)
 
 ## Contributors
 

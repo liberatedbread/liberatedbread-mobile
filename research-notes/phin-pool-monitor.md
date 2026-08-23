@@ -24,21 +24,21 @@ phone app) are its BLE clients.
 
 ## BLE details recovered (jadx triage of base APK)
 The app runs a foreground `PhinBleService` that scans for pHin devices and builds
-monitor objects **directly from BLE advertisement bytes** (`b3/b.java` parses five
+monitor objects **directly from BLE advertisement bytes** (an advertisement parser reads five
 packed 32-bit fields from the advert, plus an 8-byte calibration record with
 bit-packed mV-style values scaled /10). This strongly suggests the floater
 broadcasts raw sensor data in advertisements — i.e. readings can be sniffed
 passively, no pairing or cloud needed.
 
-### pHin monitor UUIDs (`a3/c.java`, "PhinMonitor.java")
+### pHin monitor UUIDs (from the app's monitor class)
 | UUID | Role |
 |------|------|
-| `0000fe63-0000-1000-8000-00805f9b34fb` | 16-bit service UUID (advertised; scan filter, also in `f3/c.java` as `fffffe63-...`) |
+| `0000fe63-0000-1000-8000-00805f9b34fb` | 16-bit service UUID (advertised; scan filter, also in the app as `fffffe63-...`) |
 | `3206152c-76fd-4996-952b-2a1be2cb9450` | Characteristic (field `G`) |
 | `32061527-76fd-4996-952b-2a1be2cb9450` | UUID referenced (likely monitor service) |
 | `32061523-76fd-4996-952b-2a1be2cb9450` | UUID referenced (characteristic) |
 
-### pHin bridge UUIDs (`a3/a.java`, "PhinBridge.java")
+### pHin bridge UUIDs (from the app's bridge class)
 | UUID | Role |
 |------|------|
 | `c92c815e-a812-4b99-896e-87cd27720000` | Bridge service |

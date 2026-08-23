@@ -27,7 +27,7 @@ ble:
   services:
     - uuid: "0000fd00-0000-1000-8000-00805f9b34fb"
       name: legacy_kettlebell_service
-      source: LegacyKettleBellManager.java
+      source: the app's legacy kettlebell manager
       characteristics:
         - uuid: "0000fd19-0000-1000-8000-00805f9b34fb"
           name: legacy_kb_char1
@@ -37,7 +37,7 @@ ble:
           description: role TBD
     - uuid: "0000fc00-0000-1000-8000-00805f9b34fb"
       name: smart_scale_service
-      source: SmartScaleManager.java
+      source: the app's smart-scale manager
       characteristics:
         - uuid: "0000fc22-0000-1000-8000-00805f9b34fb"
           name: scale_char1
@@ -46,7 +46,7 @@ ble:
     - uuid: "6e40fe01-b5a3-f393-e0a9-e50e24dcca9e"
       name: foamroller_uart_service
       description: Nordic-UART-style service for FoamRollerConnect
-      source: FoamRollerManager.java
+      source: the app's foam-roller manager
       characteristics:
         - uuid: "6e408e02-b5a3-f393-e0a9-e50e24dcca9e"
           name: foamroller_char1

@@ -168,3 +168,6 @@ helpful_urls:
   - url: "https://www.rapid7.com/blog/post/2019/02/01/ubiquiti-discovery-service-exposures/"
     title: "Rapid7 — Ubiquiti discovery service"
     description: "Packet layout (01 00 00 00 probe) and TLV offsets."
+  - url: "https://www.home-assistant.io/integrations/unifi/"
+    title: "Home Assistant UniFi Network integration"
+    description: "HA core integration against the UniFi controller that adopts and manages these devices."

@@ -28,7 +28,7 @@ location-based hearing profiles, tap-touch remapping, EQ. Companion app: "IQbuds
 ## Key finding: control is Qualcomm GAIA, not BLE GATT
 The buds' control channel in the app is `com.nuheara.gaialibrary` — Qualcomm GAIA
 over Bluetooth Classic SPP/RFCOMM (SPP `00001101-...`, GAIA service UUID
-`00001107-d102-11e1-9b23-00025b00a5a5` in `GaiaLink.java`). BLE in this app is used
+`00001107-d102-11e1-9b23-00025b00a5a5` in the app). BLE in this app is used
 only for the **IQstream TV** accessory:
 - IQstream service `7cb85d00-15cc-48a2-ad50-3c59eb3a785d`
   (audio status `7cb85d01-...`, device link info `7cb85d02-...`, statistics `7cb85d05-...`)
@@ -40,7 +40,7 @@ buds means GAIA over classic — which is good news: GAIA is a publicly document
 Qualcomm protocol and open-source host-side implementations exist.
 Whether IQbuds² MAX (BT 5.0) also exposes GAIA-over-BLE needs a live scan.
 
-- Advertising/pairing name prefix: `"IQbuds"` (`IQBudsScanner.java`,
+- Advertising/pairing name prefix: `"IQbuds"` (from the app's scanner,
   device names iqbuds / iqbudsboost / iqbudsmax / iqbuds2max).
 - Command model: `NuhearaCommands`, `NuhearaPacket`, `NuhearaPayloadParser`,
   payload classes for audiogram, live EQ, location profiles, tap-touch, favourites.
@@ -56,7 +56,7 @@ in-app for later models (`IQBudsOTAManager`).
   RE found — vendor command IDs (in `NuhearaCommands`) are the value-add here.
 
 ## Open questions
-- GAIA vendor ID and the full vendor-command map (readable in `NuhearaCommands.java`).
+- GAIA vendor ID and the full vendor-command map (readable in the app).
 - Does IQbuds² MAX expose a BLE control path at all? Needs nRF Connect scan.
 - EarID self-fit may involve server-validated profiles? (Evidence says local.)
 

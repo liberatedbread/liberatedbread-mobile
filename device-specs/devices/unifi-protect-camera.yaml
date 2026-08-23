@@ -203,3 +203,6 @@ helpful_urls:
   - url: "https://help.ui.com/hc/en-us/articles/217879287-UniFi-Protect-RTSP-Streaming"
     title: "Ubiquiti — UniFi Protect RTSP streaming"
     description: "How to enable RTSP per camera; the 7447/7441 stream ports."
+  - url: "https://www.home-assistant.io/integrations/unifiprotect/"
+    title: "Home Assistant UniFi Protect integration"
+    description: "HA core integration over the local Protect API documented here (built on the uiprotect library)."

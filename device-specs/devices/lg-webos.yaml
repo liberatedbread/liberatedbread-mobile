@@ -593,6 +593,13 @@ entities:
     icon: "mdi:power"
     commands:
       turn_off: "power_off"
+    notes: >
+      Off only, and there is no turn_on to add: ssap://system/turnOn left the
+      firmware years ago, and the WebSocket is down in standby, so power-on is
+      Wake-on-LAN — which this file has no vocabulary for. No power state is
+      readable either; an unreachable socket is the closest thing to "off"
+      webOS offers. A consumer should render this as a one-way off, not as a
+      switch whose on side is broken.
   - platform: "button"
     name: "Power Off"
     icon: "mdi:power"

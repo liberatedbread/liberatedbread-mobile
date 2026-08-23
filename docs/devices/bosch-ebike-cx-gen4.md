@@ -124,6 +124,7 @@ have somewhere to land as they are confirmed, not because the protocol is unders
 - [bosch-nerds/ebike — CAN bus reverse engineering (git.cccfr.de)](https://git.cccfr.de/bosch-nerds/ebike)
 - [Hackaday — an open-source ebike motor controller](https://hackaday.com/2023/11/08/an-open-source-ebike-motor-controller/)
 - Pedelecforum.de — additional community findings, largely undocumented in repo form
+- [Xunil99/ha-bosch-ebike — HACS integration for the Bosch Smart System](https://github.com/Xunil99/ha-bosch-ebike)
 
 ## Contributors
 

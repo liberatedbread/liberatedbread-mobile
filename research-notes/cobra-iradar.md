@@ -20,13 +20,13 @@ and the (cloud) AURA camera database. Local control needs no account.
 - jadx triage → `$REPO/workspace/static/cobra-iradar/`
 
 ## Static findings (triage)
-- `com/escortLive2/bluetooth/ConnectAsClientThread.java`: RFCOMM via
+- The app's client-connect thread: RFCOMM via
   `createInsecureRfcommSocketToServiceRecord` with **SPP UUID
   `00001101-0000-1000-8000-00805f9b34fb`** (insecure socket — no pairing auth
   dependency beyond standard pairing).
-- `com/escortLive2/bluetooth/protocol/PacketProcessing.java`: frame parser
+- Its packet-processing layer: frame parser
   keys on byte value **85 (0x55)** as preamble — matches community RE below.
-- `UartService.java` also present (some newer detectors are BLE; the iRAD 900
+- A BLE UART service class is also present (some newer detectors are BLE; the iRAD 900
   generation is classic SPP — verify per model).
 
 ## Community RE: protocol documented

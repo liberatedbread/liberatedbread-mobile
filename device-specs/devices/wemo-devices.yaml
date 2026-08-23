@@ -1208,7 +1208,7 @@ discovery_catalog:
       url: "https://github.com/iancmcc/ouimeaux"
       role: "Legacy Python Wemo implementation and pywemo lineage."
     apk:
-      path: "wemo-apk/decoded/assets/www/widgets/"
+      location: "The app's bundled WebView widget tree (one directory per device type); the decoded APK itself is not committed."
       first_level_widget_dirs_observed: 45
       relevant_device_widgets:
         - "wemo_mini"
@@ -1373,12 +1373,60 @@ soap_common:
     smartsetup:
       service_type: "urn:Belkin:service:smartsetup:1"
       control_url: "/upnp/control/smartsetup1"
+      actions: ["PairAndRegister", "GetRegistrationData", "GetRegistrationStatus"]
+      action_details:
+        PairAndRegister:
+          args_in: ["PairingData", "RegistrationData"]
+          args_out: ["PairingStatus"]
+          description: >
+            One-shot provisioning + cloud registration: the in-args carry the
+            WiFi credentials as PairingData XML
+            (<PairingData><ssid><![CDATA[...]]></ssid><auth>..</auth><password>..</password><encrypt>..</encrypt><channel>..</channel></PairingData>,
+            password encrypted exactly as for ConnectHomeNetwork) and the
+            account binding as RegistrationData XML
+            (<RegistrationData><DeviceId>..</DeviceId><DeviceName><![CDATA[...]]></DeviceName><SetupToken>..</SetupToken><GroupId>..</GroupId></RegistrationData>;
+            a second layout swaps in <smartprivateKey> and <ReUnionKey>). The
+            account half needs the defunct Belkin cloud, so post-shutdown
+            provisioning uses WiFiSetup#ConnectHomeNetwork instead.
+        GetRegistrationData:
+          args_in: ["SmartDeviceData"]
+          args_out: ["RegistrationData"]
+          description: >
+            Reads the device's cloud registration blob (returns
+            pluginprivateKey, smartprivateKey, homeId and a statusCode).
+        GetRegistrationStatus:
+          args_out: ["RegistrationStatus", "StatusCode"]
+          description: >
+            Poll after PairAndRegister. The app retries while
+            RegistrationStatus is 'F' and StatusCode is 'RETRY', every 10 s
+            for up to 60 s, before giving up on registration (the LAN join
+            itself has already succeeded or failed by then).
       availability: >
-        Undocumented service seen in real-hardware captures (pywemo VCR
-        cassettes) alongside WiFiSetup:1 on the light switch, Maker, outdoor
-        plug and humidifier. Its action surface is not yet mapped; it is
-        suspected to be the newer-generation provisioning surface. Resolve the
-        controlURL from setup.xml like any other service.
+        Seen in real-hardware captures (pywemo VCR cassettes) alongside
+        WiFiSetup:1 on the light switch, Maker, outdoor plug and humidifier.
+        Action list and arguments above come from the Crock-Pot's own
+        /smartsetup.xml SCPD (research store: wemo-devices/captures/
+        crockpot_setup_capture.yaml) and the Wemo app v1.30.2, whose setup
+        flow drives exactly these three actions. Resolve the controlURL from
+        setup.xml like any other service.
+    remoteaccess:
+      service_type: "urn:Belkin:service:remoteaccess:1"
+      control_url: "/upnp/control/remoteaccess1"
+      actions: ["RemoteAccess"]
+      action_details:
+        RemoteAccess:
+          args_in: ["DeviceId", "dst", "HomeId", "DeviceName", "MacAddr", "pluginprivateKey", "smartprivateKey", "smartUniqueId", "numSmartDev"]
+          args_in_app_variant: ["DeviceId", "dst", "HomeId", "DeviceName", "pluginprivateKey", "smartprivateKey", "smartUniqueId", "DeviceAuthHeader"]
+          args_out: ["ArpMac"]
+          description: >
+            Enables cloud remote access and returns the key material for it
+            (statusCode 'S'/'F' plus homeId and per-phone private keys in the
+            response blob). Dead end post-shutdown — documented so the service
+            is recognisable in a serviceList, not because it still works.
+      availability: >
+        Present in the Crock-Pot and Bridge SCPDs with SCPDURL
+        /remoteaccess.xml. The app's in-argument list differs slightly by
+        firmware generation (both orders recorded above).
   eventing:
     description: >
       Wemo devices push state changes over standard UPnP eventing, to the

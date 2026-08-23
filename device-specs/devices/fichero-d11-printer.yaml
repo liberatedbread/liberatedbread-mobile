@@ -17,12 +17,11 @@ device:
     preferred transport.
 
     PROTOCOL: exposes 4 BLE UART services that are functionally
-    interchangeable for printing. The vendor app (com.lj.fichero v1.1.17)
-    uses only service 0xFF00: it connects, picks the service whose UUID
+    interchangeable for printing. The vendor app uses only service 0xFF00: it connects, picks the service whose UUID
     starts with 0000ff00, takes the writable characteristic (0xFF02) and
     two notify characteristics (0xFF01 responses, 0xFF03 credit/MTU
-    flow control); no 0x18F0 reference exists anywhere in the app
-    (jadx l3/C0401a.java:55-73). The 0x18F0 service (write 0x2AF1,
+    flow control); no 0x18F0 reference exists anywhere in the app.
+    The 0x18F0 service (write 0x2AF1,
     notify 0x2AF0) is the one third-party client 0xMH/fichero-printer
     treats as primary, and it also works. Info and config commands use
     the AiYin command format (10 FF prefix). Raster printing uses
@@ -42,14 +41,11 @@ device:
     Bit2=no paper, Bit3=low battery, Bit4=overheated(alt), Bit5=charging,
     Bit6=overheated. 0x00 = ready.
 
-    COMMANDS (10 FF family; newly evidenced in v1.1.17 app, app-confirmed
-    not hardware-tested): paper type 10 FF 84 nn
-    (aiyin/AiYinNormalDevice.java:74 setLabelPaper); density
-    10 FF 10 00 nn (normal/base/BaseNormalDevice.java:646 setDensityLuck);
-    battery query 10 FF 50 F1 (BaseNormalDevice.java:395 getBatteryLuck);
-    model 10 FF 20 F0 / version 10 FF 20 F1 / serial number 10 FF 20 F2
-    (BaseNormalDevice.java:595 printerModelLuck, :620 printerVersionLuck,
-    :605 printerSNLuck).
+    COMMANDS (10 FF family; newly evidenced in the current vendor app,
+    app-confirmed not hardware-tested): paper type 10 FF 84 nn (its
+    set-label-paper call); density 10 FF 10 00 nn (set-density); battery
+    query 10 FF 50 F1; model 10 FF 20 F0 / version 10 FF 20 F1 / serial
+    number 10 FF 20 F2 (its model, version and serial-number queries).
 
     SUPPORTED: Any of the 4 UART services works. The vendor app uses
     0xFF00; 0x18F0 is the functional alternate used by third-party
@@ -57,15 +53,15 @@ device:
 
     CONFIDENCE: HIGH for all info/config commands (verified against D11s
     hardware with firmware 2.4.6), the print sequence, raster format, and
-    status bitmask. Sourced from 0xMH/fichero-printer — reverse-engineered
-    from the Fichero APK v1.1.5 via jadx decompilation — and re-verified
-    against the newer v1.1.17 APK for the 0xFF00 service selection, 0xFF03
+    status bitmask. Sourced from 0xMH/fichero-printer — itself
+    reverse-engineered from an older build of the vendor app — and
+    re-verified against the current app for the 0xFF00 service selection, 0xFF03
     credit/MTU flow control, the added 10 FF opcodes, and the OTA flow
     (all app-confirmed, not hardware-tested).
 
-    ECOSYSTEM: the Fichero Printer app (com.lj.fichero) is a Karsten
-    International white label of the LuckPrinter SDK app; sibling rebrands
-    include Pocket Printer (com.printer.lidloffice, Lidl) and "Luck Jingle".
+    ECOSYSTEM: the Fichero Printer app is a Karsten International white
+    label of the LuckPrinter SDK app; sibling rebrands include Lidl's Pocket
+    Printer and "Luck Jingle".
     The L13 sibling (sold by Lidl as Silvercrest, same OEM) was independently
     reverse-engineered by atctwo and confirms the command family on real
     hardware: YiChip YC3121-D MCU, FCC ID 2A6FW-L13, and a USB-C port that
@@ -73,8 +69,8 @@ device:
     (10 FF E0 AA AA to enter update mode, then 1B 10-framed 256-byte
     chunks) is documented in 0xMH's PROTOCOL.md; that writeup is an
     accurate transcription of the vendor app's update flow (app-confirmed
-    in v1.1.17: UpdatePrinterESC.java:58,64 and :141-156;
-    DataAnalyzeESC.java:9-43), still not hardware-tested. No public
+    in the current app's firmware-update and response-parsing paths), still
+    not hardware-tested. No public
     firmware images exist.
 
   identification:
@@ -167,9 +163,8 @@ services:
   - uuid: "0000ff00-0000-1000-8000-00805f9b34fb"
     name: "Fichero UART Service (Vendor Primary)"
     notes: >
-      Service used by the vendor app (com.lj.fichero v1.1.17; the app
-      selects the service whose UUID starts with 0000ff00,
-      l3/C0401a.java:55-56). All commands are written to 0xFF02;
+      Service used by the vendor app (it selects the service whose UUID
+      starts with 0000ff00). All commands are written to 0xFF02;
       responses arrive as notifications on 0xFF01; 0xFF03 is a
       credit/MTU flow-control notify channel. Use the AiYin-class
       enable/stop commands: 10 FF FE 01 / 10 FF FE 45.
@@ -179,36 +174,34 @@ services:
         properties: ["write"]
         notes: >
           Write channel (the app picks the characteristic with the write
-          property in this service, l3/C0401a.java:60-62). The vendor app
-          writes in packets of onePackSize bytes (default 20, raised after
-          MTU negotiation, l3/C0406f.java:56,260-283), paced by credits
+          property in this service). The vendor app writes in packets of
+          onePackSize bytes (default 20, raised after MTU negotiation),
+          paced by credits
           received on 0xFF03.
       - uuid: "0000ff01-0000-1000-8000-00805f9b34fb"
         name: "Notify"
         properties: ["notify"]
         notes: >
-          Notification channel for responses (l3/C0401a.java:64-65).
-          Subscribe before sending commands. Responses are ASCII strings
+          Notification channel for responses. Subscribe before sending
+          commands. Responses are ASCII strings
           or binary status bytes.
       - uuid: "0000ff03-0000-1000-8000-00805f9b34fb"
         name: "Notify (Credit/MTU)"
         properties: ["notify"]
         notes: >
           Credit/MTU flow-control channel (app-confirmed in v1.1.17, not
-          hardware-tested). Named notifyCreditCharacteristic in the app
-          (l3/C0401a.java:66-67,83-84). A 2-byte message starting with
-          0x01 adds that many send credits (l3/C0404d.java:47-51); a
-          3-byte message starting with 0x02 carries the device's
-          requested MTU, which the app negotiates upward
-          (l3/C0404d.java:63-75). The write loop blocks until credit > 0
-          and spends one credit per packet (l3/C0406f.java:241-284).
+          hardware-tested). Named notifyCreditCharacteristic in the app.
+          A 2-byte message starting with 0x01 adds that many send
+          credits; a 3-byte message starting with 0x02 carries the device's
+          requested MTU, which the app negotiates upward. The write loop
+          blocks until credit > 0 and spends one credit per packet.
           Also enumerated on the L13 sibling.
 
   - uuid: "000018f0-0000-1000-8000-00805f9b34fb"
     name: "Fichero UART Service (Third-Party Primary)"
     notes: >
       Functional alternate BLE UART service. Never referenced by the
-      vendor app (no 18f0 occurrence in its decompiled sources); it is
+      vendor app (no 18f0 occurrence anywhere in it); it is
       the service the third-party client 0xMH/fichero-printer treats as
       primary, and it works on real hardware. All commands are written
       to 0x2AF1; responses arrive as notifications on 0x2AF0. Use the
@@ -222,8 +215,7 @@ services:
           Third-party client 0xMH sends raster data in 200-byte chunks
           with 20ms delay between chunks; the vendor app instead writes
           20-byte packets (default, growing with the negotiated MTU)
-          paced by 0xFF03 credits on service 0xFF00
-          (l3/C0406f.java:56,241-284).
+          paced by 0xFF03 credits on service 0xFF00.
 
       - uuid: "00002af0-0000-1000-8000-00805f9b34fb"
         name: "Notify"

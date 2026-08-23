@@ -85,6 +85,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Android Wireless-ADB Device](android-adb-wireless.md) | mDNS / DNS-SD | Identify-only (untested) | None needed | Various (Android 11+) |
 | [Chamberlain Garage Opener (Security+)](chamberlain-garage-opener-secplus.md) | UART | Complete (needs bridge) | ratgdo/Konnected bridge | Chamberlain |
 | [ratgdo Garage-Door Controller](ratgdo.md) | WiFi (ESPHome) | Complete (untested) | Flash + wire to opener | ratgdo / Konnected |
+| [ESPHome Node (generic)](esphome-device.md) | WiFi (ESPHome REST/SSE + native API) | Complete (untested) | Owner-flashed; captive portal / Improv (medium) | Various (ESPHome open firmware) |
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Wired + cloud account (low) | Samsung SmartThings |
 | [devolo Home Control](devolo-home-control.md) | Z-Wave | Spec Available | Exclude/re-include to any Z-Wave controller (medium) | devolo AG |
 | [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Pairing (medium) | Generic / ScanTool / Vgate |
@@ -98,6 +99,34 @@ spec's `device.setup` block; the patterns are explained in
 | [NIU Electric Scooter](niu-escooter.md) | Cloud HTTP + BLE | Research | Cloud account only (low) | Niu Technologies |
 | [WLED Addressable LED Controller](wled-controller.md) | WiFi | Complete | SoftAP portal (medium) | WLED project (open firmware) |
 | [Rabbit Air Purifiers](rabbit-air-purifier.md) | WiFi (UDP 9009) | Complete | BLE-assisted / SoftAP via vendor app (medium) | Rabbit Air (vendor publishes the LAN library) |
+| [Beurer PO60 Pulse Oximeter](beurer-po60-pulse-oximeter.md) | BLE | Spec Available | BLE passkey bonding (medium) | Beurer |
+| [Beurer Series 800 (BM92) Blood Pressure Monitor](beurer-series800-blood-pressure.md) | BLE (standard BP profile) | Spec Available | BLE bonding (medium) | Beurer |
+| [Hyperice Hypervolt Plus](hyperice-hypervolt-plus.md) | BLE | Spec Available | None needed | Hyperice |
+| [BIO-key TouchLock Fingerprint Locks](biokey-touchlock-fingerprint-lock.md) | BLE | Spec Available | BLE enrollment (medium) | BIO-key / Champion OEM |
+| [Safetech Quicklock Padlock](safetech-smart-padlock.md) | BLE | Spec Available | Static password (low) | Safetech (defunct) / Itonsoft OEM |
+| [TIRO LED Helmet Display](led-helmet-display.md) | BLE | Spec Available | None needed | TIRO / Heaton |
+| [Yeelight Cube Lamp](yeelight-cube-lamp.md) | WiFi (LAN TCP 55443) + Matter | Spec Available | App / Matter commissioning (medium) | Yeelight (Yeelink) |
+| [Tuya Wi-Fi Gas Sensor (rqbj family)](tuya-wifi-gas-sensor.md) | WiFi (Tuya LAN TCP 6668) | Spec Available | Tuya pairing + local-key extraction (medium) | Tuya OEM |
+| [June Oven](june-oven.md) | WiFi (cloud-only, no local surface) | Research | Cloud account — shutdown 2026-09-22 (low) | June Life / Weber |
+| [Brava Oven](brava-oven.md) | WiFi (cloud-only, no local surface) | Research | Cloud account — vendor defunct, cloud zombie (low) | Brava / Middleby |
+| [iPixel Color LED Panels](ipixel-color-led-panel.md) | BLE | Spec Available | None needed | TIRO / Heaton (JTPD-03-011, HCZ-001/002 SKUs) |
+| [Triones / HappyLighting LED Strips](qh-happylighting-led-strips.md) | BLE | Spec Available | None needed | Qianghe (QHM) |
+| [Tuya Bluetooth Soil Tester](tuya-bt-soil-tester.md) | BLE (encrypted GATT) | Spec Available | Tuya pairing + local key (medium) | Tuya OEM (HaiHao SGS01) |
+| [Zigbee Soil Tester (TS0601 family)](zigbee-soil-tester.md) | Zigbee | Spec Available | Any Zigbee coordinator — Z2M native (low) | Tuya OEM (GIEX/HOBEIAN/COOLO) |
+| [Vevor VT256 Thermal Imager](vevor-vt256-thermal-imager.md) | WiFi (device AP; RTSP + TCP 8080) | Spec Available | Join device AP (low) | Vevor / Hti-Xintai HT-W01 |
+| [Flowtoys Props (Connect bridge)](flowtoys-props.md) | BLE + WiFi-OSC bridge → nRF24 RF | Spec Available | None needed (bridge) | Flowtoys (open-source bridge firmware) |
+| [Enphase IQ Battery / Enpower BLE](enphase-iqbattery-ble.md) | BLE (Digi XBee 3 service) | Spec Available | SRP-6a unlock (medium) | Enphase Energy |
+| [LimitlessLED / Mi-Light WiFi Bridge](limitlessled-milight-bridge.md) | WiFi (UDP 8899 / 48899) | Spec Available | None needed | LimitlessLED / Mi-Light (High-Flying module) |
+| [Brother QL-1110NWB Label Printer](brother-ql-1110nwb.md) | WiFi (TCP 9100) + BT Classic SPP | Spec Available | On-device pairing (low) | Brother |
+| [MXW01 Cat Printer](cat-printer-mxw01.md) | BLE | Spec Available | None needed | Generic (MXW01 family) |
+| [Xiaomi Mi Scale S400](xiaomi-mi-scale-s400.md) | BLE (MiBeacon, encrypted) | Spec Available | Cloud bindkey extraction (medium) | Xiaomi / Yunmai |
+| [Veryfit 2.0 Fitness Bands](veryfit-2-fitness-band.md) | BLE | Spec Available | None needed | ID107 / Veryfit OEM |
+| [Govee H6001 Smart Bulb](govee-h6001-bulb.md) | BLE | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
+| [Govee H5080 Smart Plug](govee-h5080-plug.md) | BLE (+ Wi-Fi variants) | Spec Available | None needed (button-gated BLE auth key) | Govee (Shenzhen Intellirocks) |
+| [Govee H5075 Thermometer/Hygrometer](govee-h5075-thermo.md) | BLE | Complete | None needed | Govee (Shenzhen Intellirocks) |
+| [Govee H6101/H6104 TV Backlight](govee-h6101-backlight.md) | BLE | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
+| [Govee RGB Lights (classic)](govee-rgb-light.md) | BLE (+ Wi-Fi variants) | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
+| [Govee RGBIC / DreamColor Lights](govee-rgbic-light.md) | BLE (+ Wi-Fi variants) | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
 
 ## Not everything here was liberated
 

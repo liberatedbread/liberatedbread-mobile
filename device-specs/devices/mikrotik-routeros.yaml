@@ -150,3 +150,6 @@ helpful_urls:
   - url: "https://github.com/boundary/wireshark/blob/master/epan/dissectors/packet-mndp.c"
     title: "Wireshark MNDP dissector"
     description: "Authoritative TLV type table and big-endian framing."
+  - url: "https://www.home-assistant.io/integrations/mikrotik/"
+    title: "Home Assistant MikroTik integration"
+    description: "HA core integration (RouterOS API device tracker/presence) for this router family."
