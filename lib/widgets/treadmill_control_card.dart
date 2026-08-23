@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/entity_keys.dart';
 import '../core/error_text.dart';
 import '../core/value_format.dart';
 import '../models/ble_discovered_service.dart';
@@ -98,6 +99,46 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
 })? _resolve(DeviceSpecDto spec, List<BleDiscoveredService> services) {
   final commands = _encodableCommands(spec, services);
 
+  // The spec's entity layer wins when it declares the card's verbs: a
+  // `button` keyed (or historically named) start/pause/stop whose press
+  // action resolved on discovered hardware, and a `number` keyed speed whose
+  // set_value action did. The command-name lists below stay as the fallback
+  // for specs that predate the entity bindings.
+  final entityIndex = EntityKeyIndex<EntityDto>(
+    spec.entities,
+    keyOf: (e) => e.key,
+    nameOf: (e) => e.name,
+  );
+
+  ({String serviceUuid, String charUuid, CommandDto command})? discovered(
+      EntityActionDto? action) {
+    final commandName = action?.commandName;
+    if (action == null || commandName == null) return null;
+    for (final c in commands) {
+      if (c.charUuid.toLowerCase() ==
+              action.characteristicUuid.toLowerCase() &&
+          c.command.name == commandName) {
+        return c;
+      }
+    }
+    return null;
+  }
+
+  _ResolvedVerb? verbFromEntity(String key) {
+    final entity = entityIndex.take(key);
+    final press =
+        entity?.actions.where((a) => a.role == 'press').firstOrNull;
+    final c = discovered(press);
+    if (c == null) return null;
+    return _ResolvedVerb(c.serviceUuid, c.charUuid, c.command, const {});
+  }
+
+  final speedEntity = entityIndex.take('speed');
+  final speedAction =
+      speedEntity?.actions.where((a) => a.role == 'set_value').firstOrNull;
+  final entitySpeedEntry = discovered(speedAction);
+  final entitySpeedParam = speedAction?.userParams.firstOrNull;
+
   // Command names are a convention, not a schema field: the walking-pad specs
   // that exist today (and the FTMS standard they borrow) use these spellings,
   // so the card resolves by name, most specific first.
@@ -113,7 +154,8 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     return null;
   }
 
-  final start = byName(const [
+  final start = verbFromEntity('start') ??
+      byName(const [
     'start_belt',
     'start_or_resume',
     'start_prepared',
@@ -124,8 +166,10 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     'ur_training_continue',
     'ft_prepared',
   ]);
-  var pause = byName(const ['pause', 'training_pause', 'ur_training_pause']);
-  var stop = byName(const [
+  var pause = verbFromEntity('pause') ??
+      byName(const ['pause', 'training_pause', 'ur_training_pause']);
+  var stop = verbFromEntity('stop') ??
+      byName(const [
     'stop',
     'training_stop',
     // KingSmith's WiLink belt has no stop opcode of its own; stop_belt is the
@@ -149,23 +193,33 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
   }
 
   _ResolvedSpeed? speed;
-  final speedEntry = byName(const [
-    'set_speed',
-    'set_target_speed',
-    'set_speed_and_slope',
-    // UREVO's combined speed+slope write; its slope param defaults to 0 in the
-    // spec, so the card can drive speed alone without owning an incline.
-    'ur_set_speed_and_slope',
-  ]);
+  final speedEntry = entitySpeedEntry != null
+      ? _ResolvedVerb(entitySpeedEntry.serviceUuid, entitySpeedEntry.charUuid,
+          entitySpeedEntry.command, const {})
+      : byName(const [
+          'set_speed',
+          'set_target_speed',
+          'set_speed_and_slope',
+          // UREVO's combined speed+slope write; its slope param defaults to 0
+          // in the spec, so the card can drive speed alone without owning an
+          // incline.
+          'ur_set_speed_and_slope',
+        ]);
   if (speedEntry != null) {
-    // The speed parameter is the caller-owned one that reads as a speed —
-    // unit km/h when the spec says so, else the first caller-owned numeric
-    // parameter. Encoder-filled parameters (auto: checksum, ...) are never
-    // candidates: they carry no user intent.
+    // The speed parameter is the entity action's own (when the entity layer
+    // resolved this command), else the caller-owned one that reads as a
+    // speed — unit km/h when the spec says so, else the first caller-owned
+    // numeric parameter. Encoder-filled parameters (auto: checksum, ...) are
+    // never candidates: they carry no user intent.
     final candidates = speedEntry.command.parameters.where(
       (p) => p.auto == null && isNumericValueType(p.valueType),
     );
-    final parameter = candidates.where((p) => p.unit == 'km/h').firstOrNull ??
+    final parameter = (entitySpeedEntry != null
+            ? candidates
+                .where((p) => p.name == entitySpeedParam)
+                .firstOrNull
+            : null) ??
+        candidates.where((p) => p.unit == 'km/h').firstOrNull ??
         candidates.firstOrNull;
     if (parameter != null) {
       // A zero scale is a malformed spec (every raw value collapses to one

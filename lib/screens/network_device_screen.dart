@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/entity_icon.dart';
+import '../core/entity_keys.dart';
 import '../core/sensor_reading_level.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
@@ -1659,41 +1660,38 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// anything this layout does not know by name lands in a wrap at the
   /// bottom, so a spec addition never renders an unreachable control.
   Widget _remoteCard(List<NetworkEntityDto> buttons) {
-    final byName = {for (final entity in buttons) entity.name: entity};
-    final placed = <String>{};
-    NetworkEntityDto? take(String name) {
-      final entity = byName[name];
-      if (entity != null) placed.add(name);
-      return entity;
-    }
-
-    List<NetworkEntityDto> takeAll(List<String> names) {
-      final taken = <NetworkEntityDto>[];
-      for (final name in names) {
-        final entity = take(name);
-        if (entity != null) taken.add(entity);
-      }
-      return taken;
-    }
-
-    final power = takeAll(const ['Power On', 'Power Off']);
-    final nav = takeAll(const ['Back', 'Home']);
-    final up = take('Up');
-    final left = take('Left');
-    final ok = take('OK');
-    final right = take('Right');
-    final down = take('Down');
-    final underPad = takeAll(const ['Replay', 'Options']);
-    final transport = takeAll(const ['Rewind', 'Play/Pause', 'Fast Forward']);
-    final volume = takeAll(const ['Volume Up', 'Mute', 'Volume Down']);
-    final channel = takeAll(const ['Channel Up', 'Channel Down']);
-    final misc = takeAll(const ['Search', 'Find Remote']);
-    final inputs = takeAll(
-        const ['HDMI 1', 'HDMI 2', 'HDMI 3', 'HDMI 4', 'AV', 'Antenna']);
-    final leftover = [
-      for (final entity in buttons)
-        if (!placed.contains(entity.name)) entity,
-    ];
+    // Slots resolve by the spec's semantic `key` first, the historical
+    // display-name table second (see EntityKeyIndex) — so a keyed spec lays
+    // out correctly whatever it names its buttons, an un-keyed one keeps
+    // today's behavior, and either way an unplaced control still renders in
+    // the wrap at the foot.
+    final index = EntityKeyIndex<NetworkEntityDto>(
+      buttons,
+      keyOf: (entity) => entity.key,
+      nameOf: (entity) => entity.name,
+    );
+    final power = index.takeAll(const ['power', 'power_on', 'power_off']);
+    final nav = index.takeAll(const ['back', 'home']);
+    final up = index.take('up');
+    final left = index.take('left');
+    final ok = index.take('ok');
+    final right = index.take('right');
+    final down = index.take('down');
+    final underPad = index.takeAll(const ['replay', 'options']);
+    final transport =
+        index.takeAll(const ['rewind', 'play_pause', 'fast_forward']);
+    final volume = index.takeAll(const ['volume_up', 'mute', 'volume_down']);
+    final channel = index.takeAll(const ['channel_up', 'channel_down']);
+    final misc = index.takeAll(const ['search', 'find_remote']);
+    final inputs = index.takeAll(const [
+      'input_hdmi1',
+      'input_hdmi2',
+      'input_hdmi3',
+      'input_hdmi4',
+      'input_av',
+      'input_tuner',
+    ]);
+    final leftover = index.leftovers;
 
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;

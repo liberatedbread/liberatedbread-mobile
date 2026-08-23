@@ -468,6 +468,93 @@ void main() {
         .lastWhere((c) => c.commandName == 'ur_set_speed_and_slope');
     expect(speedCall.params.keys, ['speed']);
   });
+  testWidgets('an entity-bound verb beats the command-name list',
+      (tester) async {
+    // The spec binds Start through its entity layer to a command of its own
+    // naming — while ALSO declaring a command called start_belt that the
+    // historical name list would pick. The entity binding must win.
+    final spec = DeviceSpecDto(
+      hiddenEntityNames: const [],
+      deviceName: 'Keyed Pad',
+      manufacturer: 'Acme Fitness',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: 'treadmill',
+      localNamePrefixes: const [],
+      localNames: const [],
+      serviceUuids: const [_svc],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      defaultPort: null,
+      entities: const [
+        EntityDto(
+          options: [],
+          name: 'Start',
+          key: 'start',
+          platform: 'button',
+          canNotify: false,
+          hasFormat: false,
+          onWhenNonzero: false,
+          actions: [
+            EntityActionDto(
+              role: 'press',
+              serviceUuid: _svc,
+              characteristicUuid: _char,
+              commandName: 'vendor_go',
+              userParams: [],
+            ),
+          ],
+        ),
+      ],
+      services: const [
+        ServiceDto(uuid: _svc, name: 'svc', characteristics: [
+          CharacteristicDto(
+            uuid: _char,
+            name: 'Command write',
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+            formatFields: [],
+            commands: [
+              CommandDto(
+                name: 'start_belt',
+                description: 'The decoy the name list would pick',
+                parameters: [],
+                isFixed: true,
+                isEncodable: true,
+                unsupportedEncoding: null,
+                advanced: false,
+              ),
+              CommandDto(
+                name: 'vendor_go',
+                description: 'The entity-bound start',
+                parameters: [],
+                isFixed: true,
+                isEncodable: true,
+                unsupportedEncoding: null,
+                advanced: false,
+              ),
+            ],
+          ),
+        ]),
+      ],
+    );
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x01]));
+    await tester.pumpWidget(_wrap(ble: ble, codec: codec, spec: spec));
+
+    await tester.tap(find.text('Start'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+        of: find.byType(AlertDialog), matching: find.text('Start')));
+    await tester.pumpAndSettle();
+
+    expect(codec.encodeCalls.single.commandName, 'vendor_go');
+  });
+
 }
 
 /// A treadmill-category spec whose one write characteristic carries [commands]
