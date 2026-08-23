@@ -42,9 +42,40 @@ const MAX_FIELD_EXTENT: usize = 65_536;
 ///   that command's `parameters` map, so a typo'd reference fails here
 ///   instead of at write time.
 pub fn parse_device_spec(yaml: &str) -> Result<DeviceSpec, SpecError> {
-    let spec: DeviceSpec = serde_yaml::from_str(yaml)?;
+    let mut spec: DeviceSpec = serde_yaml::from_str(yaml)?;
+    hoist_device_nested_capabilities(&mut spec);
     validate_spec(&spec)?;
     Ok(spec)
+}
+
+/// Read `features` and `protocol_handler` from under `device:` when the top
+/// level declares neither.
+///
+/// The schema puts both at the top level, but part of the catalogue nests
+/// them under `device:` — cat-printer, fichero-d11-printer and niimbot-d110
+/// at the time of writing — where the schema's open `device` block accepts
+/// them without complaint. Dropped on the floor, a declared image-upload
+/// capability never reaches the DTO and the device renders as if it had
+/// none, which is the one outcome the "declarative capability, honest
+/// encodable flag" split exists to prevent. A top-level declaration always
+/// wins; a nested block of some other shape is left alone rather than
+/// failing the spec (this is a tolerance rule, not a second schema).
+fn hoist_device_nested_capabilities(spec: &mut DeviceSpec) {
+    if spec.protocol_handler.is_none() {
+        spec.protocol_handler = spec
+            .device
+            .extensions
+            .get("protocol_handler")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
+    }
+    if spec.features.is_empty() {
+        if let Some(nested) = spec.device.extensions.get("features") {
+            if let Ok(features) = serde_yaml::from_value(nested.clone()) {
+                spec.features = features;
+            }
+        }
+    }
 }
 
 fn validate_spec(spec: &DeviceSpec) -> Result<(), SpecError> {
@@ -1326,5 +1357,57 @@ services:
         assert_eq!(format[0].offset, 0);
         assert_eq!(format[1].name, "brightness");
         assert_eq!(format[1].field_type, ValueType::Uint8);
+    }
+
+    /// The shape cat-printer, fichero-d11 and niimbot ship: `features` and
+    /// `protocol_handler` under `device:` where the schema's open block
+    /// swallows them. Both must reach the typed fields.
+    const DEVICE_NESTED_YAML: &str = r#"
+device:
+  name: "Nested Printer"
+  manufacturer: "Nobody"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  features:
+    - type: "image_upload"
+      max_width: 384
+      format: "1bit-bitmap"
+  protocol_handler: "nested_handler"
+services: []
+"#;
+
+    #[test]
+    fn device_nested_features_and_handler_are_hoisted() {
+        let spec = parse_device_spec(DEVICE_NESTED_YAML).unwrap();
+        assert_eq!(spec.protocol_handler.as_deref(), Some("nested_handler"));
+        assert_eq!(spec.features.len(), 1);
+        assert_eq!(spec.features[0].feature_type, "image_upload");
+        assert_eq!(spec.features[0].max_width, Some(384));
+        // Preserved verbatim under device too — nothing is lost.
+        assert!(spec.device.extensions.contains_key("features"));
+    }
+
+    #[test]
+    fn top_level_declarations_win_over_device_nested_ones() {
+        let yaml = format!(
+            "{DEVICE_NESTED_YAML}\nprotocol_handler: \"top_handler\"\nfeatures:\n  - type: \"firmware_update\"\n"
+        );
+        let spec = parse_device_spec(&yaml).unwrap();
+        assert_eq!(spec.protocol_handler.as_deref(), Some("top_handler"));
+        assert_eq!(spec.features.len(), 1);
+        assert_eq!(spec.features[0].feature_type, "firmware_update");
+    }
+
+    #[test]
+    fn a_device_features_block_of_another_shape_is_ignored_not_fatal() {
+        // A plain string list (an entity-style capability tag list) is not
+        // a feature list; it must neither hoist nor fail the spec.
+        let yaml = DEVICE_NESTED_YAML.replace(
+            "  features:\n    - type: \"image_upload\"\n      max_width: 384\n      format: \"1bit-bitmap\"\n",
+            "  features: [brightness, effect]\n",
+        );
+        let spec = parse_device_spec(&yaml).unwrap();
+        assert!(spec.features.is_empty());
+        assert_eq!(spec.protocol_handler.as_deref(), Some("nested_handler"));
     }
 }

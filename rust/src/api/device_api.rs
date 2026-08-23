@@ -3566,8 +3566,21 @@ pub fn encode_image_frame(
         frame_index,
         max_payload_per_write as usize,
     )?;
+    // The GATT service is the spec's fact, not the handler's: resolve it from
+    // the characteristic the first write targets (every write of a plan lives
+    // in one custom service). A plan with no writes, or one targeting a
+    // characteristic outside every declared service, is a bug worth a typed
+    // error rather than a hardcoded guess.
+    let service_uuid = frame
+        .writes
+        .first()
+        .and_then(|w| crate::protocol::service_for_characteristic(&spec, &w.characteristic_uuid))
+        .ok_or_else(|| crate::error::ProtocolError::ImageUploadUnsupported {
+            reason: "the encoded plan targets no characteristic any declared service carries"
+                .to_string(),
+        })?;
     Ok(ImageWritePlanDto {
-        service_uuid: handler.service_uuid.to_string(),
+        service_uuid,
         next_frame_index: frame_index.wrapping_add(frame.packets),
         writes: frame
             .writes

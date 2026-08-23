@@ -978,3 +978,121 @@ fn vendored_specs_resolve_the_network_surface_honestly() {
     assert_eq!(roku.default_port, Some(8060));
     assert_eq!(roku.default_scheme, None);
 }
+
+/// The vendored iDotMatrix spec now reports its image uploads encodable.
+///
+/// This is the DTO the editor keys off: `encodable` must flip to true the
+/// moment the registry carries `idotmatrix_image` — with the spec's own
+/// declared bounds — and the encode path must actually produce a plan from
+/// the REAL vendored spec, not just from the handler's test fixture (the
+/// lesson of the smartdawn stripped-fixture regression above).
+#[test]
+fn vendored_idotmatrix_spec_is_encodable_with_its_declared_bounds() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("idotmatrix.yaml"))
+        .expect("idotmatrix spec should be readable");
+    let dto = load_device_spec(yaml.clone()).expect("idotmatrix spec loads");
+    let img = dto
+        .image_upload
+        .expect("idotmatrix declares an image_upload feature");
+    assert_eq!(img.handler.as_deref(), Some("idotmatrix_image"));
+    assert!(img.encodable, "idotmatrix_image is implemented now");
+    assert_eq!((img.max_width, img.max_height), (Some(64), Some(64)));
+    assert_eq!(img.format.as_deref(), Some("png"));
+
+    // And the real spec encodes: frame 0 = enter_diy_mode + the framed
+    // upload, every write on the 0xFA02 Write Data characteristic, inside
+    // the 0xFA02 service.
+    let plan = encode_image_frame(yaml, 16, 16, vec![0x20; 16 * 16 * 3], 0, 509)
+        .expect("the vendored idotmatrix spec must encode a framed image");
+    assert_eq!(plan.service_uuid, "0000fa02-0000-1000-8000-00805f9b34fb");
+    assert!(plan.writes.len() >= 2, "opener + at least one framed slice");
+    assert!(plan
+        .writes
+        .iter()
+        .all(|w| w.characteristic_uuid == "0000fa02-0000-1000-8000-00805f9b34fb"));
+    assert_eq!(
+        plan.writes[0].bytes,
+        vec![0x05, 0x00, 0x04, 0x01, 0x01],
+        "the DIY opener's bytes come from the spec's enter_diy_mode template"
+    );
+}
+
+/// The vendored LED name badge spec now reports its image uploads encodable.
+///
+/// Same gate as the iDotMatrix test above: the DTO's `encodable` must flip
+/// with the registry, carrying the spec's declared bounds (max_height only —
+/// badge width is variable by design), and the REAL vendored spec must
+/// encode: raw 16-byte chunks on the FEE1 Badge Data characteristic, opening
+/// with the header magic the spec's own `write_badge_data` value declares.
+#[test]
+fn vendored_led_badge_spec_is_encodable_with_its_declared_bounds() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("bluetooth-led-name-badge.yaml"))
+        .expect("badge spec should be readable");
+    let dto = load_device_spec(yaml.clone()).expect("badge spec loads");
+    let img = dto
+        .image_upload
+        .expect("the badge declares an image_upload feature");
+    assert_eq!(img.handler.as_deref(), Some("ledbadge_bitmap"));
+    assert!(img.encodable, "ledbadge_bitmap is implemented now");
+    assert_eq!((img.max_width, img.max_height), (None, Some(16)));
+    assert_eq!(img.format.as_deref(), Some("1bit-bitmap"));
+
+    let plan = encode_image_frame(yaml, 44, 11, vec![0xFF; 44 * 11 * 3], 0, 509)
+        .expect("the vendored badge spec must encode a bitmap transfer");
+    assert_eq!(plan.service_uuid, "0000fee0-0000-1000-8000-00805f9b34fb");
+    assert!(plan
+        .writes
+        .iter()
+        .all(|w| w.characteristic_uuid == "0000fee1-0000-1000-8000-00805f9b34fb"));
+    assert!(
+        plan.writes.iter().all(|w| w.bytes.len() == 16),
+        "the spec's framing.max_chunk_size drives the raw 16-byte chunks"
+    );
+    // 64-byte header (4 chunks) + 6 stripes x 11 rows = 66 bytes (5 chunks).
+    assert_eq!(plan.writes.len(), 9);
+    assert_eq!(&plan.writes[0].bytes[..4], b"wang");
+}
+
+/// The vendored cat printer spec now reports its image uploads encodable.
+///
+/// This one is also the gate on the parser's device-nested tolerance:
+/// cat-printer.yaml declares `features` and `protocol_handler` under
+/// `device:`, so until they were hoisted the spec loaded with no image
+/// capability at all — a declared printer rendered as a device with no
+/// pixel surface. The DTO must carry the handler and the 384-dot paper
+/// bound, and the REAL spec must encode a job onto the 0xAE01 TX
+/// characteristic of the identifying 0xAE30 service.
+#[test]
+fn vendored_cat_printer_spec_is_encodable_with_its_declared_bounds() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("cat-printer.yaml"))
+        .expect("cat printer spec should be readable");
+    let dto = load_device_spec(yaml.clone()).expect("cat printer spec loads");
+    let img = dto
+        .image_upload
+        .expect("the cat printer declares an image_upload feature (under device:)");
+    assert_eq!(img.handler.as_deref(), Some("cat_printer"));
+    assert!(img.encodable, "cat_printer is implemented now");
+    assert_eq!((img.max_width, img.max_height), (Some(384), Some(65535)));
+    assert_eq!(img.format.as_deref(), Some("1bit-bitmap"));
+
+    let plan = encode_image_frame(yaml, 384, 4, vec![0x00; 384 * 4 * 3], 0, 509)
+        .expect("the vendored cat printer spec must encode a print job");
+    assert_eq!(plan.service_uuid, "0000ae30-0000-1000-8000-00805f9b34fb");
+    assert!(plan
+        .writes
+        .iter()
+        .all(|w| w.characteristic_uuid == "0000ae01-0000-1000-8000-00805f9b34fb"));
+    // The stream opens with the get_device_state frame the sequence starts
+    // on, and its 12 fixed frames + 4 rows are the logical packet count.
+    assert_eq!(
+        &plan.writes[0].bytes[..9],
+        &[0x51, 0x78, 0xA3, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF]
+    );
+    assert_eq!(plan.next_frame_index, 16);
+}
