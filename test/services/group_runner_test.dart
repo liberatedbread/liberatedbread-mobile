@@ -16,7 +16,7 @@ const _svc = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _cmdChar = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 DeviceSpecDto _bulbSpec() => DeviceSpecDto(
-  hiddenEntityNames: const [],
+      hiddenEntityNames: const [],
       deviceName: 'Bulb',
       manufacturer: 'Acme',
       manufacturerStatus: 'abandoned',
@@ -53,7 +53,7 @@ DeviceSpecDto _bulbSpec() => DeviceSpecDto(
 /// A spec whose only verb is turn_on — the xkglow shape, used to prove the
 /// pre-connect skip.
 DeviceSpecDto _onOnlySpec() => DeviceSpecDto(
-  hiddenEntityNames: const [],
+      hiddenEntityNames: const [],
       deviceName: 'OnOnly',
       manufacturer: 'Acme',
       manufacturerStatus: 'abandoned',

@@ -164,8 +164,8 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                   children: [
                     Text(
                       widget.entity.name,
-                      style:
-                          text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                      style: text.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -209,8 +209,7 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         for (final option in widget.entity.options)
           ChoiceChip(
             label: Text(option.label),
-            selected: current != null &&
-                double.tryParse(option.raw) == current,
+            selected: current != null && double.tryParse(option.raw) == current,
             onSelected: (action == null || _sendingRole != null)
                 ? null
                 : (_) {
@@ -286,12 +285,10 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                     onPressed: busy
                         ? null
                         : () {
-                            final param =
-                                oscillating.userParams.firstOrNull;
+                            final param = oscillating.userParams.firstOrNull;
                             unawaited(_send(oscillating,
-                                params: param == null
-                                    ? const {}
-                                    : {param: raw}));
+                                params:
+                                    param == null ? const {} : {param: raw}));
                           },
                     child: Text(label),
                   ),
@@ -315,8 +312,9 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
     Widget motion(EntityActionDto? action, IconData icon, String label) =>
         Expanded(
           child: OutlinedButton.icon(
-            onPressed:
-                (action == null || busy) ? null : () => unawaited(_send(action)),
+            onPressed: (action == null || busy)
+                ? null
+                : () => unawaited(_send(action)),
             icon: Icon(icon, size: 18),
             label: Text(label),
           ),
@@ -357,7 +355,8 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
     );
   }
 
-  Widget _stateLine(EntityLiveValue? value, ColorScheme scheme, TextTheme text) {
+  Widget _stateLine(
+      EntityLiveValue? value, ColorScheme scheme, TextTheme text) {
     final style = text.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     if (_sendingRole != null) return Text('Sending...', style: style);
     if (_status != null && _failed) {

@@ -60,6 +60,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_services._dns-sd._udp</string>
+		<string>_miio._udp</string>
 		<string>_hue._tcp</string>
 		<string>_leap._tcp</string>
 		<string>_lap._tcp</string>

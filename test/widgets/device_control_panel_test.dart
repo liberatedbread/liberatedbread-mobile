@@ -567,7 +567,7 @@ void main() {
         );
 
     DeviceSpecDto airSpec({String category = 'sensor'}) => DeviceSpecDto(
-      hiddenEntityNames: const [],
+          hiddenEntityNames: const [],
           deviceName: 'Acme Air Monitor',
           manufacturer: 'Acme Corp',
           manufacturerStatus: 'active',

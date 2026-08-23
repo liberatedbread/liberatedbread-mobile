@@ -57,8 +57,7 @@ class EntityKeyIndex<E> {
   /// Everything never taken, in declaration order — the wrap at the foot of
   /// a curated layout. Never dropped: a control the layout has no slot for
   /// still renders.
-  List<E> get leftovers =>
-      _entities.where((e) => !_taken.contains(e)).toList();
+  List<E> get leftovers => _entities.where((e) => !_taken.contains(e)).toList();
 
   /// Display names each key historically matched — the remote card's rows,
   /// verbatim, plus the treadmill card's. Additive-only.

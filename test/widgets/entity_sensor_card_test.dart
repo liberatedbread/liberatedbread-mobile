@@ -330,7 +330,7 @@ void main() {
 
   group('verdict chips', () {
     EntityDto entity({String? deviceClass, String? unit}) => EntityDto(
-      options: const [],
+          options: const [],
           name: 'Reading',
           platform: 'sensor',
           deviceClass: deviceClass,

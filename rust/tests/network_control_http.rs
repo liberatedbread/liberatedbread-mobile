@@ -312,8 +312,9 @@ fn the_ffi_surface_round_trips_the_whole_flow() {
 
     use liberated_bread_core::api::device_api as api;
 
-    let entities = api::network_entities_for_device(HUE.to_string(), vec![]).unwrap()
-    .entities;
+    let entities = api::network_entities_for_device(HUE.to_string(), vec![])
+        .unwrap()
+        .entities;
     assert_eq!(entities.len(), 1);
     let light = &entities[0];
     assert_eq!(light.transport.as_deref(), Some("http"));

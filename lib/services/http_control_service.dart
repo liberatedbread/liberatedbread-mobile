@@ -91,8 +91,7 @@ class HttpControlClient {
           // surface, and the Frigidaires'. Rust's SENDABLE_METHODS names it,
           // so a spec's PUT command renders as a live control; this arm is
           // what makes the press actually go somewhere.
-          response =
-              await client.put(uri, body: request.body).timeout(timeout);
+          response = await client.put(uri, body: request.body).timeout(timeout);
         default:
           throw HttpControlException(
               'unsupported method ${request.method} for $uri');

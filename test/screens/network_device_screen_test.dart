@@ -2476,7 +2476,6 @@ void main() {
     });
   });
 
-
   group('cover, fan and number parity', () {
     // A garage-door-shaped cover, a fan, and a bounded number, all over the
     // SOAP harness: the card layer does not care which transport carries a
@@ -2660,9 +2659,8 @@ void main() {
     testWidgets('a bounded number renders a slider, not the edit dialog',
         (tester) async {
       await pumpUtility(tester,
-          entities: utilityEntities
-              .where((e) => e.platform == 'number')
-              .toList());
+          entities:
+              utilityEntities.where((e) => e.platform == 'number').toList());
 
       expect(find.byType(Slider), findsOneWidget);
       expect(find.byIcon(Icons.edit_outlined), findsNothing);

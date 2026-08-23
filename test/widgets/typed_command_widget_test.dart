@@ -152,11 +152,7 @@ final _defaultedChar = CharacteristicDto(
           default_: 400,
         ),
         const ParameterDto(
-            name: 'level',
-            valueType: 'uint8',
-            min: 0,
-            max: 100,
-            default_: 42),
+            name: 'level', valueType: 'uint8', min: 0, max: 100, default_: 42),
       ],
     ),
   ],

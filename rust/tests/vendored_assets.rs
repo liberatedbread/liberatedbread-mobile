@@ -298,25 +298,37 @@ fn vendored_specs_resolve_expected_control_actions() {
     assert_eq!(plug.state_characteristic, None);
     assert_eq!(roles(plug), vec!["turn_on", "turn_off"]);
 
-    // elk-bledom: brightness (bounded 0..100 by the spec) and color resolve;
-    // power must not.
+    // elk-bledom: the full role set since the spec grew constant on/off
+    // frames (the parameterized set_light_on_off's command byte is
+    // app-version-dependent and stays unbindable); brightness keeps its
+    // spec-declared 0..100 bound.
     let elk = load("elk-bledom-led-strip.yaml");
     let strip = elk
         .entities
         .iter()
         .find(|e| e.name == "LED Strip")
         .expect("elk-bledom declares an LED Strip light");
-    assert_eq!(roles(strip), vec!["set_brightness", "set_color"]);
-    let brightness = &strip.actions[0];
+    assert_eq!(
+        roles(strip),
+        vec!["turn_on", "turn_off", "set_brightness", "set_color"]
+    );
+    let brightness = strip
+        .actions
+        .iter()
+        .find(|a| a.role == "set_brightness")
+        .expect("the brightness slider resolves");
     assert_eq!(brightness.command_name, Some("set_brightness".to_string()));
     assert_eq!((brightness.min, brightness.max), (Some(0.0), Some(100.0)));
-    assert_eq!(
-        strip.actions[1].command_name,
-        Some("set_rgb_color".to_string())
-    );
+    let color = strip
+        .actions
+        .iter()
+        .find(|a| a.role == "set_color")
+        .expect("the color picker resolves");
+    assert_eq!(color.command_name, Some("set_rgb_color".to_string()));
 
-    // switchbot: no role map; bot_* names resolve via the suffix fallback,
-    // and press resolves alongside the toggle pair.
+    // switchbot: the spec now binds the bot_* commands explicitly (the
+    // suffix fallback found the same ones before), and press resolves
+    // alongside the toggle pair.
     let switchbot = load("switchbot-ble.yaml");
     let bot = switchbot
         .entities
@@ -362,6 +374,27 @@ fn vendored_specs_resolve_expected_control_actions() {
         .find(|e| e.name == "Charging Base")
         .expect("ember declares a Charging Base binary_sensor");
     assert_eq!(charging.on_value, Some(1));
+
+    // kingsmith: the treadmill's transport verbs finally live in the entity
+    // layer — Start/Stop buttons keyed for the treadmill card, and a Target
+    // Speed number in decoded km/h. WiLink's Start binds the vendor frame.
+    let pad = load("kingsmith-walkingpad.yaml");
+    let start = pad
+        .entities
+        .iter()
+        .find(|e| e.key.as_deref() == Some("start"))
+        .expect("kingsmith declares a keyed Start button");
+    assert_eq!(start.platform.as_deref(), Some("button"));
+    assert!(start
+        .actions
+        .iter()
+        .any(|a| a.role == "press" && a.command_name.as_deref() == Some("start_belt")));
+    let speed = pad
+        .entities
+        .iter()
+        .find(|e| e.key.as_deref() == Some("speed") && e.setpoint_max == Some(6.0))
+        .expect("the WiLink Target Speed declares its decoded 0-6 km/h clamp");
+    assert!(speed.actions.iter().any(|a| a.role == "set_value"));
 
     // example-bulb: the reference spec resolves the full role set, and its
     // light state mapping (is_on/brightness/color_rgb) crosses intact.
@@ -912,7 +945,12 @@ fn vendored_specs_resolve_the_network_surface_honestly() {
     let roles: Vec<&str> = door.actions.iter().map(|a| a.role.as_str()).collect();
     assert_eq!(
         roles,
-        vec!["open_cover", "close_cover", "stop_cover", "set_cover_position"]
+        vec![
+            "open_cover",
+            "close_cover",
+            "stop_cover",
+            "set_cover_position"
+        ]
     );
     assert!(door.actions.iter().all(|a| a.transport == "http"));
 

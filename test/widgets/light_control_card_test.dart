@@ -37,7 +37,7 @@ EntityActionDto _action(
 /// elk-bledom's resolved shape: brightness (bounded 0..100) and color, no
 /// power.
 EntityDto _stripEntity() => EntityDto(
-  options: const [],
+      options: const [],
       name: 'LED Strip',
       platform: 'light',
       canNotify: false,

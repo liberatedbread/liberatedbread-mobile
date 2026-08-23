@@ -554,13 +554,12 @@ void main() {
 
     expect(codec.encodeCalls.single.commandName, 'vendor_go');
   });
-
 }
 
 /// A treadmill-category spec whose one write characteristic carries [commands]
 /// — the shape most of these tests need with a different command set each.
 DeviceSpecDto _spedSpec(List<CommandDto> commands) => DeviceSpecDto(
-  hiddenEntityNames: const [],
+      hiddenEntityNames: const [],
       deviceName: 'Treadmill',
       manufacturer: 'Acme Fitness',
       manufacturerStatus: 'active',

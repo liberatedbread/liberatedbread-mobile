@@ -411,9 +411,9 @@ fn a_crockpot_gets_cooker_controls_and_a_plug_does_not() {
     assert_eq!(names, vec!["Plug"]);
 
     // Unidentifiable model: no controls, not a stranger's controls.
-    let unknown =
-        network_entities_for_device(WEMO.to_string(), targets(&["upnp:rootdevice"])).unwrap()
-    .entities;
+    let unknown = network_entities_for_device(WEMO.to_string(), targets(&["upnp:rootdevice"]))
+        .unwrap()
+        .entities;
     assert!(unknown.is_empty());
 }
 
@@ -422,7 +422,7 @@ fn the_dto_carries_structured_read_back_not_source_strings() {
     let cooker =
         network_entities_for_device(WEMO.to_string(), targets(&["urn:Belkin:device:crockpot:1"]))
             .unwrap()
-    .entities;
+            .entities;
     let mode = cooker.iter().find(|e| e.name == "Cook Mode").unwrap();
 
     assert_eq!(mode.platform.as_deref(), Some("select"));

@@ -33,8 +33,9 @@ fn spec_yaml() -> String {
 
 #[test]
 fn the_entities_resolve_over_udp() {
-    let entities = network_entities_for_device(spec_yaml(), vec![]).expect("spec resolves")
-    .entities;
+    let entities = network_entities_for_device(spec_yaml(), vec![])
+        .expect("spec resolves")
+        .entities;
 
     // The control surface the spec decomposes: a power switch, a mode select,
     // a fan-speed number, three sensors, and two more switches.

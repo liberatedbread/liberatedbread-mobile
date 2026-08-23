@@ -26,7 +26,7 @@ EntityActionDto _setValue({String? command}) => EntityActionDto(
 /// Gerbing's resolved shape: a 0-100% heat channel written directly, read
 /// back through the same characteristic.
 EntityDto _heatEntity({bool writable = true}) => EntityDto(
-  options: const [],
+      options: const [],
       name: 'Heat Level 1',
       platform: 'number',
       unit: '%',

@@ -228,8 +228,7 @@ const SET_EFFECT: RoleSpec = bound_role("set_effect", &["set_effect"], true);
 /// The role a heat-level picker needs, and the one nothing in the catalogue
 /// could resolve before a Crock-Pot turned up: its modes are 0/50/51/52,
 /// which is a choice from a list and not a number anybody can slide between.
-const SELECT_OPTION: RoleSpec =
-    bound_role("select_option", &["select_option", "set_option"], true);
+const SELECT_OPTION: RoleSpec = bound_role("select_option", &["select_option", "set_option"], true);
 
 /// Text entry into whatever field the device has focused: one valued send
 /// per keystroke (Roku's Lit_ key form), because the wire carries no string
@@ -246,8 +245,7 @@ const SET_PERCENTAGE: RoleSpec = bound_role(
 
 /// A fan's oscillation — valued (0/1) because the specs that declare it
 /// (Dyson) write it as a parameterized command, not an on/off pair.
-const SET_OSCILLATING: RoleSpec =
-    bound_role("set_oscillating", &["set_oscillating"], true);
+const SET_OSCILLATING: RoleSpec = bound_role("set_oscillating", &["set_oscillating"], true);
 
 /// The cover trio plus position. Fixed roles for the motions, a valued one
 /// for the setpoint — a garage door is the flagship (ratgdo), which is
@@ -255,8 +253,11 @@ const SET_OSCILLATING: RoleSpec =
 const OPEN_COVER: RoleSpec = bound_role("open_cover", &["open_cover"], false);
 const CLOSE_COVER: RoleSpec = bound_role("close_cover", &["close_cover"], false);
 const STOP_COVER: RoleSpec = bound_role("stop_cover", &["stop_cover"], false);
-const SET_COVER_POSITION: RoleSpec =
-    bound_role("set_cover_position", &["set_cover_position", "set_position"], true);
+const SET_COVER_POSITION: RoleSpec = bound_role(
+    "set_cover_position",
+    &["set_cover_position", "set_position"],
+    true,
+);
 
 /// The number/climate setpoint as a table entry, for the network resolver.
 /// (The BLE path short-circuits those platforms into [`resolve_set_value`]
@@ -424,7 +425,9 @@ fn resolve_set_value<'a>(spec: &'a DeviceSpec, entity: &'a Entity) -> Option<Res
         if let Some((service, characteristic, name, command)) =
             find_command(spec, entity, |n| n == *fallback)
         {
-            if let Some(action) = qualify_valued(SET_VALUE_ROLE, service, characteristic, name, command) {
+            if let Some(action) =
+                qualify_valued(SET_VALUE_ROLE, service, characteristic, name, command)
+            {
                 return Some(action);
             }
         }
@@ -2267,14 +2270,21 @@ entities:
         let spec = parse_device_spec(GARAGEISH_COVER).expect("test spec should parse");
         let entity = &spec.entities[0];
         assert!(
-            network_entities(&spec).iter().any(|e| e.name == "Garage Door"),
+            network_entities(&spec)
+                .iter()
+                .any(|e| e.name == "Garage Door"),
             "open/close/stop resolving must admit the stateless cover"
         );
         let actions = resolve_network_actions(&spec, entity);
         let roles: Vec<&str> = actions.iter().map(|a| a.role).collect();
         assert_eq!(
             roles,
-            vec!["open_cover", "close_cover", "stop_cover", "set_cover_position"]
+            vec![
+                "open_cover",
+                "close_cover",
+                "stop_cover",
+                "set_cover_position"
+            ]
         );
         let position = actions.last().unwrap();
         assert_eq!(position.user_params, vec!["position"]);

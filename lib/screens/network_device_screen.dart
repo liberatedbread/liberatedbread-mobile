@@ -2144,8 +2144,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                       setState(() => _pendingSetpoints[entity.name] = value),
               onChangeEnd: (busy || _lockedFor(action))
                   ? null
-                  : (value) =>
-                      unawaited(_send(entity, action, value: _trimNumber(value))),
+                  : (value) => unawaited(
+                      _send(entity, action, value: _trimNumber(value))),
             ),
         ],
       ),
@@ -2340,8 +2340,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   value: isOn ?? false,
                   onChanged: (_lockedFor(turnOn) || _lockedFor(turnOff))
                       ? null
-                      : (wantOn) => unawaited(
-                          _send(entity, wantOn ? turnOn : turnOff)),
+                      : (wantOn) =>
+                          unawaited(_send(entity, wantOn ? turnOn : turnOff)),
                 ),
             ],
           ),
@@ -2368,16 +2368,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 OutlinedButton(
                   onPressed: (busy || _lockedFor(oscillating))
                       ? null
-                      : () =>
-                          unawaited(_send(entity, oscillating, value: '1')),
+                      : () => unawaited(_send(entity, oscillating, value: '1')),
                   child: const Text('On'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton(
                   onPressed: (busy || _lockedFor(oscillating))
                       ? null
-                      : () =>
-                          unawaited(_send(entity, oscillating, value: '0')),
+                      : () => unawaited(_send(entity, oscillating, value: '0')),
                   child: const Text('Off'),
                 ),
               ],
@@ -2400,8 +2398,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // device_class implies) and — where a healthy band is established
     // (CO₂, radon, humidity, battery…) — a one-word verdict chip, because
     // "934 ppm" answers a question nobody asked.
-    final icon = entityIconFor(
-        icon: entity.icon, deviceClass: entity.deviceClass);
+    final icon =
+        entityIconFor(icon: entity.icon, deviceClass: entity.deviceClass);
     final level = sensorReadingLevel(
       deviceClass: entity.deviceClass,
       unit: unit,
@@ -2414,7 +2412,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         children: [
           if (icon != null) ...[
             Icon(icon,
-                size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                size: 20,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
             const SizedBox(width: 8),
           ],
           Expanded(

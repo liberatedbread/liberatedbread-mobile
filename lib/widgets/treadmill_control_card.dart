@@ -115,8 +115,7 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     final commandName = action?.commandName;
     if (action == null || commandName == null) return null;
     for (final c in commands) {
-      if (c.charUuid.toLowerCase() ==
-              action.characteristicUuid.toLowerCase() &&
+      if (c.charUuid.toLowerCase() == action.characteristicUuid.toLowerCase() &&
           c.command.name == commandName) {
         return c;
       }
@@ -126,8 +125,7 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
 
   _ResolvedVerb? verbFromEntity(String key) {
     final entity = entityIndex.take(key);
-    final press =
-        entity?.actions.where((a) => a.role == 'press').firstOrNull;
+    final press = entity?.actions.where((a) => a.role == 'press').firstOrNull;
     final c = discovered(press);
     if (c == null) return null;
     return _ResolvedVerb(c.serviceUuid, c.charUuid, c.command, const {});
@@ -156,29 +154,29 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
 
   final start = verbFromEntity('start') ??
       byName(const [
-    'start_belt',
-    'start_or_resume',
-    'start_prepared',
-    'start',
-    // UREVO's proprietary FT/UR classes: prepare/ready is the belt's start,
-    // and continue resumes from a pause the same button would.
-    'ur_training_prepared',
-    'ur_training_continue',
-    'ft_prepared',
-  ]);
+        'start_belt',
+        'start_or_resume',
+        'start_prepared',
+        'start',
+        // UREVO's proprietary FT/UR classes: prepare/ready is the belt's start,
+        // and continue resumes from a pause the same button would.
+        'ur_training_prepared',
+        'ur_training_continue',
+        'ft_prepared',
+      ]);
   var pause = verbFromEntity('pause') ??
       byName(const ['pause', 'training_pause', 'ur_training_pause']);
   var stop = verbFromEntity('stop') ??
       byName(const [
-    'stop',
-    'training_stop',
-    // KingSmith's WiLink belt has no stop opcode of its own; stop_belt is the
-    // speed-0 frame the spec names for exactly this button. UREVO's classes
-    // each carry their own stop.
-    'stop_belt',
-    'ur_training_stop',
-    'ft_stop',
-  ]);
+        'stop',
+        'training_stop',
+        // KingSmith's WiLink belt has no stop opcode of its own; stop_belt is the
+        // speed-0 frame the spec names for exactly this button. UREVO's classes
+        // each carry their own stop.
+        'stop_belt',
+        'ur_training_stop',
+        'ft_stop',
+      ]);
   // FTMS's Treadmill Control Point has one Stop-or-Pause opcode whose action
   // byte picks the verb; it stands in for whichever dedicated verb the spec
   // does not name.
@@ -215,9 +213,7 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
       (p) => p.auto == null && isNumericValueType(p.valueType),
     );
     final parameter = (entitySpeedEntry != null
-            ? candidates
-                .where((p) => p.name == entitySpeedParam)
-                .firstOrNull
+            ? candidates.where((p) => p.name == entitySpeedParam).firstOrNull
             : null) ??
         candidates.where((p) => p.unit == 'km/h').firstOrNull ??
         candidates.firstOrNull;

@@ -32,8 +32,9 @@ fn hex(bytes: &[u8]) -> String {
 
 #[test]
 fn the_outlet_resolves_an_on_off_switch_over_tcp_json() {
-    let entities = network_entities_for_device(spec_yaml(), vec![]).expect("spec resolves")
-    .entities;
+    let entities = network_entities_for_device(spec_yaml(), vec![])
+        .expect("spec resolves")
+        .entities;
     let outlet = entities
         .iter()
         .find(|e| e.name == "Outlet")
@@ -56,8 +57,9 @@ fn the_outlet_resolves_an_on_off_switch_over_tcp_json() {
 #[test]
 fn on_off_render_the_documented_json() {
     let yaml = spec_yaml();
-    let entities = network_entities_for_device(yaml.clone(), vec![]).unwrap()
-    .entities;
+    let entities = network_entities_for_device(yaml.clone(), vec![])
+        .unwrap()
+        .entities;
     let outlet = entities.iter().find(|e| e.name == "Outlet").unwrap();
 
     let command_for = |role: &str| {
@@ -82,8 +84,9 @@ fn on_off_render_the_documented_json() {
 #[test]
 fn the_state_poll_renders_get_sysinfo() {
     let yaml = spec_yaml();
-    let entities = network_entities_for_device(yaml.clone(), vec![]).unwrap()
-    .entities;
+    let entities = network_entities_for_device(yaml.clone(), vec![])
+        .unwrap()
+        .entities;
     let outlet = entities.iter().find(|e| e.name == "Outlet").unwrap();
 
     let poll = render_network_kasa_state_request(yaml, outlet.state_command.clone())
@@ -94,8 +97,9 @@ fn the_state_poll_renders_get_sysinfo() {
 #[test]
 fn a_rendered_command_frames_onto_the_tcp_wire_and_back() {
     let yaml = spec_yaml();
-    let entities = network_entities_for_device(yaml.clone(), vec![]).unwrap()
-    .entities;
+    let entities = network_entities_for_device(yaml.clone(), vec![])
+        .unwrap()
+        .entities;
     let outlet = entities.iter().find(|e| e.name == "Outlet").unwrap();
     let on = &outlet
         .actions
@@ -131,8 +135,9 @@ fn the_discovery_datagram_is_the_canonical_encrypted_get_sysinfo() {
 
 #[test]
 fn the_emeter_sensors_resolve_as_tcp_json_readings() {
-    let entities = network_entities_for_device(spec_yaml(), vec![]).expect("spec resolves")
-    .entities;
+    let entities = network_entities_for_device(spec_yaml(), vec![])
+        .expect("spec resolves")
+        .entities;
 
     for (name, field, unit) in [
         ("Voltage", "emeter.get_realtime.voltage", "V"),
