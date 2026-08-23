@@ -141,6 +141,12 @@ class RealSpecCodec implements SpecCodec {
           specYaml: specYaml, ssdpTargets: ssdpTargets);
 
   @override
+  Future<NetworkCapabilitiesDto> networkCapabilities({
+    required String specYaml,
+  }) =>
+      rust.networkCapabilities(specYaml: specYaml);
+
+  @override
   Future<SoapRequestDto> renderNetworkCommand({
     required String specYaml,
     required String commandName,

@@ -94,7 +94,10 @@ final rabbitAirSpecSurfaceProvider = FutureProvider.autoDispose<
     ({String specYaml, List<NetworkEntityDto> entities})?>((ref) async {
   final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
   final spec = parsed
-      .where((p) => p.spec.mdnsServiceType == '_rabbitair._udp.local.')
+      // The spec is selected by the protocol handler this app implements —
+      // the same join the Rust admission gate trusts — not by a discovery
+      // string that could move.
+      .where((p) => p.spec.protocolHandler == 'rabbit_air_lan')
       .firstOrNull;
   if (spec == null) return null;
   final codec = ref.watch(specCodecProvider);
@@ -126,7 +129,10 @@ final rabbitAirProvisionServiceProvider =
     verifier: ({required thingId, required userKey}) async {
       final parsed = await ref.read(parsedDeviceSpecsProvider.future);
       final spec = parsed
-          .where((p) => p.spec.mdnsServiceType == '_rabbitair._udp.local.')
+          // The spec is selected by the protocol handler this app implements —
+          // the same join the Rust admission gate trusts — not by a discovery
+          // string that could move.
+          .where((p) => p.spec.protocolHandler == 'rabbit_air_lan')
           .firstOrNull;
       if (spec == null) return false;
       final scanner = ref.read(networkScanServiceProvider);
@@ -172,17 +178,23 @@ final rabbitAirProvisionServiceProvider =
 typedef NetworkCommandSenderFactory = NetworkCommandSender Function({
   required NetworkDevice device,
   required String specYaml,
+  NetworkCapabilitiesDto? capabilities,
 });
 
 final networkCommandSenderFactoryProvider =
     Provider<NetworkCommandSenderFactory>((ref) {
-  return ({required NetworkDevice device, required String specYaml}) =>
+  return ({
+    required NetworkDevice device,
+    required String specYaml,
+    NetworkCapabilitiesDto? capabilities,
+  }) =>
       NetworkCommandSender(
         host: device.host,
         discoveredControlPort: device.controlPort,
         devicePort: device.port,
         ssdpTargets: device.ssdpTargets,
         specYaml: specYaml,
+        capabilities: capabilities,
         codec: ref.read(specCodecProvider),
         http: ref.read(httpControlClientProvider),
         soap: ref.read(soapControlClientProvider),
@@ -236,10 +248,15 @@ class NetworkControls {
   /// pretending the spec never declared them.
   final List<String> hiddenNames;
 
+  /// The spec's declared control-path capabilities (signed session, control
+  /// port, URL scheme). Null only in fixtures that never send.
+  final NetworkCapabilitiesDto? capabilities;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
     this.hiddenNames = const [],
+    this.capabilities,
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -290,6 +307,7 @@ final networkControlsProvider = FutureProvider.autoDispose
       specYaml: match.first.yaml,
       entities: surface.entities,
       hiddenNames: surface.hiddenNames,
+      capabilities: await codec.networkCapabilities(specYaml: match.first.yaml),
     );
   } catch (e) {
     Log.spec.warning(

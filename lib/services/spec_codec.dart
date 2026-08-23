@@ -212,6 +212,14 @@ abstract class SpecCodec {
     required List<String> ssdpTargets,
   });
 
+  /// Spec-declared capabilities of a network device's control path — the
+  /// signed-session protocol it prefers, its declared control port and URL
+  /// scheme — so the transport layer routes on what the spec says instead of
+  /// per-device discovery-string checks.
+  Future<NetworkCapabilitiesDto> networkCapabilities({
+    required String specYaml,
+  });
+
   /// Render a named command from the spec's `commands` block into a POSTable
   /// SOAP request. [values] carries what the user picked plus any read-back
   /// values fetched from the device; the spec's defaults fill the rest.

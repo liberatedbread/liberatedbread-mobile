@@ -453,7 +453,11 @@ void main() {
         MaterialPageRoute<void>(
           builder: (_) => NetworkDeviceScreen(
               device: rokuDevice,
-              controls: NetworkControls(specYaml: 'yaml', entities: entities)),
+              controls: NetworkControls(
+                  specYaml: 'yaml',
+                  entities: entities,
+                  capabilities: const NetworkCapabilitiesDto(
+                      signedSession: 'ecp2', defaultPort: 8060))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -714,8 +718,14 @@ void main() {
         MaterialPageRoute<void>(
           builder: (_) => NetworkDeviceScreen(
             device: dualPortRoku,
-            controls:
-                const NetworkControls(specYaml: 'yaml', entities: [homeButton]),
+            controls: const NetworkControls(
+              specYaml: 'yaml',
+              entities: [homeButton],
+              // The spec's ecp2 block + declared port 8060, as the
+              // capabilities resolver hands them over for a real Roku.
+              capabilities: NetworkCapabilitiesDto(
+                  signedSession: 'ecp2', defaultPort: 8060),
+            ),
           ),
         ),
       ));
@@ -910,7 +920,10 @@ void main() {
           builder: (_) => NetworkDeviceScreen(
               device: rokuDevice,
               controls: const NetworkControls(
-                  specYaml: 'yaml', entities: [channelEntity])),
+                  specYaml: 'yaml',
+                  entities: [channelEntity],
+                  capabilities: NetworkCapabilitiesDto(
+                      signedSession: 'ecp2', defaultPort: 8060))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1065,7 +1078,10 @@ void main() {
           home: NetworkDeviceScreen(
               device: rokuDevice,
               controls: const NetworkControls(
-                  specYaml: 'yaml', entities: [keyboardEntity])),
+                  specYaml: 'yaml',
+                  entities: [keyboardEntity],
+                  capabilities: NetworkCapabilitiesDto(
+                      signedSession: 'ecp2', defaultPort: 8060))),
         ),
       ));
       // Let the load drop the spinner and the ECP2 textedit poll resolve — a
@@ -1115,7 +1131,10 @@ void main() {
           home: NetworkDeviceScreen(
               device: rokuDevice,
               controls: const NetworkControls(
-                  specYaml: 'yaml', entities: [keyboardEntity])),
+                  specYaml: 'yaml',
+                  entities: [keyboardEntity],
+                  capabilities: NetworkCapabilitiesDto(
+                      signedSession: 'ecp2', defaultPort: 8060))),
         ),
       ));
       for (var i = 0; i < 6; i++) {
@@ -1193,7 +1212,9 @@ void main() {
                 device: rokuDevice,
                 controls: const NetworkControls(
                     specYaml: 'yaml',
-                    entities: [channelEntity, keyboardEntity])),
+                    entities: [channelEntity, keyboardEntity],
+                    capabilities: NetworkCapabilitiesDto(
+                        signedSession: 'ecp2', defaultPort: 8060))),
           ),
         ));
         for (var i = 0; i < 8; i++) {
@@ -1292,7 +1313,10 @@ void main() {
           builder: (_) => NetworkDeviceScreen(
               device: rokuDevice,
               controls: const NetworkControls(
-                  specYaml: 'yaml', entities: [keyboardEntity])),
+                  specYaml: 'yaml',
+                  entities: [keyboardEntity],
+                  capabilities: NetworkCapabilitiesDto(
+                      signedSession: 'ecp2', defaultPort: 8060))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1476,7 +1500,11 @@ void main() {
         MaterialPageRoute<void>(
           builder: (_) => NetworkDeviceScreen(
               device: rokuDevice,
-              controls: NetworkControls(specYaml: 'yaml', entities: entities)),
+              controls: NetworkControls(
+                  specYaml: 'yaml',
+                  entities: entities,
+                  capabilities: const NetworkCapabilitiesDto(
+                      signedSession: 'ecp2', defaultPort: 8060))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1710,7 +1738,11 @@ void main() {
         MaterialPageRoute<void>(
           builder: (_) => NetworkDeviceScreen(
               device: kasaDevice,
-              controls: NetworkControls(specYaml: 'yaml', entities: entities)),
+              controls: NetworkControls(
+                  specYaml: 'yaml',
+                  entities: entities,
+                  capabilities: const NetworkCapabilitiesDto(
+                      signedSession: 'ecp2', defaultPort: 8060))),
         ),
       ));
       await tester.pumpAndSettle();

@@ -135,4 +135,67 @@ void main() {
     // Two sliders: brightness and colour temperature.
     expect(find.byType(Slider), findsNWidgets(2));
   });
+  testWidgets('a non-LIFX light rides the generic sender, never the UDP client',
+      (tester) async {
+    // The routing bug this guards: platform == light used to imply the LIFX
+    // implementation, so an http light would have had LIFX datagrams fired
+    // at it. Now the transport decides, and the card presents only.
+    final codec = FakeSpecCodec();
+    final client = _FakeLifxClient();
+    const generic = NetworkEntityDto(
+      name: 'Bridge Light',
+      platform: 'light',
+      transport: 'http',
+      isInstanced: false,
+      stateCommand: '',
+      options: [],
+      actions: [
+        NetworkActionDto(
+          role: 'turn_on',
+          commandName: 'light_on',
+          transport: 'http',
+          userParams: [],
+          readBack: [],
+          credentials: [],
+          instanceParams: [],
+        ),
+        NetworkActionDto(
+          role: 'turn_off',
+          commandName: 'light_off',
+          transport: 'http',
+          userParams: [],
+          readBack: [],
+          credentials: [],
+          instanceParams: [],
+        ),
+      ],
+    );
+    final sent = <(String, Map<String, String>)>[];
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        specCodecProvider.overrideWithValue(codec),
+        lifxControlClientProvider.overrideWithValue(client),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: NetworkLightCard(
+            entity: generic,
+            specYaml: 'y',
+            host: '10.0.0.7',
+            targetMac: '',
+            sendAction: (action, values) async =>
+                sent.add((action.commandName, values)),
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+
+    expect(sent.single.$1, 'light_on');
+    expect(client.sent, isEmpty,
+        reason: 'no LIFX datagram may reach a non-LIFX device');
+  });
 }

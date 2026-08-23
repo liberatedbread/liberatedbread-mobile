@@ -95,6 +95,9 @@ class FakeSpecCodec implements SpecCodec {
   /// declared controls the resolver could not offer.
   final List<String> networkHiddenNames;
 
+  /// Returned by [networkCapabilities]; null answers an empty capability set.
+  final NetworkCapabilitiesDto? networkCapabilitiesResult;
+
   /// Returned by [renderNetworkCommand] / [renderNetworkStateRequest]; the
   /// action/soapAction carry the command or state-command name so a transport
   /// test can tell requests apart.
@@ -190,6 +193,7 @@ class FakeSpecCodec implements SpecCodec {
     this.entityWrite,
     this.networkEntities,
     this.networkHiddenNames = const [],
+    this.networkCapabilitiesResult,
     this.networkRequest,
     this.networkHttpRequest,
     this.networkReading,
@@ -365,6 +369,12 @@ class FakeSpecCodec implements SpecCodec {
         entities: networkEntities?.call(ssdpTargets) ?? const [],
         hiddenNames: networkHiddenNames,
       );
+
+  @override
+  Future<NetworkCapabilitiesDto> networkCapabilities({
+    required String specYaml,
+  }) async =>
+      networkCapabilitiesResult ?? const NetworkCapabilitiesDto();
 
   @override
   Future<SoapRequestDto> renderNetworkCommand({

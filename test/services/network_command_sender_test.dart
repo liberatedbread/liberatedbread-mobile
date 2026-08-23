@@ -37,17 +37,24 @@ NetworkActionDto action(String role, String command,
 void main() {
   final codec = FakeSpecCodec();
 
+  // The ecp2 capability as the resolver hands it over for a real Roku:
+  // the spec's own block plus its declared 8060.
+  const rokuCapabilities =
+      NetworkCapabilitiesDto(signedSession: 'ecp2', defaultPort: 8060);
+
   NetworkCommandSender sender({
     MockClient? httpClient,
     Ecp2ControlService? ecp2,
     int? discoveredControlPort = 8060,
     List<String> ssdpTargets = const ['roku:ecp'],
+    NetworkCapabilitiesDto? capabilities = rokuCapabilities,
   }) =>
       NetworkCommandSender(
         host: '192.0.2.9',
         discoveredControlPort: discoveredControlPort,
         devicePort: null,
         ssdpTargets: ssdpTargets,
+        capabilities: capabilities,
         specYaml: 'yaml',
         codec: codec,
         http: HttpControlClient(
@@ -94,6 +101,7 @@ void main() {
       discoveredControlPort: 8060,
       devicePort: null,
       ssdpTargets: const ['roku:ecp'],
+      capabilities: rokuCapabilities,
       specYaml: 'yaml',
       codec: ecpCodec,
       http: HttpControlClient(httpClient: MockClient((request) async {
@@ -119,7 +127,11 @@ void main() {
   test('a roku pins control to 8060 whatever LOCATION advertised', () {
     expect(sender(discoveredControlPort: 7250).controlPort, 8060);
     expect(
-      sender(discoveredControlPort: 7250, ssdpTargets: const []).controlPort,
+      sender(
+              discoveredControlPort: 7250,
+              ssdpTargets: const [],
+              capabilities: null)
+          .controlPort,
       7250,
       reason: 'only a Roku is pinned',
     );
@@ -129,6 +141,7 @@ void main() {
     final s = sender(
       httpClient: MockClient((request) async => http.Response('denied', 403)),
       ssdpTargets: const ['urn:some:other:device'],
+      capabilities: null,
     );
     await expectLater(
       s.sendAction(action('turn_off', 'press_power_off'), {}),
@@ -156,7 +169,8 @@ void main() {
 
   test('a device that advertised no control port fails the http send visibly',
       () async {
-    final s = sender(discoveredControlPort: null, ssdpTargets: const []);
+    final s = sender(
+        discoveredControlPort: null, ssdpTargets: const [], capabilities: null);
     await expectLater(
       s.sendAction(action('turn_off', 'press_power_off'), {}),
       throwsA(isA<SoapTransportException>()),

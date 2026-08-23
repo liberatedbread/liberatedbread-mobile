@@ -227,6 +227,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     _sender = ref.read(networkCommandSenderFactoryProvider)(
       device: widget.device,
       specYaml: widget.controls.specYaml,
+      capabilities: widget.controls.capabilities,
     );
     unawaited(_load());
     unawaited(_watchKeyboard());
@@ -255,7 +256,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// at the foot — the keyboard is never hidden on a device this cannot read.
   Future<void> _watchKeyboard() async {
     final hasKeyboard = _drawableEntities.any((e) => e.platform == 'text');
-    if (!hasKeyboard || !widget.device.ssdpTargets.contains('roku:ecp')) return;
+    // The focus signal lives on the signed session, which the SPEC declares
+    // (its ecp2 block, surfaced as a capability) — not a discovery string.
+    if (!hasKeyboard || widget.controls.capabilities?.signedSession != 'ecp2') {
+      return;
+    }
     final session = await _sender.openSignedSession();
     if (session == null || !mounted) return;
     _keyboardSub = session.textEditFocusChanges.listen(_setKeyboardFocused);
@@ -947,6 +952,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     NetworkEntityDto entity,
     NetworkActionDto action, {
     String? value,
+    Map<String, String>? values,
   }) async {
     // HTTP, Kasa, Rabbit Air and Roomba sends are independent — no read-back
     // coupling — so they do not serialize behind the single-SOAP-write gate
@@ -964,16 +970,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _error = null;
     });
     try {
-      final values = <String, String>{};
+      final sent = <String, String>{...?values};
       if (value != null && action.userParams.isNotEmpty) {
-        values[action.userParams.first] = value;
+        sent[action.userParams.first] = value;
       }
       if (action.transport == roombaTransport) {
         await _sendRoomba(action);
       } else {
         await _sender.sendAction(
           action,
-          values,
+          sent,
           description: _description,
           // Null by construction: a Rabbit Air device forks to
           // RabbitAirControlsPanel above, and that panel's transport owns
@@ -1506,14 +1512,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       case 'fan':
         return _fanCard(entity);
       case 'light':
-        // A LIFX light drives itself over UDP: unlike the SOAP/HTTP cards it
-        // owns its own sends and live reads, so the screen just hands it the
-        // entity and the device address.
+        // A LIFX light drives itself over UDP — it owns its own sends and
+        // live reads. Any other light rides the screen's ordinary send
+        // pipeline, routed by each action's declared transport; the card
+        // itself only presents.
         return NetworkLightCard(
           entity: entity,
           specYaml: widget.controls.specYaml,
           host: widget.device.host,
           targetMac: widget.device.advertisedMac ?? '',
+          sendAction: (action, values) => _send(entity, action, values: values),
         );
       default:
         return _sensorCard(entity);

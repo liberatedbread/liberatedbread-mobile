@@ -41,9 +41,14 @@ class NetworkCommandSender {
   /// The raw discovery port, feeding the Kasa and Rabbit Air fallbacks.
   final int? devicePort;
 
-  /// What the device answered to at discovery — the ECP2 gate: only a
-  /// device that answered `roku:ecp` is offered the signed session.
+  /// What the device answered to at discovery. Kept for callers that route
+  /// on it; the ECP2 gate itself moved to [capabilities].
   final List<String> ssdpTargets;
+
+  /// The spec's declared control-path capabilities: whether the device
+  /// speaks the signed ECP2 session, and its declared control port. Null
+  /// means no declared capability — plain paths only.
+  final NetworkCapabilitiesDto? capabilities;
 
   final String specYaml;
 
@@ -60,6 +65,7 @@ class NetworkCommandSender {
     required this.devicePort,
     required this.ssdpTargets,
     required this.specYaml,
+    this.capabilities,
     required SpecCodec codec,
     required HttpControlClient http,
     required SoapControlClient soap,
@@ -84,20 +90,19 @@ class NetworkCommandSender {
   /// The Rabbit Air transport constant — encrypted JSON over UDP.
   static const rabbitAirTransport = 'udp';
 
-  /// Roku control — plain ECP and the ECP2 session alike — always lives on
-  /// 8060 (the spec's `default_port`), whatever port the SSDP LOCATION
-  /// carried. A field TV answered discovery with a 7250 root-description
-  /// port, but /keypress, /query, /launch and /ecp-session are only ever
-  /// served on 8060.
-  static const rokuEcpPort = 8060;
+  /// Whether the spec declares the signed ECP2 session for this device —
+  /// the spec's own `ecp2:` block, surfaced through [capabilities], not a
+  /// discovery-string guess.
+  bool get isRoku => capabilities?.signedSession == 'ecp2';
 
-  /// A Roku, by the `roku:ecp` target it answered at discovery — the same
-  /// test the signed session is gated on, not a name guess.
-  bool get isRoku => ssdpTargets.contains('roku:ecp');
-
-  /// The port a control request goes to. A Roku is pinned to its ECP port;
-  /// every other device uses the port discovery captured from its LOCATION.
-  int? get controlPort => isRoku ? rokuEcpPort : discoveredControlPort;
+  /// The port a control request goes to. A device whose spec declares a
+  /// control port is pinned to it — Roku serves /keypress, /query, /launch
+  /// and /ecp-session only on its declared 8060, whatever port the SSDP
+  /// LOCATION carried (a field TV advertised 7250). Every other device uses
+  /// the port discovery captured.
+  int? get controlPort => isRoku
+      ? (capabilities?.defaultPort ?? discoveredControlPort)
+      : discoveredControlPort;
 
   int get _kasaHostPort => devicePort ?? kasaPort;
 

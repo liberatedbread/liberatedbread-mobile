@@ -56,13 +56,25 @@ class NetworkLightCard extends ConsumerStatefulWidget {
   /// to, which is what LIFX firmware accepts.
   final String targetMac;
 
+  /// The generic-path sender, for a `light` entity whose transport is NOT
+  /// `lifx`: the screen's own send pipeline, routing by the action's declared
+  /// transport. On the LIFX path this is unused — and a non-LIFX light with
+  /// no sender simply renders its controls disabled, which is safer than the
+  /// old behavior of firing LIFX datagrams at whatever the entity was.
+  final Future<void> Function(
+      NetworkActionDto action, Map<String, String> values)? sendAction;
+
   const NetworkLightCard({
     super.key,
     required this.entity,
     required this.specYaml,
     required this.host,
     required this.targetMac,
+    this.sendAction,
   });
+
+  /// Whether this entity rides the dedicated LIFX binary-UDP handler.
+  bool get isLifx => entity.transport == 'lifx';
 
   @override
   ConsumerState<NetworkLightCard> createState() => _NetworkLightCardState();
@@ -109,10 +121,14 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   @override
   void initState() {
     super.initState();
-    // Read live state without blocking the first frame: the controls render
-    // immediately and correct themselves if the device answers.
-    unawaited(_readState());
-    if (_setZoneColor != null) unawaited(_readZones());
+    // The live-read path is LIFX's own protocol; a generic light's state
+    // arrives through the screen's ordinary poll instead.
+    if (widget.isLifx) {
+      // Read live state without blocking the first frame: the controls render
+      // immediately and correct themselves if the device answers.
+      unawaited(_readState());
+      if (_setZoneColor != null) unawaited(_readZones());
+    }
   }
 
   Map<String, double> _colorParams({double? brightnessOverride}) {
@@ -128,8 +144,11 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     return params;
   }
 
-  /// Render one action's bytes and fire them at the strip. Fire-and-forget:
-  /// no reply is awaited, so [assumeOn] records the position to show meanwhile.
+  /// Send one role. On the LIFX path this renders the action's bytes through
+  /// the codec and fires them over UDP, fire-and-forget — so [assumeOn]
+  /// records the position to show meanwhile. On the generic path the screen's
+  /// sender routes by the action's own transport; a non-LIFX light must never
+  /// see a LIFX datagram.
   Future<void> _send(
     String action,
     Map<String, double> params, {
@@ -140,15 +159,27 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       _errorText = null;
     });
     try {
-      final codec = ref.read(specCodecProvider);
-      final client = ref.read(lifxControlClientProvider);
-      final bytes = await codec.renderLifxCommand(
-        action: action,
-        params: params,
-        targetMac: widget.targetMac,
-        sequence: client.nextSequence(),
-      );
-      await client.send(widget.host, bytes);
+      if (widget.isLifx) {
+        final codec = ref.read(specCodecProvider);
+        final client = ref.read(lifxControlClientProvider);
+        final bytes = await codec.renderLifxCommand(
+          action: action,
+          params: params,
+          targetMac: widget.targetMac,
+          sequence: client.nextSequence(),
+        );
+        await client.send(widget.host, bytes);
+      } else {
+        final resolved = _action(action);
+        final send = widget.sendAction;
+        if (resolved == null || send == null) {
+          throw StateError('no generic path for $action');
+        }
+        await send(resolved, {
+          for (final entry in params.entries)
+            entry.key: entry.value.round().toString(),
+        });
+      }
       if (!mounted) return;
       setState(() {
         _sending = false;
@@ -159,7 +190,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       final text = friendlyErrorText(
         e,
         context: 'send $action',
-        fallback: 'The strip did not accept that command.',
+        fallback: 'The light did not accept that command.',
       );
       setState(() {
         _sending = false;
