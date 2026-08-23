@@ -666,6 +666,81 @@ def test_entity_names_are_unique_per_variant(specs):
                     )
 
 
+# The semantic-key vocabulary `entities[].key` draws from. A pattern plus this
+# list rather than a schema enum, on the `category` precedent: an enum would
+# make every vocabulary addition a schema change that hard-fails strict
+# parsers, while this list keeps growth additive and typo-checked. Grouped by
+# the surface that consumes them; a key is added here the release before a
+# spec first uses it.
+ENTITY_KEY_VOCABULARY = frozenset(
+    {
+        # Remote-shaped surfaces (TVs, streaming boxes).
+        "power", "power_on", "power_off",
+        "back", "home", "up", "down", "left", "right", "ok",
+        "replay", "options", "exit", "menu", "info",
+        "rewind", "play_pause", "fast_forward",
+        "volume_up", "volume_down", "mute",
+        "channel_up", "channel_down",
+        "search", "find_remote", "keyboard",
+        "input_hdmi1", "input_hdmi2", "input_hdmi3", "input_hdmi4",
+        "input_av", "input_tuner",
+        # Treadmill / fitness cards.
+        "start", "pause", "stop", "speed",
+    }
+)
+
+
+def test_entity_keys_come_from_the_documented_vocabulary(specs):
+    """Every `entities[].key` is a token a consumer's curated layouts know.
+
+    The key exists so a remote card can place OK in the middle of a D-pad and
+    a treadmill card can find Stop without matching display names. An
+    unrecognised token would simply never be consumed -- a typo'd
+    `volume_upp` silently demotes the control to the leftover pile, which is
+    exactly the failure the key was added to end.
+    """
+    for device_id, spec in specs.items():
+        for entity in spec.get("entities") or []:
+            key = entity.get("key")
+            if key is None:
+                continue
+            assert key in ENTITY_KEY_VOCABULARY, (
+                f"{device_id}: entity {entity.get('name')!r} declares key "
+                f"{key!r}, which is not in the documented vocabulary. Reuse "
+                "an existing token if one fits; otherwise add it to "
+                "ENTITY_KEY_VOCABULARY (and the schema description) in the "
+                "same change."
+            )
+
+
+def test_entity_keys_are_unique_per_variant(specs):
+    """A key names a layout slot, so two co-present entities must not share
+    one -- the same disjointness rule names carry, for the same reason: a
+    consumer resolving `take('ok')` cannot tell two claimants apart. A name
+    may repeat across variant-disjoint entities and so may a key.
+    """
+    for device_id, spec in specs.items():
+        by_key: dict[str, list[frozenset]] = {}
+        for entity in spec.get("entities") or []:
+            key = entity.get("key")
+            if key is None:
+                continue
+            by_key.setdefault(key, []).append(frozenset(entity.get("variants") or []))
+        for key, variant_sets in by_key.items():
+            if len(variant_sets) < 2:
+                continue
+            for i in range(len(variant_sets)):
+                for j in range(i + 1, len(variant_sets)):
+                    left, right = variant_sets[i], variant_sets[j]
+                    assert left and right and not (left & right), (
+                        f"{device_id}: {len(variant_sets)} entities declare "
+                        f"key {key!r} and at least two of them can be present "
+                        "on the same device. A layout slot has room for one "
+                        "control; drop the key from all but one, or scope "
+                        "each to its models with `variants`."
+                    )
+
+
 def test_format_field_keys_are_declared_in_the_schema(specs):
     """Same rule for the `format:` fields a client decodes bytes with.
 

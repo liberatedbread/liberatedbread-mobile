@@ -141,6 +141,19 @@ services:
           (activates buzzer + LED). Write-without-response is commonly
           supported. NOTIFY is also exposed on at least some units
           (thejeshgn nRF Connect dump).
+        commands:
+          alert_off:
+            description: "Stop the alert: standard Immediate Alert level 0x00 (No Alert). Source: BLE Immediate Alert Service spec plus the community RE cited in device notes."
+            verification: "reported"
+            value: [0x00]
+          alert_mild:
+            description: "Mild alert: standard Immediate Alert level 0x01."
+            verification: "reported"
+            value: [0x01]
+          alert_high:
+            description: "High alert: standard Immediate Alert level 0x02 — buzzer plus LED."
+            verification: "reported"
+            value: [0x02]
 
   - uuid: "00001803-0000-1000-8000-00805f9b34fb"
     name: "Link Loss Service"
@@ -178,6 +191,9 @@ entities:
   - platform: "switch"
     name: "Alert"
     state_characteristic: "00002a06-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "alert_high"
+      turn_off: "alert_off"
   - platform: "binary_sensor"
     name: "Button"
     state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"

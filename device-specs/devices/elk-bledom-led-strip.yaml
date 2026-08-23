@@ -229,6 +229,21 @@ services:
               cmd: { type: "uint8" }
               state: { type: "uint8", values: { "0": "off", "1": "on" } }
               flag: { type: "uint8", default: 0x00 }
+          turn_on:
+            description: >
+              Power on, as the constant frame the dave-code-ruiz/elkbledom
+              HACS integration writes (see helpful_urls): command 0x04 with
+              payload F0 00 01. Unlike set_light_on_off this needs no
+              app-version-dependent command byte, so it is directly bindable.
+            verification: "reported"
+            value: [0x7E, 0x00, 0x04, 0xF0, 0x00, 0x01, 0xFF, 0x00, 0xEF]
+          turn_off:
+            description: >
+              Power off, as the constant frame the dave-code-ruiz/elkbledom
+              HACS integration writes (see helpful_urls): command 0x04 with
+              payload 00 00 00. Counterpart of turn_on.
+            verification: "reported"
+            value: [0x7E, 0x00, 0x04, 0x00, 0x00, 0x00, 0xFF, 0x00, 0xEF]
           set_mode:
             description: >
               Set effect mode. Index 0-255 per app mode list
@@ -310,6 +325,15 @@ entities:
     name: "LED Strip"
     features: ["brightness", "color", "color_temperature", "effect"]
     state_characteristic: "0000fff4-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "turn_on"
+      turn_off: "turn_off"
+      set_brightness: "set_brightness"
+      set_color: "set_rgb_color"
+    notes: >
+      set_effect is deliberately unbound: set_mode's command byte varies by
+      app version and has no default, so no single effect frame can be
+      built from the spec alone.
 
 helpful_urls:
   - title: "dave-code-ruiz/elkbledom (HACS)"

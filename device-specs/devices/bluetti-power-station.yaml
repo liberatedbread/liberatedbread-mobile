@@ -35,7 +35,8 @@ device:
       AC load, dc_output_on=1 at 2 W). NOT exercised: every write (AC/DC
       output toggles, all 3000-range controls), the pack-selector flow, the
       V2 register layout and the encrypted protocol — those rest on the cited
-      implementations only.
+      implementations only. The AC/DC switch entity bindings (ac_output_on/
+      off, dc_output_on/off) ride those unexercised writes.
   protocol: "ble"
   category: "energy"
   pictogram: "power-station"
@@ -242,6 +243,46 @@ services:
                 auto: "crc16_modbus"
                 checksum_start: 0
                 description: "CRC-16/MODBUS, appended low byte first; encoder-filled, never a control."
+          ac_output_on:
+            description: "AC inverter output ON: set_ac_output with the value fixed at 1 — Write Single Register 3007 (0x0BBF) = 1. The AC Output switch entity is the intended surface; restores mains power to plugged-in loads."
+            verification: "reported"
+            template: [0x01, 0x06, 0x0B, 0xBF, 0x00, 0x01, "{crc}"]
+            parameters:
+              crc:
+                type: "uint16"
+                auto: "crc16_modbus"
+                checksum_start: 0
+                description: "CRC-16/MODBUS over bytes 0..n-3, appended low byte first; encoder-filled, never a control."
+          ac_output_off:
+            description: "AC inverter output OFF: set_ac_output with the value fixed at 0 — Write Single Register 3007 (0x0BBF) = 0. Cuts mains power to every AC load plugged into the unit."
+            verification: "reported"
+            template: [0x01, 0x06, 0x0B, 0xBF, 0x00, 0x00, "{crc}"]
+            parameters:
+              crc:
+                type: "uint16"
+                auto: "crc16_modbus"
+                checksum_start: 0
+                description: "CRC-16/MODBUS over bytes 0..n-3, appended low byte first; encoder-filled, never a control."
+          dc_output_on:
+            description: "DC output ON: set_dc_output with the value fixed at 1 — Write Single Register 3008 (0x0BC0) = 1."
+            verification: "reported"
+            template: [0x01, 0x06, 0x0B, 0xC0, 0x00, 0x01, "{crc}"]
+            parameters:
+              crc:
+                type: "uint16"
+                auto: "crc16_modbus"
+                checksum_start: 0
+                description: "CRC-16/MODBUS over bytes 0..n-3, appended low byte first; encoder-filled, never a control."
+          dc_output_off:
+            description: "DC output OFF: set_dc_output with the value fixed at 0 — Write Single Register 3008 (0x0BC0) = 0. Cuts DC power to connected loads."
+            verification: "reported"
+            template: [0x01, 0x06, 0x0B, 0xC0, 0x00, 0x00, "{crc}"]
+            parameters:
+              crc:
+                type: "uint16"
+                auto: "crc16_modbus"
+                checksum_start: 0
+                description: "CRC-16/MODBUS over bytes 0..n-3, appended low byte first; encoder-filled, never a control."
       - uuid: "0000ff03-0000-1000-8000-00805f9b34fb"
         name: "Vendor channel (role unknown)"
         properties: ["notify", "write", "write_without_response"]
@@ -371,9 +412,15 @@ entities:
     notes: "Register 36 (solar/car charging)."
   - platform: "switch"
     name: "AC Output"
+    commands:
+      turn_on: "ac_output_on"
+      turn_off: "ac_output_off"
     notes: "State register 48, control register 3007. Cuts mains power to plugged-in loads — surface as an explicit switch."
   - platform: "switch"
     name: "DC Output"
+    commands:
+      turn_on: "dc_output_on"
+      turn_off: "dc_output_off"
     notes: "State register 49, control register 3008."
 
 helpful_urls:

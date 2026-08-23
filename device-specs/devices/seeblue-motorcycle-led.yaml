@@ -96,6 +96,22 @@ device:
         proximity is the only access control. Note the app-level handshake on
         protocol 0x00 after every connect (see setup description); whether the
         firmware enforces it is unverified.
+  variants:
+    - model: "Direct"
+      identification:
+        local_name_prefix: "LEDGlowMoto"
+      notes: >
+        Dialect driven by the moto app (com.seeblue.ledglow_moto): direct_*
+        commands on protocol 0x01 plus the protocol-0x10 full snapshot.
+        The app matches the advertised name "LEDGlowMoto" exactly; the
+        prefix here is that whole name.
+    - model: "LEDGlow-V2"
+      identification:
+        local_name_prefix: "LEDGlowV2"
+      notes: >
+        Dialect driven by the v2 app (com.seeblue.ledglowv2): ledglow_v2_*
+        UI-change commands on protocol 0x10. The app matches the advertised
+        name "LEDGlowV2" exactly; the prefix here is that whole name.
 services:
   - uuid: "0000ffe5-0000-1000-8000-00805f9b34fb"
     name: "LEDGlow BLE Data Service"
@@ -292,6 +308,26 @@ services:
                 type: "uint8"
                 min: 0
                 max: 255
+          direct_power_on:
+            description: >
+              Direct-dialect power ON: full_settings_snapshot with every
+              field fixed (on_off 0xFF per the vendor app's convention, both
+              zones full-brightness white, first mode, speed 0). The Direct
+              dialect's only power path is the full-state snapshot, so a
+              constant ON necessarily writes a whole defined state; a client
+              wanting to preserve the current colors/mode should send
+              full_settings_snapshot itself.
+            verification: "reported"
+            protocol_id: 0x10
+            value: [0x01, 0xFF, 0xFF, 0xFF, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+          direct_power_off:
+            description: >
+              Direct-dialect power OFF: full_settings_snapshot with on_off
+              0x00 (remaining fields zeroed, mode index at its minimum).
+              Counterpart of direct_power_on.
+            verification: "reported"
+            protocol_id: 0x10
+            value: [0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
           ledglow_v2_power:
             description: "LEDGlow V2 UI change ID 0: power"
             protocol_id: 0x10
@@ -302,6 +338,24 @@ services:
                 type: "uint8"
                 min: 0
                 max: 255
+          ledglow_v2_power_on:
+            description: >
+              LEDGlow V2 power ON: ledglow_v2_power with the value fixed at
+              0xFF, following the family's on/off convention (the moto app's
+              snapshot builder emits 0xFF for on, 0x00 for off) — the v2
+              app's exact power byte was not separately traced.
+            verification: "reported"
+            protocol_id: 0x10
+            ui_id: 0
+            value: [0x05, 0x00, 0xFF]
+          ledglow_v2_power_off:
+            description: >
+              LEDGlow V2 power OFF: ledglow_v2_power with the value fixed at
+              0x00. Same basis as ledglow_v2_power_on.
+            verification: "reported"
+            protocol_id: 0x10
+            ui_id: 0
+            value: [0x05, 0x00, 0x00]
           ledglow_v2_color_a:
             description: "LEDGlow V2 UI change ID 2: color A RGB"
             protocol_id: 0x10
@@ -616,10 +670,30 @@ services:
 entities:
   - platform: "light"
     name: "Motorcycle LEDs"
+    variants: ["Direct"]
     features: ["brightness", "color", "effect"]
     state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
     commands:
-      turn_on: "full_settings_snapshot"
+      turn_on: "direct_power_on"
+      turn_off: "direct_power_off"
       set_color: "direct_set_color_1"
       set_brightness: "direct_set_brightness_1"
       set_effect: "direct_set_mode"
+    notes: >
+      turn_on/turn_off write a full settings snapshot (the dialect's only
+      power path), so turning on restores the defined default state rather
+      than the last user state — see direct_power_on.
+  - platform: "light"
+    name: "Motorcycle LEDs"
+    variants: ["LEDGlow-V2"]
+    features: ["brightness", "color", "effect"]
+    state_characteristic: "0000ffe4-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "ledglow_v2_power_on"
+      turn_off: "ledglow_v2_power_off"
+      set_color: "ledglow_v2_color_a"
+      set_brightness: "ledglow_v2_brightness_a"
+      set_effect: "ledglow_v2_mode"
+    notes: >
+      Binds zone A of the v2 dialect's three color/brightness zones; zones
+      B and C remain command-only.

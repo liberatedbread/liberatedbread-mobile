@@ -370,5 +370,8 @@ entities:
   - platform: "number"
     name: "Animation Speed"
     state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    min: 0
+    max: 255
+    step: 1
     commands:
       set_value: "set_speed"
