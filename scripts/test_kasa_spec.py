@@ -470,8 +470,28 @@ def test_every_entity_variant_names_a_declared_variant(entities, variants):
             )
 
 
-def test_the_switch_is_not_variant_scoped(entities):
-    """The relay is on every covered model, so the switch must NOT carry a
-    variants list — scoping it would hide the one control every plug has."""
-    switch = next(e for e in entities if e["platform"] == "switch")
-    assert "variants" not in switch
+def test_the_switch_is_scoped_to_the_probe_identified_plug_family(entities, spec):
+    """The relay switch used to be unscoped because every covered model had
+    one — no longer true since the spec grew the smartbulb-class variants,
+    whose devices ignore set_relay_state. The switch now scopes to the
+    shape-identified "Smart Plug" family (and the instanced Outlets to
+    "Power Strip"), both of which must carry a state_probe: probe-scoped
+    entities stay drawable before a consumer's first poll, so this scoping
+    never costs a plug its control — it only stops a bulb wearing a dead
+    switch."""
+    by_name = {e["name"]: e for e in entities}
+    assert by_name["Outlet"]["variants"] == ["Smart Plug"]
+    assert by_name["Outlets"]["variants"] == ["Power Strip"]
+    probes = {
+        v["model"]: v.get("identification", {}).get("state_probe")
+        for v in spec["device"]["variants"]
+    }
+    assert probes["Smart Plug"] == {
+        "command": "get_sysinfo",
+        "keys_present": ["relay_state"],
+        "keys_absent": ["children"],
+    }
+    assert probes["Power Strip"] == {
+        "command": "get_sysinfo",
+        "keys_present": ["children"],
+    }
