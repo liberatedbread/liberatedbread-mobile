@@ -1320,7 +1320,7 @@ pub fn encode_entity_value(
     // Wrap in the characteristic's framing when it declares an implemented
     // scheme, matching the generic command path. A one-shot setpoint uses
     // fragment serial 0.
-    let bytes = crate::protocol::image_upload::frame_command(action.characteristic, bytes, 0);
+    let bytes = crate::protocol::image_upload::frame_command(action.characteristic, bytes, 0)?;
 
     Ok(EntityWriteDto {
         service_uuid: action.service.uuid.clone(),

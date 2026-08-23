@@ -202,13 +202,17 @@ pub fn decode_frame(frame: &[u8]) -> Result<Vec<u8>, ProtocolError> {
         )));
     };
     let len = u32::from_be_bytes(header.try_into().expect("4 bytes")) as usize;
-    let payload = frame.get(4..4 + len).ok_or_else(|| {
-        ProtocolError::MalformedReply(format!(
-            "TCP frame declares {len} payload bytes but only {} follow the prefix",
-            frame.len().saturating_sub(4)
-        ))
-    })?;
-    Ok(decrypt(payload))
+    // Bounds-check against what actually arrived BEFORE forming `4 + len`:
+    // the length is device-controlled, and on a 32-bit target (armv7
+    // Android) a huge u32 makes `4 + len` overflow usize — a debug panic
+    // where a malformed-reply error belongs.
+    let available = frame.len() - 4;
+    if len > available {
+        return Err(ProtocolError::MalformedReply(format!(
+            "TCP frame declares {len} payload bytes but only {available} follow the prefix"
+        )));
+    }
+    Ok(decrypt(&frame[4..4 + len]))
 }
 
 #[cfg(test)]
@@ -370,5 +374,17 @@ entities:
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+    #[test]
+    fn a_huge_declared_length_is_a_malformed_reply_not_a_panic() {
+        // The length prefix is device-controlled; u32::MAX as usize + 4
+        // overflows on a 32-bit target. Must bounds-check, not arithmetic.
+        let mut frame = 0xFFFF_FFFFu32.to_be_bytes().to_vec();
+        frame.extend_from_slice(&[1, 2, 3]);
+        let err = decode_frame(&frame).unwrap_err();
+        assert!(
+            err.to_string().contains("4294967295"),
+            "names the declared length: {err}"
+        );
     }
 }

@@ -159,19 +159,36 @@ fn framing_of(c: &Characteristic) -> Option<Framing> {
 /// A command packet here is one logical message that fits a single BLE write
 /// (every framed DDP command is < 30 bytes and the link negotiates a large
 /// MTU), so `capacity` is the whole packet and the scheme emits exactly one
-/// fragment. When the characteristic declares no framing, or a scheme this
-/// build does not implement, the bytes pass through unchanged — the
-/// encodability gate has already refused an unimplemented scheme upstream, so
-/// this is only ever reached for a scheme that frames.
-pub fn frame_command(characteristic: &Characteristic, packet: Vec<u8>, serial: u8) -> Vec<u8> {
-    let Some(framing) = framing_of(characteristic) else {
-        return packet;
+/// fragment. When the characteristic declares no framing (or a framing block
+/// with no scheme), the bytes pass through unchanged.
+///
+/// A DECLARED scheme that cannot be applied is an error, never a
+/// passthrough: the encodability gate reads the raw `framing.scheme` and
+/// says sendable, so a malformed block (a `channel_tag` out of u8 range,
+/// say) used to slip an UNFRAMED write onto the wire — which Daniao
+/// hardware silently ignores. A dead control with no error, triggerable by
+/// one bad spec field.
+pub fn frame_command(
+    characteristic: &Characteristic,
+    packet: Vec<u8>,
+    serial: u8,
+) -> Result<Vec<u8>, ProtocolError> {
+    let Some(raw) = characteristic.framing.as_ref() else {
+        return Ok(packet);
     };
+    let framing: Framing =
+        serde_yaml::from_value(raw.clone()).map_err(|e| ProtocolError::InvalidFraming {
+            reason: e.to_string(),
+        })?;
     let Some(scheme_name) = framing.scheme.as_deref() else {
-        return packet;
+        return Ok(packet);
     };
     let Some(scheme) = SCHEMES.iter().find(|s| s.name == scheme_name) else {
-        return packet;
+        // The gate refused unimplemented schemes upstream; reaching one here
+        // means the two disagreed, and erring is the honest answer.
+        return Err(ProtocolError::InvalidFraming {
+            reason: format!("scheme '{scheme_name}' is not implemented"),
+        });
     };
     let mut parts = (scheme.fragment)(FragmentRequest {
         packet: &packet,
@@ -180,11 +197,11 @@ pub fn frame_command(characteristic: &Characteristic, packet: Vec<u8>, serial: u
         capacity: packet.len().max(1),
     });
     // capacity >= packet.len() forces a single fragment.
-    if parts.is_empty() {
+    Ok(if parts.is_empty() {
         packet
     } else {
         parts.swap_remove(0)
-    }
+    })
 }
 
 fn is_writable(c: &Characteristic) -> bool {

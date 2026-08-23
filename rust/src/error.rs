@@ -69,6 +69,9 @@ pub enum ProtocolError {
     #[error("image upload is not supported for this device: {reason}")]
     ImageUploadUnsupported { reason: String },
 
+    #[error("framing block is malformed: {reason}")]
+    InvalidFraming { reason: String },
+
     #[error("invalid image frame: {reason}")]
     ImageDimensionsInvalid { reason: String },
 

@@ -89,13 +89,13 @@ impl DeviceProtocol for GenericProtocol {
         // scheme (Daniao's DDP fragment header) — the controller ignores an
         // unframed command write. The fragment serial rides in as `sn`, the
         // same counter the template's `auto: sequence` places in the packet;
-        // one-shot commands leave it 0 (accepted on hardware).
-        let serial = params.get("sn").copied().unwrap_or(0.0) as u8;
-        Ok(super::image_upload::frame_command(
-            characteristic,
-            bytes,
-            serial,
-        ))
+        // one-shot commands leave it 0 (accepted on hardware). The spec types
+        // `sn` uint16 while the fragment header byte is u8, so the serial
+        // WRAPS like the stored-upload path's does — a saturating cast made
+        // every command after the 255th share serial 255, and the firmware
+        // de-dupes framed commands by serial, so they were silently dropped.
+        let serial = (params.get("sn").copied().unwrap_or(0.0) as u64 % 256) as u8;
+        super::image_upload::frame_command(characteristic, bytes, serial)
     }
 
     fn decode_value(&self, char_uuid: &str, bytes: &[u8]) -> Result<DecodedValues, ProtocolError> {
@@ -503,6 +503,55 @@ services:
         assert_eq!(bytes[0], 7, "fragment serial carries sn");
         // sn also lands in the DNX header (bytes 6..8, big-endian).
         assert_eq!(&bytes[6..8], &[0x00, 0x07]);
+    }
+
+    #[test]
+    fn framed_command_serial_wraps_past_255() {
+        // The spec types `sn` uint16; the fragment header byte is u8. The
+        // firmware de-dupes framed commands by serial, so a SATURATING cast
+        // (256 -> 255, 300 -> 255) made every command after the 255th share
+        // one serial and get silently dropped. The serial must wrap, exactly
+        // as the stored-upload path's does.
+        let proto = GenericProtocol::new(Arc::new(framed_spec()));
+        let serial_for = |sn: f64| {
+            proto
+                .encode_command(
+                    "01020074-1972-1925-3022-077119514e44",
+                    "power_on",
+                    &HashMap::from([("sn".to_string(), sn)]),
+                )
+                .unwrap()[0]
+        };
+        assert_eq!(serial_for(255.0), 255);
+        assert_eq!(serial_for(256.0), 0, "256 wraps to 0, not saturates");
+        assert_eq!(serial_for(257.0), 1);
+    }
+
+    #[test]
+    fn malformed_framing_block_errs_rather_than_sending_unframed() {
+        // A framing block naming an implemented scheme but failing the typed
+        // parse (channel_tag out of u8 range) used to pass bytes through
+        // UNFRAMED while the encodability gate still said sendable — a dead
+        // control with no error, triggerable by one bad spec field. It must
+        // fail loudly instead.
+        let spec_yaml = framed_spec_yaml_with_scheme("daniao_fragment").replace(
+            "scheme: \"daniao_fragment\"",
+            "scheme: \"daniao_fragment\"\n          channel_tag: 300",
+        );
+        assert!(spec_yaml.contains("channel_tag: 300"));
+        let proto = GenericProtocol::new(Arc::new(parse_device_spec(&spec_yaml).unwrap()));
+        match proto.encode_command(
+            "01020074-1972-1925-3022-077119514e44",
+            "power_on",
+            &HashMap::new(),
+        ) {
+            Err(ProtocolError::InvalidFraming { .. }) => {}
+            Ok(bytes) => panic!(
+                "a malformed framing block must not send: got {} unframed byte(s)",
+                bytes.len()
+            ),
+            other => panic!("expected InvalidFraming, got {other:?}"),
+        }
     }
 
     #[test]
