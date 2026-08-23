@@ -17,6 +17,7 @@ import '../services/number_registry.dart';
 import '../services/spec_codec.dart';
 import 'binary_sensor_card.dart';
 import 'entity_sensor_card.dart';
+import 'entity_cards/ble_entity_action_card.dart';
 import 'led_image_widget.dart';
 import 'light_control_card.dart';
 import 'rabbit_air_controls_panel.dart';
@@ -137,7 +138,14 @@ class DeviceControlPanel extends ConsumerWidget {
           if (owningState == null) continue;
           if (!seen.add('${entity.platform}|${entity.name}')) continue;
           readings.add((entity: entity, serviceUuid: owningState.uuid));
-        case 'switch' || 'light' || 'number' || 'climate':
+        case 'switch' ||
+              'light' ||
+              'number' ||
+              'climate' ||
+              'button' ||
+              'select' ||
+              'fan' ||
+              'cover':
           // At least one action must target a characteristic this device
           // actually has; a switch or setpoint may instead ride on readable
           // state alone (ember's temperature control has no sendable command,
@@ -152,7 +160,14 @@ class DeviceControlPanel extends ConsumerWidget {
               ),
             ),
           );
-          final stateOnly = entity.platform != 'light' && owningState != null;
+          // A button/select/fan/cover without a resolved action on discovered
+          // hardware is a dead control, not a reading — hide it (the count
+          // below says so) rather than draw something that cannot send.
+          final stateOnly = owningState != null &&
+              switch (entity.platform) {
+                'light' || 'button' || 'select' || 'fan' || 'cover' => false,
+                _ => true,
+              };
           if (!actionsDiscovered && !stateOnly) continue;
           if (!seen.add('${entity.platform}|${entity.name}')) continue;
           controls.add((entity: entity, stateServiceUuid: owningState?.uuid));
@@ -160,6 +175,22 @@ class DeviceControlPanel extends ConsumerWidget {
           continue;
       }
     }
+
+    // The hide rule's honest half: everything declared for this device that
+    // is not on screen — dropped at the spec level (unsendable encodings,
+    // unresolved bindings) or here (its characteristic absent from this
+    // unit, a platform this panel cannot draw). Dedup survivors: a name
+    // rendered once under any binding is not hidden.
+    final shownNames = {
+      for (final r in readings) r.entity.name,
+      for (final c in controls) c.entity.name,
+    };
+    final hiddenNames = <String>{
+      ...?match?.spec.hiddenEntityNames,
+      ...?match?.spec.entities
+          .map((e) => e.name)
+          .where((name) => !shownNames.contains(name)),
+    }.toList();
 
     // A sensor device's product is its readings; the GATT tree below them is
     // plumbing. When the matched spec says this is a sensor and its readings
@@ -239,6 +270,11 @@ class DeviceControlPanel extends ConsumerWidget {
           deviceId: deviceId,
           readings: readings,
           specYaml: match!.yaml,
+        ),
+      if (hiddenNames.isNotEmpty)
+        _HiddenEntitiesNote(
+          key: const ValueKey('hidden-entities-note'),
+          names: hiddenNames,
         ),
     ];
 
@@ -547,6 +583,43 @@ class _SpecChoicePrompt extends ConsumerWidget {
 /// one glance, not six swipes. A lone reading keeps the roomier row, and
 /// binary sensors keep their full-width on/off presentation below the grid —
 /// a state line, not a measurement tile.
+/// The hide rule's honest half, on the BLE panel: the spec declares entities
+/// this screen is not showing — an encoding the app cannot send, a binding
+/// that resolved nothing, hardware this unit does not carry — and one muted
+/// line says so instead of silently pretending they were never declared.
+class _HiddenEntitiesNote extends StatelessWidget {
+  final List<String> names;
+
+  const _HiddenEntitiesNote({super.key, required this.names});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final label = names.length == 1
+        ? '1 declared control is not available on this device yet '
+            '(${names.single}).'
+        : '${names.length} declared controls are not available on this '
+            'device yet '
+            '(${names.take(4).join(', ')}${names.length > 4 ? ', …' : ''}).';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 16, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(label,
+                style:
+                    text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ReadingsSection extends StatelessWidget {
   final String deviceId;
   final List<({EntityDto entity, String serviceUuid})> readings;
@@ -697,6 +770,12 @@ class _ControlsSection extends StatelessWidget {
                   specYaml: specYaml,
                 ),
               'number' || 'climate' => SetpointControlCard(
+                  deviceId: deviceId,
+                  stateServiceUuid: control.stateServiceUuid,
+                  entity: control.entity,
+                  specYaml: specYaml,
+                ),
+              'button' || 'select' || 'fan' || 'cover' => BleEntityActionCard(
                   deviceId: deviceId,
                   stateServiceUuid: control.stateServiceUuid,
                   entity: control.entity,

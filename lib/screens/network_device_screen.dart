@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/entity_icon.dart';
+import '../core/sensor_reading_level.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import '../models/network_device.dart';
@@ -24,6 +25,7 @@ import '../services/soap_control_service.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_controller.dart';
 import '../services/spec_codec.dart';
+import '../widgets/entity_cards/sensor_level_chip.dart';
 import '../widgets/network_light_card.dart';
 import '../widgets/power_strip_icon.dart';
 import '../widgets/rabbit_air_controls_panel.dart';
@@ -69,6 +71,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   SoapDeviceDescription? _description;
   final Map<String, Map<String, String>> _stateByCommand = {};
   final Map<String, NetworkReadingDto?> _readings = {};
+
+  /// Slider positions the user has set but the device has not yet confirmed,
+  /// shown until the next state decode supersedes them.
+  final Map<String, double> _pendingSetpoints = {};
 
   /// The raw (unflattened) reply per state command, kept because an instanced
   /// entity — a Kasa power strip's outlets — enumerates its children straight
@@ -863,6 +869,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               returned: returned,
             );
       _readings[entity.name] = reading;
+      // A fresh decode supersedes a slider position the user was holding —
+      // the device has now said where it actually is.
+      if (reading != null) _pendingSetpoints.remove(entity.name);
       // Say WHY a card reads "State unknown": the state command answered, but
       // no field in it mapped to this entity's reading. Without this the app is
       // silent about a real gap (a bulb's light_state, a variant's renamed
@@ -1261,6 +1270,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   _entityCard(entity),
                   const SizedBox(height: 12),
                 ],
+              if (widget.controls.hiddenNames.isNotEmpty) ...[
+                _hiddenControlsNote(),
+                const SizedBox(height: 12),
+              ],
               const SizedBox(height: 16),
               _deviceInfo(description),
             ],
@@ -1279,6 +1292,33 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// unknown, nowhere when the device says nothing is focused.
   Iterable<NetworkEntityDto> get _textEntities =>
       _drawableEntities.where((entity) => entity.platform == 'text');
+
+  /// The hide rule's honest half: the spec declares controls this app cannot
+  /// offer yet (a transport it does not speak, a binding it cannot resolve),
+  /// and one muted line says so instead of silently pretending they were
+  /// never declared.
+  Widget _hiddenControlsNote() {
+    final names = widget.controls.hiddenNames;
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final label = names.length == 1
+        ? '1 control in this device’s spec is not supported by this app '
+            'yet (${names.single}).'
+        : '${names.length} controls in this device’s spec are not '
+            'supported by this app yet '
+            '(${names.take(4).join(', ')}${names.length > 4 ? ', …' : ''}).';
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.info_outline, size: 16, color: scheme.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(label,
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+        ),
+      ],
+    );
+  }
 
   /// The note shown once a device has refused a command.
   ///
@@ -1456,9 +1496,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       case 'select':
         return _selectCard(entity);
       case 'number':
+      case 'climate':
         return _numberCard(entity);
       case 'text':
         return _textCard(entity);
+      case 'cover':
+        return _coverCard(entity);
+      case 'fan':
+        return _fanCard(entity);
       case 'light':
         // A LIFX light drives itself over UDP: unlike the SOAP/HTTP cards it
         // owns its own sends and live reads, so the screen just hands it the
@@ -2038,44 +2083,89 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final action = _actionFor(entity, 'set_value');
     final busy = _sending.contains(entity.name);
     final unit = entity.unit;
+    final min = entity.setpointMin;
+    final max = entity.setpointMax;
+    final step = entity.setpointStep;
+    // A slider needs a bounded range to be honest; without one the edit
+    // dialog (which can validate what it is told after the fact) stays.
+    final hasRange = action != null && min != null && max != null && max > min;
+    final pending = _pendingSetpoints[entity.name];
+    final shown = pending ?? reading?.number;
 
     return _card(
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(entity.name,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
-                Text(
-                  reading == null
-                      ? 'Unknown'
-                      : '${reading.raw}${unit == null ? '' : ' $unit'}',
-                  style: Theme.of(context).textTheme.bodyMedium,
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(entity.name,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600)),
+                    Text(
+                      shown == null
+                          ? (reading == null
+                              ? 'Unknown'
+                              : '${reading.raw}${unit == null ? '' : ' $unit'}')
+                          : '${_trimNumber(shown)}${unit == null ? '' : ' $unit'}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              if (busy)
+                const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+              else if (action != null && !hasRange)
+                IconButton(
+                  tooltip: 'Set ${entity.name}',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: _lockedFor(action)
+                      ? null
+                      : () => unawaited(_editNumber(entity, action)),
+                ),
+            ],
           ),
-          if (busy)
-            const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2))
-          else if (action != null)
-            IconButton(
-              tooltip: 'Set ${entity.name}',
-              icon: const Icon(Icons.edit_outlined),
-              onPressed: _lockedFor(action)
+          if (hasRange)
+            Slider(
+              value: (shown ?? min).clamp(min, max),
+              min: min,
+              max: max,
+              divisions: _sliderDivisions(min, max, step),
+              label: shown == null ? null : _trimNumber(shown),
+              onChanged: (busy || _lockedFor(action))
                   ? null
-                  : () => unawaited(_editNumber(entity, action)),
+                  : (value) =>
+                      setState(() => _pendingSetpoints[entity.name] = value),
+              onChangeEnd: (busy || _lockedFor(action))
+                  ? null
+                  : (value) =>
+                      unawaited(_send(entity, action, value: _trimNumber(value))),
             ),
         ],
       ),
     );
+  }
+
+  /// A number rendered the way it will be sent: whole when it is whole, one
+  /// decimal otherwise (the finest step the specs declare).
+  static String _trimNumber(double value) => value == value.roundToDouble()
+      ? value.round().toString()
+      : value.toStringAsFixed(1);
+
+  /// Slider detents from the declared step, capped so a wide range with a
+  /// tiny step does not build thousands of divisions.
+  static int? _sliderDivisions(double min, double max, double? step) {
+    if (step == null || step <= 0) return null;
+    final count = ((max - min) / step).round();
+    return (count >= 1 && count <= 400) ? count : null;
   }
 
   Future<void> _editNumber(
@@ -2126,6 +2216,179 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     await _send(entity, action, value: value.toStringAsFixed(0));
   }
 
+  /// A cover — the garage-door shape: three motion buttons that are always
+  /// honest (they command travel, not state), a state line when the device
+  /// reports one, and a position slider only when there is a live position
+  /// to anchor it to.
+  Widget _coverCard(NetworkEntityDto entity) {
+    final reading = _readings[entity.name];
+    final open = _actionFor(entity, 'open_cover');
+    final close = _actionFor(entity, 'close_cover');
+    final stop = _actionFor(entity, 'stop_cover');
+    final position = _actionFor(entity, 'set_cover_position');
+    final busy = _sending.contains(entity.name);
+    final icon = entityIconFor(icon: entity.icon) ??
+        (entity.deviceClass == 'garage'
+            ? Icons.garage_outlined
+            : Icons.curtains_outlined);
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final positionValue = reading?.number;
+    final positionMin = position?.min ?? 0;
+    final positionMax = position?.max ?? 1;
+
+    Widget motion(NetworkActionDto? action, IconData icon, String label) =>
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: (action == null || busy || _lockedFor(action))
+                ? null
+                : () => unawaited(_send(entity, action)),
+            icon: Icon(icon, size: 18),
+            label: Text(label),
+          ),
+        );
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(entity.name,
+                    style: text.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+              ),
+              if (busy)
+                const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+              else if (reading != null)
+                Text(reading.label ?? reading.raw, style: text.bodyMedium),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              motion(open, Icons.arrow_upward, 'Open'),
+              const SizedBox(width: 8),
+              motion(stop, Icons.stop, 'Stop'),
+              const SizedBox(width: 8),
+              motion(close, Icons.arrow_downward, 'Close'),
+            ],
+          ),
+          // The slider claims to show where the door is, so it is earned
+          // only by a live position reading; the motions above need no such
+          // proof.
+          if (position != null &&
+              positionValue != null &&
+              positionMax > positionMin)
+            Slider(
+              value: positionValue.clamp(positionMin, positionMax),
+              min: positionMin,
+              max: positionMax,
+              onChanged: (busy || _lockedFor(position)) ? null : (_) {},
+              onChangeEnd: (busy || _lockedFor(position))
+                  ? null
+                  : (value) => unawaited(
+                      _send(entity, position, value: value.toString())),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// A fan: power, a percentage slider, and oscillation — each rendered only
+  /// when its role resolved.
+  Widget _fanCard(NetworkEntityDto entity) {
+    final reading = _readings[entity.name];
+    final turnOn = _actionFor(entity, 'turn_on');
+    final turnOff = _actionFor(entity, 'turn_off');
+    final percentage = _actionFor(entity, 'set_percentage');
+    final oscillating = _actionFor(entity, 'set_oscillating');
+    final busy = _sending.contains(entity.name);
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final isOn = reading?.isOn;
+    final min = percentage?.min ?? 0;
+    final max = percentage?.max ?? 100;
+    final pending = _pendingSetpoints[entity.name];
+    final speed = pending ?? reading?.number;
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.mode_fan_off_outlined,
+                  size: 20, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(entity.name,
+                    style: text.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+              ),
+              if (busy)
+                const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+              else if (turnOn != null && turnOff != null)
+                Switch(
+                  value: isOn ?? false,
+                  onChanged: (_lockedFor(turnOn) || _lockedFor(turnOff))
+                      ? null
+                      : (wantOn) => unawaited(
+                          _send(entity, wantOn ? turnOn : turnOff)),
+                ),
+            ],
+          ),
+          if (percentage != null && max > min)
+            Slider(
+              value: (speed ?? min).clamp(min, max),
+              min: min,
+              max: max,
+              label: speed == null ? null : _trimNumber(speed),
+              onChanged: (busy || _lockedFor(percentage))
+                  ? null
+                  : (value) =>
+                      setState(() => _pendingSetpoints[entity.name] = value),
+              onChangeEnd: (busy || _lockedFor(percentage))
+                  ? null
+                  : (value) => unawaited(
+                      _send(entity, percentage, value: _trimNumber(value))),
+            ),
+          if (oscillating != null)
+            Row(
+              children: [
+                Text('Oscillate', style: text.bodyMedium),
+                const Spacer(),
+                OutlinedButton(
+                  onPressed: (busy || _lockedFor(oscillating))
+                      ? null
+                      : () =>
+                          unawaited(_send(entity, oscillating, value: '1')),
+                  child: const Text('On'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: (busy || _lockedFor(oscillating))
+                      ? null
+                      : () =>
+                          unawaited(_send(entity, oscillating, value: '0')),
+                  child: const Text('Off'),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _sensorCard(NetworkEntityDto entity) {
     final reading = _readings[entity.name];
     final unit = entity.unit;
@@ -2135,9 +2398,27 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       NetworkReadingKind.onOff => (reading!.isOn ?? false) ? 'On' : 'Off',
       _ => '${reading!.raw}${unit == null ? '' : ' $unit'}',
     };
+    // The BLE readings' presentation, ported: the spec's icon (or what the
+    // device_class implies) and — where a healthy band is established
+    // (CO₂, radon, humidity, battery…) — a one-word verdict chip, because
+    // "934 ppm" answers a question nobody asked.
+    final icon = entityIconFor(
+        icon: entity.icon, deviceClass: entity.deviceClass);
+    final level = sensorReadingLevel(
+      deviceClass: entity.deviceClass,
+      unit: unit,
+      value: reading?.number,
+    );
+    final showLevel = level != null &&
+        sensorLevelVisible(deviceClass: entity.deviceClass, level: level);
     return _card(
       child: Row(
         children: [
+          if (icon != null) ...[
+            Icon(icon,
+                size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            const SizedBox(width: 8),
+          ],
           Expanded(
             child: Text(entity.name,
                 style: Theme.of(context)
@@ -2145,6 +2426,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                     .titleMedium
                     ?.copyWith(fontWeight: FontWeight.w600)),
           ),
+          if (showLevel) ...[
+            SensorLevelChip(level: level),
+            const SizedBox(width: 8),
+          ],
           Text(value, style: Theme.of(context).textTheme.bodyLarge),
         ],
       ),

@@ -2476,6 +2476,218 @@ void main() {
     });
   });
 
+
+  group('cover, fan and number parity', () {
+    // A garage-door-shaped cover, a fan, and a bounded number, all over the
+    // SOAP harness: the card layer does not care which transport carries a
+    // send, and the virtual Crock-Pot acks anything.
+    const utilityEntities = [
+      NetworkEntityDto(
+        isInstanced: false,
+        name: 'Garage Door',
+        platform: 'cover',
+        deviceClass: 'garage',
+        stateCommand: 'GetCrockpotState',
+        valueField: 'mode',
+        options: [],
+        actions: [
+          NetworkActionDto(
+              credentials: [],
+              instanceParams: [],
+              role: 'open_cover',
+              transport: 'soap',
+              commandName: 'door_open',
+              userParams: [],
+              readBack: []),
+          NetworkActionDto(
+              credentials: [],
+              instanceParams: [],
+              role: 'close_cover',
+              transport: 'soap',
+              commandName: 'door_close',
+              userParams: [],
+              readBack: []),
+          NetworkActionDto(
+              credentials: [],
+              instanceParams: [],
+              role: 'stop_cover',
+              transport: 'soap',
+              commandName: 'door_stop',
+              userParams: [],
+              readBack: []),
+        ],
+      ),
+      NetworkEntityDto(
+        isInstanced: false,
+        name: 'Fan',
+        platform: 'fan',
+        stateCommand: 'GetCrockpotState',
+        valueField: 'mode',
+        options: [],
+        actions: [
+          NetworkActionDto(
+              credentials: [],
+              instanceParams: [],
+              role: 'turn_on',
+              transport: 'soap',
+              commandName: 'fan_on',
+              userParams: [],
+              readBack: []),
+          NetworkActionDto(
+              credentials: [],
+              instanceParams: [],
+              role: 'turn_off',
+              transport: 'soap',
+              commandName: 'fan_off',
+              userParams: [],
+              readBack: []),
+          NetworkActionDto(
+              credentials: [],
+              instanceParams: [],
+              role: 'set_percentage',
+              transport: 'soap',
+              commandName: 'fan_speed',
+              userParams: ['value'],
+              min: 0,
+              max: 100,
+              readBack: []),
+        ],
+      ),
+      NetworkEntityDto(
+        isInstanced: false,
+        name: 'Target Speed',
+        platform: 'number',
+        unit: 'km/h',
+        stateCommand: 'GetCrockpotState',
+        valueField: 'time',
+        setpointMin: 0,
+        setpointMax: 6,
+        setpointStep: 0.1,
+        options: [],
+        actions: [
+          NetworkActionDto(
+              credentials: [],
+              instanceParams: [],
+              role: 'set_value',
+              transport: 'soap',
+              commandName: 'set_speed',
+              userParams: ['speed'],
+              readBack: []),
+        ],
+      ),
+    ];
+
+    NetworkReadingDto? readUtility(String entity, Map<String, String> ret) =>
+        switch (entity) {
+          'Fan' => NetworkReadingDto(
+              kind: NetworkReadingKind.onOff,
+              isOn: ret['mode'] != '0',
+              raw: ret['mode'] ?? '0'),
+          'Target Speed' => NetworkReadingDto(
+              kind: NetworkReadingKind.number,
+              number: double.tryParse(ret['time'] ?? ''),
+              raw: ret['time'] ?? ''),
+          _ => null,
+        };
+
+    Future<void> pumpUtility(WidgetTester tester,
+        {List<NetworkEntityDto> entities = utilityEntities,
+        List<String> hiddenNames = const []}) async {
+      posts = [];
+      codec = FakeSpecCodec(
+        networkEntities: (_) => entities,
+        networkReading: readUtility,
+      );
+      codec.networkRequest = (name, values) => SoapRequestDto(
+            service: 'urn:Belkin:service:basicevent:1',
+            action: name,
+            soapAction: '"urn:Belkin:service:basicevent:1#$name"',
+            path: null,
+            body: name == 'GetCrockpotState' ? '<get/>' : '<set/>',
+          );
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(
+              SoapControlClient(httpClient: cooker(mode: 1, time: 3))),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: _cookerDevice,
+              controls: NetworkControls(
+                  specYaml: 'yaml',
+                  entities: entities,
+                  hiddenNames: hiddenNames)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a cover renders its three motions and sends open',
+        (tester) async {
+      await pumpUtility(tester,
+          entities:
+              utilityEntities.where((e) => e.platform == 'cover').toList());
+
+      expect(find.widgetWithText(OutlinedButton, 'Open'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, 'Stop'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, 'Close'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Open'));
+      await tester.pumpAndSettle();
+      expect(codec.renderNetworkCommandCalls.map((c) => c.commandName),
+          contains('door_open'));
+    });
+
+    testWidgets('a fan renders power and a percentage slider that sends',
+        (tester) async {
+      await pumpUtility(tester,
+          entities: utilityEntities.where((e) => e.platform == 'fan').toList());
+
+      // Power reads on (mode 1); the slider is live.
+      final toggle = tester.widget<Switch>(find.byType(Switch));
+      expect(toggle.value, isTrue);
+      await tester.drag(find.byType(Slider), const Offset(120, 0));
+      await tester.pumpAndSettle();
+      expect(codec.renderNetworkCommandCalls.map((c) => c.commandName),
+          contains('fan_speed'));
+    });
+
+    testWidgets('a bounded number renders a slider, not the edit dialog',
+        (tester) async {
+      await pumpUtility(tester,
+          entities: utilityEntities
+              .where((e) => e.platform == 'number')
+              .toList());
+
+      expect(find.byType(Slider), findsOneWidget);
+      expect(find.byIcon(Icons.edit_outlined), findsNothing);
+      await tester.drag(find.byType(Slider), const Offset(120, 0));
+      await tester.pumpAndSettle();
+      final call = codec.renderNetworkCommandCalls
+          .lastWhere((c) => c.commandName == 'set_speed');
+      expect(double.parse(call.values['speed']!), inInclusiveRange(0, 6));
+    });
+
+    testWidgets('hidden declared controls are counted, not vanished',
+        (tester) async {
+      await pumpUtility(tester,
+          entities:
+              utilityEntities.where((e) => e.platform == 'cover').toList(),
+          hiddenNames: const ['Vacation Mode', 'Learn Button']);
+
+      expect(
+          find.textContaining(
+              '2 controls in this device’s spec are not supported'),
+          findsOneWidget);
+      expect(find.textContaining('Vacation Mode'), findsOneWidget);
+    });
+  });
+
   group('the Roomba transport', () {
     /// A Roomba's control surface: one button on the robot's own MQTT
     /// transport. Enough for the screen to take the Roomba branch.

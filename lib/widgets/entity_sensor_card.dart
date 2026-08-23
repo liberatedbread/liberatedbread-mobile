@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/entity_icon.dart';
 import '../core/sensor_reading_level.dart';
 import '../services/spec_codec.dart';
+import 'entity_cards/sensor_level_chip.dart';
 import 'entity_value.dart';
 
 /// A live reading declared by a spec's `entities:` block.
@@ -120,7 +121,7 @@ class EntitySensorCard extends StatelessWidget {
                       Expanded(child: _reading(value, scheme, text)),
                       if (level != null) ...[
                         const SizedBox(width: 8),
-                        _LevelChip(level: level),
+                        SensorLevelChip(level: level),
                       ],
                     ],
                   )
@@ -183,7 +184,7 @@ class EntitySensorCard extends StatelessWidget {
           if (level != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: _LevelChip(level: level),
+              child: SensorLevelChip(level: level),
             ),
         ],
       ),
@@ -288,33 +289,5 @@ class EntitySensorCard extends StatelessWidget {
           style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         );
     }
-  }
-}
-
-/// The one-word verdict, colored by band.
-class _LevelChip extends StatelessWidget {
-  final SensorReadingLevel level;
-
-  const _LevelChip({required this.level});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = sensorReadingLevelColors(level, theme.brightness);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-      decoration: BoxDecoration(
-        color: colors.background,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        sensorReadingLevelLabel(level),
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: colors.foreground,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.3,
-        ),
-      ),
-    );
   }
 }
