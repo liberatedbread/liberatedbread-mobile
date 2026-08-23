@@ -505,4 +505,14 @@ entities:
     name: "LED Display"
     features: ["brightness"]
     commands:
+      turn_on: "led_on"
+      turn_off: "led_off"
       set_brightness: "set_brightness"
+  - platform: "number"
+    name: "Scroll Speed"
+    min: 0
+    max: 255
+    step: 1
+    commands:
+      set_value: "set_speed"
+    notes: "Animation/scroll speed byte (SPEED command); applies to the scrolling display modes."

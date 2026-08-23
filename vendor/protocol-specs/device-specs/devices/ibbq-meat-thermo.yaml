@@ -244,6 +244,16 @@ entities:
   - platform: "sensor"
     name: "Battery"
     state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+  - platform: "button"
+    name: "Silence Alarm"
+    commands:
+      press: "silence_alarm"
   - platform: "switch"
-    name: "Alarm"
-    state_characteristic: "0000fff5-0000-1000-8000-00805f9b34fb"
+    name: "Fahrenheit Display"
+    commands:
+      turn_on: "set_fahrenheit"
+      turn_off: "set_celsius"
+    notes: >
+      Switches the DEVICE display unit; the BLE temperature stream stays
+      0.1°C either way. No unit read-back is documented, so the switch is
+      write-only.

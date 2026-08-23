@@ -743,6 +743,24 @@
             "default_port": {
               "type": "integer",
               "description": "Default TCP port for the device's local API."
+            },
+            "default_scheme": {
+              "type": "string",
+              "enum": ["http", "https"],
+              "description": "URL scheme of the local API at `default_port`. Absent means http; `https` is what authorizes a consumer to open TLS to a LAN address (the Enphase Envoy's 443, Vizio SmartCast's 7345) -- it feeds straight into the request a consumer renders. Device-level rather than per-command because no known device mixes schemes across its own local API."
+            },
+            "tls": {
+              "type": "object",
+              "description": "How to treat the certificate of a `default_scheme: https` LAN device, which is almost never publicly verifiable -- the chain ends at a self-signed leaf or a vendor CA no platform store carries.",
+              "properties": {
+                "self_signed": { "type": "boolean", "description": "True when the device presents a certificate that no public chain will ever validate, so the consumer's trust decision is its own." },
+                "verification": {
+                  "type": "string",
+                  "enum": ["standard", "trust_on_first_use", "vendor_ca", "none"],
+                  "description": "The trust policy an implementation should apply: 'standard' (public chain validates -- rare on a LAN), 'trust_on_first_use' (pin the leaf on first contact, refuse a changed one -- the Hue bridge precedent), 'vendor_ca' (validate against a vendor CA the spec's notes point at), 'none' (tolerate anything -- only honest for a device whose certificate is regenerated on every boot)."
+                },
+                "notes": { "type": "string" }
+              }
             }
           }
         },
@@ -1224,6 +1242,7 @@
                     "description": "Details of a BLE-based provisioning channel.",
                     "properties": {
                       "advertised_name": { "type": "string", "description": "Name pattern advertised while in setup/pairing mode." },
+                      "advertised_name_match": { "type": "string", "enum": ["exact", "prefix"], "default": "exact", "description": "How `advertised_name` compares against a scan result's local name. Rabbit Air's setup-mode unit advertises exactly 'RabbitAirSetup'; a family that suffixes a serial would say 'prefix'. Stated so a consumer can route a setup-mode device to its provisioning flow from the spec alone rather than hardcoding the name." },
                       "protocol": { "type": "string", "description": "Name of the provisioning protocol (e.g. 'Anki RTS')." },
                       "service_uuid": { "$ref": "#/$defs/uuid" },
                       "write_characteristic": { "$ref": "#/$defs/uuid" },
@@ -1238,6 +1257,20 @@
                     "properties": {
                       "provider": { "type": "string" },
                       "local_alternative": { "type": "string", "description": "Any known way to provision without the vendor cloud, or an explicit statement that none is known." }
+                    }
+                  },
+                  "issues_credentials": {
+                    "type": "object",
+                    "description": "Machine-readable statement of the credentials this method issues, keyed by the exact name that `source: credential:<name>` parameters refer to -- the key spelling is the coupling, the way `instances.keyed_by` is for `instance:` parameters. This is what lets a consumer run the pairing flow and store what it yields without a per-device credential table: the Hue link-button flow issues `username` (and `clientkey` when asked), and every later request's `credential:username` names the stored value.",
+                    "additionalProperties": {
+                      "type": "object",
+                      "required": ["reply_path"],
+                      "properties": {
+                        "command": { "type": "string", "description": "Named command whose reply carries the value (Hue's `create_user`). Omit when the method has exactly one exchange and it is unambiguous." },
+                        "reply_path": { "type": "string", "description": "Dotted path with bracketed indices into that reply: '[0].success.username'." },
+                        "request_condition": { "type": "string", "description": "Request argument that must be set for the field to appear at all -- Hue's clientkey exists only when `generateclientkey: true` rode the create request, and only at create time; a re-pair without it never sees the key again." },
+                        "notes": { "type": "string" }
+                      }
                     }
                   },
                   "steps": {
@@ -1424,6 +1457,16 @@
                   "model_prefix": {
                     "type": "string",
                     "description": "Prefix of the model string the device reports about ITSELF, for a LAN device that advertises no BLE local name: TP-Link's get_sysinfo answers `model: \"HS110(US)\"`, so the prefix 'HS110' matches every region's units. Matched as a prefix precisely because vendors suffix region and hardware-revision codes onto an otherwise stable model name. Where the device also reports a capability list, prefer that at runtime -- a variant table has to be edited when a new model ships, a capability flag does not."
+                  },
+                  "state_probe": {
+                    "type": "object",
+                    "required": ["command"],
+                    "description": "Identify this variant from the device's own self-report after connecting, for LAN families whose reply SHAPE is the stable signal where model strings are open-ended -- the capability-flag preference `model_prefix` recommends, made concrete. `command` names an entry in the spec's top-level `commands`; `keys_present`/`keys_absent` are dotted JSON paths into its reply (the `state_mapping` notation). All stated conditions AND together. Kasa: a bulb's get_sysinfo has `light_state`, a light strip additionally has `length`, a plug has `relay_state` instead -- three variants, one probe, no model table to chase.",
+                    "properties": {
+                      "command": { "type": "string" },
+                      "keys_present": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                      "keys_absent": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+                    }
                   }
                 }
               }
@@ -1760,7 +1803,7 @@
                       },
                       "parameters": {
                         "type": "object",
-                        "description": "Command parameter definitions, keyed by parameter name. Every key is a parameter: there are no reserved siblings. Channel byte order for a colour command is stated by the order the `template` names `{red}`/`{green}`/`{blue}`, which is where the bytes actually come from -- a device wanting GRB is written `template: [\"{green}\", \"{red}\", \"{blue}\"]`. A separate `color_order` key used to live here and was removed: it restated the template with no defined precedence, so a spec whose two statements disagreed had no correct reading.",
+                        "description": "Command parameter definitions, keyed by parameter name. Every key is a parameter: there are no reserved siblings. Channel byte order for a colour command is stated by the order the `template` names `{red}`/`{green}`/`{blue}`, which is where the bytes actually come from -- a device wanting GRB is written `template: [\"{green}\", \"{red}\", \"{blue}\"]`. A separate `color_order` key used to live here and was removed: it restated the template with no defined precedence, so a spec whose two statements disagreed had no correct reading. A consumer building a generic control surface draws controls only for parameters that are none of `auto`, `default`, `source` -- those are the encoder's, the spec's, and the client credential-store's respectively, and none of them is a knob a user should be handed.",
                         "additionalProperties": {
                           "type": "object",
                           "required": ["type"],
@@ -1780,12 +1823,21 @@
                                   ]
                                 }
                               }
+                            },
+                            {
+                              "$comment": "`default` and `source` are mutually exclusive here for the same reason they are on a network command's parameters: they answer 'what happens when the caller supplies nothing' with opposite instructions, and a parameter carrying both lets a renderer quietly substitute the constant when the stored value is missing -- which for a password parameter means sending a wrong password instead of failing at 'not paired'.",
+                              "not": { "required": ["default", "source"] }
                             }
                           ],
                           "properties": {
                             "default": {
                               "type": "number",
                               "description": "Value a client sends when it supplies none itself, in RAW wire terms. This is what lets a high-level control send only the parameter it owns -- a brightness slider fills `{brightness}` and the protocol filler around it (`seq`, `flag`, a mode byte the command implies) comes from here. A parameter with no default and no caller value has nothing to encode, so the write fails rather than guessing."
+                            },
+                            "source": {
+                              "type": "string",
+                              "pattern": "^credential:[a-z][a-z0-9_]*$",
+                              "description": "The BLE spelling of the network parameters' `credential:<name>` scheme, and only that scheme -- BLE command templates have no read-back and no hub children, so `state:` and `instance:` have no meaning here. idotmatrix's `verify_password` carries the device password stored at setup; this is how the spec says 'that stored value goes here' without pretending to know it. Same contract as the network key: no `default`, the value's presence is enforced at send time, a send without it fails visibly, and a consumer never draws the parameter as a control."
                             },
                             "allowed": {
                               "type": "array",
@@ -2781,7 +2833,7 @@
           },
           "parameters": {
             "type": "object",
-            "description": "Values the caller supplies, keyed by the placeholder name used in `arguments`. Same role as a BLE command's `parameters`, and the same rule applies: a command is only sendable when every parameter is either owned by the control invoking it or defaulted here.",
+            "description": "Values the caller supplies, keyed by the placeholder name used in `arguments`. Same role as a BLE command's `parameters`, and the same rule applies: a command is only sendable when every parameter is either owned by the control invoking it or defaulted here. A consumer building a generic control surface draws controls only for parameters that carry neither `default` nor `source` -- protocol filler and stored credentials are the client's business, never a knob a user is handed.",
             "additionalProperties": {
               "type": "object",
               "allOf": [
@@ -2877,6 +2929,12 @@
           },
           "name": {
             "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "description": "Optional machine-stable semantic token for this entity, snake_case, drawn from the documented vocabulary (pytest-enforced, see test_device_specs.py): remote keys -- power, power_on, power_off, back, home, up, down, left, right, ok, replay, options, rewind, play_pause, fast_forward, volume_up, volume_down, mute, channel_up, channel_down, search, find_remote, input_hdmi1..input_hdmi4, input_av, input_tuner, exit, menu, info, keyboard; treadmill keys -- start, pause, stop, speed. A consumer uses `key` to lay out a remote-shaped surface (D-pad, transport row, volume cluster) or a treadmill card without matching display names; `name` stays the human label and the uniqueness handle. Two entities in one spec may share a key only when variant-disjoint. A consumer that ignores this key sees the entity exactly as before.",
+            "$comment": "A pattern plus a repo-owned vocabulary rather than a schema enum, on the `category` precedent: an enum would make every vocabulary addition a schema change that hard-fails strict parsers (the mobile Rust crate rejects a whole spec on an unknown enum value), while the pytest list keeps growth additive and typo-checked."
           },
           "device_class": {
             "type": "string"

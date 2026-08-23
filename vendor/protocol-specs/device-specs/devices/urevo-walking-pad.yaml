@@ -115,6 +115,31 @@ device:
       advertise 0xFFF0 (or anything else) is unknown; their service and
       characteristic UUIDs must come from hardware capture, not from this
       list.
+  variants:
+    - model: "FTMS"
+      identification:
+        service_uuids:
+          - "00001826-0000-1000-8000-00805f9b34fb"
+      notes: >
+        Standard Fitness Machine Service generation, selected when the
+        advertisement carries 0x1826.
+    - model: "FT"
+      identification:
+        service_uuids:
+          - "0000fff0-0000-1000-8000-00805f9b34fb"
+      notes: >
+        FT proprietary generation: service 0xFFF0, Frame-A grammar with
+        command class 0x44.
+    - model: "UR"
+      identification:
+        local_name_prefix: "URTM"
+      notes: >
+        UR proprietary generation, matched by advertised-name prefix at
+        handler-selection time. The family also ships under the SYWP*
+        prefix (SYWP006), which this identification block cannot carry as
+        a second machine-readable prefix — match it by name too. No GATT
+        service UUID is known for this class (see device notes); endpoints
+        must be enumerated after connect.
 
   setup:
     required: false
@@ -225,6 +250,20 @@ services:
                 type: "uint8"
                 min: 1
                 max: 2
+          stop_belt_ftms:
+            description: >
+              Stop the belt: the parameterized stop_or_pause with the action
+              byte fixed at 0x01 (stop), as a constant so a Stop button can
+              bind a single frame. Same FTMS 1.0 basis as stop_or_pause.
+            verification: "hypothesis"
+            value: [0x08, 0x01]
+          pause_belt_ftms:
+            description: >
+              Pause the belt: the parameterized stop_or_pause with the action
+              byte fixed at 0x02 (pause), as a constant so a Pause button can
+              bind a single frame. Same FTMS 1.0 basis as stop_or_pause.
+            verification: "hypothesis"
+            value: [0x08, 0x02]
       - uuid: "00002acd-0000-1000-8000-00805f9b34fb"
         name: "Treadmill Data"
         properties: ["notify"]
@@ -447,6 +486,55 @@ services:
       - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
         name: "Firmware Revision String"
         properties: ["read"]
+
+entities:
+  # SAFETY: these move a real belt. Every bound command below comes from
+  # static analysis of the official app and none has been exercised against
+  # hardware (device.testing: untested).
+  - platform: "button"
+    name: "Start"
+    key: "start"
+    variants: ["FTMS"]
+    commands:
+      press: "start_or_resume"
+  - platform: "button"
+    name: "Stop"
+    key: "stop"
+    variants: ["FTMS"]
+    commands:
+      press: "stop_belt_ftms"
+  - platform: "button"
+    name: "Pause"
+    key: "pause"
+    variants: ["FTMS"]
+    commands:
+      press: "pause_belt_ftms"
+  - platform: "number"
+    name: "Target Speed"
+    key: "speed"
+    variants: ["FTMS"]
+    unit: "km/h"
+    min: 0
+    max: 12.0
+    step: 0.1
+    commands:
+      set_value: "set_target_speed"
+    notes: >
+      12.0 km/h is a conservative UI clamp; read the FTMS Supported Speed
+      Range characteristic 0x2AD4 for the connected model's true
+      min/max/step.
+  - platform: "button"
+    name: "Prepare"
+    key: "start"
+    variants: ["FT"]
+    commands:
+      press: "ft_prepared"
+  - platform: "button"
+    name: "Stop"
+    key: "stop"
+    variants: ["FT"]
+    commands:
+      press: "ft_stop"
 
 helpful_urls:
   - url: "https://www.urevosports.com/"

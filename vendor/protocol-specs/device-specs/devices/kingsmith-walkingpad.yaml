@@ -47,7 +47,8 @@ device:
       exercised: anything that moves the belt (set_speed, start_belt,
       switch_mode, calibration, preference writes) — the pad was unattended —
       so the FTMS/MC-21 generation and all motion commands remain untested by
-      us.
+      us. The control entity bindings (Start/Stop/Pause buttons, Target Speed,
+      Belt Mode) added on top of those commands are likewise unexercised.
   openness:
     status: "undocumented"
   protocol: "ble"
@@ -148,6 +149,22 @@ device:
     service_uuids:
       - "0000fe00-0000-1000-8000-00805f9b34fb"   # legacy WiLink models
       - "00001826-0000-1000-8000-00805f9b34fb"   # FTMS models (MC21/X21/KS-HD-*)
+  variants:
+    - model: "WiLink"
+      identification:
+        service_uuids:
+          - "0000fe00-0000-1000-8000-00805f9b34fb"
+      notes: >
+        Legacy generation (A1 / A1 Pro / R1 / R1 Pro / R2 / early C2):
+        private 0xFE00 service, 0xF7-framed commands on 0xFE02.
+    - model: "FTMS"
+      identification:
+        service_uuids:
+          - "00001826-0000-1000-8000-00805f9b34fb"
+      notes: >
+        Standard Fitness Machine Service generation (MC21 / X21 / KS-HD-* /
+        ZP-ZEALR1): Treadmill Control Point 0x2AD9, Treadmill Data 0x2ACD,
+        ODM pre-amble on MC-21-class units.
 
   setup:
     required: false
@@ -505,6 +522,22 @@ services:
                 type: "uint8"
                 min: 1
                 max: 2
+          stop_belt_ftms:
+            description: >
+              Stop the belt: the parameterized stop_or_pause with the action
+              byte fixed at 0x01 (stop), as a constant so a Stop button can
+              bind a single frame. Hypothesis only in the sense that this
+              exact constant form is untested by us; the underlying opcode and
+              parameter are standard FTMS and confirmed via stop_or_pause.
+            verification: "hypothesis"
+            value: [0x08, 0x01]
+          pause_belt_ftms:
+            description: >
+              Pause the belt: the parameterized stop_or_pause with the action
+              byte fixed at 0x02 (pause), as a constant so a Pause button can
+              bind a single frame. Same basis as stop_belt_ftms.
+            verification: "hypothesis"
+            value: [0x08, 0x02]
       - uuid: "00002acd-0000-1000-8000-00805f9b34fb"
         name: "Treadmill Data"
         properties: ["notify"]
@@ -638,6 +671,83 @@ entities:
     state_characteristic: "0000fe01-0000-1000-8000-00805f9b34fb"
     state_mapping:
       value: "time_s"
+
+  # WiLink-generation controls. SAFETY: these move a real belt; the
+  # commands they bind are hardware-confirmed by third parties but
+  # deliberately unexercised by us (see device.testing).
+  - platform: "button"
+    name: "Start"
+    key: "start"
+    variants: ["WiLink"]
+    commands:
+      press: "start_belt"
+  - platform: "button"
+    name: "Stop"
+    key: "stop"
+    variants: ["WiLink"]
+    commands:
+      press: "stop_belt"
+  - platform: "number"
+    name: "Target Speed"
+    key: "speed"
+    variants: ["WiLink"]
+    unit: "km/h"
+    min: 0
+    max: 6.0
+    step: 0.1
+    commands:
+      set_value: "set_speed"
+    notes: >
+      6.0 km/h is a conservative UI clamp — the A1-class factory maximum —
+      not the protocol ceiling: the true factory max varies per model
+      (6-12 km/h in KS Fit's product table) and the wire encoding goes
+      higher still. Raise only knowing the connected model's real limit.
+  - platform: "select"
+    name: "Belt Mode"
+    variants: ["WiLink"]
+    state_characteristic: "0000fe01-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "mode"
+      options:
+        "0": "automatic"
+        "1": "manual"
+        "2": "standby"
+    commands:
+      select_option: "switch_mode"
+
+  # FTMS-generation controls (same safety caveat).
+  - platform: "button"
+    name: "Start"
+    key: "start"
+    variants: ["FTMS"]
+    commands:
+      press: "start_or_resume"
+  - platform: "button"
+    name: "Stop"
+    key: "stop"
+    variants: ["FTMS"]
+    commands:
+      press: "stop_belt_ftms"
+  - platform: "button"
+    name: "Pause"
+    key: "pause"
+    variants: ["FTMS"]
+    commands:
+      press: "pause_belt_ftms"
+  - platform: "number"
+    name: "Target Speed"
+    key: "speed"
+    variants: ["FTMS"]
+    unit: "km/h"
+    min: 0
+    max: 12.0
+    step: 0.1
+    commands:
+      set_value: "set_target_speed"
+    notes: >
+      12.0 km/h is a UI clamp at the highest factory ceiling in KS Fit's
+      product table; read the FTMS Supported Speed Range characteristic
+      0x2AD4 for the connected device's true min/max/step.
 
 helpful_urls:
   - url: "https://github.com/ph4r05/ph4-walkingpad"

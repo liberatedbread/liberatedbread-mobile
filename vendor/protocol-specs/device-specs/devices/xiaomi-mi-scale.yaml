@@ -308,3 +308,8 @@ entities:
       "0": "kg"
       "1": "lbs"
       "2": "jin"
+    notes: >
+      No select_option command is bound because no set command is declared —
+      the unit-set frame (06 04 00 <unit>) is documented only in the 0x1542
+      characteristic notes, so a binding-only consumer renders this entity
+      hidden until that frame is promoted to a command.

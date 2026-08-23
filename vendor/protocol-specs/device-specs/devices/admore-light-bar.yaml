@@ -709,21 +709,45 @@ entities:
       turn_on: "set_sequential_turn_on"
       turn_off: "set_sequential_turn_off"
 
-  - platform: "number"
+  - platform: "select"
     name: "Brake Flash Count"
     state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    state_mapping:
+      options:
+        "0": "OFF"
+        "2": "2"
+        "4": "4"
+        "6": "6"
+        "8": "8"
+        "10": "10"
     commands:
-      set_value: "set_flash_count"
+      select_option: "set_flash_count"
 
-  - platform: "number"
+  - platform: "select"
     name: "Brake Flash Speed"
     state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    state_mapping:
+      options:
+        "50": "1"
+        "40": "2"
+        "30": "3"
+        "20": "4"
+        "10": "5"
     commands:
-      set_value: "set_flash_speed"
+      select_option: "set_flash_speed"
+    notes: "Raw values are the flash period in ms — lower is faster, hence the descending raw order behind ascending speed labels."
 
   - platform: "select"
     name: "Amber Strobe Duration"
     state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    state_mapping:
+      options:
+        "0": "OFF"
+        "5000": "5s"
+        "10000": "10s"
+        "15000": "15s"
+        "20000": "20s"
+        "-1": "ON"
     commands:
       select_option: "set_strobe_duration"
 
@@ -737,8 +761,12 @@ entities:
   - platform: "number"
     name: "Deceleration Sensitivity"
     state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    min: 0
+    max: 4000
+    step: 80
     commands:
       set_value: "set_decel_sensitivity"
+    notes: "0 = OFF; the app's 50 levels descend from 4000 (level 1) to 80 (level 50) in steps of 80, so HIGHER raw values are LESS sensitive."
 
   - platform: "select"
     name: "Deceleration Light Delay"
@@ -749,6 +777,9 @@ entities:
   - platform: "number"
     name: "Deceleration Duration"
     state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    min: 5
+    max: 40
+    step: 1
     commands:
       set_value: "set_decel_duration"
 

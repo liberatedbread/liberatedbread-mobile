@@ -371,6 +371,7 @@ services:
 entities:
   - platform: "light"
     name: "LED Strip"
+    variants: ["SP107E"]
     features: ["brightness", "color"]
     state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
     commands:
@@ -378,6 +379,21 @@ entities:
       turn_off: "sp107e_power_off"
       set_color: "sp107e_set_color"
       set_brightness: "sp107e_set_brightness"
+  - platform: "light"
+    name: "LED Strip"
+    variants: ["SP110E"]
+    features: ["brightness", "color", "effect"]
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "sp110e_power_on"
+      turn_off: "sp110e_power_off"
+      set_color: "sp110e_set_color"
+      set_brightness: "sp110e_set_brightness"
+      set_effect: "sp110e_set_effect"
+    notes: >
+      SP110E dialect of the same 0xFFE1 channel — the two variants share the
+      characteristic but not the opcode set, hence the per-variant entities.
+      All sp110e_* opcodes are secondary-source; verify on hardware.
 
 helpful_urls:
   - title: "monty68/uniled — UniLED (HACS)"

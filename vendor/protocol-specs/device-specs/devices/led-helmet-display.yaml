@@ -483,20 +483,38 @@ entities:
 
   - platform: "number"
     name: "Brightness"
+    min: 0
+    max: 255
+    step: 1
     commands:
       set_value: "set_brightness"
     notes: "Raw 0-255 byte; UI mapping unverified."
 
   - platform: "number"
     name: "Text Scroll Speed"
+    min: 0
+    max: 255
+    step: 1
     commands:
       set_value: "set_text_speed"
+    notes: "Raw 0-255 byte; range/stepping unverified — the app builder takes a single byte."
 
   - platform: "select"
     name: "Turn Signal Direction"
+    state_mapping:
+      options:
+        "0": "0"
+        "1": "1"
+        "2": "2"
+        "3": "3"
+        "4": "4"
+        "5": "5"
     commands:
       select_option: "set_direction"
-    notes: "Six raw indices 0-5; the index-to-direction map is unverified."
+    notes: >
+      Six raw indices 0-5; the index-to-direction map (off / left / right /
+      hazard / brake / ?) is unverified, so the options carry numeric labels
+      until someone captures the real meanings.
 
   - platform: "switch"
     name: "Gesture Sensing"

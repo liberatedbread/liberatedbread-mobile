@@ -509,15 +509,24 @@ entities:
 
   - platform: "number"
     name: "Brightness"
+    min: 0
+    max: 100
+    step: 1
     commands:
       set_value: "set_brightness"
     notes: "Percent 0-100 per the community clients."
 
   - platform: "select"
     name: "Orientation"
+    state_mapping:
+      options:
+        "0": "0°"
+        "1": "90°"
+        "2": "180°"
+        "3": "270°"
     commands:
       select_option: "set_orientation"
-    notes: "Four raw indices 0-3; the index-to-angle map is community-assumed."
+    notes: "Four raw indices 0-3; the index-to-angle map is community-assumed — verify on hardware."
 
   - platform: "switch"
     name: "DIY (Fun) Mode"
