@@ -355,15 +355,20 @@ fn vendored_specs_resolve_expected_control_actions() {
     assert_eq!(led.color_red_field.as_deref(), Some("red"));
     assert_eq!(led.brightness_field.as_deref(), Some("brightness"));
 
-    // ember's temperature-control switch: no sendable commands (the role map
-    // is prose), but it still crosses on the strength of its state binding,
-    // with the on_when: nonzero rule intact.
+    // ember's temperature-control switch: turn_off now binds the confirmed
+    // 0x0000 target-temp write (the prose turn_on — "restore previous
+    // setpoint" — is client-side statefulness and stays unresolvable), and
+    // the state binding with its on_when: nonzero rule is intact.
     let temp_control = ember
         .entities
         .iter()
         .find(|e| e.name == "Temperature Control")
         .expect("ember declares a Temperature Control switch");
-    assert!(temp_control.actions.is_empty());
+    assert_eq!(roles(temp_control), vec!["turn_off"]);
+    assert_eq!(
+        temp_control.actions[0].command_name.as_deref(),
+        Some("set_target_temp_off")
+    );
     assert!(temp_control.on_when_nonzero);
     assert!(temp_control.state_characteristic.is_some());
 
