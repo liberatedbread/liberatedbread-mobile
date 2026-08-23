@@ -285,6 +285,32 @@ device:
         strip_brightness) — the bulb's lightingservice call is silently
         ignored. `length` (LED count) in get_sysinfo is the field that marks
         a strip; the strip commands were verified on a KL430.
+    # The two FAMILY variants the switch entities scope to, shape-identified
+    # like the smartbulb pair so one poll decides what the device is. They sit
+    # beside the per-model plug variants rather than replacing them: the model
+    # table scopes the emeter sensors (a per-model hardware fact), these scope
+    # the control surface (a per-family protocol fact).
+    - model: "Smart Plug"
+      identification:
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["relay_state"]
+          keys_absent: ["children"]
+      notes: >
+        The single-outlet relay family (every HS1xx/KP1xx above): a top-level
+        relay_state and no children array. The plain Outlet switch applies
+        here and nowhere else — a bulb ignores set_relay_state and a strip
+        switches per child.
+    - model: "Power Strip"
+      identification:
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["children"]
+      notes: >
+        The multi-outlet family (HS300, KP200, KP303, EP40): outlets arrive
+        as a `children` array, each switched by scoping the write with
+        context.child_ids. The instanced Outlets entity applies here; the
+        plain Outlet switch has no top-level relay_state to read on these.
 
 protocol_handler: "tplink_smarthome"
 
@@ -573,6 +599,12 @@ entities:
     name: "Outlet"
     device_class: "outlet"
     icon: "mdi:power-socket"
+    # Scoped to the shape-identified plug family: on a bulb this switch's
+    # write is ignored and its state key absent, and on a power strip the
+    # per-child Outlets entity below is the real surface. A consumer that
+    # cannot evaluate the state_probe yet (before its first poll) draws
+    # probe-scoped entities optimistically and settles on the reply.
+    variants: ["Smart Plug"]
     state_command: "get_sysinfo"
     state_mapping:
       value: "relay_state"
@@ -593,6 +625,7 @@ entities:
     name: "Outlets"
     device_class: "outlet"
     icon: "mdi:power-socket"
+    variants: ["Power Strip"]
     instances:
       keyed_by: "id"
       children_path: "system.get_sysinfo.children"
