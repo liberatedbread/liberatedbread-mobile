@@ -1461,11 +1461,12 @@
                   "state_probe": {
                     "type": "object",
                     "required": ["command"],
-                    "description": "Identify this variant from the device's own self-report after connecting, for LAN families whose reply SHAPE is the stable signal where model strings are open-ended -- the capability-flag preference `model_prefix` recommends, made concrete. `command` names an entry in the spec's top-level `commands`; `keys_present`/`keys_absent` are dotted JSON paths into its reply (the `state_mapping` notation). All stated conditions AND together. Kasa: a bulb's get_sysinfo has `light_state`, a light strip additionally has `length`, a plug has `relay_state` instead -- three variants, one probe, no model table to chase.",
+                    "description": "Identify this variant from the device's own self-report after connecting, for LAN families whose reply SHAPE is the stable signal where model strings are open-ended -- the capability-flag preference `model_prefix` recommends, made concrete. `command` names an entry in the spec's top-level `commands`; `keys_present`/`keys_absent` are dotted JSON paths into its reply (the `state_mapping` notation), and `value_contains` maps such a path to a substring its value must carry -- the capability-list case, where the DEVICE states what hardware it has (Kasa's get_sysinfo `feature` carries \"ENE\" exactly when the unit meters energy). All stated conditions AND together. Kasa: a bulb's get_sysinfo has `light_state`, a light strip additionally has `length`, a plug has `relay_state` instead -- three variants, one probe, no model table to chase.",
                     "properties": {
                       "command": { "type": "string" },
                       "keys_present": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-                      "keys_absent": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+                      "keys_absent": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                      "value_contains": { "type": "object", "additionalProperties": { "type": "string" }, "minProperties": 1 }
                     }
                   }
                 }

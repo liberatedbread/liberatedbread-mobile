@@ -311,6 +311,19 @@ device:
         as a `children` array, each switched by scoping the write with
         context.child_ids. The instanced Outlets entity applies here; the
         plain Outlet switch has no top-level relay_state to read on these.
+    - model: "Metering Plug"
+      identification:
+        state_probe:
+          command: "get_sysinfo"
+          keys_present: ["relay_state"]
+          value_contains:
+            feature: "ENE"
+      notes: >
+        The energy-metering members of the plug family (HS110, KP115 …),
+        identified the way the model table's own comment recommends: the
+        device's `feature` capability list carries "ENE" exactly when it has
+        the emeter module. The four emeter sensors scope here, so a plug
+        without a meter never draws four tiles that never fill.
 
 protocol_handler: "tplink_smarthome"
 
@@ -668,7 +681,7 @@ entities:
     name: "Voltage"
     device_class: "voltage"
     unit: "V"
-    variants: ["HS110", "KP115"]
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.voltage"
@@ -683,7 +696,7 @@ entities:
     name: "Current"
     device_class: "current"
     unit: "A"
-    variants: ["HS110", "KP115"]
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.current"
@@ -697,7 +710,7 @@ entities:
     name: "Power"
     device_class: "power"
     unit: "W"
-    variants: ["HS110", "KP115"]
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.power"
@@ -711,7 +724,7 @@ entities:
     name: "Total Consumption"
     device_class: "energy"
     unit: "kWh"
-    variants: ["HS110", "KP115"]
+    variants: ["Metering Plug"]
     state_command: "get_emeter"
     state_mapping:
       value: "emeter.get_realtime.total"

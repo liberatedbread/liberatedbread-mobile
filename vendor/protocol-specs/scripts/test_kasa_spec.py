@@ -440,22 +440,26 @@ def test_variants_are_identifiable_from_a_sysinfo_reply(variants, commands):
             assert f"{prefix}(US)".startswith(prefix)
 
 
-def test_the_emeter_sensors_are_scoped_to_metering_models(sensors, variants):
-    """The four meter sensors name the models that actually have the meter,
-    and those names resolve to declared variants.
+def test_the_emeter_sensors_are_scoped_to_the_metering_family(sensors, variants):
+    """The four meter sensors scope to the shape-identified "Metering Plug"
+    family, whose state_probe reads the device's own capability list
+    (get_sysinfo `feature` carries "ENE" exactly when the emeter module is
+    present) — the test the model table's comment recommends over model
+    prefixes, and one a consumer can evaluate from the poll it already makes.
 
     Unscoped, a consumer draws four permanently-unavailable tiles on an
     HS100 — get_emeter on a plug with no metering hardware answers an error,
-    not a reading.
+    not a reading. Scoped to bare model numbers, no consumer that has not
+    implemented model-prefix matching can ever draw them at all.
     """
-    declared = {v["model"] for v in variants}
-    metering = {"HS110", "KP115"}
-    assert metering <= declared
+    by_model = {v["model"]: v for v in variants}
+    probe = by_model["Metering Plug"]["identification"]["state_probe"]
+    assert probe["command"] == "get_sysinfo"
+    assert probe["keys_present"] == ["relay_state"]
+    assert probe["value_contains"] == {"feature": "ENE"}
     for sensor in sensors:
-        scope = sensor.get("variants")
-        assert scope, f"{sensor['name']}: an emeter sensor must name its models"
-        assert set(scope) == metering, (
-            f"{sensor['name']}: scoped to {scope}, expected the metering models"
+        assert sensor.get("variants") == ["Metering Plug"], (
+            f"{sensor['name']}: an emeter sensor scopes to the metering family"
         )
 
 
