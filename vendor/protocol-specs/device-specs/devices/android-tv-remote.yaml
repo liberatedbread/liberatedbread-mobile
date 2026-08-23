@@ -642,26 +642,25 @@ commands:
 # inputs) no-op harmlessly on HDMI-less boxes, the same trade Roku's spec
 # makes for its player models.
 entities:
-  # The stateful Power control (spec-evolution P13). KEYCODE_POWER is a
-  # toggle with no discrete pair, so a consumer must establish the state
-  # before sending. The reading exists — remote_start { started }, the Power
-  # State binary_sensor below — but it is pushed over the session rather
-  # than pollable, so no state binding this schema can spell fits here; a
-  # consumer without the session sees no state and must not send blind.
-  - platform: "switch"
-    name: "Power"
-    icon: "mdi:power"
-    commands:
-      toggle: "press_power"
-    notes: >
-      Gate on the Power State push (remote_start.started). Wake depends on
-      network reachability in standby; see androidtv_remote_v2.session.limits.
+  # No stateful Power switch here, deliberately. KEYCODE_POWER is a toggle
+  # with no discrete pair, and while the reading exists — remote_start
+  # { started }, surfaced as the Power State binary_sensor below — it is
+  # pushed over the session rather than polled, so none of the schema's
+  # state_* bindings can express it and nothing machine-readable ties the
+  # sensor to a switch. That is the same shape panasonic-viera is excluded
+  # for: a toggle, no readable state, and a box reachable in standby, so a
+  # consumer sweeping everything off would turn a sleeping TV on. The key
+  # is still available as the button below, which promises only a keypress.
   - platform: "button"
-    name: "Power"
+    name: "Power Key"
     icon: "mdi:power"
     commands:
       press: "press_power"
-    notes: "Wake depends on network reachability in standby; see androidtv_remote_v2.session.limits."
+    notes: >
+      Sends KEYCODE_POWER, which the TV interprets as a toggle — this button
+      promises a keypress, not a direction. Read the Power State sensor first
+      if you need a specific end state. Wake depends on network reachability
+      in standby; see androidtv_remote_v2.session.limits.
   - platform: "button"
     name: "Back"
     icon: "mdi:arrow-u-left-top"

@@ -6,8 +6,8 @@ decompiled companion app.
 
 ## APK Provenance
 
-- **App**: "Measure-Up" by Johnson Level (listing contact
-  `a johnsonlevel.com address`); Play listing currently shows v1.6 /
+- **App**: "Measure-Up" by Johnson Level (Play listing contact is a
+  johnsonlevel.com address); Play listing currently shows v1.6 /
   ~8K downloads per chrome-stats; the APKPure mirror serves v1.0.1.
 - **Package**: `com.winho.measure_up`
 - **Source**: `./scripts/fetch_apks_apkeep.sh com.winho.measure_up` (APKPure)
@@ -22,7 +22,7 @@ decompiled companion app.
 
 ## The Winho OEM platform (rebadge family)
 
-`com.winho.Constants` / `AppName.java` / `AppType.java` show the single app
+The app's constants and its app-name/app-type classes show the single app
 codebase builds these branded variants:
 
 ```
@@ -39,11 +39,11 @@ Johnson app was analyzed; the siblings were not fetched or diffed.
 
 The vendor app's device picker is an **unfiltered BLE scan** — every
 peripheral is listed and the user taps the meter
-(`BluetoothSettingActivity.java`, `startLeScan` with no ScanFilter). So the
+(its Bluetooth settings screen calls `startLeScan` with no ScanFilter). So the
 advertised local name and advertised service UUIDs are **not recoverable
 from the APK**.
 
-## BLE GATT layout (from `com/winho/ble/step/BleService.java`, `BleAttribute.java`)
+## BLE GATT layout
 
 | UUID | Role |
 |------|------|
@@ -88,7 +88,7 @@ Init is a separate fixed 6-byte frame with no checksum: `03 0D 0A 03 0D 0A`.
 
 ## Measurement frames (notify on `f154`, 10 bytes ASCII)
 
-Layout per `BleService.measureData()` + `changeUnit.java`:
+Layout per the app's `measureData()` handler and its unit-conversion helper:
 
 - byte 0: prefix/type character — **discarded** by the app; meaning unknown
   (possibly length/area/volume/angle discriminator).

@@ -1,0 +1,667 @@
+# Tuya WiFi Combustible Gas Sensor (TuyaMCU "rqbj" family) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# This is a FAMILY spec, not one exact product. The high-volume white-label
+# Tuya combustible-gas alarms (sold as UanTii, SMARSECUR, PGST, LDASEC, Digma
+# DiSense G1, "Tuya WiFi Natural Gas Leak Detector ... & 433MHz Remote
+# Control", etc.) all map to Tuya device category `rqbj` (combustible gas
+# alarm) and share the same Tuya LAN protocol and datapoint model. The
+# canonical representative with a public teardown is the DY-RQ400A.
+
+device:
+  name: "Tuya WiFi Combustible Gas Sensor (rqbj family)"
+  manufacturer: "Tuya (platform) / anonymous Shenzhen white-label OEMs"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No hardware has been exercised by this project. Every fact below is
+      derived from clean-room static analysis of the Smart Life app (see `sources`)
+      cross-checked against public community documentation (ESPHome device
+      page for the DY-RQ400A, make-all/tuya-local issue #2434 and device
+      configs, tinytuya/tuyapi). Field-level confidence is marked per block;
+      the DP table and LAN framing are well corroborated in the community,
+      but the exact DP set on any given clone is not guaranteed — protocol
+      version (3.3 vs 3.4), module (WB2S/CB2S/WB3S) and DP layout vary per
+      productId and must be discovered per unit (see
+      tuya_lan_protocol.discovery and the notes on the DPS table).
+  protocol: "wifi"
+  category: "sensor"
+  transport: "tuya-lan"
+  notes: >
+    A Tuya Wi-Fi gas alarm is a two-processor device: a Tuya Wi-Fi module
+    (WB2S/CB2S — Beken BK7231T/N — on the documented units; WB3S/WBR3 on some
+    clones) talks the Tuya LAN/cloud protocols, and a separate sensor MCU
+    (RunJet RJM8L151F6P6 on the DY-RQ400A) owns the gas sensor element,
+    buzzer and LEDs. The two are linked by a UART running the TuyaMCU serial
+    protocol (9600 8N1 on the RQ400A); the Wi-Fi module is essentially a
+    bridge that exposes the MCU's state as Tuya DPS datapoints. An important
+    safety consequence: alarm detection, the fixed gas threshold and the
+    local buzzer live in the MCU and work with no Wi-Fi at all — the Wi-Fi
+    side only reports state and accepts configuration. Whether a given unit's
+    MCU keeps working with the Wi-Fi module physically removed is an open
+    question (not verified).
+
+    The "433MHz" in the marketing copy of these listings is NOT the control
+    channel. It is a sub-1GHz receiver on the MCU board used to pair cheap RF
+    remote controls (alarm silence / self-test) and, on some listings,
+    wireless gas-shutoff valves. No app or cloud traffic uses it; all IP
+    traffic is 2.4 GHz 802.11 b/g/n, plus module BLE used only for assisted
+    pairing. Whether valve pairing state is visible in any DP is an open
+    question — no DP for it is documented.
+
+    On the gas-detection behavior itself (DY-RQ400A, per the ESPHome device
+    page): the trip threshold is fixed in MCU firmware at 7±3 %LEL CH4 and is
+    NOT adjustable over Wi-Fi; once tripped, the alarm latches until the
+    measured level falls below half the trip point. The Wi-Fi module can only
+    read state and set configuration DPs (alarm duration, melody, audible
+    on/off, muffle).
+
+    SAFETY: this is a life-safety sensor. Local control via this spec must
+    never be treated as a substitute for the device's own standalone alarm
+    function, and any automation should treat loss of connectivity as a fault
+    worth surfacing, not silence.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://github.com/jasonacox/tinytuya"
+        title: "tinytuya — Tuya LAN protocol reference implementation"
+        covers: >
+          UDP 6666/6667 discovery, TCP 6668 framing (55aa/aa55, sequence,
+          command, length, CRC32 or HMAC-SHA256), AES-128-ECB local-key
+          encryption, protocol 3.4 session-key handshake, DPS query/set.
+      - url: "https://github.com/codetheweb/tuyapi"
+        title: "tuyapi — Tuya LAN protocol library"
+        covers: >
+          Independent implementation of the same LAN protocol; message
+          command codes and schema negotiation.
+      - url: "https://devices.esphome.io/devices/tuya-dy-rq400a-combustible-gas-alarm/"
+        title: "ESPHome device page — Tuya DY-RQ400A combustible gas alarm"
+        covers: >
+          Public teardown of the canonical rqbj unit: WB2S module + RunJet
+          MCU, TuyaMCU UART wiring, and a complete 12-DP map.
+      - url: "https://github.com/make-all/tuya-local/issues/2434"
+        title: "tuya-local issue #2434 — C2 gas sensor cloud model dump"
+        covers: >
+          Cloud-side datapoint model for a gas+CO combo rqbj product
+          (protocol 3.4), corroborating the DP table below.
+    source_code: "https://github.com/jasonacox/tinytuya"
+    license: "MIT"
+    notes: >
+      tinytuya (and make-all/tuya-local for Home Assistant) are the
+      authoritative, hardware-tested implementations; this spec documents the
+      protocol rather than competing with them. The gas-sensor device UI in
+      the vendor apps is a cloud-delivered React Native panel bundle — the
+      Smart Life app contains no gas-sensor-specific code at all (zero hits
+      for the category name or DP codes anywhere in it), so
+      the DP model here rests on community sources corroborated by the app's
+      generic Tuya LAN/DPS machinery, not on device-specific app code.
+
+  identification:
+    # A device is a Tuya LAN device because it broadcasts/answers the Tuya
+    # UDP discovery on 6666/6667 (payload carries device id, product key and
+    # protocol version) and accepts the framed TCP protocol on 6668. `rqbj`
+    # membership then comes from the product key / cloud category — there is
+    # no category field in the LAN handshake itself, so distinguishing a gas
+    # alarm from any other Tuya device locally requires matching the product
+    # key or querying DPs and recognizing the gas DP layout.
+    lan_protocols:
+      - "tuya"
+    default_port: 6668
+    mac_prefixes: []
+    notes: >
+      No device-level FCC ID exists for these white-label goods; the Tuya
+      modules inside are certified under grantee 2ANDL (Hangzhou Tuya
+      Information Technology Co., Ltd.), e.g. 2ANDL-WB2S. MAC OUIs are not
+      listed: they belong to the module and vary per clone, so they would
+      rank noise rather than identify this family.
+
+  discovery:
+    identity:
+      stable_keys: ["deviceId", "productKey"]
+      display: "ip"
+    static_ip_required: false
+    notes: >
+      Tuya LAN discovery is UDP broadcast on ports 6666 and 6667; each device
+      emits/answers framed datagrams (0x000055aa header … 0x0000aa55
+      trailer) whose payload carries the device id, product key and protocol
+      version (3.1/3.3/3.4). On 3.3/3.4 devices the discovery payload is
+      AES-encrypted with a well-known SDK-embedded key documented in
+      tinytuya/tuyapi rather than reproduced here. Confirmed present in the
+      Smart Life app: constants 6666/6667/6668 and the
+      broadcast-monitor service (6666/6667 discovery, 6668 TCP control).
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Provisioning is the standard Tuya flow, confirmed as generic SDK
+      capability in the Smart Life app (not replayed against this
+      hardware by this project). After pairing, one further cloud-dependent
+      step is needed for stock-firmware local control: extracting the
+      per-device 16-char local key (see cloud.notes).
+    methods:
+      - type: "smartconfig"
+        verified: false
+        description: >
+          EZ mode: with the device in pairing mode (fast-blinking LED after
+          holding the button), the app broadcasts the Wi-Fi credentials plus
+          a cloud-issued pairing token via SmartLink broadcast/multicast
+          (native libThingSmartLink / ThingSmartLink.smartLink in the SDK).
+          Requires a Tuya cloud account in Smart Life or Tuya Smart.
+        steps:
+          - action: >
+              Hold the pairing button until the LED blinks fast — EZ mode.
+            actor: "user"
+          - action: >
+              Broadcast the Wi-Fi credentials plus a cloud-issued pairing
+              token over SmartLink broadcast/multicast from the app.
+            actor: "client"
+          - action: "The sensor joins the Wi-Fi network and registers with the Tuya cloud."
+            actor: "device"
+            expect: >
+              The LED stops blinking and the device appears in Smart Life /
+              Tuya Smart.
+        # SDK-generic flow, not replayed against this hardware — see setup.notes.
+      - type: "softap_udp"
+        verified: false
+        description: >
+          AP mode (device hotspot, slow-blinking LED — entered from EZ mode
+          by holding the pairing button again on stock Tuya firmware): the
+          device hosts an open AP (SmartLife-XXXX naming on most clones) and
+          receives credentials over the same framed Tuya protocol on the
+          setup network. Supported by the SDK; exact per-clone AP naming
+          unverified.
+      - type: "ble_provisioning"
+        verified: false
+        description: >
+          BLE-assisted pairing: the WB2S/CB2S module's BLE radio advertises
+          during pairing mode and the app hands credentials over GATT before
+          the device joins Wi-Fi. SDK-supported; not exercised by this
+          project.
+    factory_reset:
+      confidence: "low"
+      effect: >
+        Clears Wi-Fi credentials and the cloud binding (device id / local key
+        pair is reissued on re-pairing), returning the unit to pairing mode.
+        MCU-side alarm function and thresholds are unaffected — the MCU never
+        depended on Wi-Fi.
+      procedures:
+        - name: "Press and hold the pairing button (~5 seconds)"
+          hold_seconds: 5
+          indicator: "LED enters fast-blink pairing mode (EZ); hold again for slow-blink AP mode."
+          steps:
+            - action: "With the sensor powered, press and hold its button for about 5 seconds until the LED blinks rapidly, then release."
+              actor: "user"
+              notes: >
+                Generic stock-Tuya-firmware behavior (same as every Tuya Wi-Fi
+                gadget), not verified on this specific hardware; per-clone
+                button placement and LED semantics vary.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        No documented in-place credential update; treat a router/SSID change
+        as factory reset + re-pair. The old network does not need to be up.
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Tuya device id + 16-char local key (issued at pairing)"
+      issued_to_client:
+        - "local key (recoverable once via Tuya IoT developer account + tinytuya wizard)"
+      notes: >
+        During EZ/AP provisioning the passphrase travels inside Tuya's
+        pairing exchange rather than as cleartext on the open AP; post-setup,
+        all LAN traffic is AES-128-ECB under the per-device local key, so the
+        local key IS the credential — treat it as a password and LAN-segment
+        the device.
+
+  # Family members this spec covers. They differ in module silicon, protocol
+  # version and DP set; the LAN framing and rqbj DP semantics are shared.
+  # Matching a physical unit to a variant: read productKey from UDP discovery
+  # and compare against `product_id`.
+  variants:
+    - model: "DY-RQ400A (Wi-Fi)"
+      identification:
+        product_id: "13nrj1aeeaqh54cz"
+      notes: >
+        Canonical representative with a public teardown (Tuya Expo product
+        602455; ESPHome device page). WB2S module (Beken BK7231T) + RunJet
+        RJM8L151F6P6 sensor MCU, TuyaMCU UART at 9600 8N1. Gas-only DP set
+        (DPs 1,2,3,5,8,9,10,12,14 documented); gas_sensor_value is a 0–100
+        scale ≈ percent of the fixed 7±3 %LEL trip point, not ppm.
+    - model: "RQ400A-Update"
+      identification:
+        product_id: "stqmzk01tbm3qwhg"
+      notes: >
+        Re-spun RQ400A on a CB2S module (Beken BK7231N). DP set presumed
+        identical to DY-RQ400A; not independently verified.
+    - model: "C2 Gas Sensor (gas + CO combo)"
+      identification:
+        product_id: "dskjwfinoid46aiw"
+      notes: >
+        Combustible-gas + CO combo unit, protocol version 3.4 (session-key
+        handshake required), category rqbj. Adds the CO DPs (6, 20) and
+        reports gas_sensor_value in ppm (scale 1) rather than the RQ400A's
+        0–100 trip-percent scale. DP model from the tuya-local cloud dump
+        (issue #2434).
+
+protocol_handler: "tuya_lan"
+
+# The Tuya LAN protocol as it applies to this family. Confirmed as generic
+# SDK machinery in the Smart Life app (port constants 6666/6667/6668,
+# broadcast monitor, AES code paths, DPS dispatch) and documented in detail
+# by tinytuya/tuyapi/housetuya. Consumers should treat tinytuya as the
+# executable reference.
+tuya_lan_protocol:
+  verification: "reported"
+  transport: "TCP (control) / UDP (discovery), AES-encrypted JSON payloads"
+  ports:
+    discovery_udp: [6666, 6667]
+    control_tcp: 6668
+  authentication: "per-device 16-char local key (issued at pairing; AES key)"
+  encryption:
+    cipher: "AES-128-ECB, PKCS#7 padding"
+    key: "the per-device local key (16 chars, used directly as the AES-128 key)"
+    notes: >
+      Protocol 3.1/3.3 encrypt the payload with the local key directly.
+      Protocol 3.4 (e.g. the C2 combo variant) prepends a session-key
+      handshake (commands 0x03/0x04/0x05) that negotiates a per-session key
+      derived from the local key plus exchanged nonces — see tinytuya for the
+      exact exchange. The discovery broadcast payload on 3.3/3.4 is encrypted
+      with a well-known SDK-embedded key documented in tinytuya/tuyapi (not
+      reproduced here).
+  framing:
+    layout: >
+      Every message: 4-byte header 0x000055aa, 4-byte sequence number, 4-byte
+      command, 4-byte payload length, payload, 4-byte integrity, 4-byte
+      trailer 0x0000aa55. On 3.1 the integrity field is CRC32 of everything
+      from sequence through payload; 3.3 messages additionally prefix the
+      encrypted payload with a 12-byte version marker ("3.3" + padding) and
+      3.3/3.4 replace the CRC32 with HMAC-SHA256 truncated to 32 bytes. Same
+      framing on TCP 6668 and the UDP discovery datagrams.
+  commands:
+    "0x03": "SESS_KEY_NEG_START (3.4 session-key handshake)"
+    "0x04": "SESS_KEY_NEG_RESP"
+    "0x05": "SESS_KEY_NEG_FINISH"
+    "0x07": "CONTROL — set one or more DPs: {\"dps\": {\"<dp>\": <value>}}"
+    "0x08": "STATUS — DP state report/push from the device"
+    "0x09": "HEART_BEAT — keep-alive (device answers with the same command)"
+    "0x0a": "DP_QUERY — request current DP values (3.1/3.3)"
+    "0x0d": "UDP_NEW — discovery broadcast payload"
+    "0x0e": "AP_CONFIG — provisioning-time config (AP mode)"
+    "0x10": "DP_QUERY_NEW (3.3+/3.4)"
+    "0x12": "UPDATEDPS — push of changed DPs"
+    "0x13": "CONTROL_NEW (3.3+ control)"
+  data_model: >
+    State is a DPS (datapoint) map, pushed and queried as JSON
+    {"dps": {"1": ..., "2": ...}} keyed by numeric DP id as a string. The DP
+    semantics for the rqbj family are in the `dps` table below. DP ids and
+    even their meaning vary per productId — always cross-check a new unit
+    with a DP dump (tinytuya scan) before trusting the table.
+  discovery:
+    method: "udp_broadcast"
+    ports: [6666, 6667]
+    response: >
+      Datagrams carry the device id (stable identity), product key (match
+      against device.variants) and protocol version ("3.1"/"3.3"/"3.4") —
+      the version determines which command set and crypto path to use.
+
+# rqbj-family datapoint schema. Corroborated across the ESPHome DY-RQ400A
+# page, make-all/tuya-local issue #2434 (C2 cloud model dump) and tuya-local
+# device configs (rq400a_gasalarm, digma_disenseg1_gassensor). Reported, not
+# hardware-verified by this project; per-unit DP sets differ (see variants).
+dps:
+  verification: "reported"
+  table:
+    - dp: 1
+      code: "self_check_result (cloud code varies per product)"
+      type: "enum"
+      access: "ro"
+      values: ["checking", "check_success", "check_failure", "others"]
+      description: "Result of the most recent MCU self-test."
+    - dp: 2
+      code: "gas_sensor_state"
+      type: "enum"
+      access: "ro"
+      values: ["alarm", "normal"]
+      description: >
+        THE safety datapoint: combustible-gas alarm status. Latched by the
+        MCU at the fixed 7±3 %LEL trip point until the level falls below half
+        of trip; not clearable over Wi-Fi.
+    - dp: 3
+      code: "alarm_time"
+      type: "value"
+      access: "rw"
+      unit: "s"
+      min: 0
+      max: 180
+      description: "Alarm duration."
+    - dp: 5
+      code: "gas_sensor_value"
+      type: "value"
+      access: "ro"
+      min: 0
+      max: 1000
+      description: >
+        Gas level reading. Scale is variant-dependent: on the DY-RQ400A a
+        0–100 scale ≈ percent of the trip point; on the C2 combo, ppm
+        (scale 1). Check the unit before interpreting.
+    - dp: 6
+      code: "co_state"
+      type: "enum"
+      access: "ro"
+      values: ["alarm", "normal"]
+      description: "CO alarm status (combo units only, e.g. C2)."
+    - dp: 8
+      code: "alarm_melody (cloud code varies per product)"
+      type: "enum"
+      access: "rw"
+      values: ["0", "1", "2", "3", "4"]
+      description: "Buzzer melody (RQ400A: 5 melodies)."
+    - dp: 9
+      code: "self_check (cloud code varies per product)"
+      type: "bool"
+      access: "rw"
+      description: "Trigger an MCU self-test; result lands in DP 1."
+    - dp: 10
+      code: "preheat (cloud code varies per product)"
+      type: "bool"
+      access: "ro"
+      description: "Sensor warm-up in progress (readings invalid while true)."
+    - dp: 12
+      code: "alarm_switch"
+      type: "bool"
+      access: "rw"
+      description: >
+        Enable/disable the audible buzzer. SAFETY: disabling removes the
+        primary local alert — surface this prominently in any UI.
+    - dp: 14
+      code: "muffling"
+      type: "bool"
+      access: "rw"
+      description: "Silence the currently active alarm once; auto-resets."
+    - dp: 20
+      code: "co_value"
+      type: "value"
+      access: "ro"
+      unit: "ppm"
+      description: "CO reading (combo units only, e.g. C2)."
+
+# The module↔MCU side, for completeness and for the firmware-replacement
+# path: an ESPHome/OpenBeken build on the WB2S/CB2S speaks TuyaMCU serial to
+# the untouched sensor MCU, preserving the standalone alarm function.
+tuyamcu_uart:
+  verification: "reported"
+  link: "UART, 9600 8N1 (DY-RQ400A; other clones may use 115200)"
+  role: >
+    The sensor MCU owns the gas element, buzzer, LEDs and the 433MHz
+    receiver; the Wi-Fi module polls/reports DPs and relays configuration.
+    Gas detection and the local alarm work with the Wi-Fi side dead.
+
+cloud:
+  required: false
+  vendor_service: "Tuya cloud (Smart Life / Tuya Smart platform)"
+  status: "alive"
+  hosts:
+    - "a1/a2/a3.tuyaus.com (+ .tuyacn.com / .tuyaeu.com / .tuyain.com regional twins) — REST"
+    - "m1/m2.tuyaus.com — MQTT"
+    - "images.tuyaus.com — OTA firmware images (per-product, auth-gated URLs)"
+  endpoints:
+    - path: "a1.tuyaus.com (REST API family)"
+      name: "Tuya OpenAPI / app API"
+      verification: "reported"
+      notes: >
+        No tuya*.com hostnames appear as plaintext anywhere in the Smart Life
+        app (code, resources, or the network/security native libs) — region
+        endpoints are delivered at runtime by Tuya's config
+        service. The hosts listed are the publicly documented Tuya endpoint
+        families, recorded for orientation; consumers should use the LAN
+        protocol, not these.
+  auth:
+    type: "other"
+    notes: >
+      Tuya account + per-device pairing tokens; device-side auth is the
+      device id / local key pair issued at pairing. Not needed for LAN
+      control once the local key is known.
+  failure_mode: >
+    Nothing breaks at runtime: with the local key extracted, full local
+    control via tinytuya / localtuya / tuya-local keeps working with the
+    device permanently WAN-blocked — UDP 6666/6667 and TCP 6668 are plain
+    local sockets (no DNS redirect needed). Losing the Tuya cloud removes
+    remote (out-of-home) access, the app panel UI, new-device pairing, OTA
+    firmware delivery, and — the one sharp edge — local-key extraction for a
+    not-yet-extracted unit. Tuya Inc. itself is alive (NYSE: TUYA, actively
+    shipping as of 2026); the anonymous white-label OEMs behind individual
+    clones come and go, which affects firmware support, not connectivity.
+  notes: >
+    The ONLY hard cloud dependency for stock-firmware local control is
+    one-time local-key extraction: pair the device in Smart Life, link the
+    app account to a free Tuya IoT developer project, and pull the device id
+    + local key with the tinytuya wizard. Tuya has broken this flow for some
+    account types in the past — verify current status before buying hardware
+    for a local-only install. Nuclear option: the WB2S/CB2S (BK7231T/N)
+    modules are UART-flashable (RX1/TX1 pads, 3.3 V) with LibreTiny/ESPHome
+    or OpenBeken via ltchiptool — a complete ESPHome config mapping all 12
+    RQ400A DPs is published (see helpful_urls) — after which no Tuya account
+    or key is involved at all. CloudCutter OTA-flashing works only on
+    unpatched firmware batches; feasibility on shipped units is an open
+    question.
+
+local_access:
+  status: "native"
+  notes: >
+    The Tuya LAN protocol (UDP 6666/6667 discovery, TCP 6668 control) is
+    native local access once the local key is known — no bridge hardware
+    required. Home Assistant paths: localtuya (HACS) or make-all/tuya-local,
+    which ships ready-made configs for this family (rq400a_gasalarm,
+    digma_disenseg1_gassensor, boundless_pa210w_gasalarm). Firmware
+    replacement (LibreTiny/ESPHome, OpenBeken) is the no-Tuya-at-all path
+    and additionally survives Tuya cloud death with zero local-key step.
+
+# Commands bound by the entities below. All are DPS operations inside the
+# framed/AES'd Tuya LAN protocol; `command` names the message command byte.
+commands:
+  dp_query:
+    description: "Request current DP values (the state poll)."
+    transport: "tcp-json"
+    command: "0x0a (DP_QUERY; 0x10 DP_QUERY_NEW on 3.3+/3.4)"
+    body: '{"gwId":"<device_id>","devId":"<device_id>","uid":"","t":"<unix_ts>"}'
+    verification: "reported"
+  set_dp:
+    description: "Write one or more DPs: {\"dps\": {\"<dp>\": <value>}}."
+    transport: "tcp-json"
+    command: "0x07 (CONTROL; 0x13 CONTROL_NEW on 3.3+)"
+    body: '{"devId":"<device_id>","uid":"","t":"<unix_ts>","dps":{"<dp>":<value>}}'
+    verification: "reported"
+  heartbeat:
+    description: "Keep-alive ping; the device answers with the same command."
+    transport: "tcp-json"
+    command: "0x09 (HEART_BEAT)"
+    verification: "reported"
+  muffle_alarm:
+    description: "Silence the currently active alarm once (DP 14 = true; auto-resets)."
+    transport: "tcp-json"
+    command: "0x07"
+    body: '{"dps":{"14":true}}'
+    verification: "reported"
+  self_test:
+    description: "Trigger an MCU self-test (DP 9 = true); result appears in DP 1."
+    transport: "tcp-json"
+    command: "0x07"
+    body: '{"dps":{"9":true}}'
+    verification: "reported"
+
+entities:
+  - platform: "binary_sensor"
+    name: "Gas Alarm"
+    device_class: "gas"
+    state_command: "dp_query"
+    state_field: "dps.2"
+    state_mapping:
+      value: "dps.2"
+      on_when: "alarm"
+    notes: >
+      The safety entity. 0/alarm = leak detected (latched by the MCU until
+      the level falls below half the fixed trip point), 1/normal = OK. Also
+      pushed live via STATUS/UPDATEDPS — subscribe, don't just poll.
+  - platform: "sensor"
+    name: "Gas Level"
+    device_class: "volatile_organic_compounds_parts"
+    state_command: "dp_query"
+    state_field: "dps.5"
+    notes: >
+      Scale is variant-dependent: DY-RQ400A reports 0–100 ≈ percent of the
+      7±3 %LEL trip point (treat as a relative level, unitless); the C2
+      combo reports ppm. Confirm against the unit before attaching a unit.
+  - platform: "binary_sensor"
+    name: "CO Alarm"
+    device_class: "carbon_monoxide"
+    variants: ["C2 Gas Sensor (gas + CO combo)"]
+    state_command: "dp_query"
+    state_field: "dps.6"
+    state_mapping:
+      value: "dps.6"
+      on_when: "alarm"
+    notes: "Combo units only."
+  - platform: "sensor"
+    name: "CO Level"
+    device_class: "carbon_monoxide"
+    unit: "ppm"
+    variants: ["C2 Gas Sensor (gas + CO combo)"]
+    state_command: "dp_query"
+    state_field: "dps.20"
+    notes: "Combo units only."
+  - platform: "switch"
+    name: "Audible Alarm"
+    icon: "mdi:volume-high"
+    state_command: "dp_query"
+    state_field: "dps.12"
+    commands:
+      turn_on: "set_dp dps.12=true"
+      turn_off: "set_dp dps.12=false"
+    notes: >
+      SAFETY: turning this off disables the buzzer — the primary local
+      alert. Surface accordingly.
+  - platform: "button"
+    name: "Muffle Alarm"
+    icon: "mdi:volume-off"
+    commands:
+      press: "muffle_alarm"
+    notes: "Silences the active alarm once; DP 14 auto-resets."
+  - platform: "button"
+    name: "Self-Test"
+    device_class: "restart"
+    icon: "mdi:stethoscope"
+    commands:
+      press: "self_test"
+    notes: "Result lands in DP 1 (checking → check_success/check_failure)."
+  - platform: "number"
+    name: "Alarm Duration"
+    unit: "s"
+    min: 0
+    max: 180
+    step: 1
+    state_command: "dp_query"
+    state_field: "dps.3"
+    commands:
+      set_value: "set_dp dps.3=<value>"
+  - platform: "select"
+    name: "Alarm Melody"
+    icon: "mdi:music"
+    state_command: "dp_query"
+    state_field: "dps.8"
+    state_mapping:
+      options:
+        "0": "Melody 1"
+        "1": "Melody 2"
+        "2": "Melody 3"
+        "3": "Melody 4"
+        "4": "Melody 5"
+    commands:
+      select_option: "set_dp dps.8=<value>"
+    notes: "RQ400A: five melodies (0–4); the labels are ordinal placeholders — the firmware does not name them."
+  - platform: "binary_sensor"
+    name: "Sensor Preheat"
+    device_class: "running"
+    icon: "mdi:fire"
+    state_command: "dp_query"
+    state_field: "dps.10"
+    notes: "True while the sensor element warms up; readings invalid meanwhile."
+  - platform: "sensor"
+    name: "Self-Check Result"
+    icon: "mdi:check-circle"
+    state_command: "dp_query"
+    state_field: "dps.1"
+    notes: "checking / check_success / check_failure / others."
+
+helpful_urls:
+  - title: "ESPHome device page — Tuya DY-RQ400A combustible gas alarm"
+    url: "https://devices.esphome.io/devices/tuya-dy-rq400a-combustible-gas-alarm/"
+    description: >
+      Teardown of the canonical rqbj unit: WB2S + RunJet MCU, UART flashing
+      procedure with pin photos, and a complete ESPHome config mapping all
+      12 DPs.
+  - title: "tinytuya — Tuya LAN protocol reference implementation"
+    url: "https://github.com/jasonacox/tinytuya"
+    description: >
+      Framing, crypto, discovery, command codes; includes the setup wizard
+      for one-time local-key extraction and a network scanner that dumps a
+      unit's real DPS set.
+  - title: "tuyapi — Tuya LAN protocol library"
+    url: "https://github.com/codetheweb/tuyapi"
+    description: "Independent implementation of the same LAN protocol."
+  - title: "make-all/tuya-local — Home Assistant integration"
+    url: "https://github.com/make-all/tuya-local"
+    description: >
+      Ships ready-made configs for this family (rq400a_gasalarm,
+      digma_disenseg1_gassensor, boundless_pa210w_gasalarm).
+  - title: "tuya-local issue #2434 — C2 gas sensor cloud model dump"
+    url: "https://github.com/make-all/tuya-local/issues/2434"
+    description: "Cloud-side DP model for the gas+CO combo variant (protocol 3.4)."
+  - title: "housetuya — Tuya LAN protocol writeup"
+    url: "https://github.com/pascal-fb-martin/housetuya"
+    description: "Independent protocol documentation."
+  - title: "FCC ID 2ANDL-WB2S (Tuya WB2S module)"
+    url: "https://fccid.io/2ANDL-WB2S"
+    description: >
+      Module-level certification (grantee 2ANDL, Hangzhou Tuya); no
+      device-level FCC ID exists for these white-label goods.
+  - title: "LibreTiny / ltchiptool — BK7231 flashing toolchain"
+    url: "https://github.com/libretiny-eu/libretiny"
+    description: >
+      UART flashing of WB2S/CB2S modules for the firmware-replacement path
+      (ESPHome config in the first link).
+
+sources:
+  - type: "static_analysis"
+    artifact: "Smart Life 7.9.0 (com.tuya.smartlife, versionCode 832, Huawei AppGallery build)"
+    sha256: "8feefdc4e35f2a4718bd615cc73af064cbd3e8044014435890f82468e47acb43"
+    obtained_via: "Huawei AppGallery, 2026-08-18"
+    description: "Static analysis of the Smart Life Android app (2026-08-18)."
+    confirms:
+      - "Tuya LAN constants 6666/6667 (UDP discovery) and 6668 (TCP control), plus the broadcast-monitor service (com.thingclips.sdk.hardware.dbppbbp / GwBroadcastMonitorService)."
+      - "AES-128-ECB local-key crypto code paths and DPS dispatch ({\"dps\": {...}}) in the generic device stack."
+      - "EZ-mode SmartLink provisioning via native libThingSmartLink (ThingEZConfig); AP-mode and BLE-assisted pairing also SDK-supported."
+      - "No gas-sensor-specific code: the device UI is a cloud-delivered RN panel bundle; zero hits for the rqbj category name or gas DP codes anywhere in the app."
+      - "No tuya*.com endpoints as plaintext anywhere in the app (region endpoints delivered at runtime); OTA is fully cloud-brokered behind per-product auth-gated URLs — no static firmware URL recoverable."
+    confidence: "high (for the generic LAN/SDK facts); the rqbj DP model is community-sourced, not from the app"
+  - type: "public_research"
+    name: "ESPHome device page — Tuya DY-RQ400A combustible gas alarm"
+    url: "https://devices.esphome.io/devices/tuya-dy-rq400a-combustible-gas-alarm/"
+    used_for: "Canonical-unit hardware (WB2S + RJM8L151F6P6, UART 9600 8N1), 12-DP map, fixed 7±3 %LEL threshold and latch behavior, UART flashing procedure."
+  - type: "public_research"
+    name: "make-all/tuya-local issue #2434 + device configs"
+    url: "https://github.com/make-all/tuya-local/issues/2434"
+    used_for: "C2 combo-variant DP model (CO DPs, ppm scaling, protocol 3.4); rqbj DP codes corroboration."
+  - type: "public_research"
+    name: "tinytuya / tuyapi / housetuya"
+    url: "https://github.com/jasonacox/tinytuya"
+    used_for: "LAN framing, command codes, AES-128-ECB local-key crypto, 3.4 session-key handshake, discovery mechanics, local-key extraction workflow."
+  - type: "public_research"
+    name: "FCC 2ANDL-WB2S filing"
+    url: "https://fccid.io/2ANDL-WB2S"
+    used_for: "Module-level radio certification identity."

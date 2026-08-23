@@ -38,7 +38,7 @@ device:
     Hardware RE (adrihd/ShiningAppMask-ReverseEngineering, 2026-01): Artery
     AT32F415 MCU, Jieli BP27387 BLE SoC, 16 MB PY25Q128HA SPI flash. Decrypted
     OTA firmware images (TR1906R04-*) and a full flash dump are archived in the
-    research repo (/home/claude/research/shining-mask/firmware/).
+    maintainers' private research workspace, not committed here.
 
     Enrich-branch evidence: the official Shining Mask Android package
     cn.com.heaton.shiningmask was inspected from APKPure XAPK v1.2.6/versionCode
@@ -192,7 +192,7 @@ services:
           v1.2.6, key bytes at file offset 0x3008; AES runs in JNI via
           csh.tiro.cc.aes cipher/invCipher). Confidence: HIGH.
           Command frames are 16 bytes; unused tail bytes are random padding
-          (Agreement.getRandom()), not zeros — a receiver must not require
+          (the app fills them from its RNG), not zeros — a receiver must not require
           zero padding.
           Additional app commands beyond the ones templated below
           (app-derived, not hardware-verified): BC = set text background

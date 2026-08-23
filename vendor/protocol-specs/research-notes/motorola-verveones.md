@@ -38,7 +38,7 @@ the Hubble cloud account layer (device locator, check-in) is dead weight.
   protocol instead. Airoha's Android "lib" source circulates publicly.
 - BLE also present (`BleServiceUuids`, `BleCharacteristicUuids`) — used for
   alerts/locator; out of scope for this note.
-- `BtServiceUuids.java` enumerates classic profile UUIDs incl. SPP `00001101`.
+- The app's Bluetooth service-UUID table enumerates classic profile UUIDs incl. SPP `00001101`.
 
 ## App feature surface
 - Native EQ (`NativeEqualizerActivity`, `NativeEqSettingCard`) — device-side,

@@ -1,0 +1,420 @@
+# Brother QL-1110NWB Wide Format Label Printer
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Brother QL-1110NWB Label Printer"
+  manufacturer: "Brother Industries"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      The printer itself is physically present in the project's test
+      environment (observed advertising on Bluetooth Classic as
+      "QL-1110NWB0000", MAC 60:98:66:AA:BB:CC), but no print job or status
+      request from this document has been driven against it. Every protocol
+      fact here comes from Brother's own published command references and
+      the hardware-tested open implementation brother_ql.
+  protocol: "wifi"
+  category: "printer"
+  notes: >
+    Wide-format (up to 4 in / 103.6 mm media) direct-thermal label printer,
+    300 dpi, ~110 mm/s, auto cutter, continuous prints to ~3 m. Connectivity:
+    USB-B device, USB-A host (barcode scanners), Ethernet 10/100BASE-TX,
+    Wi-Fi 802.11b/g/n (infrastructure + Wireless Direct + WPS 2.0), and
+    Bluetooth Classic 2.1+EDR (profiles SPP, BIP, OPP, HCRP, iAP/MFi — no
+    BLE GATT; retailer pages claiming "Bluetooth 5.2" are aggregator noise
+    against Brother's own spec sheet). AirPrint/MFi certified, so IPP on 631
+    and Bonjour advertisement are also present.
+
+    COMMAND LANGUAGES: the printer accepts three command sets, selected with
+    ESC i a — 00h ESC/P (text-mode printing), 01h raster graphics mode (the
+    one everything below documents), 03h P-touch Template mode (print stored
+    templates with merged data from a host; commands are ^-prefixed per
+    Brother's P-touch Template Command Reference). Brother publishes a Raster
+    Command Reference for the QL series, so the raster language is a
+    vendor-documented API, not a recovered one; brother_ql is the reference
+    open implementation and the source of the per-model geometry here.
+
+    PRINT TRANSPORTS: the same raster byte stream goes over TCP RAW port
+    9100 (primary; also reachable as _pdl-datastream._tcp via Bonjour),
+    LPR/LPD port 515, FTP port 21 (drop a raster file), Bluetooth Classic
+    SPP, or USB. A raster job is: switch-to-raster-mode → 200×0x00
+    invalidate → ESC @ → media/quality → cut/margin settings → raster rows →
+    0x1A. See the brother_ql_raster_protocol block for the byte-level tables.
+
+    STATUS: ESC i S (1B 69 53) requests a 32-byte status reply (header
+    80 20 42) carrying error bitmasks, loaded-media type/width/length, and
+    job phase; ESC i ! (1B 69 21) toggles automatic status notifications.
+    On the network, Brother also exposes printer status over SNMP (OID
+    1.3.6.1.4.1.2435.3.3.9.1.6.1.0 per Brother's developer FAQ) and a web
+    admin page on port 80.
+
+    CONFIDENCE: high for the command set (vendor-documented + implemented by
+    brother_ql against real QL hardware), lower only where noted (RFCOMM
+    channel, Wireless Direct defaults).
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://www.jarcomputers.com/images/custom/docs/b471757576aff4ef4eb7f8bd96a113c575133c95_1722315_ql820nwbcyj1_icecat_multimedia_other_digital_assets_2_en_gb-1725017762.pdf"
+        title: "Brother Raster Command Reference (QL-820NWB edition, publicly mirrored)"
+        covers: >
+          The full raster command set: ESC i a mode switch, ESC i z
+          media/quality, ESC i M/A/K/d job settings, raster row opcodes,
+          print triggers, and the 32-byte status reply layout.
+      - url: "https://support.brother.com/g/s/es/dev/en/command/faq/index.html?navi=offall"
+        title: "Brother developer FAQ — command printing"
+        covers: >
+          Network print transports (TCP 9100, LPR, FTP) and the SNMP status
+          OID.
+    source_code: "https://github.com/pklaus/brother_ql"
+    license: "GPL-3.0"
+    notes: >
+      Brother's command references are the authoritative text; brother_ql
+      (pklaus/brother_ql) is the reference open implementation, tested
+      against real QL-series hardware and the source of the per-model
+      geometry (162 bytes/row, invalidate count, min/max length) used here.
+      A consumer wanting a working client should use brother_ql directly —
+      this spec exists to document the protocol, not to compete with it.
+
+  identification:
+    # Bluetooth Classic (and Wireless Direct) name: "QL-1110NWB" + last 4 of
+    # the serial, observed live as QL-1110NWB0000.
+    local_name_prefix: "QL-1110NWB"
+    mac_prefixes:
+      - prefix: "60:98:66"
+        notes: >
+          Observed on the user's unit (60:98:66:AA:BB:CC). This is the
+          Bluetooth radio's block, not a Brother-registered OUI, so it ranks
+          a device rather than identifying it.
+    default_port: 9100
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_pdl-datastream._tcp.local."
+          port: 9100
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+            display:
+              source: "name"
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "QL-1110NWB"
+        notes: >
+          This is Bluetooth CLASSIC discovery, not BLE: the name appears in
+          a Classic inquiry, not a GATT advertisement. Recorded as a
+          ble_scan method because the schema has no bt_classic_inquiry type;
+          a consumer must do a Classic inquiry (or be handed the paired
+          device) and connect over SPP — there is no BLE GATT surface.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Printing itself needs no account and no cloud — any transport that
+      carries the byte stream works. Setup is only about getting the printer
+      onto the LAN or paired. Options (per Brother's user manual): WPS
+      (WPS button + router WPS), Wireless Direct (the printer hosts its own
+      AP, SSID of the form DIRECT-xxxxx_QL-1110NWB), USB configuration with
+      Brother's Printer Setting Tool, or Ethernet (DHCP) for the wired path.
+      Bluetooth Classic pairing is enabled with the Bluetooth button; the
+      printer then advertises as QL-1110NWB<serial-suffix> and prints over
+      SPP. None of these flows has been replayed by this project.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          WPS or Wireless Direct from the printer's own buttons; USB +
+          Printer Setting Tool; or DHCP on Ethernet. Details in
+          docs/devices/brother-ql-1110nwb.md.
+        steps:
+          - action: "Join the printer to the LAN (WPS / Wireless Direct / USB tool / Ethernet)."
+            actor: "user"
+            expect: "The printer answers mDNS _pdl-datastream._tcp and accepts TCP 9100."
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Bluetooth Classic path (recorded under ble_direct for want of a
+          bt_classic setup type): press the printer's Bluetooth button, pair
+          with QL-1110NWB<serial-suffix> from the host, then open an SPP
+          connection (standard SPP UUID 00001101) and send the same raster
+          byte stream.
+        steps:
+          - action: "Press the Bluetooth button on the printer."
+            actor: "user"
+            expect: "Bluetooth LED lights; printer discoverable as QL-1110NWB0000-style name."
+          - action: "Pair from the host and open an RFCOMM/SPP connection."
+            actor: "client"
+            expect: "Byte stream accepted exactly as on TCP 9100."
+    factory_reset:
+      confidence: "high"
+      effect: >
+        Three scopes, chosen by Cutter-press count: ×2 resets network
+        settings; ×4 resets transferred data (templates/databases) and
+        device settings; ×6 resets everything to factory settings. Public
+        user-manual procedure.
+      procedures:
+        - name: "Button reset (Power + Cutter)"
+          steps:
+            - action: "Turn the printer off."
+              actor: "user"
+            - action: "Press and hold Power and Cutter for about one second."
+              actor: "user"
+              expect: "Status LED lights orange, Wi-Fi LED flashes green."
+            - action: "While still holding Power, press Cutter 2× (network reset), 4× (data + device settings) or 6× (full factory reset)."
+              actor: "user"
+            - action: "Release Power."
+              actor: "user"
+              expect: "LEDs flash, then the printer restarts with the chosen scope cleared."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Re-running WPS or the USB Printer Setting Tool re-points the printer
+        at a new network without a reset; the 2× Cutter network reset is the
+        clean fallback.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Wi-Fi credentials"
+      issued_to_client: []
+      notes: >
+        No client authentication on any print transport: anything that can
+        open TCP 9100 (or SPP, or LPR) can print. Segment accordingly.
+
+  variants:
+    - model: "QL-1110NWB"
+      identification:
+        local_name_prefix: "QL-1110NWB"
+      notes: >
+        The networked model this spec is written for: 300 dpi, 162
+        bytes/row (1296-dot head), 200 invalidate bytes, media 12–103.6 mm
+        (DK die-cut and continuous rolls), monochrome.
+    - model: "QL-1100"
+      notes: >
+        USB-only sibling: same engine and raster language (same 162
+        bytes/row geometry in brother_ql), no network or Bluetooth — USB
+        transport only.
+    - model: "QL-1115NWB"
+      notes: >
+        Near-identical successor; brother_ql assigns it the same model
+        parameters as the QL-1110NWB.
+
+  features:
+    - type: "image_upload"
+      max_width: 1296
+      max_height: 35434
+      format: "1bit-bitmap"
+
+  local_access:
+    status: "native"
+    summary: >
+      Fully local as shipped: raster printing over TCP 9100 / LPR / FTP /
+      SPP / USB with no account and no cloud anywhere in the path.
+    covers:
+      - "Raster label printing (all DK media)"
+      - "Status/error/media-remaining reporting"
+      - "P-touch Template standalone printing"
+    not_covered: []
+
+protocol_handler: "brother_ql_raster"
+
+# The Brother QL raster command language as it applies to the QL-1110NWB —
+# the role tplink_smarthome_protocol plays for the Kasa spec. Everything a
+# consumer needs to build a print job and read a status reply is here.
+brother_ql_raster_protocol:
+  transport: >
+    Raw byte stream, identical on every carriage: TCP 9100 (RAW/AppSocket),
+    LPR/LPD 515, FTP 21 (file drop), Bluetooth Classic SPP, or USB bulk.
+    No framing, no authentication; the printer consumes the stream as-is.
+  geometry:
+    dpi: 300
+    bytes_per_row: 162
+    head_dots: 1296
+    max_print_width_mm: 101.6
+    invalidate_bytes: 200
+    min_length_dots: 301
+    max_length_dots: 35434
+    additional_offset_right_dots: 44
+    notes: >
+      Every raster row is exactly 162 bytes wide; content narrower than the
+      head is padded white on the right (the last 44 dots of the head do not
+      print — right-side dead zone). Continuous media needs
+      ESC i z media length = 0 and lets the raster row count set the label
+      length (301–35434 dots, i.e. ~25.5 mm–3 m).
+  job_structure:
+    - "1B 69 61 01   switch to raster mode (also emitted once before the invalidate run)"
+    - "00 × 200      invalidate — clears any half-eaten command in the buffer"
+    - "1B 40         ESC @ initialize"
+    - "1B 69 53      (optional) status information request"
+    - "1B 69 7A …    media and quality (see commands.media_and_quality)"
+    - "1B 69 4D 40   auto-cut on (bit 6); 1B 69 41 01 cut every 1 page"
+    - "1B 69 4B 08   expanded mode: bit 3 = cut at end (bit 0 two-color and bit 6 600-dpi do NOT apply to this 300-dpi monochrome head)"
+    - "1B 69 64 23 00  margin/feed amount, u16 LE dots (35 typical)"
+    - "4D 02          (optional) enable PackBits compression of raster rows"
+    - "raster rows   one opcode per print line (see raster_rows)"
+    - "1A             print final page (0C prints an intermediate page in multi-page jobs)"
+  raster_rows:
+    encoding: >
+      1 bit per pixel, MSB first, 1 = black. The image is mirrored
+      left-to-right before packing (the head maps bit 7 of byte 0 to the
+      RIGHT edge), padded to 162 bytes with white on the right.
+    uncompressed_row: "67 00 <n> <n bytes>   (n = row length; 162 uncompressed)"
+    blank_row: "5A                            (whole row white)"
+    compression_toggle: "4D <mode>            (02 = on, 00 = off; rows keep the 67 00 framing but carry PackBits data)"
+    two_color_row: "77 <01|02> <n> <n bytes>  (QL-800-series red layer; not applicable here)"
+  status_reply:
+    request_hex: "1B6953"
+    notify_command_hex: "1B6921"
+    response_size: 32
+    response_header_hex: "802042"
+    fields:
+      - offset: 8
+        name: "error_information_1"
+        bits: "0 no media, 1 end of media (die-cut), 2 cutter jam, 4 main unit in use, 5 printer off, 7 fan failure"
+      - offset: 9
+        name: "error_information_2"
+        bits: "0 replace media, 1 expansion buffer full, 2 communication error, 4 cover open during print, 6 media cannot be fed, 7 system error"
+      - offset: 10
+        name: "media_width_mm"
+      - offset: 11
+        name: "media_type"
+        values: "0x00 none, 0x0A continuous length tape, 0x0B die-cut labels"
+      - offset: 17
+        name: "media_length_mm"
+      - offset: 18
+        name: "status_type"
+        values: "0x00 reply to status request, 0x01 printing completed, 0x02 error occurred, 0x05 notification, 0x06 phase change"
+      - offset: 19
+        name: "phase_type"
+        values: "0x00 waiting to receive, 0x01 printing"
+      - offset: 20
+        name: "phase_number (u16 BE across offsets 20-21)"
+      - offset: 22
+        name: "notification_number"
+    notes: >
+      A completed job shows up as a status_type 0x01 followed by a phase
+      change to "waiting to receive"; a consumer polling for job completion
+      watches for that pair. ESC i ! +1 enables/disables the printer pushing
+      these replies unsolicited.
+  media:
+    notes: >
+      DK rolls. dots_printable is the printable width at 300 dpi from
+      brother_ql's label table (die-cut entries also fix the length).
+      ESC i z takes the media width/length in mm.
+    rolls:
+      - {id: "12mm continuous", width_mm: 12, dots: 106}
+      - {id: "29mm continuous", width_mm: 29, dots: 306}
+      - {id: "38mm continuous", width_mm: 38, dots: 413}
+      - {id: "50mm continuous", width_mm: 50, dots: 554}
+      - {id: "54mm continuous", width_mm: 54, dots: 590}
+      - {id: "62mm continuous (DK-2205)", width_mm: 62, dots: 696}
+      - {id: "102mm continuous (DK-2243)", width_mm: 102, dots: 1164}
+      - {id: "104mm continuous (DK-22246)", width_mm: 104, dots: 1200}
+      - {id: "102x51 die-cut (DK-11240)", width_mm: 102, length_mm: 51, dots: "1164x526"}
+      - {id: "102x152 die-cut (DK-11241)", width_mm: 102, length_mm: 153, dots: "1164x1660"}
+      - {id: "103x164 die-cut (DK-11247)", width_mm: 104, length_mm: 164, dots: "1200x1822"}
+
+commands:
+  switch_to_raster_mode:
+    description: "Select raster graphics mode. Sent at the head of every job."
+    payload_hex: "1B696101"
+    verification: "reported"
+  invalidate:
+    description: "200 bytes of 0x00 — clears the command buffer before a job."
+    payload_hex: "00 (×200)"
+    verification: "reported"
+  initialize:
+    description: "ESC @ — reset job state (page counter, mode flags) without touching loaded-media sensing."
+    payload_hex: "1B40"
+    verification: "reported"
+  status_request:
+    description: "Request the 32-byte status reply (see brother_ql_raster_protocol.status_reply)."
+    payload_hex: "1B6953"
+    verification: "reported"
+  media_and_quality:
+    description: >
+      ESC i z + 10 bytes: valid flags (bit 7 always set; bit 1 media type,
+      bit 2 width, bit 3 length, bit 6 high-quality), media type
+      (0x0A continuous / 0x0B die-cut), media width mm, media length mm
+      (0 = continuous), raster line count u32 LE, page number, trailing
+      0x00. A typical die-cut job on 102×152 labels:
+      1B 69 7A 8E 0B 66 98 <rows u32LE> 00 00.
+    payload_hex: "1B697A <10 bytes>"
+    verification: "reported"
+  print_page:
+    description: "0x1A prints the final page; 0x0C prints an intermediate page of a multi-page job."
+    payload_hex: "1A"
+    verification: "reported"
+  raster_row:
+    description: "One print line: 67 00 <len> <data>; 5A for an all-white row; prefix job with 4D 02 to PackBits-compress row payloads."
+    payload_hex: "67 00 <len> <data>"
+    verification: "reported"
+
+helpful_urls:
+  - title: "brother_ql — open Python implementation of the QL raster language"
+    url: "https://github.com/pklaus/brother_ql"
+    description: >
+      Hardware-tested reference implementation: job builder, per-model
+      geometry (raster.py/models.py/labels.py), status decoder, network and
+      USB backends. Source of the per-model numbers in this spec.
+  - title: "Brother Raster Command Reference (QL series)"
+    url: "https://www.jarcomputers.com/images/custom/docs/b471757576aff4ef4eb7f8bd96a113c575133c95_1722315_ql820nwbcyj1_icecat_multimedia_other_digital_assets_2_en_gb-1725017762.pdf"
+    description: >
+      Brother's own software developer's manual for the raster command set —
+      the vendor-authoritative text this spec summarizes.
+  - title: "Brother developer FAQ — command printing"
+    url: "https://support.brother.com/g/s/es/dev/en/command/faq/index.html?navi=offall"
+    description: >
+      Network transports for command printing (TCP 9100 / LPR / FTP) and the
+      SNMP status OID.
+  - title: "QL-1110NWB product page (interfaces, BT profiles)"
+    url: "https://www.brother-usa.com/p/desktop-label-printers/QL1110NWB"
+    description: >
+      Vendor spec sheet: BT 2.1+EDR with SPP/BIP/OPP/HCRP/iAP, Wi-Fi b/g/n,
+      Ethernet, Wireless Direct, USB host.
+  - title: "QL-1110NWB user manual — reset procedures"
+    url: "https://www.manualslib.com/manual/1361694/Brother-Ql-1110nwb.html?page=141"
+    description: >
+      Button-based reset ladder (Cutter ×2 network / ×4 data+settings /
+      ×6 full factory reset) documented in device.setup.factory_reset.
+  - url: "https://www.home-assistant.io/integrations/brother/"
+    title: "Home Assistant Brother integration"
+    description: "HA core integration monitoring Brother network printers over SNMP; covers the QL label-printer family."
+
+# Placeholder so the schema's "document at least one access surface" rule is
+# satisfied; control is the raw raster stream on TCP 9100, not REST. The Kasa
+# and LIFX specs carry the same placeholder for the same reason.
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Web Admin Placeholder"
+    description: >
+      Placeholder only. Port 80 serves Brother's web admin UI (network and
+      device settings); it is not the control surface. Printing is the raw
+      raster byte stream on TCP 9100 / LPR 515 / FTP 21 / Bluetooth Classic
+      SPP documented in brother_ql_raster_protocol.
+
+entities:
+  - platform: "sensor"
+    name: "Media Width"
+    notes: >
+      mm, from status reply offset 10 (also reveals loaded roll; 0 when no
+      media). Bound via the status_request command; there is no GATT
+      characteristic on this device.
+  - platform: "sensor"
+    name: "Printer Errors"
+    notes: >
+      Bitmask pair at status reply offsets 8-9; decode with the bit tables
+      in brother_ql_raster_protocol.status_reply.

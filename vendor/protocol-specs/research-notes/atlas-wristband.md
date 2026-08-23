@@ -19,7 +19,7 @@ has distinct `expectedSTMVersion` / `expectedNRFVersion` firmware checks and an
 - Band works standalone for basic tracking; app is needed for exercise library,
   learning mode (`awSendLearn`), sync, and firmware.
 - The app speaks the **open-source Firefly Ice protocol** (Firefly Design):
-  `AWPlugin.java` instantiates `FDFireflyIceManager` / `FDFireflyIceChannelBLE`
+  The app's plugin layer instantiates `FDFireflyIceManager` / `FDFireflyIceChannelBLE`
   with service UUID `577FB8B4-553E-4807-9779-8647481D49B3`. The Firefly Ice BLE
   layer is published (github.com/fireflydesign), so framing, reliability, and
   characteristic layout can be read from source instead of reverse-engineered.

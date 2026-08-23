@@ -83,7 +83,7 @@ protocol:
 status:
   apk_acquired: true
   apk_decompiled: true
-  uuids_recovered: true  # full GATT table from Constants.java
+  uuids_recovered: true  # full GATT table from the app's constants class
   protocol_recovered: false  # feeding frame format TBD
   hci_snoop_needed: true
   rating: confirmed  # local GATT connectability confirmed statically; payload RE remains

@@ -2,17 +2,18 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# GATT UUIDs app-confirmed 2026-08 from the retained jadx output of
-# co.motool.serviceassistant (Flutter app):
-#   research/motool-slacker/jadx-out/resources/res/values/strings.xml:36-41
-#     (FFE0 service + FFE1 characteristic hardcoded as string resources)
-#   research/motool-slacker/jadx-out/resources/AndroidManifest.xml:227,231,278
-#     (RevenueCat paywall SDK)
-# Command construction is AOT-compiled Dart in lib/armeabi-v7a/libapp.so;
-# the snapshot's string table exposes the command-construction symbols
-# (buildTravelHex, calculateTravel, hexBuilder, writeMTBTravel, writeMTBMode,
-# writeIntroMsgStatus) plus the 16-bit UUIDs 0000ffe0/0000ffe1.
-# Report: research/motool-slacker/CONFIRMATION.md
+# GATT UUIDs app-confirmed 2026-08 by static analysis of the vendor's
+# "Service Assistant" Flutter app:
+#   its string resources    (FFE0 service + FFE1 characteristic, hardcoded)
+#   its manifest            (RevenueCat paywall SDK)
+# Command construction is AOT-compiled Dart in the app's native snapshot;
+# the snapshot's string table exposes the
+# command-construction symbols (buildTravelHex, calculateTravel, hexBuilder,
+# masterHexValue, writeMTBTravel, writeMTBMode, writeIntroMsgStatus) plus the
+# 16-bit UUIDs 0000ffe0/0000ffe1. BLE stack confirmed as flutter_blue
+# (pauldemarco): method-channel name "plugins.pauldemarco.com/flutter_blue/methods"
+# and package:flutter_blue/* paths are in the same string table.
+# Full research write-up kept locally (not committed).
 
 device:
   name: "MoTool Slacker"
@@ -31,19 +32,18 @@ device:
     Uses the canonical HM-10/HM-19-style BLE UART module profile
     (CC2541/CC2640 based): service 0xFFE0 with a single serial pass-through
     characteristic 0xFFE1. APP-CONFIRMED, not hardware-tested: the app
-    hardcodes both UUIDs as string resources (jadx
-    res/values/strings.xml:40-41, resource keys char_uuid_slacker_main /
+    hardcodes both UUIDs as string resources (keys char_uuid_slacker_main /
     char_uuid_slacker_notify), the same 16-bit UUIDs appear in the Dart AOT
-    snapshot libapp.so, and FFE0 is the only service UUID referenced anywhere
+    snapshot, and FFE0 is the only service UUID referenced anywhere
     in the app's resources. No public GATT capture exists.
-    The companion Flutter app (co.motool.serviceassistant) has a "Virtual Remote"
+    The companion Flutter app has a "Virtual Remote"
     feature to trigger measurements from the phone. The standalone Slacker
     Virtual Remote app is 100% FREE with full basic control (Reset/Auto
     Zero/display); the subscription only gates Service Assistant cloud/notes
     features (Motool developer reply on the Play listing, 2025-06-22). The
-    paywall SDK is RevenueCat, confirmed in the manifest
-    (AndroidManifest.xml:227,231,278 — paywall/customer-center activities).
-    All BLE command construction is in AOT-compiled Dart (libapp.so),
+    paywall SDK is RevenueCat, confirmed in the app manifest
+    (paywall/customer-center activities).
+    All BLE command construction is in AOT-compiled Dart,
     so exact command bytes require HCI snoop capture or AOT disassembly to
     confirm (see FLAG below).
     Known command LABELS from string analysis: "Reset", "Auto Zero", display mode change,
@@ -51,26 +51,37 @@ device:
     V5 adds a percentage-of-travel display mode requiring fork/shock travel settings;
     the travel value syncs app→device at connect and is WIPED at power-off (the V5
     always boots in MM mode), so a replacement client must re-send travel each session.
-    Firebase backend: motool-service-assistant.firebaseio.com.
+    Firebase backend: motool-service-assistant.firebaseio.com (still live
+    2026-08-18: /.json returns 401 "Permission denied"). The app's support links
+    point at https://motool.co/pages/... which 301-redirects to getslacker.com.
 
-    FLAG (unrecoverable): the raw command BYTES sent over 0xFFE1 are NOT statically
-    readable — the Dart command-construction logic is AOT-compiled into libapp.so
-    (no readable bytecode). This spec deliberately provides the service/characteristic
-    UUIDs only and defines NO command byte sequences; they must be recovered, not
-    inferred — do not invent opcodes. Two viable recovery routes: (1) a live HCI
-    snoop log (btsnoop_hci.log) while driving the app's Virtual Remote; (2) static
-    disassembly of the AOT snapshot — libapp.so's string table exposes the
-    command-construction symbols (buildTravelHex, calculateTravel, hexBuilder,
-    writeMTBTravel, writeMTBMode, writeIntroMsgStatus, plus travelFork/travelShock
-    fields), so Dart AOT analysis tooling or manual ARM disassembly can trace the
-    byte building without hardware. Evidence:
-    research/motool-slacker/jadx-out/resources/res/values/strings.xml:36-41
+    FLAG (unrecoverable from static analysis): the raw command BYTES sent over
+    0xFFE1 are NOT statically readable — the Dart command-construction logic is
+    AOT-compiled (no readable bytecode). This spec deliberately
+    provides the service/characteristic UUIDs only and defines NO command byte
+    sequences; they must be recovered, not inferred — do not invent opcodes.
+    Static-recovery attempt (2026-08-18): the snapshot is fully
+    position-independent (ELF .dynamic has
+    no relocation entries), heap objects in .rodata are serialized clusters,
+    and constants are referenced through the string table by index rather than
+    by tagged pointer, so mapping object-pool slots to the command strings
+    requires reimplementing the Dart cluster deserializer; existing tooling
+    (blutter, Doldrums) targets ARM64 only, and this app ships armeabi-v7a
+    only. What static analysis DOES establish about the write path: commands
+    are assembled as HEX STRINGS (symbols buildTravelHex, hexBuilder,
+    masterHexValue; debug logs "Hex Builder Travel Hex String Data" and
+    "Wrote Travel Hex String Data"), decoded to bytes with the package:convert
+    HexDecoder, and written to FFE1 through flutter_blue; device→app traffic
+    arrives as FFE1 notifications parsed into deviceState / mtbMode /
+    currentReadingInt (handlers _onReadingChanged/_onReadingChangedV5).
+    Practical recovery route: a live HCI snoop log (btsnoop_hci.log) while
+    driving the app's Virtual Remote. Evidence: the app's string resources
     (0000ffe0 x1, 0000ffe1 x5; one missed-call key uses an en-dash and is
-    malformed in the vendor resources), jadx AndroidManifest.xml:227,231,278
-    (RevenueCat), libapp.so string table (0000ffe0/0000ffe1 + symbols above).
-    CONFIDENCE: UUIDs APP-CONFIRMED (strings.xml retained in jadx output AND
-    present in the AOT snapshot; not hardware-tested — no live capture);
-    command bytes UNKNOWN (needs live capture or AOT disassembly).
+    malformed in the vendor resources), its manifest (RevenueCat), and the
+    Dart snapshot's string table (0000ffe0/0000ffe1 + the symbols above).
+    CONFIDENCE: UUIDs APP-CONFIRMED (present both in the app's resources and
+    in the AOT snapshot; not hardware-tested — no live capture);
+    command bytes UNKNOWN (needs live capture).
   identification:
     service_uuids:
       - "0000ffe0-0000-1000-8000-00805f9b34fb"
@@ -144,17 +155,21 @@ services:
     notes: >
       Canonical HM-10/HM-19 serial pass-through profile; FFE0 is the only
       service UUID referenced anywhere in the app's resources
-      (strings.xml:40) and AOT snapshot. App-side, FFE1 is exercised as
+      (string resources) and AOT snapshot. App-side, FFE1 is exercised as
       notify + write: the app enables notifications on it (the CCCD
       00002902-0000-1000-8000-00805f9b34fb and a notify-state debug log
-      appear in libapp.so) and writes commands to it (command-construction
+      appear in the snapshot) and writes commands to it (command-construction
       symbols writeMTBTravel / writeMTBMode / buildTravelHex / hexBuilder in
-      libapp.so). The device-side property list below is the HM-10-canonical
+      the Dart snapshot). The device-side property list below is the
+      HM-10-canonical
       set: read and write_without_response are inferred from the module
-      profile, not observed from the app. The app also defines FFE1 resource
-      keys for missed-call/catch notifications (strings.xml:36-39), i.e. the
-      same pipe can carry phone alerts to the device display. App-confirmed,
-      not hardware-tested.
+      profile, not observed from the app. The vendor resources also define
+      FFE1 keys for missed-call/catch notifications, but these are
+      VESTIGIAL: no code consumes them (the char_uuid_* keys are referenced
+      only through generated resource IDs, the app declares no
+      NotificationListenerService, and the Dart string table has no
+      missed-call/catch symbols), so they are leftover resources, not evidence
+      of a phone-alert feature. App-confirmed, not hardware-tested.
     characteristics:
       - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
         name: "Serial Data"

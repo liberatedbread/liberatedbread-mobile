@@ -292,3 +292,6 @@ helpful_urls:
   - url: "https://api.purpleair.com/"
     title: "PurpleAir API (cloud) reference"
     description: "Cloud API; field names overlap the local JSON and help disambiguate cf_1 vs atm."
+  - url: "https://www.home-assistant.io/integrations/purpleair/"
+    title: "Home Assistant PurpleAir integration"
+    description: "HA core integration; can poll a sensor's local JSON API directly instead of the cloud."

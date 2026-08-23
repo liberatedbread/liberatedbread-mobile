@@ -75,3 +75,5 @@ All characteristics use UUID pattern `fc54XXXX-236c-4c94-8fa9-944a3e5353fa`.
 
 - @orlopau -- original reverse engineering
 - @sopelj -- Python library and HA integration
+- Devin Wittmayer -- hardware verification against a real Mug 2 (2026-08),
+  including the firmware-dependent company-ID finding on this page

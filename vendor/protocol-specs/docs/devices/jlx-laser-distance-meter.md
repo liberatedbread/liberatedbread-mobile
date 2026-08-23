@@ -2,7 +2,7 @@
 
 > **Status**: Spec Available
 > **Protocol**: BLE
-> **Manufacturer**: Johnson Level & Tool (Winho OEM platform)
+> **Manufacturer**: Johnson Level & Tool (Precaster Enterprises OEM platform)
 > **Manufacturer Status**: Active
 
 ## Overview
@@ -10,10 +10,13 @@
 The Johnson JLX LDM330 (model 40-6013) is a 330 ft Bluetooth laser distance
 meter with an integrated angle sensor; the LDM130 is its 130 ft sibling. Both
 pair with Johnson's "Measure-Up" app (Android package `com.winho.measure_up`).
-The "winho" package name gives away the OEM platform: the same app codebase
-also builds sibling-branded apps (Starrett STR3, Ronix, MeasureMate, IM2,
-MeasureCam/TargetCam variants), so the protocol below likely covers a family
-of rebadged meters.
+The OEM behind the "winho" package root is Precaster Enterprises Co., Ltd.
+(Taichung, Taiwan): the same app codebase also builds Precaster's own iM2 app
+plus sibling-branded apps (Starrett STR3, Ronix, MeasureMate,
+MeasureCam/TargetCam variants), so the protocol below covers a family of
+rebadged meters. Four sibling APKs (iM2, Measure Mate, RonixMeasureBox,
+RonixTargetCam) were acquired and confirmed at the binary level to carry the
+same `f151`/`f154` UUIDs and frame literals.
 
 The BLE protocol was recovered entirely by static analysis of the Measure-Up
 APK — no hardware was in hand and no over-the-air capture exists. It is a
@@ -56,7 +59,7 @@ the vendor quick-start guide), then select the meter from the app's scan list.
 
 | UUID | Name | Description |
 |------|------|-------------|
-| `0000f150-0000-1000-8000-00805f9b34fb` | Winho LDM Service (hypothesis) | Service UUID is not pinned by the app; `0xF150` is a numbering-convention guess. Match characteristics, not the service. |
+| `0000f150-0000-1000-8000-00805f9b34fb` | Precaster LDM Service (hypothesis) | Service UUID is not pinned by the app; `0xF150` is a numbering-convention guess. Match characteristics, not the service. |
 | `0000f151-0000-1000-8000-00805f9b34fb` | command_rx (write) | App → device commands (init, keep-alive, measure) |
 | `0000f154-0000-1000-8000-00805f9b34fb` | data_tx (notify) | Device → app handshake and measurement frames |
 
@@ -90,6 +93,12 @@ Answer to the device's `Ztest02` notification (write to `f151`, 13 bytes):
 `23 0A 4C 69 6E 6B 00 00 00 00 00 00 BB` — `'#' LF "Link"`, NUL-padded,
 checksum `0xBB`.
 
+Note: the Ronix build carries a dead, unreferenced second copy of the BLE
+service class that writes the identical `Link` payload with checksum `0xDB`
+instead of `0xBB`. The live path uses `0xBB`,
+but the duplicate hints a firmware variant with a different checksum may
+exist — worth testing if a meter rejects the link frame.
+
 ### Notifications (device → app, `f154`, 10-byte ASCII, NUL-padded)
 
 | Frame | Meaning |
@@ -97,7 +106,7 @@ checksum `0xBB`.
 | `Ztest01` | Handshake request → client writes the init frame |
 | `Ztest02` | Keep-alive request → client writes the link frame |
 | `Zbleoff` | Meter is powering its BLE radio down; treat as clean disconnect |
-| `error1`…`error6` | (Hypothesis) measurement failure codes; the app compares against these strings |
+| `error1`…`error6` | (Hypothesis) measurement failure codes; the app compares against these strings but never produces them — and a literal `errorN` frame actually crashes the app's `Float.parseFloat` (uncaught `NumberFormatException`), so this build silently drops error frames before the comparison runs |
 | other | Measurement frame, see below |
 
 **Measurement frame**:
@@ -110,15 +119,50 @@ checksum `0xBB`.
 | 8 | 2 | NUL padding |
 
 The value is meters regardless of the unit code; the app converts for display.
-The LDM330's angle sensor does not appear in the recovered BLE code — every
+A unit code outside `a`–`j` hits the app's `default:` branch and is surfaced
+to the UI as `Zbleoff` — treat unknown unit codes as unknown, not as a
+power-down. The LDM330's angle sensor does not appear in the recovered BLE
+code of any acquired build (Measure-Up, iM2, MeasureMate, Ronix) — every
 frame carries a single scalar distance, so angle is likely on-device only
 (unverified).
+
+## Linux desktop sees zero services
+
+A BlueZ-based client — `bleak`, `flutter_blue_plus` on Linux, anything layered
+on `bluetoothd` — connects to this meter, negotiates an MTU, and then discovers
+**no services at all**. That is this device, not your code.
+
+`bluetoothd` (BlueZ ≥ 5.62, reproduced on 5.85) reads the Database Hash
+(`0x2b2a`) by type during GATT client init. The meter answers that particular
+read with silence rather than an error, so `bluetoothd` waits out the 30 s ATT
+transaction timeout, abandons init, and reports the device "resolved" with an
+empty database — about 32.5 s in, with the ATT channel left dead. A client that
+gives up sooner (the app retries discovery for ~6 s) just sees the empty result
+earlier; waiting longer does not help, because the database is still empty when
+`bluetoothd` finally answers.
+
+What still works: plain Read Requests **by handle** (every Device Information
+string and the battery level read fine), Exchange MTU, and — over a raw ATT
+channel — discovery, writes and notifications. Android and iOS are unaffected.
+
+Narrower than it first looked. In the vendor-app HCI capture the meter answered
+every Read By Type it received (29 by-type and 9 by-group-type requests, 38
+responses, no silences), including correct `Attribute Not Found` (`0x0a`) errors
+for by-type reads of UUIDs it does not carry. The handler is not broken in
+general; what that capture never contains is a read of `0x2b2a`. Robust caching
+is the one thing `bluetoothd` does that the vendor app does not.
+
+**Untested, and worth trying before writing Linux off:** set `Cache = no` under
+`[GATT]` in `/etc/bluetooth/main.conf` and restart `bluetoothd`. If that skips
+the Database Hash read, Linux clients work after a config change rather than not
+at all. Otherwise use a raw ATT path (`gatttool`, or a custom L2CAP CID 4
+client), or drive the meter from Android or iOS.
 
 ## Family survey (Bluetooth laser distance meters)
 
 | Family | Transport | Notes |
 |--------|-----------|-------|
-| **Winho platform (this spec)** | BLE | Johnson LDM130/LDM330 (Measure-Up app), Starrett STR3, Ronix, MeasureMate, IM2, MeasureCam/TargetCam builds share one codebase (AppName enum in the APK). ASCII frames over `f151`/`f154`. |
+| **Precaster Enterprises platform (this spec)** | BLE | Johnson LDM130/LDM330 (Measure-Up app), Precaster iM2, Starrett STR3, Ronix, MeasureMate, MeasureCam/TargetCam builds share one codebase (AppName enum in the APK; Ronix builds use the older `com.wiho` package root). ASCII frames over `f151`/`f154`. |
 | Mileseey (P7/T7/R2B/M120/DT20-old, Suaoki rebadges) | BLE | Open protocol, transmits unit; supported by ImageMeter. Newer models (DT20-new, D5/D5T/D9 Pro, S50) moved to an encrypted protocol and are listed as unsupported by ImageMeter; D9 Pro rides the Tuya Smart Life app. |
 | Bosch GLM 50 C / 100 C / PLR 30-50 C | Bluetooth Classic SPP | Reverse engineered; see philipptrenz/BOSCH-GLM-rangefinder (pymtprotocol). Remote trigger supported. |
 | Bosch GLM xx-27 C generation | BLE | Newer closed BLE protocol (MeasureOn app); ImageMeter supports with manual protocol selection; partial RE in pklaus/bsch. |
@@ -132,12 +176,18 @@ and which are encrypted/unsupported).
 ## Tools Used
 
 - [x] apkeep (APK fetch from APKPure mirror) — `com.winho.measure_up` v1.0.1, sha256 `fc7ac7272f8604bc3636874055a4d6fe7f6b5e989ee02db1255ce9a9e9fd9deb`
+- [x] apkcombo fetch of sibling builds (protocol family confirmed at the binary level):
+  - `com.winho.im2` 3.0.0, sha256 `ee535b7b4e69d2922761d4cb08bb43e950a2d21c7ca1abdb1ce05b92c11ecd04`
+  - `com.winho.measure_mate` 1.0.0, sha256 `ec7ec7e0f78871a6a8f5bc9b2651660539d4fd4e57cbb415e75786503da2bf61`
+  - `com.winho.ronix_measure_box` 1.0.0, sha256 `dd08598668251bfdbcd46c9625ae0405a4d5d007f3379495dd5bb111521f2858`
+  - `com.winho.ronix_target_cam` 1.0.0, sha256 `9f335cdb0970a24fe29a09e6161132825c1f8735b6c5e9d51398d52f89b69e06`
 - [x] jadx / apktool static analysis (output under `workspace/static/jlx-laser-distance-meter/`, gitignored)
 - [ ] Wireshark / nRF Connect — no hardware available; **live verification still needed**
 
 ## References
 
 - [Johnson LDM330 product page](https://www.johnsonlevel.com/P/1762/LaserDistanceMeterwAngleSensorandBluetooth)
+- [Precaster Enterprises (OEM)](https://www.precaster.com.tw/)
 - [LDM330 Quick Start Guide (PDF)](https://www.johnsonlevel.com/Content/files/Manuals/LDM%20330%20Quick%20Start%20Guide.pdf)
 - [Measure-Up APK listing (APKPure mirror)](https://apkpure.net/measure-up/com.winho.measure_up)
 - [philipptrenz/BOSCH-GLM-rangefinder](https://github.com/philipptrenz/BOSCH-GLM-rangefinder)

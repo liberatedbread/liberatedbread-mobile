@@ -141,6 +141,48 @@
         "verification": { "$ref": "#/$defs/verification" }
       }
     },
+    "mdns_txt_match": {
+      "$comment": "One condition on a device's mDNS TXT records. Lives in two places -- `identification.mdns_txt_match` (the cheap pre-connect filter) and `discovery.methods[].mdns.txt_match` (the full evidence) -- and means the same thing in both.",
+      "type": "object",
+      "required": ["key"],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The TXT record key this condition reads, spelled as the device publishes it (`project_name`, `md`, `config_hash`). Keys are case-sensitive on the wire."
+        },
+        "match": {
+          "type": "string",
+          "enum": ["exact", "prefix", "contains", "regex", "present", "absent"],
+          "default": "exact",
+          "description": "How `value` is compared against the record. `present`/`absent` test only whether the key exists and take no `value` -- `present` is the right matcher for a key whose mere existence is the signal (ESPHome's `config_hash`), and `absent` for a build that is identified by what it does NOT publish. With `regex`, `value` is a regular expression tested against the whole record value; anchor it (^...$) to require a full match."
+        },
+        "value": {
+          "type": "string",
+          "description": "What to compare the record against. Required for every matcher except `present`/`absent`."
+        },
+        "case_sensitive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the VALUE comparison is case-sensitive. Defaults to true, which is what the wire does; set false only where a vendor is known to vary the case of a value across firmware."
+        },
+        "description": {
+          "type": "string",
+          "description": "Why this condition identifies the device -- where the value comes from and what publishes it. A matcher with no stated basis is a guess, and the next person cannot tell it from a fact."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "match": { "enum": ["present", "absent"] } },
+            "required": ["match"]
+          },
+          "then": { "not": { "required": ["value"] } },
+          "else": { "required": ["value"] }
+        }
+      ]
+    },
     "mac_prefix_confidence": {
       "type": "string",
       "enum": ["low", "medium", "high"],
@@ -680,7 +722,13 @@
             },
             "mdns_service_type": {
               "type": "string",
-              "description": "mDNS/Bonjour service type for WiFi discovery (e.g. _http._tcp)."
+              "description": "mDNS/Bonjour service type for WiFi discovery (e.g. _http._tcp). A service type is often a FIRMWARE PLATFORM rather than a product -- `_esphomelib._tcp` is every ESPHome node ever flashed, `_hap._tcp` every HomeKit accessory, `_http._tcp` every web server on the link -- so a spec claiming one of those must also carry `mdns_txt_match`, or a matcher keying on the service type alone labels the whole platform as this one device."
+            },
+            "mdns_txt_match": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/mdns_txt_match" },
+              "description": "Conditions on the TXT records of `mdns_service_type` that narrow it from a platform to THIS device. ALL entries must hold (they are ANDed) -- an alternative belongs in the `regex` matcher, not in a second entry. This is what keeps a shared service type honest: `_esphomelib._tcp` finds every ESPHome node, and `project_name` starting `ratgdo.` is what makes one of them a garage-door controller. Resolution rule, and it needs nothing beyond this block: among the specs claiming a service type, a consumer takes the one whose conditions ALL hold, preferring the one with the most of them; a spec carrying no conditions ranks last, because it claims the platform rather than a product. `discovery.methods[].mdns.platform_fallback` marks the spec that is MEANT to be last, so a reviewer can tell a deliberate catch-all from a spec that forgot its matcher. A consumer that ignores the key entirely is no worse off than it is today, which is why this is additive. Mirror of `discovery.methods[].mdns.txt_match`, which carries the same conditions with their evidence."
             },
             "lan_protocols": {
               "type": "array",
@@ -891,7 +939,19 @@
                           "port": { "type": "integer" },
                           "txt_record_keys": {
                             "type": "array",
-                            "items": { "type": "string" }
+                            "items": { "type": "string" },
+                            "description": "TXT keys this service publishes and a consumer should read. Descriptive, not a matcher -- `txt_match` is what decides whether the device is this one."
+                          },
+                          "txt_match": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": { "$ref": "#/$defs/mdns_txt_match" },
+                            "description": "Conditions the TXT records must satisfy for this method to have found THIS device, ANDed together. Required in spirit whenever `service_type` names a firmware platform rather than a product (`_esphomelib._tcp`, `_hap._tcp`, `_http._tcp`): without it the method claims every device on the platform, and a matcher keying on the service type alone renders somebody's ESPHome sensor as a garage-door opener. The identification block's `mdns_txt_match` is the same set of conditions in the cheap pre-connect form."
+                          },
+                          "platform_fallback": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "This method matches a whole firmware PLATFORM, not one product, and is the deliberate catch-all for it: a consumer uses it only when no spec matched the same service type with a narrower `txt_match`. That is what makes an unrecognised ESPHome node render as an ESPHome node -- its own entities, its own name -- instead of as whichever specific product happened to claim the service type first. At most one spec should declare it per service type, and a spec that declares it must not claim a specific product's controls."
                           },
                           "identity_mapping": {
                             "type": "object",
@@ -1213,14 +1273,37 @@
             "factory_reset": {
               "type": "object",
               "description": "How to return the device to its unprovisioned state. Required knowledge for rebinding a device to a new network or a new owner.",
+              "allOf": [
+                {
+                  "$comment": "An unestablished reset may still list what to try — dropping a likely procedure loses real knowledge — but every procedure under it is a candidate by definition, so none may claim to be verified.",
+                  "if": {
+                    "properties": { "applicable": { "const": "unknown" } },
+                    "required": ["applicable"]
+                  },
+                  "then": {
+                    "properties": {
+                      "procedures": {
+                        "items": {
+                          "required": ["verified"],
+                          "properties": { "verified": { "const": false } }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
               "properties": {
                 "applicable": {
                   "anyOf": [{ "type": "boolean" }, { "const": "unknown" }],
                   "default": true,
-                  "description": "Set false when the device has no meaningful factory reset — a vehicle reached over a diagnostic connector, or hardware with no stored state to clear. Set 'unknown' when the device probably has one but nobody has established it; that requires `confidence: low` and no `procedures`. State why in `effect` and omit `procedures` in both cases; inventing a procedure to fill the field is worse than saying there is none, and on safety-relevant hardware it is actively dangerous."
+                  "description": "Whether the device HAS a meaningful factory reset — a separate question from whether anyone has established the procedure, which is `procedures[].verified`. Set false when there is none: a vehicle reached over a diagnostic connector, or hardware with no stored state to clear; say why in `effect` and omit `procedures`. Set 'unknown' when nobody has established one; that requires `confidence: low`, and any `procedures` listed must be marked `verified: false` and carry a `basis`. What must never happen is a guessed procedure presented as an established one — on safety-relevant hardware that is actively dangerous."
                 },
                 "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
-                "effect": { "type": "string", "description": "What a reset actually clears (credentials, name, rules, pairings, telemetry history)." },
+                "effect": { "type": "string", "description": "What a reset actually clears (credentials, name, rules, pairings, telemetry history). One line, machine-readable in spirit; put the caveats in `description`." },
+                "description": {
+                  "type": "string",
+                  "description": "Human-readable prose about the reset, for showing a person rather than for a consumer to act on. This is where the caveats belong: which part is established and which is inferred, what the user should watch for, and what it means if the procedure does not take. `effect` says what gets cleared in a line; this explains the situation around it."
+                },
                 "procedures": {
                   "type": "array",
                   "minItems": 1,
@@ -1229,6 +1312,18 @@
                     "required": ["name"],
                     "properties": {
                       "name": { "type": "string", "description": "Short label, e.g. 'Restore button while powering on'." },
+                      "verified": {
+                        "type": "boolean",
+                        "description": "True only when this exact sequence was run against the hardware and observed to work. False marks it as a candidate — plausible, worth trying, not established — and then `basis` must say where it came from. A candidate procedure is genuinely useful (it is the first thing someone with the device should try), so the point of this field is to keep it usable without letting it read as confirmed."
+                      },
+                      "basis": {
+                        "type": "string",
+                        "description": "Where an unverified procedure comes from: the vendor manual, a community report, or the generic pattern for that class of hardware. Required when `verified` is false, because 'the manual says so' and 'every other bulb in this family works this way' warrant very different levels of trust."
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "Human-readable prose for this specific procedure — what the user will see happen, and how to tell success from a failed attempt."
+                      },
                       "applies_to": {
                         "type": "array",
                         "items": { "type": "string" },
@@ -1240,7 +1335,20 @@
                         "type": "array",
                         "items": { "$ref": "#/$defs/setup_step" }
                       }
-                    }
+                    },
+                    "allOf": [
+                      {
+                        "$comment": "An unverified procedure must cite its basis. Without that a reader cannot weigh it, and a candidate nobody can weigh is indistinguishable from a guess.",
+                        "if": {
+                          "properties": { "verified": { "const": false } },
+                          "required": ["verified"]
+                        },
+                        "then": {
+                          "required": ["basis"],
+                          "properties": { "basis": { "type": "string", "minLength": 1 } }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -2653,6 +2761,10 @@
             "type": "string",
             "description": "Request path, for transports that address by path rather than by service. Prefer resolving it from the device where the protocol offers a way to; state it here when the path is fixed. A `{name}` segment is a placeholder substituted from the like-named entry in `parameters`, exactly as `arguments` values are -- Roku's whole control surface is the path (`/keypress/PowerOn`), and REST-shaped APIs put per-client and per-child values there too ('/api/{username}/lights/{id}/state'); a renderer must refuse to send a path whose placeholders it cannot all fill."
           },
+          "path_fallback": {
+            "type": "string",
+            "description": "A SECOND path for this same invocation, for a device family whose firmware generations address the same entity differently -- the sibling of `fallback_characteristic` on BLE and of `<role>_fallback` in an entity's `state_mapping`, and it carries the same contract: try `path` first and fall back to this one only when the primary is not there. 'Not there' must be an unambiguous answer from the device (an HTTP 404), never a timeout or a 5xx, and never a blind second send -- a command that acts twice because the first send was merely slow is a worse failure than the 404. Exists because ESPHome changed how a URL names an entity: firmware up to 2025.12 addresses the slugified object_id (`/cover/door/open`), 2026.7 and later the percent-encoded entity name (`/cover/Door/open`), and 2026.1.0 through 2026.6 accept both. A spec covering a fleet that spans the change has two correct paths and no way to know which board it is talking to until it asks.\n\nStating both is not licence to invent one: a fallback is a path the spec's sources actually document for older firmware, not a guess at what an older build might have answered."
+          },
           "method": {
             "type": "string",
             "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
@@ -2853,6 +2965,10 @@
           "state_topic": {
             "type": "string",
             "description": "MQTT topic or HTTP endpoint that provides entity state (for WiFi devices). Use this when the topic alone identifies the reading; when the state comes from an RPC-style call, use `state_endpoint`/`state_command`/`state_path` instead."
+          },
+          "state_topic_fallback": {
+            "type": "string",
+            "description": "A SECOND `state_topic` for the same reading, on the same terms as a command's `path_fallback`: read the primary, and fall back only when the device answers that it is not there (an HTTP 404). For a family whose firmware generations name the same entity differently -- ESPHome's object_id-addressed endpoints before 2026.1 and name-addressed ones after -- not for two genuinely different readings, which are two entities."
           },
           "state_endpoint": {
             "type": "string",

@@ -1,7 +1,5 @@
 # iLEDColor LED Panel — Device Spec
-# Generated from static analysis of com.led.iledcolor
-# APK source: apkeep (Google Play mirror)
-# XAPK SHA-256: df33e91e2467f7c379bcaa7b497bb1bed91aea9a282817b1af632283d79f1505
+# Generated from static analysis of the vendor's iLEDColor Android app.
 
 device:
   name: "iLEDColor LED Matrix Panel (DreamPanel v3)"
@@ -29,27 +27,60 @@ device:
     plugin and iledcolor-rs:
       [0x54] [handle:u8] [length:u16 BE (= payload + 2)] [payload…]
       [checksum:u16 BE = simple sum of all preceding bytes]
-    Known handles: 0x00 Continue, 0x01 EndStream, 0x06 StartStream (GIF/program
-    upload), 0x09 Brightness, 0x0A LedEnable, 0x0D Connect, 0x0E SetPass,
-    0x0F TestPass; "simple data" frames also use dataType 0x00 with cmdCode
-    0x02 (speed) / 0x04 (effect). Bulk program data goes to A952 framed with
-    header [0x54, 0x00] and a CRC32C over the payload (SendParameter.dart).
+    Known handles: 0x00 Continue, 0x01 EndStream, 0x03 program item (playlist
+    entry), 0x06 StartStream (single GIF/graffiti/program upload), 0x07
+    playlist control (defined in the vendor example but unused/commented out),
+    0x08 program-list complete (payload [0x01]), 0x09 Brightness, 0x0A
+    LedEnable, 0x0D Connect, 0x0E SetPass, 0x0F TestPass; "simple data" frames
+    also use dataType 0x00 with cmdCode 0x02 (speed) / 0x04 (effect).
+    Bulk program data goes to A952 framed with header [0x54, 0x00] and a
+    CRC32C over the payload (the app's send-parameter builder).
     Session flow: Connect (0x0D) → TestPass (0x0F) → commands/uploads.
 
-    Advertisement layout decoded (vendor BleBean.dart / ParseBleDataUtil.dart):
+    Command payloads (vendor plugin send builders + iledcolor-rs docs/ouppy.md,
+    the latter hardware-sniffed): Connect 0x0D payload [0x00], replies 0x0000 —
+    exact semantics unclear (iledcolor-rs: "we send 0x00, receive 0x0000,
+    always"); the vendor example reuses it as a ping/latency probe and treats
+    its reply as a "query built-in program count" response. TestPass 0x0F
+    payload = 6-byte password; response 0x01 correct / 0x02 incorrect /
+    0x03 no password set. SetPass 0x0E payload = [op, oldPass:6, newPass:6]
+    with op 0x00 set / 0x01 change / 0x02 unset (oldPass zeroed when none);
+    response 0x01 success / 0x02 failure. Brightness 0x09 payload =
+    [level, 0x00×8]; hardware sniffing gives 0x00/0x01 brightest … 0x0A
+    dimmest, ≥0x0B wraps to brightest (the vendor API comment claims 0–100 —
+    trust the sniffed 0–10 range). LedEnable 0x0A payload = [enable, 0x00×8],
+    0x00 off, anything else on. Program item 0x03 payload = [program count,
+    program index, program CRC32:4, total length:u32 BE, play count, border,
+    0x00, 0x00].
+
+    A953 responses echo the 0x54 framing. Status byte values, from the
+    vendor app's transfer callback: 0x00 transfer failed, 0x01 success, 0x02
+    insufficient storage, 0x03 program already exists — no update needed
+    (matched on the program CRC32, i.e. the panel retains uploaded programs
+    across connections), 0x04 data error (e.g. length over maximum). During a
+    chunked upload the panel answers each chunk with an 11-byte Continue
+    (handle 0x00) response whose status sits at byte 8 (0x01 = send next
+    chunk); EndStream (0x01) carries the final result.
+
+    Advertisement layout decoded from the app's advertisement model and its
+    BLE parse helper:
     manufacturer bytes match [01 54 59 00 01] ("TY", hat/mini-show) or
     [01 54 42 44 xx] ("TBD", devil-eye / color panels). bytes[1..4] screen-type
-    id, [5..6] height, [7..8] width, [9] color type, version code, customer id,
+    id, [5..6] height, [7..8] width (u16 BE), [9] color type, version code
+    (u16 BE) at bytes[11..12], customer id (u16 BE) at bytes[13..14],
     bytes[15..16] funCode bitmask (bit0 time, bit1 partition, bit2 GIF,
     bit3 media, bit4 rotate/eye, bit5 border, bit6 password, bit7 remote).
-    Geometry is advertised — no query needed. Brightness command requires
-    versionCode ≥ 6.
+    Exception: "old protocol" devices (screen-type id 0x534C0005) shift
+    version/customer id one byte earlier (bytes[10..11] / [12..13]) and are
+    sent differently framed bulk data (chunk header [0x01, dataType, cmdCode],
+    trailer [0x02, 0x03]; from the vendor plugin's legacy send path).
+    Geometry is advertised — no query needed. The brightness command requires
+    a device protocol version of 6 or later.
 
-    Architecture: the app is Flutter (libflutter.so + Dart AOT libapp.so) —
-    the BLE logic lives in Dart and the published plugin, which is why an
-    early Java-only static pass found no UUIDs. Java layer: BLE Manager
-    ec/c.java, OTA Handler ec/f.java, Send Thread ec/i.java (their
-    unobfuscated originals ship in the plugin).
+    Architecture: the app is Flutter — the BLE logic lives in Dart and in the
+    published plugin, which is why an early Java-only static pass found no
+    UUIDs. The Java layer only carries the BLE manager, OTA handler and send
+    thread (whose unobfuscated originals ship in the plugin).
 
     SPOTLED compatibility probe: check service 0000ff20-0000-1000-8000-00805f9b34fb
     (SPOTLED generation; absent on iLEDColor panels — the two generations are
@@ -77,15 +108,18 @@ device:
     manufacturer_data:
       description: >
         Advertisement match is a sliding-window substring search over the raw
-        scan record (vendor ParseBleDataUtil.getMatchData), so no fixed
+        scan record (the vendor app's advertisement matcher), so no fixed
         company-ID offset is asserted. Match patterns: [01 54 59 00 01]
         ("TY", hat/mini-show) and [01 54 42 44 xx] ("TBD", devil-eye / color
         panels; xx 0x01..0x10 in the vendor support list). Payload layout from
         the match offset: bytes[1..4] screen-type id, [5..6] height, [7..8]
-        width, [9] color type, then version code and customer id, bytes[15..16]
-        funCode bitmask (bit0 time, bit1 partition, bit2 GIF, bit3 media,
-        bit4 rotate/eye, bit5 border, bit6 password, bit7 remote). Geometry is
-        advertised — no query needed.
+        width (u16 BE), [9] color type, version code (u16 BE) at [11..12],
+        customer id (u16 BE) at [13..14], bytes[15..16] funCode bitmask
+        (bit0 time, bit1 partition, bit2 GIF, bit3 media, bit4 rotate/eye,
+        bit5 border, bit6 password, bit7 remote). Old-protocol devices
+        (screen-type id 0x534C0005) carry version/customer id one byte
+        earlier ([10..11] / [12..13]). Geometry is advertised — no query
+        needed.
   discovery:
     methods:
       - type: "ble_scan"
@@ -136,9 +170,13 @@ device:
       applicable: "unknown"
       confidence: low
       effect: >
-        Not established. The panel stores uploaded programs (power-cycling
-        reportedly does not clear stored content — unverified), but no reset
-        handle was identified in the recovered opcode map.
+        Not established. Re-mined the vendor plugin's complete command
+        construction (all send builders in led_bt_jl_ota 0.0.34) and
+        iledcolor-rs: no factory-reset or content-erase handle exists in the
+        recovered opcode map. The panel does retain uploaded programs across
+        connections — it answers a re-upload of an identical program CRC32
+        with status 0x03 "already exists, no update needed" — but whether a
+        power cycle clears stored content remains untested against hardware.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -164,10 +202,11 @@ services:
       confirmed by akkaisinabin/iledcolor-rs (byte-for-byte agreement).
       Command packets on A951: [0x54][handle:u8][length:u16 BE (= payload+2)]
       [payload…][checksum:u16 BE = simple sum of all preceding bytes].
-      Handles: 0x00 Continue, 0x01 EndStream, 0x06 StartStream (GIF/program
-      upload), 0x09 Brightness, 0x0A LedEnable, 0x0D Connect, 0x0E SetPass,
-      0x0F TestPass. Session: Connect (0x0D) → TestPass (0x0F, default
-      password 6×0x00) → commands.
+      Handles: 0x00 Continue, 0x01 EndStream, 0x03 program item, 0x06
+      StartStream (GIF/program upload), 0x08 program-list complete, 0x09
+      Brightness, 0x0A LedEnable, 0x0D Connect, 0x0E SetPass, 0x0F TestPass
+      (payload layouts in device.notes). Session: Connect (0x0D) → TestPass
+      (0x0F, default password 6×0x00) → commands.
     characteristics:
       - uuid: "0000a951-0000-1000-8000-00805f9b34fb"
         name: "Command"
@@ -175,15 +214,33 @@ services:
         properties: ["write", "write_without_response"]
       - uuid: "0000a952-0000-1000-8000-00805f9b34fb"
         name: "Data"
-        notes: "Bulk image/GIF program upload; header [0x54, 0x00], CRC32C over the payload."
+        notes: >
+          Bulk image/GIF program upload. Each chunk is a full 0x54-framed
+          packet with handle 0x00: [0x54, 0x00][len:u16 BE][sequence:u32 BE]
+          [chunk length:u16 BE][chunk…][sum:u16 BE], sized to fit MTU−13
+          (the vendor app's chunker; iledcolor-rs uses 492-byte
+          data chunks). The transfer ends with an EndStream packet
+          [0x54, 0x01, 0x0003, 0x01, sum]. CRC32C (Castagnoli) covers the
+          program payload and is announced in the StartStream/program-item
+          command on A951.
         properties: ["write"]
       - uuid: "0000a953-0000-1000-8000-00805f9b34fb"
         name: "Notify"
-        notes: "Command responses and transfer progress."
+        notes: >
+          Command responses and transfer progress in the same 0x54 framing,
+          handle echoing the command. Status byte: 0x00 failed, 0x01 success,
+          0x02 insufficient storage, 0x03 program already exists (CRC32
+          match), 0x04 data error; TestPass replies 0x01 correct / 0x02
+          incorrect / 0x03 no password set.
         properties: ["notify"]
   - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
     name: "JL OTA Service"
-    notes: "JieLi Bluetooth OTA service (firmware upgrade only — LED commands use service 0000A950)."
+    notes: >
+      JieLi Bluetooth OTA service (firmware upgrade only — LED commands use
+      service 0000A950). Characteristic properties below are inferred from
+      the jl_bt_ota SDK's client behaviour (writes AE01, subscribes AE02);
+      the peripheral's own GATT attribute flags are not confirmed from
+      app-side code.
     characteristics:
       - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
         name: "JL OTA Write"

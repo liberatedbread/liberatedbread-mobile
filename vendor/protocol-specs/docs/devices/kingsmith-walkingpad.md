@@ -45,9 +45,13 @@ the connection, other clients cannot connect.
 | Passphrase protection | not_applicable (no pairing, no authentication) |
 | Confidence | high (multiple working open implementations) |
 
-**Factory reset**: not documented for any model; nothing is stored that blocks
-local control (no bonds, no credentials). Preferences (max speed, child lock,
-units) are writable over the same unauthenticated channel.
+**Factory reset**: not documented for any model; static check 2026-08-18 found
+no BLE factory-reset command in either app binary (KS Fit's troubleshooting
+copy only suggests power-cycling or the device-side reset; its "factory reset"
+strings belong to a wristband product). Nothing is stored that blocks local
+control (no bonds, no credentials). Preferences (max speed, child lock,
+units) are writable over the same unauthenticated channel. Wi-Fi/MIOT
+variants can be unbound from the Mi Home account.
 
 **Rebinding**: any client may connect once the previous central disconnects.
 
@@ -176,7 +180,57 @@ preference (key 9).
 
 None for control. KingSmith cloud is used by the apps for account login (JWT),
 workout-history sync and OTA notification only. If the cloud disappears,
-everything in this spec keeps working.
+everything in this spec keeps working. Endpoints seen in the binaries
+(2026-08-18, for firewalling/redirect analysis): KS Fit → `eu.api.ks.fit`
+(`/V0.1/index.php`; `euprev`/`eutest` staging variants), `xj.kingsmith.com.cn`
+(CN; `test-xj` staging), `api.kingsmithfitness.com`; firmware version checks
+use the API method `firmware.update`. WalkingPad app → `eu.app.walkingpad.com`.
+Product imagery comes from Xiaomi's file CDN (`cdn.*.fds.api.mi-img.com`).
+
+## Alternate ecosystem: Xiaomi Mi Home (MIOT, Wi-Fi/CN models)
+
+KS Fit 6.5.6 embeds Xiaomi's MIOT SDK (`com.kingsmith.miot`, jadx 2026-08-18)
+and registers the Mi Home device models `ksmb.walkingpad.v1`,
+`ksmb.treadmill.v1` and `ksmb.treadmill.v2` (Xiaomi OAuth, redirect via
+`xj.kingsmith.com.cn`). All three are on Xiaomi's public MIOT spec registry
+([home.miot-spec.com](https://home.miot-spec.com/spec/ksmb.walkingpad.v1)):
+a treadmill/walking-pad service with `on` (bool R/W), `speed-level` (float
+km/h R/W/N, 0.5–6 on walking-pad.v1, 0–13/15 step 0.1 on treadmill.v1/v2),
+`status` (Run/Stop/Pause), distance (m), working time (s), step count and
+calorie counters, plus `start-work` / `pause` / `stop-working` actions. So
+the Wi-Fi variants are also drivable via python-miio or the Home Assistant
+Xiaomi MIOT integration (Xiaomi cloud/token required). MIOT firmware
+upgrades ride Xiaomi's SDK (the MIOT plugin's firmware-upgrade entry point).
+
+## Model ↔ prefix ↔ factory max speed table
+
+KS Fit 6.5.6 bundles a product table (`flutter_assets/assets/mine/
+allProducts.json`, 83 rows; mined 2026-08-18) mapping each product to its
+BLE scan prefixes and factory speed ceiling:
+
+| Product | BLE name prefixes | Max km/h |
+|---------|-------------------|----------|
+| A1 Pro | `KS-ST-A1P`, `WalkingPad` | 6 |
+| R1 Pro / R1S | `R1 Pro`, `RE`, `RH`, `KS-HCSY-BR1*`, `KS-SCST-BR1A`, `KS-R1S` | 10–12 (by variant) |
+| R2 | `KS-BLR1AA/AC`, `KS-HCR1AA/AC`, `KS-SC-BLR2C`, `KS-HC-BR2C` | 10–12 |
+| C2 (early) | `KS-S1`, `KS-BLC2`, `KS-BDC2` | 6 |
+| C2 (later) | `KS-AP-C2`, `KS-RT-C2`, `KS-C2` | 6 |
+| X21 | `KS-HDSC-X21C`, `KS-HDSY-X21C`, `KS-NGCH-X21C`, `KS-NACH-X21C` | 12 |
+| MC21 | `ZP-ZEALR1`, `KS-MC21`, `KS-SMC21C` | 10 |
+| Z1 | `KS-HD-Z1*` | 6–6.6 |
+| Z1D | `KS-HD-Z1A` | 10 |
+| R3 | `KS-AP-RF3`/`KS-HD-R3F`, `KS-AP-RP3`/`KS-HD-R3P` | 6–12 |
+| Z3 | `KS-HD-ZP3`, `KS-AP-ZP3`, `KS-HD-Z3` | 6–10 |
+
+The table's `deviceType` field separates walk-only pads (`1`, ceiling
+≤ ~6.6 km/h) from run-capable treadmills (`0`, 8–18 km/h); a numeric `chip`
+field (2/3/5/6) has unconfirmed semantics and does not cleanly track the
+WiLink/FTMS split. KS Fit's FTMS-generation code also exposes vendor actions
+beyond the standard opcodes — `setMaxSpeed`, `setChildLock`, `setLightSwitch`,
+`setSoundSwitch`, `setAutoStop`, `setTarget`, `setUnit`, `setTimerZoneDiffer`,
+`syncHeartRate`, `activeDevice`, `setInclination` (`WilinkDeviceActionExt`
+symbols) — whose wire encodings are compiled into Dart AOT and still need a
+capture.
 
 ## App Provenance
 
@@ -196,8 +250,12 @@ is WiLink-generation only — no FTMS UUIDs in its string table.
 ## Tools Used
 
 - [x] APK fetch (apkeep / APKPure) and string analysis of `libapp.so` (both apps, 2026-08-08 pass: full UUID enumeration, supplement-channel active-path evidence, opcode-discrepancy resolution)
+- [x] jadx decompilation of the KS Fit 6.5.6 base APK (2026-08-18): MIOT integration (`com.kingsmith.miot`, models `ksmb.walkingpad.v1`/`ksmb.treadmill.v1`/`v2`), Xiaomi OAuth redirect host, no Java-side BLE protocol (all Dart AOT)
+- [x] Bundled product table `allProducts.json` (KS Fit 6.5.6, 2026-08-18): per-model BLE prefixes, factory speed ceilings, app-internal device classes
+- [x] Cloud endpoint enumeration from both `libapp.so` binaries (2026-08-18): `eu.api.ks.fit`, `xj.kingsmith.com.cn`, `api.kingsmithfitness.com`, `eu.app.walkingpad.com`; OTA stack layout in Dart package `ks_blue`
+- [x] Xiaomi MIOT spec registry cross-check (home.miot-spec.com): ksmb.walkingpad.v1 / ksmb.treadmill.v1 / v2 property+action tables
 - [x] Prior-art protocol implementations (ph4-walkingpad, QWalkingPad, walkingpad-controller) cross-checked against app binaries
-- [ ] HCI snoop (needed for: supplement-service per-char roles/properties, `0x2ADA` "safe_off" opcode set, ODM parent service UUID, R1 `_setSpeedR1` frame variant — see `research-notes/kingsmith-walkingpad-capture-plan.md`)
+- [ ] HCI snoop (needed for: supplement-service per-char roles/properties, `0x2ADA` "safe_off" opcode set, ODM parent service UUID, R1 `_setSpeedR1` frame variant, FTMS vendor-action encodings — see `research-notes/kingsmith-walkingpad-capture-plan.md`)
 
 ## References
 

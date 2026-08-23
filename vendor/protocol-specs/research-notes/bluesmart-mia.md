@@ -27,7 +27,7 @@ flows over BLE to the app; the app syncs history to BlueSmart's cloud.
   (`com.vise.baseble`); unobfuscated package `com.bluesmart.mia`.
 
 ## BLE findings from static analysis
-All GATT constants live in `com/bluesmart/mia/app/Constants.java`:
+All GATT constants live in the app:
 
 | UUID | Role |
 |------|------|

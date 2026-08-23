@@ -23,7 +23,7 @@ unsupported. The hardware itself is fully self-powered and cloud-independent.
 - **APK SHA-256**: `6c74dc2cb623e5aa45fe8db7b37591d274a453e362f4c312322d0a15140a97c3`
 - **App framework**: Native Java (2015-era, android.support), unobfuscated.
 
-## BLE details recovered (jadx, `GattAttributes.java`)
+## BLE details recovered (static analysis of the app's GATT attribute table)
 Advertising name filter: **`HYDRAO_SHOWER`** (also `OTAServiceMgr` during DFU).
 The vendor reused standard service UUID `180f` as the main HYDRAO service, with
 custom characteristics in the `ca1c`–`ca30` range.

@@ -149,3 +149,5 @@ the executable `commands:` block, the instanced light entity, and a live
 BSB002 probe (2026-07-16) under `evidence`. `scripts/test_hue_spec.py`
 transcribes pairing, rendering, and child enumeration from the YAML alone
 and diffs them against the spec's own examples.
+
+Home Assistant: the core [Philips Hue integration](https://www.home-assistant.io/integrations/hue/) consumes this local bridge API in production.

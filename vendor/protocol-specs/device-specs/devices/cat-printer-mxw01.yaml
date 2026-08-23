@@ -1,0 +1,285 @@
+# Cat Printer MXW01 mini thermal printer
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Cat Printer MXW01 Mini Thermal Printer"
+  manufacturer: "Unbranded / various OEMs"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "printer"
+  notes: >
+    Newest (2024/2025) cat-shaped mini thermal printer, sold as MXW01.
+    Successor hardware to the GB01/MX05 family documented in
+    device-specs/devices/cat-printer.yaml — it reuses the same 0xAE30
+    BLE service and AE01/AE02/AE03 characteristics, but speaks a
+    DIFFERENT command protocol: frames open with 0x22 0x21 instead of
+    0x51 0x78, the command ID set is new, bulk image data moves to its
+    own characteristic (0xAE03), and the legacy bit-reversal, lattice
+    markers, and energy/speed commands are gone. Do not send the legacy
+    command set to this model; the two families share nothing but the
+    UUIDs. Fully local BLE, no cloud account, no pairing. The
+    FEE7-family services seen on other cheap thermal printers do not
+    appear in any MXW01 source.
+
+    FRAME FORMAT (commands to the printer on 0xAE01, responses and
+    notifications from the printer on 0xAE02):
+      [0x22 0x21 cmd_id 0x00 payload_len_le16] [payload] [crc8] [0xFF]
+    CRC8 is poly 0x07, init 0x00, no reflection, computed over the
+    payload only — the same CRC-8 as the legacy family, via a 256-entry
+    lookup table. (jeremy46231's PROTOCOL.md mislabels it
+    "CRC-8/DALLAS-MAXIM"; the parameters it lists are plain CRC-8.
+    Dallas/Maxim CRC-8 is poly 0x31 reflected.) Responses use the same
+    layout, but the byte at frame offset 3 is not always 0x00 (observed
+    0x03 in some A1 responses), and the trailing CRC/footer may be
+    absent — parse by the declared length and treat CRC and 0xFF footer
+    as optional (moblin's parser doesn't read them at all;
+    jeremy46231's checks them only when present).
+
+    COMMANDS:
+      0xA1 get_status — payload 0x00; reply payload layout below.
+      0xA2 set_intensity — 1 byte 0x00-0xFF print darkness (0x5D is a
+          sane default; >150 risks scorching paper).
+      0xA3 eject_paper — uint16 LE line count.
+      0xA4 retract_paper — uint16 LE line count.
+      0xA7 query_count — unknown purpose; reply is often all 0xFF.
+      0xA9 print_request — payload [uint16 LE line_count, 0x30, mode]:
+          mode 0x00 = 1bpp mono, 0x02 = 4bpp grayscale; 0x01 observed
+          as a mono variant that ejects less paper at the end. Reply
+          payload[0] 0x00 = accepted.
+      0xAA print_complete — unsolicited notification when the physical
+          print run finishes.
+      0xAB get_battery_level — payload 0x00; reply payload[0] = level.
+      0xAC cancel_print — payload 0x00.
+      0xAD print_data_flush — payload 0x00; sent after the last AE03
+          data chunk to kick off printing.
+      0xB0 get_print_type — payload 0x00; reply payload[0] is a type
+          code (0x01, 0xFF, other seen; meaning unclear).
+      0xB1 get_version — payload 0x00; reply payload holds a UTF-8
+          version string plus a type byte (observed 0x31/0x32,
+          interpreted in the vendor app as low/high-voltage printhead
+          variants).
+      0xB2, 0xB3 — unknown; vendor-app comments hint at "learn" and
+          "sign/encryption" functionality (via MaikelChan).
+
+    STATUS RESPONSE (0xA1) payload layout (offsets relative to the
+    payload, matching the MaikelChan and moblin parsers):
+      payload[0] state: 0 standby, 1 printing, 2 feeding paper,
+        3 ejecting paper
+      payload[3] battery level (approximate)
+      payload[4] head temperature (approximate)
+      payload[6] overall flag: 0 = OK, non-zero = error
+      payload[7] error bitmask when flag != 0: bit0 (0x01) no paper,
+        bit2 (0x04) overheated, bit3 (0x08) low battery; 0x09 = no
+        paper + low battery observed
+    Note: jeremy46231's PROTOCOL.md lists these same fields at
+    "Payload[6..13]" because that document's payload indices include
+    the 6-byte frame header — subtract 6.
+
+    IMAGE DATA: 384 pixels wide. 1bpp: 48 bytes per row, LSB =
+    leftmost pixel, black = 1 (NOTE: unlike the legacy family there is
+    NO bit reversal). 4bpp grayscale: two pixels per byte, high nibble
+    first, 192 bytes per row, values 0-15. Stream rows top-to-bottom as
+    raw bytes on 0xAE03 (write without response). The printer has no
+    explicit flow control — pace writes: working implementations use
+    48-byte row chunks with ~15 ms gaps or MTU-sized chunks with ~100
+    ms gaps. Pad the buffer with 0x00 to at least 4320 bytes (90 rows);
+    shorter buffers do not print.
+
+    PRINT SEQUENCE:
+      1. Connect; discover service 0xAE30; subscribe to 0xAE02.
+      2. (Optional) set_intensity (0xA2).
+      3. get_status (0xA1); wait for the 0xA1 response; abort unless
+         the overall flag is 0.
+      4. print_request (0xA9) with line count and mode; wait for the
+         0xA9 response; payload[0] must be 0x00.
+      5. Stream the (padded) image buffer on 0xAE03, paced as above.
+      6. print_data_flush (0xAD).
+      7. Wait for the 0xAA print_complete notification; scale the
+         timeout with line count (~15 lines/sec plus a base margin).
+      8. (Optional) eject_paper (0xA3) to advance past the tear edge.
+
+    Paper emerges bottom-first relative to the image buffer; rotate the
+    image 180 degrees client-side if it should exit right-side-up
+    (jeremy46231's tool does this by default).
+
+    CONFIDENCE: HIGH for UUIDs, frame format, command IDs, the print
+    sequence, and the 1bpp encoding — three independent hardware-tested
+    implementations agree: MaikelChan/CatPrinterBLE (C#, tested on a
+    purchased unit), jeremy46231/MXW01-catprinter (Python/bleak, ships
+    PROTOCOL.md), and eerimoq/moblin (Swift MXW01 support in
+    production). 4bpp grayscale and the A3/A4/B0/B1 commands are
+    implemented and exercised by MaikelChan only (MEDIUM). The status
+    payload offset note above, A7, B0, B2 and B3 remain LOW confidence.
+    Not verified against hardware by this project — testing.status
+    stays untested.
+
+  identification:
+    local_name_prefix: "MXW01"
+    service_uuids:
+      - "0000ae30-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "MXW01"
+          service_uuids:
+            - "0000ae30-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No provisioning. The printer advertises the 0xAE30 service under
+      the name MXW01 as soon as it is powered on. No pairing or bonding
+      is required by any known client. macOS quirk inherited from the
+      legacy family: CoreBluetooth/Bleak can surface the service as
+      0xAF30 instead of 0xAE30 — tolerate both (moblin scans for 0xAF30
+      outright; jeremy46231 accepts either).
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for a BLE advertisement named MXW01 carrying service UUID
+          0xAE30 (or 0xAF30), connect, subscribe to 0xAE02, and follow
+          the printing sequence.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the printer and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and execute the documented printing sequence."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: "No credential state. Power-cycling resets the connection."
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Turn printer off and on again."
+              actor: "user"
+              expect: "Printer powers on and advertises."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No persistent bonding. Any central within range can connect."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "BLE-only. No auth. Physical proximity is the only access control."
+
+  variants:
+    - model: "MXW01"
+      identification:
+        local_name_prefix: "MXW01"
+      notes: >
+        The only model known to speak this protocol. The vendor app's
+        "HD" print option is believed to be the 4bpp grayscale mode.
+
+  features:
+    - type: "image_upload"
+      max_width: 384
+      max_height: 65535
+      format: "1bit-bitmap"
+      notes: >
+        48 bytes per row, LSB = leftmost pixel, no bit reversal (unlike
+        the legacy family). 4bpp grayscale (192 bytes/row, high nibble
+        first) via print mode 0x02.
+    - type: "sensor"
+      name: "Battery level"
+      notes: "Via get_battery_level (0xAB) or the 0xA1 status payload."
+
+  protocol_handler: "cat_printer_mxw01"
+
+services:
+  - uuid: "0000ae30-0000-1000-8000-00805f9b34fb"
+    name: "MXW01 Printer Service"
+    notes: >
+      Single custom service carrying the whole protocol — same service
+      UUID as the legacy cat-printer family, but the MXW01 frames open
+      with 0x22 0x21 (not 0x51 0x78) and use a new command set. Command
+      frame: [0x22 0x21 cmd_id 0x00 payload_len_le16] [payload]
+      [crc8(payload)] [0xFF]; CRC-8 poly 0x07 init 0x00 over the payload
+      only. May surface as 0xAF30 on Apple platforms.
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "Control (Client → Printer)"
+        properties: ["write", "write_without_response"]
+        notes: >
+          Write channel for all framed commands (0xA1 status, 0xA2
+          intensity, 0xA3/0xA4 paper, 0xA9 print request, 0xAD flush,
+          0xAB battery, 0xB0/0xB1 info).
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "Notify (Printer → Client)"
+        properties: ["notify"]
+        notes: >
+          Command responses (0xA1 status, 0xA9 print accept, 0xAB
+          battery, 0xB0/0xB1 info) and the unsolicited 0xAA
+          print_complete notification. Subscribe before sending
+          commands. Responses may omit the CRC/footer — parse by
+          declared length.
+      - uuid: "0000ae03-0000-1000-8000-00805f9b34fb"
+        name: "Data (Client → Printer)"
+        properties: ["write_without_response"]
+        notes: >
+          Bulk image data only — raw unframed rows, 48 bytes/row 1bpp
+          or 192 bytes/row 4bpp. No flow control; pace chunk writes
+          (~15 ms per 48-byte row, or ~100 ms per MTU chunk).
+
+entities:
+  - platform: "cover"
+    name: "Print Feed"
+    state_characteristic: "0000ae02-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Battery Level"
+    state_characteristic: "0000ae02-0000-1000-8000-00805f9b34fb"
+
+helpful_urls:
+  - title: "MaikelChan/CatPrinterBLE"
+    url: "https://github.com/MaikelChan/CatPrinterBLE"
+    description: >-
+      First full MXW01 client (C#/.NET), built from decompiling the vendor app and tested on a
+      purchased unit. Source of the eject/retract, battery, print-type and version commands, the
+      4bpp grayscale mode, and the status-payload field offsets used here.
+  - title: "jeremy46231/MXW01-catprinter"
+    url: "https://github.com/jeremy46231/MXW01-catprinter"
+    description: >-
+      Python/bleak client with a PROTOCOL.md protocol write-up; hardware-tested. Note its
+      "Payload[N]" indices include the 6-byte frame header, and its "CRC-8/DALLAS-MAXIM" label
+      actually describes plain CRC-8 (poly 0x07).
+  - title: "dave9123/MXW01-catprinter"
+    url: "https://github.com/dave9123/MXW01-catprinter"
+    description: "Fork/continuation of the jeremy46231 Python client."
+  - title: "eerimoq/moblin (CatPrinter integration)"
+    url: "https://github.com/eerimoq/moblin/tree/main/Moblin/Integrations/CatPrinter"
+    description: >-
+      Earliest known MXW01 implementation (Swift, iOS, in production). Independently corroborates
+      the frame format, the 0x22 0x21 preamble, print modes 0 (1bpp) / 2 (4bpp), and the
+      status-payload offsets at payload[6]/payload[7].
+  - title: "clementvp/mxw01-thermal-printer"
+    url: "https://github.com/clementvp/mxw01-thermal-printer"
+    description: >-
+      Framework-agnostic TypeScript library (Web Bluetooth, Node, Bun) built on the
+      dropalltables/jeremy46231 lineage; practical intensity guidance (0x5D default, >150 risks
+      paper damage).
+  - title: "Legacy cat-printer spec"
+    url: "https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/cat-printer.yaml"
+    description: >-
+      Sibling spec for the older GB01/MX05 family — same BLE service UUIDs, incompatible 0x51 0x78
+      command protocol.
+
+# Cross-reference: device-specs/devices/cat-printer.yaml documents the older
+# MX-series protocol this model replaced; this spec exists because MXW01 was
+# explicitly out of scope there.

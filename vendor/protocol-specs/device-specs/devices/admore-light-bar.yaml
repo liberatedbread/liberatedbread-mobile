@@ -1,17 +1,16 @@
 # AdMore Light Bar Pro — Device Spec
-# Status: Complete — Protobuf schema fully extracted via blutter (Dart AOT disassembly).
+# Status: Complete — Protobuf schema fully extracted by Dart AOT disassembly.
 #   HCI capture pending for wire format validation on physical device.
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
 # Protocol: Protobuf messages sent over Nordic UART Service (NUS) BLE profile.
-# Setting IDs and value tables come from the Flutter asset config/lb_config.xml
-# (primary source — every setting table below verified byte-for-byte against
-# it); protobuf identifiers and all 12 NUS UUIDs confirmed as libapp.so string
-# constants. App version analyzed: 2.1.0 (versionCode 44, confirmed from the
-# extracted AndroidManifest.xml).
-# Current app is 3.0.5 (June 2026) — the protobuf schema may have changed
-# since 2.1.0; re-extraction from 3.0.5 is the top follow-up.
+# Setting IDs and value tables come from a configuration asset bundled with
+# the app (primary source — every setting table below verified byte-for-byte
+# against it); protobuf identifiers and all 12 NUS UUIDs are confirmed as
+# string constants in its Dart snapshot. A newer app release has shipped since
+# the one analysed here — the protobuf schema may have changed, so
+# re-extraction from the current release is the top follow-up.
 
 device:
   name: "AdMore Light Bar Pro"
@@ -24,19 +23,28 @@ device:
   notes: >
     Bluetooth-enabled motorcycle brake light bar with accelerometer-based smart
     braking. Uses Nordic UART Service (NUS) with protobuf-encoded messages.
-    Full Flutter app reverse engineering of AdMore Connect v2.1.0 (code 44).
+    Full Flutter app reverse engineering of the AdMore Connect app.
     App framework: Flutter/Dart with flutter_blue_plus, GetX, package:protobuf.
     14 protobuf message types, 7 enums (complete values), KMsg routing with 36 route IDs.
-    Protobuf field numbers extracted via blutter (Dart SDK 3.3.3). All 14
-    message names and all 7 enum names are present as string constants in
-    libapp.so (app-confirmed).
+    Protobuf field numbers extracted by Dart AOT disassembly. All 14 message
+    names and all 7 enum names are present as string constants in the app
+    (app-confirmed).
     DFU (app-derived, not hardware-verified): the device advertises as
-    "AdMore Light Bar DFU" in update mode and the app drives a Nordic legacy
-    DFU through the flutter nordic_dfu plugin. The app ships a debug DFU
-    package (assets/debug/debug_dfu.zip) in the legacy bin+dat manifest
-    format containing a 49,640-byte nRF52 application image — the first
-    firmware artifact seen for this device, pinning the SoC family to
-    Nordic nRF52.
+    "AdMore Light Bar DFU" in update mode and the app drives a Nordic
+    DFU through the flutter nordic_dfu plugin (dev.steenbakker.nordic_dfu;
+    DfuService declared in the AndroidManifest). The app ships a debug DFU
+    package (assets/flutter_assets/debug/debug_dfu.zip) in the nrfutil
+    Secure DFU format — manifest.json plus lightbar_nrf52.bin plus a
+    141-byte lightbar_nrf52.dat init packet carrying an ECDSA P-256
+    signature and a SHA-256 image hash (protobuf SignedCommand). Decoding
+    the init packet gives hw_version 52 and SoftDevice requirement FWID
+    0xCB (S132 v7.0.1 family); the 49,640-byte application-only image
+    (files dated May 2020) has initial SP 0x20010000 (64 KB RAM) and reset
+    handler 0x26361, consistent with the standard app base 0x26000 behind
+    S132 v7.x — pinning the SoC to the nRF52832, not just the nRF52
+    family. Secure DFU means update images must be signed with the
+    vendor's DFU key: a replacement client can deliver vendor zips but
+    cannot build valid new ones.
   identification:
     local_name_prefix: "AdMore Light Bar"
     local_name_dfu: "AdMore Light Bar DFU"
@@ -373,7 +381,7 @@ device:
 
 services:
   # All 12 NUS UUIDs below (the four service triplets ending DCCA9E, DCCAAE,
-  # DCCABE, DCCACE) are string constants in libapp.so — app-confirmed.
+  # DCCABE, DCCACE) are string constants in the app — app-confirmed.
   # Nordic UART Service — Light Bar
   - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     name: "Nordic UART Service (Light Bar)"
@@ -387,7 +395,7 @@ services:
           Light control via t_cmdLosSetLight{setLight: e_LIGHT_OUTPUT.<light>, lightOn: <bool>}.
           Each command is dispatched by its e_CMD value. The setting value
           tables below are taken from the app asset config/lb_config.xml
-          (primary source), verified byte-for-byte against v2.1.0 (code 44).
+          (primary source), verified byte-for-byte against the analysed app build.
         commands:
           # Light Output Settings (LOS)
           set_tail_brightness:
@@ -438,6 +446,24 @@ services:
                 type: "int32"
                 allowed: [0, 8000]
                 labels: ["OFF", "ON"]
+          # Discrete pairs for the on/off entity roles. A role binding is a
+          # name with no room for an argument, so the parameterised commands
+          # above cannot serve both directions; these are the same setting
+          # with the value already chosen.
+          set_plate_light_on:
+            description: "License plate light ON (LOS_PLATE_LIGHT_BRIGHTNESS = 8000)."
+            setting_id: "LOS_PLATE_LIGHT_BRIGHTNESS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [8000]
+          set_plate_light_off:
+            description: "License plate light OFF (LOS_PLATE_LIGHT_BRIGHTNESS = 0)."
+            setting_id: "LOS_PLATE_LIGHT_BRIGHTNESS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0]
           set_sequential_turn:
             description: "Toggle sequential turn signals"
             setting_id: "LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS"
@@ -446,6 +472,20 @@ services:
                 type: "int32"
                 allowed: [0, 30]
                 labels: ["OFF", "ON"]
+          set_sequential_turn_on:
+            description: "Sequential turn signals ON (LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS = 30)."
+            setting_id: "LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [30]
+          set_sequential_turn_off:
+            description: "Sequential turn signals OFF (LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS = 0)."
+            setting_id: "LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0]
           set_demo_mode:
             description: "Toggle dealer demo mode (firmware ^1+)"
             setting_id: "LOS_DEALER_DEMO_MODE"
@@ -512,6 +552,34 @@ services:
                 type: "int32"
                 allowed: [0, 1]
                 labels: ["OFF", "ON"]
+          set_accel_toggle_on:
+            description: "Accelerometer sensor ON (MMS_DECEL_TOGGLE = 1)."
+            setting_id: "MMS_DECEL_TOGGLE"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [1]
+          set_accel_toggle_off:
+            description: "Accelerometer sensor OFF (MMS_DECEL_TOGGLE = 0)."
+            setting_id: "MMS_DECEL_TOGGLE"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0]
+          set_tipover_on:
+            description: "Tip-over flash ON (MMS_ENABLE_TIPOVER = 1)."
+            setting_id: "MMS_ENABLE_TIPOVER"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [1]
+          set_tipover_off:
+            description: "Tip-over flash OFF (MMS_ENABLE_TIPOVER = 0)."
+            setting_id: "MMS_ENABLE_TIPOVER"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0]
           # Light Input Settings (LIS)
           set_brake_invert:
             description: "Enable inverted brake input logic (firmware ^1+)"
@@ -588,7 +656,7 @@ services:
   - uuid: "6e400001-b5a3-f393-e0a9-e50e24dccabe"
     name: "Nordic UART Service (Unknown — possibly signals accessory)"
     notes: >
-      UUID triplet confirmed as app constants in libapp.so; no app code path
+      UUID triplet confirmed as app constants; no app code path
       names its role, so the accessory assignment remains a guess.
     characteristics:
       - uuid: "6e400002-b5a3-f393-e0a9-e50e24dccabe"
@@ -602,7 +670,7 @@ services:
   - uuid: "6e400001-b5a3-f393-e0a9-e50e24dccace"
     name: "Nordic UART Service (Unknown — possibly diagnostic)"
     notes: >
-      UUID triplet confirmed as app constants in libapp.so; no app code path
+      UUID triplet confirmed as app constants; no app code path
       names its role, so the diagnostic assignment remains a guess.
     characteristics:
       - uuid: "6e400002-b5a3-f393-e0a9-e50e24dccace"
@@ -631,15 +699,15 @@ entities:
     name: "License Plate Light"
     state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
     commands:
-      turn_on: "set_plate_light"
-      turn_off: "set_plate_light"
+      turn_on: "set_plate_light_on"
+      turn_off: "set_plate_light_off"
 
   - platform: "switch"
     name: "Sequential Turn Signals"
     state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
     commands:
-      turn_on: "set_sequential_turn"
-      turn_off: "set_sequential_turn"
+      turn_on: "set_sequential_turn_on"
+      turn_off: "set_sequential_turn_off"
 
   - platform: "number"
     name: "Brake Flash Count"
@@ -663,8 +731,8 @@ entities:
     name: "Accelerometer Sensor"
     state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
     commands:
-      turn_on: "set_accel_toggle"
-      turn_off: "set_accel_toggle"
+      turn_on: "set_accel_toggle_on"
+      turn_off: "set_accel_toggle_off"
 
   - platform: "number"
     name: "Deceleration Sensitivity"
@@ -688,5 +756,5 @@ entities:
     name: "Tip Over Flash"
     state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
     commands:
-      turn_on: "set_tipover"
-      turn_off: "set_tipover"
+      turn_on: "set_tipover_on"
+      turn_off: "set_tipover_off"

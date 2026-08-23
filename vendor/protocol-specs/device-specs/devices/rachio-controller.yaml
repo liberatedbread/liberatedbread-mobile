@@ -67,10 +67,10 @@ device:
     required: true
     confidence: "medium"
     notes: >
-      Gen 2 onboarding is documented from the decompiled vendor app
-      (com.rachio.iro v2.8, UCLA ECE209AS): SoftAP provisioning with a
+      Gen 2 onboarding is documented from an older release of the vendor app
+      (corroborating a UCLA ECE209AS write-up): SoftAP provisioning with a
       Curve25519 secure session (see below). The Gen 3 flow is now also
-      documented from the decompiled current app (com.rachio.prov.gen3):
+      documented from the current vendor app:
       HTTPS JSON POSTs to the setup AP under a pinned CA, no Curve25519
       session (see below). Neither flow has been replayed against hardware.
       What is confirmed from the LAN probe is the post-setup state: the
@@ -83,8 +83,8 @@ device:
       - type: "softap_http"
         verified: false
         description: >
-          Gen 2 flow (decompiled com.rachio.iro v2.8; constants re-confirmed
-          in the current decompiled app, com.rachio.prov.gen2): the phone
+          Gen 2 flow (from an older release of the vendor app; constants
+          re-confirmed in the current one): the phone
           joins the unit's setup AP (SSID prefix "Rachio"; device AP at
           192.168.10.1), then GET /rachio/iroinfo (device info incl. salt),
           POST /prov/secure-session (Curve25519 ECDH; session key derived
@@ -101,7 +101,7 @@ device:
           credential_encryption:
             algorithm: "AES/CTR/NoPadding"
             key_derivation: "Curve25519 ECDH shared secret + device salt + device serial number (serial acts as PIN); session-scoped key."
-            notes: "Setup SSID is 'Rachio-' plus the last 3 MAC bytes (6 hex chars, uppercase), derived from the MAC in the current decompiled app."
+            notes: "Setup SSID is 'Rachio-' plus the last 3 MAC bytes (6 hex chars, uppercase), derived from the MAC in the current vendor app."
         steps:
           - action: 'Join the controller''s setup AP (SSID "Rachio-XXXXXX", XXXXXX = last 3 MAC bytes uppercase); the device is at 192.168.10.1.'
             actor: "client"
@@ -115,11 +115,11 @@ device:
             actor: "client"
           - action: "POST /sys/time to sync the epoch."
             actor: "client"
-            notes: "Gen 2 verified from the decompiled app (v2.8 flow, constants re-confirmed in the current app); not replayed on hardware."
+            notes: "Gen 2 verified from the vendor app (an older release's flow, constants re-confirmed in the current app); not replayed on hardware."
       - type: "softap_http"
         verified: false
         description: >
-          Gen 3 flow (decompiled current app, com.rachio.prov.gen3): the
+          Gen 3 flow (current vendor app): the
           phone joins the unit's setup Wi-Fi, then talks HTTPS JSON to the
           device — POST https://<deviceMac>/<endpoint> with a custom DNS
           resolver, a pinned root CA shipped in the app assets
@@ -150,7 +150,7 @@ device:
             actor: "client"
           - action: "POST https://<deviceMac>/done to end provisioning."
             actor: "client"
-            notes: "Derived from the decompiled app; not replayed on hardware. The pinned CA means third-party clients must extract or replace it to talk to the device."
+            notes: "Derived from the vendor app; not replayed on hardware. The pinned CA means third-party clients must extract or replace it to talk to the device."
       - type: "button_pairing"
         verified: false
         description: >
@@ -179,7 +179,7 @@ device:
     rejoin:
       in_place_supported: false
       requires_factory_reset: true
-      notes: "Unverified. The onboarding flows are now documented from the decompiled app, but whether a configured unit accepts in-place re-provisioning without a reset is still unknown — assume reset-and-reprovision."
+      notes: "Unverified. The onboarding flows are now documented from the vendor app, but whether a configured unit accepts in-place re-provisioning without a reset is still unknown — assume reset-and-reprovision."
     credentials:
       # Gen 2 encrypts at the app layer (AES-CTR under Curve25519 ECDH); Gen 3
       # sends cleartext JSON inside pinned-CA TLS. Single enum value: "tls"
@@ -228,3 +228,8 @@ entities:
       an unpaired unit, which is why no command is declared rather than one
       being guessed at.
 
+
+helpful_urls:
+  - title: "Home Assistant Rachio integration"
+    url: "https://www.home-assistant.io/integrations/rachio/"
+    description: "HA core integration for Rachio irrigation controllers."

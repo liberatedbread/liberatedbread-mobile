@@ -17,15 +17,15 @@ local: no account, no cloud in the print path.
 
 ## Transport: two Bluetooth Classic channels
 1. **SPP (UUID 00001101-0000-1000-8000-00805f9b34fb)** — control channel.
-   `PrintConnectMgr.java` opens an insecure RFCOMM socket to 0x1101 and
+   The app's print-connection manager opens an insecure RFCOMM socket to 0x1101 and
    exchanges framed commands (below).
 2. **OBEX OPP (UUID 00001105-0000-1000-8000-00805f9b34fb)** — image push.
-   `BluetoothOppTransfer.java` opens RFCOMM to 0x1105 and does a standard
+   Its OPP transfer class opens RFCOMM to 0x1105 and does a standard
    OBEX PUT of the rendered image (`image/*`). This means a plain OPP
    push from a PC (obexftp / ussp-push / BlueZ) very likely prints
    without any app — needs bench validation.
 
-## SPP control protocol (from `PrintPacket.java`)
+## SPP control protocol
 Fixed header per command frame: `1B 2A 43 41` (ESC `*` `C` `A`), then
 `00 00`, then command byte + subcommand byte, then payload (BE fields).
 

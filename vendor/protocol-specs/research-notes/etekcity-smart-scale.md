@@ -22,7 +22,7 @@ The VeSync app is NOT just a scale app — it's a **unified BLE platform** suppo
 This means the APK contains protocol specs for MANY devices, not just the ESN00 scale.
 
 ## BLE UUIDs — Scale Service (FFA0 family)
-From `p70/j.java` — the primary UUID constant interface:
+From the app's primary UUID constant interface:
 | UUID | Role |
 |------|------|
 | `0000ffa0-0000-1000-8000-00805f9b34fb` | **Scale Service** (primary) |
@@ -32,7 +32,7 @@ From `p70/j.java` — the primary UUID constant interface:
 | `0000ffa4-0000-1000-8000-00805f9b34fb` | Characteristic 4 |
 
 ## BLE UUIDs — Sensor Device Service (FFE0 family)
-From `p70/j.java` and `SensorDevice.java`:
+From the app's UUID constants and its sensor-device handler:
 | UUID | Role |
 |------|------|
 | `0000ffe0-0000-1000-8000-00805f9b34fb` | Sensor Service |
@@ -40,7 +40,7 @@ From `p70/j.java` and `SensorDevice.java`:
 | `0000fff5-0000-1000-8000-00805f9b34fb` | Sensor Characteristic (Notify) |
 
 ## BLE UUIDs — Additional Scale Characteristics
-From `p70/j.java`:
+From the app:
 | UUID | Role |
 |------|------|
 | `0000fff1-0000-1000-8000-00805f9b34fb` | Scale data channel 1 |
@@ -82,9 +82,9 @@ The VeSync app uses a layered BLE architecture:
 1. **Nordic BLE Library** (`no.nordicsemi.android.ble`) — Low-level BLE operations
 2. **VeSync BLE SDK** (`com.vesync.lib.ble`) — Multi-device abstraction layer
 3. **Device implementations** — `SensorDevice`, `HealthRateDevice`, `IdoBraceletDevice`, etc.
-4. **Protocol-specific handlers** — `l80/b.java`, `l80/e.java` (scale BLE managers)
+4. **Protocol-specific handlers** — the two scale BLE managers
 
-The scale uses `l80/b.java` which extends `i70.b` (base BLE manager) and implements `l80.a` (scale interface).
+The scale uses the primary scale BLE manager, which extends the base BLE manager and implements the scale interface.
 
 ## BLE Connection Flow (Scale)
 1. Connect to scale by MAC address
@@ -110,11 +110,11 @@ The VeSync app also integrates with:
 4. Tare/unit commands likely sent via `ffa1` characteristic
 5. Compare with dev.to/hertzg writeup for partial protocol info
 
-## Files Analyzed
-- `p70/j.java` — Complete UUID constant interface (40+ UUIDs)
-- `l80/b.java` — Scale BLE manager implementation
-- `l80/e.java` — Secondary scale BLE manager
-- `com/vesync/lib/ble/third/platform/device/SensorDevice.java` — Sensor device handler
-- `com/vesync/lib/ble/third/platform/device/HealthRateDevice.java` — HR monitor
-- `com/vesync/lib/ble/third/platform/device/IdoBraceletDevice.java` — Ido bracelet
-- `com/vesync/lib/ble/third/platform/device/JumpDevice.java` — Jump rope
+## App areas analysed
+- Complete UUID constant interface (40+ UUIDs)
+- Scale BLE manager implementation
+- Secondary scale BLE manager
+- Sensor device handler
+- HR monitor
+- Ido bracelet
+- Jump rope

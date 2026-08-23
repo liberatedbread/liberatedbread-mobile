@@ -1,0 +1,511 @@
+# June Intelligent Oven device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "June Intelligent Oven"
+  manufacturer: "June Life, Inc. (acquired by Weber-Stephen Products LLC, Jan 2021)"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Nobody on this project has driven an oven from this spec. The protocol
+      facts come from keithah/homebridge-june-oven, a clean-room integration
+      spec its author verified end-to-end against a physical oven (gen-3
+      'meerkat'), and were re-verified here on 2026-08-18 by static analysis
+      of the final release of the June companion app.
+      All junelife.com hosts were probed live the same day. No packet capture
+      of oven traffic has ever been published, and none exists in our research
+      store.
+  protocol: "wifi"
+  type: "smart-oven"
+  category: "appliance"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+  notes: >
+    CLOUD-ONLY, and the cloud has a published death date. Weber retires the
+    June app and ALL cloud services on 2026-09-22 (Weber consumer-care FAQ).
+    This spec exists to record the dependency and the recovered wire protocol,
+    not to offer a local control surface: there is none on stock hardware.
+
+    TRANSPORT: Wi-Fi to the vendor cloud only. No mDNS, SSDP, UPnP or local
+    HTTP. No BLE control surface: BLE hardware is present on Gen 1 and Gen 3
+    per FCC filings (Gen 2 has Wi-Fi-only grants), but zero Bluetooth GATT
+    service UUIDs appear anywhere in the final companion app, and Weber's
+    FAQ states Bluetooth is not supported. A former
+    June/Weber oven engineer (publicly, 2026-07) described BLE local control
+    as R&D that "could have" shipped as a side effect of a scrapped
+    oven/grill software unification — deprioritized when the oven line was
+    discontinued in 2023. Assume no shipped firmware exposes BLE; one cheap
+    experiment (BLE-scan a powered oven) would settle it. One unverified
+    community report claims an open TCP port 8156 on the oven's LAN interface;
+    treat it as a hypothesis, not a lead. ADB and terminal access are removed
+    from the shipped user-mode firmware (same engineer).
+
+    HARDWARE: three generations under FCC grantee 2AJGA. Gen 1 (JCP01) and
+    Gen 2: NVIDIA Tegra K1, 2 GB RAM, 8 GB flash. Gen 3 (2020, JCH03, codename
+    'meerkat'): MediaTek MT8385, 2 GB LPDDR4, 16 GB soldered eMMC. Countertop
+    convection oven with 5-inch touchscreen, interior camera, probe
+    thermometer; Gen 3 adds a weight sensor (visible in the 10013 telemetry
+    payload). Firmware 'juneOS' is AOSP-derived; final firmware 1.24.1.34 was
+    never published and is preserved privately by a former June engineer. The
+    oven firmware is bespoke — it shares essentially no code with Weber's
+    grill products (the phone apps DO share a codebase: the Weber grill app
+    embeds the entire June companion tree), so Weber's grill line
+    is not an early-warning feed for oven firmware or protocol changes.
+
+    WHAT DIES ON 2026-09-22: remote control, live camera, recipes (incl. June
+    Premium), push notifications, pairing of any new companion, and all
+    software updates. The oven keeps cooking from its own touchscreen; food
+    recognition runs on-device and survives, frozen at its last model. A
+    factory-reset or new oven BRICKS: first boot requires a Wi-Fi connection
+    and a cloud software download, and after the shutdown no server answers.
+
+    SAFETY: the oven's 1 Hz cook-control loop and its temperature-limiting
+    hardware run on-device and are sovereign — this spec documents the same
+    command codes the vendor's own app sends, nothing more. The 10020 ack
+    vocabulary (success / not-allowed / door-open / not-ready / cleaning) is
+    the protocol's own safety channel; a client must surface it verbatim and
+    never work around it. June shipped a remote-preheat disable option and a
+    30-minute no-food auto-off after documented 2019 self-preheating
+    incidents; both live on the oven and must be preserved.
+
+    NEVER COMMIT: a real token, oven_id, device_id, Ed25519 seed or device
+    password. An Ed25519 seed is a key the oven trusts to start a heat cycle.
+    The mvanhorn/printing-press-library conformance vectors (see helpful_urls)
+    are synthetic and exist precisely so tests never need real material.
+
+  identification:
+    notes: >
+      No local identification signals exist: the oven advertises no BLE name
+      or service (verified: no GATT UUIDs in the companion app), announces no
+      mDNS/SSDP service, and its DHCP hostname and MAC OUI have never been
+      captured. Identity is established through the cloud: pairing yields an
+      oven_id via GET /2/devices/{deviceId}/associated. The often-quoted TCP
+      port 8156 is a single unverified community report and is deliberately
+      NOT stated as a default_port — record it as a hypothesis to settle with
+      a port scan against a real oven.
+
+  discovery:
+    methods:
+      - type: "cloud"
+        cloud:
+          provider: "June cloud (api.junelife.com) — retires 2026-09-22"
+          auth_method: "oauth2"
+          device_list_endpoint:
+            method: "GET"
+            url: "https://api.junelife.com/2/devices/{deviceId}/associated"
+            response_mapping:
+              stable_keys:
+                - source: "json://oven_id"
+    notes: >
+      There is nothing to find on the LAN: no mDNS, SSDP, UPnP, or documented
+      local HTTP service. Discovery is a cloud operation — after pairing, the
+      companion asks the cloud which oven is associated with its registered
+      device_id. A consumer should not probe the oven's IP at all; the only
+      known-open-port claim (TCP 8156) is unverified.
+
+  setup:
+    required: true
+    confidence: "high"
+    notes: >
+      Two distinct steps, both required. Wi-Fi credentials are typed on the
+      oven's OWN touchscreen — there is no SoftAP, BLE or WPS provisioning
+      path. Pairing a companion then runs through the June cloud with an
+      8-digit PIN and an SRP-6a exchange (see the top-level `pairing` block).
+      Confidence is high because the flow is documented in a clean-room spec
+      that its author executed against a real oven; WE have not run it.
+      After 2026-09-22 the pairing half cannot be performed at all until a
+      replacement cloud exists.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Join Wi-Fi from the oven's touchscreen (enter SSID/passphrase
+          on-device). No app involvement. The credentials never cross a
+          network.
+      - type: "cloud_account"
+        verified: false
+        description: >
+          Companion pairing: register a device identity with the cloud, obtain
+          an 8-digit PIN (with Damm check digit), type it on the oven, then
+          complete SRP-6a with INVERTED roles — the companion is the SRP
+          server. See the top-level `pairing` block for the crypto.
+        steps:
+          - action: "Register a companion identity: POST /2/devices/register with a random device_id, a random 32-hex password, and the app's published client_id/client_secret protocol constants."
+            actor: "client"
+            expect: "7-day Bearer token (expires_in 604800). 'Refresh' is re-registering the same device_id; grant_type=refresh_token is rejected with unsupported_grant_type."
+          - action: "Request a pairing code from the cloud and display it for the user."
+            actor: "client"
+            expect: "8-digit PIN; the final digit is a Damm check digit."
+          - action: "Type the PIN on the oven's touchscreen."
+            actor: "user"
+          - action: "Act as the SRP-6a SERVER (RFC 5054 8192-bit group, g=19, SHA-1, I='user', password = the displayed PIN) and POST /2/devices/pairing/{code}/companion with {salt, B, companion_info}, where companion_info is sealed with NaCl secretbox under K = BLAKE2b-256(S)."
+            actor: "client"
+            expect: "Pairing progresses; the oven completes its side of SRP."
+            notes: "Do NOT DELETE the pairing session early — the oven has not finished SRP yet and will emit 10027 PairingSessionInvalidated. Wait for the SECOND 10026 frame carrying oven_info."
+          - action: "Resolve the oven identity: GET /2/devices/{deviceId}/associated."
+            actor: "client"
+            expect: "Response carries the oven_id used in all messaging URLs."
+          - action: "Persist the pairing material (oven_id, device_id, device_name, device password, Ed25519 seed) in the platform keychain, and offer it as an export."
+            actor: "client"
+            notes: "After 2026-09-22 this set cannot be re-minted; an Ed25519 seed the oven already trusts keeps working against any endpoint that can reach the oven."
+        cloud:
+          provider: "June cloud (retires 2026-09-22)"
+          local_alternative: >
+            None known. Pairing exists only inside the vendor cloud: there is
+            no mDNS/SSDP/local HTTP surface and no BLE control surface on
+            stock firmware, so after the shutdown no new companion can be
+            paired at all. An already-paired oven keeps cooking from its own
+            touchscreen; a factory-reset or new oven cannot complete first
+            boot. Recovering remote control means standing up a replacement
+            backend for the recovered endpoints.
+    factory_reset:
+      # "unknown", not true: an on-screen reset path is believed to exist but
+      # its steps were never captured, and the schema reserves `applicable:
+      # true` for a reset somebody established (it then demands `procedures`).
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        The reset procedure itself is not documented in the sources used here
+        (it is an on-screen settings path; exact steps were never captured).
+        What IS established — from June's own documentation — is the
+        consequence: a new or factory-reset oven requires Wi-Fi and a cloud
+        software download on FIRST BOOT. After the cloud retires on
+        2026-09-22, a reset oven cannot complete first boot and is effectively
+        bricked. Do not factory-reset a June oven unless a replacement cloud
+        or a captured firmware image exists to answer it.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Moving to a new Wi-Fi network is done on the oven's touchscreen — no
+        reset and no cloud involvement for the network join itself. Cloud
+        pairing state is separate and unaffected by a network change.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "WiFi credentials (typed on the touchscreen; never transit a network)"
+        - "Oven-side pairing state for trusted companions"
+      issued_to_client:
+        - "7-day Bearer token from POST /2/devices/register"
+        - "oven_id from GET /2/devices/{deviceId}/associated"
+      notes: >
+        The long-lived secrets are generated client-side: the device password
+        (32 hex chars) and the Ed25519 seed whose public key fingerprints
+        every command frame. Never record real values in this repository.
+
+  variants:
+    - model: "JCP01"
+      notes: >
+        Gen 1 (2016). NVIDIA Tegra K1, 2 GB RAM, 8 GB flash. FCC exhibits list
+        BT classic + BLE hardware; no BLE control surface in any known
+        firmware.
+    - model: "Gen 2"
+      notes: >
+        Second generation (the 1800 W unit most owners mean). Same Tegra K1
+        platform as Gen 1; FCC grants are Wi-Fi-only for this generation.
+        No distinct model string is documented.
+    - model: "JCH03"
+      notes: >
+        Gen 3 (2020), codename 'meerkat'. MediaTek MT8385, 2 GB LPDDR4,
+        16 GB soldered eMMC; BT classic + BLE re-added per FCC exhibits
+        ("a new chipset to improve connectivity"). Adds the cavity weight
+        sensor visible in 10013 telemetry. This is the generation keithah's
+        integration was verified against.
+
+pairing:
+  protocol: "SRP-6a with inverted roles: the companion is the SRP SERVER, the oven is the client"
+  group: "RFC 5054 8192-bit group, generator g = 19"
+  hash: "SHA-1"
+  identity: "I = 'user'"
+  password: "the displayed 8-digit PIN, INCLUDING its Damm check digit; x = SHA1(salt || SHA1('user:' + PIN))"
+  salt: "16 random bytes"
+  seal: "K = BLAKE2b-256(S); companion_info = base64(nonce(24) || crypto_secretbox_xsalsa20poly1305(json, nonce, K))"
+  completion: "wait for the SECOND 10026 frame carrying oven_info; only then resolve oven_id via GET /2/devices/{deviceId}/associated"
+  cautions: >
+    Never DELETE the pairing session before the second 10026 arrives — the
+    oven answers with 10027 PairingSessionInvalidated and the exchange must
+    restart. Conformance vectors for SRP, Damm, the secretbox seal and the
+    frame signature live in mvanhorn/printing-press-library
+    (internal/june/testdata/vectors.json); implement against those first,
+    hardware never.
+  verification: "reported"
+
+messaging:
+  transport: "wss://messaging.junelife.com/1/messaging/websocket/companion (the oven dials its own sibling channel wss://messaging.junelife.com/1/messaging/websocket/oven, which answers 401 to unauthenticated probes — the route exists)"
+  envelope: >
+    Compact JSON with EXACT key order: v, message_code, order, time,
+    signature, device_name, device_id, data, target. `order` is strictly
+    increasing and is echoed back by the oven as `request_order` in 10020
+    acks.
+  signature: >
+    72 bytes: base64( BLAKE2b(ed25519_pubkey, digest_size=8) ||
+    Ed25519_sign(privkey, canonical_json) ), computed over the envelope with
+    the signature field set to "". The 8-byte prefix is crypto_generichash
+    with an 8-byte OUTPUT LENGTH, not a truncated BLAKE2b-512. Standard
+    base64, not url-safe. A wrong signature is SILENTLY DROPPED — no ack, no
+    error — so a client must treat absence of an ack as a distinct,
+    timeout-bounded state rather than a hang.
+  units: >
+    Integer milli-degrees Celsius everywhere:
+    milliC = round((F - 32) * 5/9 * 1000); 350 F = 176667. Durations are
+    milliseconds. Probe presence is STRUCTURAL — a non-empty
+    sensor_data.probe array; there is no food_present field.
+  outgoing_codes:
+    11002: "Preheat / start cook — data {primitive_type, temperature_cavity milliC}. Only 'bake' and 'roast' are confirmed on-oven; the app's broil/air-fry/toast/dehydrate/pizza vocabulary was never enumerated against hardware. Rejected while a cook is running — clients cancel (11004) and restart instead."
+    11004: "CancelCooking — data {plan_id: 0}"
+    11005: "SetTemperatureCavity — data {plan_id: 0, temperature_cavity milliC}. Rejected mid-cook; cancel-and-restart is the working pattern."
+    11006: "SetTimer — data {plan_id: 0, duration ms}"
+    11007: "SetTemperatureTargetProbe"
+    11011: "Ping / keepalive, ~7 s interval — data {}"
+    11012: "Unpair"
+    11013: "KeepCooking"
+    11015: "SetCookMode"
+    11016: "StartCookPlan (guided cook)"
+    11017: "Set/ClearRecipeState"
+    11019: "SetTemperatureAccessory"
+    11031: "CookPlanEdit customization (add)"
+    11032: "CookPlanEdit customization (remove)"
+    11035: "CookAdjustmentOfferResponse"
+    12001: "UploadOvenBugReport — instructs the oven to upload its logs"
+  incoming_codes:
+    10011: "VideoFrame — data {video_id, ts, signed_url, image_url, content_type, image_size}; ~1 fps JPEG stills via pre-signed URLs expiring in ~300 s. NEVER video."
+    10012: "CookNotification"
+    10013: "Telemetry ~1 Hz — sensor_data.cavity (milliC), sensor_data.probe[], sensor_data.weight (Gen 3), cook_state_data.progress"
+    10014: "Cook plan started"
+    10015: "Cook plan updated"
+    10016: "Cook plan temperature changed"
+    10017: "Cook ended / cancelled"
+    10018: "Device state — data {state: 'idle' | 'active'}"
+    10020: "Ack — data {request_order, status: 'success' | 'not-allowed' | 'door-open' | 'not-ready' | 'cleaning'}. This is the protocol's safety channel; surface statuses verbatim. Door state is observable ONLY as a 10020 'door-open' rejection, never as a push."
+    10022: "Oven-initiated unpair"
+    10026: "Pairing info — data.key_info; the SECOND 10026 carries oven_info and completes pairing"
+    10027: "PairingSessionInvalidated"
+    10033: "Cook adjustment offer"
+  safety: >
+    Remote preheat starts a heating element. June shipped a remote-preheat
+    disable option and a 30-minute no-food auto-off after documented 2019
+    self-preheating incidents; both live on the oven. A client must never
+    offer a path that defeats them.
+  verification: "reported"
+
+ota:
+  summary: >
+    Oven updates are fully oven-initiated — the companion app contains no OTA
+    code at all. The OTA service was recovered from the sibling Weber grill
+    app's cloud SDK and probed live on 2026-08-18.
+  hosts:
+    prod: "https://devices-ota.walker-cloud.com"
+    dev: "https://dev-devices-ota.walker-cloud.com"
+    legacy_june: "https://dev-devices-ota.junelife.com — LegacyAppProdConfig points prod legacy devices at the DEV junelife OTA host; devices-ota.junelife.com (prod) has NO DNS, so June prod ovens were likely never migrated"
+  auth: >
+    Device-grade, not account-grade: POST /api/v2/login/ with form fields
+    username=<serial number> and password=<current version_name> returns a
+    bearer token; GET /api/v2/updates/ lists records with direct download_url
+    values. Companion tokens are rejected — separate auth domain.
+  container: >
+    Firmware ships as a .jota container (magic 'jota', channel/flavor/target
+    strings, ARM Thumb payload). On-device apply is a broadcast
+    (com.junelife.device.ota.APPLY_UPDATE) to a junelife-namespaced system
+    updater service. Whether .jota images are signature-verified on-device is
+    UNKNOWN — it decides whether community images can ever be pushed.
+  live_status_2026_08_18: >
+    dev-devices-ota.junelife.com/api/v2/login/ answers with
+    login:unknown_serial_number (service alive, auth working);
+    devices-ota.walker-cloud.com/api/v2/updates/ answers 401
+    auth:invalid_header (alive). The June oven's OTA target string is
+    unconfirmed (grills use 'stuart'; the gen-3 oven is 'meerkat'/JCH03).
+  brick_risk: >
+    Real June oven firmware images have never been obtained — prod delivery is
+    in-band over the oven's WSS channel with unguessable signed URLs. The only
+    known route: pair an oven BEFORE 2026-09-22, take serialNumber + software
+    version from the pairing response, log in to the OTA service as the
+    device, and download every eligible .jota. This is also the only known
+    path to un-bricking factory-reset ovens later.
+  verification: "reported"
+
+cloud:
+  required: true
+  vendor_service: "June cloud (junelife.com), operated by Weber-Stephen Products since the 2021 acquisition; ALL services retire 2026-09-22 per Weber's consumer-care FAQ"
+  hosts:
+    - "https://api.junelife.com (REST /2/…)"
+    - "https://messaging.junelife.com (REST /1/messaging/… and the companion/oven WebSocket channels)"
+    - "https://recipes.junelife.com (recipe catalog — never captured)"
+    - "https://devices-ota.walker-cloud.com and https://dev-devices-ota.junelife.com (OTA; see the ota block)"
+  notes: >
+    Every host has a dev- staging twin (dev-api., dev-messaging.,
+    dev-recipes.junelife.com) hardcoded in the app's environment enum. All
+    junelife.com hosts resolved and answered TLS/HTTP when probed 2026-08-18,
+    and the GoDaddy *.junelife.com wildcard was renewed past the shutdown
+    (notBefore 2026-07-17, notAfter 2027-01-31) — there is no early
+    cert-expiry cliff; the hard shutdown is 2026-09-22. The app pins TLS with
+    three hardcoded SPKI pins (OkHttp CertificatePinner); whether the OVEN
+    pins is unmeasured and is the open gate for any DNS-redirect replacement
+    cloud, alongside the oven's cloud-dependent clock (TLS needs a
+    roughly-right clock; a replacement cloud may need to answer NTP too).
+    The app constants client_id and client_secret used at registration are
+    hardcoded protocol constants, identical for all users and for DEV/PROD —
+    they are interop identifiers, not user credentials.
+  failure_mode: >
+    On 2026-09-22 every documented network function stops: remote control,
+    live camera stills, guided cooks and the recipe catalog, push
+    notifications, pairing of new companions, and OTA updates. The oven still
+    cooks from its own touchscreen and its on-device food recognition
+    survives frozen. A factory-reset or new oven cannot complete first boot
+    (it requires a cloud software download) and is effectively bricked.
+  data_leaves_device:
+    - "interior camera stills (~1 fps JPEG during cooks, uploaded for pre-signed-URL distribution)"
+    - "cook telemetry (cavity and probe temperatures, cavity weight on Gen 3, cook progress)"
+    - "device logs, when a bug-report upload is requested"
+  auth:
+    type: "bearer_token"
+    endpoint: "/2/devices/register"
+    notes: >
+      No user account exists. POST /2/devices/register with a random
+      device_id, a random 32-hex password and the app's published
+      client_id/client_secret constants returns a 7-day Bearer token
+      (expires_in 604800). 'Refresh' is re-registering the same device_id;
+      grant_type=refresh_token is rejected with unsupported_grant_type.
+      Record the shape only — never a real token, device_id or password.
+    verification: "confirmed"
+  endpoints:
+    - path: "/2/devices/register"
+      method: "POST"
+      name: "register_companion"
+      returns: "7-day Bearer token for the registered device_id"
+      verification: "confirmed"
+    - path: "/2/devices/pairing"
+      method: "POST"
+      name: "request_pairing_code"
+      returns: "8-digit pairing PIN (final digit is a Damm check digit) for the user to type on the oven"
+      verification: "reported"
+    - path: "/2/devices/pairing/{code}/companion"
+      method: "POST"
+      name: "submit_companion_srp"
+      returns: "Accepts {salt, B, companion_info} — companion's SRP-6a server ephemerals plus the sealed companion_info blob"
+      verification: "reported"
+    - path: "/2/devices/pairing/{code}"
+      method: "DELETE"
+      name: "cancel_pairing"
+      returns: "Invalidates the pairing session (oven emits 10027)"
+      notes: "Must NOT be sent while pairing is in progress — wait for the second 10026."
+      verification: "reported"
+    - path: "/2/devices/{deviceId}/associated"
+      method: "GET"
+      name: "resolve_oven"
+      returns: "The oven_id associated with this companion; used in all messaging URLs"
+      verification: "reported"
+    - path: "/1/messaging/device/{ovenId}/status"
+      method: "GET"
+      name: "oven_status"
+      returns: "Current oven state snapshot (messaging host)"
+      verification: "reported"
+    - path: "/2/devices/{deviceId}/features"
+      method: "GET"
+      name: "device_features"
+      returns: "Feature/capability flags — never captured; path seen in app code only"
+      notes: "Would settle the full primitive_type mode vocabulary; unreachable after 2026-09-22."
+      verification: "hypothesis"
+
+local_access:
+  status: "none_known"
+  summary: >
+    No local control path is known on stock hardware, and the honest answer
+    today is that there may never be one: the oven is a pure outbound client
+    (no mDNS/SSDP/UPnP/local HTTP; ADB removed from the shipped user-mode
+    firmware), and its one candidate local surface — a community-reported
+    open TCP port 8156 — is unverified. The theoretical rescue path is a
+    DNS-redirect replacement cloud: all five junelife hosts are plain DNS
+    names a bench gateway can repoint, and a cloud-orphaned oven keeps
+    dialling essentially forever, so that experiment does NOT race the
+    shutdown. Two gates stand in front of it, both unmeasured: whether the
+    oven pins TLS (the app does; the oven is unknown), and where the oven
+    gets its clock (Weber's FAQ says it is cloud-dependent — a replacement
+    cloud may need to answer NTP). A replacement cloud is explicitly out of
+    scope for this project; this spec's job is to make the dependency and the
+    wire protocol legible to whoever builds one.
+  covers: []
+  not_covered:
+    - "all remote control (preheat, cancel, timer, target temperature, cook modes)"
+    - "live camera stills and cook telemetry"
+    - "guided cooks and the recipe catalog"
+    - "push notifications"
+    - "pairing of any new companion"
+    - "OTA firmware updates"
+  notes: >
+    What survives the shutdown WITHOUT any rescue: cooking from the
+    touchscreen, and on-device food recognition (frozen at its last model).
+    What a paired-today client keeps: an Ed25519 seed the oven already trusts
+    works against any endpoint that can reach the oven — so exporting pairing
+    material before 2026-09-22 is the single highest-value owner action. The
+    only deadline-bound research item is PASSIVE capture (DNS query log, SNI,
+    NTP behaviour, one full control session) — it needs a live June server to
+    record, and the DNS log is the only known way to name the oven's real
+    prod OTA host. The port-8156 and BLE-advertisement questions are one
+    bench session each and are not deadline-bound.
+
+helpful_urls:
+  - title: "keithah/homebridge-june-oven"
+    url: "https://github.com/keithah/homebridge-june-oven"
+    description: "Clean-room June integration spec plus working TypeScript/Python clients, verified end-to-end against a physical gen-3 oven (provenance: Android emulator + Frida, hooking libsodium and conscrypt). The primary protocol source for this spec. Already supports baseUrl/wsUrl overrides — the durable client design; its protocol-decode layer hardcodes the camera hosts, which is the PR a replacement-cloud future needs."
+  - title: "mvanhorn/printing-press-library — June conformance vectors"
+    url: "https://github.com/mvanhorn/printing-press-library"
+    description: "internal/june/testdata/vectors.json: byte-exact synthetic test vectors for the 72-byte frame signature, SRP-6a exchange, Damm check digit and NaCl secretbox seal. The test oracle for any reimplementation — no real credentials needed, ever."
+  - title: "Weber FAQ: What is happening to the June app"
+    url: "https://consumer-care.weber.com/s/article/What-is-happening-to-the-June-App"
+    description: "The shutdown notice: all June app/cloud services retire 2026-09-22; the oven keeps working from its touchscreen. Vendor source for the deadline and the survival list."
+  - title: "FCC grantee 2AJGA (June Life)"
+    url: "https://fccid.io/2AJGA"
+    description: "FCC filings for all three oven generations (JCP01 gen 1, gen 2 Wi-Fi-only grants, JCH03 gen 3): radio complements per generation, label exhibits."
+  - title: "June (company) — Wikipedia"
+    url: "https://en.wikipedia.org/wiki/June_(company)"
+    description: "Corporate history: June Life, the Weber-Stephen acquisition (Jan 2021), product generations."
+  - title: "Owner thread: reset ovens brick after 2026-09-22"
+    url: "https://www.reddit.com/r/Juneoven/comments/1v75wr7/new_and_reset_ovens_will_be_bricks_after_922/"
+    description: "Community documentation of the first-boot software-download dependency — the brick-risk population. Includes the former June engineer's first-hand comments (final firmware 1.24.1.34 preserved privately; ADB removed in user mode; oven firmware bespoke)."
+  - title: "Petition: final firmware with local network access"
+    url: "https://www.change.org/p/demand-a-final-firmware-update-for-june-ovens"
+    description: "Owner petition asking Weber for a local-control firmware release. Recorded as context, not as evidence of any capability."
+  - title: "sanjay900/igrill (adjacent Weber product, NOT this device)"
+    url: "https://github.com/sanjay900/igrill"
+    description: "BLE integration for the Weber iGrill probe. Shares no protocol surface with the June oven — the link is corporate, not technical. Listed only so nobody conflates the two."
+
+sources:
+  - type: "static_analysis"
+    artifact: "com.junelife.companion v1.24.1.11 (versionCode 1240111, final release)"
+    sha256: "430914bd946efe83a9c122105b08664482930fc69ed781c49a1b376605c96f0c"
+    signing_cert_sha1: "A7:12:63:B9:E5:76:BC:D5:95:0C:B5:79:8D:87:8B:BF:92:8E:C5:53"
+    obtained_via: "third-party APK mirror, 2026-08-18 (the app is delisted, so no official download). An earlier recon record lists sha256 e9de2c3a…35b7 at 21,032,158 bytes; both copies are 21,032,160 bytes with an identical v1 signing cert — a 2-byte mirror re-zip, and the hash above is the canonical mirror-copy hash."
+    description: >
+      Static analysis of the final release of the June companion Android app
+      (2026-08-18). Its environment enum supplied the prod/dev REST,
+      messaging, WebSocket and recipe hosts plus the app-constant
+      client_id/client_secret; its message-code factory and payload adapters
+      supplied the envelope; its HTTP client supplied the three hardcoded
+      certificate SPKI pins. Also verified here: zero BLE GATT service UUIDs
+      anywhere in the app, a bundled libsodium in seven ABIs, and no
+      OTA/firmware code in the companion at all.
+  - type: "static_analysis"
+    artifact: "com.weber.connect (sibling Weber grill app)"
+    sha256: "dfa0faadfd65c62dd03ff01907f0decc6ee2022205a6a884a94e43a376d1a985"
+    obtained_via: "third-party APK mirror, 2026-08"
+    description: >
+      Static analysis of the sibling Weber grill Android app (2026-08). It
+      embeds the entire June companion tree — the phone apps share a
+      codebase, the oven firmware does not. Its cloud SDK's OTA service
+      client and build configuration are the source of everything in the
+      `ota` block, including the shipped test .jota fixtures.
+  - type: "public_research"
+    url: "https://github.com/keithah/homebridge-june-oven"
+    description: "Clean-room protocol spec (JUNE_INTEGRATION_SPEC.md) verified end-to-end against a physical gen-3 oven — primary source for pairing, envelope, signature and message-code facts (marked 'reported' here)"
+  - type: "public_research"
+    url: "https://github.com/mvanhorn/printing-press-library"
+    description: "Synthetic byte-exact conformance vectors (signature, SRP-6a, Damm, secretbox) — the reimplementation test oracle"
+  - type: "vendor_notice"
+    url: "https://consumer-care.weber.com/s/article/What-is-happening-to-the-June-App"
+    description: "Weber consumer-care FAQ: all June app and cloud services retire 2026-09-22; Bluetooth not supported; clock is cloud-dependent"
+  - type: "fcc_filing"
+    url: "https://fccid.io/2AJGA"
+    description: "FCC grantee 2AJGA: gen-1 JCP01, gen-2 (Wi-Fi-only grants), gen-3 JCH03 'meerkat' — radio complements and label exhibits per generation"

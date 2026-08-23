@@ -37,7 +37,7 @@ The full GATT table ships as a JSON asset (`assets/staticConfig/attributes/attri
     `eb` ONOFF (rw/notify), `ec` RED_EQ (write/notify), `ed` CsrControlCommand (rw/notify).
 - Standard services: Device Info `180A` (2A23–2A29), Battery `180F`/`2A19`.
 
-## Command protocol (from `HereBlePayloadGenerator.java`)
+## Command protocol
 20-byte payloads; opcode constants recovered, e.g.:
 TOGGLE_SPEAKER_EQ=0, TOGGLE_MIC_EQ=1, TOGGLE_HIGH_SPL=2, TOGGLE_ANC=3,
 ADJUST_PGA_GAIN=4, TOGGLE_MIC_INPUT=5, WRITE_TRIM_VALUES=6, WRITE_CODEC_REGISTER=13,

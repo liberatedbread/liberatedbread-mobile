@@ -21,7 +21,7 @@ public.
 Core watch functions are 100% local over Bluetooth Classic:
 - Android pairing uses **SPP/RFCOMM with the standard SPP UUID
   `00001101-0000-1000-8000-00805F9B34FB`** (found in the last Pebble app at
-  `com/getpebble/android/bluetooth/j/b.java:18`, `createRfcommSocketToServiceRecord`).
+  its Bluetooth layer calls `createRfcommSocketToServiceRecord`).
   Time-series watches additionally expose BLE GATT services (LE pairing +
   PPoGATT on later firmware), but classic SPP remains the primary data path on Android.
 - **Gadgetbridge** ([codeberg.org/Freeyourgadget/Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge))

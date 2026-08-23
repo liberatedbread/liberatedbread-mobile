@@ -659,6 +659,117 @@ vocabulary. The real half is consumer work: a `toggle` role in the mobile app's
 role tables, and the read-state-then-toggle rule that makes it safe. As with
 P12, the schema change is not the interesting part.
 
+### P14 — Disambiguating a shared discovery service type { #p14 }
+
+**Status: landed.** `$defs/mdns_txt_match`, `identification.mdns_txt_match` and
+`discovery.methods[].mdns.{txt_match,platform_fallback}` are in `schema.json`;
+`ratgdo` and the new `esphome-device` are the two halves of the worked example,
+and `scripts/test_esphome_spec.py` holds the family to it. Kept here as the
+worked reasoning; the rest of this section is written as it was proposed.
+
+**Problem.** `identification.mdns_service_type` is a single string, matched by
+itself. That is fine for `_ankivector._tcp` and wrong for a service type that
+belongs to a *firmware platform* rather than a product. A consumer resolving a
+service type to a spec has no way to prefer one claimant over another, so the
+whole platform gets labelled with whichever spec the matcher reached first.
+
+**Evidence.** `ratgdo` was the only spec claiming `_esphomelib._tcp`, which is
+the service type of ESPHome itself. Every ESPHome node on the LAN — sensors,
+plugs, bluetooth proxies — rendered as a garage-door opener, offering
+`/cover/door` controls for entities those nodes do not have. The same shape is
+sitting in the registry unexploded: `lifx-z`, `rachio-controller` and
+`lutron-caseta-smart-bridge` all claim `_hap._tcp`, and `wled-controller` and
+`purpleair-sensor` both claim `_http._tcp`. Each says the right thing in prose
+`notes` and none of it is machine-readable.
+
+**Proposal.** Two additive keys, and a resolution rule that needs no new
+ordering field:
+
+```yaml
+identification:
+  mdns_service_type: "_esphomelib._tcp.local."
+  mdns_txt_match:                    # ANDed conditions; narrows type -> product
+    - key: "project_name"
+      match: "prefix"                # exact | prefix | contains | regex
+      value: "ratgdo."               #       | present | absent (no value)
+discovery:
+  methods:
+    - type: "mdns"
+      mdns:
+        service_type: "_esphomelib._tcp.local."
+        platform_fallback: true      # the catch-all, on the platform's own spec
+```
+
+A consumer takes the claimant with the most satisfied conditions; a spec with no
+conditions loses to one that has them, and `platform_fallback` marks the spec
+that is *meant* to catch the remainder. The fallback spec declares no
+`entities` — it cannot know them — and documents how to enumerate instead.
+
+**The two keys are exclusive.** `txt_match` is a precondition; `platform_fallback`
+is what a consumer reaches for when no precondition was met. A method carrying
+both has no single reading, and read the wrong way it rebuilds the bug one
+service type over — an ESPHome spec that is also the catch-all for `_http._tcp`
+claims every printer on the link that fails its TXT condition. Enforced across
+the catalogue by `test_no_method_is_both_narrowed_and_a_fallback`.
+
+**A claim in `identification` counts even with no `discovery` behind it.**
+`identification` is the block the scanner reads, so a spec naming a platform
+service type there and nowhere else over-matches exactly as badly while
+presenting nothing for a reviewer to object to. The regression suite derives
+claimants from both blocks and fails either divergence.
+
+**Compatibility.** Additive. A consumer reading only `mdns_service_type` behaves
+exactly as it does today; one reading `mdns_txt_match` stops mislabelling whole
+platforms. No existing spec changes meaning.
+
+**Effort.** Small schema, small consumer work (one filter step before the
+service-type lookup). The open follow-up is evidence, not design: the `_hap._tcp`
+and `_http._tcp` claimants above each need a matcher written from an actual TXT
+dump — HomeKit's `md` (model) and `ci` (accessory category) are the obvious
+candidates — and inventing those values rather than observing them would be
+worse than the prose we have.
+
+### P15 — A second address for the same invocation { #p15 }
+
+**Status: landed.** `commands[].path_fallback` and `entities[].state_topic_fallback`
+are in `schema.json` and exercised by `ratgdo`. Kept here as the worked
+reasoning.
+
+**Problem.** A spec states one `path` per command. That is right until a
+firmware family renames the thing the path addresses, at which point the file is
+correct for one half of the fleet and a 404 for the other, and there is nowhere
+to put the second address.
+
+**Evidence.** ESPHome addressed entities by slugified `object_id` up to 2025.12
+(`/cover/door/open`), accepted both forms from 2026.1.0 through 2026.6, and from
+2026.7 accepts only the percent-encoded entity name (`/cover/Door/open`). (The
+JSON identifier moved one release later, at 2026.8 — a separate boundary.)
+ratgdo boards in service today span the whole range. Whichever form the spec stated alone, it
+broke working hardware — and prose saying "older firmware uses the other one"
+reaches no consumer, because consumers execute the bindings.
+
+**Proposal.** One optional sibling key each, named for the `<role>_fallback`
+pattern the schema already uses in `state_mapping` and for
+`fallback_characteristic` on BLE:
+
+```yaml
+commands:
+  door_open:
+    path: "/cover/Door/open"
+    path_fallback: "/cover/door/open"
+```
+
+The contract is deliberately narrow: try `path`, and fall back only on an
+unambiguous "no such entity" answer (HTTP 404) — never a timeout, never a 5xx,
+never a blind second send. A door that opens twice because the first request was
+slow is a worse outcome than the 404 this exists to survive.
+
+**Compatibility.** Additive and ignorable: a consumer that never reads the key
+behaves exactly as it does today, correct for current firmware. Consumers that
+do read it keep older hardware working.
+
+**Effort.** Small. The judgement is in the 404-only rule, not the plumbing.
+
 ## Strategic / optional
 
 ### P7 — A normalized capability vocabulary { #p7 }
@@ -762,6 +873,8 @@ this page classifiable.
 | [P11](#p11) | Plural `local_name_prefix` | Medium | Very low | **Landed** |
 | [P12](#p12) | Executable HTTP commands + hub children | High | Low | **Landed** |
 | [P13](#p13) | Power as a stateful control + `toggle` role | High | Low | With consumer |
+| [P14](#p14) | Disambiguating a shared discovery service type | High | Very low | **Landed** |
+| [P15](#p15) | A second address for the same invocation | Medium | Very low | **Landed** |
 | [P7](#p7) | Normalized capability vocabulary | High | Medium | Needs a design pass |
 | [P8](#p8) | Rename `command_class` → `adapter_class` | Low | Low | Governance |
 | [P9](#p9) | SemVer the schema | Medium | Low | Governance — enables the rest |

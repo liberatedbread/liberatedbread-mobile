@@ -28,3 +28,5 @@ Observed hostname: `hubv2-0d052a8a662bc0001.local`
 
 Machine-readable spec: `device-specs/devices/smartthings-hub-v2.yaml`
 
+Home Assistant: the core [SmartThings integration](https://www.home-assistant.io/integrations/smartthings/) works over the SmartThings cloud API, not the local hub protocol documented here.
+

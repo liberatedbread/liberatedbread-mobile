@@ -48,6 +48,7 @@ nav:
       - Overview: getting-started/index.md
       - Tools: getting-started/tools.md
       - Methodology: getting-started/methodology.md
+      - Keeping Devices Alive: keeping-devices-alive.md
   - Devices:
       - Device Registry: devices/index.md
       - Guides:
@@ -55,6 +56,7 @@ nav:
           - WiFi Discovery: devices/wifi-discovery.md
           - Wemo Setup & Reset: devices/wemo-setup.md
           - Frigidaire Local API Audit: devices/frigidaire-local-api-audit.md
+          - June Oven LAN & IP Recon: devices/june-oven-lan-recon.md
           - Device Page Template: devices/_template.md
       - BLE Devices:
           - Ember Mug: devices/ember-mug.md
@@ -87,6 +89,26 @@ nav:
           - Aranet4 CO2 Sensor: devices/aranet4.md
           - Bluetti Power Station: devices/bluetti-power-station.md
           - Johnson JLX Laser Distance Meters: devices/jlx-laser-distance-meter.md
+          - Beurer PO60 Pulse Oximeter: devices/beurer-po60-pulse-oximeter.md
+          - Beurer Series 800 Blood Pressure Monitor: devices/beurer-series800-blood-pressure.md
+          - Hyperice Hypervolt Plus: devices/hyperice-hypervolt-plus.md
+          - BIO-key TouchLock Fingerprint Locks: devices/biokey-touchlock-fingerprint-lock.md
+          - Safetech Quicklock Padlock: devices/safetech-smart-padlock.md
+          - TIRO LED Helmet Display: devices/led-helmet-display.md
+          - iPixel Color LED Panels: devices/ipixel-color-led-panel.md
+          - Triones/HappyLighting LED Strips: devices/qh-happylighting-led-strips.md
+          - Tuya Bluetooth Soil Tester: devices/tuya-bt-soil-tester.md
+          - Flowtoys Props (Connect bridge): devices/flowtoys-props.md
+          - Enphase IQ Battery / Enpower BLE: devices/enphase-iqbattery-ble.md
+          - MXW01 Cat Printer: devices/cat-printer-mxw01.md
+          - Xiaomi Mi Scale S400: devices/xiaomi-mi-scale-s400.md
+          - Veryfit 2.0 Fitness Bands: devices/veryfit-2-fitness-band.md
+          - Govee H6001 Smart Bulb: devices/govee-h6001-bulb.md
+          - Govee H5080 Smart Plug: devices/govee-h5080-plug.md
+          - Govee H5075 Thermometer/Hygrometer: devices/govee-h5075-thermo.md
+          - Govee H6101/H6104 TV Backlight: devices/govee-h6101-backlight.md
+          - Govee RGB Lights (classic): devices/govee-rgb-light.md
+          - Govee RGBIC / DreamColor Lights: devices/govee-rgbic-light.md
       - WiFi Devices:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
           - Anki Vector Robot: devices/vector-robot.md
@@ -118,11 +140,21 @@ nav:
           - Android Wireless-ADB Device (identify): devices/android-adb-wireless.md
           - Chamberlain Garage Opener (Security+): devices/chamberlain-garage-opener-secplus.md
           - ratgdo Garage-Door Controller: devices/ratgdo.md
+          - ESPHome Node (generic): devices/esphome-device.md
           - Frigidaire Connected ACs: devices/frigidaire-ac.md
           - Frigidaire Portable AC: devices/frigidaire-portable-ac.md
           - Frigidaire Window AC: devices/frigidaire-window-ac.md
           - WLED Addressable LED Controller: devices/wled-controller.md
           - Rabbit Air Purifiers: devices/rabbit-air-purifier.md
+          - Yeelight Cube Lamp: devices/yeelight-cube-lamp.md
+          - Tuya Wi-Fi Gas Sensor: devices/tuya-wifi-gas-sensor.md
+          - June Oven: devices/june-oven.md
+          - Brava Oven: devices/brava-oven.md
+          - Vevor VT256 Thermal Imager: devices/vevor-vt256-thermal-imager.md
+          - LimitlessLED / Mi-Light Bridge: devices/limitlessled-milight-bridge.md
+          - Brother QL-1110NWB Label Printer: devices/brother-ql-1110nwb.md
+      - Zigbee Devices:
+          - Zigbee Soil Tester (TS0601 family): devices/zigbee-soil-tester.md
       - Z-Wave Devices:
           - devolo Home Control: devices/devolo-home-control.md
       - Vehicle, OBD-II & Bus:
@@ -136,6 +168,7 @@ nav:
           - NIU Electric Scooter: devices/niu-escooter.md
   - Reverse Engineering Workspace:
       - Executive Summary: EXEC_SUMMARY.md
+      - Candidate Devices & Hardware Sourcing: research/device-candidates.md
       - Clean-room Rules: CLEANROOM_RULES.md
       - Auto-detection Workflow: AUTODETECTION.md
       - APK Decompile Playbook: APK_DECOMPILE_PLAYBOOK.md

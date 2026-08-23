@@ -1040,11 +1040,11 @@ entities:
       broker reports = on. Power-on from standby is Wake-on-LAN — the broker
       is down while off.
   - platform: "button"
-    name: "Power"
+    name: "Power Key"
     icon: "mdi:power"
     commands:
       press: "press_power"
-    notes: "Toggle. Turning the TV ON from standby is Wake-on-LAN, not this button — the broker is down while off."
+    notes: "The raw remote key, distinct from the Power switch above: it promises a keypress, not a direction. Toggle. Turning the TV ON from standby is Wake-on-LAN, not this button — the broker is down while off."
   - platform: "button"
     name: "Up"
     icon: "mdi:chevron-up"

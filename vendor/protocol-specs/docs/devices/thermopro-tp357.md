@@ -88,6 +88,7 @@ presumably the buffer. The original (non-S) TP357 instead uses opcodes
 - [giovannipizzi/pytp357s PROTOCOL.md](https://github.com/giovannipizzi/pytp357s/blob/main/PROTOCOL.md)
 - [pasky/tp357](https://github.com/pasky/tp357)
 - [ble_monitor](https://github.com/custom-components/ble_monitor)
+- [Home Assistant ThermoPro integration](https://www.home-assistant.io/integrations/thermopro/) — HA core passive-BLE decode of TP357/TP358/TP393 advertisements
 
 ## Contributors
 

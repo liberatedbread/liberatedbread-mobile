@@ -111,7 +111,7 @@ CC [status:2] [temps:2] [battery:2] [temp:2] [control:2]
 - **No watchdog/keep-alive found** — device holds setpoint independently
 - Off command is just heat level 00
 
-## Files Analyzed
-- `com/hotwired/service/BluetoothService.java` — BLE service with UUIDs, connection, notification handling
-- `com/hotwired/util/BleOrder.java` — Command construction, hex conversion
-- `com/hotwired/mec/ControlActivity.java` — UI control surface
+## App areas analysed
+- BLE service with UUIDs, connection, notification handling
+- Command construction, hex conversion
+- UI control surface

@@ -21,6 +21,14 @@ Goal: discover device transports and identifiers quickly, before reverse enginee
 - Browse services:
   - avahi-browse -a -t
 - Focus on _http._tcp and any vendor-specific service types.
+- Read the TXT records, not just the service type. Several common service types
+  identify a *firmware platform* rather than a product — `_esphomelib._tcp` is
+  every ESPHome node, `_hap._tcp` every HomeKit accessory, `_http._tcp` every
+  web server on the link — and it is a TXT record that names the product
+  (ESPHome's `project_name`, HomeKit's `md`). A spec on such a service type
+  carries that condition in `identification.mdns_txt_match`; without it the
+  spec claims the whole platform. See
+  [ESPHome Node (generic)](devices/esphome-device.md) for the worked pair.
 
 ## UPnP/SSDP
 - Send M-SEARCH to 239.255.255.250:1900 and parse LOCATION headers.

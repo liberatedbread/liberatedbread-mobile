@@ -32,7 +32,7 @@ SOURCE = 0x4C425247  # "LBRG"
 PROTOCOL_ADDRESSED = 0x1400
 PROTOCOL_TAGGED = 0x3400
 HEADER_LEN = 36
-TARGET = bytes.fromhex("d073d50004a3")  # the example datagrams' device MAC
+TARGET = bytes.fromhex("d073d5aabbcc")  # the example datagrams' device MAC
 
 
 @pytest.fixture(scope="module")

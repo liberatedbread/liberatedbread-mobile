@@ -13,8 +13,9 @@ illumination. The PRO model includes an accelerometer for deceleration-triggered
 activation and a BLE interface for configuring settings via the free AdMore Connect app.
 
 The app communicates with the light bar over a **Nordic UART Service (NUS)** BLE profile,
-sending **Protocol Buffer (protobuf)** encoded messages. The device runs an nRF-based
-chipset with Nordic DFU support for firmware updates.
+sending **Protocol Buffer (protobuf)** encoded messages. The device runs a Nordic
+**nRF52832** SoC (derived from the DFU image bundled with the app — see Firmware Update)
+with Nordic Secure DFU support for firmware updates.
 
 ## Hardware
 
@@ -27,8 +28,8 @@ chipset with Nordic DFU support for firmware updates.
 | Housing | Weatherproof aluminum, powder-coated bracket |
 | Voltage | 12V DC (motorcycle electrical system) |
 | Wiring | 5-wire: brake, taillight, left signal, right signal, ground |
-| Radio | BLE (Nordic nRF-based chipset — exact part TBD via FCC filing) |
-| FCC ID | TBD |
+| Radio | BLE — Nordic nRF52832 (derived from the app's bundled DFU image: SoftDevice S132 v7.0.1 requirement, 64 KB RAM initial SP in the vector table; see Firmware Update) |
+| FCC ID | TBD (no filing found) |
 | Compatibility | All 12V motorcycles/scooters; CANBUS compatible |
 | Origin | Calgary, Alberta, Canada |
 
@@ -309,7 +310,7 @@ These are reported by the device via the NUS TX characteristic:
 | `LIS_PWM_ON` / `LIS_PWM_OFF` | PWM output state |
 | `MMS_DECEL_ON` / `MMS_DECEL_OFF` | Deceleration detected / cleared |
 | `MMS_MOTION_ON` / `MMS_MOTION_OFF` / `MMS_MOTION_STOP` | Motion state |
-| `MMS_TILT_DOWN` / `MMS_TILT_UPD` | Tilt detection |
+| `MMS_TILT_DOWN` / `MMS_TILT_UP` | Tilt detection |
 
 ### Connection Flow
 
@@ -370,6 +371,27 @@ The device reports version info via query commands with these fields:
 | Debug Firmware | `/debug/dfu_lightbar_latest.zip` |
 | Version Check | `getLatestLightbarVersion()` |
 | DFU States | INITIAL → PROCESSING → VERIFYING → TRANSFERRING → success/TRANSFER_FAIL |
+
+#### Bundled debug DFU package (firmware artifact)
+
+The app ships a real DFU package at `assets/flutter_assets/debug/debug_dfu.zip`
+(files dated May 2020). Unpacking it shows the standard **nrfutil Secure DFU** layout:
+
+| Property | Value |
+|----------|-------|
+| Package contents | `manifest.json` + `lightbar_nrf52.bin` + `lightbar_nrf52.dat` |
+| Init packet (`.dat`, 141 bytes) | Protobuf `SignedCommand`: ECDSA P-256 signature + SHA-256 image hash |
+| `hw_version` | 52 (nRF52 family) |
+| SoftDevice requirement (`sd_req`) | FWID `0xCB` — S132 v7.0.1 family (nRF5 SDK 16 era) |
+| Application image | 49,640 bytes, application-only (no SoftDevice/bootloader) |
+| App base address | `0x26000` (standard offset behind S132 v7.x; reset handler `0x26361`) |
+| RAM | 64 KB (initial SP `0x20010000` in the vector table) |
+
+Together these pin the SoC to the **nRF52832** (512 KB flash / 64 KB RAM) rather than
+merely the nRF52 family. Because this is Secure DFU, update images must be signed with
+the vendor's DFU private key: a third-party client can push vendor-issued zip packages
+(using any Nordic DFU library) but cannot author new firmware images the bootloader
+will accept.
 
 ### Armband Protocol
 

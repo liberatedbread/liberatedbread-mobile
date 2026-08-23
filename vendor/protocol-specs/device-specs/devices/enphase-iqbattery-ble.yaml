@@ -1,0 +1,313 @@
+# Enphase IQ Battery (Encharge) / IQ System Controller (Enpower) — BLE — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Enphase IQ Battery / IQ System Controller (BLE)"
+  manufacturer: "Enphase Energy"
+  manufacturer_status: "active"
+  testing:
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Advertisement identity is live-verified: a BT scan on 2026-08-18 at the
+      owner's site found an Enpower smart switch and two Encharge (IQ
+      Battery) units beaconing as "Enpower/<serial>" and "Encharg/<serial>"
+      from Silicon Labs OUI MACs (04:0D:84:*). No GATT connection was
+      attempted (production storage on a live site). Everything below the
+      advertisement layer — GATT UUIDs, unlock handshake, relay frames,
+      protobuf schema — is derived from clean-room static analysis of the
+      Enphase Installer Toolkit Android app (2026-08-19), cross-checked
+      against Digi's public XBee 3 BLE
+      documentation and the public digi-xbee-java library. Treat the
+      GATT/protocol layer as medium confidence until exercised on hardware.
+  protocol: "ble"
+  category: "energy"
+  notes: >
+    Enphase Ensemble storage gear — Encharge/IQ Battery and the Enpower/IQ
+    System Controller — carries a Digi XBee 3 radio (Silicon Labs EFR32
+    inside, hence the Silabs OUI on the BLE MAC) that serves double duty:
+    the 2.4 GHz 802.15.4 site mesh, and a BLE interface used by installers.
+    The BLE interface is the stock Digi XBee 3 BLE GATT service: an
+    SRP-6a-authenticated unlock, then an encrypted pipe carrying XBee API
+    frames; Enphase payloads ride inside XBee "User Data Relay" frames
+    addressed to the radio's serial interface. Two payload layers exist:
+    a simple one-byte-typed provisioning frame set (PAN ID / link key /
+    Envoy serial push, pairing status, relay states, telemetry read), and a
+    rich protobuf "object model" (EnsObjMdlMessage) used for live
+    statistics, inventory, relay control, battery SoC/phase config and
+    blackstart recovery. This spec covers the battery/switch units
+    themselves; the site gateway's own REST and BLE surfaces are documented
+    separately in enphase-envoy. Relationship to the cloud: the
+    commissioning sequence the vendor app runs is installer-account driven,
+    but the BLE link itself needs no cloud — the unlock password is the
+    XBee factory default and the link key is generated locally.
+
+  identification:
+    local_name_prefixes:
+      - "Enpower/"
+      - "Encharg/"
+    service_uuids:
+      - "53da53b9-0447-425a-b9ea-9837505eb59a"
+    mac_prefixes:
+      - prefix: "04:0D:84"
+        confidence: "low"
+        notes: >
+          Silicon Labs OUI of the Digi XBee 3 (EFR32) radio inside the
+          units; observed live 2026-08-18 on one Enpower and two Encharge
+          units. Shared with every other Silicon Labs-based product, so a
+          ranking signal only — never sufficient alone.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^(Enpower|Encharg)/.+"
+          service_uuids:
+            - "53da53b9-0447-425a-b9ea-9837505eb59a"
+    identity:
+      stable_keys: ["serial"]
+      display: "local_name"
+    static_ip_required: false
+    notes: >
+      The serial number is the part of the advertised local name after the
+      slash ("Encharg/<serial>"); the Installer Toolkit matches devices by
+      testing whether the advertised name CONTAINS the expected serial, so
+      the serial substring is the stable identity. Whether the XBee 3 BLE
+      service UUID 53da53b9 is present in the advertisement itself (vs.
+      only after connection) is unverified — name matching is the
+      app-confirmed path.
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      These units are installer-commissioned, not owner-paired: the
+      Installer Toolkit connects to each unit over BLE during install and
+      pushes the site's 802.15.4 PAN ID, a locally generated 16-byte link
+      key, and the Envoy serial number so the unit joins the site mesh.
+      The BLE unlock itself uses the XBee 3 SRP-6a handshake with the Digi
+      factory-default password "password" (the app's own default, passed
+      whenever no other is known), so the BLE layer is cloud-free and
+      owner-reproducible. Whether units keep advertising BLE indefinitely
+      after commissioning is unverified — the units at the research site
+      still beacon many months after install.
+    methods:
+      # ble_provisioning, not ble_direct: commissioning pushes the site's
+      # 802.15.4 PAN ID, a 16-byte link key and the Envoy serial to the unit
+      # over this same BLE channel, which is a credential exchange. Calling it
+      # ble_direct ("usable by scanning and connecting, no credential
+      # exchange") would contradict setup.required: true.
+      - type: "ble_provisioning"
+        verified: false
+        description: >
+          Connect to the unit's XBee 3 BLE service, run the SRP-6a unlock
+          (XBee API frame 0x2C, username "apiservice", default password
+          "password"), then exchange User Data Relay frames on the now
+          AES-encrypted channel. All values app-derived; the unlock
+          mechanics themselves are Digi-documented public protocol.
+        ble:
+          protocol: "Digi XBee 3 BLE + Enphase relay payload (see services)"
+          service_uuid: "53da53b9-0447-425a-b9ea-9837505eb59a"
+        steps:
+          - action: "Connect and discover the XBee 3 BLE service; subscribe to the RX characteristic f9279ee9-2cd0-410c-81cc-adf11e4e5aea."
+            actor: "client"
+          - action: "Perform the SRP-6a unlock: send BLE Unlock frame 0x2C with the SRP client value for user 'apiservice' and password 'password' (Digi factory default), complete the two-step exchange, and apply the negotiated AES session keys to both characteristics."
+            actor: "client"
+            expect: "Unlock response frame 0xAC reports success; subsequent traffic is encrypted."
+            timeout_seconds: 10
+          - action: "Exchange Enphase frames as XBee User Data Relay Output (0xAD) payloads addressed to the serial interface; responses arrive as User Data Relay (0x2D)."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: "Not documented in this project. Frame type 2 (RESET_DEV) exists in the provisioning frame set and is app-reachable, but its exact effect (radio-only vs. full de-commission) is unknown; do not poke it on a live site."
+      procedures:
+        - name: "Not verified"
+          steps:
+            - action: "Consult the model's install manual; de-commissioning is normally done by an installer via the gateway."
+              actor: "user"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Site-mesh re-join is a re-run of the BLE provisioning push (PAN ID,
+        link key, Envoy serial) — no reset needed, and the app retries the
+        link-key push with freshly generated keys on mismatch.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "802.15.4 site PAN ID and link key"
+        - "Envoy (gateway) serial number"
+      issued_to_client:
+        - "None — the client authenticates with the XBee BLE password (factory default 'password' unless changed)"
+      notes: >
+        The 16-byte 802.15.4 link key is generated by the app with
+        SecureRandom at commissioning time (all-0x00 and all-0xFF keys are
+        rejected and regenerated) and pushed to every Ensemble device; it is
+        a site-shared secret stored on each unit. A documented-but-default
+        fallback key begins 03 06 09 (app constant). Possession of the BLE
+        unlock password therefore yields the site mesh key — meaningful for
+        site security, and the reason this layer deserves the encrypted
+        channel it has.
+
+  openness:
+    status: "hostile"
+    notes: >
+      No public protocol documentation from Enphase; commissioning is gated
+      behind an installer certification program, and battery control flows
+      through the gateway and Enlighten cloud. The BLE link layer itself is
+      Digi's documented XBee 3 BLE protocol; the Enphase payload layer
+      documented here is app-derived.
+
+evidence:
+  live_ble_scan:
+    date: "2026-08-18"
+    protocol: >
+      Passive BT scan at the owner's site: one "Enpower/<serial>" and two
+      "Encharg/<serial>" beacons, all from Silicon Labs OUI MACs
+      (04:0D:84:*). Identity-layer facts (names, OUI) verified; nothing
+      connected or probed further.
+  app_static_analysis:
+    date: "2026-08-19"
+    source: "Static analysis of the Enphase Installer Toolkit Android app (clean-room audit; derived facts only)"
+    confirms:
+      - "Units are reached via the stock Digi XBee 3 BLE GATT service 53da53b9-0447-425a-b9ea-9837505eb59a (TX 7dddca00-3e05-4651-9254-44074792c590, RX f9279ee9-2cd0-410c-81cc-adf11e4e5aea), bundled com.digi.xbee library."
+      - "Unlock is XBee BLE frame 0x2C carrying an SRP-6a handshake (username 'apiservice'); the app defaults to password 'password'; the channel is AES-encrypted afterwards."
+      - "Enphase payloads ride XBee User Data Relay Output (0xAD) to the radio's serial interface (micropython interface for the IQ Extender); responses come back as User Data Relay (0x2D)."
+      - "Provisioning frame types 0-9 (link key, reset, relay states, ZB pairing/commissioning status, link key read, Envoy SN write/read, Enpower telemetry read); link-key frame is [0x01][0x10][16 key bytes]."
+      - "A protobuf object-model layer (EnsObjMdlMessage, proto2: required protover=1, required uint64 timestamp=2, oneof payload tags 3-63) carries inventory, poll/live stats, subscribe/publish, relay and secondary control, SoC/phase config, sleep mode, manual override, events and memfault diagnostics."
+      - "Discovery matches advertised name containing the device serial; no scan filter on service UUID."
+    confidence: "medium"
+    confidence_notes: "Derived from app code, not yet exercised against the units; the Digi XBee 3 BLE layer is additionally public vendor documentation."
+
+services:
+  - uuid: "53da53b9-0447-425a-b9ea-9837505eb59a"
+    name: "Digi XBee 3 BLE (XBee BLE Service)"
+    notes: >
+      The stock Digi XBee 3 BLE service — the Enpower/Encharge/IQ Extender
+      BLE interface is exactly this, confirmed in the bundled
+      com.digi.xbee.api Android library and matching Digi's public XBee 3
+      BLE documentation. XBee API frames are written to TX and received on
+      RX; before the SRP-6a unlock completes only BLE Unlock frames (0x2C)
+      are accepted, and after it both directions are AES-encrypted with
+      session keys from the handshake (the library applies the cipher
+      transparently in its GATT callbacks). XBee API frame types in play
+      (public digi-xbee-java APIFrameType): 0x2C BLE Unlock, 0xAC BLE
+      Unlock Response, 0xAD User Data Relay Output (client→device),
+      0x2D User Data Relay (device→client). Enphase payloads are the
+      user-data field of the relay frames, addressed to
+      XBeeLocalInterface.SERIAL (XBeeLocalInterface.MICROPYTHON for the IQ
+      Extender).
+    characteristics:
+      - uuid: "7dddca00-3e05-4651-9254-44074792c590"
+        name: "TX (client writes XBee API frames)"
+        properties: ["write"]
+        notes: >
+          Write XBee API frames here. After unlock the app wraps Enphase
+          payloads in User Data Relay Output (0xAD) frames.
+      - uuid: "f9279ee9-2cd0-410c-81cc-adf11e4e5aea"
+        name: "RX (device notifies XBee API frames)"
+        properties: ["notify", "indicate"]
+        notes: >
+          Notifications carry the device's XBee API frames — BLE Unlock
+          Response (0xAC) during the handshake, then User Data Relay
+          (0x2D) frames carrying Enphase responses. The standard CCCD
+          (0x2902) is used to enable notifications.
+
+# The Enphase payload layers inside the relay frames. Neither is a GATT
+# characteristic surface, so they are documented as protocol blocks the
+# schema allows to travel alongside: a simple typed provisioning frame set,
+# and the protobuf object model.
+enphase_relay_protocol:
+  transport: >
+    Byte stream inside XBee User Data Relay Output (0xAD, outgoing) and
+    User Data Relay (0x2D, incoming) frames, destination interface SERIAL
+    (MICROPYTHON on the IQ Extender).
+  provisioning_frames:
+    description: >
+      Simple frame set used at commissioning, built by the app's XBee BLE
+      manager.
+      Request byte 0 is the frame type, byte 1 is a 0 placeholder; the
+      response echoes the type in byte 0, and the payload is everything
+      after the first two bytes (the app drops exactly two bytes before
+      parsing). Poll-style requests are sent as [type, 0x00].
+    frame_types:
+      "0": "NONE (placeholder)"
+      "1": "LINK_KEY — push the 16-byte 802.15.4 site link key; full frame is [0x01][0x10][16 key bytes] (18 bytes)"
+      "2": "RESET_DEV — device reset (effect unverified; treat as destructive)"
+      "3": "RELAY_STATES — read relay states (Enpower)"
+      "4": "ZB_PAIRING_STATUS — 802.15.4 pairing status"
+      "5": "ZB_COMMISSIONING_STATUS — commissioning status"
+      "6": "ZB_READ_LINK_KEY — read back the stored link key"
+      "7": "ZB_WRITE_ENVOY_SN — write the gateway (Envoy) serial number"
+      "8": "ZB_READ_ENVOY_SN — read back the gateway serial (used by the app to derive/verify the site PAN ID; mismatch is a first-class PAN_ID_MISMATCH error)"
+      "9": "READ_ENPOWER_TELEM — read Enpower telemetry"
+  object_model:
+    description: >
+      Rich request/response and pub/sub protocol (Square Wire classes,
+      proto2 syntax) used for live statistics, inventory, control and
+      blackstart recovery. Envelope message EnsObjMdlMessage:
+      field 1 = ProtocolVer protover (required; VERSION_1_0 in use),
+      field 2 = uint64 timestamp (required),
+      fields 3-63 = oneof payload, one message per exchange. The poll
+      request (tag 13) is {required string serial_num = 1, required int32
+      dm_group_id = 2}; its response (tag 14) carries the live statistics
+      the app's device-details screens render. The device can also publish
+      asynchronously (publish req/rsp tags 9/10 after subscribe 7/8).
+    device_type_enum:
+      "0": "ALL_DEVICES"
+      "13": "ENCHARGE_DEVICE"
+      "14": "ENCHARGE_MICRO (the battery's IQ8 microinverters)"
+      "15": "ENCHARGE_CTRL"
+      "16": "ENCHARGE_BMU (battery management unit)"
+      "17": "ENPOWER_DEVICE"
+      "18": "ENPOWER_CTRL"
+      "19": "ENBRIDGE_DEVICE"
+    payload_tags:
+      "3/4": "data-model meta req/rsp"
+      "5/6": "groups req/rsp"
+      "7/8": "subscribe req/rsp"
+      "9/10": "publish req/rsp (device-initiated live data)"
+      "13/14": "poll req/rsp (live statistics)"
+      "15/16": "secondary control req/rsp"
+      "17/18": "relay control req/rsp"
+      "19/20": "DMIR status req/rsp"
+      "21-26": "transactions: start/set/end req/rsp (21/22, 23/24, 25/26)"
+      "27/28": "grid status req/rsp"
+      "29": "event (device-initiated)"
+      "30/31": "relay status req/rsp"
+      "32/33": "Encharge SoC config req/rsp (also used to push battery phase assignment)"
+      "34/35": "MTT periodic secondary control req/rsp"
+      "36/37": "CLI debug req/rsp"
+      "38/39": "sleep mode req/rsp"
+      "40/41": "BMU stats req/rsp"
+      "42/43": "inventory req/rsp"
+      "44/45": "blackbox telemetry req/rsp"
+      "46/47": "error clear req/rsp"
+      "48/49": "sample tape req/rsp"
+      "50/51": "manufacturing mode req/rsp"
+      "52/53": "events / events ack"
+      "54/55": "loopback req/rsp"
+      "56/57": "dry-contact control req/rsp"
+      "58/59": "dry-contact status req/rsp"
+      "60/61": "manual override req/rsp"
+      "62/63": "memfault diagnostic data / ack"
+  live_statistics:
+    description: >
+      Poll/inventory responses decode (partly in the app's native
+      libble-data.so) into per-device live statistics. The Encharge unit
+      record carries: aggregated power, state of charge, number of active
+      and ready microinverters (PCUs), inventory-updated flag, device UID,
+      LED status, BMU state, available charge and discharge power, and
+      phase-line assignment; nested records carry per-BMU and per-PCU
+      statistics. Exact native byte layout not yet reversed — the protobuf
+      path above is the documented one.
+  related_specs:
+    - "enphase-envoy — the site gateway: LAN REST API, mDNS identity, and the gateway-side BLE services (connectivity ed453f0f-*, ensemble 5c498caa-*, validation 19f4de83-*, devices ba808b5a-*, OTA 57c44b4a-*) this site's units are commissioned to report to."
+
+helpful_urls:
+  - title: "Home Assistant Enphase Envoy integration"
+    url: "https://www.home-assistant.io/integrations/enphase_envoy/"
+    description: "HA core integration; exposes IQ Battery telemetry (state of charge, power) as reported through the site Envoy gateway — the production consumer of the data these BLE-commissioned units report."

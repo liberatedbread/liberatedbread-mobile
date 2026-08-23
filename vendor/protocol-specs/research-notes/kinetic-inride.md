@@ -21,8 +21,8 @@ Also covers Kinetic Smart trainers (R1 etc.) driven by the same "Kinetic Fit" ap
   profile per inRide gen 1/2/3 with a scan — Wahoo forum reports gen differences.)
 - Kinetic Fit dex shows FTMS (`00001826`) for smart-trainer control plus a custom family
   `e9410100`–`e9410304-b434-446b-b5cc-36592fc4c724` (likely Kinetic smart-trainer
-  control/telemetry, e.g. R1) and DIS `180a`. Classes: `InRideSensor.java`,
-  `InRide2Service.kt`, `InRideSensorFactory.java`.
+  control/telemetry, e.g. R1) and DIS `180a`. The app carries an InRide sensor class, a second-generation
+  InRide service and a sensor factory.
 - No account needed for third-party apps; Kinetic Fit cloud (workout sync) is optional.
 
 ## APK details (apkeep, apk-pure)

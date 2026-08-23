@@ -1,0 +1,618 @@
+# Generic "ZigBee Soil Tester" (Tuya TS0601 family) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Family spec: the white-label "ZigBee Soil Moisture Tester" garden probes
+# sold on AliExpress/Amazon under retail names like ZG-303Z, HZ-SL04
+# "Haozee", QT-07S "Qoto", GXM-01 and GX04/GX06 "GIEX". All of them are
+# Tuya ZigBee 3.0 TS0601 datapoint (DP) devices: every reading and setting
+# rides the manufacturer-specific Tuya cluster 0xEF00 as typed datapoints,
+# and there are no standard temperature/humidity clusters to poll. No Tuya
+# hub or Tuya cloud is needed — the sensors pair directly to any ZigBee
+# coordinator and are natively supported by Zigbee2MQTT.
+#
+# THE trap this spec exists to document: retail model names do NOT identify
+# the protocol layout. The string "ZG-303Z" alone spans at least two
+# different DP maps. Identity is the (modelID=TS0601, manufacturerName)
+# pair reported at ZigBee interview; the DP map is selected from the
+# fingerprint groups below, keyed off manufacturerName.
+
+device:
+  name: "Generic ZigBee Soil Tester (Tuya TS0601 family)"
+  manufacturer: "Tuya-based white-label OEMs (GIEX, Qoto, HOBEIAN, COOLO, AOYAN, Haozee and others)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Nothing here was replayed against hardware by this project. Every DP
+      map and fingerprint below is transcribed from a 2026-08-19 snapshot
+      of Koenkk/zigbee-herdsman-converters src/devices/tuya.ts (sha256 in
+      sources), cross-checked against the Zigbee2MQTT device pages. There
+      is no vendor app protocol to reverse: these are pure ZigBee end
+      devices, and no APK was acquired because none is needed for local
+      control.
+  protocol: "zigbee"
+  category: "sensor"
+  type: "soil-sensor"
+  notes: >
+    Battery-powered (2xAA) sleepy ZigBee 3.0 end devices with a soil probe:
+    they wake on their sampling interval, report soil moisture and soil
+    temperature as Tuya datapoints on cluster 0xEF00, and go back to sleep.
+    Richer variants add ambient air temperature/humidity, a light sensor,
+    alarm thresholds, calibration offsets and configurable sampling
+    intervals — all as extra datapoints, never as standard ZCL clusters.
+    The Tuya/Smart Life app only enters the picture when the sensor is
+    paired to a Tuya ZigBee gateway; for local control with any third-party
+    coordinator (Zigbee2MQTT reference implementation; ZHA partial via
+    quirks) the vendor stack is irrelevant.
+  identification:
+    # ZigBee devices do not advertise like BLE; they are identified during
+    # the coordinator's interview by the Basic cluster's modelIdentifier
+    # and manufacturerName attributes. The pair below is the identity key
+    # for this entire family; the per-fingerprint DP maps are in the
+    # `zigbee.dp_maps` block.
+    zigbee_model_id: "TS0601"
+    zigbee_manufacturer_names:
+      - "_TZE200_myd45weu"
+      - "_TZE200_ga1maeof"
+      - "_TZE200_2se8efxh"
+      - "_TZE200_9cqcpkgb"
+      - "_TZE204_myd45weu"
+      - "_TZE284_myd45weu"
+      - "_TZE284_oitavov2"
+      - "_TZE284_2nhqasjh"
+      - "_TZE284_2se8efxh"
+      - "_TZE284_g2e6cpnw"
+      - "_TZE284_sgabhwa6"
+      - "_TZE284_aao3yzhs"
+      - "_TZE284_nhgdf6qr"
+      - "_TZE284_3urschql"
+      - "_TZE200_wqashyqo"
+      - "_TZE200_npj9bug3"
+      - "_TZE200_wrmhp6b3"
+    notes: >
+      Retail box labels (ZG-303Z, HZ-SL04, QT-07S, GXM-01, GX04, GX06,
+      CS-201Z, AY-302Z/303Z) are rebadge names and must NOT be used to pick
+      a DP map: "ZG-303Z" in particular appears as the zigbeeModel of at
+      least two devices with different DP layouts. Key everything off
+      manufacturerName.
+
+  # The fingerprint groups. `model` is the Zigbee2MQTT converter name the
+  # group is known by upstream; `fingerprints` is the manufacturerName
+  # list; `dp_map` names the table in the top-level `zigbee` block.
+  variants:
+    - model: "TS0601_soil"
+      name: "Classic 2-DP probe (soil moisture + soil temperature)"
+      retail_names: "Qoto QT-07S, GXM-01, generic '3-in-1' probes"
+      fingerprints: "_TZE200_myd45weu, _TZE200_ga1maeof, _TZE200_2se8efxh, _TZE200_9cqcpkgb, _TZE204_myd45weu, _TZE284_myd45weu, _TZE284_oitavov2, _TZE284_2nhqasjh, _TZE284_2se8efxh"
+      dp_map: "classic"
+      verification: "reported"
+    - model: "TS0601_soil_2"
+      name: "Probe with alarm thresholds and report-interval config"
+      fingerprints: "_TZE284_g2e6cpnw, _TZE284_sgabhwa6"
+      dp_map: "soil_2"
+      verification: "reported"
+    - model: "TS0601_soil_3"
+      name: "GIEX GX04/GX06 family (GX06 adds a light sensor)"
+      fingerprints: "_TZE284_aao3yzhs, _TZE284_nhgdf6qr (GX04), _TZE284_3urschql (GX06)"
+      dp_map: "soil_3"
+      notes: "DP 2 (brightness level) exists only on the GX06 hardware."
+      verification: "reported"
+    - model: "ZG-303Z"
+      name: "HOBEIAN ZG-303Z (adds ambient air temperature/humidity)"
+      fingerprints: "_TZE200_wqashyqo"
+      dp_map: "zg303z"
+      notes: >
+        High-numbered DP layout (102-112), completely different from the
+        classic group even though "ZG-303Z" also shows up as a model
+        string on COOLO/AOYAN rebadges that use yet another map.
+      verification: "reported"
+    - model: "CS-201Z"
+      name: "COOLO CS-201Z / AOYAN AY-302Z/AY-303Z rebadges"
+      fingerprints: "_TZE200_npj9bug3, _TZE200_wrmhp6b3"
+      dp_map: "cs201z"
+      notes: >
+        Classic-style low-numbered DPs plus calibration and humidity
+        extras; AY-302Z lacks the humidity DP. A newer 4-in-1 spin adds
+        soil fertility (DPs 112/114/115) — see the cs201z map notes.
+      verification: "reported"
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      There is no vendor provisioning flow to reproduce: onboarding IS
+      standard ZigBee 3.0 joining. Put any coordinator into permit-join
+      and hold the device's button ~5-6 s until its LED flashes; the
+      device joins, is interviewed, and starts reporting. Confidence
+      medium: the button procedure is stated on the Zigbee2MQTT device
+      pages and in vendor manuals, not replayed here. Keep the device
+      awake (button presses) if the interview stalls — these are hard
+      sleepers.
+    methods:
+      - type: "hub_pairing"
+        verified: false
+        description: >
+          Standard ZigBee 3.0 join to any coordinator (ConBee, SONOFF
+          ZBDongle, CC2652-based sticks, etc.) under Zigbee2MQTT or ZHA.
+          No Tuya gateway, account or cloud involvement at any point.
+        steps:
+          - action: "Put the coordinator into permit-join mode."
+            actor: "user"
+          - action: "Hold the sensor's button for ~5-6 s until the LED flashes."
+            actor: "user"
+            expect: "Coordinator reports a new device; interview reads modelIdentifier TS0601 and the manufacturerName fingerprint."
+          - action: "Match the reported manufacturerName against the fingerprint groups in this spec to select the DP map — do not trust the retail model string."
+            actor: "client"
+        troubleshooting:
+          - symptom: "Interview times out or device shows as unsupported/unknown."
+            causes:
+              - "Device went back to sleep mid-interview — keep it awake with short button presses until the interview finishes."
+              - "Stock ZHA has no quirk for this fingerprint yet (several only landed via 2025 community requests); Zigbee2MQTT supports all groups in this spec natively, or use a custom quirk/converter."
+          - symptom: "After a battery swap the device reports stale 0 values."
+            causes:
+              - "Known quirk (z2m issue #31965): force a re-interview / reconfigure of the device in the coordinator."
+          - symptom: "Temperature reports look like °F even though the unit DP says °C."
+            causes:
+              - "Known firmware quirk on some units (z2m issue #31965): they report in °F regardless of the temperature-unit DP; decode accordingly or convert client-side."
+    factory_reset:
+      applicable: true
+      confidence: "low"
+      effect: >
+        No factory reset distinct from the ZigBee leave/rejoin procedure
+        is documented for any variant. Holding the button (~5-6 s, the
+        same gesture used for pairing) makes the device leave its network
+        and re-enter join mode, which is the only reset a sleepy ZigBee
+        end device of this kind exposes: it clears the network binding
+        (PAN ID / network key), nothing else. Whether on-device
+        calibration offsets and alarm thresholds survive is unverified —
+        assume they persist and re-check the writable DPs after rejoining.
+      procedures:
+        - name: "Leave network / re-enter pairing (button hold)"
+          hold_seconds: 6
+          indicator: "LED flashes; the coordinator logs a leave/join event."
+          steps:
+            - action: "Hold the device button ~5-6 s until the LED flashes (same procedure as initial pairing)."
+              actor: "user"
+            - action: "Remove the stale device entry in the old coordinator if it does not clean up on its own."
+              actor: "user"
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: false
+      notes: >
+        Moving to a new coordinator is the standard ZigBee leave-then-join
+        above; no cloud account is involved on either side. The old
+        coordinator does not need to be alive — the leave is initiated on
+        the device.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "ZigBee network membership: PAN ID, extended PAN ID, channel and the network key, assigned at join"
+      issued_to_client:
+        - "IEEE address and network address, assigned by the coordinator at join"
+      notes: >
+        No WiFi exists on the device and no user credential of any kind
+        crosses a documented link; the only secret is the ZigBee network
+        key delivered by the coordinator during the standard join
+        handshake.
+
+zigbee:
+  profile_id: "0x0104"
+  profile: "ZigBee 3.0 (Home Automation profile)"
+  endpoint: 1
+  device_class: "sleepy end device (2xAA; wakes on its sampling interval)"
+  input_clusters:
+    - id: "0x0000"
+      name: "Basic (carries modelIdentifier=TS0601 and the manufacturerName fingerprint)"
+    - id: "0x0004"
+      name: "Groups"
+    - id: "0x0005"
+      name: "Scenes"
+    - id: "0xED00"
+      name: "Tuya-specific (60672)"
+    - id: "0xEF00"
+      name: "manuSpecificTuya (61184) — ALL application data"
+  notes: >
+    There are no standard ZCL temperature or humidity measurement clusters
+    on these devices: every sensor reading and every setting is a Tuya
+    datapoint on cluster 0xEF00. A client that polls 0x0402/0x0405 gets
+    nothing; subscribe to the Tuya cluster instead.
+  dp_frame:
+    description: >
+      Tuya datapoint framing on cluster 0xEF00. Each cluster command
+      payload carries a transaction sequence number followed by one or
+      more datapoint records. A record is: [dpid u8][type u8][length u16
+      big-endian][value, length bytes]. Type codes: 0x00 raw, 0x01 bool,
+      0x02 value (u32 big-endian, the carrier for all scaled integers
+      below), 0x03 string, 0x04 enum, 0x05 bitmap. The coordinator-to-
+      device direction (set/command) and the device-to-coordinator
+      direction (report/response) use the same record layout under the
+      Tuya cluster's data-request / data-report / data-response command
+      IDs. Value semantics (which dpid means what, and its scaling) are
+      per fingerprint group in dp_maps below.
+    verification: "reported"
+  dp_maps:
+    - group: "classic"
+      applies_to: "TS0601_soil"
+      datapoints:
+        - dp: 3
+          name: "soil_moisture"
+          type: "value (0x02)"
+          unit: "%"
+          range: "0-100"
+          access: "report"
+        - dp: 5
+          name: "soil_temperature"
+          type: "value (0x02)"
+          unit: "C"
+          access: "report"
+          notes: "Raw °C on the classic group; the soil_2/soil_3 groups carry the same DP divided by 10 — check the fingerprint before decoding."
+        - dp: 9
+          name: "temperature_unit"
+          type: "enum (0x04)"
+          access: "read/write"
+          values:
+            0: "C"
+            1: "F"
+          notes: "Settable display/report unit; some firmware reports °F regardless (see setup troubleshooting)."
+        - dp: 14
+          name: "battery_state"
+          type: "enum (0x04)"
+          access: "report"
+          values:
+            0: "low"
+            1: "medium"
+            2: "high"
+        - dp: 15
+          name: "battery"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+          notes: "Known false-scaling quirk on some hardware — the raw value is used upstream; treat odd percentages with suspicion."
+    - group: "soil_2"
+      applies_to: "TS0601_soil_2"
+      datapoints:
+        - dp: 3
+          name: "soil_moisture"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+        - dp: 5
+          name: "soil_temperature"
+          type: "value (0x02)"
+          unit: "C"
+          scale: 0.1
+          access: "report"
+        - dp: 14
+          name: "battery_state"
+          type: "enum (0x04)"
+          access: "report"
+          values: {0: "low", 1: "medium", 2: "high"}
+        - dp: 15
+          name: "battery"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+        - dp: 101
+          name: "temperature_alarm_state"
+          type: "enum (0x04)"
+          access: "report"
+        - dp: 102
+          name: "humidity_alarm_state"
+          type: "enum (0x04)"
+          access: "report"
+        - dp: 103
+          name: "max_temperature_alarm"
+          type: "value (0x02)"
+          unit: "C"
+          scale: 0.1
+          access: "read/write"
+        - dp: 104
+          name: "min_temperature_alarm"
+          type: "value (0x02)"
+          unit: "C"
+          scale: 0.1
+          access: "read/write"
+        - dp: 105
+          name: "max_humidity_alarm"
+          type: "value (0x02)"
+          unit: "%"
+          access: "read/write"
+        - dp: 106
+          name: "min_humidity_alarm"
+          type: "value (0x02)"
+          unit: "%"
+          access: "read/write"
+        - dp: 107
+          name: "temperature_sensitivity"
+          type: "value (0x02)"
+          unit: "C"
+          scale: 0.1
+          access: "read/write"
+        - dp: 108
+          name: "humidity_sensitivity"
+          type: "value (0x02)"
+          unit: "%"
+          access: "read/write"
+        - dp: 109
+          name: "report_interval"
+          type: "value (0x02)"
+          unit: "min"
+          range: "5-60"
+          access: "read/write"
+        - dp: 110
+          name: "soil_temperature_fahrenheit"
+          type: "value (0x02)"
+          unit: "F"
+          scale: 0.1
+          access: "report"
+    - group: "soil_3"
+      applies_to: "TS0601_soil_3"
+      datapoints:
+        - dp: 2
+          name: "brightness_level"
+          type: "enum (0x04)"
+          access: "report"
+          range: "0-4"
+          notes: "Light sensor — GX06 (_TZE284_3urschql) only; absent on GX04 and _TZE284_aao3yzhs."
+        - dp: 3
+          name: "soil_moisture"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+        - dp: 5
+          name: "soil_temperature"
+          type: "value (0x02)"
+          unit: "C"
+          scale: 0.1
+          access: "report"
+        - dp: 9
+          name: "temperature_unit"
+          type: "enum (0x04)"
+          access: "read/write"
+          values: {0: "C", 1: "F"}
+        - dp: 14
+          name: "battery_state"
+          type: "enum (0x04)"
+          access: "report"
+          values: {0: "low", 1: "medium", 2: "high"}
+        - dp: 15
+          name: "battery"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+    - group: "zg303z"
+      applies_to: "ZG-303Z (HOBEIAN)"
+      datapoints:
+        - dp: 1
+          name: "water_warning"
+          type: "enum (0x04)"
+          access: "report"
+          values: {0: "none", 1: "alarm"}
+        - dp: 102
+          name: "soil_calibration"
+          type: "value (0x02)"
+          unit: "%"
+          range: "-30..+30"
+          access: "read/write"
+        - dp: 103
+          name: "air_temperature"
+          type: "value (0x02)"
+          unit: "C"
+          scale: 0.1
+          access: "report"
+        - dp: 104
+          name: "temperature_calibration"
+          type: "value (0x02)"
+          unit: "C"
+          scale: 0.1
+          range: "-2..+2"
+          access: "read/write"
+        - dp: 105
+          name: "humidity_calibration"
+          type: "value (0x02)"
+          unit: "%"
+          range: "-30..+30"
+          access: "read/write"
+        - dp: 106
+          name: "temperature_unit"
+          type: "enum (0x04)"
+          access: "read/write"
+        - dp: 107
+          name: "soil_moisture"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+        - dp: 108
+          name: "battery"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+        - dp: 109
+          name: "air_humidity"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+        - dp: 110
+          name: "soil_warning_threshold"
+          type: "value (0x02)"
+          unit: "%"
+          range: "0-100"
+          access: "read/write"
+        - dp: 111
+          name: "temperature_sampling_period"
+          type: "value (0x02)"
+          unit: "s"
+          range: "5-3600"
+          access: "read/write"
+        - dp: 112
+          name: "soil_sampling_period"
+          type: "value (0x02)"
+          unit: "s"
+          range: "5-3600"
+          access: "read/write"
+    - group: "cs201z"
+      applies_to: "CS-201Z (COOLO CS-201Z / AOYAN AY-302Z/AY-303Z)"
+      datapoints:
+        - dp: 3
+          name: "soil_moisture"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+        - dp: 5
+          name: "soil_temperature"
+          type: "value (0x02)"
+          unit: "C"
+          scale: 0.1
+          access: "report"
+        - dp: 9
+          name: "temperature_unit"
+          type: "enum (0x04)"
+          access: "read/write"
+        - dp: 15
+          name: "battery"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+        - dp: 102
+          name: "soil_calibration"
+          type: "value (0x02)"
+          access: "read/write"
+        - dp: 104
+          name: "temperature_calibration"
+          type: "value (0x02)"
+          access: "read/write"
+        - dp: 105
+          name: "humidity_calibration"
+          type: "value (0x02)"
+          access: "read/write"
+        - dp: 106
+          name: "dry_flag"
+          type: "enum/bool"
+          access: "report"
+        - dp: 109
+          name: "air_humidity"
+          type: "value (0x02)"
+          unit: "%"
+          access: "report"
+          notes: "Not present on the AY-302Z."
+        - dp: 110
+          name: "warning_threshold"
+          type: "value (0x02)"
+          access: "read/write"
+        - dp: 111
+          name: "temperature_sampling_period"
+          type: "value (0x02)"
+          access: "read/write"
+        - dp: 112
+          name: "soil_sampling_period (classic cs201z) / soil_fertility (4-in-1 spin)"
+          type: "value (0x02)"
+          access: "read/write (period) / report (fertility)"
+          notes: >
+            A newer 4-in-1 variant of this family adds soil fertility:
+            DP 112 fertility value, DP 114 fertility warning threshold,
+            DP 115 fertility warning enum. Fingerprints for that spin
+            sit near the _TZE284_* line of the converters snapshot and
+            are not pinned down in this spec — treat as unverified.
+  references:
+    - "Koenkk/zigbee-herdsman-converters src/devices/tuya.ts (snapshot 2026-08-19, sha256 in sources) — source of every DP map and fingerprint above"
+    - "zigbee2mqtt device pages: TS0601_soil, TS0601_soil_2, TS0601_soil_3, ZG-303Z, CS-201Z"
+
+cloud:
+  required: false
+  vendor_service: "Tuya Smart / Smart Life cloud (optional; only in the loop when the sensor is paired to a Tuya ZigBee gateway)"
+  hosts: []
+  failure_mode: >
+    Nothing breaks for local users: paired to any third-party coordinator
+    the sensors never touch the Tuya cloud at all. In the stock
+    configuration (sensor -> Tuya ZigBee gateway -> Smart Life app) a Tuya
+    cloud outage or shutdown would kill app access, remote monitoring and
+    automation for that gateway — the rescue is to re-pair the sensor to
+    your own coordinator, which needs no cooperation from Tuya. The only
+    stock-app features with no coordinator-side equivalent are the °C/°F
+    default and alarm thresholds, and both are writable DPs documented in
+    this spec.
+  notes: >
+    No cloud hosts are documented here on purpose: the device itself has
+    no IP stack and no cloud dependency. Whatever the Tuya gateway talks
+    to is the gateway's cloud surface, not this device's.
+
+local_access:
+  status: "bridge_hardware"
+  summary: >
+    Full local access with no vendor involvement: these are standard
+    ZigBee 3.0 sleepy end devices and pair directly to any coordinator
+    (ConBee, SONOFF ZBDongle, CC2652 sticks). Zigbee2MQTT supports every
+    fingerprint group in this spec natively; ZHA support is
+    quirk-dependent and incomplete. No Tuya hub, no Tuya cloud, no
+    firmware modification.
+  covers:
+    - "Soil moisture and soil temperature reporting on all variants"
+    - "Battery level/state reporting"
+    - "Writable DPs where the variant has them: temperature unit, calibration offsets, alarm thresholds/sensitivity, sampling and report intervals"
+    - "Variant extras: ambient air temperature/humidity (ZG-303Z, CS-201Z), light level (GX06), fertility (4-in-1 spin, unverified)"
+  not_covered:
+    - "OTA firmware updates: no public firmware source exists for these white-label devices; with the stock app path gone the firmware on the device is final"
+    - "ZHA out-of-the-box: several fingerprints only work via community quirks, and some users still need custom quirks — treat Zigbee2MQTT as the reference"
+  hardware:
+    - name: "SONOFF ZigBee 3.0 USB Dongle Plus (ZBDongle-P/-E) or any CC2652/EFR32 coordinator"
+      role: "bridge"
+      url: "https://www.zigbee2mqtt.io/guide/adapters/"
+      notes: "Reference target: Zigbee2MQTT on any supported adapter; all five fingerprint groups in this spec have native converters upstream."
+      verification: "reported"
+    - name: "Home Assistant ZHA (any supported radio)"
+      role: "bridge"
+      url: "https://www.home-assistant.io/integrations/zha/"
+      notes: "Partial: TS0601 soil sensors ride on zha-quirks Tuya DP plumbing; _TZE284_oitavov2, _TZE200_npj9bug3 and others only got quirks via 2025 community requests (zha-device-handlers #4144, #4541). Expect gaps."
+      verification: "reported"
+  notes: >
+    deCONZ, Zigbee for Domoticz and Homey are also confirmed working for
+    the common fingerprints (blakadder compatibility DB). Hardware entries
+    are documentation of what exists, not endorsements.
+
+helpful_urls:
+  - title: "Zigbee2MQTT: TS0601_soil (classic 2-DP group)"
+    url: "https://www.zigbee2mqtt.io/devices/TS0601_soil.html"
+    description: "Pairing procedure (hold button ~5-6 s), exposed entities and options for the classic group; sibling pages cover TS0601_soil_2 and TS0601_soil_3."
+  - title: "Zigbee2MQTT: HOBEIAN ZG-303Z"
+    url: "https://www.zigbee2mqtt.io/devices/ZG-303Z.html"
+    description: "Device page for the air temp/humidity variant with the 102-112 DP layout."
+  - title: "Koenkk/zigbee-herdsman-converters — src/devices/tuya.ts"
+    url: "https://github.com/Koenkk/zigbee-herdsman-converters/blob/master/src/devices/tuya.ts"
+    description: "The reference implementation: TS0601_soil/_2/_3, ZG-303Z and CS-201Z converter blocks. Source of every DP map and fingerprint in this spec (snapshot sha256 in sources)."
+  - title: "Blakadder Zigbee compatibility DB — Qoto QT-07S (Yieryi THE01840)"
+    url: "https://zigbee.blakadder.com/Yieryi_THE01840.html"
+    description: "Cross-coordinator compatibility (Z2M, ZHA, deCONZ, Domoticz, Homey) for a classic-group rebadge."
+  - title: "SmartHomeScene review: Tuya ZigBee plant soil sensor GXM-01"
+    url: "https://smarthomescene.com/reviews/tuya-zigbee-plant-soil-sensor-gxm-01-review/"
+    description: "Teardown/review of a classic-group probe; hardware context for the family."
+  - title: "zha-device-handlers issues #4144 and #4541 — TS0601 soil quirk requests"
+    url: "https://github.com/zigpy/zha-device-handlers/issues/4144"
+    description: "Evidence that stock ZHA support is quirk-dependent and arrived piecemeal in 2025; several fingerprints still need custom quirks."
+  - title: "Zigbee2MQTT issue #31965 — °F/stale-value quirks on TS0601 soil sensors"
+    url: "https://github.com/Koenkk/zigbee2mqtt/issues/31965"
+    description: "Known firmware bugs: some units report °F regardless of the unit DP, and stale 0 values after a battery swap until re-interview."
+  - title: "Zigbee2MQTT issue #30576 — ZG-303Z external converter history"
+    url: "https://github.com/Koenkk/zigbee2mqtt/issues/30576"
+    description: "How the ZG-303Z support landed; background on the DP layout."
+
+sources:
+  - type: "source_snapshot"
+    name: "Koenkk/zigbee-herdsman-converters src/devices/tuya.ts @ master, snapshot taken 2026-08-19"
+    sha256: "4670b4228cbdb7d699c4e23abd6ed44753d76c39bcd9547236e2bd09e27ab711"
+    used_for: "Every fingerprint group, DP map, scaling (÷10) and enum in the zigbee.dp_maps block, and the COOLO/AOYAN rebadge identities."
+  - type: "public_research"
+    name: "Zigbee2MQTT device pages (TS0601_soil/_soil_2/_soil_3, ZG-303Z, CS-201Z)"
+    url: "https://www.zigbee2mqtt.io/devices/TS0601_soil.html"
+    used_for: "Pairing procedure, exposed entities, native-support confirmation, retail-name cross-references."
+  - type: "public_research"
+    name: "zha-device-handlers #4144 / #4541; zigbee2mqtt #31965 / #30576"
+    url: "https://github.com/zigpy/zha-device-handlers/issues/4144"
+    used_for: "ZHA quirk status per fingerprint; °F and stale-value firmware quirks; ZG-303Z support history."
+  - type: "public_research"
+    name: "Blakadder compatibility DB + SmartHomeScene GXM-01 review"
+    url: "https://zigbee.blakadder.com/Yieryi_THE01840.html"
+    used_for: "Cross-coordinator compatibility and retail rebadge mapping (Qoto QT-07S, GXM-01)."
+# APK status: none acquired, none needed. These are pure ZigBee end
+# devices; the only vendor software path is the generic Tuya Smart Life /
+# gateway flow, which carries no device-specific protocol to reverse.

@@ -214,3 +214,4 @@ No hardware. No capture. Nothing to reverse engineer.
 - [E1.31 / Art-Net / DDP](https://kno.wled.ge/interfaces/e1.31-dmx/)
 - [MQTT](https://kno.wled.ge/interfaces/mqtt/)
 - [WLED+ app](https://wledplus.com)
+- [Home Assistant WLED integration](https://www.home-assistant.io/integrations/wled/)

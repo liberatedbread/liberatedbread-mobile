@@ -3,9 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Sources: ESPHome ratgdo authoritative config (github.com/ratgdo/esphome-ratgdo
-# base.yaml + the static board YAMLs) and ESPHome docs (web_server, api, mdns).
-# ratgdo is the network-facing bridge for the Security+ opener protocol
-# documented in chamberlain-garage-opener-secplus.yaml.
+# base.yaml + the static board YAMLs), ESPHome docs (web_server, web-api, api,
+# mdns) and the ESPHome sources those docs describe (mdns_component.cpp for the
+# TXT records, web_server.cpp for URL matching). ratgdo is the network-facing
+# bridge for the Security+ opener protocol documented in
+# chamberlain-garage-opener-secplus.yaml.
+#
+# The ESPHome platform itself — every node that is NOT a ratgdo — is
+# esphome-device.yaml. This spec is one product on that platform, and the
+# `txt_match` on project_name is what keeps it from claiming the rest.
 
 device:
   name: "ratgdo Garage-Door Controller (ESPHome)"
@@ -16,10 +22,13 @@ device:
     notes: >
       Written from the authoritative ESPHome ratgdo config and ESPHome docs;
       no hardware driven yet (board on order). The control surface is standard
-      ESPHome, so the endpoints are well-established, but the ratgdo-specific
-      entity object_ids and the default-on web_server should be confirmed on
-      the first real board. Discovery (_esphomelib._tcp) will be exercised by
-      the app's existing mDNS meta-query sweep.
+      ESPHome, so the endpoints are well-established, but the ratgdo entity
+      names and the default-on web_server should be confirmed on the first real
+      board — along with which addressing form that board's firmware accepts
+      (see ADDRESSING below). Discovery (_esphomelib._tcp) will be exercised by
+      the app's existing mDNS meta-query sweep; the project_name TXT matcher
+      that separates a ratgdo from every other ESPHome node is read from the
+      published board configs, not yet from a live TXT dump.
   protocol: "wifi"
   category: "other"
   pictogram: "garage-door"
@@ -32,44 +41,91 @@ device:
     wall-control terminals; it speaks the opener's Security+ 1.0/2.0 wire
     protocol (see chamberlain-garage-opener-secplus.yaml for that side) and
     exposes local, cloud-free control on the home network. This spec targets
-    the mainstream ESPHome ratgdo firmware (also what Konnected's blaQ ships).
+    the mainstream ESPHome ratgdo firmware.
+
+    NOT EVERY ESPHome NODE IS A ratgdo. ratgdo is one product built on ESPHome,
+    and _esphomelib._tcp is the service type of the PLATFORM: a bedroom
+    temperature sensor, a bluetooth proxy and a garage-door controller all
+    publish it. Identify a ratgdo by the `project_name` TXT record, which the
+    board configs set to `ratgdo.<board>` (observed values
+    `ratgdo.v25iboard_secplus2`, `ratgdo.v32board_secplus2`,
+    `ratgdo.v2board_esp8266_d1_mini_lite`) — hence the `ratgdo.` prefix
+    matcher in `identification.mdns_txt_match`. An ESPHome node that does NOT
+    match it is esphome-device.yaml's, and rendering it as a garage door is the
+    exact failure that matcher exists to prevent. Konnected's blaQ is
+    ratgdo-compatible hardware: flashed with mainstream ratgdo firmware it
+    matches like any other board, but Konnected's own build sets its own
+    project_name, which has not been observed here — so this matcher does not
+    claim it, and a blaQ on stock firmware falls to the generic ESPHome spec
+    until somebody dumps its TXT records.
 
     Two interchangeable local transports, both no-cloud, no-broker:
     1. WEB SERVER (HTTP :80) — enabled by default in ratgdo's config. A plain
        REST API plus a Server-Sent-Events state stream, ideal for a phone app:
-         POST /cover/door/open | /close | /stop | /toggle
-         POST /cover/door/set?position=<0..100>   (Security+ 2.0 only)
-         GET  /cover/door                          -> JSON state
-         POST /light/light/turn_on | /turn_off | /toggle
-         POST /lock/lock_remotes/lock | /unlock
-         GET  /binary_sensor/{obstruction,motion,motor,button}
-         POST /button/restart/press
+         POST /cover/Door/open | /close | /stop | /toggle
+         POST /cover/Door/set?position=<0.0..1.0>  (Security+ 2.0 only)
+         GET  /cover/Door                          -> JSON state
+         POST /light/Light/turn_on | /turn_off | /toggle
+         POST /lock/Lock%20remotes/lock | /unlock
+         GET  /binary_sensor/{Obstruction,Motion,Motor,Button}
+         POST /button/Restart/press
          GET  /events  (text/event-stream) -> "state" events with the same
               per-entity JSON, the push channel for door/obstruction/motion.
        JSON state shape per entity, e.g.
-         {"id":"cover-door","state":"OPEN","current_operation":"IDLE","position":1.0}
-         {"id":"binary_sensor-obstruction","value":true,"state":"ON"}
+         {"id":"cover/Door","state":"OPEN","current_operation":"IDLE","position":1.0}
+         {"id":"binary_sensor/Obstruction","value":true,"state":"ON"}
        Default has NO auth; if the user adds web_server auth (basic/digest) the
        app must send it. web_server "version" affects only the built-in UI, not
        these endpoints.
     2. NATIVE API (TCP :6053, protobuf) — always present, what Home Assistant
-       uses. Length-delimited protobuf: Hello -> Connect (optional legacy
-       password) -> ListEntities (match object_id -> entity key) ->
-       SubscribeStates; commands reference the entity key. Framing byte 0x00 =
-       plaintext, 0x01 = Noise-encrypted (Noise_NNpsk0_25519_ChaChaPoly_SHA256
-       with the 32-byte base64 PSK from `api: encryption: key:`). Efficient and
-       streaming, but heavier to implement than the REST/SSE path; prefer the
-       web server for a first cut.
+       uses. Length-delimited protobuf: Hello -> Connect -> ListEntities (match
+       the entity to its numeric key) -> SubscribeStates; commands reference the
+       entity key. Framing byte 0x00 = plaintext, 0x01 = Noise-encrypted
+       (Noise_NNpsk0_25519_ChaChaPoly_SHA256 with the 32-byte base64 PSK from
+       `api: encryption: key:`). Efficient and streaming, but heavier to
+       implement than the REST/SSE path; prefer the web server for a first cut.
+       The legacy `api: password:` was removed in ESPHome 2026.1.0 (deprecated
+       since 2022), so a current build is plaintext or Noise, never password.
 
-    ENTITY object_ids (the REST/api identifier is slugify(name), NOT the C++
-    id): cover `door` (states open/closed/opening/closing/stopped; open/close/
-    stop/toggle/position); light `light`; lock `lock_remotes` (lock/unlock);
-    read-only binary_sensors `obstruction`, `motion`, `motor`, `button`;
-    sensors `openings`, `paired_devices`; text_sensor `firmware_version`;
-    buttons `restart`, `toggle_door`, `sync`, `query_status`, `query_openings`;
-    numbers `opening_duration`, `closing_duration`, `rolling_code_counter`,
-    `client_id`; switch `learn` (pairing mode). The phone app's core four:
-    cover/door, light/light, lock/lock_remotes, and the read-only sensors.
+    ADDRESSING — WHICH NAME GOES IN THE URL. ESPHome changed this, and a client
+    that hardcodes one form breaks on half the fleet:
+      * ESPHome <= 2025.12: the URL segment is the entity's slugified
+        object_id, and the JSON `id` field is `<domain>-<object_id>`
+        (`/cover/door`, `{"id":"cover-door"}`).
+      * ESPHome 2026.1.0 through 2026.6: URLs match the entity NAME first and
+        fall back to object_id with a deprecation warning — both forms work.
+        2026.1.3+ also publishes the new-form identifier in a `name_id` field
+        alongside the legacy `id`.
+      * ESPHome >= 2026.7: the object_id fallback is gone from URL matching.
+        URLs are the entity NAME, percent-encoded (`/cover/Door`,
+        `/lock/Lock%20remotes/lock`).
+      * ESPHome >= 2026.8: the JSON identifier catches up — `id` itself carries
+        `<domain>/<name>` and `name_id` is no longer sent. Note this is a
+        SECOND, later boundary: on 2026.7 the URL is already name-only while
+        `id` is still the legacy `<domain>-<object_id>`, so a client that
+        derives the URL from `id` breaks on exactly that release.
+    The `path` of every command below is the NAME form, which is what current
+    ratgdo firmware needs (its base config requires ESPHome >= 2026.4), and
+    each carries the legacy object_id form as `path_fallback` so a board that
+    predates the change stays drivable from this file: send `path`, and on a
+    404 send `path_fallback`. Entities carry the same pair as `state_topic` /
+    `state_topic_fallback`. A client that would rather not probe reads the
+    identifier out of /events instead: an `id` containing `/` is the new form,
+    anything else is the legacy one. Either way, a wrong form is a 404 and
+    never a silent no-op — which is what makes the fallback safe, and why it
+    must be gated on the 404 rather than on a timeout.
+
+    ENTITY NAMES (object_id in brackets, for the legacy form): cover `Door`
+    [door] (JSON `state` is OPEN or CLOSED only — travel shows up in
+    `current_operation` as OPENING/CLOSING/IDLE; actions open/close/stop/
+    toggle/set); light `Light` [light]; lock `Lock remotes` [lock_remotes]
+    (lock/unlock); read-only binary_sensors `Obstruction`, `Motion`, `Motor`,
+    `Button`; sensors `Openings`, `Paired Devices` [paired_devices];
+    text_sensor `Firmware Version` [firmware_version]; buttons `Restart`,
+    `Toggle door`, `Sync`, `Query status`, `Query openings`; numbers
+    `Opening duration`, `Closing duration`, `Rolling code counter`,
+    `Client ID`; switch `Learn` (pairing mode). The phone app's core four:
+    the cover, the light, the remote lock-out, and the read-only sensors.
 
     GENERATION CAVEAT: on Security+ 1.0 openers the door has no stop/position
     (the opener does not support it) — expose stop/position only for Sec+ 2.0.
@@ -81,6 +137,20 @@ device:
     web server is served from the board. No broker, no account.
   identification:
     mdns_service_type: "_esphomelib._tcp.local."
+    # _esphomelib._tcp is the ESPHome PLATFORM, not this product. Without this
+    # matcher a consumer keying on the service type alone labels every ESPHome
+    # node on the LAN a garage-door opener — which is precisely what happened
+    # while this was the only spec claiming the service type.
+    mdns_txt_match:
+      - key: "project_name"
+        match: "prefix"
+        value: "ratgdo."
+        description: >
+          ESPHome publishes the firmware's `esphome: project: name:` as the
+          project_name TXT record. Every published ratgdo board config sets it
+          to `ratgdo.<board>` — v25iboard_secplus2, v32board_secplus2,
+          v2board_esp8266_d1_mini_lite — so the prefix matches the family and
+          nothing else on the platform.
     default_port: 80
     identity_keys:
       primary: "mac"
@@ -92,7 +162,19 @@ device:
         mdns:
           service_type: "_esphomelib._tcp.local."
           port: 6053
-          txt_record_keys: ["mac", "version", "board", "project_name", "project_version", "friendly_name", "api_encryption", "network", "platform"]
+          # The full TXT set ESPHome's mdns component publishes on this
+          # service; friendly_name is omitted by the device when unset, and
+          # api_encryption / api_encryption_supported / api_provisioning depend
+          # on how the build was configured.
+          txt_record_keys: ["friendly_name", "version", "config_hash", "mac", "platform", "board", "network", "api_encryption", "api_encryption_supported", "api_provisioning", "project_name", "project_version", "package_import_url"]
+          txt_match:
+            - key: "project_name"
+              match: "prefix"
+              value: "ratgdo."
+              description: >
+                `esphome: project: name:` from the ratgdo board configs. A
+                node whose project_name does not start `ratgdo.` is some other
+                ESPHome device and belongs to esphome-device.yaml.
           identity_mapping:
             stable_keys:
               - source: "txt:mac"
@@ -131,9 +213,9 @@ device:
             actor: user
           - action: "Join the board to Wi-Fi (ESPHome AP/improv, or flashed credentials)."
             actor: user
-          - action: "Discover it via _esphomelib._tcp mDNS; read the project_name TXT to confirm it is a ratgdo (vs another ESPHome device)."
+          - action: "Discover it via _esphomelib._tcp mDNS; read the project_name TXT to confirm it is a ratgdo (vs any other ESPHome device, which the same service type also finds)."
             actor: client
-            expect: "TXT project_name identifies ratgdo; the web server answers GET /cover/door with the door state."
+            expect: "TXT project_name starts `ratgdo.`; the web server answers GET /cover/Door (older firmware: /cover/door) with the door state."
     factory_reset:
       applicable: "unknown"
       confidence: low
@@ -152,14 +234,17 @@ device:
       wifi_passphrase_protection: device_encrypted
       stored_on_device:
         - "Home Wi-Fi credentials"
-        - "Optional native-API Noise PSK (api: encryption: key) or legacy password"
+        - "Optional native-API Noise PSK (api: encryption: key)"
         - "Security+ rolling-code counter (opener pairing)"
       issued_to_client:
         - "The native-API Noise PSK, if the user chose an encrypted build, must be shared with the app"
       notes: >
         The web server is unauthenticated by default (add web_server auth to
-        change that). The native API may be plaintext, legacy-password, or
-        Noise-encrypted — detect via the mDNS api_encryption TXT key.
+        change that). The native API is plaintext or Noise-encrypted — the
+        legacy `api: password:` was removed in ESPHome 2026.1.0. Detect which
+        from the mDNS TXT: `api_encryption` means a PSK is set and Noise is
+        required, `api_encryption_supported` means the build can do Noise but
+        has no key yet and still accepts plaintext.
 
   local_access:
     status: native
@@ -175,115 +260,135 @@ device:
 http_endpoints:
   # ESPHome web_server (port 80), enabled by default on ratgdo. Unauthenticated
   # unless the user adds web_server auth. Door commands are advanced (they move
-  # a real door).
+  # a real door). Paths are the entity-NAME form current firmware requires; the
+  # legacy object_id form each one had on ESPHome <= 2025.12 is in brackets.
   - method: "GET"
-    path: "/cover/door"
+    path: "/cover/Door"
     name: "Door State"
-    description: "JSON state of the garage door cover: state OPEN/CLOSED/OPENING/CLOSING, current_operation, position (0..1). object_id 'door'."
+    description: "JSON state of the garage door cover: `state` OPEN or CLOSED (any position but fully closed reads OPEN), `current_operation` OPENING/CLOSING/IDLE, `value` a float 0.0..1.0. `position` is present only when the cover supports position — Security+ 2.0 — so its absence is the Sec+ 1.0 case, not an error. Legacy path /cover/door."
   - method: "POST"
-    path: "/cover/door/open"
+    path: "/cover/Door/open"
     name: "Open Door"
-    description: "Open the garage door. Siblings: /cover/door/close, /cover/door/stop, /cover/door/toggle. Advanced: moves a heavy motorised door."
+    description: "Open the garage door. Siblings: /cover/Door/close, /cover/Door/stop, /cover/Door/toggle. Advanced: moves a heavy motorised door. Legacy path /cover/door/open."
     status: "unverified"
   - method: "POST"
-    path: "/cover/door/set"
+    path: "/cover/Door/set"
     name: "Set Door Position"
-    description: "Set door position: query param position=<0..100>. Security+ 2.0 only (Sec+ 1.0 openers have no position/stop). Advanced."
+    description: "Set door position: query param position=<0.0..1.0>, ESPHome's cover scale (0.0 closed, 1.0 open) — not a percentage. Security+ 2.0 only (Sec+ 1.0 openers have no position/stop), and the device answers 409 if the cover does not support position. Advanced."
     status: "unverified"
   - method: "POST"
-    path: "/light/light/turn_on"
+    path: "/light/Light/turn_on"
     name: "Light On"
-    description: "Turn the garage light on. Siblings: /light/light/turn_off, /light/light/toggle. object_id 'light'."
+    description: "Turn the garage light on. Siblings: /light/Light/turn_off, /light/Light/toggle. Legacy path /light/light/turn_on."
     status: "unverified"
   - method: "POST"
-    path: "/lock/lock_remotes/lock"
+    path: "/lock/Lock%20remotes/lock"
     name: "Lock Remotes"
-    description: "Engage the opener's remote lock-out. Sibling: /lock/lock_remotes/unlock. object_id 'lock_remotes'."
+    description: "Engage the opener's remote lock-out. Sibling: /lock/Lock%20remotes/unlock. The entity is named 'Lock remotes', so the space is percent-encoded; legacy path /lock/lock_remotes/lock."
     status: "unverified"
   - method: "GET"
-    path: "/binary_sensor/obstruction"
+    path: "/binary_sensor/Obstruction"
     name: "Obstruction Sensor"
-    description: "Obstruction beam state (JSON {value,state}). Read-only. Siblings: /binary_sensor/motion, /binary_sensor/motor, /binary_sensor/button."
+    description: "Obstruction beam state (JSON {value,state}). Read-only. Siblings: /binary_sensor/Motion, /binary_sensor/Motor, /binary_sensor/Button."
   - method: "POST"
-    path: "/button/restart/press"
+    path: "/button/Restart/press"
     name: "Restart Board"
-    description: "Reboot the ratgdo board (object_id 'restart'). Does not affect the door."
+    description: "Reboot the ratgdo board. Does not affect the door. Legacy path /button/restart/press."
     status: "unverified"
   - method: "GET"
     path: "/events"
     name: "State Event Stream (SSE)"
-    description: "text/event-stream; emits 'state' events carrying the same per-entity JSON as the REST GETs — the push channel for door/obstruction/motion changes without polling. Also 'ping' and 'log' events."
+    description: "text/event-stream; emits 'state' events carrying the same per-entity JSON as the REST GETs — the push channel for door/obstruction/motion changes without polling. Also 'ping' and 'log' events. Every entity's current state is sent on connect, which is also how a client learns which addressing form this firmware uses (an `id` containing '/' is the name form; 2026.1.3-2026.7 firmware carries the new form in `name_id` beside a legacy `id`, and on 2026.7 the URL is name-only while `id` is still legacy — read `name_id` first)."
 
 commands:
   # One invocation each, so an entity's role map can name one. `http_endpoints`
   # above catalogues what the board offers; these are the sends. Paths are the
-  # ESPHome web_server object_id form (/<domain>/<object_id>/<action>) and are
-  # fixed for a ratgdo build, so they are stated rather than resolved.
+  # ESPHome web_server entity-NAME form (/<domain>/<name>/<action>,
+  # percent-encoded) and are fixed for a ratgdo build, so they are stated
+  # rather than resolved. On ESPHome <= 2025.12 the segment is the slugified
+  # object_id instead, and every command below carries that form as its
+  # `path_fallback`: send `path`, and on a 404 — the unambiguous "no such
+  # entity" answer, never a timeout — send the fallback. See ADDRESSING in
+  # device.notes for which firmware accepts which.
   door_open:
     description: "Open the garage door. Moves a heavy motorised door — gate this behind a deliberate action and check the reported state and obstruction sensor first."
     transport: "http"
     method: "POST"
-    path: "/cover/door/open"
+    path: "/cover/Door/open"
+    path_fallback: "/cover/door/open"
     verification: "reported"
   door_close:
     description: "Close the garage door. Same caution as door_open: a closing door is the one that can trap something."
     transport: "http"
     method: "POST"
-    path: "/cover/door/close"
+    path: "/cover/Door/close"
+    path_fallback: "/cover/door/close"
     verification: "reported"
   door_stop:
     description: "Halt a door mid-travel. Security+ 2.0 only — Sec+ 1.0 openers have no stop."
     transport: "http"
     method: "POST"
-    path: "/cover/door/stop"
+    path: "/cover/Door/stop"
+    path_fallback: "/cover/door/stop"
     verification: "reported"
   door_set_position:
-    description: "Drive the door to a position, 0 closed to 100 open. Security+ 2.0 only."
+    description: "Drive the door to a position, 0.0 closed to 1.0 open. Security+ 2.0 only."
     transport: "http"
     method: "POST"
-    path: "/cover/door/set"
+    path: "/cover/Door/set"
+    path_fallback: "/cover/door/set"
     arguments:
       position: "{position}"
     parameters:
       position:
-        type: "uint8"
+        type: "float"
         min: 0
-        max: 100
-        unit: "%"
-        description: "Target position, 0 closed to 100 open. Sent as a query parameter."
+        max: 1
+        description: >
+          Target position on ESPHome's cover scale: 0.0 fully closed, 1.0 fully
+          open. NOT a percentage — a UI with a 0-100 slider divides by 100
+          before sending. The device clamps out-of-range values, so sending 50
+          for "half open" drives the door fully open instead.
     notes: >
-      The position argument rides the query string (`/cover/door/set?position=50`),
-      which is how ESPHome's web_server takes it.
+      The position argument rides the query string
+      (`/cover/Door/set?position=0.5`), which is how ESPHome's web_server takes
+      it. The board answers 409 if the cover does not support position at all,
+      which is the Security+ 1.0 case.
     verification: "reported"
   light_turn_on:
     description: "Turn the opener's light on."
     transport: "http"
     method: "POST"
-    path: "/light/light/turn_on"
+    path: "/light/Light/turn_on"
+    path_fallback: "/light/light/turn_on"
     verification: "reported"
   light_turn_off:
     description: "Turn the opener's light off."
     transport: "http"
     method: "POST"
-    path: "/light/light/turn_off"
+    path: "/light/Light/turn_off"
+    path_fallback: "/light/light/turn_off"
     verification: "reported"
   lock_remotes:
     description: "Engage the opener's remote lock-out, so paired remotes stop working."
     transport: "http"
     method: "POST"
-    path: "/lock/lock_remotes/lock"
+    path: "/lock/Lock%20remotes/lock"
+    path_fallback: "/lock/lock_remotes/lock"
     verification: "reported"
   unlock_remotes:
     description: "Release the remote lock-out."
     transport: "http"
     method: "POST"
-    path: "/lock/lock_remotes/unlock"
+    path: "/lock/Lock%20remotes/unlock"
+    path_fallback: "/lock/lock_remotes/unlock"
     verification: "reported"
   restart_board:
     description: "Reboot the ratgdo board. Does not move the door."
     transport: "http"
     method: "POST"
-    path: "/button/restart/press"
+    path: "/button/Restart/press"
+    path_fallback: "/button/restart/press"
     verification: "reported"
 
 entities:
@@ -295,37 +400,43 @@ entities:
       close_cover: "door_close"
       stop_cover: "door_stop"
       set_cover_position: "door_set_position"
-    state_topic: "/cover/door"
-    notes: "object_id 'door'. States open/closed/opening/closing/stopped."
+    state_topic: "/cover/Door"
+    state_topic_fallback: "/cover/door"
+    notes: "Entity name 'Door' (object_id 'door' on ESPHome <= 2025.12). JSON `state` is OPEN or CLOSED; travel is reported separately in `current_operation` (OPENING/CLOSING/IDLE)."
   - platform: "light"
     name: "Garage Light"
     commands:
       turn_on: "light_turn_on"
       turn_off: "light_turn_off"
-    state_topic: "/light/light"
+    state_topic: "/light/Light"
+    state_topic_fallback: "/light/light"
   - platform: "switch"
     name: "Lock Remotes"
     commands:
       turn_on: "lock_remotes"
       turn_off: "unlock_remotes"
-    state_topic: "/lock/lock_remotes"
+    state_topic: "/lock/Lock%20remotes"
+    state_topic_fallback: "/lock/lock_remotes"
     notes: >
-      ESPHome exposes this in the `lock` domain (object_id 'lock_remotes',
+      ESPHome exposes this in the `lock` domain (entity name 'Lock remotes',
       lock/unlock); modelled here as a switch (on = remotes locked out) because
       this schema's entity vocabulary has no lock platform. On = the opener
       ignores its RF remotes.
   - platform: "binary_sensor"
     name: "Obstruction"
     device_class: "problem"
-    state_topic: "/binary_sensor/obstruction"
+    state_topic: "/binary_sensor/Obstruction"
+    state_topic_fallback: "/binary_sensor/obstruction"
   - platform: "binary_sensor"
     name: "Motion"
     device_class: "motion"
-    state_topic: "/binary_sensor/motion"
+    state_topic: "/binary_sensor/Motion"
+    state_topic_fallback: "/binary_sensor/motion"
   - platform: "sensor"
     name: "Openings"
-    state_topic: "/sensor/openings"
-    notes: "Cumulative door-open counter (object_id 'openings')."
+    state_topic: "/sensor/Openings"
+    state_topic_fallback: "/sensor/openings"
+    notes: "Cumulative door-open counter (entity name 'Openings')."
 
 helpful_urls:
   - url: "https://github.com/ratgdo/esphome-ratgdo"
@@ -333,7 +444,10 @@ helpful_urls:
     description: "Authoritative ESPHome config: entity object_ids (base.yaml), default-on web_server, plaintext vs Noise builds."
   - url: "https://esphome.io/components/web_server/"
     title: "ESPHome web_server component"
-    description: "REST scheme (/<domain>/<object_id>/<action>), /events SSE, versions, auth."
+    description: "Configuring the web server: versions, auth, CORS, the OTA platform."
+  - url: "https://esphome.io/web-api/"
+    title: "ESPHome Web Server API"
+    description: "The REST scheme (/<domain>/<entity_name>/<action>), per-domain payloads and parameters, and the /events event-source contract — including the id/name_id identifier formats."
   - url: "https://esphome.io/components/api/"
     title: "ESPHome native API"
     description: "TCP 6053 protobuf, Noise encryption key, legacy password, entity/key model."

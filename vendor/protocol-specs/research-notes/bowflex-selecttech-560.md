@@ -37,7 +37,7 @@ coaching videos. Launched ~2015 (Nautilus-era), developed for Nautilus by Veux L
     `62f864a0-b4ab-11e3-bf54-` TITAN_SET_START_COUNTDOWN,
     `8d2f9b40-f8c5-11e3-b162-` TITAN_SLEEP_TIMEOUT,
     `e725d040-b4a7-11e3-a0ee-` TITAN_SOUND_STATE
-  - Source: `com/veuxlabs/titan/android/model/dto/ble/BLEGattAttributes.java`
+  - Source: the app's BLE GATT attribute table (unobfuscated)
     (unobfuscated, jadx).
 - `TITAN_CHALLENGE_KEY` hints at a pairing handshake — needs one HCI snoop to clarify.
 - No actuation path: weight is selected by the mechanical handle dial, so BLE is

@@ -16,7 +16,7 @@ history. Kickstarter-era device (~2014), sold at ~$289.
 ## Local BLE feasibility — STRONG
 - Sensor→app is real-time local BLE; VBT math runs on the phone.
 - jadx (app v2.3.7) recovered the full custom GATT family
-  (`com/thisisbeast/beast/c/f/b/a.java`, obfuscated but UUIDs are literals):
+  (obfuscated app code, but the UUIDs are literals):
   - Service A: `BEA5760D-503D-4920-B000-101E7306B000` with characteristics
     `...B000-101E7306B001` through `...B000-101E7306B006` (6 chars).
   - Service B: `BEA5760D-503D-4920-B001-101E7306B000` with characteristics

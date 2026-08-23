@@ -33,6 +33,17 @@ See [docs/CLEANROOM_RULES.md](docs/CLEANROOM_RULES.md). In short:
 - **Never commit APKs, decompiled source trees, or vendor assets.** They are
   gitignored (`workspace/`, `*.apk`, `*.pcap`, …) — keep it that way.
 - Do not paste vendor app strings/UI copy beyond short paraphrases.
+- Do not name the vendor app's internal classes, methods or source paths.
+  Describe the role instead: "the app's BLE scanner", not `SenseScanner.java`.
+  Citing an *open-source* project by file is fine — that is attribution.
+- **Scrub identifiers that are yours, not the device's.** Hardware
+  verification fills your notes with the LAN address, MAC, hostname, serial
+  and keys of your own unit; none of it is reusable and all of it is public
+  once committed. Replace with a placeholder (`aa:bb:cc:dd:ee:ff`,
+  `192.168.1.50`, `<user-key>`) and keep the format so the example still
+  teaches. Keep OUI prefixes and product-fixed addresses like a SoftAP's
+  `10.10.100.254` — those are the fact. Applies to `research-notes/` and
+  `docs/devices/` too.
 - Only commit **derived** facts, protocol details, and your own writing.
 
 ## Setup, test, lint

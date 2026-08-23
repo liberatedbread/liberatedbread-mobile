@@ -1,5 +1,7 @@
 # Govee H5075: research notes
 
+Hardware verification by Devin Wittmayer.
+
 What was confirmed, what was refuted, and what is still genuinely unknown after driving the device.
 
 One unit, `GVH5075_BBCC` at `A4:C1:38:AA:BB:CC`, firmware 1.04.07 and hardware 1.03.02, both read

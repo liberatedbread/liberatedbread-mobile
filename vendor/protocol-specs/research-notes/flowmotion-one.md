@@ -21,7 +21,7 @@ timelapse (multi-point), panoramas, auto-follow, firmware updates.
   protocol module `co.flowmotion.bluetooth.protocol` is essentially unobfuscated.
 - jadx output at `workspace/static/flowmotion/`.
 
-## BLE GATT layout (from `BTLEServices.java` / `BTLECharacteristics.java`)
+## BLE GATT layout
 UUID pattern: `B11C%04X-672A-8DAB-F442-A0DAB5063A98` ("fmCharacteristic").
 
 - **Service FLOWMOTION** `b11c0001-672a-8dab-f442-a0dab5063a98`

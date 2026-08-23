@@ -12,7 +12,7 @@
 ## BLE UUIDs (Recovered from DEX)
 
 ### JL OTA Service (for firmware updates)
-From `ob/b.java`:
+From the app:
 | UUID | Role |
 |------|------|
 | `0000ae00-0000-1000-8000-00805F9B34FB` | JL OTA Service |
@@ -29,26 +29,24 @@ From `ob/b.java`:
 ## Architecture
 
 The app is built on the **JieLi (JL) Bluetooth OTA SDK**:
-- `ec/f.java` extends `com.jieli.jl_bt_ota.impl.a` — JL OTA implementation
-- `ec/c.java` — Custom BLE manager (`BleManager`) wrapping JL SDK
-- `ec/i.java` — Send data thread for BLE writes with queuing
-- `bc/s.java` — Device manager (singleton pattern)
+- Its OTA handler extends the JieLi OTA SDK implementation
+- Custom BLE manager (`BleManager`) wrapping JL SDK
+- Send data thread for BLE writes with queuing
+- Device manager (singleton pattern)
 - `qb/` — JL SDK core
 
-### BLE Manager (`ec/c.java`)
+### BLE Manager
 - Wraps Android `BluetoothManager`, `BluetoothLeScanner`
 - Manages multiple GATT connections (list of `BluetoothGatt`)
 - Tracks device list and scan results
 - Uses `ScanFilter` and `ScanSettings` for BLE scanning
 
 ### Write Path
-From `ec/f.java`:
-```java
-this.f7254h0.F(bluetoothDevice, ob.b.f21076o, ob.b.f21077p, bArr, callback);
-```
-- Service UUID: `ob.b.f21076o` = `0000ae00-...`
-- Characteristic UUID: `ob.b.f21077p` = `0000ae01-...`
-- Uses queued writes via `ec/i.java` thread
+The app's write helper takes (device, service UUID, characteristic UUID, payload,
+callback), with the two UUIDs supplied as constants:
+- Service UUID: `0000ae00-...`
+- Characteristic UUID: `0000ae01-...`
+- Writes are queued on a dedicated worker thread
 
 ## Key Finding: App Uses JL OTA Protocol
 The `0000ae00` service family is the **JieLi Bluetooth OTA protocol** — NOT a custom LED control protocol. This means:
@@ -70,11 +68,11 @@ The `0000ae00` service family is the **JieLi Bluetooth OTA protocol** — NOT a 
 4. Check if device works when logged out (account may be optional for control)
 5. Extract protocol details from native `.so` via `strings` and disassembly if snoop is unavailable
 
-## Files Analyzed
-- `ob/b.java` — UUID constants (JL OTA service UUIDs)
-- `ec/a.java` — BLE callback interface
-- `ec/c.java` — BLE manager implementation
-- `ec/f.java` — JL OTA handler (extends JL SDK)
-- `ec/i.java` — BLE send data thread
-- `ec/j.java` — Notification enable runnable
-- `bc/s.java` — Device manager
+## App areas analysed
+- UUID constants (JL OTA service UUIDs)
+- BLE callback interface
+- BLE manager implementation
+- JL OTA handler (extends JL SDK)
+- BLE send data thread
+- Notification enable runnable
+- Device manager

@@ -32,20 +32,20 @@ mid-2026 per opennura/jura docs) OR a key read from a previously-paired phone.
 
 ## Transport (from static analysis + community)
 - Bluetooth Classic **SPP/RFCOMM, standard SPP UUID `00001101-0000-1000-8000-00805F9B34FB`**,
-  insecure socket (`bluetooth/BluetoothCommunicator.java`). Community reports
+  insecure socket. Community reports
   GAIA service on **RFCOMM channel 1** (opennura). iOS uses BLE GATT instead.
 - Quirk (both opennura + jura document this): the headphone "serves the wrong
   Bluetooth channel while streaming audio" — drop the A2DP link first, open the
   control channel, then resume audio.
 - Device classes in APK: Nuraphone, NuraLoop, NuraTrue(-Pro), NuraSport, NuraLite
-  (`bluetooth/*Device.java`).
+  (its per-device Bluetooth classes).
 
 ## Protocol
-- **Qualcomm GAIA framing** (`commands/GAIACommand.java`): SOF byte, version,
-  flags, payload; command ids in `commands/GAIACommandID.java`; responses in
-  `GAIAResponse.java`. GAIA core itself is well documented by open-source
+- **Qualcomm GAIA framing**: SOF byte, version,
+  flags, payload; command ids in the app; responses in
+  its GAIA response class. GAIA core itself is well documented by open-source
   implementations (see qualcomm-gaia-ecosystem note).
-- **Crypto layer** (`crypto/NativeWrapper.java`, native lib): authenticated
+- **Crypto layer** (a JNI wrapper over a native lib): authenticated
   AES encrypt/decrypt, `cryptoInit(key)`, challenge-response auth, nonce/counter
   management. All control commands are encrypted with the per-device key —
   this matches the community RE exactly.

@@ -8,7 +8,7 @@ The original Orbotix/Sphero rolling-ball robots: **Sphero 1.0** (2011), **Sphero
 - No cloud dependency ever existed for control — the ball is a plain SPP serial peer. Loss of the apps does not brick the hardware.
 
 ## Local Bluetooth Classic feasibility: EXCELLENT (confirmed)
-- SPP UUID `00001101-0000-1000-8000-00805F9B34FB` confirmed in `com.orbotix.spherocam` v1.2.1 DEX (`orbotix/robot/internal/DeviceConnection.java:69`), connected via `createRfcommSocketToServiceRecord` (RFCOMM channel 1).
+- SPP UUID `00001101-0000-1000-8000-00805F9B34FB` confirmed in `com.orbotix.spherocam` v1.2.1 DEX (its device-connection class), connected via `createRfcommSocketToServiceRecord` (RFCOMM channel 1).
 - Advertising name pattern `Sphero-XXX` (3-letter color code). Pairing is legacy/SSP; Linux bluez connects directly over RFCOMM (see sphero-linux-api).
 - **Vendor published the protocol**: Orbotix "Sphero API" docs (e.g. `Sphero_API_1.20.pdf`, plus Locator, Collision-detection, Macros, orbBasic, Shell-commands references; S3 links preserved in [slock83/sphero-linux-api](https://github.com/slock83/sphero-linux-api) README). Packet format per [sphero_ros API doc](http://mmwise.github.io/sphero_ros/api.html) and sdk.sphero.com api-documents:
   - Command: `SOP1=0xFF, SOP2 (0xFF=answer / 0xFE=no answer), DID, CID, SEQ, DLEN, data..., CHK`

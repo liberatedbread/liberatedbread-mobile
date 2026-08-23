@@ -23,7 +23,7 @@ also sold the cabled GL1.
 - jadx triage → `$REPO/workspace/static/gopoint-bt1/`
 
 ## Static findings (triage)
-- `com/gopoint/bt1/scanmgr/a.java`: standard **SPP UUID
+- The app's scan manager: standard **SPP UUID
   `00001101-0000-1000-8000-00805f9b34fb`** — plain RFCOMM on Android.
 - App is heavily identifier-obfuscated (single-letter classes throughout);
   no ELM327 `AT` command strings surfaced — consistent with the proprietary

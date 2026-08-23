@@ -7,16 +7,16 @@
 
 ## Overview
 
-Smart thermometer hub (CQ60) with wireless probes. Uses BLE for probe communication and Wi-Fi provisioning; Wi-Fi connects to AWS IoT cloud via MQTT. The Android app is React Native with Hermes bytecode (v96), decompiled via `hermes-dec` to extract full protocol logic. Five BLE UUID families support thermometer probes, system configuration, Wi-Fi provisioning, user identity, and OTA firmware updates. Temperatures are IEEE 754 single-precision floats in Fahrenheit; the app converts to Celsius for display.
+Smart thermometer hub (CQ60) with wireless probes. Uses BLE for probe communication and Wi-Fi provisioning; Wi-Fi connects to AWS IoT cloud via MQTT. The Android app is React Native with Hermes bytecode (v96), decompiled via `hermes-dec` to extract full protocol logic. Five BLE UUID families support thermometer probes, system configuration, Wi-Fi provisioning, user identity, and OTA firmware updates. Temperatures are IEEE 754 single-precision floats; the app applies **no unit conversion** in the BLE decode path, so the wire unit is whatever the writable Temperature Unit characteristic (`9C6FFFC0`) is set to.
 
 ## Hardware
 
 | Property | Value |
 |----------|-------|
-| Models | A2YP-CQ60 (hub), RJ40 (iQ MiniOven) |
-| Chipset | ESP32-WROOM-E |
+| Models | CQ60 hub (HVIN `CQ60-3B-HUB`, "CHEF HUB3-V2"); probes CQ60-QPR-01/02/03 ("CHEF PROBE-V2") and newer CQ60-PRC-01/02/03/04 |
+| Chipset | ESP32-WROVER-E |
 | Radio | BLE + Wi-Fi |
-| FCC ID | ESP32WROVERE |
+| FCC ID | Hub: 2AC7Z-ESP32WROVERE (Espressif modular approval); probes: 2A2YP-CQ60QPROBE (earlier v1 grant 2A2YP-CQ60PROBE; ISED IC 27740-CQ60QPROBE) |
 | Components | TS5A3159 analog switches, TCA9534 I2C port expander, NS4168 speaker |
 
 ## Protocol Summary
@@ -84,8 +84,8 @@ Smart thermometer hub (CQ60) with wireless probes. Uses BLE for probe communicat
 | UUID | Name | Properties | Data Type |
 |------|------|------------|-----------|
 | `9C6FF050` | Cloud Status | read, notify | SignedInt32 |
-| `9C6FF051` | Battery Status | read, notify | — |
-| `9C6FF052` | Battery Level | read | — |
+| `9C6FF051` | Battery Status | read, notify | UnsignedChar (0 = discharging, 1 = charging) |
+| `9C6FF052` | Battery Level | read, notify | SignedInt16 (raw value is the level, 0-100 %) |
 | `9C6FF054` | Mute | read, write, notify | Boolean |
 | `9C6FF055` | Volume | read, write, notify | SignedInt16 |
 | `9C6FFF81` | Device Name | read, write | String |
@@ -112,6 +112,8 @@ Smart thermometer hub (CQ60) with wireless probes. Uses BLE for probe communicat
 | 7 | GetLocalTimeZone | Get timezone |
 | 8 | GetLanguage | Get language |
 
+Note: in the app's `SystemCommandAPIEnum` command 1 is spelled `FactoryVersion`, but the CQ60 registry maps that enum member to the key `factory-reset` — command 1 is the factory-reset command; the enum name is a vendor typo.
+
 ### Family C: Wi-Fi Provisioning (`8A71`)
 
 | UUID | Name | Properties | Description |
@@ -125,9 +127,11 @@ Smart thermometer hub (CQ60) with wireless probes. Uses BLE for probe communicat
 
 #### Wi-Fi Provisioning Flow
 
+All Family C characteristics are UTF-8 strings carrying JSON. To join a network the app writes `{"connect": <network>}` to `8A71FFA3` (the `<network>` object comes from the scan entry — fields `ssid`/`auth`/`rssi` — extended with the entered passphrase); to forget a network it writes `{"forget": "<ssid>"}`.
+
 1. Read `Network Info` (`8A71FFA0`) — get current status
 2. Read `Scanned Network` (`8A71FFA1`) — list available networks
-3. Write `Set Wi-Fi Network` (`8A71FFA3`) — send SSID + password
+3. Write `Set Wi-Fi Network` (`8A71FFA3`) — `{"connect": ...}` with SSID + password
 4. Monitor `Wi-Fi Mode` (`8A71FFA4`) — track connection progress
 5. Read `Network Info` (`8A71FFA0`) — confirm connected (has IP)
 
@@ -161,13 +165,7 @@ Smart thermometer hub (CQ60) with wireless probes. Uses BLE for probe communicat
 
 ### Temperature Data Encoding
 
-All temperatures are **IEEE 754 single-precision floats (4 bytes)**, stored natively in **Fahrenheit**. The app converts for display:
-
-- **F to C**: `(temp - 32) / 1.8`
-- **C to F**: `(temp * 1.8) + 32`
-- **Freezing threshold**: 32°F
-
-Temperature unit setting: `0` = Fahrenheit (default), `1` = Celsius (characteristic `9C6FFFC0`).
+All temperatures are **IEEE 754 single-precision floats (4 bytes, little-endian)**. The app applies **no unit conversion in the decode path** (`parseBytesData` is a plain `readFloatLE`), so the unit on the wire is not determinable from the app code — it is governed by the writable Temperature Unit characteristic `9C6FFFC0`: `0` = Fahrenheit, `1` = Celsius. No out-of-box default is evidenced; the app writes the setting from the phone locale during setup. (The connectionless advertisement path, by contrast, is always signed int16 LE in tenths of °C — see the YAML spec's device notes.)
 
 ### Probe Data TLV Format
 
@@ -178,11 +176,11 @@ Probe data notifications (`048AF000`) use a Tag-Length-Value binary encoding. Ea
 | 0 | Timestamp | UnsignedInt32 | 4 |
 | 16 | ProbeAddress | MacAddress | 6 |
 | 17 | Type | SignedChar | 1 |
-| 18 | HwVersion | String | var |
-| 19 | FwVersion | String | var |
-| 20 | SerialNumber | String | var |
-| 22 | ServiceConfig | UnsignedChar | 2 |
-| 23 | Name | String | 12 |
+| 19 | HwVersion | String | var |
+| 20 | FwVersion | String | var |
+| 21 | SerialNumber | String | var |
+| 22 | ServiceConfig | UnsignedChar | 1 |
+| 23 | Name | String | var |
 | 24 | Registered | Boolean | 1 |
 | 25 | DockNumber | UnsignedChar | 1 |
 | 26 | Size | UnsignedChar | 1 |
@@ -205,6 +203,10 @@ Probe data notifications (`048AF000`) use a Tag-Length-Value binary encoding. Ea
 | 48 | SessionId | — | var |
 | 49 | CookingCategory | UnsignedChar | 1 |
 | 50 | CookingMethod | UnsignedChar | 1 |
+| 52 | SessionName | String | var |
+| 53 | SessionIcon | String | var |
+| 54 | SessionImage | String | var |
+| 55 | SessionDescription | String | var |
 | 56 | CookingTime | UnsignedInt32 | 4 |
 | 57 | EstimatedCookingTime | UnsignedInt32 | 4 |
 | 59 | TargetTemp | SingleFloat | 4 |
@@ -264,8 +266,10 @@ Probe data notifications (`048AF000`) use a Tag-Length-Value binary encoding. Ea
 | REST API | `https://api.chefiq.com/` |
 | GraphQL | `https://graph.chefiq.com/graphql` |
 | IoT MQTT | `iot.chefiq.com` (mqttv3) |
+| Media | `https://media.chefiq.com`; service APIs `https://{service}-api.chefiq.com/v1`; deep links `link.chefiq.com` |
+| Firmware update check | `GET /check-for-updates` on the REST API with `x-api-key` header (key embedded in the app) and query params `model_number`, `manifest_version`, `generation`, `hw_version`, `esp_version`, `msp_version`; the OTA image URL is then pushed to the hub over MQTT (`ota` config key, `ota_server_url`) |
 | Auth | AWS Cognito User Pools (`us-east-1`) |
-| Cognito Pool | `us-east-1:f95270e2-a024-41dc-bf5e-2d5df159f259` (public client-side identity-pool id, not a secret) |
+| Cognito Pool | `us-east-1:f95270e2-a024-41dc-bf5e-2d5df159f259` (public client-side identity-pool id, not a secret; present in both the Hermes bundle and the APK's `res/values/strings.xml`) |
 | Certificate pinning | None |
 
 ### MQTT Topics
@@ -275,6 +279,7 @@ ciq-v2/cmd/thermometer/{cognito_id}~{device_id}/req/{command}  # V2 requests
 ciq-v2/cmd/app/{cognito_id}~{device_id}/res/{request_id}       # V2 responses
 ciq-v2/dt/thermometer/{cognito_id}~{device_id}/+               # V2 telemetry
 ciq-v2/evt/thermometer/{cognito_id}~{device_id}/notification/+  # V2 events
+ciq-v2/evt/thermometer/{cognito_id}~{device_id}/ota-response    # V2 OTA responses
 
 ciq-v3/cmd/oven/{cognito_id}~{device_id}/{command}             # V3 requests (oven)
 ciq-v3/cmd/app/{cognito_id}~{device_id}/res/{request_id}       # V3 responses

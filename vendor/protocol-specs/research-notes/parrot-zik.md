@@ -37,14 +37,14 @@ headphone line discontinued, app unmaintained.
 ## Transport (from static analysis + community)
 - Bluetooth Classic RFCOMM, **insecure** socket (`createInsecureRfcommSocketToServiceRecord`),
   no PIN beyond normal BT pairing. A2DP + HFP used for audio alongside.
-- SPP service UUIDs (`BTManager.java`):
+- SPP service UUIDs:
   - Zik 2.0: `8b6814d3-6ce7-4498-9700-9312c1711f63`
   - Zik 3:   `8b6814d3-6ce7-4498-9700-9312c1711f64`
   - Zik 1: TBD (present in Zik_Manager source; pattern suggests `...1f62`)
 - The app discovers the already-A2DP-connected device, resolves the RFCOMM
   channel via SDP, then opens a session with a 3-byte header (type 0x00).
 
-## Protocol framing (`Protocol.java`)
+## Protocol framing
 - Header: 2-byte big-endian length (payload_len + 3) + 1-byte type.
 - Types: `0x00` open session, `0x80` data; firmware-upload packets embed
   pktType/pktId fields (see `BTManager.ConnectedThread.pars`).
@@ -53,7 +53,7 @@ headphone line discontinued, app unmaintained.
   `GET /api/audio/noise_control/enabled/set?value=true` — arg prefix constant `ARG`).
 - Multi-part responses carry x/y fragment counters (`InMessage`).
 
-## API surface (from `ZikAPI.java`, ~60 endpoints; all local)
+## API surface (from the app's Zik API class, ~60 endpoints; all local)
 - `/api/system/battery/get`, `/api/software/version/get`,
   `/api/bluetooth/friendlyname/get|set`, `/api/system/device_type`
 - ANC: `/api/audio/noise_control/enabled/set`, `.../get`, `.../auto_nc/set`,
@@ -75,11 +75,11 @@ headphone line discontinued, app unmaintained.
   applet + Qt app ([dpin.de/nf/parrot-zik-2-0](https://www.dpin.de/nf/parrot-zik-2-0/)).
 
 ## Feasibility / next steps
-1. Spec the framing + full `/api` table from `ZikAPI.java` + Zik_Manager sources
+1. Spec the framing + full `/api` table from the app's Zik API class + Zik_Manager sources
    (both in hand) — no device capture strictly required.
 2. Validate against a real Zik 2.0/3 with `rfcomm`/`pyserial`: open session, send
    `GET /api/system/battery/get`, parse response.
-3. Firmware update path exists in-app (`UpdateManager.java`, OTA over SPP) —
+3. Firmware update path exists in-app (an update manager, OTA over SPP) —
    document but treat carefully (brick risk; firmware images were cloud-hosted).
 - safety_class: LOW (consumer headphones; hearing-damage caveat only).
 

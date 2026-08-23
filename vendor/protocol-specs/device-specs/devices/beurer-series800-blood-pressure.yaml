@@ -1,0 +1,714 @@
+# Beurer Series 800 / Premium 800 (BM92) blood pressure monitor spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Beurer Series 800 (Premium 800 / BM92) Blood Pressure Monitor"
+  manufacturer: "Beurer"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No hardware was exercised for this spec. Everything here comes from
+      static analysis of the two vendor Android apps (HealthManager Pro and
+      classic HealthManager, both examined 2026-08) plus
+      community documentation of the closely related BM85 record format.
+      The cloud API version endpoint was probed live on 2026-08-18. The
+      exact BM92 0x2A35 payload tail, bonding type, and the presence of the
+      0x2A49 Blood Pressure Feature characteristic all remain open questions
+      that need one btsnoop capture of a real sync to settle.
+  protocol: "ble"
+  type: "blood-pressure-monitor"
+  category: "health"
+  notes: >
+    Covers the Beurer BM92, sold in the US as the "Series 800" and
+    "Premium 800" upper-arm blood-pressure monitor (voice output in
+    English/Spanish, 2 users x 120 stored readings, WHO risk classification,
+    cuff-position and arrhythmia indicators). The sister wrist model BC54W
+    advertises as PREMIUM800W and appears to share the same protocol family
+    (app code treats both through the same blood-pressure device path), but
+    only BM92 is documented from app-code evidence here. The US "Deluxe 600"
+    is the older BM82, a sibling in the same HealthManager family.
+
+    Headline protocol fact: the BM92 speaks the standard Bluetooth SIG Blood
+    Pressure Profile. Measurement transfer is service 0x1810, characteristic
+    0x2A35 (Blood Pressure Measurement) as INDICATIONS after the client
+    enables the CCCD; there is no custom vendor command protocol for readings.
+    Time sync is a write of Current Time 0x2A2B on the Current Time Service
+    0x1805. Device info and battery are the standard DIS 0x180A and BAS
+    0x180F/0x2A19.
+
+    The record layout carries Beurer quirks recovered from the classic app's
+    BM85-family parser (parseDataForBM85) and independently documented by
+    smurfix/ble-stuff: the IEEE-11073 SFLOATs are sent BIG-ENDIAN (the app
+    byte-swaps them; smurfix documents the BM85 pulse value arriving with the
+    wrong byte order), the flags byte's bit0 means the values are in kPa and
+    the app multiplies by 7.50061683 to get mmHg, and Beurer appends a user
+    slot byte and a status byte (arrhythmia bit 0x04, bits 6-7 a resting /
+    hemodynamic-stability indicator) past the standard fields. The Pro app's
+    measurement model additionally tracks afib and triple-measurement flags,
+    so BM92-era firmware may carry status bits or trailing bytes the BM85
+    layout does not describe; whether the payload ends at byte 19 is an open
+    question (see below).
+
+    Required companion app is "beurer HealthManager Pro"; the classic
+    "beurer HealthManager" targets the older EU device generation
+    (BM77/BM85/BM96 family) and is documented here mainly as the unobfuscated
+    source of the record format.
+
+    There is no OTA/firmware path for the BM92 in either app — firmware
+    update support exists only for the BF880/BF980/BF990 WiFi scales, which
+    self-download from Beurer's server. The two binary blobs bundled in the
+    classic app are activity-tracker (AS-series) display data, not BP-monitor
+    firmware.
+
+    Open questions needing hardware: (1) whether the BM92 0x2A35 payload
+    exactly matches the BM85 layout (status at byte 18) or appends extra
+    bytes for the afib/triple flags the Pro app models; (2) bonding type
+    (JustWorks vs passkey) and whether indications require an encrypted
+    link — the app calls Android createBond() and no app-level PIN was found,
+    so JustWorks/Numeric Comparison is expected but unconfirmed; (3) whether
+    BM92 actually exposes 0x2A49 Blood Pressure Feature and what it claims;
+    (4) FCC ID (device.report lists a 2023-08-30 filing but is bot-blocked;
+    the printed manual should carry it); (5) whether a user-slot selection
+    write precedes sync — the Pro app has a user-selection view model, but
+    the relevant methods could not be read cleanly.
+  identification:
+    local_name_prefix: "PREMIUM800"
+    service_uuids:
+      - "00001810-0000-1000-8000-00805f9b34fb"
+    notes: >
+      BM92 advertises the local name PREMIUM800; the wrist sister BC54W
+      advertises PREMIUM800W, so the prefix catches both. The Pro app's
+      scan filter matches the Blood Pressure service UUID 0x1810 in the
+      advertisement (its service-UUID provider builds the standard BLE base
+      UUID with 0x1810 in the 16-bit slot).
+  variants:
+    - model: "BM92"
+      identification:
+        local_name_prefix: "PREMIUM800"
+    - model: "BC54W"
+      identification:
+        local_name_prefix: "PREMIUM800W"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "PREMIUM800"
+          service_uuids:
+            - "00001810-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        Whether the BM92 advertises a public or rotating private BLE address
+        is unestablished (no capture exists yet). If the address rotates,
+        key identity on the local name plus the DIS serial instead.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision — no network, no account, no cloud. The monitor
+      is a BLE peripheral usable straight out of the box: connect, enable
+      indications on 0x2A35, and it streams its stored records. The Pro app
+      requests Android bonding (createBond()); no app-level PIN exists in the
+      code for blood-pressure devices, so bonding is expected to be
+      JustWorks or Numeric Comparison (unconfirmed against hardware). The
+      Pro app works locally without registering an account.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the PREMIUM800 advertisement, connect, bond, enable
+          0x2A35 indications, and collect the stored measurements the
+          device streams.
+        ble:
+          advertised_name: "PREMIUM800"
+          pairing_required: true
+          pin_source: "None found in either app; expected JustWorks/Numeric Comparison bonding (unconfirmed)."
+        steps:
+          - action: "Take a measurement (or wake the device) so it advertises as PREMIUM800."
+            actor: "user"
+            expect: "BLE advertisement with local name PREMIUM800 and/or service UUID 0x1810."
+          - action: "Connect and let the OS bond with the device."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+            notes: >
+              The vendor app calls Android createBond(). Whether the link
+              must be encrypted before indications flow is an open question.
+          - action: "Write the standard CTS Current Time (0x2A2B) so stored records get correct timestamps."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "00001805-0000-1000-8000-00805f9b34fb"
+              action: "Write Current Time 0x2A2B"
+          - action: "Enable indications on Blood Pressure Measurement (0x2A35) via its CCCD (0x2902)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "00001810-0000-1000-8000-00805f9b34fb"
+              action: "Enable 0x2A35 indications"
+            expect: "The device streams one indication per stored record, newest or oldest first (ordering unverified)."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Not established. Neither app contains a BP-monitor reset procedure,
+        and no hardware was available. Stored state that a
+        reset would presumably clear: the 2x120 measurement memory, user
+        slot configuration, and any bond keys. Consult the printed manual;
+        do not invent a button sequence.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is no network to rejoin — "rebinding" is just pairing with a
+        new phone. Remove the OS-level bond on the old phone if the device
+        stops accepting new bonds (a common single-bond-peripheral symptom,
+        not yet confirmed on this device).
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No credentials of any kind: no WiFi, no account token on the
+        device, no pairing PIN. The only shared secret is the OS-level BLE
+        bond key, if bonding encrypts the link.
+
+services:
+  - uuid: "00001810-0000-1000-8000-00805f9b34fb"
+    name: "Blood Pressure Service"
+    notes: >
+      Standard Bluetooth SIG Blood Pressure Service 0x1810. This is the
+      whole measurement surface: the client enables indications on 0x2A35
+      and the device streams each stored record (the app enables the CCCD
+      0x2902 for indication, not notification). The same service/characteristic
+      pair serves the entire Beurer BP family (BM54/57/75/77/81/85/93/96,
+      BC54, SRBM1/788) per the classic app's supported-services table, which
+      is why the BM85 record parser is the reference for the format below.
+    characteristics:
+      - uuid: "00002a35-0000-1000-8000-00805f9b34fb"
+        name: "Blood Pressure Measurement"
+        properties: ["indicate"]
+        notes: >
+          Standard Blood Pressure Measurement characteristic, streamed as
+          indications once the client writes 0x0002 (enable indications) to
+          its CCCD. Payload is the IEEE-11073-style blood-pressure record
+          with Beurer quirks, recovered from the classic app's BM85-family
+          parser and independently documented by smurfix/ble-stuff:
+
+          - All SFLOATs are BIG-ENDIAN (both apps byte-swap them; the SIG
+            profile is little-endian, so a standards-conformant decoder
+            misreads every value — smurfix documents exactly this on the
+            BM85 pulse field).
+          - Flags byte 0 bit0 = values are in kPa; the app converts with
+            x * 7.50061683 to mmHg. Bit1 = the 7-byte timestamp is present.
+          - Systolic/diastolic/MAP are SFLOAT pairs at bytes 1-6.
+          - Timestamp (when flag bit1 set) is year as little-endian uint16
+            then month/day/hour/minute/second bytes — the one field that is
+            little-endian.
+          - Pulse is a big-endian SFLOAT at bytes 14-15 (high byte zero).
+          - Byte 16 is the user slot; byte 17 is unused in the BM85 layout;
+            byte 18 is a status byte: bit2 (0x04) = irregular
+            heartbeat/arrhythmia detected, bits 6-7 = resting ("HSD",
+            hemodynamic stability) indicator, 00 = insufficient rest,
+            01 = sufficient rest.
+          - UNVERIFIED for BM92 specifically: the Pro app's measurement
+            model also tracks afib and triple-measurement flags, so
+            BM92-era firmware may append bytes past 19 or use additional
+            status bits. One btsnoop capture of a sync settles this.
+        format:
+          - offset: 0
+            length: 1
+            name: "flags"
+            type: "uint8"
+            notes: >
+              bit0 (0x01): values in kPa (multiply decoded SFLOAT values by
+              7.50061683 for mmHg). bit1 (0x02): 7-byte timestamp present at
+              bytes 7-13. Remaining bits per the SIG profile; not verified
+              against BM92 traffic.
+          - offset: 1
+            length: 2
+            name: "systolic_sfloat"
+            type: "uint16"
+            endianness: "big"
+            unit: "mmHg"
+            notes: >
+              IEEE-11073 SFLOAT sent big-endian (Beurer quirk; swap bytes,
+              then decode 12-bit two's-complement mantissa + 4-bit
+              two's-complement exponent). Unit is mmHg unless flags bit0
+              says kPa.
+          - offset: 3
+            length: 2
+            name: "diastolic_sfloat"
+            type: "uint16"
+            endianness: "big"
+            unit: "mmHg"
+            notes: "Same big-endian SFLOAT encoding as systolic_sfloat."
+          - offset: 5
+            length: 2
+            name: "map_sfloat"
+            type: "uint16"
+            endianness: "big"
+            unit: "mmHg"
+            notes: "Mean arterial pressure, same big-endian SFLOAT encoding."
+          - offset: 7
+            length: 2
+            name: "year"
+            type: "uint16"
+            endianness: "little"
+            notes: >
+              Present only when flags bit1 is set. Little-endian — the one
+              little-endian multi-byte field in the record.
+          - offset: 9
+            length: 1
+            name: "month"
+            type: "uint8"
+          - offset: 10
+            length: 1
+            name: "day"
+            type: "uint8"
+          - offset: 11
+            length: 1
+            name: "hour"
+            type: "uint8"
+          - offset: 12
+            length: 1
+            name: "minute"
+            type: "uint8"
+          - offset: 13
+            length: 1
+            name: "second"
+            type: "uint8"
+          - offset: 14
+            length: 2
+            name: "pulse_sfloat"
+            type: "uint16"
+            endianness: "big"
+            unit: "bpm"
+            notes: >
+              Pulse rate, big-endian SFLOAT; high byte observed as zero in
+              the BM85 documentation, so the value effectively fits in one
+              byte.
+          - offset: 16
+            length: 1
+            name: "user_slot"
+            type: "uint8"
+            notes: "Which of the device's 2 user memories the record belongs to."
+          - offset: 17
+            length: 1
+            name: "reserved_17"
+            type: "uint8"
+            notes: "Unused in the BM85 layout; BM92 may use it — unverified."
+          - offset: 18
+            length: 1
+            name: "status"
+            type: "uint8"
+            notes: >
+              bit2 (0x04) = irregular heartbeat / arrhythmia detected.
+              bits 6-7 = resting (HSD / hemodynamic stability) indicator:
+              00 = insufficient rest, 01 (bit6 set) = sufficient rest.
+              BM92-era firmware may define additional bits (afib, triple
+              measurement) per the Pro app's model — unverified.
+
+      - uuid: "00002a49-0000-1000-8000-00805f9b34fb"
+        name: "Blood Pressure Feature"
+        properties: ["read"]
+        notes: >
+          Standard BP Feature characteristic; the classic app's family table
+          lists 0x2A49 for the BP family. Whether the BM92 actually exposes
+          it (and whether it claims kPa support, which would tell a client
+          to expect flags bit0 set) is UNVERIFIED — open question pending a
+          hardware capture.
+
+  - uuid: "00001805-0000-1000-8000-00805f9b34fb"
+    name: "Current Time Service"
+    notes: >
+      Standard CTS 0x1805. Both apps sync the device clock by writing
+      Current Time 0x2A2B in the standard CTS format. Whether BM92 also
+      accepts vendor-specific configuration writes (e.g. a user-slot
+      selection before download — the Pro app has a user-selection screen
+      whose backing BLE write could not be read cleanly) is an open question.
+    characteristics:
+      - uuid: "00002a2b-0000-1000-8000-00805f9b34fb"
+        name: "Current Time"
+        properties: ["write"]
+        notes: >
+          Standard CTS Current Time write, 10 bytes: year (LE uint16),
+          month, day, hour, minute, second, day-of-week (1=Monday .. 7=Sunday),
+          fractions-of-second (1/256 s), adjust-reason bitmask. Little-endian
+          throughout per the SIG specification.
+        commands:
+          set_current_time:
+            description: "Sync the device clock (standard CTS Current Time write)"
+            template:
+              - "{year_low}"
+              - "{year_high}"
+              - "{month}"
+              - "{day}"
+              - "{hours}"
+              - "{minutes}"
+              - "{seconds}"
+              - "{day_of_week}"
+              - "{fractions256}"
+              - "{adjust_reason}"
+            parameters:
+              year_low:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Low byte of the little-endian uint16 year (e.g. 2026 -> 0xEA)."
+              year_high:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "High byte of the little-endian uint16 year (e.g. 2026 -> 0x07)."
+              month:
+                type: "uint8"
+                min: 1
+                max: 12
+              day:
+                type: "uint8"
+                min: 1
+                max: 31
+              hours:
+                type: "uint8"
+                min: 0
+                max: 23
+              minutes:
+                type: "uint8"
+                min: 0
+                max: 59
+              seconds:
+                type: "uint8"
+                min: 0
+                max: 59
+              day_of_week:
+                type: "uint8"
+                min: 0
+                max: 7
+                default: 0
+                description: "1=Monday .. 7=Sunday; 0 = unknown."
+              fractions256:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "Sub-second fraction in 1/256 s units; 0 is fine for a clock sync."
+              adjust_reason:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 1
+                description: "CTS adjust-reason bitmask; bit0 = manual time update."
+            verification: "reported"
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information Service"
+    notes: "Standard DIS 0x180A as listed in the apps' device-info handling."
+    characteristics:
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 16
+            name: "model_number"
+            type: "string"
+            notes: "Maximum length unverified; standard UTF-8 model string."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 16
+            name: "firmware_revision"
+            type: "string"
+            notes: "Maximum length unverified."
+      - uuid: "00002a27-0000-1000-8000-00805f9b34fb"
+        name: "Hardware Revision String"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 16
+            name: "hardware_revision"
+            type: "string"
+            notes: "Maximum length unverified."
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: "Standard BAS 0x180F."
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read"]
+        notes: "Standard 0-100 percent battery level."
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            unit: "%"
+
+entities:
+  - platform: "sensor"
+    name: "Systolic Pressure"
+    unit: "mmHg"
+    state_characteristic: "00002a35-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "systolic_sfloat"
+    notes: >
+      Arrives as a 0x2A35 indication after the client enables the CCCD, not
+      as a pollable read. Requires SFLOAT decode after the big-endian byte
+      swap, and the kPa->mmHg conversion when the record's flags bit0 is set.
+
+  - platform: "sensor"
+    name: "Diastolic Pressure"
+    unit: "mmHg"
+    state_characteristic: "00002a35-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "diastolic_sfloat"
+    notes: "Same indication/decode path as Systolic Pressure."
+
+  - platform: "sensor"
+    name: "Mean Arterial Pressure"
+    unit: "mmHg"
+    state_characteristic: "00002a35-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "map_sfloat"
+    notes: "Same indication/decode path as Systolic Pressure."
+
+  - platform: "sensor"
+    name: "Pulse"
+    unit: "bpm"
+    state_characteristic: "00002a35-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "pulse_sfloat"
+    notes: "Same indication/decode path as Systolic Pressure."
+
+  - platform: "sensor"
+    name: "User Slot"
+    state_characteristic: "00002a35-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "user_slot"
+    notes: "Which of the 2 on-device user memories the record belongs to."
+
+  - platform: "binary_sensor"
+    name: "Irregular Heartbeat"
+    device_class: "problem"
+    state_characteristic: "00002a35-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "status"
+      on_when: "bit 2 (0x04) set"
+    notes: "Arrhythmia flag from the record status byte; BM85-derived layout, unverified on BM92."
+
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_percent"
+
+cloud:
+  required: false
+  vendor_service: "Beurer HealthManager Pro cloud (account sync/backup)"
+  hosts:
+    - "https://hmpro.connect.beurer.com"
+    - "https://hmpro-us.connect.beurer.com"
+    - "https://sso.connect.beurer.com"
+    - "https://appsso.beurer.de"
+    - "https://sync.connect-beurer.com"
+    - "https://beur-hm-api-cdn-endpoint-prod.azureedge.net"
+    - "https://beur-hm-api-cdn-endpoint-produs.azureedge.net"
+    - "https://matomo.connect.beurer.com"
+  auth:
+    type: "other"
+    notes: >
+      Account auth goes through Beurer's SSO hosts
+      (sso.connect.beurer.com, appsso.beurer.de); the exact grant flow was
+      not traced. Recorded as a shape only — no credentials here.
+    verification: "hypothesis"
+  endpoints:
+    - path: "/api/v1.1/version"
+      method: "GET"
+      name: "API version"
+      returns: >
+        JSON with projectName "Health Manager Pro API", projectVersion
+        (1.14.2 when probed) and a build date (20260218 when probed).
+      notes: "Probed live 2026-08-18: HTTP 200 on the EU host. Vendor cloud is alive; Beurer issued BM92 press material as recently as 2026-03."
+      verification: "confirmed"
+    - path: "/api/v1.1/user"
+      name: "User account"
+      returns: "Account profile data."
+      verification: "reported"
+    - path: "/api/v1.1/device"
+      name: "Device registration"
+      returns: "Registered device list/details."
+      verification: "reported"
+    - path: "/api/v1.1/device/update"
+      method: "GET"
+      name: "Device update check"
+      returns: >
+        JSON flags firmwareUpdateAvailable and certificateUpdateAvailable.
+        Takes query params deviceType, firmwareVersion, certificateVersion.
+      notes: "For the WiFi scales family; the BM92 has no OTA path."
+      verification: "reported"
+    - path: "/api/v1.1/record"
+      name: "Measurement records"
+      returns: "Synced measurement history (the app's account backup of BLE-collected records)."
+      verification: "reported"
+    - path: "/api/v1.1/sync"
+      name: "Account sync"
+      returns: "Sync state for the account."
+      verification: "reported"
+    - path: "/api/v1.1/goalSync"
+      name: "Goal sync"
+      returns: "User goal sync state."
+      verification: "reported"
+    - path: "/api/v1.1/product"
+      name: "Product info"
+      returns: "Product metadata."
+      verification: "reported"
+    - path: "/api/v1.1/framework"
+      name: "Framework/config"
+      returns: "App framework configuration."
+      verification: "reported"
+    - path: "/BHMCWebAPI/Common/LoginToAPI"
+      method: "POST"
+      name: "Classic HealthManager login"
+      returns: "Session for the classic sync API."
+      notes: >
+        Lives on sync.connect-beurer.com, used by the CLASSIC app, not the
+        Pro app the BM92 pairs with. Sibling routes seen in the app code:
+        Synchronization/GetCheckSyncVersion, hmpro/uploadData. Host probed
+        live 2026-08-18: responding (HTTP 200).
+      verification: "reported"
+  failure_mode: >
+    Nothing on the device breaks. The BM92 is a Bluetooth-only peripheral
+    with no WiFi and no phone-home of its own; all measurement transfer is
+    local BLE indications, and the Pro app works locally without registering
+    an account. If every Beurer host above went dark tomorrow, the only
+    losses are the app's optional account sync/backup and cross-device
+    history — the monitor keeps measuring and any BLE client speaking the
+    standard Blood Pressure Profile keeps reading it.
+  data_leaves_device:
+    - "blood pressure and pulse measurements with timestamps (personal health data)"
+    - "user account/profile data (when an account is used)"
+    - "app usage analytics (Matomo)"
+  notes: >
+    The CDN hosts serve device images under /shared/deviceImages/. Firmware
+    binaries for the BF8x0 WiFi scales were probed at /firmware/bf880.bin on
+    both the CDN and the API host and returned 404 (likely staged on demand
+    or behind the scale's own request path). The BM92 has no firmware-update
+    mechanism at all. Blocking or DNS-redirecting the hmpro/sync hosts does
+    not impair local BLE operation.
+
+local_access:
+  status: "native"
+  summary: >
+    Fully local by design: the monitor speaks the standard Bluetooth SIG
+    Blood Pressure Profile over BLE and has no other radio. Any generic BLE
+    BP-profile client (or an ESPHome Bluetooth proxy plus a small parser for
+    the Beurer big-endian-SFLOAT quirk) reads measurements with no vendor
+    involvement at any point.
+  covers:
+    - "full stored-measurement sync (systolic/diastolic/MAP/pulse/timestamp/user slot) via 0x2A35 indications"
+    - "clock sync via CTS 0x2A2B write"
+    - "model/firmware/hardware identification via DIS"
+    - "battery level via BAS"
+  not_covered:
+    - "cloud account sync/backup across devices (inherently a vendor-cloud feature, and optional)"
+  notes: >
+    smurfix/ble-stuff demonstrates third-party local sync of the sister BM85
+    with no vendor cloud, over the identical 0x1810/0x2A35 path — the
+    strongest available evidence that the local path is complete.
+
+helpful_urls:
+  - title: "Beurer Premium 800 (BM92) product page"
+    url: "https://www.shop-beurer.com/products/copy-of-beurer-blood-pressure-arm-monitor-auto-400"
+    description: >-
+      Vendor product page establishing that the US "Series 800"/"Premium 800"
+      is model BM92, with its feature set (voice output, 2x120 memory, WHO
+      indicator, cuff-position and arrhythmia detection).
+  - title: "beurer HealthManager Pro on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.beurer.healthmanager"
+    description: >-
+      The required companion app for the BM92; its store listing states the
+      app is fully usable locally without registering an account.
+  - title: "beurer HealthManager (classic) on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.beurer.connect.healthmanager"
+    description: >-
+      The older-generation app; being essentially unobfuscated made it the
+      best source for the BP record format and the family UUID map.
+  - title: "smurfix/ble-stuff"
+    url: "https://github.com/smurfix/ble-stuff"
+    description: >-
+      Python/bleak reader for the Beurer BM85 over the standard
+      0x1810/0x2A35 path; independently documents the big-endian-SFLOAT
+      quirk and proves cloud-free local sync of this device family.
+  - title: "openScale issue #111 (Beurer BF700 protocol notes)"
+    url: "https://github.com/oliexdev/openScale/issues/111"
+    description: "Community reverse-engineering notes for a Beurer scale; scales only, useful family context."
+  - title: "beep-projects/bpconnect"
+    url: "https://github.com/beep-projects/bpconnect"
+    description: "USB (HID) reader for Beurer BP monitors; not applicable to the BLE-only BM92, listed for completeness."
+  - title: "curzon01/bm58"
+    url: "https://github.com/curzon01/bm58"
+    description: "USB/serial reader for the Beurer BM58; not applicable to the BM92, listed for completeness."
+  - title: "device.report Beurer BM92 page"
+    url: "https://device.report/beurer/bm92"
+    description: >-
+      Lists a Beurer BM92 FCC filing dated 2023-08-30; the page is
+      bot-blocked, so the exact FCC ID was not retrieved (the printed
+      Premium 800 manual should carry it).
+  - title: "Bluetooth SIG Blood Pressure Profile"
+    url: "https://www.bluetooth.com/specifications/specs/blood-pressure-profile-1-1-1/"
+    description: >-
+      The published profile this device implements; authoritative for the
+      0x1810/0x2A35/0x2A49 structure, subject to the Beurer quirks this spec
+      documents on top.
+
+sources:
+  - type: "static_analysis"
+    artifact: "com.beurer.healthmanager v1.17.2 (versionCode 2025072508)"
+    sha256: "d88e3c34c0baae79f4e4c96b2ca193195211175d3f77cae1156cb14541699126"
+    obtained_via: "third-party APK mirror, 2026-08"
+    description: >
+      Static analysis of the beurer HealthManager Pro app (2026-08) — the
+      companion the BM92 pairs with. Package-flattened, obfuscated Kotlin
+      (RxAndroidBle + coroutines). Contributed the advertised name
+      PREMIUM800, the 0x1810 scan filter, the 0x2A35 indication enable, the
+      measurement-sync flow and the CTS 0x1805/0x2A2B time sync. A few key
+      methods (its own 0x2A35 response parser and the user-selection write
+      path) could not be read cleanly, which is why the classic app is the
+      record-format source.
+  - type: "static_analysis"
+    artifact: "com.beurer.connect.healthmanager v2.17 (versionCode 2025091701)"
+    sha256: "ea3ec53ef9f9a6bc2eaf56237d7383af90f4e99b778036b4a2034d0ea4468a51"
+    obtained_via: "third-party APK mirror, 2026-08"
+    description: >
+      Static analysis of the classic beurer HealthManager app (2026-08) —
+      essentially unobfuscated, and aimed at the older EU device generation
+      (BM77/BM85/BM96 family) rather than the BM92. Its blood-pressure
+      parser is the reference for the record format; it also supplied the
+      CCCD indication-enable path and the family UUID map, and its
+      device-entity tree is where the absence of any BM92 OTA path was
+      confirmed (only the BF8x0 scales carry firmware paths).
+  - type: "community_implementation"
+    url: "https://github.com/smurfix/ble-stuff"
+    description: >-
+      Working third-party local reader for the sister BM85 over
+      0x1810/0x2A35; corroborates the big-endian-SFLOAT quirk.
+  - type: "live_probe"
+    description: >-
+      HTTPS probes 2026-08-18: hmpro.connect.beurer.com /api/v1.1/version
+      returned 200 with Health Manager Pro API 1.14.2 (build 20260218);
+      sync.connect-beurer.com responding; firmware paths for the BF8x0
+      scales 404 on both CDN and API hosts.

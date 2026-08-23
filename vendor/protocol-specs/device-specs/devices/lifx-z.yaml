@@ -26,9 +26,8 @@ device:
     integration. Units that take the Matter update stop advertising
     _hap._tcp.local., which kills the mDNS discovery signal this spec relies
     on; discover those units by UDP broadcast GetService instead. The current
-    vendor app bundles a Matter commissioning stack (the
-    com.lifx.app.features.onboarding.matter package in the decompiled APK),
-    which is the onboarding path it offers for Matter-firmware units.
+    vendor app bundles a Matter commissioning stack (its onboarding code
+    carries a Matter path), which is the onboarding path it offers for Matter-firmware units.
   identification:
     # No mdns_service_type. HomeKit accessories all advertise `_hap._tcp` — hundreds of unrelated
     # products. It says the device speaks HomeKit, not that it is this one.
@@ -74,8 +73,8 @@ device:
     notes: >
       LIFX strips must be joined to WiFi before the LAN protocol is usable.
       Unprovisioned (or factory-reset) devices host a temporary AP, and the
-      decompiled vendor app (jadx; com.lifx.core.protocol.Wifi and the
-      onboarding processor) shows TWO onboarding exchanges on it, both
+      vendor app — its Wi-Fi protocol layer and onboarding processor —
+      shows TWO onboarding exchanges on it, both
       speaking the LIFX binary protocol to the device at 172.16.0.1 port
       56700 via the access-point message family (304-309) that the original
       published LAN protocol documented and the current official
@@ -84,7 +83,7 @@ device:
       as UDP datagrams. The legacy layouts were first transcribed from the
       legacy public reverse-engineering documentation (magicmonkey/lifxjs
       Protocol.md — the same class of source pywemo is for Wemo) and are
-      now confirmed byte-exact against the decompiled app; neither flow has
+      now confirmed byte-exact against the vendor app; neither flow has
       been replayed against hardware by this project, hence confidence
       medium (app-derived, not hardware-verified). During onboarding the
       app also claims the device to the vendor cloud when the device
@@ -117,8 +116,8 @@ device:
           port: 56700
           ssid_notes: >
             Post-original devices (LIFX Z among them) advertise an OPEN AP
-            named after the product and a serial fragment. The decompiled
-            app confirms it: the app supplies a passphrase only when the
+            named after the product and a serial fragment. The vendor app
+            confirms it: the app supplies a passphrase only when the
             setup SSID is exactly "LIFX Bulb" — the original 2013 bulbs,
             whose published passphrase is "lifx1234" — and joins every other
             LIFX-prefixed setup AP with none. open_network above therefore
@@ -179,12 +178,12 @@ device:
                 bytes: 2
                 description: "Always 0."
           get_access_points:
-            description: "Type 0x130 (304). No payload. The device answers with one StateAccessPoint (0x132) message per network it can see. The full access-point family in the decompiled app runs 304-309; 307-309 are documented after 306 below."
+            description: "Type 0x130 (304). No payload. The device answers with one StateAccessPoint (0x132) message per network it can see. The full access-point family in the vendor app runs 304-309; 307-309 are documented after 306 below."
           set_access_point:
             description: >
               Type 0x131 (305). Hands the device its home network. 98-byte
               payload; strings are UTF-8, null-padded to their fixed width.
-              Layout confirmed byte-exact against the decompiled app
+              Layout confirmed byte-exact against the vendor app
               (interface at 0, ssid at 1, password at 33,
               security_protocol at 97).
             fields:
@@ -207,7 +206,7 @@ device:
           state_access_point:
             description: >
               Type 0x132 (306). One scan result. 38-byte payload. Layout
-              confirmed byte-exact against the decompiled app.
+              confirmed byte-exact against the vendor app.
             fields:
               - name: "interface"
                 offset: 0
@@ -231,21 +230,21 @@ device:
             description: >
               Type 0x133 (307). Asks the device for the AP configuration
               currently set on one interface. 1-byte payload: interface
-              (same encoding as SetAccessPoint). Present in the decompiled
-              app; not in the legacy public docs.
+              (same encoding as SetAccessPoint). Present in the vendor app;
+              not in the legacy public docs.
           state_access_point_config:
             description: >
               Type 0x134 (308). The device's currently configured AP, NOT a
               scan result (that is 306 above). 66-byte payload: interface
               (1 byte at 0), ssid (32-byte UTF-8 string at 1), passphrase
               (32 raw bytes at 33), security_protocol (1 byte at 65).
-              Present in the decompiled app; not replayed against hardware.
+              Present in the vendor app; not replayed against hardware.
           set_access_point_broadcast:
             description: >
               Type 0x135 (309). SetAccessPoint plus a trailing 16-byte key,
               114-byte payload: interface (1 byte at 0), ssid (32 bytes at
               1), password (64 bytes at 33), security_protocol (1 byte at
-              97), key (16 bytes at 98). Present in the decompiled app; the
+              97), key (16 bytes at 98). Present in the vendor app; the
               key's purpose is not established.
           security_protocols:
             description: "The SECURITY_PROTOCOL byte shared by SetAccessPoint and StateAccessPoint."
@@ -321,7 +320,7 @@ device:
       - type: "softap_udp"
         verified: false
         description: >
-          Modern flow, derived from the decompiled vendor app (app-derived,
+          Modern flow, derived from the vendor app (app-derived,
           not hardware-verified — medium confidence). After joining the
           setup AP, the app opens a TLS-secured TCP connection to
           172.16.0.1:56700 and drives the SAME LIFX binary access-point
@@ -433,8 +432,8 @@ lifx_lan_protocol:
     LIFX/public-protocol repo (protocol.yml) — the codegen source for a
     lifx_lan_udp handler. Every type number here, the multizone family
     below, and the UDP 56700 transport are confirmed byte-exact against the
-    decompiled vendor app (Protocol.MessageType; UdpTransport sends to port
-    56700).
+    vendor app (its protocol message-type table; its UDP transport sends to
+    port 56700).
   multizone_messages:
     set_color_zones: 501
     get_color_zones: 502
@@ -507,7 +506,7 @@ payload_formats:
     fields:
       - {name: level, offset: 0, bytes: 2, description: "0 off, 65535 on."}
       - {name: duration, offset: 2, bytes: 4, description: "Transition time, ms."}
-    example: "2a0000144752424cd073d50004a300000000000000000003000000000000000075000000ffff00000000"
+    example: "2a0000144752424cd073d5aabbcc00000000000000000003000000000000000075000000ffff00000000"
   set_color:
     description: >
       LightSetColor, type 102. Payload: one reserved byte, an HSBK colour (see
@@ -517,7 +516,7 @@ payload_formats:
       - {name: reserved, offset: 0, bytes: 1}
       - {name: color, offset: 1, bytes: 8, description: "HSBK; see the hsbk format."}
       - {name: duration, offset: 9, bytes: 4}
-    example: "310000144752424cd073d50004a300000000000000000007000000000000000066000000000000ffffffffac0d00000000"
+    example: "310000144752424cd073d5aabbcc00000000000000000007000000000000000066000000000000ffffffffac0d00000000"
   set_color_zones:
     description: >
       SetColorZones, type 501 (multizone). Payload: start and end zone indices,
@@ -529,7 +528,7 @@ payload_formats:
       - {name: color, offset: 2, bytes: 8, description: "HSBK."}
       - {name: duration, offset: 10, bytes: 4}
       - {name: apply, offset: 14, bytes: 1, description: "0 buffer, 1 apply now."}
-    example: "330000144752424cd073d50004a3000000000000000000040000000000000000f501000003035555ffffffffac0d0000000001"
+    example: "330000144752424cd073d5aabbcc000000000000000000040000000000000000f501000003035555ffffffffac0d0000000001"
   state:
     description: >
       LightState, type 107 — the reply to LightGet (101). Payload: an HSBK
@@ -665,3 +664,8 @@ entities:
       turn_off: "turn_off"
       set_color: "set_color"
 
+
+helpful_urls:
+  - title: "Home Assistant LIFX integration"
+    url: "https://www.home-assistant.io/integrations/lifx/"
+    description: "HA core integration speaking the LIFX LAN binary protocol documented here (UDP 56700)."

@@ -13,7 +13,8 @@
 # firmware disproves that attribution: no 0AF0 UUID exists anywhere in the
 # 512 kB flash; the on-device GATT table is Nordic UART Service + Telink OTA
 # with an LT716_OTA identity. The Veryfit analysis is preserved at the
-# bottom as a clearly-labeled mis-attribution note.
+# bottom as a clearly-labeled mis-attribution note, and promoted to its own
+# spec: device-specs/devices/veryfit-2-fitness-band.yaml.
 
 device:
   name: "M6 Smart Fitness Band"
@@ -233,7 +234,9 @@ misattribution_note:
     byte-accurate spec of the Veryfit 2.0 app (every UUID and command ID
     verified against its decompiled smali) and remains valid for the
     ID107/ID111-class bands Veryfit 2.0 actually targets (Nordic nRF51822
-    hardware generation), but it is MIS-ATTRIBUTED to the M6: the stock M6
+    hardware generation) — see the dedicated spec
+    device-specs/devices/veryfit-2-fitness-band.yaml — but it is
+    MIS-ATTRIBUTED to the M6: the stock M6
     firmware dump contains no occurrence of the 0AF0 UUID anywhere in its
     512 kB flash, its GATT table is NUS + Telink OTA, and vendor listings
     pair the M6 with the FitPro app. Nordic DFU belongs to the nRF51822-based

@@ -82,5 +82,5 @@ polling ranges and safety notes.
 
 - <https://github.com/warhammerkid/bluetti_mqtt>
 - <https://github.com/Patrick762/bluetti-bt-lib>
-- <https://github.com/Patrick762/hassio-bluetti-bt>
+- [hassio-bluetti-bt](https://github.com/Patrick762/hassio-bluetti-bt) — HACS custom integration polling Bluetti stations over local BLE (Home Assistant)
 - <https://github.com/mariolukas/Bluetti_ESP32_Bridge>

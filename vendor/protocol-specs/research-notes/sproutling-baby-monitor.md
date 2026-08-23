@@ -23,9 +23,9 @@ Data path: band → BLE → Smart Charger → Wi-Fi → Sproutling cloud → app
 - **SHA-256**: `f5110d0c4e0fb3fb9fe7755fa4935f644dddde7b818a6aa2e9a27b5a7abcc924`
 - jadx decompile OK (workspace/static/sproutling-baby-monitor), light
   obfuscation; key classes readable (`com.sproutling.*`, protobuf schema
-  in `sproutling/Hub.java`, `EventOuterClass.java`, `Sleep.java`).
+  in the app, in its generated protobuf event and sleep classes).
 
-## BLE findings from static analysis (`com/sproutling/services/SHBluetoothLeService.java`)
+## BLE findings from static analysis
 The phone app's BLE role is **provisioning the Smart Charger's Wi-Fi** —
 not streaming sensor data. Characteristics are self-describing in log
 strings:
@@ -52,8 +52,7 @@ because hub setup after 2018-10-31 otherwise fails against the dead cloud.
   principle pair with the band directly — but no public capture exists
   and the app's own code never does it. Needs an nRF Connect scan +
   HCI snoop against the band itself.
-- The protobuf schema (`sproutling/EventOuterClass.java`, `Sleep.java`,
-  `Hub.java`) documents the full event/data model — a big head start for
+- The protobuf schema documents the full event/data model — a big head start for
   a replacement hub-side or band-side decoder.
 - The hub's Wi-Fi-side protocol (charger→cloud) is unexplored; if it is
   plain TLS to sproutlingcloud.com it is dead, but hub-local endpoints

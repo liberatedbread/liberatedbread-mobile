@@ -168,12 +168,9 @@ explains the constraint every tool's UI enforces: intervals are settable only in
 of 100 because the wire format cannot express anything else. The documented ceilings fit a
 single byte exactly — 10000 km → `33 64`, 6000 miles → `34 3C`.
 
-TuneECU builds it in one line, which is as direct a confirmation as this gets:
-
-```java
-rb = (i15 == 0 ? "33" : "34")
-       .concat(String.format("%02x", Integer.valueOf((i15 == 0 ? iArr[0] : iArr[5]) / 100)));
-```
+TuneECU builds it in one expression, which is as direct a confirmation as this gets:
+it selects the opcode string `"33"` or `"34"` from the unit flag, then appends the
+interval divided by 100 formatted as two hex digits.
 
 TigerTool arrives at the same bytes by a different route — `mov bl, 0x21` (decimal 33)
 rendered through Delphi's `IntToStr`, so the opcode on the wire is `33`; the miles branch

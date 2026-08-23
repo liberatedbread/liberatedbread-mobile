@@ -1,16 +1,15 @@
 # Schlage Smart Locks (Sense / Encode family) — Device Spec (BLE "uWeave")
-# Reverse-engineered from the Schlage Home Android app (com.allegion.leopard),
-# versions 3.6.0 (unobfuscated protocol code) and 6.1.0 (resources; the
-# app-specific Java is packed by a commercial protector in this version, but
-# the bundled Google Weave/GCD security classes ship unobfuscated — so the
-# SPAKE2/P-224 pairing constants are confirmed in BOTH versions; the packed
-# session-layer claims below remain 3.6.0-only).
+# Reverse-engineered by static analysis of the Schlage Home Android app, in
+# two releases: an older one whose protocol code is unobfuscated, and the
+# current one, whose app-specific Java is packed by a commercial protector
+# but which still ships the bundled Google Weave/GCD security classes in the
+# clear — so the SPAKE2/P-224 pairing constants are confirmed in BOTH
+# releases, while the session-layer claims below rest on the older one.
+# The two bundled GATT profile resources (Sense and firmware-update) are
+# byte-identical between the releases.
 #
-# APKs analyzed (workspace only, never committed — see docs/CLEANROOM_RULES.md):
-#   com.allegion.leopard 3.6.0  sha256 73ad73952f585fb6fcc4d5f31a503c65903a1714077afc62781c6e6b1248219c
-#   com.allegion.leopard 6.1.0  sha256 0e87604de5e12f650badea5539ea0765f4b7ea5e29206db02b9cb1404631abdd
-# Both fetched from APKPure via apkeep. res/raw/sense_gatt_profile.json and
-# res/raw/firmware_gatt_profile.json are byte-identical between the two versions.
+# No app binaries, decompiled sources or vendor resources are committed —
+# see docs/CLEANROOM_RULES.md. Only the derived facts below.
 #
 # Cross-checked against the public Go implementation
 # golang.betakappaphi.com/schlage-uweave (github.com/huguesb/schlage-uweave):
@@ -18,33 +17,30 @@
 # format, macaroon format and the CBOR command map all agree.
 #
 # Verification basis for `verification: confirmed` below: the fact was located
-# and read in the decompiled vendor app AND matches the independent Go
-# implementation. Nothing here has been replayed against a physical lock by us;
-# the Go library authors report hardware testing. `reported` marks facts taken
-# from the RE report / app strings that we did not independently re-derive.
+# and read in the vendor app AND matches the independent Go implementation.
+# Nothing here has been replayed against a physical lock by us; the Go library
+# authors report hardware testing. `reported` marks facts taken from the RE
+# report / app strings that we did not independently re-derive.
 #
-# Key source references (jadx; 3.6.0 class names obfuscated):
-#   defpackage/ou2.java — uWeave session base: fragmentation (19-byte chunks,
-#     flags 0x8/0x4/0x0/0xC, 1024-byte blocks), EAX encrypt with nonce
-#     nonceBase(16) || senderID(1) || counter(3 BE), HKDF at line ~647 with the
-#     32-byte salt, IKM = 0x02 || clientRandom(12) || serverRandom || satTag(16),
+# What the app contributed, by area:
+#   uWeave session base — fragmentation (19-byte chunks, flags
+#     0x8/0x4/0x0/0xC, 1024-byte blocks), EAX encrypt with nonce
+#     nonceBase(16) || senderID(1) || counter(3 BE), HKDF with the 32-byte
+#     salt, IKM = 0x02 || clientRandom(12) || serverRandom || satTag(16),
 #     HKDF info "session key", 32-byte output split 16 key / 16 nonce base.
-#   defpackage/ej.java  — pairing: {1:2,2:1,16:{0:1,1:0}} start, SPAKE via r33,
-#     timestamp proof under EAX key K[0:16] with 1-byte nonces 0x00/0x01,
+#   pairing — {1:2,2:1,16:{0:1,1:0}} start, SPAKE2 exchange, timestamp proof
+#     under EAX key K[0:16] with 1-byte nonces 0x00/0x01,
 #     {1:3,2:2,16:{0:sessionID,1:commitment,2:encTimestamp}}, CAT/SAT from
 #     {17:{0:blob}} decrypted as CBOR {0:CAT, 1:SAT}.
-#   defpackage/r33.java — SPAKE2/P-224: passwordHash = BigInteger(SHA256(pin)[0:28]),
-#     P-224 params, blinding points KM=4D48C8EA.../6C185CAB... and
-#     KN=0B1CFC6A.../3E14F629..., 56-byte affine x||y commitments.
-#   defpackage/x2.java, defpackage/bk.java — access-code CRUD CBOR structures.
-#   com/allegion/leopard/api/bridge/commission/model/WifiPayload.java —
-#     legacy (3.x) WiFi commissioning encryption: SHA-256(secret + "|" + id[6:]),
+#   SPAKE2/P-224 — passwordHash = BigInteger(SHA256(pin)[0:28]), P-224
+#     params, blinding points KM=4D48C8EA.../6C185CAB... and
+#     KN=0B1CFC6A.../3E14F629..., 56-byte affine x||y commitments. Every one
+#     of these constants also appears, unobfuscated, in the bundled
+#     Weave/GCD security code of the current release.
+#   access codes — the access-code CRUD CBOR structures.
+#   legacy WiFi commissioning — encryption as SHA-256(secret + "|" + id[6:]),
 #     AES/CBC/NoPadding, zero IV, be64(counter) || JSON({ssid,password}),
 #     zero-padded to 16.
-# 6.1.0 (unobfuscated): com/google/android/apps/weave/gcd/security/
-#   SpakeP224.java:51-56,143-145,185-187,326 — every SPAKE2/P-224 constant
-#   (KM, KN, p, a, b, generator G), the SHA256[0:28] password hash and the
-#   56-byte commitment format match 3.6.0 r33.java exactly.
 
 device:
   name: "Schlage Smart Locks (Sense / Encode family)"
@@ -96,7 +92,7 @@ device:
     matters against an eavesdropper present during the ~30 s pairing window.
 
     VERIFICATION: protocol facts marked `confirmed` were read directly out of
-    the decompiled 3.6.0 app and agree with the Go reimplementation; they have
+    the vendor app and agree with the Go reimplementation; they have
     not been replayed against hardware by us. See header comment.
 
   setup:
@@ -110,7 +106,7 @@ device:
       physical possession of the inside of the lock, not mere proximity, is
       what authorizes a new client.
 
-      Confidence medium: the full flow was read in the decompiled app and
+      Confidence medium: the full flow was read in the vendor app and
       matches the working Go implementation on every constant and message,
       but we have not run it against a lock ourselves.
     methods:
@@ -268,9 +264,10 @@ device:
         tag an HMAC-SHA256 chained over caveats, truncated to 16 bytes;
         attenuation appends a caveat and recomputes the tag. WiFi credentials
         pushed to the lock go over the encrypted session channel; the legacy
-        3.x app additionally wrapped the WiFi payload in AES/CBC with
-        key = SHA-256(secret + "|" + id[6:]) and a zero IV (verified in
-        WifiPayload.java). On 6.x the lock's cloud identity ("payload0" JITR
+        older app additionally wrapped the WiFi payload in AES/CBC with
+        key = SHA-256(secret + "|" + id[6:]) and a zero IV (verified in the
+        app's commissioning model). On current apps the lock's cloud identity
+        ("payload0" JITR
         blob) is minted by the vendor's factory service and pushed over BLE —
         see `cloud`.
 
@@ -362,7 +359,7 @@ device:
         softAP; commissioning-only, not a runtime channel). Also speaks Apple
         HAP-over-BLE in HomeKit mode — mutually exclusive with Schlage mode.
         Codename MARLIN in the app. Firmware OTA block/packet 1024/128.
-        The BR400 itself deserves a caveat: the 3.6.0 app speaks to it over
+        The BR400 itself deserves a caveat: the older app speaks to it over
         an UNAUTHENTICATED LAN HTTP API (mDNS _http._tcp; bridge/info,
         bridge/ble/scan, and POST bridge/update_mcu accepting an arbitrary
         firmware URL over plain HTTP) — accessory-scoped, not present on
@@ -390,8 +387,9 @@ device:
         service_uuids:
           - "1f6b43aa-94de-4ba9-981c-da38823117bd"
       notes: >
-        WiFi + BLE lever variant of Encode. Feature-toggled in app 3.6.0
-        ("encode_lever": false); later versions enable it. Same uWeave stack.
+        WiFi + BLE lever variant of Encode. Feature-toggled off in the older
+        app ("encode_lever": false); later versions enable it. Same uWeave
+        stack.
 
 initialization:
   # Per-connection handshake (session resumption, phase C of pairing). Runs on
@@ -430,8 +428,8 @@ services:
     name: "uWeave Profile (Schlage local control)"
     notes: >
       The local data path for all lock functions. From
-      res/raw/sense_gatt_profile.json (byte-identical in app 3.6.0 and 6.1.0;
-      the resource is parsed at runtime into a nickname→UUID map). Not
+      the app's bundled Sense GATT profile resource (byte-identical across
+      both app releases; parsed at runtime into a nickname→UUID map). Not
       advertised — discovered after GATT connect. No MTU negotiation: default
       ATT MTU 23, every write is 1 header byte + up to 19 payload bytes.
       Header = (packetCounter mod 8) << 4 | flags; flags 0x8 FIRST,
@@ -548,7 +546,7 @@ services:
             description: >
               Push WiFi credentials: {1:8, 2:4, 16:{0:6, 1:0, 2:{0:ssid,
               1:password, 2:security}}}. The security enum is hardcoded to 1
-              in the 3.6.0 app (fj.java:102). Only meaningful for WiFi
+              in the app. Only meaningful for WiFi
               models; the lock's cloud identity (payload0) must already
               exist — see `cloud`.
             verification: "reported"
@@ -557,21 +555,22 @@ services:
               Push the cloud-minted JITR identity blob: {1:8, 2:4, 16:{0:6,
               1:2, 2:{0:payload0Bytes}}}; poll status {1:8, 2:5, 16:{0:6,
               1:4}} → 0..5 (stopped/started/success/AP error/host error/IP
-              acquired). The app's enum ends at IP_ACQUIRED (pj.java:46-88);
-              no state 6 exists.
+              acquired). The app's enum ends at IP_ACQUIRED; no state 6
+              exists.
             verification: "reported"
 
   - uuid: "7f0dee73-4a3f-4103-98e6-a46cd301bdfb"
     name: "Firmware Update (General)"
     notes: >
-      Separate firmware-OTA profile, from res/raw/firmware_gatt_profile.json
-      (byte-identical 3.6.0/6.1.0). LeopardControlPoint opcodes observed in
+      Separate firmware-OTA profile, from the app's bundled firmware GATT
+      profile resource (byte-identical across both app releases).
+      Control-point opcodes observed in
       the app: {1,1,1} start, {2,1,1} finish. Transfer sizing: Sense
       1024-byte blocks / 128-byte packets; newer locks 4096/241 or 1024/205
       (reported). Firmware metadata comes from the vendor cloud:
       GET api.allegionengage.com/api/firmware/{platformType} (Accept
       version=3), the binary URL is server-supplied (links[rel=self]), and
-      the app verifies CONTENT-LENGTH ONLY (3.6.0). Delivery is BLE-push
+      the app verifies CONTENT-LENGTH ONLY. Delivery is BLE-push
       (CRC-chunked, this profile) or lock self-download over WiFi (manual
       trigger: interior button ×5, per vendor support doc) — see `cloud`.
     characteristics:
@@ -722,11 +721,10 @@ protocol:
       NIST secp224r1 (p = FFFFFFFF...FF000000000000000000000001, generator
       B70E0CBD.../BD376388...). On success the lock issues CAT + SAT
       macaroons (CBOR bstr(array of caveat bstrs + 16-byte truncated
-      HMAC-SHA256 tag)). Constants confirmed in BOTH app versions: the
-      unobfuscated 6.1.0
-      com/google/android/apps/weave/gcd/security/SpakeP224.java
-      (:51-56,143-145,185-187,326) matches the obfuscated 3.6.0 r33.java on
-      every constant above (app-confirmed ×2, not hardware-tested).
+      HMAC-SHA256 tag)). Constants confirmed in BOTH app releases: the
+      unobfuscated Weave/GCD security code in the current release matches
+      the obfuscated protocol code of the older one on every constant above
+      (app-confirmed ×2, not hardware-tested).
   message_format:
     description: >
       CBOR "Privet" RPC. Request {1:apiId, 2:requestTypeId, 16:{trait,
@@ -816,7 +814,7 @@ evidence:
         and an IPv6-only neighbor, the TI-module host runs SSH. Locks
         that only dial out to the cloud are indistinguishable from any
         other silent host here — consistent with the app-level finding
-        (2026-08, com.allegion.leopard 3.6.0) that the lock never hosts
+        (2026-08, vendor app) that the lock never hosts
         a softAP and the app never opens a socket to a lock: runtime
         WiFi is outbound REST + MQTT-over-WSS only.
     claims_checked:
@@ -851,21 +849,29 @@ evidence:
       the front/kitchen/laundry doors.
 
 sources:
-  - type: "apk_decompilation"
-    apk: "com.allegion.leopard 3.6.0 (sha256 73ad73952f585fb6fcc4d5f31a503c65903a1714077afc62781c6e6b1248219c) and 6.1.0 (sha256 0e87604de5e12f650badea5539ea0765f4b7ea5e29206db02b9cb1404631abdd), APKPure via apkeep"
-    decompiler: "jadx 1.5.1"
-    key_files:
-      - "res/raw/sense_gatt_profile.json (uWeave UUIDs; identical 3.6.0/6.1.0)"
-      - "res/raw/firmware_gatt_profile.json (OTA UUIDs; identical 3.6.0/6.1.0)"
-      - "3.6.0: defpackage/ou2.java (session, fragmentation, HKDF salt, EAX nonce)"
-      - "3.6.0: defpackage/ej.java (pairing phases), defpackage/r33.java (SPAKE2/P-224)"
-      - "3.6.0: defpackage/x2.java, defpackage/bk.java (access-code CBOR)"
-      - "3.6.0: com/allegion/leopard/api/bridge/commission/model/WifiPayload.java (legacy WiFi commissioning crypto)"
-      - "6.1.0: com/google/android/apps/weave/gcd/security/SpakeP224.java (SPAKE2/P-224 constants, unobfuscated; every pairing constant matches 3.6.0)"
-      - "6.1.0: res/xml/network_security_config.xml (TLS pinning: yonomi.cloud, Amazon Root CA 1-4)"
+  - type: "static_analysis"
+    artifact: "com.allegion.leopard 3.6.0 and 6.1.0"
+    sha256: "73ad73952f585fb6fcc4d5f31a503c65903a1714077afc62781c6e6b1248219c"
+    notes: "sha256 of the 6.1.0 release: 0e87604de5e12f650badea5539ea0765f4b7ea5e29206db02b9cb1404631abdd"
+    obtained_via: "third-party APK mirror, 2026-08"
+    description: >
+      Static analysis of the Schlage Home Android app in two releases — an
+      older one with unobfuscated protocol code, and the current, packed one.
+      The bundled GATT profile resources (uWeave and firmware-update UUIDs)
+      are byte-identical between them. The older release supplied the session
+      layer (fragmentation, HKDF salt, EAX nonce), the pairing phases, the
+      SPAKE2/P-224 constants, the access-code CBOR structures and the legacy
+      WiFi commissioning crypto; the current release re-confirms every pairing
+      constant in its unobfuscated Weave/GCD security code, and is the source
+      of the TLS-pinning configuration (yonomi.cloud, Amazon Root CA 1-4).
   - type: "public_implementation"
     url: "https://github.com/huguesb/schlage-uweave"
-    description: "Independent Go reimplementation of the full BLE stack; agrees with the APK extraction on every constant checked."
+    description: "Independent Go reimplementation of the full BLE stack; agrees with the app-derived facts on every constant checked."
   - type: "public_implementation"
     url: "https://github.com/dknowles2/pyschlage"
     description: "Python client for the Schlage cloud API (not the BLE path); backs the Home Assistant schlage integration."
+
+helpful_urls:
+  - url: "https://www.home-assistant.io/integrations/schlage/"
+    title: "Home Assistant Schlage integration"
+    description: "HA core integration for Schlage Encode WiFi locks (cloud-based; no local API exists on these locks)."

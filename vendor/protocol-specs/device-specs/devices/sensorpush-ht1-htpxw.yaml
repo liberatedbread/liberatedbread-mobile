@@ -36,6 +36,17 @@ device:
     History data retrieved in bulk notification chunks with 4-byte timestamp header.
     Device reports battery voltage + raw temperature sensor in Battery Info characteristic.
     Uses SensorPush BLE Advertisement Detection: name/address prefix check plus UUID slicing.
+    The Android app (v4.5.9, legacy package com.cousins_sears.beaconthermometer) ships a
+    definitions table (res/raw/definitions.json) confirming the device-version IDs:
+    1=HT1, 64=HTP.xw, 65=HT.w, 66=TC.x, 67=Aqua (binary water-leak sensor, 1-byte
+    timestamped samples). The app matches the primary service by UUID prefix
+    ef090000-11d6-42ba-93b8-9dd7ec090a* rather than an exact generation UUID.
+    Two app-side behaviours worth knowing: (1) a factory-recovery flow for sensors whose
+    DeviceID reads as 0 or 0xFFFFFFFF (uninitialized/flash-error), which exposes a
+    separate initial-config service ee090000-11d6-42ba-93b8-9dd7ec090ab0 through which
+    the app rewrites the device identity; (2) an optional write-challenge/read-response
+    security exchange performed during app "activation" as an anti-counterfeit check
+    (skipped on firmware that lacks it) — it is not required to read sensor data.
 
   setup:
     required: false
@@ -219,6 +230,38 @@ services:
         properties: ["write"]
         description: "TI OAD Control characteristic (per TI's canonical OAD map; Image Count is f000ffc3, not present here)"
 
+  # Factory-recovery / initial-config service (observed in the Android app v4.5.9,
+  # CSEE09RecoveryCoordinator): present on sensors whose DeviceID reads as 0 or
+  # 0xFFFFFFFF (uninitialized or flash error). The app uses it to rewrite the
+  # device identity (DeviceID, MAC-derived address, sample/advertising intervals,
+  # TX power) and restore normal operation; ~5 min per-device cooldown.
+  - uuid: "ee090000-11d6-42ba-93b8-9dd7ec090ab0"
+    name: SensorPush Initial Config Service (recovery)
+    description: Initial-configuration service exposed by sensors with an uninitialized or corrupt DeviceID; used by the app to rewrite device identity during recovery
+    characteristics:
+      # The recovery flow touches the same …090aa9 characteristics it rewrites in
+      # the primary service (per the app's CSEE09RecoveryCoordinator).
+      - uuid: "ef090001-11d6-42ba-93b8-9dd7ec090aa9"
+        name: DeviceID
+        properties: ["read", "write"]
+        description: "Device ID, rewritten during recovery (0 / 0xFFFFFFFF = uninitialized or flash error)"
+      - uuid: "ef09000d-11d6-42ba-93b8-9dd7ec090aa9"
+        name: MACAddress
+        properties: ["read", "write"]
+        description: "MAC address, rewritten during recovery"
+      - uuid: "ef090004-11d6-42ba-93b8-9dd7ec090aa9"
+        name: SampleInterval
+        properties: ["read", "write"]
+        description: "Logging sample interval, written during recovery"
+      - uuid: "ef090005-11d6-42ba-93b8-9dd7ec090aa9"
+        name: AdvertisingInterval
+        properties: ["read", "write"]
+        description: "Advertising interval (625 us units), written during recovery"
+      - uuid: "ef090003-11d6-42ba-93b8-9dd7ec090aa9"
+        name: TxPower
+        properties: ["read", "write"]
+        description: "TX power; the recovery flow sets value 4 when re-activating a sensor"
+
 advertising:
   discovery_method: service_uuid_and_name
   local_name_prefixes:
@@ -267,6 +310,15 @@ data_format:
       Note: the "65 = standard reading type prefix" in sensorpush-bleak is a hardcoded
       dummy byte that library prepends to select its HT.w (type 65) pack-params —
       it is NOT a per-record type byte on the wire.
+      Packed-sample widths and encoding ranges per the app's shipped definitions
+      table (res/raw/definitions.json, app v4.5.9): each record packs one value per
+      dimension as (min, max, step) scaled integers — HT1: 4 bytes/sample, gen-1 raw
+      fields (no pack params); HTP.xw: 6 bytes — temperature (-40..140 °C, step
+      0.0025), humidity (0..100 %RH, step 0.0025), pressure (30000..125000 Pa, step
+      1); HT.w: 4 bytes — temperature (-40..125 °C, step 0.0025), humidity (0..100,
+      step 0.0025); TC.x: 2 bytes — thermocouple temperature (-200..1800 °C, step
+      0.0625, minimum value = probe-disconnected null); Aqua: 1 byte — water present
+      (0..1, step 1, timestamped sample mode).
 
 source:
   vendor_documentation:
@@ -275,3 +327,17 @@ source:
     - cryptomcgrath/sensorpush-bleak (5★)
     - Bluetooth-Devices/sensorpush-ble
   date_extracted: "2026-07-28"
+
+helpful_urls:
+  - url: "https://www.sensorpush.com/bluetooth-api"
+    title: "SensorPush Bluetooth API (vendor)"
+    description: "Official open GATT table for the 2nd-generation models (HTP.xw, HT.w, TC.x): every characteristic, access mode and encoding."
+  - url: "https://www.home-assistant.io/integrations/sensorpush/"
+    title: "Home Assistant SensorPush integration"
+    description: "Core integration (advertisement-based, built on sensorpush-ble) covering HT1/HT.w/HTP.xw."
+  - url: "https://github.com/Bluetooth-Devices/sensorpush-ble"
+    title: "Bluetooth-Devices/sensorpush-ble"
+    description: "Actively maintained parser library: advertisement decoding and device-type detection for the full model family."
+  - url: "https://github.com/cryptomcgrath/sensorpush-bleak"
+    title: "cryptomcgrath/sensorpush-bleak"
+    description: "Original community GATT client: V1 characteristic table, write-then-read pattern, bulk-history decode."

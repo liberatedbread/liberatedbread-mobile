@@ -22,7 +22,7 @@
 - **APK SHA-256**: `a1628a7b588f8992adb67e65c18c975bc1e535cecdf72d95363dca1034ac156b` (51.8 MB)
 - **Framework**: native Java (app code under `com.octonion.*` — Octonion was PIQ's tech entity), lightly obfuscated
 
-## BLE UUIDs (from `com/octonion/android/common/source/ble/protocol/BleSchema.java`)
+## BLE UUIDs
 | UUID | Role |
 |------|------|
 | `01000000-0000-0000-0000-000000000080` | Primary service |

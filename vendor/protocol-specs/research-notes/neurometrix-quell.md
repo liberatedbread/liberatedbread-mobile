@@ -43,7 +43,7 @@ consumer lines; Quell Fibromyalgia (Rx, FDA-authorized 2022) is the current one.
 - **Framework**: Native Java/Kotlin, RxJava, Dagger; packages unobfuscated (`com.neurometrix.quell.bluetooth.*`)
 
 ## Protocol notes
-- Clean layered BLE stack: `BluetoothCommon.java` defines the whole GATT table;
+- Clean layered BLE stack: a shared Bluetooth-common class defines the whole GATT table;
   per-characteristic `translators/` pack/unpack; `updateHandlers/` process notifies.
 - Endianness of the 32-bit app-control word on the wire is TBD (`ByteUnpacker`
   bit-packing; verify against HCI snoop). Both byte orders are listed in the YAML.

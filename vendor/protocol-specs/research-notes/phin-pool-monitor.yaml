@@ -36,11 +36,11 @@ ble:
       description: 16-bit service UUID used in scan filter / advertisements
     - uuid: "32061527-76fd-4996-952b-2a1be2cb9450"
       name: phin_monitor_service
-      description: Likely pHin monitor GATT service (referenced in a3/c.java)
+      description: Likely pHin monitor GATT service (referenced by the app's monitor class)
       characteristics:
         - uuid: "3206152c-76fd-4996-952b-2a1be2cb9450"
           name: monitor_char_g
-          description: Monitor characteristic (field G in PhinMonitor.java)
+          description: Monitor characteristic (a field on the app's monitor class)
         - uuid: "32061523-76fd-4996-952b-2a1be2cb9450"
           name: monitor_char_2
           description: Referenced characteristic (purpose TBD)
@@ -82,7 +82,7 @@ ble:
 protocol:
   note: >
     Foreground PhinBleService scans (RxJava-based BLE layer, obfuscated a3/b3/w2).
-    Monitor object constructed from advertisement byte[] (b3/b.java): five 32-bit
+    Monitor object constructed from advertisement byte[]: five 32-bit
     packed values at offsets 0/4/8/12/16; flag bits in byte 24 of first field;
     calibration via 8-byte records with bit-packed fields (7-bit and 8-bit lanes,
     some scaled /10 — looks like electrode mV values).

@@ -24,7 +24,8 @@ device:
     so command/state traffic is plaintext. Firmware revision is read via DIS
     0x2A26 (observed "V3.3"); no public firmware downloads exist.
 
-    Second protocol generation: proglow2/Data2.smali implements a parallel
+    Second protocol generation: the app's second-generation protocol
+    package implements a parallel
     0x3C-headed command set with motion()/motionColors() commands for newer
     hardware; the advertised manufacturer-data byte 7 device type selects
     which generation (and UI) the app drives. Latent OTA: the APK carries a
@@ -197,6 +198,17 @@ services:
                 type: "uint8"
                 min: 0
                 max: 1
+          # Discrete pair for the on/off entity roles. A role binding is a
+          # name with no room for arguments, so the parameterised set_power
+          # above cannot serve both directions. These address all four
+          # channels, which is what the single "ProGLOW LEDs" entity stands
+          # for; use set_power directly for one channel or a sub-mask.
+          power_on:
+            description: "All channels ON (set_power with channel_mask=0x0F, on_off=1)."
+            template: [0x3C, 0x01, 0x0F, 0x01]
+          power_off:
+            description: "All channels OFF (set_power with channel_mask=0x0F, on_off=0)."
+            template: [0x3C, 0x01, 0x0F, 0x00]
           set_effect_mode:
             description: "Set effect mode"
             template: [0x3C, 0x02, "{mode}"]
@@ -288,8 +300,8 @@ entities:
     features: ["brightness", "color", "effect"]
     state_characteristic: "00001002-0000-1000-8000-00805f9b34fb"
     commands:
-      turn_on: "set_power"
-      turn_off: "set_power"
+      turn_on: "power_on"
+      turn_off: "power_off"
       set_brightness: "set_brightness"
       set_effect: "set_effect_mode"
       set_color: "set_home_multi_color"

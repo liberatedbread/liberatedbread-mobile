@@ -130,7 +130,7 @@ protocol:
 status:
   apk_acquired: true
   apk_decompiled: true
-  uuids_recovered: true       # Full GATT table from BluetoothCommon.java
+  uuids_recovered: true       # Full GATT table from the app's shared Bluetooth class
   commands_recovered: true    # Full virtual-button command set recovered
   protocol_recovered: partial # Command byte order + pairing model TBD
   hci_snoop_needed: true

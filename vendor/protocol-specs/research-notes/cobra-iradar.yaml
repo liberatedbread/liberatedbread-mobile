@@ -18,7 +18,7 @@ bluetooth:
   rfcomm:
     - uuid: "00001101-0000-1000-8000-00805f9b34fb"
       name: spp
-      note: app uses createInsecureRfcommSocketToServiceRecord (ConnectAsClientThread.java)
+      note: app uses createInsecureRfcommSocketToServiceRecord
   note: >
     iRAD 900 generation is classic SPP. Newer detectors may use the BLE
     UartService path also present in the APK — verify transport per model.
@@ -29,7 +29,7 @@ protocol:
     SEQ, alert flag 0x41 + alert-type byte. Host must reply with a 9-byte ACK
     (action 0x02, ACK = last SEQ, decrementing counter) or the detector drops
     the connection. Settings sync at connect is replayable. Frame parser in
-    APK (PacketProcessing.java) keys on preamble byte 85 = 0x55, matching the
+    APK keys on preamble byte 85 = 0x55, matching the
     community capture. Settings-write opcodes not fully mapped.
   references:
     - https://github.com/brandonasuncion/Reverse-Engineering-Bluetooth-Protocols

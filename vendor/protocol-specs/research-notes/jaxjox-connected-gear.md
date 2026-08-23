@@ -25,12 +25,11 @@ smartscale,pushup,heartrate}` (jadx, app v3.3.3).
   base; a BestBuy reviewer explicitly noted "the app [isn't] required to own them."
   The BLE link is for rep/set tracking, workout metrics, and firmware.
 - Recovered GATT UUIDs (jadx, app 3.3.3):
-  - Legacy Kettlebell: service `0000FD00-...-00805F9B34FB`, chars `FD19`, `FD1A`
-    (`LegacyKettleBellManager.java`). New KettleBellManager delegates to helper
+  - Legacy Kettlebell: service `0000FD00-...-00805F9B34FB`, chars `FD19`, `FD1A`. New KettleBellManager delegates to helper
     classes — UUIDs not yet pinned (may reuse FD00 or Nordic UART).
-  - Smart scale: service `FC00`, chars `FC22`, `FC23` (`SmartScaleManager.java`).
+  - Smart scale: service `FC00`, chars `FC22`, `FC23`.
   - FoamRollerConnect: Nordic-UART-style service `6E40FE01-B5A3-F393-E0A9-E50E24DCCA9E`,
-    chars `6E408E02` / `6E408E03` (`FoamRollerManager.java`).
+    chars `6E408E02` / `6E408E03`.
   - Heart-rate monitors: standard `180D`/`2A37`/`2A38`.
   - Also Fitbit tracker UUIDs `AAE28F00/01/02-71B5-42A1-8C3C-F9CF6AC969D0`
     (direct Fitbit BLE pairing feature, not JAXJOX hardware).
@@ -49,7 +48,7 @@ smartscale,pushup,heartrate}` (jadx, app v3.3.3).
 - Delisted from Play (404), still fetchable from APKPure (3.1.0 listing dated 2022-08-20).
 
 ## Open questions
-- New-generation KettleBellManager UUID set (helpers `h/i/j/k/l/m.java` + `x1.*`).
+- New-generation KettleBellManager UUID set (obfuscated helper classes).
 - Byte format of rep/set frames on FD19/FD1A (legacy) and the UART chars (foam roller).
 - Whether BLE can command motorized weight changes.
 - Advertised name prefixes per device ("JAXJOX", "KB-..."? — unverified).

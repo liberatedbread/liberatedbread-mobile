@@ -10,7 +10,7 @@
 - Recon Engage returns **404** on Play (verified 2026-08-04).
 
 ## Local feasibility — good, but note the transport
-- **Phone↔HUD link is Bluetooth Classic SPP, NOT BLE.** `BTTransportManager.java` opens three RFCOMM channels with vendor UUIDs:
+- **Phone↔HUD link is Bluetooth Classic SPP, NOT BLE.** The app's Bluetooth transport manager opens three RFCOMM channels with vendor UUIDs:
   - `B29E4260-9D8A-11E2-9E96-0800200C9A66`
   - `B29E4261-9D8A-11E2-9E96-0800200C9A66`
   - `B29E4262-9D8A-11E2-9E96-0800200C9A66`

@@ -221,7 +221,7 @@ obd:
     # The reset is implemented per cluster generation: the shared reset routine
     # (abstract Cu.d0) is overridden in four concrete control-unit classes, so
     # behaviour may differ between KOMBI generations. The frames below are the
-    # variant recovered from the KOMBI class (o7/g.smali).
+    # variant recovered from the app's instrument-cluster class.
     - name: "set_cluster_clock"
       description: >
         Write the cluster clock from the current date and time. Issued for the SI_DATE_CAR
@@ -294,7 +294,7 @@ obd:
         the reply may carry the oil-service distance rather than the valve-clearance one.
 
     # ---- Actuator tests: UDS RoutineControl (0x31), routine family 0xFAxx, on the cluster ----
-    # Semantics recovered from the app's actuator-test table (p7/y.smali): each test is
+    # Semantics recovered from the app's actuator-test table: each test is
     # a named WGS_ACTOR_* entry with a start and a stop frame. App-derived, not run
     # against a bike — do not guess further routines against a vehicle.
     - name: "actuator_self_test"
@@ -337,7 +337,7 @@ obd:
     # Body-electronics actuators (blinkers, brake light, heated grips, horn, parking /
     # low / high beam, accessory socket) live on the ZFE and are NOT part of this 31 FA
     # family: the app drives them with 30 02 07 <id> 01/00 and 30 04 07 <id> <pwm> <pwm>
-    # frames instead (p7/e0.smali). Their layout is not yet recorded as request
+    # frames instead. Their layout is not yet recorded as request
     # definitions here.
 
   data_identifiers:

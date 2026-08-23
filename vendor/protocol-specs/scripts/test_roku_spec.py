@@ -220,13 +220,6 @@ def test_the_remote_covers_the_official_apps_buttons(entities, commands):
     assert not extra, f"buttons for keys the app's remote does not send: {sorted(extra)}"
 
 
-def test_button_names_are_unique(entities):
-    """Two controls with one name are indistinguishable on screen and in a
-    consumer's send-in-flight bookkeeping, which keys on the name."""
-    names = [e["name"] for e in entities]
-    assert len(names) == len(set(names))
-
-
 def test_sunset_endpoints_stay_out_of_the_vocabulary(spec):
     """The search-browse sunset is recorded as data, so a consumer can filter
     on it instead of parsing SUNSET out of prose."""

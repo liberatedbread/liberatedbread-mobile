@@ -1,0 +1,599 @@
+# Tuya Bluetooth Soil Tester (zwjcy / SGS01 family) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# This is a FAMILY spec, not one exact product. The "Tuya Smart Bluetooth Soil
+# Tester / Smart Plant Soil Tester" listings on Amazon/AliExpress are one Tuya
+# OEM family whose canonical hardware is the SGS01 (a.k.a. HZ-SL05, "Connected
+# Home PLANT MONITOR") from Shenzhen HaiHao Electronic. It maps to Tuya device
+# category `zwjcy` (soil sensor / plant monitor — undocumented in Tuya's public
+# standard-instruction-set docs). Near-identical BLE soil testers are instead
+# certified under category `wsdcg` (temperature/humidity sensor) with a
+# different DP numbering; both are covered in `device.variants`.
+
+device:
+  name: "Tuya Bluetooth Soil Tester (zwjcy / SGS01 family)"
+  manufacturer: "Tuya (platform) / Shenzhen HaiHao Electronic Co., LTD (canonical SGS01) + white-label clones"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No hardware has been exercised by this project. Every fact below is
+      derived from community clean-room work (PlusPlus-ua/python-tuya-ble,
+      garnser/ha_tuya_ble, haraldapp/SGS01BTHome, Home Assistant's Tuya
+      integration) cross-checked against clean-room static analysis of the
+      Smart Life app (see `sources`), whose BLE SDK carries the transport constants
+      and function codes used here. The DP tables are integration-derived and
+      NOT byte-verified against a live device; the Tuya category `zwjcy` has
+      no official public DP schema at all.
+  protocol: "ble"
+  category: "sensor"
+  transport: "tuya-ble"
+  notes: >
+    A battery-powered (2×AAA) probe that measures soil moisture and
+    temperature, marketed as "works with Alexa & Google". Internally it is a
+    two-processor device (per the haraldapp/SGS01BTHome teardown): a Tuya
+    BT3L module (Telink TLSR8250, 512 KB flash) runs stock Tuya BLE firmware
+    and owns the radio, while a separate third-party MCU owns the actual
+    measurement, button and LED; the two are linked by UART running the
+    standard Tuya MCU serial protocol (the same frame family as TuyaMCU
+    Wi-Fi devices).
+
+    PROTOCOL: this is a Tuya BLE "single-point" device — connectable GATT,
+    NOT BLE mesh and NOT a passive beacon. Advertisements carry device
+    identity only, never sensor readings; the ble_monitor project confirms
+    SGS01 cannot be supported passively. All state moves as encrypted Tuya
+    DP (datapoint) frames over GATT service 0xFD50 (write 0x2B11, notify
+    0x2B10). The session is encrypted with keys derived from the device's
+    Tuya `uuid` plus the cloud-issued `local_key`, so any local integration
+    first needs the device id + local key from a Tuya IoT cloud account —
+    the same one-time key-extraction step as Tuya Wi-Fi devices.
+
+    HUB QUESTION: with the phone nearby, Smart Life talks to the device
+    directly over BLE — no hub needed for in-range monitoring. Remote
+    access, Alexa/Google and cloud automations require a Tuya Bluetooth
+    gateway (or multi-mode ZigBee+BLE gateway) bridging the BLE sub-device
+    to Wi-Fi/cloud; the "works with Alexa" marketing presupposes that
+    gateway. The device cannot be cloud-controlled standalone.
+
+    CLOUD-FREE PATH: the BT3L is a Telink TLSR8250 with SWS flashing pads
+    (chip type B85), and haraldapp/SGS01BTHome ships full replacement
+    firmware that turns the sensor into a BTHome v2 (optionally encrypted)
+    passive advertiser with a GATT config profile and OTA — no Tuya account,
+    no keys, no encryption session. NOTE: the 2026 hardware revision
+    "SGS01B" (different "BTH" module) is NOT yet supported by that project.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://github.com/PlusPlus-ua/python-tuya-ble"
+        title: "python-tuya-ble — Tuya BLE single-point protocol implementation"
+        covers: >
+          GATT service/characteristic UUIDs, advertisement identity fields,
+          pairing/key exchange, encrypted packet framing, and the function
+          code + DP type tables reproduced in `tuya_ble_protocol` below.
+      - url: "https://github.com/garnser/ha_tuya_ble"
+        title: "ha_tuya_ble — Home Assistant custom integration (garnser fork)"
+        covers: >
+          Local BLE control with cloud-fetched keys; per-product DP maps for
+          `zwjcy`/`gvygg3m8` and the `wsdcg` variants (`ojzlzzsw`,
+          `tv6peegl`) reproduced in `dps` below.
+      - url: "https://github.com/haraldapp/SGS01BTHome"
+        title: "SGS01BTHome — custom BTHome firmware for the SGS01"
+        covers: >
+          Hardware internals: BT3L module (Telink TLSR8250, chip type B85),
+          SWS flashing pads, BT3L↔MCU Tuya UART link, factory data above
+          flash offset 0x70000; proof the measurement MCU works independently
+          of Tuya cloud.
+      - url: "https://github.com/home-assistant/core/tree/dev/homeassistant/components/tuya"
+        title: "Home Assistant core Tuya integration"
+        covers: >
+          `DeviceCategory.ZWJCY` ("Soil sensor - plant monitor (undocumented)")
+          exposed as temperature + humidity + battery sensors; cloud DP codes
+          (humidity, temp_current, battery_state, battery_percentage).
+    source_code: "https://github.com/PlusPlus-ua/python-tuya-ble"
+    license: "MIT"
+    notes: >
+      Tuya publishes nothing about this category. The transport facts here
+      are corroborated by two independent implementations (python-tuya-ble
+      and the Tuya BLE SDK inside the Smart Life app); the DP maps come from
+      the ha_tuya_ble integration and HA's cloud schema dumps and are marked
+      `reported`, not byte-verified against hardware.
+
+  identification:
+    service_uuids:
+      - "0000fd50-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 2000
+      company_id_hex: "0x07D0"
+      description: >
+        Tuya's Bluetooth SIG company ID 0x07D0, present in the advertisement
+        manufacturer data. Combined with service-data UUID 0xA201 this is how
+        Home Assistant's tuya_ble discovery fingerprints Tuya BLE
+        single-point devices; it identifies "a Tuya BLE device", not this
+        family specifically.
+    notes: >
+      Distinguishing a soil tester from any other Tuya BLE single-point
+      device requires connecting (pairing) and reading device info / DPs, or
+      matching the product id learned at cloud pairing time against
+      `device.variants`.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fd50-0000-1000-8000-00805f9b34fb"
+          service_data:
+            - "0000a201-0000-1000-8000-00805f9b34fb"
+          manufacturer_data:
+            company_id: 2000
+            description: "Tuya company ID 0x07D0"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+    notes: >
+      Advertisements are connectable and carry service-data UUID 0xA201 plus
+      Tuya manufacturer data (company ID 0x07D0) with device identity — never
+      sensor values. Confidence: reported (community integrations + the
+      Smart Life BLE SDK), not captured by this project.
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Unlike a plain BLE sensor, a stock Tuya BLE device must be PAIRED
+      before it yields anything: pairing (in Smart Life / Tuya Smart with a
+      Tuya cloud account) exchanges keys derived from the device `uuid` and
+      the cloud-issued `local_key`, and all subsequent DP traffic is
+      encrypted with them. For third-party local access the same credentials
+      are fetched once from a Tuya IoT developer account (the ha_tuya_ble /
+      tuya-iot-py-sdk flow). Not replayed against this hardware by this
+      project.
+    methods:
+      - type: "ble_provisioning"
+        verified: false
+        description: >
+          Standard Tuya BLE pairing in the vendor app: the device advertises
+          in pairing mode, the app connects over GATT (service 0xFD50),
+          exchanges PAIR frames (function code 0x0001) carrying the
+          cloud-issued credentials, and bonds the device to the Tuya account.
+          Requires a Tuya cloud account in Smart Life or Tuya Smart.
+        steps:
+          - action: >
+              Put the tester in pairing mode (per the vendor quick-start:
+              batteries in / reset pin held) so it advertises on 0xFD50.
+            actor: "user"
+          - action: "Connect over GATT to Tuya service 0xFD50 in the vendor app."
+            actor: "client"
+          - action: >
+              Exchange PAIR frames (function code 0x0001) carrying the
+              cloud-issued credentials, binding the device to the account.
+            actor: "client"
+            expect: >
+              The device appears in Smart Life / Tuya Smart and its uuid and
+              local_key exist in the account.
+        # Not replayed against this hardware — see setup.notes.
+      - type: "ble_direct"
+        verified: false
+        description: >
+          After one-time key extraction (device id + local key via a Tuya IoT
+          developer account), a third-party client connects directly and runs
+          the encrypted session itself — the python-tuya-ble / ha_tuya_ble
+          path. No hub, no cloud at runtime.
+        steps:
+          - action: >
+              Pair the device once through the vendor app (the
+              ble_provisioning method above); local access needs the
+              credentials that pairing creates.
+            actor: "user"
+          - action: >
+              Fetch the device `uuid` and 16-char `local_key` once from a
+              Tuya IoT developer account (the ha_tuya_ble /
+              tuya-iot-py-sdk flow).
+            actor: "user"
+            expect: "Both secrets in hand; no cloud contact is needed after this."
+          - action: >
+              Connect directly and run the encrypted DP session with those
+              keys — no hub and no cloud at runtime.
+            actor: "client"
+        ble:
+          pairing_required: true
+    factory_reset:
+      confidence: "low"
+      effect: >
+        Unbinds the device from its Tuya account and clears the pairing
+        keys; on re-pairing a new device id / local key pair is issued. The
+        measurement MCU and its calibration are unaffected.
+      procedures:
+        - name: "App-initiated unbind/reset"
+          steps:
+            - action: "Remove the device in the Smart Life / Tuya Smart app (device settings → remove device)."
+              actor: "user"
+              notes: >
+                The app drives an UNBIND (function code 0x0005) or
+                DEVICE_RESET (0x0006) frame over GATT; the device returns to
+                advertising in pairing mode. A physical button-hold reset
+                likely exists on the probe's single button (generic Tuya BLE
+                behavior) but is NOT documented for this family — unverified.
+        - name: "Firmware replacement (nuclear option)"
+          steps:
+            - action: "Flash haraldapp/SGS01BTHome over the BT3L SWS pads (Telink BDT or pvvx TlsrComSwireWriter)."
+              actor: "user"
+              notes: >
+                Replaces the whole Tuya stack; afterwards there is no Tuya
+                state to reset. Flash above 0x70000 holds factory
+                MAC/calibration — preserve it. Does not apply to the 2026
+                SGS01B revision.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        BLE device — there is no network credential to rotate. Re-binding to
+        a new Tuya account means unbind + re-pair.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Tuya device uuid + local_key-derived session keys (issued at pairing)"
+      issued_to_client:
+        - "device id + 16-char local key (recoverable via Tuya IoT developer account + tuya-iot-py-sdk)"
+      notes: >
+        The local key IS the credential for the encrypted BLE session —
+        treat it as a password.
+
+  # Family members this spec covers. Matching a physical unit to a variant
+  # happens at cloud pairing time (product id) or via the DP layout observed
+  # after pairing; the advertisement alone does not distinguish them.
+  variants:
+    - model: "SGS01 / HZ-SL05 (Connected Home PLANT MONITOR)"
+      identification:
+        product_id: "gvygg3m8"
+      notes: >
+        Canonical unit (Shenzhen HaiHao Electronic). Tuya category `zwjcy`;
+        current product id. DP map in `dps.table` below. Supported by
+        ha_tuya_ble and by the SGS01BTHome replacement firmware.
+    - model: "SGS01 (older revision)"
+      identification:
+        product_id: "aao3yzhs"
+      notes: >
+        Older product id for the same hardware (per Home Assistant
+        discussion #949); works in HA's cloud Tuya integration. DP map
+        presumed identical to gvygg3m8; not independently verified.
+    - model: "wsdcg-category BLE soil tester"
+      identification:
+        product_id: "ojzlzzsw"
+      notes: >
+        Same form factor and DPs, certified under Tuya category `wsdcg`
+        (temperature/humidity sensor) with different DP numbering — see
+        `dps.wsdcg_variants`.
+    - model: "wsdcg-category BLE soil tester (alt DP numbering)"
+      identification:
+        product_id: "tv6peegl"
+      notes: "wsdcg variant with DPs 101/102 — see `dps.wsdcg_variants`."
+    - model: "SGS01B (2026 revision)"
+      notes: >
+        New hardware revision with a different ("BTH") radio module, seen in
+        the market in 2026. Uncharacterized: protocol presumed the same Tuya
+        BLE family, but the SGS01BTHome replacement firmware does NOT support
+        it. Treat every fact in this spec as unverified for this revision.
+
+protocol_handler: "tuya_ble"
+
+# The Tuya BLE single-point protocol as it applies to this family. Facts from
+# python-tuya-ble (const.py), corroborated by the BLE SDK classes in the
+# Smart Life app's bundled BLE SDK. Reported, not exercised by this project. Consumers should treat
+# python-tuya-ble as the executable reference — the full packet framing
+# (sequence numbers, ACKs, chunking at the default 20-byte ATT MTU, and the
+# encryption layer) lives there and is deliberately not restated here.
+tuya_ble_protocol:
+  verification: "reported"
+  transport: "BLE GATT, encrypted session, default ATT MTU 20"
+  advertising:
+    service_data_uuid: "0xA201"
+    manufacturer_company_id: "0x07D0 (Tuya)"
+    notes: "Identity only; no sensor readings are ever broadcast."
+  gatt:
+    service: "0xFD50"
+    write_characteristic: "0x2B11"
+    notify_characteristic: "0x2B10"
+  authentication: >
+    Pairing (function code 0x0001) establishes session keys derived from the
+    device's Tuya `uuid` and the cloud-issued `local_key`; all DP traffic
+    afterwards is encrypted under them. Key derivation and the crypto layer
+    are implemented in python-tuya-ble (tuya_ble/) — not reproduced here.
+  function_codes:
+    verification: "reported"
+    host_to_device:
+      "0x0000": "FUN_SENDER_DEVICE_INFO"
+      "0x0001": "PAIR"
+      "0x0002": "DPS (DP query/set)"
+      "0x0003": "DEVICE_STATUS"
+      "0x0005": "UNBIND"
+      "0x0006": "DEVICE_RESET"
+      "0x000C..0x0010": "OTA block transfer"
+      "0x0027": "DPS_V4"
+    device_to_host:
+      "0x8001": "FUN_RECEIVE_DP (DP report)"
+      "0x8006": "FUN_RECEIVE_DP_V4"
+      "0x8011": "time request"
+      "0x8012": "time request (v2)"
+  dp_types:
+    verification: "reported"
+    notes: >
+      The classic Tuya DP model carried over BLE: RAW=0x00, BOOL=0x01,
+      VALUE=0x02 (32-bit big-endian), STRING=0x03, ENUM=0x04, BITMAP=0x05.
+      A DP report is a list of [dp id u8][type u8][length u16be][payload].
+
+# Datapoint schema for the zwjcy family (product gvygg3m8) plus the wsdcg
+# variants. Sources: garnser/ha_tuya_ble DP maps and Home Assistant's cloud
+# schema (HA issue #93536) — two independent integrations agree, but the
+# category has no official Tuya documentation and nothing here is
+# byte-verified against a live device.
+dps:
+  verification: "reported"
+  table:
+    - dp: 3
+      code: "humidity"
+      type: "value"
+      access: "ro"
+      unit: "%"
+      min: 0
+      max: 100
+      description: "Soil moisture."
+    - dp: 5
+      code: "temp_current"
+      type: "value"
+      access: "ro"
+      unit: "°C"
+      scale: 0.1
+      description: "Temperature; raw value is tenths of a degree (divide by 10)."
+    - dp: 14
+      code: "battery_state"
+      type: "enum"
+      access: "ro"
+      values: ["low", "normal", "high"]
+      description: "Coarse battery level."
+    - dp: 15
+      code: "battery_percentage"
+      type: "value"
+      access: "ro"
+      unit: "%"
+      min: 0
+      max: 100
+      description: "Battery percentage."
+    - code: "temp_unit_convert"
+      type: "enum"
+      access: "rw"
+      values: ["c", "f"]
+      description: >
+        °C/°F unit preference. Seen in the cloud schema but not mapped to a
+        BLE DP id in any community source — likely cloud-level only on this
+        product. Unverified.
+  wsdcg_variants:
+    verification: "reported"
+    notes: >
+      Same form factor and readings under Tuya category `wsdcg`
+      (temperature/humidity), different DP numbering:
+    table:
+      - product_id: "ojzlzzsw"
+        temp_dp: 1
+        moisture_dp: 2
+        battery_state_dp: 3
+        battery_percentage_dp: 4
+        notes: "Temperature raw value ÷10, same as the zwjcy map."
+      - product_id: "tv6peegl"
+        temp_dp: 101
+        moisture_dp: 102
+        notes: "No battery DPs documented for this variant."
+
+# The module↔MCU side, for completeness and for the firmware-replacement
+# path: the BT3L radio module speaks standard Tuya MCU serial to the
+# measurement MCU (same frame family as TuyaMCU Wi-Fi devices). The
+# measurement, button and LED live entirely on the MCU side and work with
+# the radio module reflashed — this is what makes SGS01BTHome possible.
+tuyamcu_uart:
+  verification: "reported"
+  link: "UART between BT3L module and sensor MCU (parameters not documented for this unit)"
+  role: >
+    The sensor MCU owns measurement, button and LED; the BT3L module
+    reports the MCU's state as DPs. Factory MAC/calibration live in BT3L
+    flash above 0x70000 — preserve when reflashing.
+
+services:
+  - uuid: "0000fd50-0000-1000-8000-00805f9b34fb"
+    name: "Tuya BLE service"
+    notes: >
+      Single custom service carrying the whole Tuya BLE single-point
+      protocol: encrypted framed commands on the write characteristic,
+      encrypted framed responses/reports on the notify characteristic.
+      Default ATT MTU 20; frames are chunked/reassembled by the protocol
+      layer (see python-tuya-ble). Nothing is readable without completing
+      pairing — the session key comes from the device uuid + cloud local
+      key.
+    characteristics:
+      - uuid: "00002b11-0000-1000-8000-00805f9b34fb"
+        name: "Write"
+        properties: ["write"]
+        notes: >
+          All host→device commands: pairing, DP query/set, device info,
+          unbind/reset, OTA. Byte format is the Tuya BLE encrypted packet
+          (sequence-numbered frames carrying [function code u16be][payload]),
+          chunked at the 20-byte default MTU; the full framing spec lives in
+          python-tuya-ble and is not restated here.
+        commands:
+          pair:
+            description: >
+              Pairing handshake (function code 0x0001): exchanges keys
+              derived from the device uuid + cloud-issued local_key.
+              Prerequisite for everything else.
+            verification: "reported"
+          device_info:
+            description: "Query device info (function code 0x0000): device id, product id, firmware version."
+            verification: "reported"
+          dp_query:
+            description: "Request current DP values (function code 0x0002; DPS_V4 = 0x0027). Reports arrive on the notify characteristic as 0x8001/0x8006."
+            verification: "reported"
+          device_status:
+            description: "Query device status (function code 0x0003)."
+            verification: "reported"
+          unbind:
+            description: "Unbind from the Tuya account (function code 0x0005)."
+            verification: "reported"
+          device_reset:
+            description: "Factory reset (function code 0x0006)."
+            verification: "reported"
+      - uuid: "00002b10-0000-1000-8000-00805f9b34fb"
+        name: "Notify"
+        properties: ["notify"]
+        notes: >
+          All device→host traffic: DP reports (function code 0x8001, V4 =
+          0x8006) carrying the sensor DPs in the `dps` table, time requests
+          (0x8011/0x8012 — answer them or time-dependent features drift),
+          and command responses. Subscribe after pairing; sensor readings
+          only ever arrive here, never in advertisements.
+
+commands:
+  pair:
+    description: "GATT write of PAIR frames (0x0001) to characteristic 0x2B11; establishes the encrypted session from device uuid + local key."
+    transport: "ble"
+    verification: "reported"
+  dp_query:
+    description: "GATT write of a DPS request (0x0002) to 0x2B11; the report arrives as a 0x8001 notification on 0x2B10."
+    transport: "ble"
+    verification: "reported"
+
+entities:
+  - platform: "sensor"
+    name: "Soil Moisture"
+    device_class: "humidity"
+    unit: "%"
+    state_command: "dp_query"
+    state_field: "dps.3"
+    notes: "zwjcy products (gvygg3m8/aao3yzhs); wsdcg variants: DP 2 (ojzlzzsw) or DP 102 (tv6peegl)."
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°C"
+    state_command: "dp_query"
+    state_field: "dps.5"
+    notes: >
+      Raw value is tenths of a degree — divide by 10. wsdcg variants:
+      DP 1 (ojzlzzsw) or DP 101 (tv6peegl).
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_command: "dp_query"
+    state_field: "dps.15"
+    notes: "Plus the coarse enum in DP 14 (low/normal/high). No battery DP documented for tv6peegl."
+
+cloud:
+  required: true
+  vendor_service: "Tuya cloud (Smart Life / Tuya Smart platform)"
+  status: "alive"
+  hosts:
+    - "a1/a2/a3.tuyaus.com (+ .tuyacn.com / .tuyaeu.com / .tuyain.com regional twins) — REST"
+    - "m1/m2.tuyaus.com — MQTT"
+  endpoints:
+    - path: "a1.tuyaus.com (REST API family)"
+      name: "Tuya OpenAPI / app API"
+      verification: "reported"
+      notes: >
+        No tuya*.com hostnames appear as plaintext anywhere in the Smart Life
+        app — region endpoints are delivered at runtime by
+        Tuya's config service. The hosts listed are the publicly documented
+        Tuya endpoint families, recorded for orientation.
+  auth:
+    type: "other"
+    notes: >
+      Tuya account + cloud-issued pairing; device-side auth for the BLE
+      session is the device uuid / local key pair issued at pairing.
+  failure_mode: >
+    Stock firmware is dead without Tuya cloud at PAIRING time: pairing
+    needs a Tuya account (the local key is cloud-issued), and the encrypted
+    session cannot be established without it. Once paired and the device id
+    + local key are extracted, day-to-day local monitoring (ha_tuya_ble /
+    python-tuya-ble over direct BLE) keeps working with the Tuya cloud gone
+    — the sensor never touches Wi-Fi itself. Remote access, Alexa/Google
+    and cloud automations die with the cloud or the optional BLE gateway.
+    The SGS01BTHome replacement firmware removes the cloud dependency
+    entirely (BTHome passive broadcast) for the SGS01 revision.
+  notes: >
+    The ONLY hard cloud dependency for local use is one-time pairing + key
+    extraction: pair in Smart Life, link the account to a free Tuya IoT
+    developer project, pull device id + local key (tuya-iot-py-sdk /
+    ha_tuya_ble automate this). Tuya has broken this flow for some account
+    types in the past — verify current status before buying hardware for a
+    local-only install. The device UI in the vendor app is a cloud-delivered
+    RN panel: zero hits for `zwjcy` anywhere in the Smart Life app; only the
+    generic BLE transport machinery is in it.
+
+local_access:
+  status: "native"
+  notes: >
+    The Tuya BLE GATT protocol is native local access once the device id +
+    local key are known — direct BLE, no bridge hardware. Home Assistant
+    path: garnser/ha_tuya_ble (HACS), which ships DP maps for gvygg3m8 and
+    the wsdcg variants and uses tuya-iot-py-sdk for key retrieval. The
+    SGS01BTHome firmware-replacement path (BTHome v2 broadcast, optionally
+    encrypted) removes keys and cloud altogether but only covers the SGS01
+    revision — NOT the 2026 SGS01B.
+
+helpful_urls:
+  - title: "PlusPlus-ua/python-tuya-ble — Tuya BLE protocol implementation"
+    url: "https://github.com/PlusPlus-ua/python-tuya-ble"
+    description: >
+      Reference implementation of the transport documented here: pairing,
+      encrypted framing, function codes, DP types. The executable companion
+      to this spec.
+  - title: "garnser/ha_tuya_ble — Home Assistant custom integration"
+    url: "https://github.com/garnser/ha_tuya_ble"
+    description: >
+      Local BLE integration with cloud-fetched keys; per-product DP maps for
+      gvygg3m8, ojzlzzsw and tv6peegl (the DP tables above).
+  - title: "haraldapp/SGS01BTHome — custom BTHome firmware for the SGS01"
+    url: "https://github.com/haraldapp/SGS01BTHome"
+    description: >
+      Full replacement firmware (BTHome v2, GATT config, OTA) plus the
+      hardware teardown: BT3L/TLSR8250, SWS pads, factory data above
+      0x70000. The no-Tuya-at-all path. Does not support the 2026 SGS01B
+      revision.
+  - title: "Home Assistant discussion #949 — SGS01 product ids"
+    url: "https://github.com/home-assistant/core/discussions/949"
+    description: "Older product id aao3yzhs vs current gvygg3m8."
+  - title: "ble_monitor issue #1161 — SGS01 cannot be passive"
+    url: "https://github.com/custom-components/ble_monitor/issues/1161"
+    description: "Confirms the stock firmware never broadcasts readings — connected GATT only."
+  - title: "Home Assistant issue #93536 — zwjcy cloud schema"
+    url: "https://github.com/home-assistant/core/issues/93536"
+    description: "Cloud DP codes (humidity, temp_current, battery_state, battery_percentage)."
+
+sources:
+  - type: "static_analysis"
+    artifact: "Smart Life 7.9.0 (com.tuya.smartlife, versionCode 832, Huawei AppGallery build)"
+    sha256: "8feefdc4e35f2a4718bd615cc73af064cbd3e8044014435890f82468e47acb43"
+    obtained_via: "Huawei AppGallery, 2026-08-18 (reused from the tuya-wifi-gas-sensor research; not re-downloaded)"
+    description: "Static analysis of the Smart Life Android app (2026-08-18; the same reading as the tuya-wifi-gas-sensor research)."
+    confirms:
+      - "Tuya BLE single-point transport constants in the app's bundled BLE SDK: advertisement service-data UUID 0xA201, manufacturer company ID 0x07D0, GATT service 0xFD50 with write 0x2B11 / notify 0x2B10, default ATT MTU 20."
+      - "The BLE function-code and DP-type tables (PAIR 0x0001, DPS 0x0002, UNBIND 0x0005, DEVICE_RESET 0x0006, FUN_RECEIVE_DP 0x8001, etc.)."
+      - "No soil-tester-specific code: zero hits for the `zwjcy` category anywhere in the app — the device UI is a cloud-delivered RN panel bundle."
+    confidence: "high (for the generic BLE transport facts); the DP maps are community-sourced, not from the app"
+  - type: "public_research"
+    name: "PlusPlus-ua/python-tuya-ble"
+    url: "https://github.com/PlusPlus-ua/python-tuya-ble"
+    used_for: "GATT UUIDs, pairing/session model, function codes, DP type table."
+  - type: "public_research"
+    name: "garnser/ha_tuya_ble"
+    url: "https://github.com/garnser/ha_tuya_ble"
+    used_for: "DP maps for gvygg3m8 (zwjcy) and the wsdcg variants ojzlzzsw/tv6peegl; key-retrieval workflow."
+  - type: "public_research"
+    name: "haraldapp/SGS01BTHome"
+    url: "https://github.com/haraldapp/SGS01BTHome"
+    used_for: "Hardware internals (BT3L/TLSR8250, SWS pads, factory data above 0x70000), BT3L↔MCU Tuya UART link, BTHome replacement path, SGS01B non-support."
+  - type: "public_research"
+    name: "Home Assistant core Tuya integration + issues #93536, discussion #949; ble_monitor issue #1161"
+    url: "https://github.com/home-assistant/core"
+    used_for: "Cloud DP codes for zwjcy, product-id lineage (aao3yzhs → gvygg3m8), confirmation that no passive broadcast exists."

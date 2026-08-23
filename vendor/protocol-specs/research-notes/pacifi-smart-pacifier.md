@@ -28,7 +28,7 @@ Both via apkeep (APKPure mirror). jadx decompile clean
 ## Protocol: FULLY RECOVERED from static analysis
 
 ### Passive mode — BLE advertisements (no connection needed)
-From `com/pacifi/app/BLEManagement/ProcessUnconnectedDevice.java`:
+From the app:
 - Manufacturer-specific AD structure (type `0xFF`), company ID `0x0133`
   (BlueMaestro; on-air bytes `33 01`), model byte `0xA0` = Pacif-i.
 - Byte 4 = opcode; bytes 5–6 = int16 LE value.
@@ -41,7 +41,7 @@ format, which Home Assistant's `ble_monitor` already decodes
 open-source parser to crib from.
 
 ### Connected mode — GATT
-From `ConnectedPacifiDevice.java` / `ProcessConnectedDevice.java`:
+From the app's connected-device classes:
 - Custom service `20655000-02F3-4F75-848F-323AC2A6AF8A`
 - Control characteristic `20655001-02F3-4F75-848F-323AC2A6AF8A` (write):
   4-byte command — `[code_lo, code_hi, cmd, 0x00]` where code is the
@@ -53,14 +53,14 @@ From `ConnectedPacifiDevice.java` / `ProcessConnectedDevice.java`:
 ## Local feasibility: CONFIRMED
 Zero cloud involvement anywhere in the app: temperature arrives in plain
 advertisements; history/medication logs are stored locally with PDF/CSV
-export (`com/pacifi/app/pdf/Export.java`). A trivial passive BLE listener
+export. A trivial passive BLE listener
 (e.g. ble_monitor-style) reproduces the core function today.
 
 ## Open questions
 - Whether temperature also streams on the `0x1809` Health Thermometer
   characteristic when connected (0x2A1C), or only via advertisements.
 - Exact security-key handshake ordering (read advert key → ACTIVATE →
-  CONFIRM_PAIR) — readable in `ProcessConnectedDevice.java` if needed.
+  CONFIRM_PAIR) — readable in the app if needed.
 
 ## Safety
 MEDIUM — infant temperature readings inform fever/medication decisions;

@@ -22,10 +22,10 @@ Adapters have been e-waste for most owners since; the app is delisted from Play.
 
 ## Static findings
 - Transport is **Bluetooth Classic RFCOMM**, not BLE GATT:
-  `com/automatic/provider/bluetooth/BluetoothProvider.java` uses
+  The app's Bluetooth provider uses
   `BluetoothAdapter`/sockets with SPP UUID `00001101-...` plus a custom SDP/RFCOMM
   UUID `22f419c0-b3b6-11e4-a2ad-0002a5d5c51b`.
-- `com/automatic/util/Utils.java` computes **HMAC-SHA1 keyed with the ASCII string
+- Its crypto utilities compute **HMAC-SHA1 keyed with the ASCII string
   `d1ce1c12-c8c3-45d1-b621-cb70e6aff2fb`** — likely the adapter pairing/auth or
   message-integrity scheme; recovered "for free" from the APK.
 - `com/milesense/` contains a state-machine library (the OBD stack Automatic built

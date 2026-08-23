@@ -1,5 +1,7 @@
 # Ember Mug 2: research notes
 
+Hardware verification by Devin Wittmayer.
+
 What was confirmed, what was refuted, and what is still genuinely unknown after driving the device.
 
 One unit, an Ember Mug 2, 10 oz, serial `WHCXXXXXXXX`, firmware 367 and hardware 10, both read off

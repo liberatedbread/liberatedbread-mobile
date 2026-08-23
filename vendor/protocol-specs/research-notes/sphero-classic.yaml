@@ -15,7 +15,7 @@ transport:
 
 bluetooth_classic:
   profile: SPP
-  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"  # confirmed in com.orbotix.spherocam DEX (DeviceConnection.java)
+  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"  # confirmed in com.orbotix.spherocam DEX
   rfcomm_channel: 1
   pairing: legacy SSP; bluez connects directly over RFCOMM
   advertising_name_pattern: "Sphero-XXX"  # 3-letter color code suffix

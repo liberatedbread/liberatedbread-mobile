@@ -33,3 +33,4 @@ TCP 8291.
 
 - <https://help.mikrotik.com/docs/spaces/ROS/pages/24805517/Neighbor+discovery>
 - <https://github.com/boundary/wireshark/blob/master/epan/dissectors/packet-mndp.c>
+- [Home Assistant MikroTik integration](https://www.home-assistant.io/integrations/mikrotik/)

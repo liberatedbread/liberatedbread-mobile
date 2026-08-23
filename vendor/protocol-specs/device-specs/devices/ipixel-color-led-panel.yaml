@@ -1,0 +1,589 @@
+# iPixel Color LED Matrix Panel (TIRO/Heaton) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "iPixel Color LED Matrix Panel (TIRO/Heaton)"
+  manufacturer: "Shenzhen Heaton Technology Co., Ltd. / TIRO (OEM; sold under dozens of storefront brands and marketplace SKUs)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Everything here comes from static analysis of the companion app
+      ("iPixel Color"), live probes of the vendor
+      cloud API on 2026-08-19, and several community open-source clients
+      (pypixelcolor/iPixel-CLI, go-ipxl, ipixel-ctrl, ha-ipixel-color) that
+      are reported to work on real panels. We did not capture BLE traffic
+      or drive hardware ourselves; frames below are read out of the app's
+      command builders and cross-checked against the community
+      implementations, which agree.
+  protocol: "ble"
+  category: "display"
+  type: "led-matrix-panel"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+  notes: >
+    The ubiquitous AliExpress/Amazon "iPixel Color" flexible silicone RGB
+    LED matrix panel / scrolling sign (5 V USB powered, often IP65,
+    adhesive backing), sold for car rear windows, shop fronts and
+    advertising tickers in many sizes: 32x16, 64x16, 96x16, 48x24, 64x20,
+    32x32, 64x64, and long strips up to 448x32 pixels. Known marketplace
+    SKUs/brands include JTPD-03-011 (many sizes, "QYJSD" and other
+    re-seller labels), HCZ-001 "Smart Car Screen" (~210x131 mm) and its
+    64x64 sibling HCZ-002 — all re-seller SKUs of the same OEM platform,
+    all driven by the "iPixel Color" app. Query the panel for its real
+    geometry (device-info response, below); marketplace listings are
+    unreliable (one HCZ-001 listing claims "32x23", a size the platform
+    does not support).
+
+    COMPANION APP: "iPixel Color" for Android (ipixelcolor.net credits
+    Shenzhen Heaton Technology Co., Ltd.). Internally it shares a developer
+    namespace with the sibling apps Magic Display, iPixel Pro and SDJ.
+
+    SAME OEM FAMILY as led-helmet-display.yaml ("TIRO FA02" family): same
+    FA02 command characteristic, same length-prefixed framing convention,
+    same JieLi BLE SoC platform with the bundled com.tiro.jlotalibrary /
+    JieLi OTA SDK, same Heaton cloud backend. The opcode map and panel
+    geometries differ (helmet = 12x48 turn-signal panel driven by the
+    Shining Display app; this = general-purpose sign driven by iPixel
+    Color), so the two specs share infrastructure but not command tables.
+
+    FAMILY BOUNDARY — do not conflate with CoolLED1248 / Juntong
+    (coolledx-led-sign.yaml), LOY (FFF0 service), or the Quintic
+    AES-128-ECB Shining Mask family: similar marketplace appearance,
+    different apps, different framing. This family is identified by the
+    FA02 write characteristic under the 00FA service and LED_BLE
+    advertising names. No encryption or pairing appears anywhere in the
+    command path — plain GATT writes (a "password" mechanism exists in
+    the protocol for some firmware — see the password_flag note — but
+    255 = no password is the norm).
+
+    HARDWARE PLATFORM: JieLi BLE SoC; firmware images are JieLi OTA
+    packages. Two formats observed in the 2026-08-19 harvest: the
+    `*_ota_mi.bin` files are chip-key scrambled (no ASCII header,
+    entropy 6.2-7.2 bits/byte, and all nine share the same scrambled
+    4-byte repeating prefix — consistent with JieLi chip-key XOR of a
+    constant boot header), while the rarer `.ufw` files are JieLi JLUFW
+    update containers with plaintext section strings (JLUFW, JLBTSDK,
+    ble_app_ota.bin) — the appid-137 TR2311R003 .ufw carries AC695x /
+    BR22 markers, i.e. JieLi AC695N. Some variants add a
+    Wi-Fi radio (listings say "Bluetooth WiFi" and bundle an IR remote);
+    the app contains a WifiSend interface, but BLE remains the primary
+    and community-documented transport.
+
+    CONFIDENCE: HIGH for the GATT layout and the core command table —
+    app-derived AND cross-verified against multiple working FOSS clients.
+    MEDIUM for the bulk-upload windowing details and the screen-select
+    opcode (two community sources disagree — see show_slot). LOW for the
+    Wi-Fi variant path, the password mechanism, and factory-reset
+    semantics.
+  identification:
+    local_name_prefix: "LED_BLE"
+    service_uuids:
+      - "000000fa-0000-1000-8000-00805f9b34fb"
+    notes: >
+      The app filters scans on the advertised-name prefix "LED_BLE"
+      (BleManager scan callback). The 0x00FA service / FA02 characteristic
+      pair is the family fingerprint; some firmware revisions expose the
+      notify characteristic as FA03, others as the vendor 128-bit UUID
+      d44bc439-abfd-45a2-b575-925416129601 (the app's default) — discover,
+      don't hardcode.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "LED_BLE"
+          notes: >
+            Name prefix confirmed in the app code and community docs.
+            Fallback: connect and enumerate — the command characteristic
+            0000fa02-0000-1000-8000-00805f9b34fb under service
+            000000fa-… identifies this family regardless of name.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        BLE address type (public vs random-static) is unverified; if the
+        address rotates, re-resolve by scanning for the LED_BLE prefix /
+        FA02 characteristic.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing to provision: no Wi-Fi to join (BLE models), no account, no
+      cloud. Power the panel on, scan, connect. Multiple FOSS clients do
+      exactly this on real hardware.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the LED_BLE name prefix, connect, enumerate services,
+          locate FA02 (write) and FA03 or the vendor 128-bit notify
+          characteristic, enable notifications via CCCD 0x2902, then send
+          the time-sync/device-info command — the panel answers with its
+          geometry and firmware info on the notify characteristic.
+        ble:
+          advertised_name: "LED_BLE"
+          pairing_required: false
+          pin_source: "None — plain GATT writes. A per-device password mechanism exists (password_flag in the device-info response; 255 = no password) but its wire format is unverified."
+        steps:
+          - action: "Power on the LED panel."
+            actor: "user"
+            expect: "Panel advertises with an LED_BLE-prefixed name."
+          - action: "Connect and discover services; locate characteristic 0000fa02-0000-1000-8000-00805f9b34fb (write / write-without-response) under service 000000fa-…."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Enable notifications (CCCD 0x2902 = 01 00) on 0000fa03-… if present, else on d44bc439-abfd-45a2-b575-925416129601. Command ACKs and the device-info response arrive here."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Send sync_time (opcode 0x8001 with the current time); the panel replies with its device-info record — byte 4 is the device-type byte that maps to panel geometry (see the command notes)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "sync_time"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        The clear command (opcode 0x8003, frame 04 00 03 80) is documented
+        by the community clients as wiping all stored content from the
+        panel's memory, including device settings — i.e. a software
+        factory reset. Inferred from client behaviour, not observed by us
+        on hardware; no physical button procedure was found in listings
+        or the app.
+      procedures:
+        - name: "BLE clear command"
+          steps:
+            - action: "Write the clear frame (04 00 03 80) to the FA02 characteristic."
+              actor: "client"
+              request:
+                protocol: "ble_gatt"
+                action: "clear"
+              notes: >
+                Community-documented as removing all stored screens and
+                settings. Behaviour on the panel (reboot, LED signal, what
+                survives) is unverified.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network to rebind. The usual connection failure is another
+        central still holding the link — close the vendor app before
+        connecting from another client.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      notes: "No credentials of any kind on BLE models: the panel speaks unauthenticated GATT. A password flag exists in the device-info response (255 = none); the password wire format is unverified."
+
+services:
+  - uuid: "000000fa-0000-1000-8000-00805f9b34fb"
+    name: "iPixel Command Service"
+    verification: "confirmed"
+    notes: >
+      16-bit service 0x00FA per the app's BLE manager and
+      community docs. All display commands are written to FA02; feedback
+      (command ACKs, device-info response) arrives on the notify
+      characteristic.
+    characteristics:
+      - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
+        name: "Display Command"
+        properties: ["write", "write_without_response"]
+        framing:
+          length_prefix: true
+        notes: >
+          Frame layout (app builders and all community clients agree):
+
+            bytes 0-1: total frame length N, little-endian u16 (covers
+                       the whole frame including these two bytes)
+            bytes 2-3: opcode, little-endian u16. Across the opcodes
+                       this spec records, the HIGH byte is the group and
+                       the LOW byte is the command within it: 0x80xx is
+                       display and system (sync_time, clear, brightness,
+                       orientation, screen select, show_slot), 0x01xx is
+                       content and mode (delete_slot, DIY mode, set_pixel,
+                       clock mode, power), 0x00xx is upload (send_png,
+                       send_gif) and 0x02xx is rhythm. Sharing a LOW byte
+                       relates nothing — 0x8004 brightness and 0x0104
+                       DIY mode, 0x8001 sync_time and 0x0201 rhythm,
+                       0x8003 clear and 0x0003 send_gif are unrelated
+                       pairs. The one genuinely related pair recorded
+                       here, show_slot 0x8008 and the screen-select
+                       0x8007, shares the HIGH byte. This is a reading of
+                       17 observed opcodes, not a documented scheme:
+                       do NOT derive an unlisted opcode from it.
+            bytes 4..: payload
+
+          Written as raw bytes; large writes (image uploads) are split
+          into ~12 KB windows, each window a complete frame with its own
+          length prefix and header, and each window ACKed on the notify
+          characteristic before the next is sent.
+        commands:
+          set_power:
+            description: "Display power on/off (opcode 0x0107)"
+            template: [0x05, 0x00, 0x07, 0x01, "{state}"]
+            parameters:
+              state:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          # Discrete pair for the on/off roles — see led-helmet-display.yaml
+          # for the same shape: a role binding is a name with no room for an
+          # argument, so a parameterised set_power cannot serve both.
+          power_on:
+            description: "Display power ON (set_power with state=1, opcode 0x0107)."
+            template: [0x05, 0x00, 0x07, 0x01, 0x01]
+          power_off:
+            description: "Display power OFF (set_power with state=0, opcode 0x0107)."
+            template: [0x05, 0x00, 0x07, 0x01, 0x00]
+          set_brightness:
+            description: "Set display brightness (opcode 0x8004)"
+            template: [0x05, 0x00, 0x04, 0x80, "{level}"]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 100
+                notes: "Percent 0-100 per the community clients; the vendor app's internal scale was not separately traced."
+          set_fun_mode:
+            description: "Enable/disable DIY ('fun') mode for direct pixel control (opcode 0x0104)"
+            template: [0x05, 0x00, 0x04, 0x01, "{state}"]
+            parameters:
+              state:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          fun_mode_on:
+            description: "Enable DIY ('fun') mode (set_fun_mode with state=1, opcode 0x0104)."
+            template: [0x05, 0x00, 0x04, 0x01, 0x01]
+          fun_mode_off:
+            description: "Disable DIY ('fun') mode (set_fun_mode with state=0, opcode 0x0104)."
+            template: [0x05, 0x00, 0x04, 0x01, 0x00]
+          set_pixel:
+            description: "Set one pixel to an RGB colour while in DIY mode (opcode 0x0105)"
+            template: [0x0A, 0x00, 0x05, 0x01, 0x00, "{r}", "{g}", "{b}", "{x}", "{y}"]
+            parameters:
+              r: {type: "uint8", min: 0, max: 255}
+              g: {type: "uint8", min: 0, max: 255}
+              b: {type: "uint8", min: 0, max: 255}
+              x: {type: "uint8", min: 0, max: 255}
+              y: {type: "uint8", min: 0, max: 255}
+          set_orientation:
+            description: "Set display rotation (opcode 0x8006)"
+            template: [0x05, 0x00, 0x06, 0x80, "{orientation}"]
+            parameters:
+              orientation:
+                type: "uint8"
+                allowed: [0, 1, 2, 3]
+                notes: "0/90/180/270-degree index; the index-to-angle map is community-assumed, verify on hardware."
+          set_clock_mode:
+            description: "Show a clock face (opcode 0x0106). Style 0-8, plus 12/24 h, show-date toggle and the current date."
+            template: [0x0B, 0x00, 0x06, 0x01, "{style}", "{format_24}", "{show_date}", "{year}", "{month}", "{day}", "{day_of_week}"]
+            parameters:
+              style: {type: "uint8", min: 0, max: 8}
+              format_24: {type: "uint8", allowed: [0, 1]}
+              show_date: {type: "uint8", allowed: [0, 1]}
+              year: {type: "uint8", min: 0, max: 99, notes: "Two-digit year"}
+              month: {type: "uint8", min: 1, max: 12}
+              day: {type: "uint8", min: 1, max: 31}
+              day_of_week: {type: "uint8", min: 1, max: 7, notes: "1 = Monday"}
+          sync_time:
+            description: >
+              Sync the clock AND query device info (opcode 0x8001 — the
+              same frame serves both: the panel answers on the notify
+              characteristic with its device-info record). Byte 4 of the
+              response is the device-type byte: 128=64x64, 129=32x32,
+              130=32x16, 131=64x16, 132=96x16, 133=64x20, 134=128x32,
+              135=144x16, 136=192x16, 137=48x24, 138=64x32, 139/141=96x32,
+              140/142=128x32 per the community map (some entries collide;
+              treat the map as approximate and measure when in doubt).
+              Byte 10 of the response is the password flag (255 = no
+              password).
+            template: [0x08, 0x00, 0x01, 0x80, "{hour}", "{minute}", "{second}", "{language}"]
+            parameters:
+              hour: {type: "uint8", min: 0, max: 23}
+              minute: {type: "uint8", min: 0, max: 59}
+              second: {type: "uint8", min: 0, max: 59}
+              language: {type: "uint8", min: 0, max: 255, notes: "0 = default"}
+          set_rhythm_mode:
+            description: "Music-rhythm (mic) mode with 11 level bands (opcode 0x0201)"
+            template: [0x10, 0x00, 0x01, 0x02, "{style}", "{l1}", "{l2}", "{l3}", "{l4}", "{l5}", "{l6}", "{l7}", "{l8}", "{l9}", "{l10}", "{l11}"]
+            parameters:
+              style: {type: "uint8", min: 0, max: 4}
+              l1: {type: "uint8", min: 0, max: 15}
+              l2: {type: "uint8", min: 0, max: 15}
+              l3: {type: "uint8", min: 0, max: 15}
+              l4: {type: "uint8", min: 0, max: 15}
+              l5: {type: "uint8", min: 0, max: 15}
+              l6: {type: "uint8", min: 0, max: 15}
+              l7: {type: "uint8", min: 0, max: 15}
+              l8: {type: "uint8", min: 0, max: 15}
+              l9: {type: "uint8", min: 0, max: 15}
+              l10: {type: "uint8", min: 0, max: 15}
+              l11: {type: "uint8", min: 0, max: 15}
+          set_rhythm_mode_2:
+            description: "Alternate rhythm mode (opcode 0x0200): animated style 0-1, animation speed 0-7"
+            template: [0x06, 0x00, 0x00, 0x02, "{time}", "{style}"]
+            parameters:
+              time: {type: "uint8", min: 0, max: 7}
+              style: {type: "uint8", allowed: [0, 1]}
+          show_slot:
+            description: >
+              Display a stored content slot (1-9; empty slots are
+              skipped). OPCODE DISCREPANCY: pypixelcolor uses the 7-byte
+              frame below (opcode 0x8008), while the ha-ipixel-color
+              documentation records a 5-byte select-screen frame
+              05 00 07 80 <slot> (opcode 0x8007). Both are reported
+              working; likely firmware-revision dependent. Try 0x8008
+              first, fall back to 0x8007.
+            template: [0x07, 0x00, 0x08, 0x80, 0x01, 0x00, "{slot}"]
+            parameters:
+              slot: {type: "uint8", min: 1, max: 9}
+          delete_slot:
+            description: "Delete one stored content slot (opcode 0x0102)"
+            template: [0x07, 0x00, 0x02, 0x01, 0x01, 0x00, "{slot}"]
+            parameters:
+              slot: {type: "uint8", min: 0, max: 255}
+          clear:
+            description: "Erase all stored content and settings (opcode 0x8003, no payload)"
+            value: [0x04, 0x00, 0x03, 0x80]
+            advanced: true
+            advanced_reason: >
+              Community-documented as a full wipe of stored screens AND
+              device settings — a software factory reset. Recovery is
+              re-uploading your content from a client.
+          send_png:
+            description: >
+              Upload a static image (opcode 0x0002). The image is resized
+              client-side to the panel geometry and encoded as PNG (RGB,
+              no palette). Sent in ~12 KB windows; EVERY window is a
+              complete frame: u16-LE length (= frame length + 2), then
+              02 00, option byte (0x00 first window, 0x02 continuation),
+              u32-LE total PNG size, u32-LE CRC32 of the PNG data, tail
+              bytes 00 <save_slot> (save_slot 0 = show only, 1-9 = store
+              to slot), then the window's chunk of PNG data. Each window
+              requires an ACK on the notify characteristic before the
+              next is sent. Windowed upload: there is no single template —
+              build each window from the header layout above.
+          send_gif:
+            description: >
+              Upload an animation (opcode 0x0003). Identical windowing to
+              send_png except the opcode bytes are 03 00 and the tail
+              byte before the slot is 0x02 (PNG uses 0x00). GIFs are
+              re-encoded client-side (palette mode, per-frame durations).
+              Windowed upload with the same per-window header layout as
+              send_png, so it has no single template either.
+      - uuid: "0000fa03-0000-1000-8000-00805f9b34fb"
+        name: "Display Notify (community firmware)"
+        properties: ["notify"]
+        verification: "reported"
+        notes: >
+          Command ACKs and the device-info response. Some firmware
+          revisions instead expose the vendor 128-bit UUID
+          d44bc439-abfd-45a2-b575-925416129601 (the app's default);
+          clients should enumerate and subscribe to whichever notify
+          characteristic the panel actually has. ACK payload format is
+          not fully documented (a short echo/status frame).
+
+  - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
+    name: "JieLi OTA Service"
+    verification: "hypothesis"
+    notes: >
+      Standard JieLi firmware-update service (the app bundles the JieLi
+      OTA SDK via com.tiro.jlotalibrary, with the JieLi OTA notify UUID
+      003784cf-f7e3-55b4-6c4c-9fd140100a16 and ae00-service patterns —
+      the same OTA machinery as led-helmet-display.yaml). Presence on
+      this panel family is inferred from the app, not confirmed on-air.
+      Firmware images are JieLi OTA packages, chip-key scrambled (no
+      ASCII header); eight current images were captured from the vendor
+      cloud (see sources).
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "JieLi OTA Write"
+        properties: ["write"]
+        notes: "OTA data channel. Wire format is the JieLi OTA protocol's own (SDK-internal), not traced here."
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "JieLi OTA Notify"
+        properties: ["notify"]
+        notes: "OTA result channel."
+
+cloud:
+  required: false
+  vendor_service: "Heaton cloud (TIRO backend)"
+  hosts:
+    - "https://manage.heaton.com.cn"
+    - "https://images.heaton.com.cn"
+    - "https://app.heaton.cn"
+    - "https://api.e-toys.cn"
+  failure_mode: >
+    Loss of the downloadable clip-art/material library (api.e-toys.cn),
+    of app config files and manuals (app.heaton.cn), and of
+    firmware-update checks and image hosting (manage./images.
+    heaton.com.cn). Everything else — power, brightness, modes, clock,
+    text, DIY drawing, PNG/GIF upload, slot management — is local BLE
+    and keeps working; the FOSS clients replace the app entirely. The
+    panel itself has no internet path on BLE models and never contacts
+    these hosts.
+  endpoints:
+    - path: "/api/rm/getFirmwareInfo"
+      method: "POST"
+      name: "firmware_info"
+      returns: "JSON with firmware version, changelog and a download URL on images.heaton.com.cn"
+      verification: "confirmed"
+      notes: >
+        Form body appid=137&project_no=<TR…>&version=<n>&
+        android_version=<app version> (the app AES-signs params; the server also
+        answers unsigned requests with a browser-like User-Agent — bare
+        curl gets an nginx 403). Exercised live 2026-08-19, then
+        harvested systematically the same day (~280 queries; 11 images
+        archived locally with checksums, not committed): appid 137 serves
+        firmware for 9
+        project codes; appid 140 answers "no data" for everything tried
+        (likely reserved for an app whose project codes we don't know);
+        all cid/pid-composite projects (TR2408R015_2x_*,
+        TR2504R00x_3x_*, TR2601R0xx_4x_*, …) return "no data" even at
+        range-base versions — bare TR2311R003_2 was the one exception
+        and yielded a 1 MB .ufw. The queried version must clear a floor
+        (version=1 returns "no data", ~100+ works). The server
+        rate-limits aggressively (HTTP 429 after ~100 rapid queries;
+        ~5 s spacing works). The app maps firmware-version ranges and
+        12 ledType-indexed project_no prefixes (TR2408R015_26_<cid><pid>,
+        R2305R021_14_…, TR2509R022_26_…, etc.) to OTA projects; images
+        download from images.heaton.com.cn only with Referer:
+        https://manage.heaton.com.cn/.
+    - path: "/api/ (material/content library)"
+      method: "GET"
+      name: "material_library"
+      returns: "Downloadable clip-art / pattern content"
+      verification: "reported"
+      notes: "Host api.e-toys.cn; found in the app code, not exercised by us."
+    - path: "/ (app config: sucai_define.json, homeConfig.json, manuals, logos)"
+      method: "GET"
+      name: "app_config"
+      returns: "JSON app configuration and static assets"
+      verification: "reported"
+      notes: "Host app.heaton.cn; found in the app code, not exercised by us."
+  data_leaves_device: []
+  notes: >
+    BLE models have no radio but BLE; only the companion app talks to
+    these hosts. Whether the app uploads telemetry or account data was
+    not audited.
+
+local_access:
+  status: "native"
+  summary: >
+    The panel speaks plain unauthenticated BLE GATT as shipped; the
+    cloud is an optional content store, not a control path. Multiple
+    working FOSS clients exist (pypixelcolor/iPixel-CLI in Python,
+    go-ipxl in Go, an ESPHome component, and a Home Assistant HACS
+    integration), so the device is already usable cloud-free today. A
+    minimal client is 5-byte writes to FA02 plus one notify
+    subscription.
+  covers:
+    - "display power, brightness, orientation"
+    - "clock faces and time sync, fun/DIY pixel mode, music-rhythm modes"
+    - "PNG image and GIF animation upload (client-side resize to panel geometry), 9 content slots, slot select/delete"
+    - "text display (rendered client-side to an image and uploaded — there is no separate text wire format in the community clients)"
+  not_covered:
+    - "cloud clip-art/material library (cloud-hosted)"
+    - "firmware update checks and image hosting (cloud-hosted; a captured image can in principle be flashed without the cloud via the JieLi OTA service)"
+    - "Wi-Fi variant control path (app has a WifiSend interface; undocumented)"
+
+entities:
+  # No entity binds `state_characteristic`. The command channel 0000fa02 is
+  # write-only; 0000fa03 does notify, but it carries command ACKs and the
+  # device-info response on community firmware, not per-entity state, so
+  # binding to it would promise a reading it never sends.
+  - platform: "switch"
+    name: "Display Power"
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+    notes: >
+      Write-only channel; no state readback is documented, so a consumer must
+      track what it sent rather than reading the panel back.
+
+  - platform: "number"
+    name: "Brightness"
+    commands:
+      set_value: "set_brightness"
+    notes: "Percent 0-100 per the community clients."
+
+  - platform: "select"
+    name: "Orientation"
+    commands:
+      select_option: "set_orientation"
+    notes: "Four raw indices 0-3; the index-to-angle map is community-assumed."
+
+  - platform: "switch"
+    name: "DIY (Fun) Mode"
+    commands:
+      turn_on: "fun_mode_on"
+      turn_off: "fun_mode_off"
+    notes: >
+      Write-only channel; no state readback is documented, so a consumer must
+      track what it sent rather than reading the panel back.
+
+helpful_urls:
+  - title: "lucagoc/pypixelcolor (iPixel-CLI)"
+    url: "https://github.com/lucagoc/pypixelcolor"
+    description: "Actively maintained Python client/CLI with the cleanest command builders; this spec's byte formats are cross-checked against it."
+  - title: "cagcoach/ha-ipixel-color"
+    url: "https://github.com/cagcoach/ha-ipixel-color"
+    description: "Home Assistant HACS integration plus iPIXEL-Protocol-Documentation.md (derived from yyewolf/go-ipxl and sdolphin-JP/ipixel-ctrl)."
+  - title: "DonKracho/ESPHome-component-iPixel-ble"
+    url: "https://github.com/DonKracho/ESPHome-component-iPixel-ble"
+    description: "ESPHome component emulating the app — embedded/MicroPython-friendly reference."
+  - title: "yewolf RE write-up"
+    url: "https://yewolf.fr/blog/reverse-engineering-a-cheap-led-matrix/"
+    description: "Original reverse-engineering blog post for the family."
+  - title: "iPixel Color on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.wifiled.ipixels"
+    description: "Vendor companion app — the app this spec's static analysis is based on."
+  - title: "ipixelcolor.net"
+    url: "https://ipixelcolor.net/"
+    description: "Vendor site; credits Shenzhen Heaton Technology Co., Ltd."
+
+sources:
+  - type: "static_analysis"
+    artifact: "com.wifiled.ipixels 3.7.6 (versionCode 378)"
+    xapk_sha256: "e4e826e08b5fbe7c07478582304d9d2b9f0b1d76823eff34fdceaef23ba1540d"
+    sha256: "1fe5cd3a824f9290bc0d7d81c8ad84c38299f2afd0917d3f82da58431837c76a"
+    notes: "arm64 split APK sha256 7364dfe40c8c63e71700b8fb44e5e7dd4cf5d14c3f611602cbea16e7abfc63c9"
+    obtained_via: "third-party APK mirror (XAPK), 2026-08-19"
+    description: >
+      Static analysis of the "iPixel Color" Android companion app
+      (2026-08-19). Its BLE managers gave the LED_BLE scan filter, the 0x00FA
+      service and the FA02 write characteristic; its send core gave the
+      length-prefixed framing and the CRC32 over the payload; its options
+      defaults gave the vendor 128-bit notify UUID; and its OTA layer — a
+      wrapper around the JieLi OTA SDK — gave the 12 ledType-indexed OTA
+      project_no prefixes and the appid 137 used against the vendor firmware
+      API.
+  - type: "firmware_image"
+    sha256: "4d57639608f21597053344d70d892099c1e8d1fbdc58423a544df4c5ebeed85e"
+    description: "TR2104R003_02_47_ota_mi.bin — OTA image captured live from images.heaton.com.cn 2026-08-19 (Referer-gated). Chip-key scrambled, internals not analysed. One of eight captured; the other seven (sha256): TR2104R003_04_04 df999fea2595bb98d1b538c01229689154ce18bc01b2505fbc3640b6f67ba3db, TR2204R009_03_17 ee1646642bb4de971b03b014efc295bfc8b8e74e8f3ae78cf12ef6c535d156bf, TR2304R004_16_02 94b50062c5343cc61b9cd708a1932b74fa65233dfc4f9da96306b17e61029bd3, TR2304R009_10_05 f5b54285c86a84b213d3cff2cb698123c07c3bffbdd4d021b7ef23b550e5e93c, TR2305R017_07_02 aaec2375b86023ce334cb64b288992dec5d430303fdd9440e5f586709347bda1, TR2305R021_08_05 89b8dca9495d8498540977789e053654b69d42ea7549d1bb3bedd381e680c6c3, TR2310R004_13_03 f0132c7e468af2e10f3353da96a78ad294a784e0cca123697f496def1ee6a68f. A same-day systematic harvest (2026-08-19, ~280 queries against appids 137/140/141) archived 11 images total locally with checksums (referenced, not committed); 8 overlap this list, 3 are new: TR2304R004_05_10_ota_mi.bin (appid 137, TR2304R004-05 v510, scrambled like the others), TR2311R003_17_03_000106.ufw (appid 137, TR2311R003_2 v1703 — a JieLi JLUFW container whose plaintext section strings mark it AC695N / BR22 platform, internal project TR2311R003), and TR2411R014-02.ufw (appid 141 helmet family — see led-helmet-display.yaml). Which project code maps to which panel size is unknown — read the version via the device-info response on real hardware."
+  - type: "public_implementation"
+    url: "https://github.com/lucagoc/pypixelcolor"
+    description: "Python client; command frames, windowed PNG/GIF upload, and the device-type-to-geometry map cross-checked against this spec. Reported working on real panels."
+  - type: "public_implementation"
+    url: "https://github.com/cagcoach/ha-ipixel-color"
+    description: "Home Assistant integration + protocol documentation (itself derived from yyewolf/go-ipxl and sdolphin-JP/ipixel-ctrl). Source of the 0x8007 select-screen variant and the anchor-flag table (0x01 left, 0x02 right, 0x10 top, 0x20 bottom, 0x00 centre)."
+  - type: "public_implementation"
+    url: "https://github.com/DonKracho/ESPHome-component-iPixel-ble"
+    description: "ESPHome component; independent confirmation that the protocol needs no encryption or pairing."
+
+remaining_unknowns:
+  - "Notify characteristic: FA03 vs vendor 128-bit d44bc439-… is firmware-revision dependent; ACK payload format not fully documented"
+  - "show_slot opcode discrepancy (0x8008 7-byte vs 0x8007 5-byte) — likely firmware-revision dependent, untested by us"
+  - "Device-type byte to geometry map has collisions (139/141 both 96x32, 140/142 both 128x32); treat as approximate"
+  - "Password mechanism: wire format unknown (password_flag 255 = none is the norm)"
+  - "Wi-Fi variant control path (WifiSend interface in the app) is undocumented"
+  - "clear (0x8003) exact effect — what survives a wipe — is inferred from client docs, not observed"
+  - "Which OTA project code maps to which panel size; per-size cid/pid pairs come from the device-info response at connect time"
+  - "CRC32 byte order in the upload header is little-endian per pypixelcolor; an older community document shows big-endian packing — verify on hardware if uploads fail CRC"
+  - "JieLi OTA image de-scrambling (chip-series key) if firmware internals are wanted"

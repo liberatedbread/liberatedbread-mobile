@@ -8,7 +8,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Stateful **Power** `switch` entities on eight TV specs, landing the spec
+- **`commands[].path_fallback` and `entities[].state_topic_fallback`**
+  ([P15](docs/contributing/spec-evolution.md#p15)): a second address for the
+  same invocation or reading, for a family whose firmware generations name
+  entities differently — the HTTP siblings of `fallback_characteristic` and of
+  `state_mapping`'s `<role>_fallback`. Try `path`, and fall back only on an
+  unambiguous 404, never a timeout and never a blind second send; a door that
+  opens twice because the first request was slow is worse than the 404 the key
+  exists to survive. `ratgdo` carries the legacy ESPHome object_id paths this
+  way, so boards on firmware older than 2026.1 stay drivable from the file
+  rather than only from its prose.
+
+- **ESPHome is a platform, not a garage door.** `_esphomelib._tcp` is the
+  service type of the ESPHome *firmware*, and `ratgdo` was the only spec
+  claiming it — so a consumer resolving a service type to a spec labelled every
+  ESPHome node on the LAN a garage-door opener, complete with `/cover/door`
+  controls for entities those nodes do not have. Three changes fix the class of
+  bug, not just this instance ([P14](docs/contributing/spec-evolution.md#p14)):
+
+  - **Schema**: `$defs/mdns_txt_match` plus `identification.mdns_txt_match` and
+    `discovery.methods[].mdns.txt_match` — ANDed conditions on TXT records
+    (`exact`/`prefix`/`contains`/`regex`/`present`/`absent`) that narrow a
+    platform service type to one product — and
+    `discovery.methods[].mdns.platform_fallback`, which marks the one spec per
+    service type that is *meant* to catch everything no matcher claimed.
+    Additive: a consumer reading only `mdns_service_type` is unchanged.
+  - **`esphome-device`** (new spec): the ESPHome platform itself, as the
+    fallback. It deliberately declares no `entities` — it cannot know what a
+    node has — and instead documents how to ask: `GET /events` emits one
+    `state` event per entity on connect (the enumeration path; there is no
+    list-entities URL), the REST grammar `/<domain>/<entity>[/<action>]` with
+    the sub-device forms, the native API's framing (`0x00` plaintext, `0x01`
+    Noise `NNpsk0_25519_ChaChaPoly_SHA256`, prologue `NoiseAPIInit`), the full
+    mDNS TXT set a node publishes, and ESPHome's `web_server`/`captive_portal`
+    provisioning and factory-reset paths.
+  The catch-all flag sits on the `_esphomelib._tcp` method only: the spec's
+  auxiliary `_http._tcp` method (for API-less builds, matched on ESPHome's
+  `config_hash` TXT key) is narrowed and nothing else, because being the
+  fallback for a service type ESPHome does not own would rebuild the same bug
+  with printers in it. `esphome-device` is `integration: identify_only` rather
+  than `supported`, which is what the field actually asks: with no static
+  entities and an optional HTTP surface, what a consumer does today is name the
+  node and hand the user to its web UI. It flips to `supported`, unchanged
+  otherwise, once a consumer implements runtime enumeration.
+
+  - **`ratgdo`**: now matches `project_name` prefix `ratgdo.` in both blocks
+    (every published board config sets `ratgdo.<board>`), so it claims its own
+    hardware and nothing else. Konnected's blaQ ships its own build whose
+    project_name has not been observed here, and is no longer claimed by
+    implication.
+
+- Stateful **Power** `switch` entities on seven TV specs, landing the spec
   half of [Spec Evolution P13](docs/contributing/spec-evolution.md#p13):
   discrete `turn_on`/`turn_off` bindings where the hardware honestly has
   them (`roku-ecp`, `sony-bravia`, `vizio-smartcast`, `philips-jointspace`;
@@ -17,16 +67,166 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   practice), and the new **`toggle`** role — a command declared to *flip*
   power, which a consumer must not send without establishing state first —
   where a flip is all the set offers (`sony-bravia`, `vizio-smartcast`,
-  `philips-jointspace` as alternates; `hisense-vidaa` and
-  `android-tv-remote` as the only binding, each gated on its declared
-  reading). `panasonic-viera` is deliberately excluded: toggle-only,
-  reachable in network standby, and no readable state — the one set a bulk
-  off could turn on. The remote `button` entities are untouched.
+  `philips-jointspace` as alternates; `hisense-vidaa` as the only binding,
+  gated on the `state_topic` it declares). `panasonic-viera` and
+  `android-tv-remote` are deliberately excluded on the same test:
+  toggle-only, reachable in network standby, and no readable state a
+  binding can name — the set a bulk off could turn on. Android TV does push
+  `remote_start { started }`, and it is surfaced as a Power State
+  `binary_sensor`, but it arrives over the session rather than a pollable
+  endpoint, so no `state_*` field can point at it and nothing ties the
+  sensor to a switch. The remote `button` entities keep the key, renamed
+  `Power Key` where a `Power` switch now shares the file — two controls
+  with one name are indistinguishable to a consumer that keys on the name.
 
 - `set_power_standby` on `philips-jointspace`: the `/powerstate` resource
   written instead of read — documented under `http_endpoints` all along,
-  now invocable as a command. The non-key off for sets that ignore the
-  PowerOff key.
+  now invocable as a command. A second discrete off for v6 sets that answer
+  powerstate but do not honour the PowerOff key, and an explicit state
+  request rather than a keypress. Narrower than the key route rather than a
+  fallback for it: older sets have no powerstate resource at all, which is
+  why the Power switch still binds `turn_off` to the key and leans on the
+  universally-accepted Standby key as its state-gated `toggle`.
+
+- **Final acquisition sweep (2026-08-19).** The APKs that failed in the
+  2026-08-12 wave were retried through working mirror flows: Omron Connect
+  JP acquired via Aptoide (the 2026-08-12 failures traced to a wrong
+  package name), Lutron's current app (`com.lutron.mmw`) — yielded LEAP
+  `GoToDimmedLevel`/`GoToSwitchedLevel` corrections (no plain `GoToLevel`
+  exists in the vendor enum) and the full LAP `/pair` CSR-signing
+  exchange, Wemo v1.30.2 (smartsetup/remoteaccess services mapped), Hue
+  v5.73.0 (spec confirmed, no changes), SensorPush's legacy package
+  (model table incl. a new Aqua water sensor, factory-recovery service),
+  and Inkbird's current `engbird` app (advertisement bytes 4-6 decoded,
+  fff1/fff6/fff8/fff9 and the PhyPlus OTA path added). iBBT Go and the
+  Vizio SmartCast app are delisted everywhere and unacquirable (their
+  specs rest on stronger community sources anyway). SPOTLED firmware is
+  confirmed unrecoverable — the Wayback Machine never crawled the host.
+  An HA/ESPHome reference sweep linked ~80 specs to their real
+  integrations (core, HACS, ESPHome, Theengs); the ~43 without any are
+  verified to genuinely have none. `ember-mug` now records that the
+  advertised company ID varies by unit — 0x03C1 (Ember's assigned ID) or
+  0xFFFF (measured on a Mug 2) — matching python-ember-mug's fallback.
+
+- **Seven more specs from the expansion wave (2026-08-19).**
+  `brother-ql-1110nwb` (P-touch raster language over TCP 9100 / BT Classic
+  SPP — no BLE GATT; status via `ESC i S` 32-byte reply), `flowtoys-props`
+  (props speak proprietary nRF24 RF, not BLE; the FlowtoysConnect bridge
+  exposes BLE Nordic UART + OSC/UDP — Flowtoys-commissioned open-source
+  firmware exists), `limitlessled-milight-bridge` (live-probed on the
+  project LAN: legacy v3–v5 HF-LPB130 bridge, 3-byte command frames on
+  UDP 8899), `enphase-iqbattery-ble` (Encharge/Enpower BLE = stock Digi
+  XBee 3 BLE service, SRP-6a unlock with factory-default password,
+  user-data-relay frames + EnsObjMdlMessage object model),
+  `cat-printer-mxw01` (AE30 service, new 0x22 0x21/CRC-8 framing,
+  cross-checked against three independent implementations),
+  `xiaomi-mi-scale-s400` (encrypted MiBeacon obj 0x6E16 bit layout +
+  mible-login GATT path), `veryfit-2-fitness-band` (Veryfit 2.0/ID107
+  0x0AF0 protocol promoted from the m6-fitness-band appendix).
+  `chamberlain-garage-opener-secplus` gained a verified-live note on the
+  MYQ-G0401 Smart Garage Control hub found on the project LAN
+  (unauthenticated `/jabout` identity endpoint).
+
+- **Five more specs from the second acquisition wave (2026-08-19).**
+  `qh-happylighting-led-strips` (Triones/QHM car-LED family, FFD5/FFD9 +
+  legacy FFE0 layouts, all command frames), `tuya-bt-soil-tester`
+  (zwjcy category, encrypted GATT 0xFD50, SGS01BTHome reflash path),
+  `zigbee-soil-tester` (Tuya TS0601 soil family — five DP-map fingerprint
+  groups; pairs to any coordinator, no Tuya hub needed),
+  `vevor-vt256-thermal-imager` (Hti HT-W01 rebadge; RTSP + 0xFB-framed
+  TCP command channel fully mapped with 14 byte-exact example frames),
+  `ipixel-color-led-panel` (TIRO/Heaton FA02 family covering the
+  JTPD-03-011 and HCZ-001/002 reseller SKUs; PNG/GIF upload framing).
+  `jlx-laser-distance-meter` was re-verified against five sibling OEM app
+  builds (Precaster attribution corrected, errorN/Zbleoff behaviors, a
+  possible 0xDB-checksum firmware variant flagged). Firmware harvesting:
+  11 Heaton/TIRO OTA images captured via the unauthenticated
+  getFirmwareInfo API, 4 Yeelight images (ble1 + gingko), and the JieLi
+  `*_ota_mi.bin` obfuscation was fully reversed (fixed 256-byte
+  substitution; deobfuscated iDotMatrix images verify with intact GIF89a
+  and font tables) — artifacts and hashes in `~/research`, per clean-room
+  rules nothing vendor-owned is committed here.
+
+- **Ten new device specs (2026-08-19), all from fresh APK/firmware
+  acquisition and static analysis.** BLE: `beurer-po60-pulse-oximeter`
+  (custom FF12 service, 3-command protocol, 24-byte history records),
+  `beurer-series800-blood-pressure` (BM92/"PREMIUM800" — standard Blood
+  Pressure Profile with Beurer's big-endian-SFLOAT quirk),
+  `hyperice-hypervolt-plus` (MAC+seed password handshake through a fixed
+  256-entry S-box; covers the whole legacy HV/HV2/Vyper family),
+  `biokey-touchlock-fingerprint-lock` (no cloud exists at all; timestamp
+  "rolling password"; 20-byte frame opcode table), `safetech-smart-padlock`
+  (defunct vendor; cleartext 4-byte password, unlock = write 0x01 to
+  0xFFD9; full FFD0/FFF0/FFE0 service map incl. RFID share codes),
+  `led-helmet-display` (TIRO/Heaton JieLi family, FA02 command channel,
+  JieLi AE00 OTA; firmware TR2306R009-2.ufw captured from the vendor's
+  live firmware API). Wi-Fi: `yeelight-cube-lamp` (vendor LAN protocol +
+  Matter, cube pixel commands marked community-sourced),
+  `tuya-wifi-gas-sensor` (TuyaMCU rqbj family, DP table, LAN 6668
+  framing), `june-oven` (cloud-only, no local surface; SRP-6a pairing,
+  message-code tables, OTA service mapped; **all June cloud services
+  retire 2026-09-22** — pairing-material export documented as the top
+  owner action), `brava-oven` (cloud-only; DeviceNet socket.io protocol
+  recovered; vendor ceased operations 2026-03-06, DNS-redirect rescue
+  path documented, gated on oven-side TLS pinning).
+
+- **Keeping Devices Alive guide** (`docs/keeping-devices-alive.md`) — a
+  per-device playbook for keeping the fleet working without vendor clouds:
+  local-API devices and their HA integrations, cloud-redirection targets
+  (concrete hostnames per device), replacement firmware (bbs-fw, TSDZ2
+  OSF, ATC, WireOS, ratgdo, badgemagic), BLE-only options (ESPHome
+  proxies, Theengs, ble_monitor), and an honest dead-end list.
+
+- **Artifact re-mining wave (2026-08-18).** Eight specs re-audited against
+  their already-downloaded jadx/firmware artifacts to close long-standing
+  `unknown`/`TBD` markers. Highlights: `admore-light-bar` — the bundled DFU
+  package decodes as nrfutil Secure DFU (ECDSA-signed init packet,
+  SoftDevice S132 v7.0.1), pinning the SoC to nRF52832 and ending hopes of
+  self-authored firmware. `kwikset-kevo` — Lock Information Certificate TLV
+  field map recovered (`0xB4` battery, `0xB5` lock state incl. jammed
+  states), the advertisement trailing counter identified as a state-change
+  sequence number, and time sync shown to be cloud-mediated (a real
+  dead-cloud consequence). `kingsmith-walkingpad` — KS Fit app decompiled;
+  found the Xiaomi MIOT alternate ecosystem (`ksmb.walkingpad.v1` et al. on
+  the public MIOT registry → python-miio / HA Xiaomi MIOT path for Wi-Fi
+  models) plus an 83-model prefix/max-speed table. `urevo-walking-pad` —
+  BluePack B frame layout and CRC-16/CCITT coverage fully recovered from
+  the Dart AOT snapshot, `ur_get_controller_version` command added, full
+  response dispatch table mapped, and two hardcoded plain-HTTP cloud IPs
+  recorded. `magic-display` — command table byte-verified against the app's
+  own `Agreement` class (MODE/LIGHTON/SCHD/SMVEW/…), unencrypted Quintic
+  OTA service documented, `cloud`/`local_access` blocks added (backend is
+  app-side only; nothing breaks when it dies). `iledcolor-led-panel` —
+  playlist opcodes `0x03`/`0x07`/`0x08`, password set/change layout, A952
+  chunk framing and A953 status-code table pinned, advertisement offsets
+  fixed incl. the old-protocol screen-type exception. `chef-iq-sense` —
+  Wi-Fi provisioning payloads shown to be JSON over UTF-8 string
+  characteristics, session TLV attributes 52–92 added, hardware table
+  corrected to ESP32-WROVER-E, OTA metadata API and MQTT `ota` topic
+  documented. `motool-slacker` — command bytes proven unrecoverable
+  statically (ARM32-only Dart AOT, no relocation entries; documented why),
+  a speculative notification-relay claim corrected, vendor-cloud liveness
+  checked (app-side Firebase only, device has no cloud dependency).
+  Remaining gaps on all eight are hardware-capture-only and say so.
+
+- **Rabbit Air verified against hardware (2026-08-15).** The BLE
+  provisioning flow in `rabbit-air-purifier` was replayed end-to-end on a
+  real MinusA2 gen2 (Wi-Fi module mcu 2.2.8): cleartext cmd 255/4/7/0/1,
+  cmd 5 type 4 (client-generated user key), cmd 2 — then encrypted
+  cmd 9/255/0/4 over both UDP 9009 and BLE under the pushed key. The spec
+  flips to `testing.status: verified` / setup `confidence: high`, the BLE
+  method to `verified: true`. Hardware corrected two decompile readings:
+  the command characteristic's server-to-client leg is ATT **indications**
+  (properties 0x28, CCCD default-on), not notifications; and setup-command
+  failures DO surface as `{"id":…,"error":true}` (seen re-sending cmd 1/2
+  after setup). New facts recorded: `security: 3` = WPA2-PSK in cmd 0/1;
+  cmd 7 replies `{mode, setup}`; cmd 0 lists one entry per BSSID and its
+  `ip` field tracks join progress (the verified join took ~4 minutes);
+  cmd 255's `mac` is the WI-FI MAC, which differed from the BT MAC in the
+  last octet; a unit provisioned without the cloud flow has no Thing ID
+  (`name: ""`) and falls back to mDNS hostname `RabbitAir-<WIFI MAC>` with
+  TXT `id=<MAC>`; a keyed unit outside setup mode answers no cleartext
+  command and intermittently rejects writes with ATT error 0x87.
 
 - `commands:` blocks for seven specs whose entity role maps named no command
   — `ratgdo`, `wled-controller`, `lifx-z`, `divoom-pixoo`,
@@ -471,6 +671,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   field.
 
 ### Fixed
+
+- **ESPHome addressing and cover-position corrections on `ratgdo`.** Two facts
+  the spec had wrong, both from ESPHome's own source. (1) Entity addressing
+  changed generation, and in two steps a release apart: `<= 2025.12` matches
+  the slugified `object_id` and emits `id: "cover-door"`; `2026.1.0`-`2026.6`
+  match the entity NAME with an object_id fallback and add `name_id` (from
+  2026.1.3); `2026.7` drops the URL fallback, so URLs are the percent-encoded
+  name (`/cover/Door`, `/lock/Lock%20remotes`) while `id` is still legacy; and
+  `>= 2026.8` moves `id` itself to `cover/Door` and stops sending `name_id`.
+  2026.7 is the release that punishes deriving a URL from `id`. Paths and `state_topic`s move to the name form
+  current ratgdo firmware requires, with the legacy form documented and the
+  rule for picking one at runtime (read the identifier out of `/events`; a
+  wrong form is a 404, never a silent no-op). (2) `set?position=` takes
+  ESPHome's cover scale `0.0`-`1.0`, not a percentage — the old `0..100`
+  `uint8` meant every "half open" request drove the door fully open. Also:
+  the legacy `api: password:` was removed in ESPHome 2026.1.0, and
+  `api_encryption` vs `api_encryption_supported` distinguish "PSK set, Noise
+  required" from "Noise-capable, still accepts plaintext".
 
 - `tplink-kasa-smart-plug` stops offering the energy meter on plugs that do not
   have one. The four emeter sensors were unscoped, so a consumer drew Voltage /

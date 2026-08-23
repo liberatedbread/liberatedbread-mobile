@@ -26,14 +26,14 @@ control (M-1); firmware/config for M-2.
   (`com.earin.earin.communication.cap` fully readable).
 - jadx output at `workspace/static/earin/`.
 
-## BLE GATT layout (from `communication/cap/CapUuids.java`)
+## BLE GATT layout
 Earin's proprietary "CAP" protocol:
 - **CAP service** `be7386e3-8627-cf85-d743-dab853c7da70`
   - Requests (write): `19df2d7b-c4d0-47ff-a8f4-61173f363a42`
   - Events (notify): `619a19cb-64d4-4728-81f4-3684aa7bcc66`
   - Upgrade/DFU: `c40a47f8-b5fb-462f-b259-84b65b02aa57`
 - Standard: CCCD `2902`; SPP `1101` also referenced.
-- `CapProtocol.java` shows a text-ish request/response scheme
+- The app's CAP protocol class shows a text-ish request/response scheme
   (`lastSendRequestCommand` string prefix matching) — the command vocabulary should
   be directly extractable from the `communication/cap` package.
 
@@ -48,7 +48,7 @@ None found (no Gadgetbridge/GitHub driver). Greenfield.
 ## Open questions
 - Does the one APK serve both M-1 and M-2, or did M-2 get a separate package
   ("Earin M-2" 1.0.19 per soft112 — likely same package)? A-3 uses a different app.
-- Full CAP command list (extract from `CapProtocol.java` constants).
+- Full CAP command list (extract from the app's CAP protocol constants).
 - Whether M-2's NFMI/MiGLO topology exposes one or two BLE peripherals.
 
 ## Safety class

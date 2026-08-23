@@ -63,11 +63,11 @@ device:
     CONFIDENCE: variant split, service/characteristic UUIDs and SP107E core opcodes
     (led_on 0xAA, led_off 0xBB, check_device 0x01, set_color cmd 0x0C) HIGH —
     set_color is 0x0C per two independent sources (monty68/uniled led_chord.py
-    SET_COLOR=12; and7ey gist of the decompiled LED CHORD app), while 0x04 is
+    SET_COLOR=12; and7ey's gist derived from the LED CHORD app), while 0x04 is
     SET_RGB_SEQ (color order): sending [r,g,b,0x04] reprograms the chip's RGB
     sequence instead of setting a color. The 0xFF20 framing, command IDs, record
     types and effect values are HIGH (python-spotled). The detailed per-opcode
-    command tables below were decompiled to scratch from a secondary source and
+    command tables below were transcribed to scratch from a secondary source and
     are NOT all independently re-verified — treat individual effect/brightness
     opcodes as MEDIUM and confirm remaining opcodes via live capture. The full
     SP107E opcode map and the 26-byte status layout are decoded in
@@ -378,3 +378,11 @@ entities:
       turn_off: "sp107e_power_off"
       set_color: "sp107e_set_color"
       set_brightness: "sp107e_set_brightness"
+
+helpful_urls:
+  - title: "monty68/uniled — UniLED (HACS)"
+    url: "https://github.com/monty68/uniled"
+    description: >-
+      HACS integration for SP LED / BanlanX-family BLE controllers (LED Chord / SP107E, LED
+      Hue / SP110E); a production Home Assistant consumer of the SP107E command set this spec
+      documents. Does not cover the later SPOTLED-app panel generation.

@@ -1157,11 +1157,11 @@ entities:
       the state read first, and a set with network standby off simply won't
       answer it.
   - platform: "button"
-    name: "Power"
+    name: "Power Key"
     icon: "mdi:power"
     commands:
       press: "press_power"
-    notes: "Toggle. Discrete on/off exist as press_power_on/press_power_off for consumers that ask the TV for its key list first."
+    notes: "The raw remote key, distinct from the Power switch above: it promises a keypress, not a direction. Toggle. Discrete on/off exist as press_power_on/press_power_off for consumers that ask the TV for its key list first."
   - platform: "button"
     name: "Home"
     icon: "mdi:home"

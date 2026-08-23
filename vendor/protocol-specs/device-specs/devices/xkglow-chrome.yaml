@@ -2,13 +2,12 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# UUIDs and GATT profile extracted from decompiled com.xkglow.xkchrome APK
-# via smali static analysis. All UUIDs use vendor base 458A7133-xxxx-4E37-A4A4-5D8492586977.
-# Command encoding decoded from ColorPayloadManager, MonoColorPayloadManager,
-# AnimationPayloadManager, and BluetoothLeService smali.
+# UUIDs and GATT profile extracted by static analysis of the vendor's
+# XKchrome Android app. All UUIDs use vendor base 458A7133-xxxx-4E37-A4A4-5D8492586977.
+# Command encoding decoded from the app's colour, mono-colour and animation
+# payload builders and its BLE service.
 #
-# Source: com.xkglow.xkchrome_decompiled (APK smali disassembly)
-# Report: ~/research/motorcycle-ground-effect-lighting/RESEARCH_NOTE_XKGLOW.md
+# Full research note kept locally (not committed).
 
 device:
   name: "XKGlow XKChrome Motorcycle LED Controller"
@@ -316,7 +315,7 @@ services:
           (firmware_revision & 0x0F) == 9 the app writes
           [0x54, 0x03, 0x00, 0x00] (ramp on) or [0x00, 0x00, 0x00, 0x00]
           (ramp off). A clock-sync use may exist elsewhere but nothing in
-          the smali supports the earlier "internal clock" guess, and a read
+          the app code supports the earlier "internal clock" guess, and a read
           property is unverifiable from app code (0005 is not in the
           chained read sequence).
 

@@ -24,7 +24,7 @@ in May 2017; Beddit 3.5 (BLE 4.2, "Model 3.5") shipped 2018. Category: sleep tra
   names, but full logic readable).
 
 ## BLE UUIDs (recovered from static pass)
-From `com/beddit/sensor/le/LESensorSession.java`, `a.java`, `b.java`:
+From the app's BLE sensor-session classes:
 
 | UUID | Role |
 |------|------|
@@ -41,7 +41,7 @@ From `com/beddit/sensor/le/LESensorSession.java`, `a.java`, `b.java`:
 
 - BT Classic SPP UUID `00001101-...` also present (legacy Beddit 3.0 fallback path?).
 - `612d9e68-...` seen in DEX is a Postmark email API token, **not** a BLE UUID.
-- Session flow (`b.java`): read DIS → read channel descriptors from service `e6807e20`
+- Session flow: read DIS → read channel descriptors from service `e6807e20`
   → subscribe to data chars; stream parsing in `com.beddit.sensor` (SensorChannelDetails etc.).
 - Hardware type string `HARDWARE_TYPE_IDENTIFIER_BTLE_V3` in `SensorManager`.
 

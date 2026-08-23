@@ -47,9 +47,23 @@ Covered generations: **690, 890, 960, 980, e5/e6, i3–i8, j7/j9, s9**, plus the
 
 ## Discovery
 
-Broadcast the nine ASCII bytes `irobotmcs` to `255.255.255.255:5678`. Every
-iRobot robot on the segment answers to the sender's ephemeral port with a JSON
-datagram:
+Broadcast the nine ASCII bytes `irobotmcs` to `255.255.255.255:5678`. An
+**awake** iRobot robot on the segment answers with a JSON datagram sent back to
+whatever UDP source port the probe came from — dorita980 binds and sends from
+5678, so its replies land on 5678; roombapy sends from an ephemeral port and
+reads the reply there. Either works. Send the probe more than once: UDP is
+lossy, and a dropped probe is a robot never found.
+
+!!! warning "A docked, idle robot answers nothing"
+
+    A robot that has been docked and idle powers its radio down and goes silent
+    on the LAN — it will not answer this probe, an mDNS query, or a TCP
+    connection to 8883. Wake it first (press a button, or hold CLEAN for ~20
+    seconds to reboot it) and probe within the wake window. This is the single
+    most common reason a scan of a segment that provably has robots on it comes
+    back empty.
+
+The reply:
 
 ```json
 {

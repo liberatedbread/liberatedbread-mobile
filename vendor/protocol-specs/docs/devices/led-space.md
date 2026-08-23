@@ -71,8 +71,9 @@ and its post-provisioning behavior has not been captured.
    `192.168.4.1`, though the app does not hardcode it).
 4. All further commands go unicast to the learned address on UDP port 9090.
 
-Transport details (from `UDPBuild.java` / `PacketDateUtils.java` /
-`Constant.java` in com.yj.led): each datagram chunk carries an outer u16-LE
+Transport details (from the com.yj.led app's UDP packet builder, its
+packet date/sequence utilities and its constants class): each datagram chunk
+carries an outer u16-LE
 length prefix; large sends split into 180-byte chunks (`writeFscNum`; 120 on
 the `writeNum` path) at ~5 ms intervals; sequence numbers start at
 4294901761; the app resends up to 10 times at 8 s intervals until an ACK with

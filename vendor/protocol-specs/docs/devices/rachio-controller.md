@@ -26,3 +26,5 @@ Observed identity:
 
 Machine-readable spec: `device-specs/devices/rachio-controller.yaml`
 
+Home Assistant: the core [Rachio integration](https://www.home-assistant.io/integrations/rachio/) covers these controllers (cloud API; the local HAP path above is independent).
+

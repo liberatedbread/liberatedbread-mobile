@@ -18,8 +18,8 @@ transport:
   rfcomm:
     service_uuid: "00001101-0000-1000-8000-00805F9B34FB"  # standard SPP UUID (JERRY_UUID)
     source: >
-      com/sonyericsson/extras/liveview/btdisplay/JerryBTManager.java:364 +
-      JerryDisplayService.java (jadx, app v1.0.A.0.23)
+      the app's Bluetooth display manager and display service
+      (static analysis, app v1.0.A.0.23)
     note: >
       Phone connects as RFCOMM client over standard SPP. Pairing is ordinary
       BT 2.1 SSP. No cloud anywhere in the data path.

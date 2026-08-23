@@ -1,5 +1,7 @@
 # Ember Mug 2: hardware checklist
 
+Hardware verification by Devin Wittmayer.
+
 Every confirmed claim in the spec, in the order that makes sense to run them, with the command that
 produced it and what a pass looks like. Checks 1 to 8 take about an hour. Check 9 needs water and a
 full heat cycle on top of that, check 10 runs while 9 does, check 11 is three short writes, check 12 needs the mug

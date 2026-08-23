@@ -8,19 +8,21 @@
 #     Android logs of the official app; controls A1, reported working on R1 Pro.
 #   - DorianRudolph/QWalkingPad (C++/Qt, GPL): independent RE of the same
 #     WiLink protocol incl. params query, calibration and workout records.
-#   - mcdax/walkingpad-controller (Python) + docs/ks-fit-reverse-engineering.md:
-#     blutter (Dart AOT) decompilation of KS Fit v5.9.10/v6.0.7; FTMS routing,
-#     ODM pre-amble, supplement service; HCI-snoop-confirmed FTMS encodings.
-#   - KS Fit app com.kingsmith.xiaojin v6.5.6 (APKPure, XAPK SHA-256
-#     a889584a6159b6dc801bc99d62ff7e5b7fcce05b8599a10a3fb6ef6465060914):
-#     libapp.so strings confirm 0xFE00/FE01/FE02, full FTMS 0x1826/0x2ADx set,
-#     ODM char d18d2c10-…, supplement service 24e2521c-… and model name prefixes.
-#   - WalkingPad app com.walkingpad.app v2.5.5 (APKPure, APK SHA-256
-#     cf3309e38a8c9a432f04dcf259c21c21c2d6178dec1057f952a18659d3a3053a):
-#     libapp.so strings independently confirm 0xFE00/FE01/FE02. This app has NO
-#     FTMS strings at all (no 0x1826/0x2ADx) — it is WiLink-generation only.
-#   Hashes re-verified against the local APK copies 2026-08-08 (sha256sum,
-#     exact match for both).
+#   - mcdax/walkingpad-controller (Python) + its KS Fit reverse-engineering
+#     notes: Dart AOT analysis of the KS Fit app; FTMS routing, ODM
+#     pre-amble, supplement service; HCI-snoop-confirmed FTMS encodings.
+#   - The KS Fit app itself: strings in its Dart snapshot confirm
+#     0xFE00/FE01/FE02, the full FTMS 0x1826/0x2ADx set, the ODM char
+#     d18d2c10-…, the supplement service 24e2521c-… and model name prefixes.
+#   - The older WalkingPad app: its Dart snapshot independently confirms
+#     0xFE00/FE01/FE02, and carries NO FTMS strings at all (no 0x1826/0x2ADx)
+#     — it is WiLink-generation only.
+#   2026-08-18 pass: static analysis of the KS Fit app's Java/Kotlin side plus
+#     fresh string sweeps of both apps' Dart snapshots. New derived facts:
+#     KS Fit bundles a product table (83 rows) mapping every model to its BLE
+#     scan prefixes, factory max speed and an app-internal device class; both
+#     apps' cloud endpoints; the Xiaomi Mi Home (MIOT) control path for
+#     Wi-Fi/CN models; and the OTA stack layout.
 
 device:
   name: "KingSmith WalkingPad (A1 / R1 / R2 / C2 / X21 / MC21 / Z1 family)"
@@ -57,7 +59,7 @@ device:
     over BLE. The manufacturer is alive and shipping new models (kingsmith.com,
     walkingpad.com, 2026 retail listings), so this is not an abandonment rescue
     but a cloud-independence spec: the official apps (WalkingPad /
-    com.walkingpad.app, KS Fit / com.kingsmith.xiaojin) tie statistics history,
+    the older WalkingPad app and KS Fit) tie statistics history,
     firmware updates and account sync to KingSmith's cloud (JWT login), while
     every control function is plain local BLE GATT with no pairing, no
     authentication and no cloud round-trip. Third-party controllers
@@ -103,7 +105,45 @@ device:
 
     Cloud dependency: none for control. The apps use KingSmith cloud only for
     account, workout-history sync and OTA notification. If the cloud dies,
-    local BLE control is unaffected.
+    local BLE control is unaffected. Cloud endpoints seen in the binaries
+    (2026-08-18; useful for firewalling/redirect analysis): KS Fit talks to
+    eu.api.ks.fit/V0.1/index.php (EU; euprev/eutest staging variants),
+    xj.kingsmith.com.cn/V0.1/index.php (CN; test-xj staging) and
+    api.kingsmithfitness.com; firmware version checks go through the API
+    method `firmware.update`. The WalkingPad app talks to
+    eu.app.walkingpad.com. Product images are served from Xiaomi's file CDN
+    (cdn.*.fds.api.mi-img.com).
+
+    Alternate ecosystem (Wi-Fi/CN models): KS Fit embeds Xiaomi's MIOT
+    SDK and registers the Mi Home device models ksmb.walkingpad.v1,
+    ksmb.treadmill.v1 and ksmb.treadmill.v2 (Xiaomi OAuth sign-in with
+    redirect via xj.kingsmith.com.cn). These models are on Xiaomi's public
+    MIOT spec registry (home.miot-spec.com): all three expose a treadmill/
+    walking-pad service with on/off, speed-level (float km/h, R/W/N), run
+    status, distance, time, step and calorie counters, and start/pause/stop
+    actions — so the Wi-Fi variants can also be driven through anything that
+    speaks MIOT/miio (python-miio, Home Assistant Xiaomi MIOT), subject to
+    Xiaomi's cloud/token. The MIOT action set in the app (setSpeed, speedUp/
+    speedDown, setState, setPower, setLock, setMax, setKey, setProg, getProp)
+    mirrors the BLE preference keys (mode, speed, max, start_speed,
+    sensitivity, child lock, units, display mask, programs).
+
+    Model map (KS Fit's bundled product table,
+    — 83 rows, derived 2026-08-18): each row ties a product to its BLE scan
+    name prefixes and factory max speed. Examples: A1 Pro = KS-ST-A1P/
+    "WalkingPad", 6 km/h; R1 Pro/R1S = "R1 Pro"/RE/RH/KS-HCSY-BR1x/KS-R1S,
+    10-12 km/h depending on variant; R2 = KS-BLR1AA/KS-HCR1Ax/KS-SC-BLR2C/
+    KS-HC-BR2C, 10-12 km/h; early C2 = KS-S1/KS-BLC2/KS-BDC2, 6 km/h; later
+    C2 = KS-AP-C2/KS-RT-C2/KS-C2; X21 = KS-HDSC-X21C/KS-HDSY-X21C/
+    KS-NGCH-X21C/KS-NACH-X21C, 12 km/h; MC21 = ZP-ZEALR1/KS-MC21/KS-SMC21C,
+    10 km/h; Z1 = KS-HD-Z1*, 6-6.6 km/h; Z1D = KS-HD-Z1A, 10 km/h; R3 =
+    KS-AP-RF3/KS-HD-R3F and KS-AP-RP3/KS-HD-R3P, 6-12 km/h; Z3 = KS-HD-ZP3/
+    KS-AP-ZP3/KS-HD-Z3, 6-10 km/h. The table's app-internal deviceType field
+    separates walk-only pads (1, factory max <= ~6.6 km/h) from run-capable
+    treadmills (0, 8-18 km/h); other values cover KingSmith's bikes, rowers,
+    dumbbells and benches. A numeric `chip` field (values 2/3/5/6 observed)
+    also exists; its semantics are unconfirmed and it does not cleanly track
+    the WiLink/FTMS split, so it is not used for generation detection here.
   identification:
     service_uuids:
       - "0000fe00-0000-1000-8000-00805f9b34fb"   # legacy WiLink models
@@ -134,7 +174,7 @@ device:
         steps:
           - action: "Power on the pad with its physical remote or side switch so it advertises."
             actor: user
-          - action: "Scan for service UUID 0xFE00 (legacy) or 0x1826 (FTMS); match name prefixes WalkingPad / KS- / ZP-ZEALR1 / KINGSMITH / DYNAMAX."
+          - action: "Scan for service UUID 0xFE00 (legacy) or 0x1826 (FTMS); match name prefixes WalkingPad / KS- / ZP-ZEALR1 / KINGSMITH / DYNAMAX (full per-model prefix list: KS Fit's bundled product table, see device notes)."
             actor: client
           - action: "Connect over GATT and discover services; pick WiLink or FTMS flow by what the device exposes."
             actor: client
@@ -146,10 +186,17 @@ device:
       confidence: low
       effect: >
         No factory-reset procedure is documented for any WalkingPad model in
-        the public RE literature or recoverable app strings. The pads hold no
-        network credentials and no bonds, so there is nothing to clear for
+        the public RE literature or recoverable app strings. Static check
+        2026-08-18 (static analysis of the KS Fit app plus string sweeps of
+        both apps' Dart snapshots): neither app exposes a BLE factory-reset
+        command;
+        KS Fit's troubleshooting copy only suggests power-cycling the pad or
+        using the device's own reset path, and its "factory reset" strings
+        belong to other KingSmith device classes (wristband). The pads hold
+        no network credentials and no bonds, so there is nothing to clear for
         local control; the preferences block (max speed, child lock, units)
-        is writable over the same unauthenticated BLE channel. Not stated
+        is writable over the same unauthenticated BLE channel. Wi-Fi/MIOT
+        variants can be unbound from the Mi Home account instead. Not stated
         rather than guessed.
     rejoin:
       in_place_supported: true
@@ -172,7 +219,7 @@ services:
     name: "WiLink treadmill service (legacy models)"
     notes: >
       Private KingSmith "WiLink" service on A1/A1 Pro/R1/R2/early-C2 pads.
-      Confirmed in KS Fit v6.5.6 and WalkingPad v2.5.5 app binaries and in the
+      Confirmed in both app binaries and in the
       ph4-walkingpad scanner. Frame grammar (both directions): byte 0 = 0xF7
       (command, phone->pad) or 0xF8 (response, pad->phone); byte 1 = message
       class (0xA2 control/status, 0xA5 params, 0xA6 preference write, 0xA7
@@ -181,11 +228,11 @@ services:
       3-byte big-endian integers for time (s), distance (10 m units) and
       steps. The app polls status roughly every 750 ms; commands should be
       spaced >= ~700 ms apart (ph4-walkingpad enforces a 0.69 s minimum).
-      Static evidence in com.walkingpad.app v2.5.5 (2026-08-08): the 0xFE00/
+      Static evidence in the older WalkingPad app (2026-08-08): the 0xFE00/
       FE01/FE02 UUID strings plus dedicated WiLink builder methods (_setSpeed,
       _setSpeedR1 — an R1-specific speed-command variant — and a _checkSum
-      helper) are present in libapp.so; frames are constructed in code so no
-      constant frames are embedded in the binary. The checksum ALGORITHM is
+      helper) are present in its Dart snapshot; frames are constructed in
+      code so no constant frames are embedded. The checksum ALGORITHM is
       therefore not visible at string level — it rests on the two independent
       hardware-confirmed implementations (ph4-walkingpad, QWalkingPad), and
       the R1-specific builder suggests R1 pads may deviate from the A1 frame
@@ -389,12 +436,20 @@ services:
     notes: >
       Standard Bluetooth FTMS on MC-21 / X21 / KS-HD-* generation pads
       (names KS-MC21-*, KS-SMC21C-*, ZP-ZEALR1-*, KS-HD-*). Characteristic set
-      confirmed in the KS Fit v6.5.6 binary (0x2AD0-0x2ADA strings plus
+      confirmed in the KS Fit binary (0x2AD0-0x2ADA strings plus
       per-opcode log strings); on-wire encodings HCI-snoop-confirmed by
       mcdax/walkingpad-controller on an MC-21. KingSmith vendor extensions:
       step counter in Treadmill Data via flag bit 13, and the ODM pre-amble
       below. KS Fit tolerates REQUEST_CONTROL being rejected and proceeds —
-      replicate that.
+      replicate that. Beyond the standard FTMS opcodes, KS Fit's
+      device-action extension (symbol table, 2026-08-18) exposes
+      vendor actions setMaxSpeed, setChildLock, setLightSwitch,
+      setSoundSwitch, setAutoStop, setTarget, setUnit, setTimerZoneDiffer,
+      syncHeartRate, activeDevice and setInclination for this generation —
+      i.e. max speed, child lock, light/sound and workout targets are
+      writable on FTMS-class pads too. Their wire encodings are compiled
+      into Dart AOT and are NOT recoverable from the string table; capture
+      on hardware (see capture plan).
     initialization:
       - characteristic: "d18d2c10-c44c-11e8-a355-529269fb1459"
         write: [0x01, 0x00, 0x0D, 0x00, 0x06, 0x0B, 0x0F, 0x0D]
@@ -402,8 +457,7 @@ services:
           ODM property-list pre-amble. Applies only when the device exposes
           the vendor characteristic d18d2c10-… (MC-21 class). The parent
           service UUID is verified ABSENT from both app binaries (full
-          128-bit-UUID string-table enumeration of KS Fit v6.5.6 and
-          WalkingPad v2.5.5, 2026-08-08: d18d2c10-c44c-11e8-a355-529269fb1459
+          128-bit-UUID string-table enumeration of both apps, 2026-08-08: d18d2c10-c44c-11e8-a355-529269fb1459
           is the only *-c44c-11e8-* UUID in either app) — the official app
           binds it purely by GATT enumeration; the parent service UUID must
           be captured from hardware (see capture plan). KS Fit
@@ -427,7 +481,7 @@ services:
             value: [0x01]
           set_target_speed:
             description: >
-              Standard FTMS Set Target Speed: opcode 0x02 + a single little-endian uint16 speed parameter in 0.01 km/h (raw = km/h * 100; the parser's default endianness is little-endian, matching FTMS). Example: speed 4.0 km/h encodes raw 400 = 0x0190, emitted LE as frame 02 90 01 (HCI-snoop-confirmed on MC-21). Opcode-discrepancy note (resolved 2026-08-08): the "0x03 for speed" claim circulating in walking-pad writeups traces to Ivan Morgillo's Mobvoi Home Walking Pad article — a different vendor/device (TicSports app), not KingSmith. In FTMS 1.0, 0x02 = Set Target Speed and 0x03 = Set Target Inclination; KS Fit v6.5.6 has separate setSpeed and setInclination code paths (string table: WilinkDeviceActionExt|setSpeed / |setInclination, supportInclination), so on incline models (X21) it emits 0x03 for INCLINATION, never for speed. The WalkingPad app v2.5.5 emits no FTMS opcodes at all (WiLink-only binary). KingSmith speed opcode is 0x02 under all known model/firmware conditions.
+              Standard FTMS Set Target Speed: opcode 0x02 + a single little-endian uint16 speed parameter in 0.01 km/h (raw = km/h * 100; the parser's default endianness is little-endian, matching FTMS). Example: speed 4.0 km/h encodes raw 400 = 0x0190, emitted LE as frame 02 90 01 (HCI-snoop-confirmed on MC-21). Opcode-discrepancy note (resolved 2026-08-08): the "0x03 for speed" claim circulating in walking-pad writeups traces to Ivan Morgillo's Mobvoi Home Walking Pad article — a different vendor/device (TicSports app), not KingSmith. In FTMS 1.0, 0x02 = Set Target Speed and 0x03 = Set Target Inclination; KS Fit has separate setSpeed and setInclination code paths (its string table carries both, plus a supportInclination flag), so on incline models (X21) it emits 0x03 for INCLINATION, never for speed. The older WalkingPad app emits no FTMS opcodes at all (WiLink-only binary). KingSmith speed opcode is 0x02 under all known model/firmware conditions.
             verification: "confirmed"
             template: [0x02, "{speed}"]
             parameters:
@@ -437,7 +491,7 @@ services:
                 unit: "km/h"
                 min: 0
                 max: 2500
-                description: "Target belt speed in km/h. min/max bound the RAW wire value (0.01 km/h counts), so 0-2500 = 0-25.0 km/h — well above any walking pad's ceiling; tighten per model from the Supported Speed Range characteristic 0x2AD4 where available."
+                description: "Target belt speed in km/h. min/max bound the RAW wire value (0.01 km/h counts), so 0-2500 = 0-25.0 km/h — well above any walking pad's ceiling; tighten per model from the Supported Speed Range characteristic 0x2AD4 where available. Factory ceilings from KS Fit's bundled product table (2026-08-18): walk-only pads 6-6.6 km/h (A1/C2/P1/Z1 class), run-capable models 8-12 km/h (R1 Pro/R2 10-12 by variant, X21 12, Z1D 10, MC21 10, R3 6-12, Z3 6-10); the app's own write path would clamp to these."
           start_or_resume:
             description: "Standard FTMS Start or Resume."
             verification: "confirmed"
@@ -474,7 +528,7 @@ services:
         name: "Fitness Machine Status"
         properties: ["notify"]
         notes: >
-          Standard FTMS status events. KS Fit v6.5.6 log strings show a
+          Standard FTMS status events. KS Fit log strings show a
           KingSmith-specific 'safe_off' decode of 0x2ADA data
           ("--> t2ADA: status ", "Received t2ADA data: ",
           "2ada: device status change: ", "2ADA safe_off list = ",
@@ -495,14 +549,14 @@ services:
       MC-21). KS Fit's FTMSSupplement layer exposes property list, user
       profile, unit setting, offline workout records, presets/courses and OTA
       through it; frames use the same body + 1-byte additive checksum wrapping
-      as the ODM channel. Exactly four characteristics exist in the v6.5.6
+      as the ODM channel. Exactly four characteristics exist in the app's
       string table, sharing the 24e2521c-f63b-48ed-85be-c5330XX0fdf7 base:
       0b, 0d, 0e, 0f. Static evidence of use (2026-08-08): 0b and 0d also
       appear in byte-reversed form (f7fd000b-… / f7fd000d-… constants used
       for UUID comparison in active code paths), while 0e and 0f appear only
       in the canonical UUID table — so 0b/0d are the live command channels
       and 0e/0f are discovered table entries (roles TBD). Functional surface
-      from WilinkDeviceSupplementExt symbols in libapp.so:
+      from the supplement-extension symbols in its snapshot:
       readPropertyList/_parseProperties, _writeSupplementCmd/wrapSupplementCmd
       (command writes), callBackPropertyStatus/_parseEvent/_parseSupplementCmd
       (async events + command responses), _parseSystemInfo ("supplement
@@ -515,19 +569,19 @@ services:
       - uuid: "24e2521c-f63b-48ed-85be-c5330b00fdf7"
         name: "Supplement channel 0b"
         properties: ["write", "notify"]
-        notes: "Static-APK-confirmed present and referenced by active code (byte-reversed comparison constant in v6.5.6). Role hypothesis: command/response channel paired with 0d. Properties hypothesized — needs HCI snoop on a KS-HD-* device."
+        notes: "App-confirmed present and referenced by active code (byte-reversed comparison constant). Role hypothesis: command/response channel paired with 0d. Properties hypothesized — needs HCI snoop on a KS-HD-* device."
       - uuid: "24e2521c-f63b-48ed-85be-c5330d00fdf7"
         name: "Supplement channel 0d"
         properties: ["write", "notify"]
-        notes: "Static-APK-confirmed present and referenced by active code (byte-reversed comparison constant in v6.5.6). Role hypothesis: command/response channel paired with 0b. Properties hypothesized — needs HCI snoop on a KS-HD-* device."
+        notes: "App-confirmed present and referenced by active code (byte-reversed comparison constant). Role hypothesis: command/response channel paired with 0b. Properties hypothesized — needs HCI snoop on a KS-HD-* device."
       - uuid: "24e2521c-f63b-48ed-85be-c5330e00fdf7"
         name: "Supplement channel 0e"
         properties: []
-        notes: "Present in the v6.5.6 UUID table only (no active-code reference found). Role unknown — possibly OTA data or long-property channel. Needs HCI snoop."
+        notes: "Present in the app UUID table only (no active-code reference found). Role unknown — possibly OTA data or long-property channel. Needs HCI snoop."
       - uuid: "24e2521c-f63b-48ed-85be-c5330f00fdf7"
         name: "Supplement channel 0f"
         properties: []
-        notes: "Present in the v6.5.6 UUID table only (no active-code reference found). Role unknown — possibly OTA data or long-property channel. Needs HCI snoop."
+        notes: "Present in the app UUID table only (no active-code reference found). Role unknown — possibly OTA data or long-property channel. Needs HCI snoop."
 
   - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
     name: "Device Information Service"
@@ -545,8 +599,18 @@ services:
     notes: >
       Telink OTA service in the ph4-walkingpad scan UUID list (a 0x…2b12
       variant also appears) — the pads' BLE SoC is Telink-based and the app
-      delivers firmware updates over it. Flow not documented here; treat
-      OTA writes as bricking risks until captured from a real update.
+      delivers firmware updates over it. KS Fit's OTA stack lives in
+      a dedicated Dart package (snapshot symbols, 2026-08-18): separate MCU
+      and BLE-module update paths (ota/mcu/* incl. a CRC32 file check
+      before flashing, ota/module/firmware_module_ota), an FTMS-generation
+      OTA that rides the supplement channel (wilink/ftms_ota + the
+      startOta/_parseOTA/startModuleOta/startMcuOta/startMotorOta/
+      installOtaFile path on the supplement service), and a cloud version
+      check via the API method `firmware.update`. Wi-Fi/MIOT models
+      instead receive OTA through Xiaomi's MIOT SDK
+      (the MIOT plugin's firmware-upgrade entry point). Exact
+      byte-level flow not documented here; treat OTA writes as bricking
+      risks until captured from a real update.
 
 entities:
   - platform: "sensor"
@@ -587,7 +651,13 @@ helpful_urls:
     description: "Active (2026) Python library unifying FTMS and WiLink; HCI-snoop-verified FTMS encodings and the ODM pre-amble behaviour."
   - url: "https://github.com/mcdax/walkingpad-controller/blob/main/docs/ks-fit-reverse-engineering.md"
     title: "KS Fit reverse-engineering log (mcdax)"
-    description: "blutter (Dart AOT) decompilation log of KS Fit v5.9.10/v6.0.7: model detection prefixes, ODM/supplement channels, FTMS routing."
+    description: "Dart AOT analysis log of the KS Fit app: model detection prefixes, ODM/supplement channels, FTMS routing."
   - url: "https://github.com/darnfish/walkingpad"
     title: "darnfish/walkingpad"
     description: "JavaScript/Node BLE client for the WiLink protocol."
+  - url: "https://home.miot-spec.com/spec/ksmb.walkingpad.v1"
+    title: "MIOT spec: ksmb.walkingpad.v1"
+    description: "Xiaomi's public MIOT spec for the Wi-Fi/CN WalkingPad variant (on/off, speed-level, status, distance/time/steps/calories; start/stop actions). Also registered: ksmb.treadmill.v1 and ksmb.treadmill.v2. Control path: python-miio / Home Assistant Xiaomi MIOT."
+  - url: "https://github.com/indiefan/king_smith"
+    title: "king_smith (HACS custom integration)"
+    description: "HACS custom integration controlling KingSmith WalkingPad treadmills over BLE."

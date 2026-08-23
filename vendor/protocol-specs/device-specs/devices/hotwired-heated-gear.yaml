@@ -1,6 +1,6 @@
 # HOTWIRED Heated Gear device spec
 # Derived from static analysis of com.hotwired.mec v1.1 (build 8)
-# Deep analysis completed 2026-07-28 — protocol fully decoded from decompiled code.
+# Deep analysis completed 2026-07-28 — protocol fully decoded by static analysis of the vendor app.
 #
 # SAFETY: This device controls resistive heating elements held against the body.
 # Max level confirmed at 10 (0x0A). Never exceed or remove limits.
@@ -20,7 +20,7 @@ device:
     Two hardware variants detected: BT-912/BT-712 (both use ffb0-UUID family,
     with fallback support for fee0-UUID family on older modules).
     Protocol uses AA/55 framed 8-byte commands with echo-based acknowledgment.
-    Frames carry NO checksum — BleOrder.xor() exists in the app but is dead
+    Frames carry NO checksum — an XOR helper exists in the app but is dead
     code (zero callers anywhere in the BLE path); bytes 3-6 are fixed-zero
     padding. No keep-alive heartbeat — write-with-retry pattern instead.
     Multi-device: the app manages up to 5 garment slots simultaneously
@@ -159,7 +159,7 @@ services:
           Enable notifications via CCCD 00002902-0000-1000-8000-00805f9b34fb.
           Connection order in the stock app: it issues readCharacteristic on
           ffb2 during service discovery BEFORE enabling notifications
-          (BluetoothService.java:114-115).
+          (per the app's BLE service).
           Also check fallback: 0000fee1-0000-1000-8000-00805f9b34fb.
 
   # Fallback service for older hardware variant
@@ -169,7 +169,7 @@ services:
       Groups the fee1/fee2 fallback characteristics. Their parent service UUID
       is NOT known: the app never references a 0000fee0 service — it matches
       the fee1/fee2 characteristics while iterating ALL discovered services
-      (BluetoothService.java:105, :109). The duplicated ffb0 UUID here is a
+      (per the app's BLE service). The duplicated ffb0 UUID here is a
       grouping placeholder, not a confirmed on-device service.
     characteristics:
       - uuid: "0000fee2-0000-1000-8000-00805f9b34fb"
@@ -185,7 +185,7 @@ services:
           Alternate notify characteristic for older hardware revision.
           Response format assumed same as ffb2 but UNPROVEN — the stock
           app enables notifications only on ffb2 and discards fee1 values
-          without parsing (BluetoothService.java:143-145, :362-384).
+          without parsing (per the app's BLE service).
 
 # The set_heat frame lives on the ffb1 characteristic as a real command with a
 # template — see it there. It was documented here as well, in a top-level
@@ -220,7 +220,7 @@ notifications:
             Battery status byte. Parsed as binary:
             bits 0-3: charging flag (0=absent, non-zero=present)
             bits 5-7: level 0-4 mapping to 0/25/50/75/100% — as
-            implemented (ControlActivity.java:1230 parses
+            implemented (the app's control screen parses
             hexString2binaryString(...).substring(5); likely intended
             bits 4-7 — the app's off-by-one). Harmless either way:
             observed values only reach 4.
@@ -294,7 +294,7 @@ safety:
     - "Off" must be reachable in one tap
     - Current commanded level must be displayed unambiguously at all times
     Stock-app behavior worth knowing: every ON toggle in the vendor app sends
-    level 10 (full power) — ControlActivity.java calls control("01", …, 10).
+    level 10 (full power) — the app's control screen calls control("01", …, 10).
     A replacement client should pick its own default-on level deliberately
     rather than copying that.
 

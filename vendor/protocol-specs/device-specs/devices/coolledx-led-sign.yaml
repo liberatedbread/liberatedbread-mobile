@@ -46,7 +46,7 @@ device:
     CONFIDENCE: service/characteristic UUIDs, advertisement layout, frame structure,
     escaping rules and the CoolLEDX command bytes for music/text/image/animation/mode/
     speed/brightness/switch are HIGH (independent community driver, built from BLE HCI
-    snoops). A 2026-08 audit of the vendor app (jadx of com.jtkj.led1248) independently
+    snoops). A 2026-08 static-analysis audit of the vendor app independently
     confirms the fff0/fff1 service/characteristic, the framing and escaping above, the
     0x0A begin-transfer byte and command bytes 0x01-0x09 including mode values
     0x01-0x08, speed and brightness; the same app drives CoolLED, CoolLEDA and CoolLEDS
@@ -63,7 +63,7 @@ device:
     specified here; see the coolledx-driver render module.
     Source: github.com/UpDryTwist/coolledx-driver (original RE credited to CrimsonClyde).
 
-    APP AUDIT (2026-08, jadx of com.jtkj.led1248 — app-derived, not hardware-verified):
+    APP AUDIT (2026-08, static analysis of the vendor app — app-derived, not hardware-verified):
     CHUNKED TRANSFER: large payloads are split into 128-byte chunks, each sent as its
     own framed command whose command byte is the data type (0x02 text, 0x03 image,
     0x04 animation). Chunk body: 0x00 | total payload length (uint16_be) | chunk index

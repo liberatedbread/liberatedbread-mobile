@@ -29,7 +29,7 @@ ble:
       description: >
         Firefly Ice reliable-datagram BLE channel used for all Atlas RPCs
         (device info, preferences, sync, learn mode, firmware update, restart).
-        See FDFireflyIceManager/FDFireflyIceChannelBLE in AWPlugin.java and the
+        See FDFireflyIceManager/FDFireflyIceChannelBLE in the app's plugin layer and the
         public github.com/fireflydesign Firefly Ice implementation.
   additional_uuids:
     - uuid: "a327cf3c-f033-4a54-8b7f-03c56ba3203f"

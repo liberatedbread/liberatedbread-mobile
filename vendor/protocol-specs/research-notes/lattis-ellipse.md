@@ -34,7 +34,7 @@ with the consumer backend's status unknown, re-pairing may be impossible. Mitiga
 - Decompiled with jadx to `workspace/static/lattis-ellipse/`; clean Java
   (`io.lattis.ellipse.sdk` + `com.lattis.ellipse` app), Realm DB, not obfuscated.
 
-## BLE GATT (from `io/lattis/ellipse/sdk/Ellipse.java`)
+## BLE GATT
 Base UUID pattern `d3995xxx-fa57-11e4-ae59-0002a5d5c51b` (Dialog DA145x-era numbering).
 
 | Service | Characteristics |
@@ -44,10 +44,10 @@ Base UUID pattern `d3995xxx-fa57-11e4-ae59-0002a5d5c51b` (Dialog DA145x-era numb
 | Configuration `d3995e80` | RESET `e81`, LOCK_ADJUST `e82`, SERIAL_NUMBER `e83`, BUTTON_LOCK_SEQUENCE `e84` |
 | Firmware `d3995d00` | CODE_VERSION `d01`, WRITE_DATA `d02`, STATUS `d03`, DOWNLOAD_DONE `d04` |
 
-- Security handshake (from `SecurityHandlerV2.java`): phone writes CHALLENGE_KEY
+- Security handshake: phone writes CHALLENGE_KEY
   derived from `userId` after reading PUBLIC_KEY, writes SIGNED_MESSAGE, then reads
   CHALLENGE_DATA; failure state `SECURITY_STATE_INVALID_ACCESS_DENIED` → disconnect.
-- `Encryption.java`: SHA-256 + AES/ECB/PKCS5Padding helpers.
+- The app's encryption helper: SHA-256 + AES/ECB/PKCS5Padding.
 - `Configuration.WRITE_RESET_*`: 0xBC shipping, 0xBD factory, 0xBE development modes.
 
 ## What needs cloud

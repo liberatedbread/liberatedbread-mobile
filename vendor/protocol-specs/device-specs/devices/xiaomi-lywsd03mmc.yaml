@@ -7,7 +7,20 @@ device:
   manufacturer: "Xiaomi"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >-
+      One unit running the pvvx ATC custom firmware v5.8 was scanned and
+      connected on 2026-08-22 (Linux/BlueZ, bleak). What was exercised: the
+      BTHome v2 advertisement under service data 0xFCD2 (decoded battery
+      92 %, 23.81 degrees C, 59.93 % RH) and the connected GATT table
+      (Device Information reporting manufacturer miaomiaoce.com, model
+      LYWSD03MMC, firmware github.com/pvvx; environmental service 0x181A
+      with 2a1f/2a6e/2a6f, whose reads matched the advertised values).
+      That is the whole of it — the payload_formats for stock firmware,
+      the atc1441 and pvvx-custom advertisement layouts, the comfort/
+      config writes and the history buffer were NOT exercised, and the
+      other firmware variants in device.variants were not on hand.
   protocol: "ble"
   category: "sensor"
   notes: >
@@ -77,21 +90,21 @@ device:
     (MiBeacon). Data is encrypted; decryption requires bindkey obtained
     from Xiaomi cloud or the Mi Home app.
 
-    MI HOME APP EVIDENCE (jadx decompile audit, 2026-08): the app contains
+    MI HOME APP EVIDENCE (static-analysis audit, 2026-08): the app contains
     NO device-specific code for this model — Mi Home device plugins are
     downloaded from Xiaomi's cloud at pairing time, and "LYWSD03MMC" is
-    entirely absent from the decompiled app (sources and bundled assets),
+    entirely absent from the app (code and bundled assets alike),
     so the app can only corroborate generic Xiaomi mechanisms, nothing
     model-specific. What it does confirm:
       - MiBeacon service UUID 0xFE95 and the frame-control layout: bytes
         0-1 are a little-endian frame-control field (bit 3 = payload
         encrypted, plus capability/MAC/event/binding flag bits) and the
         version sits in the high nibble of byte 1
-        (miui/bluetooth/ble/MiServiceData.java).
+        (from its MiBeacon service-data parser).
       - During provisioning the app pushes the cloud-issued bindkey to
         the device via a miio RPC with method "set_bind_key" (params
         carry bind_key plus Wi-Fi credentials)
-        (smartconfig/step/BindKeyStep.java).
+        (from its provisioning bind-key step).
       - The bundled device catalog (assets/device_config/plugin_config_us-en)
         lists MiOT model "miaomiaoce.sensor_ht.t2" (pd_id 1371, "Mi
         Temperature and Humidity Monitor 2" — this device's retail name),
@@ -111,6 +124,13 @@ device:
     local_name_prefix: "ATC"
     service_uuids:
       - "0000181a-0000-1000-8000-00805f9b34fb"
+      # BTHome v2 advertisement format (pvvx firmware default since v5.8):
+      # the ADV carries service data under 0xFCD2, and 0x181A only shows up
+      # in the connected GATT table (hardware-verified 2026-08-22 on v5.8:
+      # GATT table = 181a with 2a1f/2a6e/2a6f). A scanner that matches on
+      # advertised service UUIDs therefore needs BOTH. The advertisement
+      # layout itself is payload_formats.BTHome_v2 below.
+      - "0000fcd2-0000-1000-8000-00805f9b34fb"
 
   discovery:
     methods:
@@ -121,6 +141,7 @@ device:
             value: "ATC"
           service_uuids:
             - "0000181a-0000-1000-8000-00805f9b34fb"
+            - "0000fcd2-0000-1000-8000-00805f9b34fb"
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -210,7 +231,7 @@ device:
     - model: "LYWSD03MMC (custom firmware ATC)"
       identification:
         local_name_prefix: "ATC_"
-      notes: "Custom firmware. 6 hardware versions. Name format: ATC_XXXXXX."
+      notes: "Custom firmware. 6 hardware versions. Name format: ATC_XXXXXX — in BTHome format (v5.8 default) the name may arrive only in the scan response, so name-less advertisements are normal; match 0xFCD2 there."
     - model: "LYWSD03MMC (stock firmware)"
       identification:
         local_name_prefix: "LYWSD03MMC"
@@ -337,6 +358,61 @@ device:
         - "humidity = uint16_le(bytes[8:10]) / 100.0"
         - "battery_mv = uint16_le(bytes[10:12])"
         - "battery_percent = byte[12]"
+    BTHome_v2:
+      description: >
+        BTHome v2 advertisement, the pvvx firmware default since v5.8 and
+        so the layout most units are actually broadcasting. Carried as
+        Service Data under 0xFCD2, NOT 0x181A — 0x181A appears only in the
+        connected GATT table on a BTHome-configured unit. Unlike the four
+        layouts above this one is TLV, not fixed: byte 0 is the BTHome
+        device-info byte (0x40 = v2, unencrypted) and the rest is a run of
+        [object id][value] pairs in ascending id order. The indices below
+        are the run this firmware emits; a general decoder should walk the
+        ids rather than trust the offsets, because a field the device has
+        nothing to report is simply absent. Hardware-verified 2026-08-22 on
+        pvvx v5.8 (decoded 92 %, 23.81 °C, 59.93 % RH, matching the values
+        read back over GATT in the same session).
+      fields:
+        - index: 0
+          name: "device_info"
+          description: "BTHome device-info byte. 0x40 = BTHome v2, unencrypted, no trigger."
+        - index: 1
+          name: "packet_id_marker"
+          description: "Object id 0x00 = packet id."
+        - index: 2
+          name: "packet_id"
+          description: "uint8 advertisement counter."
+        - index: 3
+          name: "battery_marker"
+          description: "Object id 0x01 = battery."
+        - index: 4
+          name: "battery_percent"
+          unit: "%"
+          description: "uint8, percent."
+        - index: 5
+          name: "temperature_marker"
+          description: "Object id 0x02 = temperature."
+        - index: 6
+          name: "temperature"
+          unit: "C"
+          scale: 0.01
+          description: "int16 little-endian, x0.01 degrees C."
+        - index: 8
+          name: "humidity_marker"
+          description: "Object id 0x03 = humidity."
+        - index: 9
+          name: "humidity"
+          unit: "%"
+          scale: 0.01
+          description: "uint16 little-endian, x0.01 %."
+      example: "40 00 ?? 01 5c 02 4d 09 03 69 17"
+      parse_rules:
+        - "Reject the frame unless byte[0] == 0x40; any other value means a BTHome variant this table does not describe (encrypted, or a different version)."
+        - "Walk from byte 1: read an object id, then its value, whose width the id fixes (0x00 packet id = 1 byte, 0x01 battery = 1 byte, 0x02 temperature = 2 bytes, 0x03 humidity = 2 bytes)."
+        - "temp = int16_le(bytes[6:8]) / 100.0"
+        - "humidity = uint16_le(bytes[9:11]) / 100.0"
+        - "battery_percent = byte[4]"
+        - "The example is the verified reading (battery 0x5c = 92 %, temp 0x094d = 23.81 C, humidity 0x1769 = 59.93 %) with the packet counter written ?? because it changes every advertisement."
 
 services:
   - uuid: "0000181a-0000-1000-8000-00805f9b34fb"
@@ -397,3 +473,8 @@ entities:
     device_class: "battery"
     unit: "%"
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+
+helpful_urls:
+  - url: "https://www.home-assistant.io/integrations/xiaomi_ble/"
+    title: "Home Assistant Xiaomi BLE integration"
+    description: "HA core integration passively decoding LYWSD03MMC advertisements (bindkey for stock firmware; plaintext with ATC custom firmware)."

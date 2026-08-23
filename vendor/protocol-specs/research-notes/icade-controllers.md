@@ -23,7 +23,7 @@ receive input. The only task for a host implementation is the keymap, below.
 ## Protocol: press/release letter pairs
 Each control emits ONE keypress event on press and a DIFFERENT keypress on release
 (no key repeat; slight release latency). Canonical mapping (confirmed by Bluez-IME
-iCadeReader.java HID usage codes, F-Droid build com.hexad.bluezime 1.20):
+iCade reader HID usage codes, F-Droid build com.hexad.bluezime 1.20):
 
 | Control | Press key | Release key |
 |---|---|---|
@@ -69,4 +69,4 @@ iCadeReader.java HID usage codes, F-Droid build com.hexad.bluezime 1.20):
 - retrorgb.com/icadecontrollers.html — press/release behaviour, ecosystem
 - fcc.report/FCC-ID/V77-9ECEA — 8-bitty manual (4-second two-button pairing, no PIN)
 - forum.kodi.tv/showthread.php?tid=143187 — 8-bitty "actually a Bluetooth keyboard"
-- workspace/static/zeemote-js1/.../iCadeReader.java — keymap verification
+- The app's iCade reader — keymap verification

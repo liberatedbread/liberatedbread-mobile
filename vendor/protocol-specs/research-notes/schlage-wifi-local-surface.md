@@ -26,37 +26,36 @@ never opens a socket to a lock IP:
 1. App pairs to the lock over BLE uWeave (SPAKE2 + programming code, per the spec).
 2. App fetches a cloud-minted JITR identity blob ("payload0"):
    `GET https://factory.allegion.yonomi.cloud/v1/devices?deviceType=<id>&physicalId=<SERIAL>`
-   (`api/factory/retrofitAPI/FactoryApi.java:11-15`, caller `defpackage/lj0.java:10-36`).
+   (from the app's factory API client and its caller).
    Requests carry header `x-payload0: RSA_PKCS1_PADDING`
-   (`api/generic/SenseRetrofitBuilder.java:179`) — the blob is RSA-encrypted and
+   (set in its shared Retrofit builder) — the blob is RSA-encrypted and
    opaque to the app.
 3. App pushes WiFi credentials **over BLE**, CBOR trait 6:
    `{1:8, 2:4, 16:{0:6, 1:0, 2:{0:ssid, 1:password, 2:1}}}`
-   (`defpackage/fj.java:94-105`, log tag `BleConfigureWiFiCredentials`). Note: the
-   security enum is **hardcoded to 1** in 3.6.0 (`fj.java:102`).
+   (from its Wi-Fi commissioning class, log tag `BleConfigureWiFiCredentials`).
+   Note: the security enum is **hardcoded to 1** in 3.6.0.
 4. App pushes payload0 over BLE: `{1:8, 2:4, 16:{0:6, 1:2, 2:{0:<bytes>}}}`
-   (`fj.java:187-197`).
+   (same class).
 5. App polls join status over BLE: `{1:8, 2:5, 16:{0:6, 1:4}}`
-   (`defpackage/pj.java:180-187`). **Correction to the current spec:** the 3.6.0
-   status enum (`pj.java:46-88`) is `-1 INVALID, 0 STOPPED, 1 STARTED, 2 SUCCESS,
+   (from its join-status class). **Correction to the current spec:** the 3.6.0
+   status enum is `-1 INVALID, 0 STOPPED, 1 STARTED, 2 SUCCESS,
    3 AP_ERROR, 4 HOST_ERROR, 5 IP_ACQUIRED` — it tops out at 5; there is no state
    6 ("wrong creds").
 6. Related BLE commands in the `LockAction` enum
-   (`com/allegion/leopard/model/LockAction.java:183-208`): `WIFI_COMMISSIONING`,
+   (in the app's lock-action model): `WIFI_COMMISSIONING`,
    `READ_JITR_STATUS`, `GET_ACCESS_POINT_INFO`, `GET_LOCK_WIFI_MAC_ADDRESS`,
    `WIFI_NETWORKS_LIST` — i.e. the lock does its own AP scan and reports the list
    back over BLE.
 
-Security footnote (confirmed): `fj.java:91` writes the home WiFi **SSID and password
-in cleartext to logcat** during setup.
+Security footnote (confirmed): the Wi-Fi commissioning class writes the home WiFi
+**SSID and password in cleartext to logcat** during setup.
 
 ### Where the "joining WiFi" impression comes from
 
 The setup UI makes it look like the lock joins WiFi on its own, but all network
 selection happens phone-side (user picks an AP from the lock's BLE-reported scan
 list); credentials cross to the lock only through the encrypted BLE channel. The
-only `WifiNetworkSpecifier`/`WifiConfiguration` code in the app
-(`defpackage/xr3.java`, `yr3.java`, `zr3.java`) targets the **BR400 adapter's**
+only `WifiNetworkSpecifier`/`WifiConfiguration` code in the app targets the **BR400 adapter's**
 temporary softAP, never a lock.
 
 ## 2. Local WiFi command path on the locks: NONE (confirmed as far as the app shows)
@@ -69,11 +68,11 @@ temporary softAP, never a lock.
 - Runtime WiFi traffic is a cloud relay, as the spec says: REST
   `https://api.allegion.yonomi.cloud/v1/` plus realtime over MQTT-in-WebSocket
   where the broker URL itself is server-supplied (`GET wss?deviceId=…` →
-  `{wssUri, clientId, topics}`, `api/lock/retrofitAPI/DeviceApi.java:64-65`;
+  `{wssUri, clientId, topics}`, from the app's device API client;
   Eclipse Paho `MqttAndroidClient`, MQTT 3.1.1, keepalive 1800 s, cleanSession=false,
-  `defpackage/uo3.java:267-317`). No hardcoded AWS IoT ATS endpoint and no literal
+  in its MQTT client). No hardcoded AWS IoT ATS endpoint and no literal
   `$aws/things` in the APK — topic strings arrive from the server.
-- Feature toggles embedded in the app config (`defpackage/zl.java:5`) are only
+- Feature toggles embedded in the app config are only
   `firmwareList, fileLogging, showCase, encode_lever, ring_features` — **no
   local/LAN/direct-control flag exists**.
 - No telnet/ssh/dropbear/httpd/adb/serial/debug-port references anywhere in either
@@ -91,16 +90,16 @@ temporary softAP, never a lock.
 
 - Metadata: `GET https://api.allegionengage.com/api/firmware/{platformType}` with
   header `Accept: application/json; version=3`
-  (`api/firmware/retrofitAPI/FirmwareApi.java:12-18`,
-  `FirmwareRetrofitBuilder.java:35,80-87`). Platform strings include `sense2`
+  (from the app's firmware API client and its Retrofit builder). Platform
+  strings include `sense2`
   (BE479), `sensegateway` (BR400), and per-family device-type IDs for Denali /
   Jackalope / Encode Lever (+ `_MCKINLEY_` hardware-rev variants)
-  (`FirmwareApiService.endpointOf`, `FirmwareApiService.java:142-175`).
-- Response model (`api/firmware/model/Firmware.java:26-45,106-148`):
+  (its firmware API service's `endpointOf`).
+- Response model (the app's firmware model):
   description / deviceType / extendedVersion (`M`=mandatory, `O`=optional) /
   isPublic / links / name / version. The binary URL is the `links[rel=self]` href —
   **server-supplied**, no CDN hostname hardcoded.
-- Download (`FirmwareApiService.downloadRx`, `FirmwareApiService.java:225-257`)
+- Download (the firmware API service's `downloadRx`)
   streams to `files/firmware_files/<version>.bin` and checks **content-length
   only — no hash, no signature verification in app code** (searched; hits only in
   TLS/AWS SDK library code). Image validation must happen on-lock (unknown how).
@@ -154,26 +153,29 @@ is the **commercial** catalog. Product families with firmware release notes ther
   "during the next scheduled WiFi connection", or pushed **locally over BLE** from
   the ENGAGE mobile app — same architecture as leopard's BLE-push/WiFi-pull duality.
 
-## 4. Live LAN observations (2026-08-15, 192.168.1.0/24, from 192.168.1.180)
+## 4. Live LAN observations (2026-08-15, one /24 home segment)
 
-- `nmap -sn` ping sweep of the full /16: **51 hosts up** (of 65536), ~225 s.
+- `nmap -sn` ping sweep of the whole segment: **51 hosts up**, ~225 s.
 - ARP + OUI resolution against `registries/ieee-oui.tsv` for all 51: no Allegion
   OUI exists (confirmed again; the lock BLE MAC OUI B7:AC:C2 is unregistered), so
-  locks can only be found as "unidentified" hosts. Vendors seen: Ubiquiti (many),
-  Routerboard (gateway), Apple ×3, TP-Link ×6, Espressif ×2, FN-LINK ×2, Murata,
-  High-Flying, TCL ×2, Brother ×2, Synology, Philips Lighting (Hue), Amazon,
-  Raspberry Pi, Intel, one locally-administered MAC.
+  locks can only be found as "unidentified" hosts. All 51 resolved to a registered
+  OUI or a locally-administered MAC. The IoT-module OUIs that motivated the port
+  scan below were Espressif ×2, FN-LINK ×2, Murata and High-Flying; the remainder
+  were networking gear, computers and consumer appliances irrelevant to the
+  question.
 - Light port scan (22/23/53/80/443/1883/5683/8080/8443/9009) of the plausible
-  IoT-module candidates, then HTTP identification of anything listening:
-  - `192.168.1.104` (FN-LINK, port 80): **myQ Wi-Fi Hub** (Chamberlain garage)
-    in provisioning mode — "Wi-Fi Setup" page, myQ logo. Not Schlage.
-  - `192.168.1.198` (FN-LINK, 443): ancient **Boa/0.94** webserver, GB2312 404 —
-    some Chinese IoT gadget, unidentified, not Schlage-like.
-  - `192.168.1.2` (Murata, 80+443): `470 Connection Authorization Required` —
-    unidentified proprietary device.
-  - `192.168.1.48` (Espressif, 80): hobbyist ESP web UI (dark theme). Not Schlage.
-  - `192.168.1.31` (Espressif), `192.168.1.194` (High-Flying): all ports closed.
-  - `192.168.1.33` (LAA MAC): SSH open — a Linux box, not a lock.
+  IoT-module candidates, then HTTP identification of anything listening. Hosts
+  are given by OUI below: the addresses were this segment's DHCP leases, so they
+  identify the test network rather than any protocol fact.
+  - FN-LINK, port 80: **myQ Wi-Fi Hub** (Chamberlain garage) serving its
+    "Wi-Fi Setup" page. Not Schlage.
+  - FN-LINK, 443: ancient **Boa/0.94** webserver, GB2312 404 — some Chinese IoT
+    gadget, unidentified, not Schlage-like.
+  - Murata, 80+443: `470 Connection Authorization Required` — unidentified
+    proprietary device.
+  - Espressif, 80: hobbyist ESP web UI (dark theme). Not Schlage.
+  - A second Espressif host and a High-Flying host: all ports closed.
+  - One locally-administered MAC: SSH open — a Linux box, not a lock.
 - **No host was positively identifiable as a Schlage lock.** If the locks are on
   WiFi they present zero listening ports among the common set and answer nothing on
   HTTP — consistent with the app evidence (outbound-only cloud relay). Passive
@@ -192,10 +194,8 @@ is the **commercial** catalog. Product families with firmware release notes ther
 2. **BR400 Wi-Fi adapter local HTTP API — real, but accessory-scoped (confirmed).**
    The BR400 bridge (Sense accessory) hosts a softAP at `192.168.10.1` and, once
    commissioned, an **unauthenticated plain-HTTP API on the LAN**, discovered via
-   mDNS `_http._tcp.` (`defpackage/cn0.java:183`, `qh.java:45`, `np2.java`,
-   `uo3.java:384-391`; base URL `http://<resolved-host>` falling back to
-   `<name>.local`, `qh.java:49-52`, `bm0.java:124-127`). Endpoints
-   (`com/allegion/leopard/api/bridge/commission/retrofitApi/BridgeApi.java:17-41`):
+   mDNS `_http._tcp.` (base URL `http://<resolved-host>`, falling back to
+   `<name>.local`). Endpoints, from the app's bridge-commissioning API client:
    - `GET bridge/info`, `GET bridge/v1/commission/status` (model/firmware/serial/uptime)
    - `GET v1/prov/networks` (adapter-side WiFi scan, with rssi)
    - `POST v2/prov/registration` (push encrypted home-WiFi creds)
@@ -203,16 +203,16 @@ is the **commercial** catalog. Product families with firmware release notes ther
    - `POST bridge/v2/commission/start` (push payload0)
    - `POST bridge/update_mcu` with body `{"url": <firmware URL>}` — the adapter
      then **pulls and flashes firmware from an arbitrary URL supplied over
-     unauthenticated local HTTP** (`uo3.java:363-368`). Hypothesis (untested
+     unauthenticated local HTTP**. Hypothesis (untested
      against hardware): anyone on the LAN can likely hit these endpoints — the app
      sends no auth headers — making `bridge/update_mcu` a firmware-injection point
      *if* the adapter doesn't signature-check the image (unknown). Only relevant
      where a BR400 is installed; the user's site has Encode-family locks with
      built-in WiFi, no BR400.
-   - Legacy commissioning crypto quirk (confirmed, `WifiPayload.java:26-55`):
+   - Legacy commissioning crypto quirk (confirmed, from the app's Wi-Fi payload model):
      AES/CBC/NoPadding, **zero IV**, key = SHA-256(bridgePassword + "|" +
      bridgeSsid[6:]), and the caller retries with every letter of the password
-     case-swapped (`defpackage/rh.java:26-46`).
+     case-swapped.
 3. **Firmware-update interception on Encode-family WiFi OTA — hypothesis, untested.**
    The lock self-downloads firmware over WiFi from a cloud-delivered URL. If the
    lock's TLS validation or image-signature check is weak, DNS/URL redirection on
@@ -242,14 +242,14 @@ deployments with that accessory.
 ## Suggested spec corrections (for the orchestrator's merge)
 
 - JITR status enum: 3.6.0 app shows 0..5 (`IP_ACQUIRED` max), no state 6 —
-  `pj.java:46-88`. The spec's "0..6 … wrong creds" is not in the app.
-- `set_wifi_credentials`: security enum hardcoded to `1` in 3.6.0 (`fj.java:102`).
+  The spec's "0..6 … wrong creds" is not in the app.
+- `set_wifi_credentials`: security enum hardcoded to `1` in 3.6.0.
 - Firmware section can add: metadata `GET api.allegionengage.com/api/firmware/
   {platformType}` (Accept version=3); binary URL is server-supplied
   (`links[rel=self]`); app verifies content-length only; WiFi locks self-download
   (interior-button ×5 manual trigger per vendor support doc) — the "image bytes
   come from the vendor cloud" note applies to both delivery paths.
-- The `evidence.lan_observations` section can add the /16 census result (51 hosts,
+- The `evidence.lan_observations` section can add the census result (51 hosts,
   no lock-like listener) once merged.
 
 ## Sources

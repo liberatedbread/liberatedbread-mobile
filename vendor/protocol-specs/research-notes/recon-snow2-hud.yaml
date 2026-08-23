@@ -24,7 +24,7 @@ transport:
 ble: {}  # BLE exists on HUD for accessories; not the phone-control transport
 
 bt_classic:
-  rfcomm_uuids:  # from BTTransportManager.java, three parallel channels
+  rfcomm_uuids:  # from the app's Bluetooth transport manager, three parallel channels
     - "B29E4260-9D8A-11E2-9E96-0800200C9A66"
     - "B29E4261-9D8A-11E2-9E96-0800200C9A66"
     - "B29E4262-9D8A-11E2-9E96-0800200C9A66"

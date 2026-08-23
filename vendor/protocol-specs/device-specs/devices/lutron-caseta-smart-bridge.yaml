@@ -116,8 +116,8 @@ device:
           - action: "Submit the CSR to the bridge's pairing service and store the signed certificate, private key and bridge CA."
             actor: "client"
             request:
-              service: "LAP pairing (TLS-JSON on port 8083, not HTTP)"
-            expect: "Signed client certificate returned; later LEAP connections on port 8081 authenticate with it."
+              service: "LAP pairing (TLS-JSON on port 8083, not HTTP): Execute /pair with CommandType=CSR and Parameters {CSR, DisplayName, DeviceUID, Role}"
+            expect: "Signed client certificate returned in Body.SigningResult.Certificate (with Body.SigningResult.RootCertificate as the bridge CA); later LEAP connections on port 8081 authenticate with it."
             timeout_seconds: 30
     factory_reset:
       confidence: "medium"
@@ -164,6 +164,32 @@ leap_protocol:
     service_type: "_hap._tcp.local."
     port: 4548
   authentication: "certificate-based local pairing"
+  # Message envelope and pairing exchanges below verified 2026-08-20 against
+  # the vendor app com.lutron.mmw 26.7.0.5 (the current "Lutron App"; the
+  # legacy Play package id com.lutron.mmjs is retired and no longer indexed).
+  message_envelope: >
+    Every LEAP frame is one JSON object:
+    {"CommuniqueType": "...", "Header": {"Url": "...", "ClientTag": "..."},
+    "Body": {...}}. CommuniqueTypes seen in the app: CreateRequest/Response,
+    ReadRequest/Response, UpdateRequest/Response, DeleteRequest/Response,
+    SubscribeRequest/Response, UnsubscribeRequest/Response, MetadataRequest/
+    Response, ExceptionResponse. Liveness check: ReadRequest to
+    /server/1/status/ping. Subscriptions accept a ?where= filter, e.g.
+    /zone/status/expanded?where=Level!:0 to list only zones that are on.
+  lap_pairing:
+    notes: >
+      Port 8083 speaks the same LEAP JSON envelope (not HTTP) and stays
+      reachable without a client certificate while the rear button is held.
+      Pairing is: Execute /pair with Body.CommandType=CSR and
+      Parameters={CSR (PEM), DisplayName, DeviceUID, Role (Admin or
+      Installer)}; a 200 reply carries Body.SigningResult.Certificate (the
+      signed client cert) and Body.SigningResult.RootCertificate (the bridge
+      CA to pin). Supporting exchanges: Read /certificate/root (fetch bridge
+      root cert), Read /system/macaddress (stable identity), Execute /pair
+      CommandType=Wipe (revoke certs; optional Filter.Subject.Organization),
+      Subscribe /system/status/crosssign (cloud cross-sign progress).
+      Responses carry an HTTP-style Header.StatusCode ("200 OK",
+      "204 No Content", "401 Unauthorized").
 
 evidence:
   live_lan_probe:
@@ -191,24 +217,34 @@ http_endpoints:
     description: "Placeholder for the LEAP TLS JSON/WebSocket service on port 8081; control uses LEAP messages rather than plain unauthenticated REST."
 
 entities:
-  # Real LEAP has no "SetLevel": dimming is CreateRequest to
-  # /zone/{id}/commandprocessor with CommandType GoToLevel (also
-  # GoToDimmedLevel / Raise / Lower / Stop; switches use GoToSwitchedLevel).
+  # CommandType spellings verified 2026-08-20 from the vendor app
+  # (com.lutron.mmw 26.7.0.5, leaplib CommandTypeEnum + ZoneRequestCreator):
+  # dimmers take GoToDimmedLevel with Body.Command.DimmedLevelParameter
+  # {Level: 0-100}; switches take GoToSwitchedLevel with
+  # SwitchedLevelParameter {SwitchedLevel: On|Off}; shades take
+  # GoToShadeLevel (tilt GoToTilt); also Raise/Lower/Stop, GoToFanSpeed,
+  # GoToScene. Plain "GoToLevel" is NOT in the vendor app's enum; it appears
+  # in third-party integrations and may still be accepted by the bridge.
   - platform: "light"
     name: "Caseta Dimmer"
     commands:
-      turn_on: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel"
-      turn_off: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel"
-      set_brightness: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel, Parameter Level 0-100"
+      turn_on: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToDimmedLevel, DimmedLevelParameter Level=100"
+      turn_off: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToDimmedLevel, DimmedLevelParameter Level=0"
+      set_brightness: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToDimmedLevel, DimmedLevelParameter Level 0-100"
   - platform: "switch"
     name: "Caseta Switch"
     commands:
-      turn_on: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToSwitchedLevel"
-      turn_off: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToSwitchedLevel"
+      turn_on: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToSwitchedLevel, SwitchedLevelParameter SwitchedLevel=On"
+      turn_off: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToSwitchedLevel, SwitchedLevelParameter SwitchedLevel=Off"
   - platform: "cover"
     name: "Lutron Shade"
     commands:
-      open_cover: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel"
-      close_cover: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel"
-      set_cover_position: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel (tilt uses GoToTilt)"
+      open_cover: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToShadeLevel"
+      close_cover: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToShadeLevel"
+      set_cover_position: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToShadeLevel (tilt uses GoToTilt)"
 
+
+helpful_urls:
+  - title: "Home Assistant Lutron Caséta integration"
+    url: "https://www.home-assistant.io/integrations/lutron_caseta/"
+    description: "HA core integration over the Smart Bridge LEAP/LAP protocol documented here."

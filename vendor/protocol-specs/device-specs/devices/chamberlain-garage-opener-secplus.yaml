@@ -59,6 +59,26 @@ device:
     commands on the current state. The Security+ rolling code is the opener's
     only auth — anyone who can pair a panel can drive the door, which is why
     the learn-button press (physical access) is the pairing gate.
+
+    SIBLING HARDWARE (VERIFIED LIVE 2026-08-19): a LAN sweep found a SECOND
+    Chamberlain-family device alongside the closed-port MyQ hub from the
+    research-notes/myq-cloud-hub dud — a MyQ Smart Garage Control hub,
+    model MYQ-G0401 ("SMART GARAGE CONTROL,GEN3,BLE,CH" per its own
+    identity response; firmware 1.10), at 192.168.1.104 (MAC
+    24:18:c6:aa:bb:cc). Unlike the 2026-08-14 hub (all local ports
+    closed), this unit answers on :80: an UNAUTHENTICATED JSON identity
+    endpoint GET /jabout (returns product/model string, brand, MyQ
+    serial, AP name, firmware version, MAC, joined SSID, RSSI and
+    uptime — no credentials requested) and a Wi-Fi setup web UI at /
+    (GET only — HEAD / returns 404 because HEAD is not implemented,
+    which explains an earlier "404 on /" observation; /myq.js and
+    /brand.js reference setup.myqdevice.com). Other /j* paths 404; the
+    LAN surface is minimal and read-only — there is NO local door
+    control: actual control remains MyQ cloud + the hub's BLE link to
+    the opener, so the wired bridge story above is unchanged and still
+    the only local control path. Captured responses (myq_jabout.json,
+    myq_index.html, with checksums) are archived in the maintainers'
+    private research workspace, not committed here.
   # Not network-discoverable. The bridge board (ratgdo) is what appears on the
   # LAN, as an ESPHome/MQTT device, not the opener; identify the OPENER
   # physically by learn-button color to pick the Security+ generation. No
@@ -115,10 +135,15 @@ device:
     summary: >
       No local interface on the stock opener/MyQ hub; local control requires an
       aftermarket wired bridge (ratgdo/Konnected) speaking Security+ 1.0/2.0.
-      Blocked on Security+ 3.0 (encrypted BLE, uncracked).
+      Blocked on Security+ 3.0 (encrypted BLE, uncracked). The sibling MyQ
+      Smart Garage Control hub MYQ-G0401 (verified live 2026-08-19) exposes
+      only a read-only identity endpoint (/jabout) and a Wi-Fi setup UI on
+      :80 — useful for identification, not control.
     covers:
       - "Open/close/stop the door"
       - "Door position, obstruction, light and motion status (Security+ 2.0)"
+    not_covered:
+      - "Any local control via MyQ hubs — the MYQ-G0401's LAN surface is identity/setup only; door control stays cloud + BLE"
 
 bus:
   link:
@@ -173,3 +198,22 @@ helpful_urls:
   - url: "https://konnected.io/products/smart-garage-door-opener-blaq-myq-alternative"
     title: "Konnected GDO blaQ"
     description: "Commercial Security+ bridge board; local HA/Hubitat/HomeKit, no cloud."
+
+sources:
+  - type: "live_probe"
+    description: >
+      2026-08-19 credential-free LAN sweep: the MyQ Smart Garage Control
+      hub MYQ-G0401 (Gen3 BLE, firmware 1.10) at 192.168.1.104 answers
+      an unauthenticated GET /jabout with a full JSON identity (product
+      string "SMART GARAGE CONTROL,GEN3,BLE,CH", MyQ serial, AP name,
+      MAC, SSID, RSSI, uptime) and serves a Wi-Fi setup UI at GET /
+      (HEAD unimplemented; other /j* paths 404). No local door control
+      found. Captures (myq_jabout.json, myq_index.html, myq_brand.js,
+      with checksums) are archived in the maintainers' private research
+      workspace, not committed here.
+  - type: "public_implementation"
+    url: "https://github.com/argilo/secplus"
+    description: "Canonical Security+ 1.0/2.0 reverse-engineering; the wired-protocol facts above derive from it and the ratgdo firmware."
+  - type: "public_implementation"
+    url: "https://github.com/ratgdo/esphome-ratgdo"
+    description: "Wall-panel emulation reference: UART parameters, rolling-code persistence, local ESPHome/MQTT control."

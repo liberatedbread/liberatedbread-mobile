@@ -25,7 +25,7 @@ with zero software.
 - **Smart features (notifications, config, camera shutter, weather, alarms)**:
   framed binary protocol over RFCOMM, recovered by jadx from the last app:
   - Watch hosts an RFCOMM server, **service UUID
-    `0000fff0-0000-1000-8000-00805F9B34FB`** (`SpwatchService.java:169`,
+    `0000fff0-0000-1000-8000-00805F9B34FB`** (its watch service,
     `listenUsingRfcommWithServiceRecord` / `createRfcommSocketToServiceRecord`).
   - **Frame format** (`SpwatchService.write()`, line ~1627):
     `0x3C | cmd(1) | len_hi | len_lo | payload... | 0x3E` — start byte 60 ('<'),

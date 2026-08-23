@@ -48,3 +48,5 @@ troubleshooting: `device.setup` in the machine-readable spec.
 
 Machine-readable spec: `device-specs/devices/lifx-z.yaml`
 
+Home Assistant: the core [LIFX integration](https://www.home-assistant.io/integrations/lifx/) speaks the LAN protocol documented here.
+

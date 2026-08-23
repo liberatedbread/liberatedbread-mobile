@@ -648,3 +648,8 @@ entities:
       worked pass of its own (instances plus a per-type mapping), not a
       guessed mapping here.
 
+
+helpful_urls:
+  - title: "Home Assistant Philips Hue integration"
+    url: "https://www.home-assistant.io/integrations/hue/"
+    description: "HA core integration over the local Hue bridge API v2 (CLIP); where this protocol runs in production."

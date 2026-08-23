@@ -202,6 +202,9 @@ helpful_urls:
   - title: "openScale"
     url: "https://github.com/oliexdev/openScale"
     description: "Production Android app and the cited source for the Mi Scale weight frame, history sync and impedance handling."
+  - title: "ESPHome Xiaomi Miscale sensor component"
+    url: "https://esphome.io/components/sensor/xiaomi_miscale/"
+    description: "ESPHome BLE-tracker component decoding the Mi Scale advertisement frames documented here (XMTZC01/02/04/05)."
 
 services:
   - uuid: "0000181d-0000-1000-8000-00805f9b34fb"

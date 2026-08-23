@@ -12,7 +12,10 @@ IBS-P01B pool thermometer) that broadcast every reading in BLE
 advertisements — no connection, pairing or account needed. Documented from
 the Bluetooth-Devices/inkbird-ble parser library (which backs the Home
 Assistant core `inkbird` integration) and its capture-pinned test suite,
-not from an app teardown.
+plus a jadx decompile of the official Engbird app v2.3.9
+(`com.inkbird.engbird`) which confirmed the layouts and documented the
+connected-mode characteristics. The older `com.inkbird.inkbird` package is
+delisted from Google Play and all public mirrors as of 2026-08.
 
 ## Hardware
 
@@ -54,7 +57,8 @@ looks like a new manufacturer-data entry. Match on name + service UUID +
 |--------|--------|-------------|
 | 0 | 2 | Temperature, s16 LE, /100 °C (`fc 07` → 0x07FC → 20.44 °C) |
 | 2 | 2 | Humidity, u16 LE, /100 % (`c7 12` → 48.07 %) |
-| 4 | 3 | Unidentified |
+| 4 | 1 | Channel-layout selector (0-3) — picks which bytes carry internal vs external-probe values |
+| 5 | 2 | Secondary channel value, s16 LE, /100 (external temp or humidity per the selector byte) |
 | 7 | 1 | Battery percent (`0x56` → 86) |
 | 8 | 1 | Flags (0x06/0x08 observed), unknown |
 
@@ -66,7 +70,16 @@ Decoded humidity above 100 % marks a corrupt packet — drop it whole.
 | UUID | Name | Description |
 |------|------|-------------|
 | `0000fff0-...-00805f9b34fb` | Inkbird Sensor Service | Shared with the iBBQ family — not sufficient for identification |
-| `0000fff2-...-00805f9b34fb` | Sensor data (read) | Optional poll: temp s16 LE /100 @ bytes 0-1, humidity u16 LE /100 @ bytes 2-3; no battery byte |
+| `0000fff2-...-00805f9b34fb` | Sensor data (read) | Optional poll: temp s16 LE /100 @ bytes 0-1, humidity @ bytes 2-3, probe indicator @ byte 4; no battery byte |
+| `0000fff1-...-00805f9b34fb` | Config (read/write) | 16-byte block: calibration offsets (x0.01) @ 1-2/3-4/5-6, logging interval u32 LE seconds @ 7-10, firmware version chars @ 11/13, CRC16-Modbus of bytes 0-13 @ 14-15 on writes |
+| `0000fff6-...-00805f9b34fb` | History data (notify) | Streams the on-device log; 10 samples compressed to two s16 LE endpoints + linear interpolation, CRC16 trailer |
+| `0000fff8-...-00805f9b34fb` | History command (write) | 2/1/7 = temp header/content/CRC; 4/3/8 = humidity header/content/CRC |
+| `0000fff9-...-00805f9b34fb` | Control (write) | `0x01` clear logged history, `0x06` graceful disconnect |
+
+The app also does PhyPlus BLE OTA updates: the device reboots to an
+OTA-mode name `PPlusOTA` (SLB service `0000feb3`, write `0000fed5`/`0000fed7`,
+notify `0000fed8`); firmware URLs come from
+`POST https://api-inkbird.com/api/bleDevice/firmware`.
 
 Note the fff0 service is shared with the iBBQ BBQ thermometers
 (spec `device-specs/devices/ibbq-meat-thermo.yaml`), and the
@@ -77,6 +90,7 @@ Discriminate by name + manufacturer-data length + service UUID.
 ## Tools Used
 
 - [ ] Bluetooth-Devices/inkbird-ble parser + tests (no hardware capture done here)
+- [ ] jadx decompile of Engbird v2.3.9 (`com.inkbird.engbird`) — layout confirmations, fff1/fff6/fff8/fff9, OTA
 
 ## References
 

@@ -15,7 +15,7 @@ transport:
 
 bluetooth_classic:
   profile: SPP
-  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"  # confirmed in com.beewi.helipad DEX (ConnectionHelper.java)
+  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"  # confirmed in com.beewi.helipad DEX
   rfcomm_channel: 1
   pairing: legacy SPP pairing
 

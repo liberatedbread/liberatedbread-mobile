@@ -40,9 +40,8 @@ device:
     (write 0x6E400002, notify 0x6E400003).
 
     OPT7 BRAND VARIANT: OPT7 (motorcycle/automotive accent lighting) ships
-    the same protocol; its Android app is com.opt7.glow (a rebrand of the
-    common "LED lamp" OEM app, package family com.szelk.ledlamppro). Its
-    name matcher (LPHelper.smali) accepts additional advertised names:
+    the same protocol; its Android app is a rebrand of the common "LED lamp"
+    OEM app. Its name matcher accepts additional advertised names:
     prefixes DCS-O, ELZ-O, CS-FanLED, MHRS-QA and "LED LIGHT STRIP",
     substring matches "OB", "OE" and "E2P", plus WCT-family names via
     DeviceName constants (ELK-BTCWCT*/ELK-BLEDWCT* and brand+suffix
@@ -51,13 +50,11 @@ device:
     SECOND CONTROL PATH — connectionless broadcast: besides the GATT
     connection, the app can control devices purely over BLE advertising —
     the PHONE itself advertises command frames
-    (ble/bulb/ElKBroadcast.smali and BulbBroadcast.smali,
-    twoadvertise/TwoBroadcast.smali, managed by BleTDBroadcastManager;
-    ElKBroadcast builds AdvertiseData and calls startAdvertising). The
+    (its broadcast builders assemble AdvertiseData and call
+    startAdvertising, managed by a broadcast manager). The
     UUID 90B1F4D2-6C0E-43D6-BA91-A8BBBC9375AA seen in this app is NOT a
     GATT UUID: it is the fixed address/addressId the app assigns the
-    broadcast pseudo-device in its internal device database
-    (BlePackagingDevice.smali, BleExtKt.smali).
+    broadcast pseudo-device in its internal device database.
 
     CONFIDENCE: HIGH for service UUID, characteristic UUID, packet format,
     color/brightness/color-temperature commands — sourced from
@@ -313,3 +310,8 @@ entities:
     name: "LED Strip"
     features: ["brightness", "color", "color_temperature", "effect"]
     state_characteristic: "0000fff4-0000-1000-8000-00805f9b34fb"
+
+helpful_urls:
+  - title: "dave-code-ruiz/elkbledom (HACS)"
+    url: "https://github.com/dave-code-ruiz/elkbledom"
+    description: "Home Assistant (HACS) custom component controlling ELK-BLEDOM/MELK/LEDBLE strips over BLE; a production consumer of the command set documented here."

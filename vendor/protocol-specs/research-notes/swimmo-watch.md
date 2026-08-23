@@ -26,7 +26,7 @@ characteristic (`AuthorizationCharacteristic.setPassword`) — no cloud round-tr
 Cloud is only used by the stock app for account login/social/leaderboard and
 third-party export; the BLE protocol itself is fully local.
 
-### GATT (from `com/swimmo/swimmo/BLEFunction/UUIDAdresses.java`)
+### GATT
 Base UUID: `4D16xxxx-37B9-E213-60DE-C20A3692E96F`
 
 | UUID (xxxx) | Role |

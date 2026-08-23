@@ -26,7 +26,7 @@ ble:
   services:
     - uuid: "4482ACDF-D160-4E10-8FE3-82599F334433"
       name: sproutling_hub_provisioning
-      description: Smart Charger Wi-Fi provisioning service (from SHBluetoothLeService.java)
+      description: Smart Charger Wi-Fi provisioning service
       characteristics:
         - uuid: "1F5FCD82-FE15-4962-A6B2-BAEDFF11FD76"
           name: wifi_scan_mode

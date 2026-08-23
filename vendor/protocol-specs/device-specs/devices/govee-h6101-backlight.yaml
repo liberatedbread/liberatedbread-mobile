@@ -1,0 +1,271 @@
+# Govee H6101/H6104 TV Backlight — device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Static analysis of the Govee Home Android app (v7.5.30).
+# The FFE0/FFE1 GATT profile makes this the odd family out: every other
+# Govee light speaks the same protocol on 00010203-…-1910/…2b11.
+
+device:
+  name: "Govee H6101/H6104 TV Backlight"
+  manufacturer: "Govee (Shenzhen Intellirocks Tech / iHoment)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "light"
+  notes: >
+    Early BLE-only TV backlight strips (both discontinued; the app still
+    carries their modules). This is the ONLY Govee light family on the
+    legacy 0xFFE0/0xFFE1 GATT profile — every other family, from the H6001
+    bulb to current RGBIC strips, uses service 00010203-0405-0607-0809-
+    0a0b0c0d1910 with characteristic …2b11. The wire protocol itself is the
+    same 20-byte fixed packet as the rest of the family: byte 0 = 0x33
+    (control) / 0xAA (query), byte 19 = XOR of bytes 0-18.
+    GROUP CONTROL: the app's group-control helper writes to 0xFFE1 under
+    0xFFE0 for these two models specifically; for all other families it
+    uses the standard …2b11 characteristic, falling back to FFE0/FFE1 only
+    when the 1910 service is absent.
+    COMMAND SET: power (33 01), brightness (33 04), color/mode (33 05)
+    with the legacy sub-modes (0x02 manual RGB, 0x04 scene, 0x0A DIY,
+    0x11 music). Query variants under 0xAA. Keep-alive AA 01 every ~2 s
+    while connected, as on all Govee BLE lights.
+    CONFIDENCE: MEDIUM. The GATT profile and framing are app-confirmed;
+    no independent on-device capture of this pair is known to us, and the
+    advertised name form is unconfirmed (contemporary Govee gear
+    advertises ihoment_<model>_<hex>; Minger-branded units exist).
+
+  identification:
+    service_uuids:
+      - "0000ffe0-0000-1000-8000-00805f9b34fb"
+    local_name_prefix: "ihoment_H610"
+    manufacturer_data:
+      company_id: 60552
+      company_id_hex: "0xEC88"
+      additional_company_ids: [34818, 34819, 34883]
+      description: >
+        Bytes 88 EC in the manufacturer-specific AD structure — company
+        0xEC88 / 60552 when they lead the payload, 0x88XX when a leading
+        broadcast-version byte shifts them to offset 1 (0x8802, 0x8803,
+        0x8843 seen on Govee lights 2026-08-22). Not verified on the air
+        for this discontinued pair; see the discovery block.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "ihoment_H610"
+          service_uuids:
+            - "0000ffe0-0000-1000-8000-00805f9b34fb"
+          manufacturer_data:
+            company_id: 60552
+            additional_company_ids: [34818, 34819, 34883]
+            description: >
+              The app's broadcast parser requires the bytes 88 EC in the
+              manufacturer-specific AD structure (= company 0xEC88 /
+              60552 when they lead the payload), with a 2-byte big-endian
+              goodsType after them. A leading version byte on newer
+              firmware shifts them to payload offset 1, making hosts
+              report 0x88XX instead — match on the bytes, not the parsed
+              company id. Unverified on the air for this discontinued
+              pair specifically — no capture records their exact
+              advertisement layout.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  variants:
+    - model: "H6101"
+      identification:
+        local_name_prefix: "ihoment_H6101"
+    - model: "H6104"
+      identification:
+        local_name_prefix: "ihoment_H6104"
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No pairing or bonding required. BLE-only devices; they advertise on
+      power-up and accept open writes from any connected central.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning needed. Power on, scan, connect, write.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the strip and scan for BLE advertisements."
+            actor: "client"
+          - action: "Connect and write control commands to 0xFFE1."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: "Returns the strip to factory defaults, clearing any stored scene or colour state."
+      description: >
+        Nobody has run this against an H6101/H6104. Rapid power cycling is
+        the near-universal reset for mains-powered smart lights and is what
+        Govee's own help text points users at, but the exact toggle count
+        varies across the family. If the count is wrong the strip simply
+        comes back on in its previous state; the signal that it took is a
+        self-initiated blink followed by re-advertising as unprovisioned.
+      procedures:
+        - name: "Power cycle"
+          verified: false
+          basis: >
+            The generic pattern for mains-powered smart lights, consistent
+            with Govee's published help text. Not confirmed on hardware.
+          description: >
+            Switch the strip off and on at the wall in quick succession,
+            pausing about a second in each state. Watch for a
+            self-initiated blink at the end.
+          indicator: "Strip blinks by itself, then re-advertises as unprovisioned."
+          steps:
+            - action: "Toggle power rapidly 5 times, roughly one second on and one second off."
+              actor: "user"
+              expect: >
+                Strip blinks to confirm reset and re-advertises. If it just
+                comes back on unchanged, the count is wrong for this
+                generation — try three cycles instead.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE-only; joins no network. No bond is held: any central may
+        connect once the previous one disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE-only; no WiFi passphrase crosses the link. Open writes from any
+        connected central are accepted.
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "Govee Legacy Backlight Service"
+    notes: >
+      Vendor-specific 16-bit-alias service used only by the H6101/H6104
+      pair (app-confirmed). All commands are 20-byte fixed-length packets,
+      byte 19 = XOR of bytes 0-18. The app sends keep-alive
+      AA 01 00..00 AB every ~2 s while connected.
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Control Write/Notify"
+        properties: ["write", "write_without_response", "notify"]
+        notes: >
+          Single characteristic for commands, ACKs and the app's group
+          control writes. Write ACKs echo the command id with payload
+          byte 0 = 0 on success.
+        commands:
+          power_on:
+            description: "Turn strip on. Packet: [0x33, 0x01, 0x01, 0x00*16, <xor>]"
+            encoding: "bytes"
+            value: [0x33, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33]
+          power_off:
+            description: "Turn strip off. Packet: [0x33, 0x01, 0x00, 0x00*16, <xor>]"
+            encoding: "bytes"
+            value: [0x33, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32]
+          set_brightness:
+            description: "Set brightness. Packet: [0x33, 0x04, <val 0-100>, 0x00*16, <xor>]"
+            encoding: "bytes"
+            template: [0x33, 0x04, "{brightness}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 0
+                max: 100
+                notes: "Percent, matching the shared light-stack controller in the app."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
+          set_color:
+            description: "Set RGB color (mode byte 0x02 = manual). Packet: [0x33, 0x05, 0x02, <R>, <G>, <B>, 0x00*13, <xor>]"
+            encoding: "bytes"
+            template: [0x33, 0x05, 0x02, "{red}", "{green}", "{blue}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              red: { type: "uint8", min: 0, max: 255 }
+              green: { type: "uint8", min: 0, max: 255 }
+              blue: { type: "uint8", min: 0, max: 255 }
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
+          set_scene:
+            description: >
+              Apply a built-in scene. Packet: [0x33, 0x05, 0x04, <id_lo>,
+              <id_hi>, 0x00*14, <xor>] — 16-bit little-endian scene id.
+            encoding: "bytes"
+            template: [0x33, 0x05, 0x04, "{scene_lo}", "{scene_hi}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              scene_lo:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "Low byte of the 16-bit scene id."
+              scene_hi:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "High byte of the 16-bit scene id (0 for all built-in scenes)."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
+          keep_alive:
+            description: "Connection keep-alive, sent every ~2 s. Packet: [0xAA, 0x01, 0x00*17, 0xAB]"
+            encoding: "bytes"
+            value: [0xAA, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAB]
+          get_power_state:
+            description: "Query power; response payload byte 0 = power. Packet: [0xAA, 0x01, 0x00*17, <xor>] — the same frame the keep-alive sends."
+            encoding: "bytes"
+            value: [0xAA, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAB]
+          get_brightness:
+            description: "Query brightness; response payload byte 0 = 0-100. Packet: [0xAA, 0x04, 0x00*17, <xor>]"
+            encoding: "bytes"
+            value: [0xAA, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAE]
+          get_mode:
+            description: >
+              Query current mode; response payload byte 0 = sub-mode,
+              remainder = sub-mode state. Packet:
+              [0xAA, 0x05, 0x00*17, <xor>]
+            encoding: "bytes"
+            value: [0xAA, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAF]
+
+features: []
+  # No schema-enum features apply; plain RGB strip with dimming and scenes.
+
+entities:
+  - platform: "light"
+    name: "Backlight strip"
+    features: ["brightness", "color"]
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+      set_brightness: "set_brightness"
+      set_color: "set_color"
+
+helpful_urls:
+  - title: "egold555/Govee-Reverse-Engineering"
+    url: "https://github.com/egold555/Govee-Reverse-Engineering"
+    description: >-
+      Community protocol notes for Govee devices; the shared 20-byte framing and mode sub-commands
+      this spec relies on are documented there per model.
+  - title: "chvolkmann/govee_btled"
+    url: "https://github.com/chvolkmann/govee_btled"
+    description: >-
+      Python client for legacy Govee BLE lights; its LedMode command bytes are the cross-reference
+      for the color/scene/music sub-modes.
+  - title: "Reverse-engineering Govee smart lights"
+    url: "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/"
+    description: >-
+      Write-up of the shared Govee BLE command protocol with an on-device GATT dump.

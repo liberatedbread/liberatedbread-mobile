@@ -978,11 +978,11 @@ entities:
       — read unreachable as not-confirmed-on, never as a reason to skip the
       discrete off. turn_on is reliable only from a warm power mode.
   - platform: "button"
-    name: "Power"
+    name: "Power Key"
     icon: "mdi:power"
     commands:
       press: "press_power_toggle"
-    notes: "Discrete on/off commands exist (press_power_on/off); the toggle is what the physical remote's one power key sends."
+    notes: "The raw remote key, distinct from the Power switch above: it promises a keypress, not a direction. Discrete on/off commands exist (press_power_on/off); the toggle is what the physical remote's one power key sends."
   - platform: "button"
     name: "SmartCast"
     icon: "mdi:cast"
@@ -1081,7 +1081,7 @@ entities:
       press: "press_channel_down"
     notes: "Meaningful on the tuner input."
   - platform: "button"
-    name: "Input"
+    name: "Input Next"
     icon: "mdi:video-input-hdmi"
     commands:
       press: "press_input_next"

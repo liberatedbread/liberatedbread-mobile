@@ -14,15 +14,22 @@ device:
     Battery-powered BLE temperature/humidity sensors (IBS-TH1, IBS-TH2,
     and the IBS-P01B pool thermometer variant) that broadcast readings in
     BLE advertisement manufacturer data — no connection required for live
-    values. Official app: com.inkbird.inkbirdapp ("Inkbird").
+    values. Official apps: com.inkbird.inkbirdapp ("Inkbird") and the
+    current com.inkbird.engbird ("Engbird", teardown basis below); the
+    older com.inkbird.inkbird package was delisted from Google Play and
+    every public mirror as of 2026-08.
 
-    Sources (no APK teardown was needed or used for this spec): the
-    Bluetooth-Devices/inkbird-ble parser library (backs the Home Assistant
-    core inkbird integration), which is itself copied from Ernst79's
-    bleparser (the ble_monitor custom component), plus the library's test
-    suite which pins the byte layout against captured advertisements.
+    Sources: the Bluetooth-Devices/inkbird-ble parser library (backs the
+    Home Assistant core inkbird integration), which is itself copied from
+    Ernst79's bleparser (the ble_monitor custom component), plus the
+    library's test suite which pins the byte layout against captured
+    advertisements; and static analysis of the official Engbird app
+    (2026-03), which confirmed the
+    advertisement/fff2 layouts and provided the fff1/fff6/fff8/fff9
+    connected-mode details below.
     Confidence: parser-library-derived, corroborated by raw advertisement
-    captures in the test suite; not re-verified against hardware here.
+    captures in the test suite and by the official app; not
+    re-verified against hardware here.
 
     ADVERTISEMENT QUIRK — there is NO company ID. The manufacturer-specific
     AD structure (type 0xFF) is 9 bytes and the temperature occupies the
@@ -41,7 +48,20 @@ device:
                  (proven: capture fc 07 c7 12 00 c8 3d 56 06 ->
                  0x07FC = 2044 -> 20.44 °C, inkbird-ble test_sps)
       bytes 2-3: humidity, uint16 LE, /100.0 %  (0x12C7 = 4807 -> 48.07 %)
-      bytes 4-6: unidentified, varies between captures
+      bytes 4-6: secondary channel — byte 4 is a channel-layout selector
+                 (0-3) and bytes 5-6 a signed int16 LE /100.0 value
+                 (Engbird v2.3.9 DeviceUtil.parseAdvertisementPacket,
+                 full scan-record offsets 14-21 = manufacturer data 0-7):
+                   selector 0: temp = bytes 0-1, humidity = bytes 2-3
+                   selector 1: temp = bytes 5-6, humidity = bytes 2-3,
+                               external probe temp = bytes 0-1
+                   selector 2: temp = bytes 0-1, humidity = bytes 2-3,
+                               external humidity = bytes 5-6
+                   selector 3: temp = bytes 5-6, external temp = bytes 0-1,
+                               external humidity = bytes 2-3
+                 "tps" (temp-only) units still expose selector 1/2 external
+                 channels. The app ignores a negative battery byte (clamps
+                 to 0) and reads the bytes 5-6 value as signed.
       byte 7:    battery percent 0-100  (0x56 = 86)
       byte 8:    flags/packet variant (0x06 / 0x08 observed), unknown
     IBS-TH2/P01B ("tps") uses the same 9-byte layout; humidity reads 0 on
@@ -52,11 +72,43 @@ device:
     CONNECTED MODE (optional): the same reading can be polled over GATT.
     Service 0000fff0-0000-1000-8000-00805f9b34fb, characteristic
     0000fff2-0000-1000-8000-00805f9b34fb (read): temperature int16 LE
-    /100 at bytes 0-1, humidity uint16 LE /100 at bytes 2-3 — i.e. the
-    advertisement layout WITHOUT the pseudo-company-id interpretation and
-    without the battery byte (battery is advertisement-only). No pairing,
-    bonding or authentication. The advertisement already carries every
-    field, so polling is only useful as a freshness fallback.
+    /100 at bytes 0-1, humidity at bytes 2-3 — i.e. the advertisement
+    layout WITHOUT the pseudo-company-id interpretation and without the
+    battery byte (battery is advertisement-only). The app reads humidity
+    as a signed int16 and also consumes byte 4 as a probe/channel
+    indicator. No pairing, bonding or authentication. The advertisement
+    already carries every field, so polling is only useful as a freshness
+    fallback.
+
+    Further fff0 characteristics seen in the Engbird app (not needed for
+    read-only monitoring):
+      fff1 (read/write, 16 bytes) — device config: bytes 1-2 internal
+        temp calibration offset (s16 LE, x0.01 °C), bytes 3-4 external
+        probe temp calibration, bytes 5-6 humidity calibration, bytes
+        7-10 logging interval (u32 LE, seconds), bytes 11 and 13 ASCII
+        firmware version digits ("X.Y.0"); writes patch the 16-byte
+        value in place with a CRC16 (Modbus poly 0xA001, init 0xFFFF,
+        LE on the wire) of bytes 0-13 appended at bytes 14-15.
+      fff6 (notify) + fff8 (write, single byte) — on-device history
+        (data-logger) download: write 2 = request temperature header,
+        4 = humidity header; 1/3 = request temperature/humidity content;
+        7/8 = request temperature/humidity CRC. Header notification is
+        6 bytes: u32 LE sample count + CRC16 of the first 4 bytes.
+        Content is compressed: each 10 samples are stored as two signed
+        int16 LE endpoints (4 bytes) and linearly interpolated; the
+        remainder (count % 10) is stored raw as int16. Values are x100
+        in device units; timestamps are derived from the fff1 interval
+        counted back from the request time. A trailing CRC16 covers the
+        packed payload.
+      fff9 (write, single byte) — 0x01 = clear logged history,
+        0x06 = graceful disconnect request.
+
+    OTA: the app updates firmware over BLE with the PhyPlus SLB/SHB
+    protocol (OTA-mode name "PPlusOTA"; SLB service 0000feb3, write
+    0000fed5/0000fed7, notify 0000fed8; SHB service
+    5833ff01-9b8b-5191-6142-22a4536ef123). Firmware metadata comes from
+    POST https://api-inkbird.com/api/bleDevice/firmware with a JSON body
+    {bleDeviceName, bleVersion}; the response carries the download URL.
 
     FAMILY CROSS-REFERENCE: Inkbird ships several incompatible protocols
     under similar names, and 0000fff0 is shared between them:
@@ -170,8 +222,8 @@ payload_formats:
         name: "humidity"
         description: "Bytes 2-3, uint16 LE, /100.0 % RH. Drop the packet if decoded humidity exceeds 100% (corrupt)."
       - index: 4
-        name: "unknown"
-        description: "Bytes 4-6, unidentified; varies between captures."
+        name: "channel_selector"
+        description: "Byte 4: channel-layout selector 0-3; decides which bytes carry internal vs external-probe values (see device.notes). Bytes 5-6: secondary channel value, signed int16 LE, /100.0 (external temp or humidity per selector)."
       - index: 7
         name: "battery"
         description: "Battery percent 0-100."
@@ -183,6 +235,7 @@ payload_formats:
       - "temperature = s16le(bytes 0-1) / 100.0  -> 0x07FC = 20.44 °C"
       - "humidity = u16le(bytes 2-3) / 100.0     -> 0x12C7 = 48.07 %"
       - "battery = byte 7                        -> 0x56 = 86 %"
+      - "byte 4 = channel selector 0-3; bytes 5-6 = secondary channel value s16le / 100.0 (see device.notes for the per-selector mapping)"
       - "Do not match or filter on the company-ID position; it is data."
 
 services:
@@ -198,9 +251,10 @@ services:
         properties: ["read"]
         notes: >
           Current reading, same field layout as the advertisement head:
-          temperature int16 LE /100 °C at bytes 0-1, humidity uint16 LE
-          /100 % at bytes 2-3. No battery byte here — battery is only in
-          the advertisement.
+          temperature int16 LE /100 °C at bytes 0-1, humidity at bytes
+          2-3 (the official app reads humidity as signed int16). Byte 4
+          is a probe/channel indicator consumed by the app. No battery
+          byte here — battery is only in the advertisement.
         format:
           - name: "temperature"
             offset: 0
@@ -219,6 +273,38 @@ services:
             notes: >
               Reads 0 on units without a humidity sensor (IBS-TH2/P01B);
               report only when non-zero.
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "config"
+        properties: ["read", "write"]
+        notes: >
+          16-byte config block (from the Engbird app): bytes 1-2 internal
+          temp calibration (s16 LE, x0.01 °C), bytes 3-4 external probe
+          temp calibration, bytes 5-6 humidity calibration, bytes 7-10
+          logging interval (u32 LE seconds), bytes 11/13 ASCII firmware
+          version digits. Writes patch the block in place; bytes 14-15
+          carry CRC16 (Modbus poly 0xA001, init 0xFFFF) of bytes 0-13.
+      - uuid: "0000fff6-0000-1000-8000-00805f9b34fb"
+        name: "history_data"
+        properties: ["notify"]
+        notes: >
+          Streams the on-device log in response to fff8 commands:
+          6-byte header (u32 LE sample count + CRC16 of bytes 0-3),
+          then content frames (each 10 samples compressed to two s16 LE
+          endpoints, linearly interpolated; remainder raw), then a
+          trailing CRC16. Values are x100 device units.
+      - uuid: "0000fff8-0000-1000-8000-00805f9b34fb"
+        name: "history_command"
+        properties: ["write"]
+        notes: >
+          Single-byte history commands: 2 = temperature header,
+          1 = temperature content, 7 = temperature CRC; 4 = humidity
+          header, 3 = humidity content, 8 = humidity CRC.
+      - uuid: "0000fff9-0000-1000-8000-00805f9b34fb"
+        name: "control"
+        properties: ["write"]
+        notes: >
+          Single-byte control: 0x01 = clear logged history,
+          0x06 = graceful disconnect.
 
 ble:
   connection_sequence:
@@ -227,6 +313,9 @@ ble:
       data -> decode. No connection ever required.
       Optional poll: connect -> service fff0 -> read fff2 (temp/hum) ->
       disconnect. Battery comes from the advertisement byte 7 only.
+      Optional config/history: read/write fff1 (calibration, logging
+      interval, firmware version); subscribe fff6 and drive fff8 to pull
+      the logged history; fff9 clears history or disconnects politely.
 
 advertising:
   format: "ble_legacy"

@@ -36,6 +36,28 @@ Wire the bridge to Ground / Control / Obstruction (LiftMaster Sec+ 2.0:
 red/white/common), in parallel with the wall button, then press the opener's
 learn button to pair the emulated panel (it seeds the rolling-code counter).
 
+## Sibling device verified live: MyQ Smart Garage Control MYQ-G0401
+
+A 2026-08-19 LAN sweep found a second Chamberlain-family device next to the
+closed-port hub from the `research-notes/myq-cloud-hub` dud: a **MyQ Smart
+Garage Control hub, model MYQ-G0401** (Gen 3, BLE-linked to the opener,
+firmware 1.10) at `192.168.1.104`. Unlike the earlier hub, this unit answers
+on port 80:
+
+- `GET /jabout` — **unauthenticated** JSON identity: product string
+  `SMART GARAGE CONTROL,GEN3,BLE,CH`, brand, MyQ serial, AP name, firmware,
+  MAC, joined SSID, RSSI, uptime.
+- `GET /` — Wi-Fi setup web UI (`/myq.js`, `/brand.js`, provisioning URL
+  setup.myqdevice.com). `HEAD /` returns 404 (HEAD not implemented), which
+  explains an earlier "404 on /" observation.
+- All other `/j*` paths 404. The LAN surface is **read-only identification +
+  setup** — there is no local door control; control stays MyQ cloud + the
+  hub's BLE link to the opener. The wired ratgdo/Konnected bridge remains the
+  only local control path.
+
+Captured responses (`myq_jabout.json`, `myq_index.html`, with checksums) are
+archived in the maintainers' private research workspace, not committed here.
+
 ## References
 
 - <https://github.com/argilo/secplus>

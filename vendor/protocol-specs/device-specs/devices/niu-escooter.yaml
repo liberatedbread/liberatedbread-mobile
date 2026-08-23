@@ -13,7 +13,7 @@ device:
   notes: >
     CLOUD-ONLY. This spec exists to record a dependency, not to offer a control
     surface. The scooter reports over cellular to NIU's servers; the app
-    (com.niu.manager) authenticates against NIU's account service and reads
+    authenticates against NIU's account service and reads
     everything back from those servers. There is no documented local path.
 
     `cloud.required: true` is the point of this entry. Every documented
@@ -30,23 +30,21 @@ device:
     working -- which is another way of saying the cloud stack is untouched.
     Fitting one does not free the scooter; it frees the throttle map.
 
-    STOCK BLE LINK (app-confirmed 2026-08 from a com.niu.manager decompile;
-    NOT hardware-tested): the open question above is answered -- the
+    STOCK BLE LINK (app-confirmed 2026-08 from static analysis of the vendor
+    app; NOT hardware-tested): the open question above is answered -- the
     proximity BLE link is a full AES-encrypted local control channel, not a
     mere unlock handshake. Frames are hex on the wire: 0x5AA5 header,
     16-bit length, command, data, 8-bit sum checksum, 0x96 tail
-    (blesdk/ble/n0.java:271-279). Payloads are AES-128-ECB encrypted under
-    per-vehicle keys (blesdk/ble/c0.java:496, AES key and block both 16
-    bytes per blesdk/ble/n0.java:756-814), after a two-frame
-    password-verify handshake that exchanges random challenges
-    (blesdk/ble/t.java:142-214). GATT layout is in `services` below.
+    (per the app's BLE SDK). Payloads are AES-128-ECB encrypted under
+    per-vehicle keys (AES key and block both 16 bytes), after a two-frame
+    password-verify handshake that exchanges random challenges. GATT layout
+    is in `services` below.
     Per-vehicle flags gate whether the ACC switch, alarm sound and cushion
-    lock are controllable over BLE, over the cloud, or both
-    (cloud/provider/g.java:227-247, isSupport*SwitchByBt / *ByIot).
+    lock are controllable over BLE, over the cloud, or both (the app's
+    isSupport*SwitchByBt / *ByIot capability flags).
 
     THE CATCH: those BLE keys are cloud-issued -- the app fetches them from
-    /v5/smart_key/ble_info (e2/a.java:503, fetched at
-    cloud/manager/n.java:2643 into BleKeyInfoBean). The local channel is
+    /v5/smart_key/ble_info into its BLE-key model. The local channel is
     real and its framing is now documented, but key provisioning is
     cloud-mediated, so `local_access.status` stays
     `replacement_hardware` until a cloud-free way to obtain or provision a
@@ -187,14 +185,13 @@ cloud:
       verification: "reported"
       notes: >
         The vendor app itself calls the same data at /v5/motor/overallTally
-        (POST with JSON body {sn}; e2/a.java:476, app call at
-        cloud/manager/n.java:1245). Both endpoints are live; neither has
+        (POST with JSON body {sn}). Both endpoints are live; neither has
         been exercised by us, so this entry keeps its third-party path and
         the v5 variant is listed separately below.
     - path: "/v5/motor/overallTally"
       method: "POST"
       name: "overall_tally_v5"
-      returns: "Lifetime totals -- the vendor app's own path for overall_tally (POST with JSON body {sn}; app-confirmed from the decompile, not exercised by us)"
+      returns: "Lifetime totals -- the vendor app's own path for overall_tally (POST with JSON body {sn}; app-confirmed, not exercised by us)"
       verification: "reported"
     - path: "/v5/smart_key/ble_info"
       method: "GET"
@@ -202,9 +199,8 @@ cloud:
       returns: "Per-scooter BLE key provisioning data (BLE MACs and key software versions, parsed into BleKeyInfoBean) -- the credentials the stock BLE control channel requires"
       verification: "reported"
       notes: >
-        GET with sn as a query parameter (e2/a.java:503, app call at
-        cloud/manager/n.java:2643; the helper used there appends params to
-        the URL). This is the cloud-mediated key source that keeps the
+        GET with sn as a query parameter (the app's helper appends the
+        params to the URL). This is the cloud-mediated key source that keeps the
         stock BLE link out of cloud-free local control. Record the shape
         only -- never a real key, MAC or serial.
     - path: "/v5/track/list/v2"
@@ -260,17 +256,16 @@ services:
     notes: >
       Stock scooter control channel. The app probes three service variants
       in order -- ...daea50, ...daea51, ...daea52 -- and labels them bleVer
-      10, 20 and 21 respectively (cloud/modules/carble/d.java:46-78,
-      probing logic at cloud/modules/carble/p.java:219-264); all three
+      10, 20 and 21 respectively (per its BLE connection module); all three
       share the same characteristic layout, so only the service UUID's last
       byte changes between the entries below. Frames on the write
       characteristic are hex: 0x5AA5 header, 16-bit length, command, data,
-      8-bit sum checksum, 0x96 tail (blesdk/ble/n0.java:271-279), with
-      AES-128-ECB encrypted payloads after a two-frame random-challenge
-      password-verify handshake (blesdk/ble/t.java:142-214). On bleVer >=
-      20 an optional HID service 00001812-0000-1000-8000-00805f9b34fb is
-      also used (carble/p.java:246). App-confirmed from a com.niu.manager
-      decompile, not hardware-tested; keys are cloud-issued via
+      8-bit sum checksum, 0x96 tail, with AES-128-ECB encrypted payloads
+      after a two-frame random-challenge password-verify handshake. On
+      bleVer >= 20 an optional HID service
+      00001812-0000-1000-8000-00805f9b34fb is also used. App-confirmed by
+      static analysis of the vendor app, not hardware-tested; keys are
+      cloud-issued via
       /v5/smart_key/ble_info, see device notes.
     characteristics:
       - uuid: "8ec94e31-f315-4f60-9fb8-838830daea50"
@@ -293,7 +288,7 @@ services:
     name: "NIU BLE control (variant ea51, app bleVer 20)"
     notes: >
       Second probed variant -- same layout as the ea50 service above; only
-      the last UUID byte differs (cloud/modules/carble/p.java:226-231).
+      the last UUID byte differs.
     characteristics:
       - uuid: "8ec94e31-f315-4f60-9fb8-838830daea51"
         name: "control_notify"
@@ -315,7 +310,7 @@ services:
     name: "NIU BLE control (variant ea52, app bleVer 21)"
     notes: >
       Third probed variant -- same layout as the ea50 service above; only
-      the last UUID byte differs (cloud/modules/carble/p.java:232-238).
+      the last UUID byte differs.
     characteristics:
       - uuid: "8ec94e31-f315-4f60-9fb8-838830daea52"
         name: "control_notify"
@@ -338,7 +333,12 @@ services:
     notes: >
       An older service/characteristic triplet also present in the app's
       constants: 00004e30/00004e31/00004e32, all under
-      -004b-4f39-4242-4d4e5826574a (c0/b.java:95,104,113). No probed usage
-      of this set was found in the decompiled connection path, so the
+      -004b-4f39-4242-4d4e5826574a. No probed usage of this set was found
+      anywhere in the app's connection path, so the
       notify/write roles are not assigned here -- which generation of
       scooter exposes it is an open question.
+
+helpful_urls:
+  - title: "marcelwestrahome/home-assistant-niu-component (HACS)"
+    url: "https://github.com/marcelwestrahome/home-assistant-niu-component"
+    description: "HACS custom component surfacing NIU scooter telemetry in Home Assistant (cloud API)."

@@ -56,9 +56,9 @@ protocol:
   architecture:
     sdk: JieLi (JL) Bluetooth OTA SDK
     native_libs: true  # config.armeabi_v7a.apk (9.4MB)
-    ble_manager: ec/c.java (BleManager)
-    ota_handler: ec/f.java (extends JL OTA impl)
-    send_thread: ec/i.java (queued BLE writes)
+    ble_manager: the app's own BleManager wrapper
+    ota_handler: a subclass of the JieLi OTA SDK implementation
+    send_thread: a dedicated worker for queued BLE writes
 
 status:
   apk_acquired: true

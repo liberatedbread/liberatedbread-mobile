@@ -21,8 +21,8 @@ ble:
       - "de18f4e1-9352-4d9c-a802-58f25ec97cc3"  # PulseRelief (DeviceType.PULSERELIEF, PR3840/00)
       - "d25f1008-5579-46e5-a115-5068c9961894"  # BlueTouch  (DeviceType.BLUETOUCH, PR3741/00 PR3743/00)
 
-  # Scan filter uses the advertised service UUIDs above (BluetoothScanner.java).
-  # Characteristic UUIDs below are per-device, from model/meta/*Characteristics.java.
+  # Scan filter uses the advertised service UUIDs above.
+  # Characteristic UUIDs below are per-device, from the app's characteristic metadata.
 
   pulserelief_characteristics:
     # State / notify
@@ -72,11 +72,11 @@ ble:
 
 protocol:
   note: >
-    Plain GATT read/write/notify via queued commands (GattManager.java).
+    Plain GATT read/write/notify via queued commands.
     Write semantics: set_program_number / set_treatment_time configure a session,
     increment/decrement/zero_channel adjust intensity; state arrives on notify
     characteristics. Byte-level value encodings TBD — inspect
-    bluetooth/device/PulseReliefDevice.java handlers or HCI snoop.
+    the app's PulseRelief device handlers, or an HCI snoop.
 
 status:
   apk_acquired: true

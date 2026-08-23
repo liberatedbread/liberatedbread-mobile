@@ -123,7 +123,8 @@ services:
             `{checksum}` placeholders that no command declared or could fill,
             which cost the whole spec its parse.
 
-            Full protocol_id map (ledglowlib/Constants.smali): 0x00 INTERNAL
+            Full protocol_id map (from the app's bundled LED-glow library
+            constants): 0x00 INTERNAL
             (post-connect auth handshake), 0x01 LIGHTING, 0x02 RESPONSE (the
             device answers requests on this protocol), 0x03 BOOTLOADER
             (latent OTA: SEEBlueLEBootloaderActivity flashes an Intel HEX

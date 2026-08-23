@@ -12,9 +12,9 @@ BeeWi (Marseille) Bluetooth **Classic SPP** smartphone-controlled toys, ~2012–
 - No cloud component at all — the toys are plain SPP serial peers; control is fully local.
 
 ## Local Bluetooth Classic feasibility: EXCELLENT (confirmed by static analysis)
-SPP UUID `00001101-0000-1000-8000-00805F9B34FB` confirmed in `com.beewi.helipad` v2.0 DEX (`com/beewi/helipad/ConnectionHelper.java:26`, `createRfcommSocketToServiceRecord`).
+SPP UUID `00001101-0000-1000-8000-00805F9B34FB` confirmed in `com.beewi.helipad` v2.0 DEX (its connection helper, via `createRfcommSocketToServiceRecord`).
 
-**Helicopter protocol (recovered from jadx, `App.java getBytesCommand`)**: the command is a **14-character ASCII hex string** sent verbatim over the SPP stream:
+**Helicopter protocol (recovered by static analysis, from the app's `getBytesCommand`)**: the command is a **14-character ASCII hex string** sent verbatim over the SPP stream:
 
 ```
 "0x" + O + GG + YY + XX + TT + FF     (e.g. idle: "0x14000000040F")

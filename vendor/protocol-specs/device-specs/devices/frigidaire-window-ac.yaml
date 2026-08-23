@@ -1,8 +1,7 @@
 # Frigidaire WiFi Window Air Conditioner — Device Specification
-# Status: Cloud-only discovery confirmed by APK static analysis (updated 2026-07-15).
-#   App package analyzed: com.electrolux.oneapp.android.frigidaire v1.24, v2.0, v3.6
-#   APK/XAPK source: APKPure via apkeep. Older versions below 3.0 were obtained
-#   and decompiled; local networking remained provisioning/enrollment only.
+# Status: Cloud-only discovery confirmed by static analysis of the vendor
+#   Android app (updated 2026-07-15). Several releases, current and older,
+#   were examined; local networking remained provisioning/enrollment only.
 #   No steady-state LAN control discovery was found; local networking appears
 #   limited to SoftAP/AllJoyn/OCP provisioning and enrollment.
 # Copyright 2026 Pigs Can Fly Labs LLC
@@ -206,7 +205,7 @@ http_endpoints:
   - method: "POST"
     path: "/remote-control/api/v1/appliances/"
     name: "Remote Control"
-    description: "String literal present only as a raw dex string in the analyzed APKs; no decompiled call site references it, so the HTTP method (POST shown is a placeholder) and payload are uncorroborated."
+    description: "String literal present only as a raw string in the analysed app builds; no call site references it, so the HTTP method (POST shown is a placeholder) and payload are uncorroborated."
     request_body:
       content_type: "application/json"
 
@@ -490,3 +489,8 @@ entities:
     commands:
       turn_on: "clean_air_on"
       turn_off: "clean_air_off"
+
+helpful_urls:
+  - title: "bm1549/home-assistant-frigidaire (HACS)"
+    url: "https://github.com/bm1549/home-assistant-frigidaire"
+    description: "HACS custom component for Frigidaire ACs via the Electrolux cloud API; cloud fallback where the local path documented here is unavailable."

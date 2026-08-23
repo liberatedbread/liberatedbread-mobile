@@ -1,0 +1,729 @@
+# Govee RGBIC / DreamColor Light family (segmented) — device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Static analysis of the Govee Home Android app (v7.5.30), cross-referenced
+# with public RE (egold555/Govee-Reverse-Engineering, blog.coding.kiwi).
+
+device:
+  name: "Govee RGBIC / DreamColor Lights (segmented)"
+  manufacturer: "Govee (Shenzhen Intellirocks Tech / iHoment)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "light"
+  notes: >
+    Govee's segment-capable light family — RGBIC/DreamColor strips
+    (H6102, H6116/H6117/H6119, H6125-H6127, H612A-H612F, H6143-H6147,
+    H6168, H6171-H6176, H617A, H6184, H618A-H618F, H619A-H619E, H61A0,
+    H61B1/H61B5, H61E0/H61E1, H70A1-H70A3, H802A, H80B5), neon rope
+    (H61A0, H61C2-H61C5), bulb string lights (H7002, H7005), TV lights
+    (H6046, H6049, H6053, H6054, H6056, H6198, H6199, H6168), table/floor
+    lamps (H6050-H6052, H6055, H6058, H6059, H6073, H6078, H605B-H605D,
+    H6148, H6601-H6604, H6608, H8604), car lights (H6118, H6184, H6192,
+    H6194), permanent outdoor lights (H705D-H705F, H7067-H7069,
+    H706A-H706C, H805A-H805D, H806A/H806C, H808A, H608A, H3401, H801B)
+    and the H1161 pickup box. Current SKUs not individually listed are
+    routed through the same generic channel in the app — this spec covers
+    the protocol they all speak.
+
+    TRANSPORT: service 00010203-0405-0607-0809-0a0b0c0d1910, single
+    characteristic …2b11 (write + notify; CCCD 0x2902). Every modern SKU
+    in the app uses exactly this pair — there is no per-SKU UUID
+    configuration.
+
+    SINGLE FRAME (20 bytes): [0]=0x33 write / 0xAA read / 0x3A
+    write-with-read, [1]=command, [2..18]=payload zero-padded, [19]=XOR
+    of bytes 0-18. Write ACKs echo the command with payload byte 0 = 0 on
+    success. Read responses return the query id with the answer at
+    payload byte 0 onward. Keep-alive AA 01 every ~2 s while connected
+    (paused during multi-packet transfers). After connecting the app
+    syncs state with: write 33 09 (time sync), then reads AA 23 FF
+    (timers), AA 01 (power), AA 04 (brightness), AA 05 (mode).
+
+    COMMAND MAP (33/AA <op>):
+    - 0x01 power: payload [0]=0/1. Read AA 01 = keep-alive/heart; the
+      response's payload byte 1 carries battery band (bits 4-6), charging
+      (bit 3) and low-battery (bit 7) on battery models.
+    - 0x04 brightness: payload [0]=0-100 percent.
+    - 0x05 mode: see SUB-MODES below.
+    - 0x06 firmware version (read; ASCII in payload).
+    - 0x07 device info: sub 0x02=UUID, 0x03=hw version, 0x04=sw version,
+      0x07=DSP, 0x0A=MCU sw, 0x0B=MCU hw.
+    - 0x09 time sync: payload = [year, month, day, hour, 1, tzHourOffset,
+      tzMinOffset] — the app writes local time right after connecting.
+    - 0x0A (as command, not sub-mode) legacy single timer: [enable,
+      onHour, onMin, offHour, offMin, group, repeat].
+    - 0x0B delay-off: write [enable, hours, minutes]; read response
+      [enable, h, m, remainingH, remainingM].
+    - 0x0F segment-count setting: [count].
+    - 0x11 sleep schedule / 0x12 wake-up schedule.
+    - 0x14 gradual (fade) on/off for BLE-only models: [0/1]; WiFi+BLE
+      models use command 0xA3 under 0x33 instead (33 A3 01/00).
+    - 0x23 four-slot timer: write [group, enableAndType (bit7=enable,
+      bit0=on/off), hour, minute, repeat]; read with payload [0xFF]
+      returns all four slots as 4x4-byte records.
+    - 0x40 IC count / device splicing.
+    - 0xB1/0xB2 auth: AA B1 reads the 8-byte per-device key (response
+      payload byte 0 = 1, key at bytes 1-8; some models only return the
+      real key while the physical button is held); 33 B2 <8-byte key>
+      authenticates the connection. Many light SKUs never require it.
+
+    SUB-MODES of 33 05 (payload byte 0 at frame offset 2):
+    - 0x02 manual color: [R, G, B] whole-device. White/CCT on RGB-only
+      hardware: [FF FF FF 01 Wr Wg Wb] with the vendor Kelvin-shade table.
+    - 0x04 scene: [id_lo, id_hi] 16-bit little-endian. Built-ins:
+      1=sunset, 4=movie, 5=date, 7=romantic, 8=blinking, 9=candlelight,
+      10=breath, 15=snow, 16=dynamic, 21=chase, 22=stream.
+    - 0x0A DIY apply: [code_lo, code_hi]; 0x00FE = most recent upload.
+    - 0x0B legacy segment color (15 segments): [R, G, B, 0x00, maskLo,
+      maskHi] — mask bit n = segment n; kelvin variant inserts
+      [K_hi, K_lo] before the mask bytes.
+    - 0x0D color temperature: [R, G, B, K_hi, K_lo, Wr, Wg, Wb] — Kelvin
+      is a big-endian uint16; RGB is 00 00 00 (LEDs off) or FF FF FF
+      (white channel), WrWgWb the RGB equivalent of the Kelvin value.
+    - 0x11 legacy music: [effect, sensitivity, …]; effects 16=energy,
+      17=rhythm, 18=spectrum, 19=scroll (latter three add
+      [dynamic, colorFlag, R, G, B]; colorFlag 0 = fixed color).
+    - 0x13 music v1: [effect, sensitivity, dynamic, fixedColorFlag,
+      R, G, B]; effects 0=rhythmPower, 1=rhythmSoft, 3=rhythm,
+      4=spectrum, 5=energy, 6=scroll.
+    - 0x15 main segment color (RGBIC): [0x01, R, G, B, 0,0,0,0,0,
+      segMask…] — 2-byte mask for <=16 segments, bit-packed longer mask
+      beyond; kelvin form [0x01, FF,FF,FF, K_hi, K_lo, tR, tG, tB,
+      mask…]; 3-color form [0x05, R1,G1,B1, R2,G2,B2, R3,G3,B3, mask…];
+      per-segment brightness [0x03, b0..b14]; brightness+mask
+      [0x02, brightness, mask…]; kelvin-only [0x04, K_hi, K_lo].
+    - 0x16 music (library effects): [effectCode_lo, effectCode_hi,
+      sensitivity].
+    - 0x2C color_multi: [0x03, K_hi, K_lo] or [0x04, R, G, B, (K_hi,
+      K_lo)].
+
+    MULTI-PACKET (0xA3) — RGBIC per-segment writes, DIY upload, scene
+    blobs. Framing V0: start frame [0xA3, 0x00, 0x00, <totalPacks+2>,
+    <cmd>, 0x00…], data frames [0xA3, <seq 1..N>, <17 payload bytes>],
+    end frame [0xA3, 0xFF, <last chunk>] — every frame still 20 bytes
+    with the XOR checksum at byte 19. (Newer stacks use 0xA4/0xA6 with
+    the same layout; 0xA1/0xA2 are the older write/read pair.)
+    - cmd 0x40 per-segment strip write. Payload: [count] then `count`
+      records. Record type 0x00 = color: [0x00, numSegs, R, G, B,
+      segIdx…]; type 0x01 = brightness: [0x01, numSegs, brightness,
+      segIdx…]; gradient strips add type 0x02 = CCT: [0x02, numSegs,
+      K_hi, K_lo, tR, tG, tB, segIdx…]. Segment indices are 0-based, one
+      byte each.
+    - cmd 0x02 / 0x04 DIY upload. Payload: [modeCode, param0, param1,
+      rgbLen=3n, R,G,B x n, effLen=2m, (param, value) x m]; param0=0xFF
+      marks the effect block present. Activate afterwards with
+      33 05 0A FE 00.
+    - cmd 0x01/0x02/0x07/0x0A "new scenes": the payload is a
+      server-generated effect blob (base64 in the cloud scene record)
+      sent verbatim — the app does not build these locally, so a
+      clean-room client can only replay captured blobs.
+
+    ASYNC NOTIFY: frame[0]=0xEE, frame[1]=sub-type, 17-byte payload.
+    Sub-types: 0x11 WiFi connect status (payload[0]==0 = connected),
+    0x22 IC count, 0x40 10-byte device status report, 0x54 movie-feast
+    on/off; detail family 0x30: 1=light status, 2=energy saving,
+    3=battery, 4=music, 5=volume, 6=without-interrupt, 7=sleep.
+
+    ENCRYPTED FIRMWARE (app-derived, no public capture): newer firmware
+    can demand an AES session layer. The client reads the BGC-info
+    characteristic (…2b12 ON SERVICE …1910 — a different role from the
+    same UUID on service …1912, which is the Telink OTA channel). No
+    characteristic = no encryption. Version 1: 20-byte frames
+    [0xE7, sub, payload…, xor] on …2b11 — sub 0x01 requests a 16-byte
+    session key, sub 0x02 confirms; steady-state traffic is AES-128-ECB
+    per 16-byte block with an RC4 tail for the remainder. Version 2:
+    AES-128-GCM with an 8-byte IV-key per direction and a 4-byte
+    big-endian message counter; wire format counter‖ciphertext‖tag.
+    Handshake keys are embedded in the app binary; per clean-room policy
+    they are not reproduced here. Most units in the field still accept
+    plaintext commands.
+
+    WIFI PROVISIONING (BLE): command 0x11 as a multi-packet write.
+    Payload: [ssidLen][ssid][pwdLen (0 if open)][pwd][runMode]
+    [tzOffsetHours][iotVersion][tzOffsetMinutes], optional extensions
+    [matterFlag] / [0,0,matterFlag,securityType] and a length-prefixed
+    per-device tail. Some bulbs/strings fall back to a softAP
+    (`Govee_bulb_<sku>`, `Govee_gateway`) hosting a TCP provisioning
+    socket on 192.168.1.1:7200 / 192.168.4.1:8200 (10-byte header
+    AA 33|type|len + JSON).
+
+    LAN API: WiFi models can expose Govee's local Wi-Fi API (UDP
+    4001/4002/4003, JSON scan/devStatus/onOff/brightness/colorwc/pt) —
+    that protocol is device-firmware-side; the app itself never speaks
+    it, it only toggles it with a BLE-protocol frame (write type 0xE3,
+    sub 0x01, payload 0x00/0x01; read type 0xEA) and gates it on a
+    per-device WiFi function-list bit (bit 4 = local network API) plus
+    minimum firmware versions. Documented by Govee's public LAN-API note
+    and the Home Assistant govee_light_local integration.
+
+    OTA (not needed for control): the app picks the updater by hardware
+    version string — 1.xx.xx = Telink (service …1912, char …2b12:
+    write 01 FF to start, fixed packets, end frame 02 FF + index),
+    2.01.xx = Beken (F000FFC0-…/FFC1/FFC2), 3.xx.xx = Freqchip
+    (02f00000-…-fe00/…ff01), and a legacy fd00/fd01/fd02 path on the
+    H605x hollow-lamp line.
+
+    CONFIDENCE: HIGH for framing, UUIDs, core opcodes and sub-modes
+    (app-confirmed, corroborated by public RE); MEDIUM for the multi-frame
+    record layouts and timer formats (app-derived only); the encrypted
+    session layer is app-derived and unverified on hardware.
+
+  identification:
+    service_uuids:
+      - "00010203-0405-0607-0809-0a0b0c0d1910"
+    # Deliberately loose — this is the cheap scan-time ranking layer, and
+    # these forms also cover Govee's H5xxx thermo-hygrometers and plugs,
+    # which have their own specs. The discovery matcher below is the
+    # executable one and restricts the sku digit accordingly.
+    # The app's name grammar has one further form, bare GV<digits>, which
+    # is deliberately NOT matched here: how those digits map to a sku is
+    # not established, and "GV" alone would match every name above.
+    local_name_prefixes:
+      - "GVH"
+      - "GVR"
+      - "ihoment_H"
+      - "Govee_"
+      - "Minger_"
+      - "GBK_"
+    manufacturer_data:
+      company_id: 60552
+      company_id_hex: "0xEC88"
+      additional_company_ids: [34818, 34819, 34883]
+      # 34818=0x8802, 34819=0x8803, 34883=0x8843 — see description.
+      description: >
+        The app's broadcast parser requires the bytes 88 EC in the
+        manufacturer-specific AD structure, but they are NOT always the
+        first two payload bytes: on-air (2026-08-22, Govee_H6076/H607C/
+        H6099 units) the payload starts with a version byte (low nibble =
+        broadcast version, e.g. 0x02/0x03/0x43), so host stacks report
+        the "company id" as 0x88XX — 0x8802, 0x8803, 0x8843 observed, any
+        version nibble is possible. Layouts without the version byte read
+        as 0xEC88 (= 60552). Matchers should look for 88 EC at payload
+        offset 0 OR 1 rather than trusting the parsed company id. The app
+        reads a 2-byte big-endian goodsType after the company bytes; note
+        the observed WiFi-light payloads carried 00 01 / 00 02 there,
+        which match no catalog goodsType — on WiFi lights the model comes
+        from the local name (Govee_H<sku>_<mac tail>), not the payload.
+        Name forms (app parser): ihoment_/Govee_/Minger_<sku>_<suffix>,
+        GBK_<sku>_, GVH<sku><4 hex> or GVH<sku>_<suffix>, GV<digits>.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            # Alternation over the name forms in identification above, with
+            # the sku ranges this spec actually covers (H1xxx, H3xxx, H6xxx,
+            # H7xxx, H8xxx). A bare "GVH" prefix both missed the legacy and
+            # rebadge forms and swept in the H5xxx thermo-hygrometers and
+            # plugs that belong to other specs.
+            # OVERLAP: this alternation also matches ihoment_H6101_… /
+            # ihoment_H6104_…, which are the H6101/H6104 TV backlights —
+            # the one Govee light family on a DIFFERENT GATT profile
+            # (0xFFE0/0xFFE1, see govee-h6101-backlight.yaml). A consumer
+            # that picks this spec for one of those will find no 1910
+            # service after connecting. Prefer the more specific spec when
+            # two match, and confirm the service is present before writing.
+            match: "regex"
+            value: "^(GVH[13678]|GVR|ihoment_H[13678]|Govee_H[13678]|Minger_H[13678]|GBK_H[13678])"
+          service_uuids:
+            - "00010203-0405-0607-0809-0a0b0c0d1910"
+          manufacturer_data:
+            company_id: 60552
+            additional_company_ids: [34818, 34819, 34883]
+            description: >
+              Match on the bytes 88 EC at payload offset 0 or 1, not the
+              parsed company id — a leading version byte makes hosts
+              report 0x88XX (0x8802/0x8803/0x8843 seen 2026-08-22).
+              goodsType (2 bytes BE after the company bytes) identifies
+              BLE-first models (e.g. 234=H612A-F, 13=H6145-H6147/H6171,
+              21=H611A/H6143/H6144, 71=H618C/H618F/H619B-E, 73=H617A,
+              74=H618A/H802A, 123=H61B1/H61B5/H61E0/H61E1/H80B5,
+              136=H6168, 193=H70A1-A3, 3=H7002, 180=H706A-C/H806A/C,
+              240=H705D-F/H805A-D, 250=H7067-69, 184=H608A/H808A);
+              WiFi-first lights (H6076/H607C/H6099 observed) carry only
+              generic 00 01 / 00 02 there — take the model from the
+              local name instead.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  variants:
+    # RGBIC / DreamColor strips and neon
+    - model: "H6102"
+      identification: { local_name_prefix: "GVH6102" }
+    - model: "H6117"
+      identification: { local_name_prefix: "GVH6117" }
+    - model: "H6119"
+      identification: { local_name_prefix: "GVH6119" }
+    - model: "H6125"
+      identification: { local_name_prefix: "GVH6125" }
+    - model: "H6126"
+      identification: { local_name_prefix: "GVH6126" }
+    - model: "H612A"
+      identification: { local_name_prefix: "GVH612A" }
+    - model: "H612B"
+      identification: { local_name_prefix: "GVH612B" }
+    - model: "H612C"
+      identification: { local_name_prefix: "GVH612C" }
+    - model: "H612D"
+      identification: { local_name_prefix: "GVH612D" }
+    - model: "H612E"
+      identification: { local_name_prefix: "GVH612E" }
+    - model: "H612F"
+      identification: { local_name_prefix: "GVH612F" }
+    - model: "H6143"
+      identification: { local_name_prefix: "GVH6143" }
+    - model: "H6144"
+      identification: { local_name_prefix: "GVH6144" }
+    - model: "H6145"
+      identification: { local_name_prefix: "GVH6145" }
+    - model: "H6146"
+      identification: { local_name_prefix: "GVH6146" }
+    - model: "H6147"
+      identification: { local_name_prefix: "GVH6147" }
+    - model: "H6168"
+      identification: { local_name_prefix: "GVH6168" }
+    - model: "H616C"
+      identification: { local_name_prefix: "GVH616C" }
+    - model: "H6171"
+      identification: { local_name_prefix: "GVH6171" }
+    - model: "H6172"
+      identification: { local_name_prefix: "GVH6172" }
+    - model: "H6173"
+      identification: { local_name_prefix: "GVH6173" }
+    - model: "H6175"
+      identification: { local_name_prefix: "GVH6175" }
+    - model: "H6176"
+      identification: { local_name_prefix: "GVH6176" }
+    - model: "H617A"
+      identification: { local_name_prefix: "GVH617A" }
+    - model: "H6184"
+      identification: { local_name_prefix: "GVH6184" }
+    - model: "H618A"
+      identification: { local_name_prefix: "GVH618A" }
+    - model: "H618C"
+      identification: { local_name_prefix: "GVH618C" }
+    - model: "H618F"
+      identification: { local_name_prefix: "GVH618F" }
+    - model: "H619A"
+      identification: { local_name_prefix: "GVH619A" }
+    - model: "H619B"
+      identification: { local_name_prefix: "GVH619B" }
+    - model: "H619C"
+      identification: { local_name_prefix: "GVH619C" }
+    - model: "H619D"
+      identification: { local_name_prefix: "GVH619D" }
+    - model: "H619E"
+      identification: { local_name_prefix: "GVH619E" }
+    - model: "H61A0"
+      identification: { local_name_prefix: "GVH61A0" }
+    - model: "H61B1"
+      identification: { local_name_prefix: "GVH61B1" }
+    - model: "H61B5"
+      identification: { local_name_prefix: "GVH61B5" }
+    - model: "H61C2"
+      identification: { local_name_prefix: "GVH61C2" }
+    - model: "H61C3"
+      identification: { local_name_prefix: "GVH61C3" }
+    - model: "H61C5"
+      identification: { local_name_prefix: "GVH61C5" }
+    - model: "H61E0"
+      identification: { local_name_prefix: "GVH61E0" }
+    - model: "H61E1"
+      identification: { local_name_prefix: "GVH61E1" }
+    - model: "H70A1"
+      identification: { local_name_prefix: "GVH70A1" }
+    - model: "H70A2"
+      identification: { local_name_prefix: "GVH70A2" }
+    - model: "H70A3"
+      identification: { local_name_prefix: "GVH70A3" }
+    - model: "H802A"
+      identification: { local_name_prefix: "GVH802A" }
+    - model: "H80B5"
+      identification: { local_name_prefix: "GVH80B5" }
+    # Bulb string lights
+    - model: "H7002"
+      identification: { local_name_prefix: "GVH7002" }
+    # TV backlights / sync lights
+    - model: "H6046"
+      identification: { local_name_prefix: "GVH6046" }
+    - model: "H6049"
+      identification: { local_name_prefix: "GVH6049" }
+    - model: "H6053"
+      identification: { local_name_prefix: "GVH6053" }
+    - model: "H6054"
+      identification: { local_name_prefix: "GVH6054" }
+    - model: "H6056"
+      identification: { local_name_prefix: "GVH6056" }
+    - model: "H6198"
+      identification: { local_name_prefix: "GVH6198" }
+    - model: "H6199"
+      identification: { local_name_prefix: "GVH6199" }
+    # Table / floor lamps and ambient lights
+    - model: "H6050"
+      identification: { local_name_prefix: "GVH6050" }
+    - model: "H6051"
+      identification: { local_name_prefix: "GVH6051" }
+    - model: "H6052"
+      identification: { local_name_prefix: "GVH6052" }
+    - model: "H6055"
+      identification: { local_name_prefix: "GVH6055" }
+    - model: "H6058"
+      identification: { local_name_prefix: "GVH6058" }
+    - model: "H6059"
+      identification: { local_name_prefix: "GVH6059" }
+    - model: "H605B"
+      identification: { local_name_prefix: "GVH605B" }
+    - model: "H605C"
+      identification: { local_name_prefix: "GVH605C" }
+    - model: "H605D"
+      identification: { local_name_prefix: "GVH605D" }
+    - model: "H6073"
+      identification: { local_name_prefix: "GVH6073" }
+    - model: "H6078"
+      identification: { local_name_prefix: "GVH6078" }
+    - model: "H6148"
+      identification: { local_name_prefix: "GVH6148" }
+    - model: "H6601"
+      identification: { local_name_prefix: "GVH6601" }
+    - model: "H6602"
+      identification: { local_name_prefix: "GVH6602" }
+    - model: "H6603"
+      identification: { local_name_prefix: "GVH6603" }
+    - model: "H6604"
+      identification: { local_name_prefix: "GVH6604" }
+    - model: "H6608"
+      identification: { local_name_prefix: "GVH6608" }
+    - model: "H8604"
+      identification: { local_name_prefix: "GVH8604" }
+    - model: "H1161"
+      identification: { local_name_prefix: "GVH1161" }
+    # Car lights
+    - model: "H6118"
+      identification: { local_name_prefix: "GVH6118" }
+    - model: "H6192"
+      identification: { local_name_prefix: "GVH6192" }
+    # Permanent outdoor / landscape
+    - model: "H705D"
+      identification: { local_name_prefix: "GVH705D" }
+    - model: "H705E"
+      identification: { local_name_prefix: "GVH705E" }
+    - model: "H705F"
+      identification: { local_name_prefix: "GVH705F" }
+    - model: "H7067"
+      identification: { local_name_prefix: "GVH7067" }
+    - model: "H7068"
+      identification: { local_name_prefix: "GVH7068" }
+    - model: "H7069"
+      identification: { local_name_prefix: "GVH7069" }
+    - model: "H706A"
+      identification: { local_name_prefix: "GVH706A" }
+    - model: "H706B"
+      identification: { local_name_prefix: "GVH706B" }
+    - model: "H706C"
+      identification: { local_name_prefix: "GVH706C" }
+    - model: "H805A"
+      identification: { local_name_prefix: "GVH805A" }
+    - model: "H805B"
+      identification: { local_name_prefix: "GVH805B" }
+    - model: "H805C"
+      identification: { local_name_prefix: "GVH805C" }
+    - model: "H805D"
+      identification: { local_name_prefix: "GVH805D" }
+    - model: "H806A"
+      identification: { local_name_prefix: "GVH806A" }
+    - model: "H806C"
+      identification: { local_name_prefix: "GVH806C" }
+    - model: "H808A"
+      identification: { local_name_prefix: "GVH808A" }
+    - model: "H608A"
+      identification: { local_name_prefix: "GVH608A" }
+    - model: "H3401"
+      identification: { local_name_prefix: "GVH3401" }
+    - model: "H801B"
+      identification: { local_name_prefix: "GVH801B" }
+    # On-air confirmed 2026-08-22 (Govee_<sku>_<mac tail> names, no
+    # service UUIDs in the ADV, version-byte-first manufacturer payload):
+    - model: "H6076"
+      identification: { local_name_prefix: "Govee_H6076" }
+    - model: "H607C"
+      identification: { local_name_prefix: "Govee_H607C" }
+    - model: "H6099"
+      identification: { local_name_prefix: "Govee_H6099" }
+    # Current SKUs not listed here (H70xx permanent-outdoor generations,
+    # H66xx, H1xxx form factors) use the same channel and protocol via the
+    # app's generic SKU architecture; add rows as name forms are confirmed.
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No BLE pairing/bonding for local control. Some units demand the
+      application-layer key exchange (AA B1 read 8-byte key — possibly
+      only while the physical button is held — then 33 B2 <key> per
+      connection); newer firmware may demand the AES session layer
+      announced via the BGC-info characteristic (see device notes).
+      BLE local control works with no WiFi and no cloud account.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning needed for BLE control. Power on, scan, connect,
+          write. WiFi onboarding (BLE provisioning frame, command 0x11
+          multi-write) is only needed for cloud and LAN-API use.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the light and scan for BLE advertisements."
+            actor: "client"
+          - action: "Connect, enable notifications on …2b11, write commands."
+            actor: "client"
+          - action: "If writes are ignored, read AA B1 for the device key (hold the physical button if the returned key looks random) and authenticate with 33 B2."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: "low"
+      effect: "Clears WiFi credentials and cloud binding (WiFi models) and returns the light to factory defaults."
+      description: >
+        Not recovered from the app per model. Mains-powered models use the
+        near-universal rapid power-cycle pattern; many current models also
+        have a physical button hold (typically 5+ seconds until a blink).
+        The confirming signal is a self-initiated blink and re-advertising
+        as unprovisioned.
+      procedures:
+        - name: "Power cycle"
+          verified: false
+          basis: >
+            Generic pattern for mains-powered smart lights, consistent with
+            Govee's published help text. Not confirmed per model.
+          description: >
+            Switch the light off and on at the wall in quick succession,
+            about a second in each state, watching for a self-initiated
+            blink at the end.
+          indicator: "Light blinks by itself, then re-advertises as unprovisioned."
+          steps:
+            - action: "Toggle power rapidly 5 times, roughly one second on and one second off."
+              actor: "user"
+              expect: >
+                Light blinks to confirm reset and re-advertises. If it just
+                comes back on unchanged, try three cycles or the physical
+                button hold instead.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE control needs no rejoin. WiFi models rejoin the WLAN via the
+        BLE provisioning frame; BLE remains usable throughout.
+    credentials:
+      wifi_passphrase_protection: plaintext
+      stored_on_device: ["wifi_credentials"]
+      issued_to_client: ["ble_auth_key"]
+      notes: >
+        On WiFi models the SSID/passphrase travels over the (unbonded) BLE
+        link inside the provisioning frame — plaintext at the application
+        layer unless the firmware negotiates the AES session layer first.
+        BLE-only models exchange no credentials. The optional 8-byte BLE
+        auth key is static per device.
+
+services:
+  - uuid: "00010203-0405-0607-0809-0a0b0c0d1910"
+    name: "Govee Light Command Service"
+    notes: >
+      The shared Govee command profile for every modern light. 20-byte
+      fixed packets, byte 19 = XOR of bytes 0-18; multi-packet transfers
+      use 0xA3-framed sequences of the same 20-byte packets.
+    characteristics:
+      - uuid: "00010203-0405-0607-0809-0a0b0c0d2b11"
+        name: "Control Write/Notify"
+        properties: ["write", "write_without_response", "notify"]
+        notes: >
+          All command, query, multi-packet and notify traffic. Write ACKs
+          echo the command id with payload byte 0 = 0 = OK. Async events
+          arrive as 0xEE frames (see device notes). Keep-alive AA 01
+          every ~2 s; the heart response also carries battery/charge bits
+          on battery models.
+        commands:
+          power_on:
+            description: "Turn on. Packet: [0x33, 0x01, 0x01, 0x00*16, <xor>]"
+            encoding: "bytes"
+            value: [0x33, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33]
+          power_off:
+            description: "Turn off. Packet: [0x33, 0x01, 0x00, 0x00*16, <xor>]"
+            encoding: "bytes"
+            value: [0x33, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32]
+          set_brightness:
+            description: "Set brightness 0-100 (percent). Packet: [0x33, 0x04, <val>, 0x00*16, <xor>]"
+            encoding: "bytes"
+            template: [0x33, 0x04, "{brightness}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              brightness: { type: "uint8", min: 0, max: 100 }
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
+          set_color:
+            description: >
+              Whole-device or masked-segment RGB (sub-mode 0x15).
+              Packet: [0x33, 0x05, 0x15, 0x01, <R>, <G>, <B>, 0x00*4,
+              <maskLo>, <maskHi>, 0x00*5, <xor>] — mask bit n selects
+              segment n; all-ones = whole device. Legacy 15-segment
+              hardware uses sub-mode 0x0B: [0x33, 0x05, 0x0B, R, G, B,
+              0x00, maskLo, maskHi, …]. Whole-device-only models accept
+              sub-mode 0x02: [0x33, 0x05, 0x02, R, G, B, …].
+            encoding: "bytes"
+            template: [0x33, 0x05, 0x15, 0x01, "{red}", "{green}", "{blue}", 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              red: { type: "uint8", min: 0, max: 255 }
+              green: { type: "uint8", min: 0, max: 255 }
+              blue: { type: "uint8", min: 0, max: 255 }
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
+          set_color_temperature:
+            description: >
+              White color temperature in Kelvin (sub-mode 0x15 kelvin
+              form). Packet: [0x33, 0x05, 0x15, 0x01, 0xFF, 0xFF, 0xFF,
+              <K_hi>, <K_lo>, <tR>, <tG>, <tB>, <mask…>, <xor>] — Kelvin
+              big-endian uint16; tR/tG/tB = RGB equivalent of the Kelvin
+              value; sub-mode 0x0D is the older whole-device form
+              [0x33, 0x05, 0x0D, R, G, B, K_hi, K_lo, Wr, Wg, Wb, …] and
+              [0x33, 0x05, 0x15, 0x04, K_hi, K_lo, …] sets Kelvin only.
+            encoding: "bytes"
+            template: [0x33, 0x05, 0x15, 0x04, "{kelvin_hi}", "{kelvin_lo}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              kelvin_hi:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "High byte of the big-endian uint16 Kelvin value (app range roughly 2000-9000 K by model)."
+              kelvin_lo:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "Low byte of the Kelvin value."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
+          set_scene:
+            description: >
+              Apply a built-in scene. Packet: [0x33, 0x05, 0x04, <id_lo>,
+              <id_hi>, 0x00*14, <xor>]. Built-ins: 1=sunset, 4=movie,
+              5=date, 7=romantic, 8=blinking, 9=candlelight, 10=breath,
+              15=snow, 16=dynamic, 21=chase, 22=stream.
+            encoding: "bytes"
+            template: [0x33, 0x05, 0x04, "{scene_lo}", "{scene_hi}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              scene_lo: { type: "uint8", min: 0, max: 255 }
+              scene_hi: { type: "uint8", min: 0, max: 255 }
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
+          set_music_mode:
+            description: >
+              Music mode v1 (sub-mode 0x13). Packet: [0x33, 0x05, 0x13,
+              <effect>, <sensitivity>, <dynamic>, <fixedColorFlag>, <R>,
+              <G>, <B>, 0x00*8, <xor>]. Effects: 0=rhythmPower,
+              1=rhythmSoft, 3=rhythm, 4=spectrum, 5=energy, 6=scroll.
+              fixedColorFlag 0 = use the RGB that follows, 1 = auto.
+              Library-effect models use sub-mode 0x16: [effectCode_lo,
+              effectCode_hi, sensitivity]; oldest hardware uses 0x11.
+            encoding: "bytes"
+            template: [0x33, 0x05, 0x13, "{effect}", "{sensitivity}", "{dynamic}", 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              effect: { type: "uint8", min: 0, max: 6 }
+              sensitivity: { type: "uint8", min: 0, max: 100 }
+              dynamic: { type: "uint8", min: 0, max: 1 }
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
+          keep_alive:
+            description: "Connection keep-alive, every ~2 s. Packet: [0xAA, 0x01, 0x00*17, 0xAB]. Response payload byte 0 = power; byte 1 carries battery band (bits 4-6), charging (bit 3), low-battery (bit 7) on battery models."
+            encoding: "bytes"
+            value: [0xAA, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAB]
+          get_brightness:
+            description: "Query brightness; response payload byte 0 = 0-100. Packet: [0xAA, 0x04, 0x00*17, <xor>]"
+            encoding: "bytes"
+            value: [0xAA, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAE]
+          get_mode:
+            description: >
+              Query the current mode; response payload byte 0 = sub-mode,
+              and for the colour sub-modes RGB sits at payload 1-3, Kelvin
+              big-endian at 4-5, the temperature-equivalent RGB at 6-8 and
+              the segment masks after that. Packet:
+              [0xAA, 0x05, 0x00*17, <xor>].
+              The rest of the after-connect state sync is separate frames:
+              AA 01 (power) is the keep_alive frame above, AA 04 is
+              get_brightness, and AA 23 with payload 0xFF returns all four
+              timer slots.
+            encoding: "bytes"
+            value: [0xAA, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAF]
+
+      - uuid: "00010203-0405-0607-0809-0a0b0c0d2b12"
+        name: "BGC Info (encryption probe)"
+        properties: ["read"]
+        notes: >
+          On service …1910 this characteristic reports the encryption
+          version: response byte 0 = 1 → version at byte 1; byte 0 = 2 →
+          extended form (version byte 1, flag byte 2). Absent = plaintext
+          protocol. NOTE: the same UUID on service …1912 is a different
+          thing entirely — the Telink OTA channel.
+
+  - uuid: "00010203-0405-0607-0809-0a0b0c0d1912"
+    name: "Govee Telink OTA Service"
+    notes: >
+      Firmware update channel on Telink-based units (hardware version
+      1.xx.xx): write [0x01, 0xFF] to start, fixed-size packets, end
+      frame [0x02, 0xFF, <index LE>, <~index LE>, 0x00, 0x00]. Not needed
+      for control. Beken (2.01.xx, F000FFC0-…) and Freqchip (3.xx.xx,
+      02f00000-…-fe00) OTA profiles exist on other hardware generations.
+    characteristics:
+      - uuid: "00010203-0405-0607-0809-0a0b0c0d2b12"
+        name: "OTA Data"
+        properties: ["write", "write_without_response"]
+
+features: []
+
+entities:
+  - platform: "light"
+    name: "Light"
+    features: ["brightness", "color", "color_temperature"]
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+      set_brightness: "set_brightness"
+      set_color: "set_color"
+      set_color_temperature: "set_color_temperature"
+
+helpful_urls:
+  - title: "egold555/Govee-Reverse-Engineering"
+    url: "https://github.com/egold555/Govee-Reverse-Engineering"
+    description: >-
+      Per-model community protocol notes; the segment bitmasks and colour-mode sub-commands were
+      cross-checked against these.
+  - title: "Reverse-engineering Govee smart lights"
+    url: "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/"
+    description: >-
+      Write-up with an on-device GATT dump of the shared 00010203 command profile.
+  - title: "chvolkmann/govee_btled"
+    url: "https://github.com/chvolkmann/govee_btled"
+    description: >-
+      Python client for the legacy command subset (power/brightness/color/scene/music).
+  - title: "Home Assistant Govee lights local integration"
+    url: "https://www.home-assistant.io/integrations/govee_light_local/"
+    description: >-
+      HA core integration for the firmware-side LAN API (UDP 4001/4002/4003) that WiFi models
+      expose once the local-network-API function is enabled.

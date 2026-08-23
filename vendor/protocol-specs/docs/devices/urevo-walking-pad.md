@@ -98,10 +98,19 @@ checksum = (cmd + sub + sum(payload)) & 0xFF ^ 0x5A
 class and is omitted on the `0x51` status query. The factory dispatches
 inbound frames on `first == 0x02 && last == 0x03`.
 
-A second family, BluePack B, starts `5A A5` and is ≥ 11 bytes; the binary
-also carries an MSB-first CRC-16/CCITT (poly `0x1021`). BluePack B is used
-at least for the controller version-info query; its full layout and CRC
-coverage are not yet mapped.
+A second family, BluePack B, carries version/OTA traffic. Fully recovered
+from the `BluePackB` constructor, `toUInt8List`, `fromUInt8List` and
+`crc16CCITT`:
+
+```
+5A A5 <f1> <f2> <f3> <cmd> <sub> <len u16-LE> <data…> <crc u16-LE>
+crc = CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF, MSB-first, no final XOR)
+      over all preceding bytes including the 5A A5 header, appended little-endian
+```
+
+`f1`–`f3` are three 1-byte header fields (`01 03 00` in the version query;
+semantics unidentified). `len` is the uint16-LE data byte count. The
+inbound parser rejects frames shorter than 11 bytes or with a bad CRC.
 
 ### Commands (write to `0xFFF2` on FT class; UR endpoint TBD)
 
@@ -121,24 +130,46 @@ sent to real hardware yet.**
 | UR: get speed config | `02 50 02 08 03` | reported (static) |
 | UR: get slope config | `02 50 03 09 03` | reported (static) |
 | UR: get equipment status | `02 51 0B 03` (no sub byte) | reported (static) |
-| UR: get controller version | BluePack-B frame, body TBD | hypothesis |
+| UR: get controller version | `5A A5 01 03 00 10 01 00 00 8C 6F` (BluePack B) | reported (static) |
 
-Speed and slope are integer counts of the device-reported step: the app
-computes `raw = display / step` using the unit/config helpers, so read the
-speed-config response first to learn the step (likely 0.1 km/h, not yet
-pinned down).
+Speed and slope are integer counts derived from the display value via
+`BlueNumExt.fromKmh`/`fromSlope`, which divide by a per-unit factor from
+the app's runtime unit-config map (keys `kmh`/`slope`, default `1.0`).
+The absolute step (likely 0.1 km/h) is therefore not a binary constant —
+read the speed-config response first to learn it.
 
 ### Responses
 
 Inbound frames arrive on the notify characteristic (`0xFFF1` on FT class).
-Response model classes in the binary: `TMStatusResponse`,
-`TMStartResponse`, `TMStopResponse`, `TMPauseResponse`,
-`TMSpeedConfigResponse`, `TMSlopeAndConfigResponse`, `TMVersionInfoResponse`,
-`TMMileageResponse`, `TMBlueStateResponse`,
-`TMSetSpeedAndSlopeResponse`, `TMGet/SetDotMatrixScreenResponse`
-(dot-matrix display models), plus `BK*` mirrors for bikes. Per-field
-offsets are not yet recovered — needs an HCI snoop or further disassembly
-of the per-class parsers under `ResponseFactory.createResponse`.
+`ResponseFactory.createResponse` dispatches on a key of
+`<EquipmentClassName>_<cmdhex><subhex>`; treadmill answers carry the same
+command class as the request. Recovered dispatch table:
+
+| Key | Parser class |
+|-----|--------------|
+| `51` (no sub) | `TMStatusResponse` |
+| `53 01` | `TMPreparedResponse` |
+| `53 02` | `TMSetSpeedAndSlopeResponse` |
+| `53 03` | `TMStopResponse` |
+| `53 04` | `TMBlueStateResponse` |
+| `53 09` | `TMStartResponse` |
+| `53 0A` | `TMPauseResponse` |
+| `50 00` | `TMVersionInfoResponse` |
+| `50 02` | `TMSpeedConfigResponse` |
+| `50 03` | `TMSlopeAndConfigResponse` |
+| `50 04` | `TMMileageResponse` |
+| `53 10` / `53 11` | `TMGet/SetDotMatrixScreenResponse` (UR class only) |
+| `10 01` (BluePack B) | `OTAMajorVersionResponse` |
+
+FT and UR treadmill keys share the same parser classes. Keys `50 00`,
+`50 04`, `53 04` and the dot-matrix pair have no matching command builders
+found in `UREquipment` — treat them as response-only until a sender is
+confirmed on hardware. Command class `0x40` (previously unidentified)
+belongs to a separate "CM" product family (`CMSetLightResponse`,
+`CMGetLightInfoResponse`, `CMGet/SetSwitchConfigResponse`,
+`CMGetElectricalStudyResponse`) — not treadmills. Per-field offsets inside
+the responses are not yet recovered — needs an HCI snoop or further
+disassembly of the per-class `onParseData` parsers.
 
 ## Safety
 
@@ -152,7 +183,16 @@ unproven until exercised on hardware; verify the stop command first.
 None for control once the GATT endpoints are known. The UR class's
 endpoint/config discovery leans on per-model cloud config (`DeviceConfig`)
 — capture the endpoints once and the cloud is out of the loop. Account,
-history sync and OTA are cloud-only features.
+history sync and OTA are cloud-only features. App-side cloud surface seen
+in the binary (the pad itself contacts none of it):
+
+- API hosts: `https://service.urevosports.com`, `https://urevo.urevosports.com`;
+  H5 pages on `https://h5.urevosports.com`
+- Two hardcoded plain-HTTP IP endpoints: `http://106.52.219.41:8082`,
+  `http://81.71.103.167` (likely legacy/fallback API hosts)
+- OTA metadata: `/product/api/ota/otaCheckVersion` (plus `getProductAll`,
+  `addUpdateLog`, `addConnectLog`); history sync under `/data/api/…`;
+  scale API under `/api/service-scale/…`
 
 ## App Provenance
 
@@ -169,8 +209,8 @@ for the Java/manifest layer).
 ## Tools Used
 
 - [x] APK/XAPK string analysis + jadx (Java layer, manifest)
-- [x] Dart AOT snapshot parse + targeted ARM disassembly (frame grammar, checksum, command bytes, UUID getters)
-- [ ] HCI snoop on hardware (needed for: UR-class service/characteristic UUIDs, FTMS opcode set actually emitted, BluePack B layout + CRC coverage, response field offsets, speed-step value)
+- [x] Dart AOT snapshot parse + targeted ARM disassembly (frame grammar, checksum, command bytes, UUID getters, response dispatch table, BluePack B layout + CRC)
+- [ ] HCI snoop on hardware (needed for: UR-class service/characteristic UUIDs, FTMS opcode set actually emitted, response field offsets, speed-step value)
 
 ## References
 

@@ -839,12 +839,20 @@ entities:
     icon: "mdi:power"
     commands:
       turn_off: "press_power"
+    notes: >
+      Off only. KEY_POWER is nominally a toggle, but the network stack is down
+      in standby, so no network client can reach an off set — from the network
+      the key is discrete-off in practice, which is why this binds turn_off
+      rather than toggle: the toggle direction is unreachable by construction
+      (samsung_remote_common.power). Power-on is Wake-on-LAN, which this file
+      has no vocabulary for, and no power state is readable. Render as a
+      one-way off.
   - platform: "button"
-    name: "Power"
+    name: "Power Key"
     icon: "mdi:power"
     commands:
       press: "press_power"
-    notes: "Network power-off only; power-on is Wake-on-LAN (samsung_remote_common.power)."
+    notes: "The raw remote key, distinct from the Power switch above: it promises a keypress, not a direction. Network power-off only; power-on is Wake-on-LAN (samsung_remote_common.power)."
   - platform: "button"
     name: "Home"
     icon: "mdi:home"

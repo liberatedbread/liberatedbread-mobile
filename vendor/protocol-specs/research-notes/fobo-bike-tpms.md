@@ -33,7 +33,7 @@ Sources:
 | FOBO TPMS (current) | `my.com.salutica.fobotpms` | 1.9.1 (312), XAPK | `bf7ea5db2e3fd0bc3011b1d4579c90b90c7ae4db9155e3752375ebc96d4f8a37` | apkeep / apk-pure |
 
 ## BLE findings (static, FOBO Bike 2 v2.4.13 via jadx)
-UUID constant table in `m4/AbstractC1480b.java` (deobfuscated view in
+UUID constant table in the app (deobfuscated view in
 `$REPO/workspace/static/fobo-bike2/`):
 - Custom 16-bit service families: `fba0` (chars `fba1`), `fbb0` group
   (`fbb0`–`fbb4`, `fbe7`), `fab0`/`fab2`, `fad0`/`fad3`, `ee04`/`ee05`/`ee07`/`ee0b`,

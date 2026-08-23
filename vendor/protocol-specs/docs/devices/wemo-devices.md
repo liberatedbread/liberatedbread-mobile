@@ -91,6 +91,8 @@ Common services:
 | bridge | `urn:Belkin:service:bridge:1` | `/upnp/control/bridge1` | `GetEndDevicesWithStatus`, `GetDeviceStatus`, `SetDeviceStatus` |
 | metainfo | `urn:Belkin:service:metainfo:1` | `/upnp/control/metainfo1` | `GetMetaInfo`, `GetExtMetaInfo` |
 | WiFiSetup | `urn:Belkin:service:WiFiSetup:1` | `/upnp/control/WiFiSetup1` | `GetApList`, `ConnectHomeNetwork`, `GetNetworkStatus`, `CloseSetup` |
+| smartsetup | `urn:Belkin:service:smartsetup:1` | `/upnp/control/smartsetup1` | `PairAndRegister`, `GetRegistrationData`, `GetRegistrationStatus` (cloud-registration handshake, mapped from the Crock-Pot's own SCPD) |
+| remoteaccess | `urn:Belkin:service:remoteaccess:1` | `/upnp/control/remoteaccess1` | `RemoteAccess` (enabled the now-defunct cloud remote access) |
 
 The WiFiSetup control URL spelling varies across firmware generations
 (`/upnp/control/WiFiSetup1` and `/upnp/control/wifi1` have both been reported),
