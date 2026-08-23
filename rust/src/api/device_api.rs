@@ -1784,6 +1784,12 @@ pub struct HttpRequestDto {
     /// Request body — empty for the ECP style, carried for the day a spec
     /// declares one.
     pub body: String,
+    /// URL scheme the device's local API answers on, from the spec's
+    /// `identification.default_scheme`. `None` means `http`; `https` tells
+    /// the sender to open TLS and to tolerate the self-signed certificate a
+    /// LAN device carries. Device-level, not per-command: no spec mixes
+    /// schemes across commands.
+    pub scheme: Option<String>,
 }
 
 impl From<crate::protocol::http::HttpRequest> for HttpRequestDto {
@@ -1792,8 +1798,17 @@ impl From<crate::protocol::http::HttpRequest> for HttpRequestDto {
             method: request.method,
             path: request.path,
             body: request.body,
+            scheme: None,
         }
     }
+}
+
+/// The spec's declared URL scheme for its local HTTP API, if any.
+fn http_scheme_of(spec: &crate::spec::types::DeviceSpec) -> Option<String> {
+    spec.device
+        .identification
+        .as_ref()
+        .and_then(|ident| ident.default_scheme.clone())
 }
 
 /// Render a named `transport: http` command from the spec's `commands` block
@@ -1808,7 +1823,9 @@ pub fn render_network_http_command(
     let spec = parse_device_spec(&spec_yaml)?;
     let request =
         crate::protocol::http::render_request(&spec, &command_name, &values.into_iter().collect())?;
-    Ok(HttpRequestDto::from(request))
+    let mut dto = HttpRequestDto::from(request);
+    dto.scheme = http_scheme_of(&spec);
+    Ok(dto)
 }
 
 /// A rendered Kasa request: the JSON to send, before the cipher and framing.
@@ -2444,7 +2461,9 @@ pub fn render_network_http_state_request(
         &state_command,
         &values.into_iter().collect(),
     )?;
-    Ok(HttpRequestDto::from(request))
+    let mut dto = HttpRequestDto::from(request);
+    dto.scheme = http_scheme_of(&spec);
+    Ok(dto)
 }
 
 /// Enumerate the children an instanced entity's state reply carries, in the

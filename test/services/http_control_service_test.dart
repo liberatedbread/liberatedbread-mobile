@@ -6,6 +6,8 @@
 // answers with into the right exceptions — 403 is a device-side setting, not
 // a network fault.
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -201,6 +203,77 @@ void main() {
     );
     expect(
         const ControlUnreachableException().message, contains('not reachable'));
+  });
+
+  test('a PUT carries its body — the write method the climate specs declare',
+      () async {
+    // Rust's SENDABLE_METHODS admits PUT, so a spec's PUT command renders as
+    // a live control; this transport must carry it rather than throw.
+    late http.Request seen;
+    final client = HttpControlClient(
+      httpClient: MockClient((request) async {
+        seen = request;
+        return http.Response('', 200);
+      }),
+    );
+
+    await client.send(
+        '10.0.0.9',
+        8080,
+        const HttpRequestDto(
+            method: 'PUT',
+            path: '/api/user/lights/2/state',
+            body: '{"on":true}'));
+
+    expect(seen.method, 'PUT');
+    expect(seen.url.toString(), 'http://10.0.0.9:8080/api/user/lights/2/state');
+    expect(seen.body, '{"on":true}');
+  });
+
+  test('a declared https scheme opens TLS and excuses the device certificate',
+      () async {
+    // A real loopback TLS server wearing the self-signed fixture cert (from
+    // test/fixtures/hue_tls) — MockClient can never exercise the trust
+    // decision, and the trust decision is the whole feature: an Envoy or a
+    // SmartCast presents a certificate no platform store will ever accept.
+    final context = SecurityContext()
+      ..useCertificateChain('test/fixtures/hue_tls/bridge.crt')
+      ..usePrivateKey('test/fixtures/hue_tls/bridge.key');
+    final server =
+        await HttpServer.bindSecure(InternetAddress.loopbackIPv4, 0, context);
+    addTearDown(server.close);
+    server.listen((request) {
+      request.response.write('{"production": 42}');
+      request.response.close();
+    });
+
+    final client = HttpControlClient();
+    final body = await client.send(
+        '127.0.0.1',
+        server.port,
+        const HttpRequestDto(
+            method: 'GET',
+            path: '/production.json',
+            body: '',
+            scheme: 'https'));
+
+    expect(body, '{"production": 42}');
+  });
+
+  test('an absent scheme stays plain http on the injected client', () async {
+    // The https client is a separate lazy construction: a spec that says
+    // nothing must keep riding the plain client, scheme http, as ever.
+    late http.Request seen;
+    final client = HttpControlClient(
+      httpClient: MockClient((request) async {
+        seen = request;
+        return http.Response('', 200);
+      }),
+    );
+
+    await client.send('10.0.0.9', 8060, press);
+
+    expect(seen.url.scheme, 'http');
   });
 
   test('a method this transport does not speak is refused before the wire',

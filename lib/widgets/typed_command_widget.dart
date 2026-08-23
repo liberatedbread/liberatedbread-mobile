@@ -158,13 +158,28 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       // computes, and seeding a value would send exactly that.
       if (p.auto != null) continue;
       final allowed = p.allowed;
-      // Enumerated parameters default to the first allowed value (the specs
-      // have no separate default concept); everything else starts at the
-      // bottom of its range. The condition mirrors _buildParam: only numeric
-      // non-bool parameters get the dropdown treatment.
-      _values[p.name] = allowed != null &&
-              allowed.isNotEmpty &&
-              isNumericValueType(p.valueType)
+      final isDropdown = allowed != null &&
+          allowed.isNotEmpty &&
+          isNumericValueType(p.valueType);
+      // The spec's own default seeds the control when it declares one — in
+      // raw device units, like everything in _values. A default outside the
+      // dropdown's allowed set is ignored rather than fed to a widget that
+      // has no item for it.
+      final declared = p.default_;
+      if (declared != null &&
+          (!isDropdown ||
+              allowed.any((v) => v.toDouble() == declared.toDouble()))) {
+        final range = rangeFor(p.valueType, p.min, p.max);
+        _values[p.name] = isDropdown
+            ? declared.toDouble()
+            : declared.toDouble().clamp(range.min, range.max).toDouble();
+        continue;
+      }
+      // Otherwise enumerated parameters start at the first allowed value and
+      // everything else at the bottom of its range. The condition mirrors
+      // _buildParam: only numeric non-bool parameters get the dropdown
+      // treatment.
+      _values[p.name] = isDropdown
           ? allowed.first.toDouble()
           : rangeFor(p.valueType, p.min, p.max).min;
     }

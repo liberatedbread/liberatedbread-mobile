@@ -386,3 +386,62 @@ fn the_ffi_surface_round_trips_the_whole_flow() {
     assert_eq!(request.path, "/api/testuser/lights/2/state");
     assert_eq!(request.body, r#"{"on":true}"#);
 }
+
+#[test]
+fn the_scheme_rides_the_rendered_request_only_when_the_spec_declares_one() {
+    use liberated_bread_core::api::device_api as api;
+    use std::collections::HashMap;
+
+    // Hue declares no default_scheme: the DTO says nothing and the sender
+    // stays on plain http.
+    let light = {
+        let spec = spec();
+        let actions = resolve_network_actions(&spec, light_entity(&spec));
+        actions[0].command_name.to_string()
+    };
+    let request = api::render_network_http_command(
+        HUE.to_string(),
+        light,
+        HashMap::from([
+            ("username".to_string(), "testuser".to_string()),
+            ("id".to_string(), "2".to_string()),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(request.scheme, None);
+
+    // An https device carries its declared scheme on every rendered request,
+    // command and state poll alike.
+    const HTTPS_SPEC: &str = r#"
+device:
+  name: "TLS Box"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "energy"
+  identification:
+    default_port: 443
+    default_scheme: "https"
+commands:
+  read_production:
+    description: "A state poll behind TLS."
+    transport: "http"
+    method: "GET"
+    path: "/production.json"
+"#;
+    let request = api::render_network_http_command(
+        HTTPS_SPEC.to_string(),
+        "read_production".to_string(),
+        HashMap::new(),
+    )
+    .unwrap();
+    assert_eq!(request.scheme.as_deref(), Some("https"));
+
+    let state = api::render_network_http_state_request(
+        HTTPS_SPEC.to_string(),
+        "read_production".to_string(),
+        HashMap::new(),
+    )
+    .unwrap();
+    assert_eq!(state.scheme.as_deref(), Some("https"));
+}

@@ -3302,12 +3302,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   HttpRequestDto dco_decode_http_request_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
     return HttpRequestDto(
       method: dco_decode_String(arr[0]),
       path: dco_decode_String(arr[1]),
       body: dco_decode_String(arr[2]),
+      scheme: dco_decode_opt_String(arr[3]),
     );
   }
 
@@ -5031,7 +5032,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_method = sse_decode_String(deserializer);
     var var_path = sse_decode_String(deserializer);
     var var_body = sse_decode_String(deserializer);
-    return HttpRequestDto(method: var_method, path: var_path, body: var_body);
+    var var_scheme = sse_decode_opt_String(deserializer);
+    return HttpRequestDto(
+        method: var_method, path: var_path, body: var_body, scheme: var_scheme);
   }
 
   @protected
@@ -7039,6 +7042,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.method, serializer);
     sse_encode_String(self.path, serializer);
     sse_encode_String(self.body, serializer);
+    sse_encode_opt_String(self.scheme, serializer);
   }
 
   @protected

@@ -127,6 +127,42 @@ final _allowedChar = CharacteristicDto(
   formatFields: [],
 );
 
+// Parameters whose spec declares a `default:` — the seed the control must
+// start at, instead of the bottom of the range / the first allowed value.
+final _defaultedChar = CharacteristicDto(
+  uuid: _char,
+  name: 'Command',
+  canRead: false,
+  canWrite: true,
+  canNotify: false,
+  commands: [
+    CommandDto(
+      name: 'set_mode',
+      description: 'Set mode and level',
+      isFixed: false,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      advanced: false,
+      parameters: [
+        ParameterDto(
+          name: 'mode',
+          valueType: 'int32',
+          allowed: Int64List.fromList([0, 200, 400]),
+          labels: const ['OFF', 'Low', 'Mid'],
+          default_: 400,
+        ),
+        const ParameterDto(
+            name: 'level',
+            valueType: 'uint8',
+            min: 0,
+            max: 100,
+            default_: 42),
+      ],
+    ),
+  ],
+  formatFields: [],
+);
+
 // Allowed values that arrive without usable labels: one parameter has no
 // labels at all, the other has labels that cannot pair 1:1 with allowed
 // (hand-built DTOs can bypass the Rust boundary that normally drops these).
@@ -390,6 +426,22 @@ void main() {
     // Close the menu again to leave the tree settled.
     await tester.tap(find.text('Low (200)'));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('a declared default seeds the slider and the dropdown',
+      (tester) async {
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _defaultedChar));
+
+    // The slider starts at the spec's default, not the bottom of its range,
+    // and the dropdown at the defaulted allowed value, not the first.
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.value, 42.0);
+    expect(find.text('Level: 42'), findsOneWidget);
+    expect(find.text('Mid (400)'), findsOneWidget);
+    expect(find.text('OFF (0)'), findsNothing);
   });
 
   testWidgets('selecting an allowed entry sends its value, not label or index',

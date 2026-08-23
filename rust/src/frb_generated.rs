@@ -3678,10 +3678,12 @@ impl SseDecode for crate::api::device_api::HttpRequestDto {
         let mut var_method = <String>::sse_decode(deserializer);
         let mut var_path = <String>::sse_decode(deserializer);
         let mut var_body = <String>::sse_decode(deserializer);
+        let mut var_scheme = <Option<String>>::sse_decode(deserializer);
         return crate::api::device_api::HttpRequestDto {
             method: var_method,
             path: var_path,
             body: var_body,
+            scheme: var_scheme,
         };
     }
 }
@@ -6330,6 +6332,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::HttpRequestDto {
             self.method.into_into_dart().into_dart(),
             self.path.into_into_dart().into_dart(),
             self.body.into_into_dart().into_dart(),
+            self.scheme.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -7848,6 +7851,7 @@ impl SseEncode for crate::api::device_api::HttpRequestDto {
         <String>::sse_encode(self.method, serializer);
         <String>::sse_encode(self.path, serializer);
         <String>::sse_encode(self.body, serializer);
+        <Option<String>>::sse_encode(self.scheme, serializer);
     }
 }
 

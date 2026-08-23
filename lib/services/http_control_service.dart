@@ -1,8 +1,10 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
 import '../core/error_text.dart';
 import 'spec_codec.dart' show HttpRequestDto;
@@ -17,6 +19,15 @@ import 'spec_codec.dart' show HttpRequestDto;
 /// any device; what to send comes from the spec via the Rust codec.
 class HttpControlClient {
   final http.Client _http;
+  http.Client? _https;
+  final http.Client? _injectedHttps;
+
+  /// Hosts an https request has been addressed to, the only certificates the
+  /// TLS client will excuse. A LAN device's certificate is self-signed or
+  /// chains to a vendor CA no platform store carries (the Envoy's, Vizio's),
+  /// so `badCertificateCallback` must fire — but only for the device the
+  /// caller named, never as a blanket "trust anything" on a shared client.
+  final Set<String> _trustedHosts = <String>{};
 
   /// One request's ceiling. ECP answers in tens of milliseconds on a LAN, so
   /// ten seconds is generous — but a TV in deep standby can sit on a request,
@@ -24,8 +35,16 @@ class HttpControlClient {
   /// 200.
   static const timeout = Duration(seconds: 10);
 
-  HttpControlClient({http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+  HttpControlClient({http.Client? httpClient, http.Client? httpsClient})
+      : _http = httpClient ?? http.Client(),
+        _injectedHttps = httpsClient;
+
+  /// The TLS client, built on first https use so a plain-http app never pays
+  /// for it. Trust is per-host, granted the moment a request names the host.
+  http.Client get _httpsClient => _https ??= _injectedHttps ??
+      IOClient(HttpClient()
+        ..badCertificateCallback =
+            (cert, host, port) => _trustedHosts.contains(host));
 
   /// Send one rendered request and return the response body.
   ///
@@ -44,16 +63,36 @@ class HttpControlClient {
     // out as `/input%3Fname=value`, a path the device has never heard of. The
     // renderer already produced a valid relative reference — percent-encoding
     // included — so resolving preserves both halves as written.
-    final uri = Uri.parse('http://$host:$port').resolve(request.path);
+    // The scheme is the spec's to declare (`identification.default_scheme`):
+    // absent means plain http, `https` means the device only answers over
+    // TLS — and its certificate is excused for this host alone.
+    final secure = request.scheme == 'https';
+    final http.Client client;
+    if (secure) {
+      _trustedHosts.add(host);
+      client = _httpsClient;
+    } else {
+      client = _http;
+    }
+    final scheme = secure ? 'https' : 'http';
+    final uri = Uri.parse('$scheme://$host:$port').resolve(request.path);
     final http.Response response;
     try {
       switch (request.method.toUpperCase()) {
         case 'GET':
-          response = await _http.get(uri).timeout(timeout);
+          response = await client.get(uri).timeout(timeout);
         case 'POST':
           // ECP commands carry an empty body and no headers; a spec that
           // declares a body gets it sent verbatim.
-          response = await _http.post(uri, body: request.body).timeout(timeout);
+          response =
+              await client.post(uri, body: request.body).timeout(timeout);
+        case 'PUT':
+          // The body-carrying sibling of POST — the Hue bridge's whole write
+          // surface, and the Frigidaires'. Rust's SENDABLE_METHODS names it,
+          // so a spec's PUT command renders as a live control; this arm is
+          // what makes the press actually go somewhere.
+          response =
+              await client.put(uri, body: request.body).timeout(timeout);
         default:
           throw HttpControlException(
               'unsupported method ${request.method} for $uri');

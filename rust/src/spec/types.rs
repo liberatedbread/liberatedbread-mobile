@@ -1075,6 +1075,12 @@ pub struct Identification {
     /// Default TCP port for the device's local API.
     #[serde(default)]
     pub default_port: Option<u16>,
+    /// URL scheme of the local API at `default_port` — absent means `http`.
+    /// `https` is what authorizes a consumer to open TLS to a LAN address
+    /// (the Envoy's 443, SmartCast's 7345), whose certificate is almost
+    /// never publicly verifiable.
+    #[serde(default)]
+    pub default_scheme: Option<String>,
     /// Other discovery hints (e.g. admore's `local_name_dfu`,
     /// `local_name_armband*`), parsed and preserved but not yet interpreted.
     #[serde(flatten)]
