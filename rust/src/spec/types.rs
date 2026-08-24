@@ -181,6 +181,19 @@ pub struct Feature {
     /// sending `play_command` — playing an uncommitted cid is a silent no-op.
     #[serde(default)]
     pub response_characteristic: Option<String>,
+    /// Characteristic UUID the transfer's own packets are WRITTEN to — the
+    /// sibling of [`Self::response_characteristic`] for the outbound leg
+    /// (Daniao: the "Uploader" char, which carries its own 8-byte header
+    /// instead of the fragment framing the command channels use).
+    ///
+    /// Absent, the uploader is guessed: the first writable characteristic
+    /// that declares no `framing` block. That heuristic is right on every
+    /// spec in the catalogue today and is kept as the fallback, but it is a
+    /// guess — a device that grew a second unframed writable characteristic
+    /// would silently upload to whichever the spec listed first. Declaring
+    /// this ends the guessing for that spec.
+    #[serde(default)]
+    pub uploader_characteristic: Option<String>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }

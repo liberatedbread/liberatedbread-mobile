@@ -219,10 +219,31 @@ pub fn encode_upload(
     })
 }
 
-/// The Uploader characteristic: the writable char that does NOT declare
-/// `daniao_fragment` framing (the DDP/BIN command channels do; the uploader
-/// carries its own 8-byte header instead).
+/// The Uploader characteristic the transfer's packets are written to.
+///
+/// The spec says which, on the `stored_upload` feature's
+/// `uploader_characteristic`. When it does not, fall back to the heuristic
+/// that has served since before there was a field to read: the first writable
+/// characteristic that does NOT declare `daniao_fragment` framing (the
+/// DDP/BIN command channels do; the uploader carries its own 8-byte header
+/// instead). That is right on every spec in the catalogue, but it is still a
+/// guess — a device that grew a second unframed writable characteristic would
+/// silently upload to whichever the spec listed first, and the failure would
+/// look like a device that ignores its uploads.
+///
+/// A declared UUID is honoured even if the spec's own service list does not
+/// carry it: [`super::service_for_characteristic`] is what resolves the
+/// service to open, and letting that fail loudly is better than quietly
+/// guessing a different characteristic than the author named.
 fn uploader_characteristic(spec: &DeviceSpec) -> Option<String> {
+    let declared = spec
+        .features
+        .iter()
+        .find(|f| f.feature_type == "stored_upload")
+        .and_then(|f| f.uploader_characteristic.clone());
+    if declared.is_some() {
+        return declared;
+    }
     for service in &spec.services {
         for c in &service.characteristics {
             let writable = c.properties.iter().any(|p| {
@@ -749,6 +770,36 @@ services:
     #[test]
     fn empty_payload_is_rejected() {
         assert!(encode_upload(&spec(), 1, 0, 5, &[], None, 500).is_err());
+    }
+
+    /// With no `uploader_characteristic` declared, the heuristic picks the one
+    /// writable characteristic that carries no framing block. That is what the
+    /// vendored spec relies on today.
+    #[test]
+    fn the_heuristic_finds_the_unframed_writable_characteristic() {
+        let transfer = encode_upload(&spec(), 1, 3, 5, &[1, 2, 3], None, 500).unwrap();
+        assert_eq!(
+            transfer.characteristic_uuid,
+            "27923001-2072-1925-3022-077119514e44"
+        );
+    }
+
+    /// A declared `uploader_characteristic` wins. The heuristic would pick the
+    /// unframed "Uploader" here too, so the test makes the spec name a
+    /// DIFFERENT characteristic: only a spec that is actually read can move
+    /// the writes.
+    #[test]
+    fn a_declared_uploader_characteristic_overrides_the_heuristic() {
+        let declared = format!(
+            "{SPEC}features:\n  - type: \"stored_upload\"\n    \
+             uploader_characteristic: \"02020074-1972-1925-3022-077119514e44\"\n"
+        );
+        let spec = parse_device_spec(&declared).unwrap();
+        let transfer = encode_upload(&spec, 1, 3, 5, &[1, 2, 3], None, 500).unwrap();
+        assert_eq!(
+            transfer.characteristic_uuid, "02020074-1972-1925-3022-077119514e44",
+            "the spec's word beats the guess"
+        );
     }
 
     /// A single-fragment DDP push carrying an inbound DNX packet with `mt`
