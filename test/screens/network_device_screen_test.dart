@@ -2818,6 +2818,9 @@ void main() {
       ),
     ];
 
+    const roombaCapabilities =
+        NetworkCapabilitiesDto(protocolHandler: roombaProtocolHandler);
+
     final robot = NetworkDevice(
       host: '10.0.0.7',
       name: 'Dorita',
@@ -2867,7 +2870,12 @@ void main() {
           home: NetworkDeviceScreen(
             device: robot,
             controls: const NetworkControls(
-                specYaml: 'yaml', entities: roombaEntities),
+                specYaml: 'yaml',
+                entities: roombaEntities,
+                // The spec's own handler is what makes this a robot rather
+                // than merely an MQTT device — a Hisense set rides `mqtt`
+                // too, and only this one has a BLID to look up.
+                capabilities: roombaCapabilities),
           ),
         ),
       ));
@@ -2882,6 +2890,49 @@ void main() {
         isEmpty,
         reason: 'the screen let go of the robot while still driving it',
       );
+    });
+
+    /// A television is not a robot. Both ride `mqtt`, so the transport string
+    /// cannot tell them apart — only the spec's `protocol_handler` can. Taking
+    /// the robot's load path here would look up a BLID that does not exist and
+    /// leave a working set on an error screen.
+    testWidgets('a non-Roomba MQTT device does not take the robot load path',
+        (tester) async {
+      final television = NetworkDevice(
+        host: '10.0.0.9',
+        name: 'Living Room TV',
+        sources: const {NetworkDiscoverySource.ssdp},
+        discoveredAt: DateTime.utc(2026),
+      );
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+          roombaClientProvider.overrideWith((ref, blid) =>
+              fail('a television must not open a robot session')),
+        ],
+        child: MaterialApp(
+          home: NetworkDeviceScreen(
+            device: television,
+            controls: const NetworkControls(
+              specYaml: 'yaml',
+              entities: roombaEntities,
+              // Same transport, no robot handler.
+              capabilities: NetworkCapabilitiesDto(),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // And it is not left on the "fetch a description" path either: an MQTT
+      // device pushes, so there is nothing to fetch and nothing to poll. A
+      // set that loads cleanly shows its control and no banner — demanding a
+      // UPnP control port it never advertised is what this arm prevents.
+      expect(find.text('Clean'), findsOneWidget);
+      expect(find.textContaining('did not advertise a control port'),
+          findsNothing);
     });
   });
 }

@@ -145,8 +145,17 @@ final bleAdoptableDevicesProvider =
 /// The one place the "is this waiting to be set up" question is answered, so
 /// the BLE device screen and the setup screen's own scan agree, and neither
 /// spells a product's advertised name in Dart.
-final bleSetupModeMatchProvider = FutureProvider.autoDispose
-    .family<BleAdoptableDevice?, String>((ref, advertisedName) async {
+///
+/// Deliberately NOT autoDispose. The setup screen asks this per scan
+/// advertisement with `ref.read(...future)` and no lasting listener, and an
+/// autoDispose family entry can be torn down while its future is still in
+/// flight — the future is then never delivered and the peripheral silently
+/// never joins the found list, which reads as "the app cannot see my
+/// purifier". What is retained instead is one small record per distinct
+/// advertised name seen in a session.
+final bleSetupModeMatchProvider =
+    FutureProvider.family<BleAdoptableDevice?, String>(
+        (ref, advertisedName) async {
   final devices = await ref.watch(bleAdoptableDevicesProvider.future);
   if (devices.isEmpty) return null;
   final index = await ref.watch(specCodecProvider).matchBleProvisioningName(

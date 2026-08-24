@@ -55,7 +55,19 @@ class MqttConnectionException implements UserFacingException {
   /// device.
   final bool handshakeFailed;
 
-  const MqttConnectionException(this.message, {this.handshakeFailed = false});
+  /// True when the socket opened and the broker then never sent CONNACK.
+  ///
+  /// Flagged rather than left to the message text because what it MEANS is
+  /// device-specific — on a Roomba it is almost always the iRobot app holding
+  /// the one local client slot — and a caller that wants to say so should not
+  /// have to string-match this class's wording.
+  final bool ackTimedOut;
+
+  const MqttConnectionException(
+    this.message, {
+    this.handshakeFailed = false,
+    this.ackTimedOut = false,
+  });
 
   @override
   String toString() => message;
@@ -153,10 +165,15 @@ class MqttSession {
 
   static const connectTimeout = Duration(seconds: 10);
 
-  /// How long to wait for CONNACK once the socket is up. Separate from the
+  /// The default wait for CONNACK once the socket is up. Separate from the
   /// socket timeout because a device that accepts TCP and then says nothing is
   /// a different problem from one that never accepted.
   static const ackTimeout = Duration(seconds: 8);
+
+  /// This session's CONNACK wait. Overridable because eight seconds is a
+  /// guess that suits a LAN appliance and not every broker, and because a
+  /// test of the timeout should not take eight seconds to run.
+  final Duration ackWait;
 
   /// Comfortably inside the 60 s keepalive the CONNECT advertises.
   static const pingInterval = Duration(seconds: 25);
@@ -191,6 +208,7 @@ class MqttSession {
     required SpecCodec codec,
     MqttConnect? connect,
     String label = 'mqtt',
+    this.ackWait = ackTimeout,
   })  : _codec = codec,
         _connect = connect ?? tlsConnect,
         _label = label;
@@ -240,11 +258,22 @@ class MqttSession {
     ));
 
     try {
-      await _connected!.future.timeout(ackTimeout);
+      final acknowledged = _connected!.future;
+      // The timeout below gives up on this future, and then close() shuts the
+      // socket — which fires onDone, which fails the very same completer. By
+      // then nothing is listening, and Dart reports a completed-with-error
+      // future that nobody handled as an unhandled async error: in production
+      // a red screen for a device that merely did not answer, and in a test a
+      // zone failure that hides the real assertion. A no-op handler on a
+      // second copy marks it handled without changing what `await` below
+      // sees, so a genuine refusal still propagates.
+      unawaited(acknowledged.catchError((Object _) {}));
+      await acknowledged.timeout(ackWait);
     } on TimeoutException {
       await close();
       throw const MqttConnectionException(
         'The device accepted the connection but never acknowledged the login.',
+        ackTimedOut: true,
       );
     } catch (_) {
       // Every OTHER way this can fail — a refused CONNACK, the device hanging

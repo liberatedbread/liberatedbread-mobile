@@ -136,8 +136,10 @@ class NetworkCommandSender {
   Future<Ecp2Session?>? _ecp2Opening;
   bool _ecp2Unavailable = false;
 
-  /// The MQTT session, for a device whose control surface rides one.
+  /// The MQTT session, for a device whose control surface rides one, and the
+  /// connect in flight that every concurrent send waits on.
   MqttSession? _mqtt;
+  Future<MqttSession>? _mqttOpening;
 
   /// Set by [close], so a connect still in flight closes its socket rather
   /// than handing it to nobody.
@@ -151,6 +153,7 @@ class NetworkCommandSender {
     _ecp2Opening = null;
     final mqtt = _mqtt;
     _mqtt = null;
+    _mqttOpening = null;
     await (session?.close() ?? Future<void>.value());
     // DISCONNECT rather than a dropped socket: a broker that serves one local
     // client leaves the owner's own app locked out until it notices.
@@ -232,9 +235,21 @@ class NetworkCommandSender {
   /// Unlike the ECP2 session there is no fallback path: a device whose control
   /// surface is MQTT has no second way in, so a failure to connect is the
   /// caller's to report rather than something to latch and route around.
-  Future<MqttSession> _openMqtt() async {
+  Future<MqttSession> _openMqtt() {
     final existing = _mqtt;
-    if (existing != null && existing.isConnected) return existing;
+    if (existing != null && existing.isConnected) return Future.value(existing);
+    // One connect in flight, shared by every caller waiting on it. MQTT is an
+    // independent transport, so the screen deliberately does not serialize
+    // sends: two buttons pressed together would otherwise each open a session,
+    // the second overwriting the first's handle so its socket never closes —
+    // and on a broker that serves one client at a time, the second CONNECT
+    // evicts the first. The ECP2 path guards the same way for the same reason.
+    return _mqttOpening ??= _connectMqtt().whenComplete(() {
+      _mqttOpening = null;
+    });
+  }
+
+  Future<MqttSession> _connectMqtt() async {
     if (_closed) {
       throw const MqttConnectionException('This device screen has closed.');
     }
@@ -253,12 +268,17 @@ class NetworkCommandSender {
         'connect with.',
       );
     }
+    // A session that died leaves its stream controller open; dropping the
+    // handle would leak it as surely as dropping a socket.
+    final stale = _mqtt;
+    _mqtt = null;
+    await (stale?.dispose() ?? Future<void>.value());
+
     final session = MqttSession(
       codec: _codec,
       connect: _mqttConnect,
       label: 'mqtt $host',
     );
-    _mqtt = session;
     await session.connect(
       host,
       port,
@@ -266,7 +286,14 @@ class NetworkCommandSender {
       username: mqttCredentials['username'],
       password: mqttCredentials['password'],
     );
-    return session;
+    // Published only once it is authenticated, and only if the screen is still
+    // open: close() ran while this was in flight would have seen a null _mqtt
+    // and closed nothing.
+    if (_closed) {
+      await session.dispose();
+      throw const MqttConnectionException('This device screen has closed.');
+    }
+    return _mqtt = session;
   }
 
   /// Send one control request. A Roku is driven over the app's

@@ -2511,15 +2511,29 @@ class NetworkCapabilitiesDto {
   /// `None` meaning plain http.
   final String? defaultScheme;
 
+  /// The spec's `protocol_handler`, when it names one — `roomba_mqtt`,
+  /// `rabbit_air_lan`, `lifx_lan`.
+  ///
+  /// Surfaced because a transport string cannot tell two devices apart when
+  /// they share one: a Roomba and a Hisense set both ride `mqtt`, and only
+  /// the Roomba wants the bespoke session-and-credentials load path. The
+  /// handler is the spec's own answer to "which conversation is this", so a
+  /// consumer forks on it rather than on a device name.
+  final String? protocolHandler;
+
   const NetworkCapabilitiesDto({
     this.signedSession,
     this.defaultPort,
     this.defaultScheme,
+    this.protocolHandler,
   });
 
   @override
   int get hashCode =>
-      signedSession.hashCode ^ defaultPort.hashCode ^ defaultScheme.hashCode;
+      signedSession.hashCode ^
+      defaultPort.hashCode ^
+      defaultScheme.hashCode ^
+      protocolHandler.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2528,7 +2542,8 @@ class NetworkCapabilitiesDto {
           runtimeType == other.runtimeType &&
           signedSession == other.signedSession &&
           defaultPort == other.defaultPort &&
-          defaultScheme == other.defaultScheme;
+          defaultScheme == other.defaultScheme &&
+          protocolHandler == other.protocolHandler;
 }
 
 /// What a scanner saw about one device on the local network.

@@ -162,6 +162,32 @@ void main() {
     expect(session.isConnected, isFalse);
   });
 
+  /// A broker that accepts TCP and then says nothing is a different problem
+  /// from one that never accepted, and callers translate it — the Roomba's
+  /// means the iRobot app holds the one local slot. Flagged rather than left
+  /// to the message text so no caller has to string-match this wording.
+  test('a broker that never sends CONNACK times out, flagged as such',
+      () async {
+    final broker = _ScriptedBroker();
+    final session = MqttSession(
+      codec: codec,
+      // Accepts the socket, then silence.
+      connect: (host, port, timeout) async => broker,
+      ackWait: const Duration(milliseconds: 50),
+    );
+    addTearDown(session.dispose);
+
+    await expectLater(
+      session.connect('10.0.0.5', 1883, clientId: 'c'),
+      throwsA(isA<MqttConnectionException>()
+          .having((e) => e.ackTimedOut, 'ackTimedOut', isTrue)),
+    );
+    // The socket is released, so a later connect really reconnects rather
+    // than returning early over a session the broker never authenticated.
+    expect(session.isConnected, isFalse);
+    expect(broker.closed, isTrue);
+  });
+
   test('a hang-up surfaces on the message stream', () async {
     final (session, broker) = await connected();
     addTearDown(session.dispose);

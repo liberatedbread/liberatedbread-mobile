@@ -27,6 +27,14 @@ typedef RoombaTlsSocket = MqttSocket;
 /// `crate::protocol::roomba::PORT`.
 const roombaPort = 8883;
 
+/// The spec's `protocol_handler` for a robot. Matches
+/// `crate::protocol::roomba::HANDLER_NAME`.
+///
+/// The transport below cannot stand in for it: a Hisense set rides `mqtt`
+/// too, and only a robot wants this file's credentials, HA route and
+/// one-client-slot bookkeeping.
+const roombaProtocolHandler = 'roomba_mqtt';
+
 /// The transport token entities and actions carry, and what the device screen
 /// dispatches on. Matches `crate::protocol::roomba::TRANSPORT`.
 const roombaTransport = 'mqtt';
@@ -340,9 +348,7 @@ class RoombaMqttClient {
       throw RoombaAuthException(e.code);
     } on MqttConnectionException catch (e) {
       throw RoombaConnectionException(
-        e.message ==
-                'The device accepted the connection but never '
-                    'acknowledged the login.'
+        e.ackTimedOut
             ? 'The robot accepted the connection but never acknowledged the '
                 'login. Close the iRobot app — the robot serves one local '
                 'client at a time.'

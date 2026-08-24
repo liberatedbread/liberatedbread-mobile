@@ -322,6 +322,26 @@ void main() {
       );
     });
 
+    /// MQTT is an independent transport, so the screen deliberately does not
+    /// serialize sends: two buttons pressed together arrive together. Without
+    /// one shared connect in flight each would open a session, the second
+    /// overwriting the first's handle so its socket never closes — and on a
+    /// broker that serves one client at a time, the second CONNECT evicts the
+    /// first.
+    test('two sends racing open one session, not two', () async {
+      final s = mqttSender();
+      addTearDown(s.close);
+
+      await Future.wait([
+        s.sendAction(action('press', 'press_power', transport: 'mqtt'), {}),
+        s.sendAction(action('press', 'press_up', transport: 'mqtt'), {}),
+      ]);
+
+      expect(broker.connects, 1, reason: 'one CONNECT, not one per press');
+      // One CONNECT and two PUBLISHes.
+      expect(broker.written.length, 3);
+    });
+
     test('closing the sender disconnects the broker', () async {
       final s = mqttSender();
       await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});

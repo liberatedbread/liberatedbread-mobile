@@ -390,71 +390,130 @@ pub fn render_command(
 /// A substituted value may not contain `/`, `+` or `#`. Those three are the
 /// topic language itself — a separator and the two wildcards — so a value
 /// carrying one does not fill a level, it rewrites the topic. The values here
-/// are rarely the author's (a client id the app generated, a serial read off a
-/// device's own announcement), and publishing a command to a topic the spec
-/// never named is the failure worth refusing: at best nothing happens, at
-/// worst it lands somewhere that acts on it. The parallel is Kasa's JSON
-/// escaping, one layer up: same class of bug, and a topic cannot be escaped —
-/// there is no quoting in MQTT topic names — so the only safe answer is no.
+/// are rarely the author's (a client id the app generated, a serial off a
+/// device announcement), and publishing a command to a topic the spec never
+/// named is the failure worth refusing: at best nothing happens, at worst it
+/// lands somewhere that acts on it. The parallel is Kasa's JSON escaping one
+/// layer up: same class of bug, and a topic cannot be escaped — there is no
+/// quoting in MQTT topic names — so the only safe answer is no.
+///
+/// A placeholder the command never declared is refused too. Left standing it
+/// would publish a topic containing a literal `{client_id}`, which succeeds at
+/// the socket and does nothing at the device — the worst kind of failure to
+/// debug.
 fn substitute_topic(
     template: &str,
     command: &SpecCommand,
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    let mut out = template.to_string();
-    for name in command.parameters.keys() {
-        let placeholder = format!("{{{name}}}");
-        if !out.contains(&placeholder) {
-            continue;
+    walk(template, |param| {
+        // Unlike a payload, a topic has no legitimate braces, so a
+        // parameter-shaped name the command does not declare is a mistake
+        // rather than literal text.
+        if !command.parameters.contains_key(param) {
+            return Err(ProtocolError::ParameterMissing(format!(
+                "{command_name}'s topic holds {{{param}}}, which the command \
+                 does not declare as a parameter"
+            )));
         }
-        let value = resolve(command, command_name, name, values)?;
+        let value = resolve(command, command_name, param, values)?;
         if value.contains(['/', '+', '#']) {
             return Err(ProtocolError::ParameterMissing(format!(
-                "{command_name}.{name} carries a topic separator or wildcard \
+                "{command_name}.{param} carries a topic separator or wildcard \
                  ({value:?}); it would rewrite the topic rather than fill it"
             )));
         }
-        out = out.replace(&placeholder, &value);
-    }
-    // A placeholder the command never declared as a parameter is left standing
-    // by the loop above, and a topic containing a literal `{client_id}` is a
-    // topic no broker routes — the publish would succeed and nothing would
-    // happen, which is the worst failure to debug. Refuse instead, naming what
-    // the spec forgot to declare.
-    if let Some(unfilled) = first_placeholder(&out) {
-        return Err(ProtocolError::ParameterMissing(format!(
-            "{command_name}'s topic still holds {{{unfilled}}}: the command \
-             does not declare it as a parameter"
-        )));
-    }
-    Ok(out)
-}
-
-/// The first `{name}` still standing in a rendered template, if any.
-fn first_placeholder(rendered: &str) -> Option<&str> {
-    let start = rendered.find('{')?;
-    let rest = &rendered[start + 1..];
-    let end = rest.find('}')?;
-    Some(&rest[..end])
+        Ok(Some(value))
+    })
 }
 
 /// Fill `{name}` placeholders in a payload, verbatim.
+///
+/// No escaping, unlike the same field on the Kasa transport: this payload is a
+/// bare string as often as it is JSON, and escaping `KEY_POWER` would corrupt
+/// a value carrying a quote rather than protect it. A spec whose payload is
+/// JSON declares `arguments` and gets the typed, escaped path.
+///
+/// A brace naming something the command does not declare is left as written
+/// rather than refused — a JSON payload written as a `body` template is full
+/// of braces, and none of them are placeholders.
 fn substitute_plain(
     template: &str,
     command: &SpecCommand,
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    let mut out = template.to_string();
-    for name in command.parameters.keys() {
-        let placeholder = format!("{{{name}}}");
-        if out.contains(&placeholder) {
-            let value = resolve(command, command_name, name, values)?;
-            out = out.replace(&placeholder, &value);
+    walk(template, |param| {
+        if !command.parameters.contains_key(param) {
+            return Ok(None);
+        }
+        resolve(command, command_name, param, values).map(Some)
+    })
+}
+
+/// One left-to-right pass over a template, handing each `{name}` to `fill`.
+///
+/// Single-pass on purpose. Replacing placeholders one parameter at a time —
+/// the obvious loop, and what this used to do — re-scans its own output, so a
+/// value that happens to contain `{other}` has `other`'s value substituted
+/// into it on a later turn. The values are credentials and device replies,
+/// which makes that a way to pull one parameter somewhere the spec never put
+/// it. Walking the template once cannot: what `fill` returns is never looked
+/// at again.
+///
+/// What counts as a placeholder is `{` + a parameter-shaped name + `}`, not
+/// any pair of braces. That distinction is what lets a JSON payload be
+/// written as a `body` template: in `{"id": "{id}"}` the outer brace is
+/// followed by a quote, so it is object syntax and is emitted as written,
+/// while `{id}` is filled. Scanning for brace PAIRS instead would swallow
+/// everything up to the first `}` and substitute nothing.
+///
+/// `fill` returning `None` means "not a placeholder after all" — the caller's
+/// way of saying a name it does not know is the author's literal text.
+fn walk(
+    template: &str,
+    mut fill: impl FnMut(&str) -> Result<Option<String>, ProtocolError>,
+) -> Result<String, ProtocolError> {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let (literal, tail) = rest.split_at(open);
+        out.push_str(literal);
+        match placeholder_name(tail) {
+            Some(name) => {
+                match fill(name)? {
+                    Some(value) => out.push_str(&value),
+                    None => {
+                        out.push('{');
+                        out.push_str(name);
+                        out.push('}');
+                    }
+                }
+                rest = &tail[name.len() + 2..];
+            }
+            None => {
+                // Not a placeholder: a JSON object's brace, or an unclosed one
+                // the author meant literally. Emit it and keep looking — the
+                // rest of the template may still hold real placeholders.
+                out.push('{');
+                rest = &tail[1..];
+            }
         }
     }
+    out.push_str(rest);
     Ok(out)
+}
+
+/// The parameter name in `{name}` at the head of `tail`, if that is what it
+/// is. A name is what the schema allows a parameter to be called: one or more
+/// of `[A-Za-z0-9_]`, nothing else.
+fn placeholder_name(tail: &str) -> Option<&str> {
+    let after_brace = tail.strip_prefix('{')?;
+    let end = after_brace.find('}')?;
+    let name = &after_brace[..end];
+    let shaped = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    shaped.then_some(name)
 }
 
 /// A parameter's value: the caller's, else the spec's declared default, else
@@ -815,5 +874,89 @@ commands:
             matches!(error, ProtocolError::UnsupportedCommandEncoding(_)),
             "{error}"
         );
+    }
+}
+
+#[cfg(test)]
+mod substitution_tests {
+    use super::*;
+    use crate::spec::parser::parse_device_spec;
+
+    /// Two parameters, one of whose values names the other. The obvious
+    /// replace-per-parameter loop would substitute `secret`'s value into the
+    /// topic where `id` went; a single pass cannot.
+    const TWO_PARAMS: &str = r#"
+device:
+  name: "Test"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "sensor"
+  transport: "mqtt"
+commands:
+  poke:
+    description: "Poke."
+    transport: "mqtt"
+    path: "tv/{id}/go"
+    parameters:
+      id:
+        type: "string"
+        required: true
+      secret:
+        type: "string"
+        required: true
+    body: "{id}|{secret}"
+"#;
+
+    #[test]
+    fn a_value_naming_another_parameter_is_not_expanded_again() {
+        let spec = parse_device_spec(TWO_PARAMS).expect("fixture parses");
+        let values = BTreeMap::from([
+            ("id".to_string(), "{secret}".to_string()),
+            ("secret".to_string(), "hunter2".to_string()),
+        ]);
+        // The topic refuses it — `{` is not a topic separator, so what stops
+        // it is the single pass, not the wildcard check.
+        let request = render_request(&spec, "poke", &values).expect("renders");
+        assert_eq!(request.topic, "tv/{secret}/go");
+        assert_eq!(request.payload, "{secret}|hunter2");
+        assert!(
+            !request.topic.contains("hunter2") && !request.payload.starts_with("hunter2"),
+            "one parameter's value must not pull in another's: {request:?}"
+        );
+    }
+
+    /// A JSON payload written as a `body` template keeps its braces: they are
+    /// object syntax, not placeholders the command forgot to declare.
+    #[test]
+    fn a_json_body_keeps_the_braces_that_are_not_placeholders() {
+        let yaml = TWO_PARAMS.replace(
+            r#"    body: "{id}|{secret}""#,
+            r#"    body: '{"on": true, "id": "{id}", "extra": {}}'"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("fixture parses");
+        let values = BTreeMap::from([
+            ("id".to_string(), "abc".to_string()),
+            ("secret".to_string(), "x".to_string()),
+        ]);
+        let request = render_request(&spec, "poke", &values).expect("renders");
+        assert_eq!(request.payload, r#"{"on": true, "id": "abc", "extra": {}}"#);
+    }
+
+    /// An unclosed brace is the author's literal, the same reading the HTTP
+    /// path takes — not a parse failure and not a silent truncation.
+    #[test]
+    fn an_unclosed_brace_is_emitted_as_written() {
+        let yaml = TWO_PARAMS.replace(
+            r#"    body: "{id}|{secret}""#,
+            r#"    body: "set {id} to {unfinished""#,
+        );
+        let spec = parse_device_spec(&yaml).expect("fixture parses");
+        let values = BTreeMap::from([
+            ("id".to_string(), "abc".to_string()),
+            ("secret".to_string(), "x".to_string()),
+        ]);
+        let request = render_request(&spec, "poke", &values).expect("renders");
+        assert_eq!(request.payload, "set abc to {unfinished");
     }
 }

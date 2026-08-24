@@ -400,16 +400,26 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     return null;
   }
 
-  /// Whether this device is a Roomba, driven over its own MQTT broker (or a
-  /// rest980 server standing in front of it).
+  /// Whether this device's readings arrive over MQTT — a Roomba, a Hisense
+  /// set, a Dyson purifier.
   ///
-  /// Like [_isKasa] this forks the load path — but for the opposite reason.
-  /// Kasa has no description to fetch and polls instead; a Roomba has no
+  /// Like [_isKasa] this forks the load path, but for the opposite reason.
+  /// Kasa has no description to fetch and polls instead; an MQTT device has no
   /// description AND nothing to poll, because it pushes. There is no request
   /// whose reply is the battery level.
-  bool get _isRoomba => _entities.any((e) =>
+  bool get _speaksMqtt => _entities.any((e) =>
       e.transport == roombaTransport ||
       e.actions.any((a) => a.transport == roombaTransport));
+
+  /// Whether this device is specifically a Roomba, which has a bespoke load
+  /// path — credentials, an HA route, a controller holding the robot's one
+  /// client slot — that no other MQTT device wants.
+  ///
+  /// Keyed on the spec's own `protocol_handler`, not on the transport: the
+  /// transport string is `mqtt` for a Hisense set too, and taking the robot's
+  /// path for a television would look up a BLID that does not exist.
+  bool get _isRoomba =>
+      widget.controls.capabilities?.protocolHandler == roombaProtocolHandler;
 
   /// The robot's BLID, from the discovery announcement. Null means this screen
   /// was reached without one, which for a Roomba is not drivable.
@@ -460,7 +470,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   bool get _needsDescription =>
       !_isKasa &&
       !_isRabbitAir &&
-      !_isRoomba &&
+      !_speaksMqtt &&
       (_stateCommands.any((command) => _stateTransport(command) != 'http') ||
           _entities.any(
               (e) => e.actions.any((action) => action.transport == 'soap')));
@@ -484,6 +494,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // relay state straight over the socket. The port is 9999, not a UPnP
         // LOCATION, so the SOAP port check below does not apply.
         await _refreshState();
+      } else if (_speaksMqtt) {
+        // Any other device that pushes over MQTT — a Hisense set, a Dyson
+        // purifier. Nothing to fetch and nothing to poll, and unlike a robot
+        // nothing to open either: the sender opens the session on the first
+        // send, so a screen the user only looks at never touches the broker.
+        // Without this arm the else below demands a UPnP control port these
+        // devices never advertise, and a working set loads as an error.
       } else if (_isRabbitAir) {
         // No description either — and the whole encrypted exchange (key,
         // clock sync, poll) is the shared panel's job. Forward the refresh;
@@ -569,13 +586,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       await _refreshStateKasa();
       return;
     }
-    // A Roomba PUSHES. There is no request whose reply is the battery level,
-    // so there is nothing to poll and nothing to do here — the state stream
-    // fills the cards. Without this branch the spec's `delta` state command
+    // An MQTT device PUSHES. There is no request whose reply is the battery
+    // level, so there is nothing to poll and nothing to do here — the state
+    // stream fills the cards. Without this branch the spec's state topic
     // falls through to the SOAP path below, which dereferences a description
     // this device never had, and every SUCCESSFUL command ends in an error
     // banner.
-    if (_isRoomba) return;
+    if (_speaksMqtt) return;
     final codec = ref.read(specCodecProvider);
     final client = ref.read(soapControlClientProvider);
 

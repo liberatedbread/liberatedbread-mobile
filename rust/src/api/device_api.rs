@@ -2004,6 +2004,15 @@ pub struct NetworkCapabilitiesDto {
     /// The spec's declared URL scheme (`https` for the Envoy or SmartCast),
     /// `None` meaning plain http.
     pub default_scheme: Option<String>,
+    /// The spec's `protocol_handler`, when it names one — `roomba_mqtt`,
+    /// `rabbit_air_lan`, `lifx_lan`.
+    ///
+    /// Surfaced because a transport string cannot tell two devices apart when
+    /// they share one: a Roomba and a Hisense set both ride `mqtt`, and only
+    /// the Roomba wants the bespoke session-and-credentials load path. The
+    /// handler is the spec's own answer to "which conversation is this", so a
+    /// consumer forks on it rather than on a device name.
+    pub protocol_handler: Option<String>,
 }
 
 /// Read [`NetworkCapabilitiesDto`] out of a spec.
@@ -2022,6 +2031,7 @@ pub fn network_capabilities(spec_yaml: String) -> anyhow::Result<NetworkCapabili
             .then(|| "ecp2".to_string()),
         default_port: ident.and_then(|i| i.default_port),
         default_scheme: ident.and_then(|i| i.default_scheme.clone()),
+        protocol_handler: spec.protocol_handler.clone(),
     })
 }
 
