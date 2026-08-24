@@ -20,10 +20,11 @@
 //! subtree pull.
 
 use liberated_bread_core::api::device_api::{
-    network_entities_for_device, render_network_roomba_command, roomba_connect_packet,
-    roomba_disconnect_packet, roomba_parse_announcement, roomba_parse_incoming,
-    roomba_parse_password_reply, roomba_password_probe, roomba_publish_packet, roomba_state_fields,
-    roomba_subscribe_packet, RoombaIncomingDto,
+    network_entities_for_device, read_network_entity, render_network_roomba_command,
+    roomba_connect_packet, roomba_disconnect_packet, roomba_parse_announcement,
+    roomba_parse_incoming, roomba_parse_password_reply, roomba_password_probe,
+    roomba_publish_packet, roomba_state_fields, roomba_subscribe_packet, NetworkReadingKind,
+    RoombaIncomingDto,
 };
 
 const ROOMBA: &str = include_str!("specs/irobot-roomba.yaml");
@@ -129,6 +130,37 @@ fn the_readings_name_their_topic_and_their_path() {
             "{name} is a reading, not a control"
         );
     }
+}
+
+/// The push, decoded the way the screen decodes it: flatten the payload, then
+/// hand each entity's fields to `read_network_entity` — the same call the SOAP
+/// and Kasa paths make. This is where a Roomba reading's INTERPRETATION lives
+/// (`on_when: nonzero`, the options table, the units), which is why the
+/// entity resolver carries only the path and not a second copy of the rules.
+#[test]
+fn the_readings_decode_through_the_shared_entity_decoder() {
+    let payload = r#"{"state":{"reported":{"batPct":94,
+        "cleanMissionStatus":{"phase":"run"},"bin":{"full":true}}}}"#;
+    let fields = roomba_state_fields(payload.to_string());
+
+    let read = |name: &str| {
+        read_network_entity(ROOMBA.to_string(), name.to_string(), fields.clone())
+            .expect("the spec resolves")
+            .unwrap_or_else(|| panic!("{name} read nothing out of the push"))
+    };
+
+    let battery = read("Battery");
+    assert_eq!(battery.kind, NetworkReadingKind::Number);
+    assert_eq!(battery.number, Some(94.0));
+
+    // `bin.full` is a JSON boolean the flattener renders as "1"; the
+    // binary_sensor's `on_when: nonzero` is what turns that into on.
+    let bin = read("Bin Full");
+    assert_eq!(bin.kind, NetworkReadingKind::OnOff);
+    assert_eq!(bin.is_on, Some(true));
+
+    let phase = read("Mission Phase");
+    assert_eq!(phase.raw, "run");
 }
 
 // ── Commands render the spec's own examples ──────────────────────────────────

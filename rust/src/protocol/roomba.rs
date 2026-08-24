@@ -360,10 +360,16 @@ pub struct RoombaEntity {
     /// Topic this entity's reading arrives on, for a stateful entity.
     pub state_topic: Option<String>,
     /// Dotted path into that topic's payload — `state_mapping.value`.
+    ///
+    /// Deliberately the LAST thing this resolver says about a reading. How to
+    /// interpret what arrives at that path — `on_when: nonzero`, an `options`
+    /// table, a `payload_formats` entry — is not re-derived here: the client
+    /// hands the flattened payload back to `read_network_entity`, which
+    /// re-resolves the entity from the same spec and reads it through
+    /// [`crate::protocol::soap::read_entity`], the decoder every transport
+    /// shares. A second copy of those rules on this struct would be a second
+    /// place for them to disagree.
     pub value_path: Option<String>,
-    /// True when the entity is on whenever its value is nonzero
-    /// (`state_mapping.on_when`). Only meaningful for a binary_sensor.
-    pub on_when_nonzero: bool,
     /// Role → command name, for the buttons.
     pub actions: Vec<RoombaAction>,
 }
@@ -432,11 +438,6 @@ fn resolve_entity(spec: &DeviceSpec, entity: &Entity) -> Option<RoombaEntity> {
         unit: entity.unit.clone(),
         state_topic,
         value_path,
-        on_when_nonzero: entity
-            .state_mapping
-            .get("on_when")
-            .and_then(serde_yaml::Value::as_str)
-            == Some("nonzero"),
         actions,
     })
 }
@@ -958,7 +959,12 @@ entities:
         assert_eq!(battery.value_path.as_deref(), Some("state.reported.batPct"));
         assert_eq!(battery.unit.as_deref(), Some("%"));
 
-        assert!(entities[2].on_when_nonzero);
+        let bin = &entities[2];
+        assert_eq!(bin.platform, "binary_sensor");
+        assert_eq!(bin.value_path.as_deref(), Some("state.reported.bin.full"));
+        // How that path's value becomes on/off is `read_network_entity`'s
+        // job, not this resolver's — see `value_path`'s note, and
+        // `roomba_control.rs` for the test that drives it.
     }
 
     /// "Broken" binds an http command this module cannot send. Drawing it
