@@ -1294,6 +1294,13 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
 // ── Public API functions (exposed to Dart via FRB) ──────────────────────────
 
 /// Parse a device spec from a YAML string and return a DTO.
+///
+/// Deliberately NOT routed through the dispatcher's spec cache, unlike the
+/// per-command and per-poll entry points below. This is the catalogue sweep:
+/// the match provider hands it every bundled spec in turn, and filing 136
+/// one-shot parses would blow past the cache's bound and clear it — evicting
+/// the one spec the open device screen is polling with. A cache earns its
+/// keep on repeated hits, and this call site has none.
 pub fn load_device_spec(yaml: String) -> anyhow::Result<DeviceSpecDto> {
     let spec = parse_device_spec(&yaml)?;
     Ok(DeviceSpecDto::from(&spec))
@@ -1325,7 +1332,7 @@ pub fn encode_entity_value(
     entity_name: String,
     value: f64,
 ) -> anyhow::Result<EntityWriteDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let entity = spec
         .entities
         .iter()
@@ -1832,7 +1839,7 @@ fn network_surface_for(
     ssdp_targets: &[String],
     state_keys: Option<&HashMap<String, HashMap<String, String>>>,
 ) -> anyhow::Result<NetworkEntitySurfaceDto> {
-    let spec = parse_device_spec(spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(spec_yaml)?;
     // An identify_only spec never resolves controls, whatever its entities
     // declare (lutron-caseta carries descriptive entities with prose role
     // bindings): the handoff page is its whole surface. Enforced here at the
@@ -1982,7 +1989,7 @@ pub struct NetworkCapabilitiesDto {
 
 /// Read [`NetworkCapabilitiesDto`] out of a spec.
 pub fn network_capabilities(spec_yaml: String) -> anyhow::Result<NetworkCapabilitiesDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let ident = spec.device.identification.as_ref();
     Ok(NetworkCapabilitiesDto {
         signed_session: spec
@@ -2002,7 +2009,7 @@ pub fn render_network_command(
     command_name: String,
     values: HashMap<String, String>,
 ) -> anyhow::Result<SoapRequestDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let request =
         crate::protocol::soap::render_request(&spec, &command_name, &values.into_iter().collect())?;
     Ok(SoapRequestDto::from(request))
@@ -2058,7 +2065,7 @@ pub fn render_network_http_command(
     command_name: String,
     values: HashMap<String, String>,
 ) -> anyhow::Result<HttpRequestDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let request =
         crate::protocol::http::render_request(&spec, &command_name, &values.into_iter().collect())?;
     let mut dto = HttpRequestDto::from(request);
@@ -2092,7 +2099,7 @@ pub fn render_network_kasa_command(
     command_name: String,
     values: HashMap<String, String>,
 ) -> anyhow::Result<KasaRequestDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let request =
         crate::protocol::kasa::render_request(&spec, &command_name, &values.into_iter().collect())?;
     Ok(KasaRequestDto::from(request))
@@ -2105,7 +2112,7 @@ pub fn render_network_kasa_state_request(
     spec_yaml: String,
     state_command: String,
 ) -> anyhow::Result<KasaRequestDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let request = crate::protocol::kasa::render_state_request(&spec, &state_command)?;
     Ok(KasaRequestDto::from(request))
 }
@@ -2245,7 +2252,7 @@ pub fn render_network_rabbit_air_command(
     request_id: u32,
     device_ts: u32,
 ) -> anyhow::Result<RabbitAirRequestDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let request = crate::protocol::rabbit_air::render_request(
         &spec,
         &command_name,
@@ -2266,7 +2273,7 @@ pub fn render_network_rabbit_air_state_request(
     request_id: u32,
     device_ts: u32,
 ) -> anyhow::Result<RabbitAirRequestDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let request = crate::protocol::rabbit_air::render_state_request(
         &spec,
         &state_command,
@@ -2442,7 +2449,7 @@ pub fn render_network_roomba_command(
     command_name: String,
     epoch_seconds: i64,
 ) -> anyhow::Result<RoombaRequestDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let values =
         std::collections::BTreeMap::from([("time".to_string(), epoch_seconds.to_string())]);
     let request = crate::protocol::roomba::render_request(&spec, &command_name, &values)?;
@@ -2569,7 +2576,7 @@ pub fn render_network_state_request(
     spec_yaml: String,
     state_command: String,
 ) -> anyhow::Result<SoapRequestDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let request = crate::protocol::soap::render_state_request(&spec, &state_command)?;
     Ok(SoapRequestDto::from(request))
 }
@@ -2594,7 +2601,7 @@ pub fn read_network_entity(
     entity_name: String,
     returned: HashMap<String, String>,
 ) -> anyhow::Result<Option<NetworkReadingDto>> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let entity = spec
         .entities
         .iter()
@@ -2693,7 +2700,7 @@ pub fn render_network_http_state_request(
     state_command: String,
     values: HashMap<String, String>,
 ) -> anyhow::Result<HttpRequestDto> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let request = crate::protocol::http::render_state_request(
         &spec,
         &state_command,
@@ -2711,7 +2718,7 @@ pub fn list_network_instances(
     entity_name: String,
     state_reply: String,
 ) -> anyhow::Result<Vec<NetworkInstanceDto>> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let entity = find_entity(&spec, &entity_name)?;
     Ok(crate::protocol::http::list_instances(entity, &state_reply)?
         .into_iter()
@@ -2731,7 +2738,7 @@ pub fn read_network_instance(
     state_reply: String,
     instance_id: String,
 ) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let entity = find_entity(&spec, &entity_name)?;
     Ok(
         crate::protocol::http::read_instance_entity(entity, &state_reply, &instance_id)?
@@ -4365,6 +4372,10 @@ pub struct SoftApProfileDto {
 /// Every softap setup method the given specs declare, catalogue order. Specs
 /// that fail to parse are skipped — the watcher must not lose Wemo because a
 /// different spec broke.
+///
+/// Another catalogue sweep, so it stays off the spec cache for the reason
+/// [`load_device_spec`] gives: one pass over every spec would clear the cache
+/// out from under whatever the app is actually polling.
 pub fn soft_ap_profiles(spec_yamls: Vec<String>) -> Vec<SoftApProfileDto> {
     let specs: Vec<DeviceSpec> = spec_yamls
         .iter()
@@ -4559,7 +4570,7 @@ pub fn render_wemo_connect_requests(
     iot: Option<i64>,
 ) -> anyhow::Result<Vec<SoapRequestDto>> {
     use std::collections::BTreeMap;
-    let spec = parse_device_spec(&spec_yaml)?;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let is_open = encrypt.eq_ignore_ascii_case("NONE") || auth.eq_ignore_ascii_case("OPEN");
 
     let render = |password: &str, auth: &str, encrypt: &str| -> anyhow::Result<SoapRequestDto> {
