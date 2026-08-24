@@ -2471,6 +2471,141 @@ impl From<crate::protocol::roomba::RoombaRequest> for RoombaRequestDto {
     }
 }
 
+/// Where a device's WebSocket control socket is, and what it takes to be
+/// authorised on it — everything Dart needs to open one.
+#[derive(Debug, Clone)]
+pub struct WebSocketSurfaceDto {
+    /// `ws://host:port/path` assembled by the caller from these three.
+    pub port: u16,
+    pub scheme: String,
+    /// The path, with its `{name}` placeholders still in place: the values
+    /// that fill them are stored credentials, which the Rust side never holds.
+    pub path: String,
+    /// The address to try when the first is refused, if the spec declares one.
+    /// LG's clients are required to: late firmware listens on TLS only.
+    pub fallback_port: Option<u16>,
+    pub fallback_scheme: Option<String>,
+    pub fallback_path: Option<String>,
+    /// Handshake headers the device requires, as name/value pairs.
+    pub headers: Vec<WebSocketHeaderDto>,
+    /// The certificate is self-signed with no chain, so validating it cannot
+    /// succeed.
+    pub tls_self_signed: bool,
+    /// What the spec says a client should do about that: `none` is an honest
+    /// record that TLS here buys obfuscation, not authentication.
+    pub tls_verification: Option<String>,
+    pub heartbeat_seconds: Option<f64>,
+    /// `token_query` | `register_frame`, absent when the socket needs no
+    /// authorisation at all.
+    pub pairing_mode: Option<String>,
+    /// What the issued secret is stored as, and the name the connect path or
+    /// register frame fills from it.
+    pub credential_name: Option<String>,
+    /// Dotted path into the device's reply where the issued secret appears.
+    pub issued_at: Option<String>,
+    /// The registration frame to send, as JSON, for `register_frame` pairing.
+    pub register_frame: Option<String>,
+    /// What the viewer must do, so a client can say it rather than appearing
+    /// to hang.
+    pub prompt_notes: Option<String>,
+    pub channels: Vec<WebSocketChannelDto>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WebSocketHeaderDto {
+    pub name: String,
+    pub value: String,
+}
+
+/// One frame shape, and — for a socket the device hands out at runtime —
+/// where to find its address.
+#[derive(Debug, Clone)]
+pub struct WebSocketChannelDto {
+    pub name: String,
+    pub is_default: bool,
+    /// `json` | `text`.
+    pub encoding: String,
+    /// The command whose reply carries this channel's own address. Absent for
+    /// a channel that rides the socket already open.
+    pub obtained_by: Option<String>,
+    /// Dotted path into that reply where the address is.
+    pub address_path: Option<String>,
+}
+
+/// A spec's WebSocket surface, or null when it declares none.
+pub fn websocket_surface(spec_yaml: String) -> anyhow::Result<Option<WebSocketSurfaceDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(
+        crate::protocol::websocket::surface(&spec).map(|s| WebSocketSurfaceDto {
+            port: s.connect.port,
+            scheme: s.connect.scheme,
+            path: s.connect.path,
+            fallback_port: s.fallback.as_ref().map(|f| f.port),
+            fallback_scheme: s.fallback.as_ref().map(|f| f.scheme.clone()),
+            fallback_path: s.fallback.as_ref().map(|f| f.path.clone()),
+            headers: s
+                .headers
+                .into_iter()
+                .map(|(name, value)| WebSocketHeaderDto { name, value })
+                .collect(),
+            tls_self_signed: s.tls_self_signed,
+            tls_verification: s.tls_verification,
+            heartbeat_seconds: s.heartbeat_seconds,
+            pairing_mode: s.pairing.as_ref().map(|p| p.mode.clone()),
+            credential_name: s.pairing.as_ref().and_then(|p| p.credential_name.clone()),
+            issued_at: s.pairing.as_ref().and_then(|p| p.issued_at.clone()),
+            register_frame: s.pairing.as_ref().and_then(|p| p.register_frame.clone()),
+            prompt_notes: s.pairing.as_ref().and_then(|p| p.prompt_notes.clone()),
+            channels: s
+                .channels
+                .into_iter()
+                .map(|c| WebSocketChannelDto {
+                    name: c.name,
+                    is_default: c.is_default,
+                    encoding: c.encoding,
+                    obtained_by: c.obtained_by,
+                    address_path: c.address_path,
+                })
+                .collect(),
+        }),
+    )
+}
+
+/// One rendered WebSocket frame: which channel it goes to, and the text.
+#[derive(Debug, Clone)]
+pub struct WebSocketFrameDto {
+    /// The channel's name — which socket the caller writes this to.
+    pub channel: String,
+    pub text: String,
+}
+
+/// Render one of a spec's `transport: websocket` commands.
+///
+/// `request_id` is the client's correlation integer, required rather than
+/// invented here for the reason the Roomba's timestamp is: this crate has no
+/// counter, and a frame rendered with a fixed id would match every reply to
+/// the same request.
+pub fn render_network_websocket_command(
+    spec_yaml: String,
+    command_name: String,
+    values: HashMap<String, String>,
+    request_id: i64,
+) -> anyhow::Result<WebSocketFrameDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let command = crate::protocol::top_level_command(&spec, &command_name)?;
+    let frame = crate::protocol::websocket::render_command(
+        &spec,
+        &command_name,
+        command,
+        &values.into_iter().collect(),
+        request_id,
+    )?;
+    Ok(WebSocketFrameDto {
+        channel: frame.channel,
+        text: frame.text,
+    })
+}
+
 /// A rendered MQTT publish: the topic and the payload.
 ///
 /// The generic sibling of [`RoombaRequestDto`], for specs whose MQTT commands

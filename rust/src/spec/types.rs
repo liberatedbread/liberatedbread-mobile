@@ -229,6 +229,14 @@ pub struct SpecCommand {
     /// Action invoked, spelled as it goes on the wire (`SetBinaryState`).
     #[serde(default)]
     pub action: Option<String>,
+    /// For a `transport: websocket` command, which of the spec's
+    /// `websocket.channels` carries it. Absent means the default channel.
+    ///
+    /// Named per command rather than inferred from the action's shape: an LG
+    /// button and an LG `ssap://` request differ in the SOCKET they reach, and
+    /// a rule that guessed from the string is a rule the next firmware breaks.
+    #[serde(default)]
+    pub channel: Option<String>,
     /// Request path, for transports that address by path rather than service.
     /// May carry `{name}` placeholders substituted exactly as argument values
     /// are — Roku's whole control surface is the path (`/keypress/PowerOn`).

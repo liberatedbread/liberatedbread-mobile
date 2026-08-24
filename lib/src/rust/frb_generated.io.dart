@@ -110,6 +110,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
+  WebSocketSurfaceDto dco_decode_box_autoadd_web_socket_surface_dto(
+      dynamic raw);
+
+  @protected
   CharacteristicDto dco_decode_characteristic_dto(dynamic raw);
 
   @protected
@@ -333,6 +337,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TxtMatchGroupDto> dco_decode_list_txt_match_group_dto(dynamic raw);
 
   @protected
+  List<WebSocketChannelDto> dco_decode_list_web_socket_channel_dto(dynamic raw);
+
+  @protected
+  List<WebSocketHeaderDto> dco_decode_list_web_socket_header_dto(dynamic raw);
+
+  @protected
   List<WemoAccessPointDto> dco_decode_list_wemo_access_point_dto(dynamic raw);
 
   @protected
@@ -462,6 +472,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
 
   @protected
+  WebSocketSurfaceDto? dco_decode_opt_box_autoadd_web_socket_surface_dto(
+      dynamic raw);
+
+  @protected
   List<String>? dco_decode_opt_list_String(dynamic raw);
 
   @protected
@@ -583,6 +597,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void dco_decode_unit(dynamic raw);
 
   @protected
+  WebSocketChannelDto dco_decode_web_socket_channel_dto(dynamic raw);
+
+  @protected
+  WebSocketFrameDto dco_decode_web_socket_frame_dto(dynamic raw);
+
+  @protected
+  WebSocketHeaderDto dco_decode_web_socket_header_dto(dynamic raw);
+
+  @protected
+  WebSocketSurfaceDto dco_decode_web_socket_surface_dto(dynamic raw);
+
+  @protected
   WemoAccessPointDto dco_decode_wemo_access_point_dto(dynamic raw);
 
   @protected
@@ -691,6 +717,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
+  WebSocketSurfaceDto sse_decode_box_autoadd_web_socket_surface_dto(
+      SseDeserializer deserializer);
 
   @protected
   CharacteristicDto sse_decode_characteristic_dto(SseDeserializer deserializer);
@@ -948,6 +978,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<WebSocketChannelDto> sse_decode_list_web_socket_channel_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<WebSocketHeaderDto> sse_decode_list_web_socket_header_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<WemoAccessPointDto> sse_decode_list_wemo_access_point_dto(
       SseDeserializer deserializer);
 
@@ -1095,6 +1133,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
+  WebSocketSurfaceDto? sse_decode_opt_box_autoadd_web_socket_surface_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<String>? sse_decode_opt_list_String(SseDeserializer deserializer);
 
   @protected
@@ -1229,6 +1271,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_decode_unit(SseDeserializer deserializer);
 
   @protected
+  WebSocketChannelDto sse_decode_web_socket_channel_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  WebSocketFrameDto sse_decode_web_socket_frame_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  WebSocketHeaderDto sse_decode_web_socket_header_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  WebSocketSurfaceDto sse_decode_web_socket_surface_dto(
+      SseDeserializer deserializer);
+
+  @protected
   WemoAccessPointDto sse_decode_wemo_access_point_dto(
       SseDeserializer deserializer);
 
@@ -1340,6 +1398,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_web_socket_surface_dto(
+      WebSocketSurfaceDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_characteristic_dto(
@@ -1619,6 +1681,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<TxtMatchGroupDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_web_socket_channel_dto(
+      List<WebSocketChannelDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_web_socket_header_dto(
+      List<WebSocketHeaderDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_wemo_access_point_dto(
       List<WemoAccessPointDto> self, SseSerializer serializer);
 
@@ -1774,6 +1844,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_web_socket_surface_dto(
+      WebSocketSurfaceDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_list_String(List<String>? self, SseSerializer serializer);
 
   @protected
@@ -1919,6 +1993,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_web_socket_channel_dto(
+      WebSocketChannelDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_web_socket_frame_dto(
+      WebSocketFrameDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_web_socket_header_dto(
+      WebSocketHeaderDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_web_socket_surface_dto(
+      WebSocketSurfaceDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_wemo_access_point_dto(

@@ -20,7 +20,7 @@ use super::types::{
     TemplateElement, ValueType,
 };
 use crate::codec::types::unsupported_encoding_kind;
-use crate::protocol::{http, kasa, mqtt, rabbit_air, soap};
+use crate::protocol::{http, kasa, mqtt, rabbit_air, soap, websocket};
 use std::collections::HashMap;
 
 /// Whether a characteristic's payloads must pass through a byte transform
@@ -937,15 +937,29 @@ fn resolve_network_roles<'a>(
                 .iter()
                 .find_map(|alias| entity.command_for_role(alias))?;
             let command = spec.commands.get(bound)?;
-            qualify_network(
-                role.role,
-                bound,
-                command,
-                role.takes_value,
-                spec.protocol_handler.as_deref(),
-            )
+            qualify_network(spec, role.role, bound, command, role.takes_value)
         })
         .collect()
+}
+
+/// Which transport a command rides.
+///
+/// Its own `transport:` when it declares one; otherwise the spec's
+/// `device.transport`, which is how the TV specs are written — every command
+/// omits the field deliberately and the device names the one they all share;
+/// otherwise SOAP, the default from when SOAP was the only network transport
+/// and still what a Wemo spec means by saying nothing.
+fn effective_transport<'a>(spec: &'a DeviceSpec, command: &'a SpecCommand) -> &'a str {
+    command
+        .transport
+        .as_deref()
+        .or_else(|| {
+            spec.device
+                .extensions
+                .get("transport")
+                .and_then(|t| t.as_str())
+        })
+        .unwrap_or(soap::TRANSPORT)
 }
 
 /// Decide whether a command can serve a network role.
@@ -956,18 +970,19 @@ fn resolve_network_roles<'a>(
 /// belongs in — Wemo's `SetCrockpotState` would be exactly that if the spec
 /// did not default the argument the control is not changing.
 fn qualify_network<'a>(
+    spec: &DeviceSpec,
     role: &'static str,
     command_name: &'a str,
     command: &'a SpecCommand,
     takes_value: bool,
-    protocol_handler: Option<&str>,
 ) -> Option<NetworkAction<'a>> {
+    let protocol_handler = spec.protocol_handler.as_deref();
     // Renderable at all: a command missing its transport's address, or one for
     // a transport this crate does not speak, resolves to nothing rather than
     // to a control that errors when pressed. Each transport is whole on its
     // own terms — SOAP needs the service URN and action its envelope is built
     // from, plain HTTP needs the method and path that ARE the request.
-    match command.transport.as_deref().unwrap_or(soap::TRANSPORT) {
+    match effective_transport(spec, command) {
         soap::TRANSPORT => {
             if command.service.is_none() || command.action.is_none() {
                 return None;
@@ -1001,6 +1016,17 @@ fn qualify_network<'a>(
             // nothing to send, exactly as a SOAP command without its service
             // or an HTTP command without its path does.
             command.body.as_ref()?;
+        }
+        websocket::TRANSPORT => {
+            // The action IS the instruction — a wire method, an SSAP URI, a
+            // button name — so a command without one has nothing to send.
+            command.action.as_ref()?;
+            // And it must have a socket to send it on. A command naming a
+            // channel the spec does not declare stays off the surface rather
+            // than becoming a button that reaches the wrong socket: on a set
+            // with two, that is the difference between working and silently
+            // ignored.
+            websocket::surface(spec)?.channel_for(command)?;
         }
         mqtt::TRANSPORT => {
             // The topic IS the address, exactly as `path` is for HTTP and the

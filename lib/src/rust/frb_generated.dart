@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => 1527485749;
+  int get rustContentHash => -1369880637;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -394,6 +394,12 @@ abstract class RustLibApi extends BaseApi {
   Future<SoapRequestDto> crateApiDeviceApiRenderNetworkStateRequest(
       {required String specYaml, required String stateCommand});
 
+  Future<WebSocketFrameDto> crateApiDeviceApiRenderNetworkWebsocketCommand(
+      {required String specYaml,
+      required String commandName,
+      required Map<String, String> values,
+      required PlatformInt64 requestId});
+
   Future<String> crateApiDeviceApiRenderRabbitAirSetupEnvelope(
       {required int id, required int cmd, String? dataJson});
 
@@ -432,6 +438,9 @@ abstract class RustLibApi extends BaseApi {
 
   Future<TuyaBroadcastDto?> crateApiDeviceApiTuyaParseBroadcast(
       {required List<int> datagram});
+
+  Future<WebSocketSurfaceDto?> crateApiDeviceApiWebsocketSurface(
+      {required String specYaml});
 
   Future<WemoJoinStatus> crateApiDeviceApiWemoNetworkStatus(
       {required String code});
@@ -2770,6 +2779,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<WebSocketFrameDto> crateApiDeviceApiRenderNetworkWebsocketCommand(
+      {required String specYaml,
+      required String commandName,
+      required Map<String, String> values,
+      required PlatformInt64 requestId}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(commandName, serializer);
+        sse_encode_Map_String_String_None(values, serializer);
+        sse_encode_i_64(requestId, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 80, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_web_socket_frame_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRenderNetworkWebsocketCommandConstMeta,
+      argValues: [specYaml, commandName, values, requestId],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRenderNetworkWebsocketCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: 'render_network_websocket_command',
+        argNames: ['specYaml', 'commandName', 'values', 'requestId'],
+      );
+
+  @override
   Future<String> crateApiDeviceApiRenderRabbitAirSetupEnvelope(
       {required int id, required int cmd, String? dataJson}) {
     return handler.executeNormal(NormalTask(
@@ -2779,7 +2820,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_32(cmd, serializer);
         sse_encode_opt_String(dataJson, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 80, port: port_);
+            funcId: 81, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -2821,7 +2862,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_opt_box_autoadd_i_64(rtos, serializer);
         sse_encode_opt_box_autoadd_i_64(iot, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 81, port: port_);
+            funcId: 82, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_soap_request_dto,
@@ -2868,7 +2909,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(blid, serializer);
         sse_encode_String(password, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 82, port: port_);
+            funcId: 83, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -2892,7 +2933,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 83, port: port_);
+            funcId: 84, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -2918,7 +2959,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_prim_u_8_loose(datagram, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 84, port: port_);
+            funcId: 85, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_roomba_announcement_dto,
@@ -2944,7 +2985,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_prim_u_8_loose(reply, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 85, port: port_);
+            funcId: 86, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -2968,7 +3009,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 86, port: port_);
+            funcId: 87, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -2994,7 +3035,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(payload, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 87, port: port_);
+            funcId: 88, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_Map_String_String_None,
@@ -3020,7 +3061,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(specYaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 88, port: port_);
+            funcId: 89, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_setup_instructions_dto,
@@ -3046,7 +3087,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_String(specYamls, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 89, port: port_);
+            funcId: 90, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_soft_ap_profile_dto,
@@ -3072,7 +3113,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_prim_u_8_loose(datagram, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 90, port: port_);
+            funcId: 91, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_tuya_broadcast_dto,
@@ -3091,6 +3132,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<WebSocketSurfaceDto?> crateApiDeviceApiWebsocketSurface(
+      {required String specYaml}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 92, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_opt_box_autoadd_web_socket_surface_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiWebsocketSurfaceConstMeta,
+      argValues: [specYaml],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiWebsocketSurfaceConstMeta =>
+      const TaskConstMeta(
+        debugName: 'websocket_surface',
+        argNames: ['specYaml'],
+      );
+
+  @override
   Future<WemoJoinStatus> crateApiDeviceApiWemoNetworkStatus(
       {required String code}) {
     return handler.executeNormal(NormalTask(
@@ -3098,7 +3165,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(code, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 91, port: port_);
+            funcId: 93, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_wemo_join_status,
@@ -3304,6 +3371,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int dco_decode_box_autoadd_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
+  }
+
+  @protected
+  WebSocketSurfaceDto dco_decode_box_autoadd_web_socket_surface_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_web_socket_surface_dto(raw);
   }
 
   @protected
@@ -3995,6 +4069,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<WebSocketChannelDto> dco_decode_list_web_socket_channel_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_web_socket_channel_dto)
+        .toList();
+  }
+
+  @protected
+  List<WebSocketHeaderDto> dco_decode_list_web_socket_header_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_web_socket_header_dto)
+        .toList();
+  }
+
+  @protected
   List<WemoAccessPointDto> dco_decode_list_wemo_access_point_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>)
@@ -4396,6 +4487,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_u_32(raw);
+  }
+
+  @protected
+  WebSocketSurfaceDto? dco_decode_opt_box_autoadd_web_socket_surface_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_web_socket_surface_dto(raw);
   }
 
   @protected
@@ -4919,6 +5019,71 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  WebSocketChannelDto dco_decode_web_socket_channel_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return WebSocketChannelDto(
+      name: dco_decode_String(arr[0]),
+      isDefault: dco_decode_bool(arr[1]),
+      encoding: dco_decode_String(arr[2]),
+      obtainedBy: dco_decode_opt_String(arr[3]),
+      addressPath: dco_decode_opt_String(arr[4]),
+    );
+  }
+
+  @protected
+  WebSocketFrameDto dco_decode_web_socket_frame_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return WebSocketFrameDto(
+      channel: dco_decode_String(arr[0]),
+      text: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  WebSocketHeaderDto dco_decode_web_socket_header_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return WebSocketHeaderDto(
+      name: dco_decode_String(arr[0]),
+      value: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  WebSocketSurfaceDto dco_decode_web_socket_surface_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 16)
+      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
+    return WebSocketSurfaceDto(
+      port: dco_decode_u_16(arr[0]),
+      scheme: dco_decode_String(arr[1]),
+      path: dco_decode_String(arr[2]),
+      fallbackPort: dco_decode_opt_box_autoadd_u_16(arr[3]),
+      fallbackScheme: dco_decode_opt_String(arr[4]),
+      fallbackPath: dco_decode_opt_String(arr[5]),
+      headers: dco_decode_list_web_socket_header_dto(arr[6]),
+      tlsSelfSigned: dco_decode_bool(arr[7]),
+      tlsVerification: dco_decode_opt_String(arr[8]),
+      heartbeatSeconds: dco_decode_opt_box_autoadd_f_64(arr[9]),
+      pairingMode: dco_decode_opt_String(arr[10]),
+      credentialName: dco_decode_opt_String(arr[11]),
+      issuedAt: dco_decode_opt_String(arr[12]),
+      registerFrame: dco_decode_opt_String(arr[13]),
+      promptNotes: dco_decode_opt_String(arr[14]),
+      channels: dco_decode_list_web_socket_channel_dto(arr[15]),
+    );
+  }
+
+  @protected
   WemoAccessPointDto dco_decode_wemo_access_point_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -5148,6 +5313,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_u_32(deserializer));
+  }
+
+  @protected
+  WebSocketSurfaceDto sse_decode_box_autoadd_web_socket_surface_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_web_socket_surface_dto(deserializer));
   }
 
   @protected
@@ -6171,6 +6343,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<WebSocketChannelDto> sse_decode_list_web_socket_channel_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <WebSocketChannelDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_web_socket_channel_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<WebSocketHeaderDto> sse_decode_list_web_socket_header_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <WebSocketHeaderDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_web_socket_header_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<WemoAccessPointDto> sse_decode_list_wemo_access_point_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -6670,6 +6868,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_u_32(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  WebSocketSurfaceDto? sse_decode_opt_box_autoadd_web_socket_surface_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_web_socket_surface_dto(deserializer));
     } else {
       return null;
     }
@@ -7211,6 +7421,80 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  WebSocketChannelDto sse_decode_web_socket_channel_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_isDefault = sse_decode_bool(deserializer);
+    var var_encoding = sse_decode_String(deserializer);
+    var var_obtainedBy = sse_decode_opt_String(deserializer);
+    var var_addressPath = sse_decode_opt_String(deserializer);
+    return WebSocketChannelDto(
+        name: var_name,
+        isDefault: var_isDefault,
+        encoding: var_encoding,
+        obtainedBy: var_obtainedBy,
+        addressPath: var_addressPath);
+  }
+
+  @protected
+  WebSocketFrameDto sse_decode_web_socket_frame_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_channel = sse_decode_String(deserializer);
+    var var_text = sse_decode_String(deserializer);
+    return WebSocketFrameDto(channel: var_channel, text: var_text);
+  }
+
+  @protected
+  WebSocketHeaderDto sse_decode_web_socket_header_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_value = sse_decode_String(deserializer);
+    return WebSocketHeaderDto(name: var_name, value: var_value);
+  }
+
+  @protected
+  WebSocketSurfaceDto sse_decode_web_socket_surface_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_port = sse_decode_u_16(deserializer);
+    var var_scheme = sse_decode_String(deserializer);
+    var var_path = sse_decode_String(deserializer);
+    var var_fallbackPort = sse_decode_opt_box_autoadd_u_16(deserializer);
+    var var_fallbackScheme = sse_decode_opt_String(deserializer);
+    var var_fallbackPath = sse_decode_opt_String(deserializer);
+    var var_headers = sse_decode_list_web_socket_header_dto(deserializer);
+    var var_tlsSelfSigned = sse_decode_bool(deserializer);
+    var var_tlsVerification = sse_decode_opt_String(deserializer);
+    var var_heartbeatSeconds = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_pairingMode = sse_decode_opt_String(deserializer);
+    var var_credentialName = sse_decode_opt_String(deserializer);
+    var var_issuedAt = sse_decode_opt_String(deserializer);
+    var var_registerFrame = sse_decode_opt_String(deserializer);
+    var var_promptNotes = sse_decode_opt_String(deserializer);
+    var var_channels = sse_decode_list_web_socket_channel_dto(deserializer);
+    return WebSocketSurfaceDto(
+        port: var_port,
+        scheme: var_scheme,
+        path: var_path,
+        fallbackPort: var_fallbackPort,
+        fallbackScheme: var_fallbackScheme,
+        fallbackPath: var_fallbackPath,
+        headers: var_headers,
+        tlsSelfSigned: var_tlsSelfSigned,
+        tlsVerification: var_tlsVerification,
+        heartbeatSeconds: var_heartbeatSeconds,
+        pairingMode: var_pairingMode,
+        credentialName: var_credentialName,
+        issuedAt: var_issuedAt,
+        registerFrame: var_registerFrame,
+        promptNotes: var_promptNotes,
+        channels: var_channels);
+  }
+
+  @protected
   WemoAccessPointDto sse_decode_wemo_access_point_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -7434,6 +7718,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_32(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_web_socket_surface_dto(
+      WebSocketSurfaceDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_web_socket_surface_dto(self, serializer);
   }
 
   @protected
@@ -8195,6 +8486,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_web_socket_channel_dto(
+      List<WebSocketChannelDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_web_socket_channel_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_web_socket_header_dto(
+      List<WebSocketHeaderDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_web_socket_header_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_wemo_access_point_dto(
       List<WemoAccessPointDto> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -8612,6 +8923,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_web_socket_surface_dto(
+      WebSocketSurfaceDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_web_socket_surface_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_list_String(
       List<String>? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -9002,6 +9324,55 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_unit(void self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+  }
+
+  @protected
+  void sse_encode_web_socket_channel_dto(
+      WebSocketChannelDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_bool(self.isDefault, serializer);
+    sse_encode_String(self.encoding, serializer);
+    sse_encode_opt_String(self.obtainedBy, serializer);
+    sse_encode_opt_String(self.addressPath, serializer);
+  }
+
+  @protected
+  void sse_encode_web_socket_frame_dto(
+      WebSocketFrameDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.channel, serializer);
+    sse_encode_String(self.text, serializer);
+  }
+
+  @protected
+  void sse_encode_web_socket_header_dto(
+      WebSocketHeaderDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.value, serializer);
+  }
+
+  @protected
+  void sse_encode_web_socket_surface_dto(
+      WebSocketSurfaceDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self.port, serializer);
+    sse_encode_String(self.scheme, serializer);
+    sse_encode_String(self.path, serializer);
+    sse_encode_opt_box_autoadd_u_16(self.fallbackPort, serializer);
+    sse_encode_opt_String(self.fallbackScheme, serializer);
+    sse_encode_opt_String(self.fallbackPath, serializer);
+    sse_encode_list_web_socket_header_dto(self.headers, serializer);
+    sse_encode_bool(self.tlsSelfSigned, serializer);
+    sse_encode_opt_String(self.tlsVerification, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.heartbeatSeconds, serializer);
+    sse_encode_opt_String(self.pairingMode, serializer);
+    sse_encode_opt_String(self.credentialName, serializer);
+    sse_encode_opt_String(self.issuedAt, serializer);
+    sse_encode_opt_String(self.registerFrame, serializer);
+    sse_encode_opt_String(self.promptNotes, serializer);
+    sse_encode_list_web_socket_channel_dto(self.channels, serializer);
   }
 
   @protected

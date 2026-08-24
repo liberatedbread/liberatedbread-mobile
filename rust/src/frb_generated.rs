@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.9.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1527485749;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1369880637;
 
 // Section: executor
 
@@ -3128,6 +3128,50 @@ fn wire__crate__api__device_api__render_network_state_request_impl(
         },
     )
 }
+fn wire__crate__api__device_api__render_network_websocket_command_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "render_network_websocket_command",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_spec_yaml = <String>::sse_decode(&mut deserializer);
+            let api_command_name = <String>::sse_decode(&mut deserializer);
+            let api_values =
+                <std::collections::HashMap<String, String>>::sse_decode(&mut deserializer);
+            let api_request_id = <i64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::render_network_websocket_command(
+                            api_spec_yaml,
+                            api_command_name,
+                            api_values,
+                            api_request_id,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__device_api__render_rabbit_air_setup_envelope_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3532,6 +3576,41 @@ fn wire__crate__api__device_api__tuya_parse_broadcast_impl(
                     )?;
                     Ok(output_ok)
                 })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__websocket_surface_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "websocket_surface",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_spec_yaml = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::websocket_surface(api_spec_yaml)?;
+                        Ok(output_ok)
+                    })(),
+                )
             }
         },
     )
@@ -4762,6 +4841,34 @@ impl SseDecode for Vec<crate::api::device_api::TxtMatchGroupDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::device_api::WebSocketChannelDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::WebSocketChannelDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::WebSocketHeaderDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::WebSocketHeaderDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::device_api::WemoAccessPointDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5350,6 +5457,19 @@ impl SseDecode for Option<u32> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<u32>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::device_api::WebSocketSurfaceDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::WebSocketSurfaceDto>::sse_decode(
+                deserializer,
+            ));
         } else {
             return None;
         }
@@ -5976,6 +6096,90 @@ impl SseDecode for () {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {}
 }
 
+impl SseDecode for crate::api::device_api::WebSocketChannelDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_isDefault = <bool>::sse_decode(deserializer);
+        let mut var_encoding = <String>::sse_decode(deserializer);
+        let mut var_obtainedBy = <Option<String>>::sse_decode(deserializer);
+        let mut var_addressPath = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::WebSocketChannelDto {
+            name: var_name,
+            is_default: var_isDefault,
+            encoding: var_encoding,
+            obtained_by: var_obtainedBy,
+            address_path: var_addressPath,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::WebSocketFrameDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_channel = <String>::sse_decode(deserializer);
+        let mut var_text = <String>::sse_decode(deserializer);
+        return crate::api::device_api::WebSocketFrameDto {
+            channel: var_channel,
+            text: var_text,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::WebSocketHeaderDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_value = <String>::sse_decode(deserializer);
+        return crate::api::device_api::WebSocketHeaderDto {
+            name: var_name,
+            value: var_value,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::WebSocketSurfaceDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_port = <u16>::sse_decode(deserializer);
+        let mut var_scheme = <String>::sse_decode(deserializer);
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_fallbackPort = <Option<u16>>::sse_decode(deserializer);
+        let mut var_fallbackScheme = <Option<String>>::sse_decode(deserializer);
+        let mut var_fallbackPath = <Option<String>>::sse_decode(deserializer);
+        let mut var_headers =
+            <Vec<crate::api::device_api::WebSocketHeaderDto>>::sse_decode(deserializer);
+        let mut var_tlsSelfSigned = <bool>::sse_decode(deserializer);
+        let mut var_tlsVerification = <Option<String>>::sse_decode(deserializer);
+        let mut var_heartbeatSeconds = <Option<f64>>::sse_decode(deserializer);
+        let mut var_pairingMode = <Option<String>>::sse_decode(deserializer);
+        let mut var_credentialName = <Option<String>>::sse_decode(deserializer);
+        let mut var_issuedAt = <Option<String>>::sse_decode(deserializer);
+        let mut var_registerFrame = <Option<String>>::sse_decode(deserializer);
+        let mut var_promptNotes = <Option<String>>::sse_decode(deserializer);
+        let mut var_channels =
+            <Vec<crate::api::device_api::WebSocketChannelDto>>::sse_decode(deserializer);
+        return crate::api::device_api::WebSocketSurfaceDto {
+            port: var_port,
+            scheme: var_scheme,
+            path: var_path,
+            fallback_port: var_fallbackPort,
+            fallback_scheme: var_fallbackScheme,
+            fallback_path: var_fallbackPath,
+            headers: var_headers,
+            tls_self_signed: var_tlsSelfSigned,
+            tls_verification: var_tlsVerification,
+            heartbeat_seconds: var_heartbeatSeconds,
+            pairing_mode: var_pairingMode,
+            credential_name: var_credentialName,
+            issued_at: var_issuedAt,
+            register_frame: var_registerFrame,
+            prompt_notes: var_promptNotes,
+            channels: var_channels,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::WemoAccessPointDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -6427,67 +6631,76 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        80 => wire__crate__api__device_api__render_rabbit_air_setup_envelope_impl(
+        80 => wire__crate__api__device_api__render_network_websocket_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        81 => wire__crate__api__device_api__render_wemo_connect_requests_impl(
+        81 => wire__crate__api__device_api__render_rabbit_air_setup_envelope_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        82 => wire__crate__api__device_api__roomba_connect_packet_impl(
+        82 => wire__crate__api__device_api__render_wemo_connect_requests_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        83 => wire__crate__api__device_api__roomba_discovery_probe_impl(
+        83 => wire__crate__api__device_api__roomba_connect_packet_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        84 => wire__crate__api__device_api__roomba_parse_announcement_impl(
+        84 => wire__crate__api__device_api__roomba_discovery_probe_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        85 => wire__crate__api__device_api__roomba_parse_password_reply_impl(
+        85 => wire__crate__api__device_api__roomba_parse_announcement_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        86 => wire__crate__api__device_api__roomba_password_probe_impl(
+        86 => wire__crate__api__device_api__roomba_parse_password_reply_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        87 => wire__crate__api__device_api__roomba_state_fields_impl(
+        87 => wire__crate__api__device_api__roomba_password_probe_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        88 => {
+        88 => wire__crate__api__device_api__roomba_state_fields_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        89 => {
             wire__crate__api__device_api__setup_instructions_impl(port, ptr, rust_vec_len, data_len)
         }
-        89 => {
+        90 => {
             wire__crate__api__device_api__soft_ap_profiles_impl(port, ptr, rust_vec_len, data_len)
         }
-        90 => wire__crate__api__device_api__tuya_parse_broadcast_impl(
+        91 => wire__crate__api__device_api__tuya_parse_broadcast_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        91 => wire__crate__api__device_api__wemo_network_status_impl(
+        92 => {
+            wire__crate__api__device_api__websocket_surface_impl(port, ptr, rust_vec_len, data_len)
+        }
+        93 => wire__crate__api__device_api__wemo_network_status_impl(
             port,
             ptr,
             rust_vec_len,
@@ -8238,6 +8451,107 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::TxtMatchGroupDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::WebSocketChannelDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.is_default.into_into_dart().into_dart(),
+            self.encoding.into_into_dart().into_dart(),
+            self.obtained_by.into_into_dart().into_dart(),
+            self.address_path.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::WebSocketChannelDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::WebSocketChannelDto>
+    for crate::api::device_api::WebSocketChannelDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::WebSocketChannelDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::WebSocketFrameDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.channel.into_into_dart().into_dart(),
+            self.text.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::WebSocketFrameDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::WebSocketFrameDto>
+    for crate::api::device_api::WebSocketFrameDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::WebSocketFrameDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::WebSocketHeaderDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.value.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::WebSocketHeaderDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::WebSocketHeaderDto>
+    for crate::api::device_api::WebSocketHeaderDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::WebSocketHeaderDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::WebSocketSurfaceDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.port.into_into_dart().into_dart(),
+            self.scheme.into_into_dart().into_dart(),
+            self.path.into_into_dart().into_dart(),
+            self.fallback_port.into_into_dart().into_dart(),
+            self.fallback_scheme.into_into_dart().into_dart(),
+            self.fallback_path.into_into_dart().into_dart(),
+            self.headers.into_into_dart().into_dart(),
+            self.tls_self_signed.into_into_dart().into_dart(),
+            self.tls_verification.into_into_dart().into_dart(),
+            self.heartbeat_seconds.into_into_dart().into_dart(),
+            self.pairing_mode.into_into_dart().into_dart(),
+            self.credential_name.into_into_dart().into_dart(),
+            self.issued_at.into_into_dart().into_dart(),
+            self.register_frame.into_into_dart().into_dart(),
+            self.prompt_notes.into_into_dart().into_dart(),
+            self.channels.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::WebSocketSurfaceDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::WebSocketSurfaceDto>
+    for crate::api::device_api::WebSocketSurfaceDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::WebSocketSurfaceDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::WemoAccessPointDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -9113,6 +9427,26 @@ impl SseEncode for Vec<crate::api::device_api::TxtMatchGroupDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::WebSocketChannelDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::WebSocketChannelDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::WebSocketHeaderDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::WebSocketHeaderDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::device_api::WemoAccessPointDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -9559,6 +9893,16 @@ impl SseEncode for Option<u32> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::WebSocketSurfaceDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::WebSocketSurfaceDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<Vec<String>> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -9990,6 +10334,55 @@ impl SseEncode for u8 {
 impl SseEncode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {}
+}
+
+impl SseEncode for crate::api::device_api::WebSocketChannelDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <bool>::sse_encode(self.is_default, serializer);
+        <String>::sse_encode(self.encoding, serializer);
+        <Option<String>>::sse_encode(self.obtained_by, serializer);
+        <Option<String>>::sse_encode(self.address_path, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::WebSocketFrameDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.channel, serializer);
+        <String>::sse_encode(self.text, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::WebSocketHeaderDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.value, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::WebSocketSurfaceDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u16>::sse_encode(self.port, serializer);
+        <String>::sse_encode(self.scheme, serializer);
+        <String>::sse_encode(self.path, serializer);
+        <Option<u16>>::sse_encode(self.fallback_port, serializer);
+        <Option<String>>::sse_encode(self.fallback_scheme, serializer);
+        <Option<String>>::sse_encode(self.fallback_path, serializer);
+        <Vec<crate::api::device_api::WebSocketHeaderDto>>::sse_encode(self.headers, serializer);
+        <bool>::sse_encode(self.tls_self_signed, serializer);
+        <Option<String>>::sse_encode(self.tls_verification, serializer);
+        <Option<f64>>::sse_encode(self.heartbeat_seconds, serializer);
+        <Option<String>>::sse_encode(self.pairing_mode, serializer);
+        <Option<String>>::sse_encode(self.credential_name, serializer);
+        <Option<String>>::sse_encode(self.issued_at, serializer);
+        <Option<String>>::sse_encode(self.register_frame, serializer);
+        <Option<String>>::sse_encode(self.prompt_notes, serializer);
+        <Vec<crate::api::device_api::WebSocketChannelDto>>::sse_encode(self.channels, serializer);
+    }
 }
 
 impl SseEncode for crate::api::device_api::WemoAccessPointDto {

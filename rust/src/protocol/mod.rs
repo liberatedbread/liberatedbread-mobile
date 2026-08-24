@@ -24,6 +24,7 @@ pub mod soap;
 pub mod stored_upload;
 pub mod traits;
 pub mod tuya;
+pub mod websocket;
 pub mod wemo_setup;
 
 use crate::error::ProtocolError;

@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `governs_own_type`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -328,6 +328,27 @@ Future<Uint8List> roombaPasswordProbe() =>
 Future<String> roombaParsePasswordReply({required List<int> reply}) =>
     RustLib.instance.api
         .crateApiDeviceApiRoombaParsePasswordReply(reply: reply);
+
+/// A spec's WebSocket surface, or null when it declares none.
+Future<WebSocketSurfaceDto?> websocketSurface({required String specYaml}) =>
+    RustLib.instance.api.crateApiDeviceApiWebsocketSurface(specYaml: specYaml);
+
+/// Render one of a spec's `transport: websocket` commands.
+///
+/// `request_id` is the client's correlation integer, required rather than
+/// invented here for the reason the Roomba's timestamp is: this crate has no
+/// counter, and a frame rendered with a fixed id would match every reply to
+/// the same request.
+Future<WebSocketFrameDto> renderNetworkWebsocketCommand(
+        {required String specYaml,
+        required String commandName,
+        required Map<String, String> values,
+        required PlatformInt64 requestId}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderNetworkWebsocketCommand(
+        specYaml: specYaml,
+        commandName: commandName,
+        values: values,
+        requestId: requestId);
 
 /// Render one of a spec's `transport: mqtt` commands.
 ///
@@ -4157,6 +4178,203 @@ class TxtMatchGroupDto {
       other is TxtMatchGroupDto &&
           runtimeType == other.runtimeType &&
           conditions == other.conditions;
+}
+
+/// One frame shape, and — for a socket the device hands out at runtime —
+/// where to find its address.
+class WebSocketChannelDto {
+  final String name;
+  final bool isDefault;
+
+  /// `json` | `text`.
+  final String encoding;
+
+  /// The command whose reply carries this channel's own address. Absent for
+  /// a channel that rides the socket already open.
+  final String? obtainedBy;
+
+  /// Dotted path into that reply where the address is.
+  final String? addressPath;
+
+  const WebSocketChannelDto({
+    required this.name,
+    required this.isDefault,
+    required this.encoding,
+    this.obtainedBy,
+    this.addressPath,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      isDefault.hashCode ^
+      encoding.hashCode ^
+      obtainedBy.hashCode ^
+      addressPath.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WebSocketChannelDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          isDefault == other.isDefault &&
+          encoding == other.encoding &&
+          obtainedBy == other.obtainedBy &&
+          addressPath == other.addressPath;
+}
+
+/// One rendered WebSocket frame: which channel it goes to, and the text.
+class WebSocketFrameDto {
+  /// The channel's name — which socket the caller writes this to.
+  final String channel;
+  final String text;
+
+  const WebSocketFrameDto({
+    required this.channel,
+    required this.text,
+  });
+
+  @override
+  int get hashCode => channel.hashCode ^ text.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WebSocketFrameDto &&
+          runtimeType == other.runtimeType &&
+          channel == other.channel &&
+          text == other.text;
+}
+
+class WebSocketHeaderDto {
+  final String name;
+  final String value;
+
+  const WebSocketHeaderDto({
+    required this.name,
+    required this.value,
+  });
+
+  @override
+  int get hashCode => name.hashCode ^ value.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WebSocketHeaderDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          value == other.value;
+}
+
+/// Where a device's WebSocket control socket is, and what it takes to be
+/// authorised on it — everything Dart needs to open one.
+class WebSocketSurfaceDto {
+  /// `ws://host:port/path` assembled by the caller from these three.
+  final int port;
+  final String scheme;
+
+  /// The path, with its `{name}` placeholders still in place: the values
+  /// that fill them are stored credentials, which the Rust side never holds.
+  final String path;
+
+  /// The address to try when the first is refused, if the spec declares one.
+  /// LG's clients are required to: late firmware listens on TLS only.
+  final int? fallbackPort;
+  final String? fallbackScheme;
+  final String? fallbackPath;
+
+  /// Handshake headers the device requires, as name/value pairs.
+  final List<WebSocketHeaderDto> headers;
+
+  /// The certificate is self-signed with no chain, so validating it cannot
+  /// succeed.
+  final bool tlsSelfSigned;
+
+  /// What the spec says a client should do about that: `none` is an honest
+  /// record that TLS here buys obfuscation, not authentication.
+  final String? tlsVerification;
+  final double? heartbeatSeconds;
+
+  /// `token_query` | `register_frame`, absent when the socket needs no
+  /// authorisation at all.
+  final String? pairingMode;
+
+  /// What the issued secret is stored as, and the name the connect path or
+  /// register frame fills from it.
+  final String? credentialName;
+
+  /// Dotted path into the device's reply where the issued secret appears.
+  final String? issuedAt;
+
+  /// The registration frame to send, as JSON, for `register_frame` pairing.
+  final String? registerFrame;
+
+  /// What the viewer must do, so a client can say it rather than appearing
+  /// to hang.
+  final String? promptNotes;
+  final List<WebSocketChannelDto> channels;
+
+  const WebSocketSurfaceDto({
+    required this.port,
+    required this.scheme,
+    required this.path,
+    this.fallbackPort,
+    this.fallbackScheme,
+    this.fallbackPath,
+    required this.headers,
+    required this.tlsSelfSigned,
+    this.tlsVerification,
+    this.heartbeatSeconds,
+    this.pairingMode,
+    this.credentialName,
+    this.issuedAt,
+    this.registerFrame,
+    this.promptNotes,
+    required this.channels,
+  });
+
+  @override
+  int get hashCode =>
+      port.hashCode ^
+      scheme.hashCode ^
+      path.hashCode ^
+      fallbackPort.hashCode ^
+      fallbackScheme.hashCode ^
+      fallbackPath.hashCode ^
+      headers.hashCode ^
+      tlsSelfSigned.hashCode ^
+      tlsVerification.hashCode ^
+      heartbeatSeconds.hashCode ^
+      pairingMode.hashCode ^
+      credentialName.hashCode ^
+      issuedAt.hashCode ^
+      registerFrame.hashCode ^
+      promptNotes.hashCode ^
+      channels.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WebSocketSurfaceDto &&
+          runtimeType == other.runtimeType &&
+          port == other.port &&
+          scheme == other.scheme &&
+          path == other.path &&
+          fallbackPort == other.fallbackPort &&
+          fallbackScheme == other.fallbackScheme &&
+          fallbackPath == other.fallbackPath &&
+          headers == other.headers &&
+          tlsSelfSigned == other.tlsSelfSigned &&
+          tlsVerification == other.tlsVerification &&
+          heartbeatSeconds == other.heartbeatSeconds &&
+          pairingMode == other.pairingMode &&
+          credentialName == other.credentialName &&
+          issuedAt == other.issuedAt &&
+          registerFrame == other.registerFrame &&
+          promptNotes == other.promptNotes &&
+          channels == other.channels;
 }
 
 /// One network out of a Wemo `GetApList` reply.

@@ -1435,3 +1435,114 @@ fn a_state_topic_is_a_binding_only_where_the_device_speaks_mqtt() {
         "hue's state_topic is an HTTP path for an unbound family, got {names:?}"
     );
 }
+
+/// The two televisions whose whole control surface is a WebSocket. Until this
+/// branch their commands resolved to nothing at all — the resolver declined
+/// the transport, which is what kept a card of dead buttons off the screen —
+/// and the point of the work is that they now resolve from the spec with no
+/// TV-specific code anywhere.
+///
+/// Pins what a consumer actually depends on: the remote reaches the surface,
+/// the connect address and its fallback are readable, and a key press renders
+/// to the exact frame the published clients send.
+#[test]
+fn the_vendored_samsung_spec_resolves_a_remote_over_its_websocket() {
+    use liberated_bread_core::api::device_api::{
+        network_entities_for_device, render_network_websocket_command, websocket_surface,
+    };
+
+    let yaml = fs::read_to_string(spec_path("samsung-tizen-tv.yaml")).expect("spec reads");
+
+    let surface = websocket_surface(yaml.clone())
+        .expect("parses")
+        .expect("samsung declares a websocket surface");
+    assert_eq!(surface.port, 8002);
+    assert_eq!(surface.scheme, "wss");
+    // The token rides the connect path, so the placeholder has to survive to
+    // the caller that holds it — this crate never sees a credential.
+    assert!(surface.path.contains("{token}"), "{}", surface.path);
+    // Older sets listen on the plain port and authenticate by name alone.
+    assert_eq!(surface.fallback_port, Some(8001));
+    assert_eq!(surface.fallback_scheme.as_deref(), Some("ws"));
+    assert_eq!(surface.pairing_mode.as_deref(), Some("token_query"));
+    assert_eq!(surface.issued_at.as_deref(), Some("data.token"));
+    assert_eq!(surface.channels.len(), 1);
+    assert!(surface.channels[0].is_default);
+
+    let entities = network_entities_for_device(yaml.clone(), vec![]).expect("resolves a surface");
+    let names: BTreeSet<&str> = entities.entities.iter().map(|e| e.name.as_str()).collect();
+    assert!(
+        !names.is_empty(),
+        "a set whose commands all ride the websocket must now resolve controls"
+    );
+
+    let frame = render_network_websocket_command(
+        yaml,
+        "press_power".to_string(),
+        std::collections::HashMap::new(),
+        7,
+    )
+    .expect("a key press renders");
+    let json: serde_json::Value = serde_json::from_str(&frame.text).expect("valid JSON");
+    assert_eq!(json["method"], "ms.remote.control");
+    assert_eq!(json["params"]["DataOfCmd"], "KEY_POWER");
+    assert_eq!(json["params"]["TypeOfRemote"], "SendRemoteKey");
+}
+
+/// LG's is the harder shape and the reason `channels` is a list: SSAP requests
+/// are JSON on the socket already open, and remote BUTTONS are plain text on a
+/// second socket the TV hands out at runtime.
+#[test]
+fn the_vendored_lg_spec_renders_both_of_its_channels() {
+    use liberated_bread_core::api::device_api::{
+        render_network_websocket_command, websocket_surface,
+    };
+
+    let yaml = fs::read_to_string(spec_path("lg-webos.yaml")).expect("spec reads");
+
+    let surface = websocket_surface(yaml.clone())
+        .expect("parses")
+        .expect("lg declares a websocket surface");
+    assert_eq!((surface.port, surface.scheme.as_str()), (3000, "ws"));
+    assert_eq!(surface.fallback_port, Some(3001));
+    assert_eq!(surface.pairing_mode.as_deref(), Some("register_frame"));
+    assert!(
+        surface.register_frame.is_some(),
+        "a register_frame pairing has to say what to send"
+    );
+
+    let pointer = surface
+        .channels
+        .iter()
+        .find(|c| c.name == "pointer")
+        .expect("declares the button channel");
+    assert_eq!(pointer.encoding, "text");
+    // Reachable, not merely described: the command that returns its address is
+    // itself declared.
+    assert_eq!(pointer.obtained_by.as_deref(), Some("get_pointer_socket"));
+
+    // An SSAP request: JSON, on the main socket, with a numeric correlation id.
+    let ssap = render_network_websocket_command(
+        yaml.clone(),
+        "volume_up".to_string(),
+        std::collections::HashMap::new(),
+        3,
+    )
+    .expect("an ssap request renders");
+    assert_eq!(ssap.channel, "ssap");
+    let json: serde_json::Value = serde_json::from_str(&ssap.text).expect("valid JSON");
+    assert_eq!(json["id"], serde_json::json!(3));
+    assert_eq!(json["type"], "request");
+    assert_eq!(json["uri"], "ssap://audio/volumeUp");
+
+    // A button: plain text, on the other socket entirely.
+    let button = render_network_websocket_command(
+        yaml,
+        "press_home".to_string(),
+        std::collections::HashMap::new(),
+        4,
+    )
+    .expect("a button renders");
+    assert_eq!(button.channel, "pointer");
+    assert_eq!(button.text, "type:button\nname:HOME\n\n");
+}
