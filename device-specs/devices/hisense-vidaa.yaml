@@ -661,6 +661,13 @@ mqtt_topics:
 # pyvidaa/Krazy998/newAM and exercised daily by their users, but this
 # project has no Hisense hardware and has replayed none of it.
 commands:
+  # Every command below is addressed to /remoteapp/tv/<service>/<client_id>/
+  # actions/<action>, so every one declares `client_id` — the session identity
+  # this client connected under, stored with the pairing token rather than
+  # chosen per command. remoteapp_common.client_id above is where it comes
+  # from and what it may contain; the repetition here is what makes each
+  # command renderable on its own, which is the contract a consumer reads.
+  #
   # -- Power. Toggle only; power-ON from standby is Wake-on-LAN, not MQTT. --
   press_power:
     description: "Power toggle (standby<->on). The broker is down while the TV is off, so this only ever turns a TV OFF over MQTT — power on is WoL."
@@ -668,7 +675,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_POWER"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_POWER"
     verification: "reported"
 
   # -- Navigation.
@@ -678,7 +690,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_UP"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_UP"
     verification: "reported"
   press_down:
     description: "D-pad down."
@@ -686,7 +703,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_DOWN"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_DOWN"
     verification: "reported"
   press_left:
     description: "D-pad left."
@@ -694,7 +716,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_LEFT"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_LEFT"
     verification: "reported"
   press_right:
     description: "D-pad right."
@@ -702,7 +729,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_RIGHT"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_RIGHT"
     verification: "reported"
   press_ok:
     description: "OK — select the focused item."
@@ -710,7 +742,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_OK"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_OK"
     verification: "reported"
   press_back:
     description: "Back one screen. The wire spelling is KEY_RETURNS."
@@ -718,7 +755,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_RETURNS"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_RETURNS"
     verification: "reported"
   press_home:
     description: "Home screen."
@@ -726,7 +768,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_HOME"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_HOME"
     verification: "reported"
   press_menu:
     description: "Menu."
@@ -734,7 +781,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_MENU"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_MENU"
     verification: "reported"
   press_exit:
     description: "Exit the current app/menu."
@@ -742,7 +794,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_EXIT"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_EXIT"
     verification: "reported"
 
   # -- Volume (step keys; absolute set is set_volume below).
@@ -752,7 +809,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_VOLUMEUP"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_VOLUMEUP"
     verification: "reported"
   press_volume_down:
     description: "Volume down one step."
@@ -760,7 +822,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_VOLUMEDOWN"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_VOLUMEDOWN"
     verification: "reported"
   press_mute:
     description: "Mute toggle."
@@ -768,7 +835,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_MUTE"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_MUTE"
     verification: "reported"
 
   # -- Live TV.
@@ -778,7 +850,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_CHANNELUP"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_CHANNELUP"
     verification: "reported"
   press_channel_down:
     description: "Previous tuner channel."
@@ -786,7 +863,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_CHANNELDOWN"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_CHANNELDOWN"
     verification: "reported"
 
   # -- Playback transport.
@@ -796,7 +878,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_PLAY"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_PLAY"
     verification: "reported"
   press_pause:
     description: "Pause."
@@ -804,7 +891,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_PAUSE"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_PAUSE"
     verification: "reported"
   press_stop:
     description: "Stop."
@@ -812,7 +904,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_STOP"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_STOP"
     verification: "reported"
   press_fast_forward:
     description: "Fast-forward. The wire spelling is KEY_FORWARDS."
@@ -820,7 +917,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_FORWARDS"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_FORWARDS"
     verification: "reported"
   press_rewind:
     description: "Rewind. The wire spelling is KEY_BACK — NOT KEY_REWIND; do not confuse it with KEY_RETURNS (the Back button)."
@@ -828,7 +930,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_BACK"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_BACK"
     verification: "reported"
 
   # -- Digits.
@@ -838,7 +945,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_0"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_0"
     verification: "reported"
   press_1:
     description: "Digit 1."
@@ -846,7 +958,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_1"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_1"
     verification: "reported"
   press_2:
     description: "Digit 2."
@@ -854,7 +971,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_2"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_2"
     verification: "reported"
   press_3:
     description: "Digit 3."
@@ -862,7 +984,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_3"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_3"
     verification: "reported"
   press_4:
     description: "Digit 4."
@@ -870,7 +997,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_4"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_4"
     verification: "reported"
   press_5:
     description: "Digit 5."
@@ -878,7 +1010,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_5"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_5"
     verification: "reported"
   press_6:
     description: "Digit 6."
@@ -886,7 +1023,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_6"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_6"
     verification: "reported"
   press_7:
     description: "Digit 7."
@@ -894,7 +1036,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_7"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_7"
     verification: "reported"
   press_8:
     description: "Digit 8."
@@ -902,7 +1049,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_8"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_8"
     verification: "reported"
   press_9:
     description: "Digit 9."
@@ -910,7 +1062,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_9"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_9"
     verification: "reported"
 
   # -- Colour buttons and misc.
@@ -920,7 +1077,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_RED"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_RED"
     verification: "reported"
   press_green:
     description: "Green colour button."
@@ -928,7 +1090,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_GREEN"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_GREEN"
     verification: "reported"
   press_yellow:
     description: "Yellow colour button."
@@ -936,7 +1103,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_YELLOW"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_YELLOW"
     verification: "reported"
   press_blue:
     description: "Blue colour button."
@@ -944,7 +1116,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_BLUE"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_BLUE"
     verification: "reported"
   press_subtitle:
     description: "Subtitle toggle."
@@ -952,7 +1129,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_SUBTITLE"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_SUBTITLE"
     verification: "reported"
   press_info:
     description: "Info."
@@ -960,7 +1142,12 @@ commands:
     service: "remote_service"
     action: "sendkey"
     path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
-    example_body: "KEY_INFO"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_INFO"
     verification: "reported"
 
   # -- Parameterised commands.
@@ -971,12 +1158,17 @@ commands:
     action: "changevolume"
     path: "/remoteapp/tv/platform_service/{client_id}/actions/changevolume"
     parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
       volume:
         type: "integer"
         required: true
         min: 0
         max: 100
         description: "Absolute volume level; rendered into the payload as the bare decimal string."
+    body: "{volume}"
     example_body: "50"
     verification: "reported"
   set_source:
@@ -985,7 +1177,13 @@ commands:
     service: "ui_service"
     action: "changesource"
     path: "/remoteapp/tv/ui_service/{client_id}/actions/changesource"
+    arguments:
+      sourceid: "{sourceid}"
     parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
       sourceid:
         type: "string"
         required: true
@@ -1009,6 +1207,10 @@ commands:
       urlType: 37
       storeType: 0
     parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
       name:
         type: "string"
         required: true
