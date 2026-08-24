@@ -6,30 +6,22 @@ import 'dart:typed_data';
 
 import '../core/error_text.dart';
 import '../core/log.dart';
+import 'mqtt_session.dart';
 import 'roomba_credential_store.dart';
 import 'spec_codec.dart';
 
-/// A TLS connection to a robot, abstracted so tests answer from canned bytes
-/// instead of a socket — the same seam `KasaExchange` gives the TCP-JSON
-/// transport, one transport up.
+/// A TLS connection to a robot: the shared MQTT socket seam under the name
+/// this file has always used.
 ///
 /// Returns a duplex byte stream: what the caller writes goes to the robot,
 /// what the robot sends arrives on the stream. A loopback `SecureServerSocket`
 /// stands in for a robot in the integration tests; a plain in-memory pair
 /// stands in for one in the unit tests.
-typedef RoombaTlsConnect = Future<RoombaTlsSocket> Function(
-  String host,
-  int port,
-  Duration timeout,
-);
+typedef RoombaTlsConnect = MqttConnect;
 
 /// The half of a socket this transport uses. Narrow on purpose: a fake that
 /// implements three members is a fake worth writing.
-abstract class RoombaTlsSocket {
-  Stream<Uint8List> get incoming;
-  void add(List<int> bytes);
-  Future<void> close();
-}
+typedef RoombaTlsSocket = MqttSocket;
 
 /// The port the robot's own MQTT broker listens on. Matches
 /// `crate::protocol::roomba::PORT`.
@@ -125,7 +117,7 @@ Future<RoombaTlsSocket> _realTlsConnect(
       timeout: timeout,
       onBadCertificate: (_) => true,
     );
-    return _SecureSocketAdapter(socket);
+    return SocketAdapter(socket);
   } on HandshakeException catch (e) {
     throw RoombaConnectionException(
       'The TLS handshake with $host failed. Older Roomba firmware only offers '
@@ -145,20 +137,6 @@ Future<RoombaTlsSocket> _realTlsConnect(
       '$host:$port did not answer within ${timeout.inSeconds}s.',
     );
   }
-}
-
-class _SecureSocketAdapter implements RoombaTlsSocket {
-  final SecureSocket _socket;
-  _SecureSocketAdapter(this._socket);
-
-  @override
-  Stream<Uint8List> get incoming => _socket;
-
-  @override
-  void add(List<int> bytes) => _socket.add(bytes);
-
-  @override
-  Future<void> close() async => _socket.destroy();
 }
 
 /// The account-free credential route: hold HOME, then ask the robot.
@@ -288,53 +266,30 @@ class RoombaPasswordService {
 /// integration polls rather than subscribing forever.
 class RoombaMqttClient {
   final SpecCodec _codec;
-  final RoombaTlsConnect _connect;
+  final MqttSession _session;
 
-  static const connectTimeout = Duration(seconds: 10);
+  /// Timings, kept here as the names this file's callers and tests use. The
+  /// session owns the behaviour.
+  static const connectTimeout = MqttSession.connectTimeout;
+  static const ackTimeout = MqttSession.ackTimeout;
+  static const pingInterval = MqttSession.pingInterval;
 
-  /// How long to wait for CONNACK once the socket is up. Separate from the
-  /// socket timeout because a robot that accepts TCP and then says nothing is
-  /// a different problem from one that never accepted.
-  static const ackTimeout = Duration(seconds: 8);
-
-  /// Comfortably inside the 60 s keepalive the CONNECT advertises.
-  static const pingInterval = Duration(seconds: 25);
-
-  RoombaTlsSocket? _socket;
-  StreamSubscription<Uint8List>? _subscription;
-  Timer? _ping;
-  final _buffer = <int>[];
-
-  /// The tail of the chunk-processing chain.
-  ///
-  /// `Stream.listen` does not await an async callback, so without this two
-  /// chunks arriving close together both run [_onBytes] and interleave at its
-  /// `await`: each snapshots the buffer, then each removes what IT consumed
-  /// from a buffer the other has already trimmed. The second removal runs off
-  /// the end.
-  ///
-  /// The failure is quiet, which is what makes it worth guarding. The
-  /// `RangeError` is thrown inside the async callback, and a stream discards
-  /// the future its callback returns — so nothing surfaces it, and the state
-  /// push that chunk carried is simply never delivered. A robot that goes
-  /// silent, not one that reports a problem.
-  ///
-  /// Chaining makes the listener synchronous — it only enqueues — so the
-  /// framing state is touched by one chunk at a time.
-  Future<void> _pump = Future<void>.value();
   final _state = StreamController<Map<String, String>>.broadcast();
-  Completer<void>? _connected;
-  var _packetId = 0;
+  StreamSubscription<MqttMessage>? _messages;
 
   RoombaMqttClient({required SpecCodec codec, RoombaTlsConnect? connect})
       : _codec = codec,
-        _connect = connect ?? _realTlsConnect;
+        _session = MqttSession(
+          codec: codec,
+          connect: connect ?? _realTlsConnect,
+          label: 'roomba',
+        );
 
   /// Every state push the robot has sent since connecting, flattened to the
   /// dotted paths the spec's entities bind to.
   Stream<Map<String, String>> get state => _state.stream;
 
-  bool get isConnected => _socket != null;
+  bool get isConnected => _session.isConnected;
 
   /// Open the session and wait for the broker to accept the credentials.
   ///
@@ -346,79 +301,75 @@ class RoombaMqttClient {
     RoombaCredentials credentials, {
     int port = roombaPort,
   }) async {
-    if (_socket != null) return;
+    if (_session.isConnected) return;
 
-    final socket = await _connect(host, port, connectTimeout);
-    _socket = socket;
-    _connected = Completer<void>();
-
-    Log.hub.debug('roomba ${credentials.blid}: connected to $host, sending '
-        'CONNECT (password ${redact(credentials.password)})');
-
-    _subscription = socket.incoming.listen(
-      _enqueue,
-      onError: (Object error) => _fail(error),
-      onDone: () {
-        // The eviction signal. The robot serves ONE local client and a new
-        // connection displaces the old, so this is what "something else took
-        // the robot" looks like from here — the failure this whole feature
-        // keeps warning about. At warning so it survives the release floor
-        // into a bug report, where it is the first thing worth knowing.
-        Log.hub.warning(
-          'roomba ${credentials.blid}: the robot closed the connection — '
-          'another client (the iRobot app, Home Assistant) may have taken it',
-        );
-        _fail(
-          const RoombaConnectionException('The robot closed the connection.'),
-        );
-      },
-      cancelOnError: false,
-    );
-
-    socket.add(await _codec.roombaConnectPacket(
-      blid: credentials.blid,
-      password: credentials.password,
-    ));
-
-    try {
-      await _connected!.future.timeout(ackTimeout);
-    } on TimeoutException {
-      await close();
-      throw const RoombaConnectionException(
-        'The robot accepted the connection but never acknowledged the login. '
-        'Close the iRobot app — the robot serves one local client at a time.',
+    // The eviction signal. The robot serves ONE local client and a new
+    // connection displaces the old, so a hang-up is what "something else took
+    // the robot" looks like from here — the failure this whole feature keeps
+    // warning about. At warning so it survives the release floor into a bug
+    // report, where it is the first thing worth knowing.
+    _session.onHangUp = () {
+      Log.hub.warning(
+        'roomba ${credentials.blid}: the robot closed the connection — '
+        'another client (the iRobot app, Home Assistant) may have taken it',
       );
-    } catch (_) {
-      // Every OTHER way this can fail — a refused CONNACK (RoombaAuthException),
-      // the robot hanging up mid-handshake — must also release the socket.
-      // Leaving it set makes the next connect() return early at the guard
-      // above, handing the caller a control panel over a session the broker
-      // never authenticated: every button press would go nowhere, silently.
-      // Rethrown as-is, because which failure it was is what the UI reports.
-      await close();
-      rethrow;
+      return const MqttConnectionException('The robot closed the connection.');
+    };
+
+    Log.hub.debug('roomba ${credentials.blid}: connecting to $host '
+        '(password ${redact(credentials.password)})');
+
+    // Translated at this boundary rather than raised generically: what a
+    // CONNACK code MEANS is the robot's own — 4 is a stale password after a
+    // factory reset, 5 is the iRobot app holding the one local slot — and
+    // those two sentences are the difference between a user fixing it in a
+    // minute and giving up. Everything the session raises reaches the caller
+    // as the Roomba-shaped exception this service has always thrown, so the
+    // UI above is unchanged.
+    try {
+      await _session.connect(
+        host,
+        port,
+        // The BLID is both the client id and the username; the robot refuses
+        // a client id of anything else.
+        clientId: credentials.blid,
+        username: credentials.blid,
+        password: credentials.password,
+      );
+    } on MqttRefusedException catch (e) {
+      throw RoombaAuthException(e.code);
+    } on MqttConnectionException catch (e) {
+      throw RoombaConnectionException(
+        e.message ==
+                'The device accepted the connection but never '
+                    'acknowledged the login.'
+            ? 'The robot accepted the connection but never acknowledged the '
+                'login. Close the iRobot app — the robot serves one local '
+                'client at a time.'
+            : e.message,
+        legacyTlsSuspected: e.handshakeFailed,
+      );
     }
 
-    // '#', not the spec's topic names: which shape a given firmware publishes
-    // locally is not settled (the spec grades the shadow topic `low`), and
-    // subscribing to everything is the only reading that works on all of them.
+    // Subscribed and flattened here because both are the robot's: '#' rather
+    // than the spec's topic names (which shape a given firmware publishes
+    // locally is not settled — the spec grades the shadow topic `low`), and
+    // the payload is a Roomba state document the codec knows how to flatten.
+    _messages = _session.messages.listen(
+      (message) async {
+        final fields = await _codec.roombaStateFields(payload: message.payload);
+        if (fields.isNotEmpty && !_state.isClosed) _state.add(fields);
+      },
+      onError: (Object error) {
+        if (_state.isClosed) return;
+        _state.addError(error is MqttConnectionException
+            ? RoombaConnectionException(error.message)
+            : error);
+      },
+    );
+
     Log.hub.debug('roomba ${credentials.blid}: login acknowledged');
-
-    _packetId = (_packetId % 0xFFFF) + 1;
-    socket.add(
-        await _codec.roombaSubscribePacket(topic: '#', packetId: _packetId));
-
-    _ping = Timer.periodic(pingInterval, (_) async {
-      final open = _socket;
-      if (open == null) return;
-      final packet = await _codec.roombaPingreqPacket();
-      // Re-check across the await, and check IDENTITY rather than null: close()
-      // can land in that window, and a later connect() can even have put a new
-      // socket in place. Writing to the old one throws inside a timer callback,
-      // where nothing is waiting to catch it.
-      if (!identical(_socket, open)) return;
-      open.add(packet);
-    });
+    await _session.subscribe('#');
   }
 
   /// Render and publish one of the spec's commands.
@@ -432,8 +383,7 @@ class RoombaMqttClient {
     required String commandName,
     DateTime? now,
   }) async {
-    final socket = _socket;
-    if (socket == null) {
+    if (!_session.isConnected) {
       throw const RoombaConnectionException('Not connected to the robot.');
     }
     final epoch =
@@ -443,94 +393,22 @@ class RoombaMqttClient {
       commandName: commandName,
       epochSeconds: epoch,
     );
-    socket.add(await _codec.roombaPublishPacket(
-      topic: request.topic,
-      payload: request.payload,
-    ));
-  }
-
-  /// Queue one chunk behind whatever is still being decoded.
-  ///
-  /// The `catchError` is not decoration: an unhandled throw would leave [_pump]
-  /// a permanently-failed future, and every later chunk chained onto it would
-  /// be dropped without ever running — a robot that goes silent rather than one
-  /// that reports a problem.
-  void _enqueue(Uint8List chunk) {
-    _pump = _pump.then((_) => _onBytes(chunk)).catchError(_fail);
-  }
-
-  Future<void> _onBytes(Uint8List chunk) async {
-    _buffer.addAll(chunk);
-    final RoombaParsedDto parsed;
-    try {
-      parsed = await _codec.roombaParseIncoming(buffer: List.of(_buffer));
-    } catch (e) {
-      // Framing is lost; nothing after this point is readable.
-      _fail(RoombaConnectionException('Unreadable MQTT stream — $e'));
-      return;
-    }
-    _buffer.removeRange(0, parsed.consumed);
-
-    for (final packet in parsed.packets) {
-      switch (packet.kind) {
-        case 'connack':
-          if (packet.code == 0) {
-            _connected?.complete();
-          } else {
-            // The code IS the diagnosis (4 = bad username or password), and it
-            // is the difference between "redo the handshake" and "check the
-            // network". Logged as well as thrown because the throw becomes UI
-            // text that deliberately does not carry a number.
-            Log.hub.warning('roomba: broker refused the login, CONNACK code '
-                '${packet.code}');
-            _fail(RoombaAuthException(packet.code));
-          }
-        case 'publish':
-          final fields =
-              await _codec.roombaStateFields(payload: packet.payload);
-          if (fields.isNotEmpty && !_state.isClosed) _state.add(fields);
-        default:
-          break;
-      }
-    }
-  }
-
-  void _fail(Object error) {
-    final pending = _connected;
-    if (pending != null && !pending.isCompleted) {
-      pending.completeError(error);
-      return;
-    }
-    if (!_state.isClosed) _state.addError(error);
+    await _session.publish(request.topic, request.payload);
   }
 
   /// Send DISCONNECT and let go of the socket.
   ///
   /// Idempotent, and safe to call on a session that never finished connecting.
-  /// The DISCONNECT is best-effort: if the socket is already gone the robot
-  /// works it out on its own, and throwing here would turn a tidy-up into a
-  /// user-visible error.
   Future<void> close() async {
-    final socket = _socket;
-    _socket = null;
-    _ping?.cancel();
-    _ping = null;
-    if (socket != null) {
-      try {
-        socket.add(await _codec.roombaDisconnectPacket());
-      } catch (_) {
-        // Already gone.
-      }
-      await socket.close();
-    }
-    await _subscription?.cancel();
-    _subscription = null;
-    _buffer.clear();
+    await _messages?.cancel();
+    _messages = null;
+    await _session.close();
   }
 
   /// Close the session and the state stream. After this the client is spent.
   Future<void> dispose() async {
     await close();
+    await _session.dispose();
     await _state.close();
   }
 }

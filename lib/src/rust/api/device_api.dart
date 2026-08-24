@@ -386,33 +386,37 @@ Future<Uint8List> roombaConnectPacket(
     RustLib.instance.api
         .crateApiDeviceApiRoombaConnectPacket(blid: blid, password: password);
 
-/// MQTT SUBSCRIBE at QoS 0. Pass `#`: which topic shape a given firmware
-/// publishes locally is not settled, so subscribing to everything is the only
-/// reading that works across all of them.
-Future<Uint8List> roombaSubscribePacket(
+/// MQTT SUBSCRIBE at QoS 0.
+///
+/// The topic filter is the caller's. `#` is a legitimate choice where a spec
+/// cannot say which shape a given firmware publishes on — the Roomba's case —
+/// and a named topic is the ordinary one.
+Future<Uint8List> mqttSubscribePacket(
         {required String topic, required int packetId}) =>
-    RustLib.instance.api.crateApiDeviceApiRoombaSubscribePacket(
-        topic: topic, packetId: packetId);
+    RustLib.instance.api
+        .crateApiDeviceApiMqttSubscribePacket(topic: topic, packetId: packetId);
 
-/// MQTT PUBLISH at QoS 0 — the robot does not acknowledge commands.
-Future<Uint8List> roombaPublishPacket(
+/// MQTT PUBLISH at QoS 0. No packet id, no acknowledgement: a higher QoS
+/// needs bookkeeping the codec deliberately does not hold, and no device
+/// broker in the catalogue acknowledges commands.
+Future<Uint8List> mqttPublishPacket(
         {required String topic, required String payload}) =>
     RustLib.instance.api
-        .crateApiDeviceApiRoombaPublishPacket(topic: topic, payload: payload);
+        .crateApiDeviceApiMqttPublishPacket(topic: topic, payload: payload);
 
 /// MQTT PINGREQ, sent inside the keepalive window to hold the session open.
-Future<Uint8List> roombaPingreqPacket() =>
-    RustLib.instance.api.crateApiDeviceApiRoombaPingreqPacket();
+Future<Uint8List> mqttPingreqPacket() =>
+    RustLib.instance.api.crateApiDeviceApiMqttPingreqPacket();
 
-/// MQTT DISCONNECT. Sent on the way out, always: the robot serves one local
-/// client at a time, so a client that just drops the socket leaves the owner
-/// locked out of their own app until the robot notices.
-Future<Uint8List> roombaDisconnectPacket() =>
-    RustLib.instance.api.crateApiDeviceApiRoombaDisconnectPacket();
+/// MQTT DISCONNECT. Sent on the way out, always: a device that serves one
+/// local client at a time (the Roomba does) leaves the owner locked out of
+/// their own app until it notices a client that merely dropped the socket.
+Future<Uint8List> mqttDisconnectPacket() =>
+    RustLib.instance.api.crateApiDeviceApiMqttDisconnectPacket();
 
 /// Parse whole MQTT packets out of whatever has arrived so far.
-Future<RoombaParsedDto> roombaParseIncoming({required List<int> buffer}) =>
-    RustLib.instance.api.crateApiDeviceApiRoombaParseIncoming(buffer: buffer);
+Future<MqttParsedDto> mqttParseIncoming({required List<int> buffer}) =>
+    RustLib.instance.api.crateApiDeviceApiMqttParseIncoming(buffer: buffer);
 
 /// Render the argument-less request that reads a state command's values —
 /// what a client sends to poll `GetCrockpotState` or `GetBinaryState`.
@@ -2291,6 +2295,70 @@ class MatchResult {
           confidence == other.confidence;
 }
 
+/// One packet read off the MQTT stream.
+class MqttIncomingDto {
+  /// `connack` | `suback` | `publish` | `pingresp` | `other`.
+  final String kind;
+
+  /// PUBLISH only.
+  final String topic;
+
+  /// PUBLISH only.
+  final String payload;
+
+  /// CONNACK's return code — 0 is accepted, 4 is a bad username or
+  /// password. SUBACK's packet id. Zero elsewhere.
+  final int code;
+
+  const MqttIncomingDto({
+    required this.kind,
+    required this.topic,
+    required this.payload,
+    required this.code,
+  });
+
+  @override
+  int get hashCode =>
+      kind.hashCode ^ topic.hashCode ^ payload.hashCode ^ code.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MqttIncomingDto &&
+          runtimeType == other.runtimeType &&
+          kind == other.kind &&
+          topic == other.topic &&
+          payload == other.payload &&
+          code == other.code;
+}
+
+/// Whole packets parsed out of a receive buffer, and how many bytes they
+/// consumed.
+class MqttParsedDto {
+  final List<MqttIncomingDto> packets;
+
+  /// Bytes the caller may now drop. The remainder is a partial packet and
+  /// must be kept: a TLS stream splits and coalesces wherever it likes, and
+  /// treating one read as one packet is the bug this count prevents.
+  final int consumed;
+
+  const MqttParsedDto({
+    required this.packets,
+    required this.consumed,
+  });
+
+  @override
+  int get hashCode => packets.hashCode ^ consumed.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MqttParsedDto &&
+          runtimeType == other.runtimeType &&
+          packets == other.packets &&
+          consumed == other.consumed;
+}
+
 /// A rendered MQTT publish: the topic and the payload.
 ///
 /// The generic sibling of [`RoombaRequestDto`], for specs whose MQTT commands
@@ -3225,70 +3293,6 @@ class RoombaAnnouncementDto {
           sw == other.sw &&
           sku == other.sku &&
           proto == other.proto;
-}
-
-/// One packet read off the MQTT stream.
-class RoombaIncomingDto {
-  /// `connack` | `suback` | `publish` | `pingresp` | `other`.
-  final String kind;
-
-  /// PUBLISH only.
-  final String topic;
-
-  /// PUBLISH only.
-  final String payload;
-
-  /// CONNACK's return code — 0 is accepted, 4 is a bad BLID or password.
-  /// SUBACK's packet id. Zero elsewhere.
-  final int code;
-
-  const RoombaIncomingDto({
-    required this.kind,
-    required this.topic,
-    required this.payload,
-    required this.code,
-  });
-
-  @override
-  int get hashCode =>
-      kind.hashCode ^ topic.hashCode ^ payload.hashCode ^ code.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is RoombaIncomingDto &&
-          runtimeType == other.runtimeType &&
-          kind == other.kind &&
-          topic == other.topic &&
-          payload == other.payload &&
-          code == other.code;
-}
-
-/// Whole packets parsed out of a receive buffer, and how many bytes they
-/// consumed.
-class RoombaParsedDto {
-  final List<RoombaIncomingDto> packets;
-
-  /// Bytes the caller may now drop. The remainder is a partial packet and
-  /// must be kept: a TLS stream splits and coalesces wherever it likes, and
-  /// treating one read as one packet is the bug this count prevents.
-  final int consumed;
-
-  const RoombaParsedDto({
-    required this.packets,
-    required this.consumed,
-  });
-
-  @override
-  int get hashCode => packets.hashCode ^ consumed.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is RoombaParsedDto &&
-          runtimeType == other.runtimeType &&
-          packets == other.packets &&
-          consumed == other.consumed;
 }
 
 /// A rendered Roomba command: the topic to publish on, and the JSON payload.

@@ -234,6 +234,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<MatchResult> dco_decode_list_match_result(dynamic raw);
 
   @protected
+  List<MqttIncomingDto> dco_decode_list_mqtt_incoming_dto(dynamic raw);
+
+  @protected
   List<NameMatchDto> dco_decode_list_name_match_dto(dynamic raw);
 
   @protected
@@ -302,9 +305,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
-  List<RoombaIncomingDto> dco_decode_list_roomba_incoming_dto(dynamic raw);
-
-  @protected
   List<ScanMatch> dco_decode_list_scan_match(dynamic raw);
 
   @protected
@@ -348,6 +348,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MatchResult dco_decode_match_result(dynamic raw);
+
+  @protected
+  MqttIncomingDto dco_decode_mqtt_incoming_dto(dynamic raw);
+
+  @protected
+  MqttParsedDto dco_decode_mqtt_parsed_dto(dynamic raw);
 
   @protected
   MqttRequestDto dco_decode_mqtt_request_dto(dynamic raw);
@@ -502,12 +508,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RoombaAnnouncementDto dco_decode_roomba_announcement_dto(dynamic raw);
-
-  @protected
-  RoombaIncomingDto dco_decode_roomba_incoming_dto(dynamic raw);
-
-  @protected
-  RoombaParsedDto dco_decode_roomba_parsed_dto(dynamic raw);
 
   @protected
   RoombaRequestDto dco_decode_roomba_request_dto(dynamic raw);
@@ -830,6 +830,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<MatchResult> sse_decode_list_match_result(SseDeserializer deserializer);
 
   @protected
+  List<MqttIncomingDto> sse_decode_list_mqtt_incoming_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<NameMatchDto> sse_decode_list_name_match_dto(
       SseDeserializer deserializer);
 
@@ -909,10 +913,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
-  List<RoombaIncomingDto> sse_decode_list_roomba_incoming_dto(
-      SseDeserializer deserializer);
-
-  @protected
   List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer);
 
   @protected
@@ -965,6 +965,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MatchResult sse_decode_match_result(SseDeserializer deserializer);
+
+  @protected
+  MqttIncomingDto sse_decode_mqtt_incoming_dto(SseDeserializer deserializer);
+
+  @protected
+  MqttParsedDto sse_decode_mqtt_parsed_dto(SseDeserializer deserializer);
 
   @protected
   MqttRequestDto sse_decode_mqtt_request_dto(SseDeserializer deserializer);
@@ -1142,13 +1148,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   RoombaAnnouncementDto sse_decode_roomba_announcement_dto(
       SseDeserializer deserializer);
-
-  @protected
-  RoombaIncomingDto sse_decode_roomba_incoming_dto(
-      SseDeserializer deserializer);
-
-  @protected
-  RoombaParsedDto sse_decode_roomba_parsed_dto(SseDeserializer deserializer);
 
   @protected
   RoombaRequestDto sse_decode_roomba_request_dto(SseDeserializer deserializer);
@@ -1495,6 +1494,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<MatchResult> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_mqtt_incoming_dto(
+      List<MqttIncomingDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_name_match_dto(
       List<NameMatchDto> self, SseSerializer serializer);
 
@@ -1578,10 +1581,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<(int, Uint8List)> self, SseSerializer serializer);
 
   @protected
-  void sse_encode_list_roomba_incoming_dto(
-      List<RoombaIncomingDto> self, SseSerializer serializer);
-
-  @protected
   void sse_encode_list_scan_match(
       List<ScanMatch> self, SseSerializer serializer);
 
@@ -1638,6 +1637,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_match_result(MatchResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_mqtt_incoming_dto(
+      MqttIncomingDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_mqtt_parsed_dto(MqttParsedDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_mqtt_request_dto(
@@ -1825,14 +1831,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_roomba_announcement_dto(
       RoombaAnnouncementDto self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_roomba_incoming_dto(
-      RoombaIncomingDto self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_roomba_parsed_dto(
-      RoombaParsedDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_roomba_request_dto(

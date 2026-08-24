@@ -55,19 +55,18 @@ class _ScriptedRobot implements RoombaTlsSocket {
 /// A codec whose parse takes a real turn of the event loop, like the one in
 /// production does.
 ///
-/// [FakeSpecCodec.roombaParseIncoming] is `async` but completes within a single
+/// [FakeSpecCodec.mqttParseIncoming] is `async` but completes within a single
 /// microtask, so a second chunk can never arrive mid-decode and the fake hides
 /// concurrency bugs the real codec exposes. The real one is a
 /// flutter_rust_bridge call that crosses to a Rust worker, which takes several
 /// turns. This models that, and nothing else.
 class _SlowParseCodec extends FakeSpecCodec {
   @override
-  Future<RoombaParsedDto> roombaParseIncoming(
-      {required List<int> buffer}) async {
+  Future<MqttParsedDto> mqttParseIncoming({required List<int> buffer}) async {
     // A timer, not a microtask: it puts the completion behind pending stream
     // deliveries, which is exactly where the real codec's completion sits.
     await Future<void>.delayed(Duration.zero);
-    return super.roombaParseIncoming(buffer: buffer);
+    return super.mqttParseIncoming(buffer: buffer);
   }
 }
 
@@ -275,7 +274,7 @@ void main() {
       // works on all of them.
       expect(
           robot.written[1],
-          await codec.roombaSubscribePacket(
+          await codec.mqttSubscribePacket(
             topic: '#',
             packetId: 1,
           ));
@@ -293,7 +292,7 @@ void main() {
         now: at,
       );
 
-      final expected = await codec.roombaPublishPacket(
+      final expected = await codec.mqttPublishPacket(
         topic: 'cmd',
         payload: jsonEncode({
           'command': 'clean',
@@ -314,7 +313,7 @@ void main() {
       const payload = '{"state":{"reported":{"batPct":94,'
           '"bin":{"full":false},'
           '"cleanMissionStatus":{"phase":"run"}}}}';
-      final push = await codec.roombaPublishPacket(
+      final push = await codec.mqttPublishPacket(
         topic: 'delta',
         payload: payload,
       );
@@ -350,9 +349,9 @@ void main() {
       String pushFor(int battery, String phase) => '{"state":{"reported":'
           '{"batPct":$battery,"cleanMissionStatus":{"phase":"$phase"}}}}';
 
-      final first = await codec.roombaPublishPacket(
+      final first = await codec.mqttPublishPacket(
           topic: 'delta', payload: pushFor(94, 'run'));
-      final second = await codec.roombaPublishPacket(
+      final second = await codec.mqttPublishPacket(
           topic: 'delta', payload: pushFor(93, 'hmMidMsn'));
 
       final seen = <Map<String, String>>[];
@@ -417,7 +416,7 @@ void main() {
 
       final commands = <String>[];
       for (final packet in robot.written.sublist(before)) {
-        final parsed = await codec.roombaParseIncoming(buffer: packet);
+        final parsed = await codec.mqttParseIncoming(buffer: packet);
         for (final message in parsed.packets) {
           if (message.kind != 'publish') continue;
           expect(message.topic, 'cmd');
@@ -439,7 +438,7 @@ void main() {
 
       await client.close();
 
-      expect(robot.written.last, await codec.roombaDisconnectPacket());
+      expect(robot.written.last, await codec.mqttDisconnectPacket());
       expect(robot.closed, isTrue);
       expect(client.isConnected, isFalse);
 

@@ -2541,49 +2541,53 @@ pub fn roomba_connect_packet(blid: String, password: String) -> Vec<u8> {
     crate::protocol::roomba::connect_packet(&blid, &password)
 }
 
-/// MQTT SUBSCRIBE at QoS 0. Pass `#`: which topic shape a given firmware
-/// publishes locally is not settled, so subscribing to everything is the only
-/// reading that works across all of them.
-pub fn roomba_subscribe_packet(topic: String, packet_id: u16) -> Vec<u8> {
+/// MQTT SUBSCRIBE at QoS 0.
+///
+/// The topic filter is the caller's. `#` is a legitimate choice where a spec
+/// cannot say which shape a given firmware publishes on — the Roomba's case —
+/// and a named topic is the ordinary one.
+pub fn mqtt_subscribe_packet(topic: String, packet_id: u16) -> Vec<u8> {
     crate::protocol::mqtt::subscribe_packet(&topic, packet_id)
 }
 
-/// MQTT PUBLISH at QoS 0 — the robot does not acknowledge commands.
-pub fn roomba_publish_packet(topic: String, payload: String) -> Vec<u8> {
+/// MQTT PUBLISH at QoS 0. No packet id, no acknowledgement: a higher QoS
+/// needs bookkeeping the codec deliberately does not hold, and no device
+/// broker in the catalogue acknowledges commands.
+pub fn mqtt_publish_packet(topic: String, payload: String) -> Vec<u8> {
     crate::protocol::mqtt::publish_packet(&topic, &payload)
 }
 
 /// MQTT PINGREQ, sent inside the keepalive window to hold the session open.
-pub fn roomba_pingreq_packet() -> Vec<u8> {
+pub fn mqtt_pingreq_packet() -> Vec<u8> {
     crate::protocol::mqtt::pingreq_packet()
 }
 
-/// MQTT DISCONNECT. Sent on the way out, always: the robot serves one local
-/// client at a time, so a client that just drops the socket leaves the owner
-/// locked out of their own app until the robot notices.
-pub fn roomba_disconnect_packet() -> Vec<u8> {
+/// MQTT DISCONNECT. Sent on the way out, always: a device that serves one
+/// local client at a time (the Roomba does) leaves the owner locked out of
+/// their own app until it notices a client that merely dropped the socket.
+pub fn mqtt_disconnect_packet() -> Vec<u8> {
     crate::protocol::mqtt::disconnect_packet()
 }
 
 /// One packet read off the MQTT stream.
 #[derive(Debug, Clone)]
-pub struct RoombaIncomingDto {
+pub struct MqttIncomingDto {
     /// `connack` | `suback` | `publish` | `pingresp` | `other`.
     pub kind: String,
     /// PUBLISH only.
     pub topic: String,
     /// PUBLISH only.
     pub payload: String,
-    /// CONNACK's return code — 0 is accepted, 4 is a bad BLID or password.
-    /// SUBACK's packet id. Zero elsewhere.
+    /// CONNACK's return code — 0 is accepted, 4 is a bad username or
+    /// password. SUBACK's packet id. Zero elsewhere.
     pub code: u16,
 }
 
 /// Whole packets parsed out of a receive buffer, and how many bytes they
 /// consumed.
 #[derive(Debug, Clone)]
-pub struct RoombaParsedDto {
-    pub packets: Vec<RoombaIncomingDto>,
+pub struct MqttParsedDto {
+    pub packets: Vec<MqttIncomingDto>,
     /// Bytes the caller may now drop. The remainder is a partial packet and
     /// must be kept: a TLS stream splits and coalesces wherever it likes, and
     /// treating one read as one packet is the bug this count prevents.
@@ -2591,15 +2595,15 @@ pub struct RoombaParsedDto {
 }
 
 /// Parse whole MQTT packets out of whatever has arrived so far.
-pub fn roomba_parse_incoming(buffer: Vec<u8>) -> anyhow::Result<RoombaParsedDto> {
+pub fn mqtt_parse_incoming(buffer: Vec<u8>) -> anyhow::Result<MqttParsedDto> {
     use crate::protocol::mqtt::{ConnectOutcome, Incoming};
     let (packets, consumed) = crate::protocol::mqtt::parse_incoming(&buffer)?;
-    Ok(RoombaParsedDto {
+    Ok(MqttParsedDto {
         consumed: consumed as u32,
         packets: packets
             .into_iter()
             .map(|packet| match packet {
-                Incoming::ConnAck(outcome) => RoombaIncomingDto {
+                Incoming::ConnAck(outcome) => MqttIncomingDto {
                     kind: "connack".to_string(),
                     topic: String::new(),
                     payload: String::new(),
@@ -2608,25 +2612,25 @@ pub fn roomba_parse_incoming(buffer: Vec<u8>) -> anyhow::Result<RoombaParsedDto>
                         ConnectOutcome::Refused(code) => u16::from(code),
                     },
                 },
-                Incoming::SubAck { packet_id } => RoombaIncomingDto {
+                Incoming::SubAck { packet_id } => MqttIncomingDto {
                     kind: "suback".to_string(),
                     topic: String::new(),
                     payload: String::new(),
                     code: packet_id,
                 },
-                Incoming::Publish { topic, payload } => RoombaIncomingDto {
+                Incoming::Publish { topic, payload } => MqttIncomingDto {
                     kind: "publish".to_string(),
                     topic,
                     payload,
                     code: 0,
                 },
-                Incoming::PingResp => RoombaIncomingDto {
+                Incoming::PingResp => MqttIncomingDto {
                     kind: "pingresp".to_string(),
                     topic: String::new(),
                     payload: String::new(),
                     code: 0,
                 },
-                Incoming::Other { packet_type } => RoombaIncomingDto {
+                Incoming::Other { packet_type } => MqttIncomingDto {
                     kind: "other".to_string(),
                     topic: String::new(),
                     payload: String::new(),

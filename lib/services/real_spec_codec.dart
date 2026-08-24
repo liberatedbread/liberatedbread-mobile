@@ -392,28 +392,49 @@ class RealSpecCodec implements SpecCodec {
       rust.roombaConnectPacket(blid: blid, password: password);
 
   @override
-  Future<List<int>> roombaSubscribePacket({
+  Future<List<int>> mqttConnectPacket({
+    required String clientId,
+    String? username,
+    String? password,
+  }) =>
+      rust.mqttConnectPacket(
+          clientId: clientId, username: username, password: password);
+
+  @override
+  Future<MqttRequestDto> renderNetworkMqttCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) =>
+      rust.renderNetworkMqttCommand(
+        specYaml: specYaml,
+        commandName: commandName,
+        values: values,
+      );
+
+  @override
+  Future<List<int>> mqttSubscribePacket({
     required String topic,
     required int packetId,
   }) =>
-      rust.roombaSubscribePacket(topic: topic, packetId: packetId);
+      rust.mqttSubscribePacket(topic: topic, packetId: packetId);
 
   @override
-  Future<List<int>> roombaPublishPacket({
+  Future<List<int>> mqttPublishPacket({
     required String topic,
     required String payload,
   }) =>
-      rust.roombaPublishPacket(topic: topic, payload: payload);
+      rust.mqttPublishPacket(topic: topic, payload: payload);
 
   @override
-  Future<List<int>> roombaPingreqPacket() => rust.roombaPingreqPacket();
+  Future<List<int>> mqttPingreqPacket() => rust.mqttPingreqPacket();
 
   @override
-  Future<List<int>> roombaDisconnectPacket() => rust.roombaDisconnectPacket();
+  Future<List<int>> mqttDisconnectPacket() => rust.mqttDisconnectPacket();
 
   @override
-  Future<RoombaParsedDto> roombaParseIncoming({required List<int> buffer}) =>
-      rust.roombaParseIncoming(buffer: buffer);
+  Future<MqttParsedDto> mqttParseIncoming({required List<int> buffer}) =>
+      rust.mqttParseIncoming(buffer: buffer);
 
   @override
   Future<NetworkReadingDto?> readNetworkEntity({

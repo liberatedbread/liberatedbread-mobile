@@ -854,8 +854,60 @@ class FakeSpecCodec implements SpecCodec {
     return _mqttPacket(0x10, body);
   }
 
+  /// Recorded by [mqttConnectPacket] — a test asserts what the session said
+  /// it was without decoding a packet.
+  ({String clientId, String? username, String? password})? mqttConnectArgs;
+
+  /// Returned by [renderNetworkMqttCommand]; if [mqttRenderError] is set, the
+  /// call throws it instead.
+  MqttRequestDto mqttRequest =
+      const MqttRequestDto(topic: 'test/topic', payload: 'TEST');
+  Object? mqttRenderError;
+
+  /// Every command [renderNetworkMqttCommand] was asked for, in order.
+  final mqttRenderCalls =
+      <({String commandName, Map<String, String> values})>[];
+
   @override
-  Future<List<int>> roombaSubscribePacket({
+  Future<List<int>> mqttConnectPacket({
+    required String clientId,
+    String? username,
+    String? password,
+  }) async {
+    mqttConnectArgs =
+        (clientId: clientId, username: username, password: password);
+    // Real bytes, not a stub: a test that asserts what went on the wire is
+    // asserting this. Flags are built from what is present, the way the Rust
+    // codec does, so a credential-free CONNECT differs here too.
+    final body = <int>[];
+    _mqttString(body, 'MQTT');
+    var flags = 0x02; // clean session
+    if (username != null) flags |= 0x80;
+    if (password != null) flags |= 0x40;
+    body
+      ..add(0x04)
+      ..add(flags)
+      ..add(0x00)
+      ..add(0x3C);
+    _mqttString(body, clientId);
+    if (username != null) _mqttString(body, username);
+    if (password != null) _mqttString(body, password);
+    return _mqttPacket(0x10, body);
+  }
+
+  @override
+  Future<MqttRequestDto> renderNetworkMqttCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) async {
+    mqttRenderCalls.add((commandName: commandName, values: values));
+    if (mqttRenderError != null) throw mqttRenderError!;
+    return mqttRequest;
+  }
+
+  @override
+  Future<List<int>> mqttSubscribePacket({
     required String topic,
     required int packetId,
   }) async {
@@ -866,7 +918,7 @@ class FakeSpecCodec implements SpecCodec {
   }
 
   @override
-  Future<List<int>> roombaPublishPacket({
+  Future<List<int>> mqttPublishPacket({
     required String topic,
     required String payload,
   }) async {
@@ -877,16 +929,16 @@ class FakeSpecCodec implements SpecCodec {
   }
 
   @override
-  Future<List<int>> roombaPingreqPacket() async => const [0xC0, 0x00];
+  Future<List<int>> mqttPingreqPacket() async => const [0xC0, 0x00];
 
   @override
-  Future<List<int>> roombaDisconnectPacket() async => const [0xE0, 0x00];
+  Future<List<int>> mqttDisconnectPacket() async => const [0xE0, 0x00];
 
   @override
-  Future<RoombaParsedDto> roombaParseIncoming({
+  Future<MqttParsedDto> mqttParseIncoming({
     required List<int> buffer,
   }) async {
-    final packets = <RoombaIncomingDto>[];
+    final packets = <MqttIncomingDto>[];
     var cursor = 0;
     while (cursor < buffer.length) {
       final header = buffer[cursor];
@@ -911,14 +963,14 @@ class FakeSpecCodec implements SpecCodec {
 
       switch (header >> 4) {
         case 2:
-          packets.add(RoombaIncomingDto(
+          packets.add(MqttIncomingDto(
             kind: 'connack',
             topic: '',
             payload: '',
             code: body.length > 1 ? body[1] : 0,
           ));
         case 9:
-          packets.add(RoombaIncomingDto(
+          packets.add(MqttIncomingDto(
             kind: 'suback',
             topic: '',
             payload: '',
@@ -928,21 +980,21 @@ class FakeSpecCodec implements SpecCodec {
           final topicLen = (body[0] << 8) | body[1];
           final topic = utf8.decode(body.sublist(2, 2 + topicLen));
           final skip = ((header >> 1) & 0x03) > 0 ? 2 : 0;
-          packets.add(RoombaIncomingDto(
+          packets.add(MqttIncomingDto(
             kind: 'publish',
             topic: topic,
             payload: utf8.decode(body.sublist(2 + topicLen + skip)),
             code: 0,
           ));
         case 13:
-          packets.add(const RoombaIncomingDto(
+          packets.add(const MqttIncomingDto(
             kind: 'pingresp',
             topic: '',
             payload: '',
             code: 0,
           ));
         default:
-          packets.add(RoombaIncomingDto(
+          packets.add(MqttIncomingDto(
             kind: 'other',
             topic: '',
             payload: '',
@@ -951,7 +1003,7 @@ class FakeSpecCodec implements SpecCodec {
       }
       cursor = start + value;
     }
-    return RoombaParsedDto(packets: packets, consumed: cursor);
+    return MqttParsedDto(packets: packets, consumed: cursor);
   }
 
   @override

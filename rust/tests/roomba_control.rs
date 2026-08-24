@@ -20,11 +20,10 @@
 //! subtree pull.
 
 use liberated_bread_core::api::device_api::{
+    mqtt_disconnect_packet, mqtt_parse_incoming, mqtt_publish_packet, mqtt_subscribe_packet,
     network_entities_for_device, read_network_entity, render_network_roomba_command,
-    roomba_connect_packet, roomba_disconnect_packet, roomba_parse_announcement,
-    roomba_parse_incoming, roomba_parse_password_reply, roomba_password_probe,
-    roomba_publish_packet, roomba_state_fields, roomba_subscribe_packet, NetworkReadingKind,
-    RoombaIncomingDto,
+    roomba_connect_packet, roomba_parse_announcement, roomba_parse_password_reply,
+    roomba_password_probe, roomba_state_fields, MqttIncomingDto, NetworkReadingKind,
 };
 
 const ROOMBA: &str = include_str!("specs/irobot-roomba.yaml");
@@ -335,32 +334,29 @@ fn a_full_session_encodes_and_parses() {
     let connect = roomba_connect_packet(blid.to_string(), password.to_string());
     assert_eq!(connect[0], 0x10, "CONNECT");
 
-    let subscribe = roomba_subscribe_packet("#".to_string(), 1);
+    let subscribe = mqtt_subscribe_packet("#".to_string(), 1);
     assert_eq!(subscribe[0], 0x82, "SUBSCRIBE");
 
     let command =
         render_network_roomba_command(ROOMBA.to_string(), "clean".to_string(), EXAMPLE_EPOCH)
             .expect("renders");
-    let publish = roomba_publish_packet(command.topic.clone(), command.payload.clone());
+    let publish = mqtt_publish_packet(command.topic.clone(), command.payload.clone());
     assert_eq!(publish[0], 0x30, "PUBLISH at QoS 0");
 
-    assert_eq!(roomba_disconnect_packet(), vec![0xE0, 0x00]);
+    assert_eq!(mqtt_disconnect_packet(), vec![0xE0, 0x00]);
 
     // What the robot sends back, as one stream.
     let state = r#"{"state":{"reported":{"batPct":94,"bin":{"full":false,"present":true},"cleanMissionStatus":{"phase":"run","cycle":"clean"},"name":"Dorita"}}}"#;
     let mut stream = vec![0x20, 0x02, 0x00, 0x00]; // CONNACK, accepted
     stream.extend([0x90, 0x03, 0x00, 0x01, 0x00]); // SUBACK for packet id 1
-    stream.extend(roomba_publish_packet(
-        "delta".to_string(),
-        state.to_string(),
-    ));
+    stream.extend(mqtt_publish_packet("delta".to_string(), state.to_string()));
 
     // Delivered a byte at a time — the worst case a TLS stream can produce.
     let mut buffer: Vec<u8> = Vec::new();
-    let mut received: Vec<RoombaIncomingDto> = Vec::new();
+    let mut received: Vec<MqttIncomingDto> = Vec::new();
     for byte in &stream {
         buffer.push(*byte);
-        let parsed = roomba_parse_incoming(buffer.clone()).expect("parses");
+        let parsed = mqtt_parse_incoming(buffer.clone()).expect("parses");
         received.extend(parsed.packets);
         buffer.drain(..parsed.consumed as usize);
     }
@@ -395,7 +391,7 @@ fn a_full_session_encodes_and_parses() {
 /// re-running the handshake.
 #[test]
 fn a_refused_connection_carries_its_reason() {
-    let parsed = roomba_parse_incoming(vec![0x20, 0x02, 0x00, 0x04]).expect("parses");
+    let parsed = mqtt_parse_incoming(vec![0x20, 0x02, 0x00, 0x04]).expect("parses");
     assert_eq!(parsed.packets[0].kind, "connack");
     assert_eq!(parsed.packets[0].code, 4);
 }

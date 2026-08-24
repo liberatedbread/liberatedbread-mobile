@@ -59,9 +59,10 @@ export '../src/rust/api/device_api.dart'
         TuyaBroadcastDto,
         RabbitAirRequestDto,
         RoombaRequestDto,
+        MqttRequestDto,
         RoombaAnnouncementDto,
-        RoombaIncomingDto,
-        RoombaParsedDto,
+        MqttIncomingDto,
+        MqttParsedDto,
         QuerySourceDto,
         LifxServiceDto,
         LifxStateDto,
@@ -467,30 +468,52 @@ abstract class SpecCodec {
     required String password,
   });
 
+  /// MQTT CONNECT for a spec-declared broker. Username and password are each
+  /// sent only when given: a broker expecting neither refuses a CONNECT
+  /// carrying two empty strings, and one expecting a token takes a username
+  /// with no password.
+  Future<List<int>> mqttConnectPacket({
+    required String clientId,
+    String? username,
+    String? password,
+  });
+
+  /// Render one of a spec's `transport: mqtt` commands into the topic to
+  /// publish on and the payload to publish. A placeholder with no value, or
+  /// one the command never declared, is an error rather than a blank: a
+  /// publish to a half-rendered topic succeeds at the socket and does nothing
+  /// at the device.
+  Future<MqttRequestDto> renderNetworkMqttCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  });
+
   /// MQTT SUBSCRIBE at QoS 0.
-  Future<List<int>> roombaSubscribePacket({
+  Future<List<int>> mqttSubscribePacket({
     required String topic,
     required int packetId,
   });
 
-  /// MQTT PUBLISH at QoS 0 — the robot does not acknowledge commands.
-  Future<List<int>> roombaPublishPacket({
+  /// MQTT PUBLISH at QoS 0 — no device broker in the catalogue acknowledges
+  /// commands, and a higher QoS needs bookkeeping the codec does not hold.
+  Future<List<int>> mqttPublishPacket({
     required String topic,
     required String payload,
   });
 
   /// MQTT PINGREQ, to hold the session open inside the keepalive window.
-  Future<List<int>> roombaPingreqPacket();
+  Future<List<int>> mqttPingreqPacket();
 
-  /// MQTT DISCONNECT. Always sent on the way out: the robot serves one local
-  /// client at a time, so dropping the socket without it leaves the owner
-  /// locked out of their own app until the robot notices.
-  Future<List<int>> roombaDisconnectPacket();
+  /// MQTT DISCONNECT. Always sent on the way out: a device that serves one
+  /// local client at a time (the Roomba does) leaves the owner locked out of
+  /// their own app until it notices a client that merely dropped the socket.
+  Future<List<int>> mqttDisconnectPacket();
 
   /// Parse whole MQTT packets out of whatever has arrived so far, and say how
   /// many bytes they consumed. The remainder is a partial packet and must be
   /// kept — a TLS stream splits and coalesces wherever it likes.
-  Future<RoombaParsedDto> roombaParseIncoming({required List<int> buffer});
+  Future<MqttParsedDto> mqttParseIncoming({required List<int> buffer});
 
   /// Decode one entity's state from the name→value pairs a state call
   /// returned. Null when the reply did not carry the entity's value — which
