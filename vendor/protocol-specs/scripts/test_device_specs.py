@@ -1799,3 +1799,86 @@ def test_gaps_md_states_the_real_spec_count(specs):
     assert expected in text, (
         f"GAPS.md validation line is stale; it should read:\n  {expected}"
     )
+
+
+# ── MQTT commands are renderable on their own ───────────────────────────────
+# A consumer publishes to `path` with `body` or `arguments` as the payload and
+# nothing else. Everything the topic and payload need must therefore be
+# declared ON the command: prose one level up does not reach the renderer, and
+# the failures it causes are silent — a publish to a topic still containing a
+# literal `{client_id}` succeeds at the socket and does nothing at the device.
+
+
+def _mqtt_commands(specs: dict[str, dict]):
+    """Every `transport: mqtt` command in the catalogue, as (spec, name, cmd)."""
+    for name, spec in specs.items():
+        for command_name, command in (spec.get("commands") or {}).items():
+            if command.get("transport") == "mqtt":
+                yield name, command_name, command
+
+
+def test_an_mqtt_command_names_the_topic_it_publishes_to(specs):
+    for spec_name, command_name, command in _mqtt_commands(specs):
+        assert command.get("path"), (
+            f"{spec_name}: mqtt command {command_name!r} declares no `path` — "
+            "the topic IS the address, and without one there is nothing to send"
+        )
+
+
+def test_every_mqtt_topic_placeholder_is_a_declared_parameter(specs):
+    for spec_name, command_name, command in _mqtt_commands(specs):
+        declared = set((command.get("parameters") or {}).keys())
+        for placeholder in re.findall(r"\{([^{}]+)\}", command.get("path", "")):
+            assert placeholder in declared, (
+                f"{spec_name}: mqtt command {command_name!r} addresses "
+                f"{{{placeholder}}} but does not declare it as a parameter, so "
+                "a renderer has no value to fill it with and would publish the "
+                "brace literally"
+            )
+
+
+def test_an_mqtt_command_declares_at_most_one_payload(specs):
+    # `body` is a literal payload template, `arguments` builds a JSON object.
+    # Both is two answers to one question; a renderer cannot merge them.
+    for spec_name, command_name, command in _mqtt_commands(specs):
+        assert not (command.get("body") and command.get("arguments")), (
+            f"{spec_name}: mqtt command {command_name!r} declares both `body` "
+            "and `arguments`; an MQTT message has one payload"
+        )
+
+
+def test_every_mqtt_payload_placeholder_is_a_declared_parameter(specs):
+    for spec_name, command_name, command in _mqtt_commands(specs):
+        declared = set((command.get("parameters") or {}).keys())
+        templates = [command.get("body") or ""]
+        templates += [
+            value
+            for value in (command.get("arguments") or {}).values()
+            if isinstance(value, str)
+        ]
+        for template in templates:
+            for placeholder in re.findall(r"^\{([^{}]+)\}$", template):
+                assert placeholder in declared, (
+                    f"{spec_name}: mqtt command {command_name!r} sends "
+                    f"{{{placeholder}}} but does not declare it as a parameter"
+                )
+
+
+def test_an_mqtt_examples_body_agrees_with_what_the_command_renders(specs):
+    """`example_body` is what a consumer diffs against when a device says no.
+
+    Checked only where the payload is fully determined — a command with no
+    parameters to fill. Where placeholders exist the example is a worked case
+    by design and cannot equal the template.
+    """
+    for spec_name, command_name, command in _mqtt_commands(specs):
+        example = command.get("example_body")
+        body = command.get("body")
+        if example is None or body is None:
+            continue
+        if "{" in body:
+            continue
+        assert str(example) == str(body), (
+            f"{spec_name}: mqtt command {command_name!r} would send {body!r} "
+            f"but its example says {example!r}"
+        )
