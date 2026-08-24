@@ -22,6 +22,13 @@
 #   * The Flutter, NDK, Android SDK and flutter_rust_bridge pins. Those live in
 #     ci.yml's env: block (see the header there) and moving them moves every
 #     developer environment with them, which is not a bot's decision.
+#   * gradle. android/ has three build files and no lockfile, and its versions
+#     are not independently movable: the Android Gradle Plugin tracks the
+#     Gradle wrapper, both track the JDK the CI image ships, and
+#     `compileSdkVersion`/`ndkVersion` are read from the pinned Flutter
+#     (README's toolchain table). A bot bumping one corner of that produces a
+#     PR whose only honest reviewer action is to close it. Listed here because
+#     an ecosystem missing from this file otherwise reads as an oversight.
 #
 # Grouped and capped so this is one reviewable pull request per ecosystem per
 # week rather than a queue that nobody reads, which is how these usually end up
