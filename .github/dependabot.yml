@@ -5,12 +5,21 @@
 #
 # WHY ACTIONS ARE THE POINT
 #
-# .github/workflows/ pins ten third-party actions by major tag. A major tag is
-# a moving target that stops moving: `actions/upload-artifact@v3` was turned off
-# outright, and the runs that depended on it did not degrade — they failed, all
-# at once, on a day nobody chose. Nothing in this repo watches for that, and
-# `flutter analyze` has no opinion about YAML. A weekly pull request that bumps
-# the tags is the cheapest possible watch.
+# .github/workflows/ uses eleven third-party actions. They are pinned by COMMIT
+# SHA, with the tag they came from in a trailing comment — dependabot reads that
+# comment, so pinning costs nothing in maintainability and buys the thing a tag
+# cannot give: a tag is a mutable pointer in somebody else's repository, and
+# whoever controls it can change what your CI executes, retroactively, without
+# a commit appearing anywhere you can see. `tj-actions/changed-files` is the
+# worked example — a compromised tag exfiltrated secrets from thousands of
+# repositories in March 2025 — and CI here holds signing material and a Codecov
+# token.
+#
+# The weekly bump is still the point. A major tag is also a moving target that
+# stops moving: `actions/upload-artifact@v3` was turned off outright, and the
+# runs that depended on it did not degrade — they failed, all at once, on a day
+# nobody chose. Nothing else in this repo watches for that, and `flutter
+# analyze` has no opinion about YAML.
 #
 # WHAT IS DELIBERATELY NOT HERE
 #

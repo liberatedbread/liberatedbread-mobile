@@ -256,10 +256,10 @@ jobs:
       # squash commit to measure from — the check degrades to a warning and
       # passes, which is the failure mode of a guard that looks like it ran.
       # The whole repo is ~40 MB packed.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -278,7 +278,7 @@ jobs:
       # one interpolation. The restore-keys prefix moves with it, so a bump
       # starts cold once rather than inheriting the old SDK's tree.
       - name: Cache pub
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.pub-cache
@@ -346,8 +346,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -358,7 +358,7 @@ jobs:
       # friends) SKIP THEMSELVES when it is absent. Dropping the Rust build from
       # this job would not turn it red — it would quietly stop running those
       # tests while still reporting green, and cut coverage with it.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
       # This is now the only job doing host Rust work, so it just owns the
       # cache — no shared-key, no save-if. Those existed to stop this job and
       # the gate from fighting over one snapshot, and the fight is gone with
@@ -372,12 +372,12 @@ jobs:
       # that "hit" the cache and rebuilt from source anyway. Observed, not
       # theorised — run 31278340720 spent 89s compiling it behind a reported
       # cache hit.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: rust
           cache-bin: false
       - name: Cache pub
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.pub-cache
@@ -391,7 +391,7 @@ jobs:
       # There is no half-saved state a cancelled job can leave behind, which is
       # precisely how leaving this to rust-cache's ~/.cargo/bin snapshot failed.
       - name: Cache the FRB codegen binary
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cargo/bin/flutter_rust_bridge_codegen
           key: frb-codegen-${{ runner.os }}-${{ env.FRB_VERSION }}
@@ -496,7 +496,7 @@ jobs:
       # status check, which only reports once a report arrives — a repo setting,
       # not something this file can assert.
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: coverage/lcov.info
           flags: unit
@@ -525,14 +525,14 @@ jobs:
     # silently stop testing anything.
     needs: [analyze]
     steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       - name: Cache pub
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.pub-cache
@@ -560,7 +560,7 @@ jobs:
       # there, which also records why these uploads once silently went nowhere
       # and why a CODECOV_TOKEN gate is the wrong fix for it.
       - name: Upload discovery coverage to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: coverage/netdisco-lcov.info
           flags: netdisco
@@ -576,11 +576,11 @@ jobs:
       run:
         working-directory: rust
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: rust
       - run: cargo fmt --all -- --check
@@ -616,14 +616,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           # What does the instrumenting. cargo-llvm-cov without it fails on a
           # missing llvm-profdata, which names neither the component nor how to
           # get it.
           components: llvm-tools-preview
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: rust
           # cache-bin: false for the same reason unit-tests sets it — see the
@@ -632,7 +632,7 @@ jobs:
           # so there is no half-saved state a cancelled run can leave behind.
           cache-bin: false
       - name: Cache the cargo-llvm-cov binary
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cargo/bin/cargo-llvm-cov
           key: llvm-cov-${{ runner.os }}-${{ env.LLVM_COV_VERSION }}
@@ -652,7 +652,7 @@ jobs:
       # there, which also records why these uploads once silently went nowhere
       # and why a CODECOV_TOKEN gate is the wrong fix for it.
       - name: Upload Rust coverage to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: coverage/rust-lcov.info
           flags: rust
@@ -671,22 +671,22 @@ jobs:
     # not let the expensive native builds burn runner minutes.
     needs: [analyze, rust]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       # cargokit compiles the Rust crate during `flutter build`, so the build
       # jobs need the Rust toolchain, the Android targets, and a matching NDK.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           targets: ${{ env.RUST_ANDROID_TARGETS }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: rust
       # Every SDK package the build needs, installed in ONE visible step. Each
@@ -701,7 +701,7 @@ jobs:
       # that Gradle no longer stops partway through to accept a licence and pull
       # a package over the network, where a blip fails the build in a place
       # nothing retries.
-      - uses: android-actions/setup-android@v4
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
         with:
           packages: >-
             platform-tools
@@ -709,7 +709,7 @@ jobs:
             build-tools;${{ env.ANDROID_BUILD_TOOLS }}
             cmake;${{ env.ANDROID_CMAKE }}
             ndk;${{ env.FLUTTER_NDK_VERSION }}
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       - name: Write android/local.properties
         run: |
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
@@ -746,7 +746,7 @@ jobs:
       # Uploaded before the release build so a release-only failure still leaves
       # the debug APK downloadable for triage.
       # Best-effort upload: continue-on-error (deliberate, survives artifact-quota hits) would neutralize if-no-files-found: error anyway, so warn.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         continue-on-error: true
         with:
           name: app-debug-mock.apk
@@ -820,12 +820,12 @@ jobs:
       matrix:
         api-level: [34]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -836,10 +836,10 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
       - run: flutter pub get
       # cargokit compiles the Rust crate when the integration app is built.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           targets: ${{ env.RUST_ANDROID_TARGETS }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: rust
       # Install only the SDK packages cargokit's native build needs, via the
@@ -872,7 +872,7 @@ jobs:
       # above), setup-gradle touches only GRADLE_USER_HOME: it does not install
       # or replace platform-tools, so it cannot disturb the adb/emulator setup
       # that made setup-android unusable in this job.
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       # Warm up the native build BEFORE the emulator step.
       #
       # This step — not the --timeout flag further down — is what fixes the
@@ -948,7 +948,7 @@ jobs:
         # (2 x ANDROID_EMULATOR_ATTEMPT_TIMEOUT) plus the AVD boot, with
         # headroom.
         timeout-minutes: 35
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: ${{ matrix.api-level }}
           target: ${{ env.ANDROID_EMULATOR_TARGET }}
@@ -974,7 +974,7 @@ jobs:
       # passing one.
       - name: Upload emulator logcat
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: emulator-logcat-api${{ matrix.api-level }}
           path: |
@@ -1000,14 +1000,14 @@ jobs:
     timeout-minutes: 60
     needs: [analyze, rust]
     steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       # cargokit compiles the Rust crate during `flutter build ios`.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           targets: ${{ env.RUST_IOS_TARGETS }}
       # prefix-key bumped off the default `v0` deliberately. The snapshot under
@@ -1021,7 +1021,7 @@ jobs:
       # Keep it. Reverting to v0 risks restoring the same bad snapshot, and the
       # cost of not reverting is one cold build of RUST_IOS_TARGETS. The key
       # already carries a per-job segment, so this touches no other job.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: rust
           prefix-key: v1-ios
@@ -1223,7 +1223,7 @@ jobs:
       # below, which tees from the workspace root.
       - name: Upload simulator log and crash reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ios-simulator-diagnostics
           path: |
@@ -1281,8 +1281,8 @@ jobs:
     # must not burn runner minutes on a native build.
     needs: [analyze, rust]
     steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -1290,8 +1290,8 @@ jobs:
       # cargokit compiles the Rust crate during `flutter build linux`. No
       # cross-compilation targets are needed — unlike Android and iOS, the
       # desktop target IS the host (x86_64-unknown-linux-gnu).
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: rust
       # The Linux desktop toolchain — the runner image ships none of the -dev
