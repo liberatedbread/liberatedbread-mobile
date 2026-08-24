@@ -762,9 +762,11 @@ jobs:
       #      release runs R8 with Flutter's default rules only. Stripping a
       #      JNI-reachable class or a native library is exactly what happens
       #      there, it is invisible in debug, and it would ship silently.
-      #      Release also runs the Dart AOT compiler and packages a different
-      #      ABI set (no x86), so its packaging path is genuinely a different
-      #      code path, not a rerun of the debug one.
+      #      Release also runs the Dart AOT compiler, so its packaging path is
+      #      genuinely a different code path, not a rerun of the debug one.
+      #      (It used to differ in ABI set too — release had no x86 — but
+      #      Flutter dropped Android x86 engine builds entirely, so both now
+      #      package the same three.)
       #      No signing secrets are needed: android/app/build.gradle points the
       #      release buildType at signingConfigs.debug, so `--release` builds
       #      unattended and the `--profile` fallback is unnecessary.
@@ -792,8 +794,10 @@ jobs:
         timeout-minutes: 25
         run: flutter build apk --release --verbose
       # Identical assertions against the release artifact, so an R8 or
-      # packaging regression that only bites release cannot slip through.
-      # Release drops the x86 ABI, hence the shorter required set.
+      # packaging regression that only bites release cannot slip through —
+      # including the same required ABI set, which is the point: since Flutter
+      # dropped x86, debug and release package the same three, and a build
+      # that quietly stopped emitting one of them should fail both checks.
       - name: Verify release APK contents
         run: ./scripts/verify_apk.sh build/app/outputs/flutter-apk/app-release.apk
           --require-abis arm64-v8a,armeabi-v7a,x86_64
