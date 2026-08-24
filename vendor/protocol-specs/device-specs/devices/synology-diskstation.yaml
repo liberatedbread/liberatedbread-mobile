@@ -130,12 +130,12 @@ device:
         Identify-only: no credential crosses to this app. The DSM admin login
         is entered by the user at the DSM page, which we only deep-link to.
 
-  local_access:
-    status: native
-    summary: >
-      DSM is fully locally controllable (the DSM web UI and Web/DSM APIs, no
-      vendor cloud required) — deliberately scoped to identify-only here,
-      handing the user to DSM rather than managing the NAS.
+local_access:
+  status: native
+  summary: >
+    DSM is fully locally controllable (the DSM web UI and Web/DSM APIs, no
+    vendor cloud required) — deliberately scoped to identify-only here,
+    handing the user to DSM rather than managing the NAS.
 
 helpful_urls:
   - url: "https://kb.synology.com/en-us/DSM/tutorial/What_network_ports_are_used_by_Synology_services"

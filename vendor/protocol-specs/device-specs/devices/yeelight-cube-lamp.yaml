@@ -21,7 +21,7 @@ device:
   protocol: "wifi"
   category: "light"
   type: "modular-led-lamp"
-  transport: "tcp-json"
+  transport: "tcp"  # JSON documents on a raw socket
   notes: >
     The Yeelight Cube Smart Lamp ("Light Gaming Cube") is a modular, stackable
     RGB LED lamp: a powered base (SPOT single-LED, PANEL 5x5 diffused matrix or
@@ -255,84 +255,87 @@ device:
 
 protocol_handler: "yeelight_lan"
 
-# The Yeelight LAN inter-operation protocol as it applies to this device —
-# the role tplink_smarthome_protocol plays for Kasa. The baseline is the
-# vendor's published spec; the cube_extensions block is community reverse
-# engineering and is labelled as such.
-yeelight_lan_protocol:
-  transport: "JSON over raw TCP (control); SSDP-like multicast (discovery); UDP (music mode)"
-  port: 55443
-  authentication: >
-    None on the wire. Access is gated by the device's LAN-control setting;
-    once enabled, any host on the LAN may connect. Segment accordingly.
-  framing: >
-    Each message is a single-line JSON document terminated by \r\n, in both
-    directions. Requests: {"id":<int>,"method":"<name>","params":[...]} — the
-    id is client-chosen and echoed in the reply, which carries "result"
-    (e.g. ["ok"], or the requested values for get_prop) or "error". The lamp
-    also pushes unsolicited {"method":"props","params":{...}} state-change
-    notifications on the same connection.
-  rate_limit: >
-    The vendor spec limits clients to about 60 commands per minute; entering
-    music mode (set_music) lifts the limiter and opens a high-rate UDP
-    channel, which is what community matrix drivers use when streaming
-    frames. activate_fx_mode must also be re-sent periodically (effectively
-    per frame) while doing per-pixel control.
-  discovery:
-    method: "ssdp_like_multicast"
-    destination: "239.255.255.250:1982"
-    search_target: "wifi_bulb"
-    request_template: >
-      M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1982\r\nMAN:
-      "ssdp:discover"\r\nST: wifi_bulb\r\n\r\n
-    response: >
-      Unicast reply whose identity lives entirely in the HEADERS: Location:
-      yeelight://<ip>:55443, plus id, model, fw_ver, support (space-separated
-      method list), power, bright, color_mode, ct, rgb, hue, sat and name.
-      `id` is the stable device identity; `support` is the runtime capability
-      list — on the cube it is reported to include set_segment_rgb and
-      update_leds beyond the standard set, which is how a client recognises a
-      matrix-capable unit. There is NO description document to fetch, which
-      is why this exchange is documented here instead of in the schema's
-      UPnP-shaped ssdp method. The cube's exact `model` header value is
-      unconfirmed (open question).
-    verification: "reported"
-  standard_commands: >
-    Per the vendor inter-operation spec: get_prop, set_power, toggle,
-    set_bright, set_rgb, set_hsv, set_ct_abx, start_cf, stop_cf, set_scene,
-    set_music, set_default, cron_add/cron_get/cron_del, dev_toggle and
-    friends. The invocations entities bind are in the top-level `commands`
-    block.
-  cube_extensions:
-    source: "community"
-    note: >
-      Everything in this block is community reverse engineering — Yeelight
-      forum topic 33649 ("CubeMatrix - set_segment_rgb parameters"),
-      VladFlorinIlie/YeelightMatrix, danielp370-msft/yeelight-cube and
-      Max-src/yeelight-cube-lite — NOT vendor documentation and NOT observed
-      by this project. Treat every detail as `reported` grade.
-    set_segment_rgb: >
-      Params: a flat int array of 24-bit RGB colours, FIVE entries per
-      attached 5x5 module (one per row/segment), row-major; stacking a module
-      appends five more entries. Forum example:
-      {"id":1,"method":"set_segment_rgb","params":[255,16743680,0,0,16711680]}
-      → row 1 blue, row 2 orange, rows 3–4 off, row 5 red. Semantics for the
-      1x1 SPOT module are unknown.
-    activate_fx_mode: >
-      {"id":1,"method":"activate_fx_mode","params":[{"mode":"direct"}]} —
-      required before per-pixel control via update_leds; must be re-sent
-      periodically, effectively per frame.
-    update_leds: >
-      Params: [<base64>]. Each LED is 3 raw bytes R,G,B → base64 (4 chars)
-      per LED, concatenated; 25 LEDs (75 bytes → 100 base64 chars) per 5x5
-      module, row-major. Sends no response in FX mode. Per-LED BRIGHTNESS
-      beyond the RGB value is not publicly solved — garbage payloads are
-      reported to produce random brightness, suggesting an extra field;
-      open question.
-    miio: >
-      Cube-family devices announce _miio._udp.local. Whether the modular cube
-      additionally answers miio (UDP 54321, AES token) is unconfirmed; the
-      token extraction path is unknown.
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # The Yeelight LAN inter-operation protocol as it applies to this device —
+  # the role tplink_smarthome_protocol plays for Kasa. The baseline is the
+  # vendor's published spec; the cube_extensions block is community reverse
+  # engineering and is labelled as such.
+  yeelight_lan_protocol:
+    transport: "JSON over raw TCP (control); SSDP-like multicast (discovery); UDP (music mode)"
+    port: 55443
+    authentication: >
+      None on the wire. Access is gated by the device's LAN-control setting;
+      once enabled, any host on the LAN may connect. Segment accordingly.
+    framing: >
+      Each message is a single-line JSON document terminated by \r\n, in both
+      directions. Requests: {"id":<int>,"method":"<name>","params":[...]} — the
+      id is client-chosen and echoed in the reply, which carries "result"
+      (e.g. ["ok"], or the requested values for get_prop) or "error". The lamp
+      also pushes unsolicited {"method":"props","params":{...}} state-change
+      notifications on the same connection.
+    rate_limit: >
+      The vendor spec limits clients to about 60 commands per minute; entering
+      music mode (set_music) lifts the limiter and opens a high-rate UDP
+      channel, which is what community matrix drivers use when streaming
+      frames. activate_fx_mode must also be re-sent periodically (effectively
+      per frame) while doing per-pixel control.
+    discovery:
+      method: "ssdp_like_multicast"
+      destination: "239.255.255.250:1982"
+      search_target: "wifi_bulb"
+      request_template: >
+        M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1982\r\nMAN:
+        "ssdp:discover"\r\nST: wifi_bulb\r\n\r\n
+      response: >
+        Unicast reply whose identity lives entirely in the HEADERS: Location:
+        yeelight://<ip>:55443, plus id, model, fw_ver, support (space-separated
+        method list), power, bright, color_mode, ct, rgb, hue, sat and name.
+        `id` is the stable device identity; `support` is the runtime capability
+        list — on the cube it is reported to include set_segment_rgb and
+        update_leds beyond the standard set, which is how a client recognises a
+        matrix-capable unit. There is NO description document to fetch, which
+        is why this exchange is documented here instead of in the schema's
+        UPnP-shaped ssdp method. The cube's exact `model` header value is
+        unconfirmed (open question).
+      verification: "reported"
+    standard_commands: >
+      Per the vendor inter-operation spec: get_prop, set_power, toggle,
+      set_bright, set_rgb, set_hsv, set_ct_abx, start_cf, stop_cf, set_scene,
+      set_music, set_default, cron_add/cron_get/cron_del, dev_toggle and
+      friends. The invocations entities bind are in the top-level `commands`
+      block.
+    cube_extensions:
+      source: "community"
+      note: >
+        Everything in this block is community reverse engineering — Yeelight
+        forum topic 33649 ("CubeMatrix - set_segment_rgb parameters"),
+        VladFlorinIlie/YeelightMatrix, danielp370-msft/yeelight-cube and
+        Max-src/yeelight-cube-lite — NOT vendor documentation and NOT observed
+        by this project. Treat every detail as `reported` grade.
+      set_segment_rgb: >
+        Params: a flat int array of 24-bit RGB colours, FIVE entries per
+        attached 5x5 module (one per row/segment), row-major; stacking a module
+        appends five more entries. Forum example:
+        {"id":1,"method":"set_segment_rgb","params":[255,16743680,0,0,16711680]}
+        → row 1 blue, row 2 orange, rows 3–4 off, row 5 red. Semantics for the
+        1x1 SPOT module are unknown.
+      activate_fx_mode: >
+        {"id":1,"method":"activate_fx_mode","params":[{"mode":"direct"}]} —
+        required before per-pixel control via update_leds; must be re-sent
+        periodically, effectively per frame.
+      update_leds: >
+        Params: [<base64>]. Each LED is 3 raw bytes R,G,B → base64 (4 chars)
+        per LED, concatenated; 25 LEDs (75 bytes → 100 base64 chars) per 5x5
+        module, row-major. Sends no response in FX mode. Per-LED BRIGHTNESS
+        beyond the RGB value is not publicly solved — garbage payloads are
+        reported to produce random brightness, suggesting an extra field;
+        open question.
+      miio: >
+        Cube-family devices announce _miio._udp.local. Whether the modular cube
+        additionally answers miio (UDP 54321, AES token) is unconfirmed; the
+        token extraction path is unknown.
 
 evidence:
   app_static_analysis:
@@ -349,6 +352,36 @@ evidence:
       overall because nothing was replayed against cube hardware and a later
       app build may embed cube support this one lacks.
 
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.yeelight.cherry v3.5.4 (versionCode 35402) — store name 'Yeelight' / 'Yeelight Classic'"
+      sha256: "c5ca5a5e353c0c4ad2ed44dff1e7c5d7635b19b11dbe7566ca5d3cc60f9d8fc7"
+      obtained_via: "third-party APK mirror, 2026-08"
+      description: >
+        Static analysis of the Yeelight Android companion app (2026-08). Its
+        LAN device class gave the hard-coded LAN port 55443 and its local
+        executor the LAN command path; its app-config utilities gave the
+        regional API bases, the /sapi/assign_server call and the
+        firmware/gray-upgrade endpoints; its webview activity showed the
+        server-driven device UIs on page-*.yeelight.com. It also produced the
+        key negative finding: no cube/YLFWD strings and no Matter stack, so
+        cube protocol facts could NOT be recovered from it.
+    - type: "community_repo"
+      url: "https://github.com/VladFlorinIlie/YeelightMatrix"
+      notes: "activate_fx_mode / update_leds semantics and the frame encoding; cloned and read during research."
+    - type: "community_repo"
+      url: "https://github.com/danielp370-msft/yeelight-cube"
+      notes: "Modular-cube per-pixel control; corroborates direct LAN access."
+    - type: "community_repo"
+      url: "https://github.com/Max-src/yeelight-cube-lite"
+      notes: "Cube Lite family; Yeelight Station PC-app mining; sendGifDataFragment observation."
+    - type: "community_thread"
+      url: "https://forum.yeelight.com/t/topic/33649"
+      notes: "set_segment_rgb parameter layout and the worked colour example."
+    - type: "vendor_documentation"
+      url: "https://www.yeelight.com/download/Yeelight_Inter-Operation_Spec.pdf"
+      notes: "Baseline LAN protocol (discovery, framing, standard command set)."
+
 # A stub access surface so the schema's "document at least one access
 # surface" rule is satisfied; control is the tcp-json protocol above, not
 # REST. The Kasa, LIFX, Lutron and SmartThings specs carry the same
@@ -358,6 +391,7 @@ http_endpoints:
   - method: "GET"
     path: "/"
     name: "Local API Placeholder"
+    status: "placeholder"
     description: >
       Placeholder only. There is no HTTP surface: control is JSON-RPC style
       over a raw TCP socket on port 55443 (see yeelight_lan_protocol), not
@@ -695,33 +729,3 @@ helpful_urls:
   - title: "Home Assistant — Yeelight integration"
     url: "https://www.home-assistant.io/integrations/yeelight/"
     description: "Core integration covering basic on/off/colour for Yeelight LAN lights, including the cube at that level."
-
-sources:
-  - type: "static_analysis"
-    artifact: "com.yeelight.cherry v3.5.4 (versionCode 35402) — store name 'Yeelight' / 'Yeelight Classic'"
-    sha256: "c5ca5a5e353c0c4ad2ed44dff1e7c5d7635b19b11dbe7566ca5d3cc60f9d8fc7"
-    obtained_via: "third-party APK mirror, 2026-08"
-    description: >
-      Static analysis of the Yeelight Android companion app (2026-08). Its
-      LAN device class gave the hard-coded LAN port 55443 and its local
-      executor the LAN command path; its app-config utilities gave the
-      regional API bases, the /sapi/assign_server call and the
-      firmware/gray-upgrade endpoints; its webview activity showed the
-      server-driven device UIs on page-*.yeelight.com. It also produced the
-      key negative finding: no cube/YLFWD strings and no Matter stack, so
-      cube protocol facts could NOT be recovered from it.
-  - type: "community_repo"
-    url: "https://github.com/VladFlorinIlie/YeelightMatrix"
-    notes: "activate_fx_mode / update_leds semantics and the frame encoding; cloned and read during research."
-  - type: "community_repo"
-    url: "https://github.com/danielp370-msft/yeelight-cube"
-    notes: "Modular-cube per-pixel control; corroborates direct LAN access."
-  - type: "community_repo"
-    url: "https://github.com/Max-src/yeelight-cube-lite"
-    notes: "Cube Lite family; Yeelight Station PC-app mining; sendGifDataFragment observation."
-  - type: "community_thread"
-    url: "https://forum.yeelight.com/t/topic/33649"
-    notes: "set_segment_rgb parameter layout and the worked colour example."
-  - type: "vendor_documentation"
-    url: "https://www.yeelight.com/download/Yeelight_Inter-Operation_Spec.pdf"
-    notes: "Baseline LAN protocol (discovery, framing, standard command set)."

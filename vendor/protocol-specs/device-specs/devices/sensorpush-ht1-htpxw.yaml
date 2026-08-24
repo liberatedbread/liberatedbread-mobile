@@ -1,10 +1,18 @@
 device:
   name: SensorPush HT1 / HTP.xw
   manufacturer: SensorPush
-  model: HT1 (temperature + humidity), HTP.xw (temperature + humidity + barometric pressure)
+  variants:
+    - model: "HT1"
+      notes: >
+        Temperature and humidity. No barometer, so the pressure entity
+        does not apply to this one.
+    - model: "HTP.xw"
+      notes: >
+        Temperature, humidity and barometric pressure; the 'xw' units are
+        the outdoor-rated enclosure.
   category: sensor
   type: sensor-temperature-humidity
-  transport: ble
+  transport: "ble-gatt"
   # 'gatt' is not a schema protocol; GATT is the attribute protocol carried over
   # BLE, and the services/characteristics below already say the access is GATT.
   protocol: ble
@@ -277,50 +285,53 @@ advertising:
       size: variable
       description: Manufacturer-specific payload data
 
-data_format:
-  battery:
-    encoding: u16le
-    scale: 0.001
-    unit: V
-    byte_offset: 0
-    size: 2
-    description: Battery voltage
-  temperature:
-    encoding: int32le
-    scale: 0.01
-    unit: °C
-    byte_offset: 0
-    size: 4
-    description: Signed 32-bit LE, hundredths of °C (vendor doc; signed matters below 0 °C)
-  humidity:
-    encoding: int32le
-    scale: 0.01
-    unit: "%RH"
-    byte_offset: 0
-    size: 4
-    description: Signed 32-bit LE, hundredths of %RH (vendor doc)
-  revision:
-    encoding: ascii
-    format: "{b[0]:03d}_{b[1]:03d}.{b[2]:03d}_{b[3]:03d}.{b[4]:03d}_{b[5]:03d}.{b[6]:03d}"
-  bulk_sample:
-    description: |
-      Each sample is 4 bytes. Bulk data: [4-byte u32le timestamp] + [N × 4-byte sample records].
-      All 4 bytes of each sample record are packed payload (encoded temp/humidity fields).
-      Stop token: 0xFFFFFFFF marks end of valid data.
-      Note: the "65 = standard reading type prefix" in sensorpush-bleak is a hardcoded
-      dummy byte that library prepends to select its HT.w (type 65) pack-params —
-      it is NOT a per-record type byte on the wire.
-      Packed-sample widths and encoding ranges per the app's shipped definitions
-      table (res/raw/definitions.json, app v4.5.9): each record packs one value per
-      dimension as (min, max, step) scaled integers — HT1: 4 bytes/sample, gen-1 raw
-      fields (no pack params); HTP.xw: 6 bytes — temperature (-40..140 °C, step
-      0.0025), humidity (0..100 %RH, step 0.0025), pressure (30000..125000 Pa, step
-      1); HT.w: 4 bytes — temperature (-40..125 °C, step 0.0025), humidity (0..100,
-      step 0.0025); TC.x: 2 bytes — thermocouple temperature (-200..1800 °C, step
-      0.0625, minimum value = probe-disconnected null); Aqua: 1 byte — water present
-      (0..1, step 1, timestamped sample mode).
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  data_format:
+    battery:
+      encoding: u16le
+      scale: 0.001
+      unit: V
+      byte_offset: 0
+      size: 2
+      description: Battery voltage
+    temperature:
+      encoding: int32le
+      scale: 0.01
+      unit: "C"
+      byte_offset: 0
+      size: 4
+      description: Signed 32-bit LE, hundredths of °C (vendor doc; signed matters below 0 °C)
+    humidity:
+      encoding: int32le
+      scale: 0.01
+      unit: "%"
+      byte_offset: 0
+      size: 4
+      description: Signed 32-bit LE, hundredths of %RH (vendor doc)
+    revision:
+      encoding: ascii
+      format: "{b[0]:03d}_{b[1]:03d}.{b[2]:03d}_{b[3]:03d}.{b[4]:03d}_{b[5]:03d}.{b[6]:03d}"
+    bulk_sample:
+      description: |
+        Each sample is 4 bytes. Bulk data: [4-byte u32le timestamp] + [N × 4-byte sample records].
+        All 4 bytes of each sample record are packed payload (encoded temp/humidity fields).
+        Stop token: 0xFFFFFFFF marks end of valid data.
+        Note: the "65 = standard reading type prefix" in sensorpush-bleak is a hardcoded
+        dummy byte that library prepends to select its HT.w (type 65) pack-params —
+        it is NOT a per-record type byte on the wire.
+        Packed-sample widths and encoding ranges per the app's shipped definitions
+        table (res/raw/definitions.json, app v4.5.9): each record packs one value per
+        dimension as (min, max, step) scaled integers — HT1: 4 bytes/sample, gen-1 raw
+        fields (no pack params); HTP.xw: 6 bytes — temperature (-40..140 °C, step
+        0.0025), humidity (0..100 %RH, step 0.0025), pressure (30000..125000 Pa, step
+        1); HT.w: 4 bytes — temperature (-40..125 °C, step 0.0025), humidity (0..100,
+        step 0.0025); TC.x: 2 bytes — thermocouple temperature (-200..1800 °C, step
+        0.0625, minimum value = probe-disconnected null); Aqua: 1 byte — water present
+        (0..1, step 1, timestamped sample mode).
 
-source:
+evidence:
   vendor_documentation:
     - "SensorPush Bluetooth API (official 2nd-gen GATT table): https://www.sensorpush.com/bluetooth-api"
   community_libraries:

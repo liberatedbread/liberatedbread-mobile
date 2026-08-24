@@ -23,7 +23,7 @@ v6 ("iBox") layout for recognition only.
 | Radio | WiFi 802.11n (2.4 GHz) + proprietary 2.4 GHz RF to bulbs |
 | FCC ID | — |
 
-Observed unit: `192.168.1.194`, MAC `34:EA:E7:AA:BB:CC` (OUI Shanghai
+Observed unit: `192.0.2.194`, MAC `34:EA:E7:AA:BB:CC` (OUI Shanghai
 High-Flying), TCP 8899 open, HTTP admin on :80 behind Basic auth.
 
 ## Initial Setup
@@ -59,7 +59,7 @@ power-cycle the bridge with the old SSID gone and it falls back to AP mode.
 ### Discovery (hardware-verified 2026-08-19)
 
 Broadcast ASCII `HF-A11ASSISTHREAD` to UDP 48899 → reply
-`192.168.1.194,34EAE7AABBCC,HF-LPB130` from source port 48899. The older probe
+`192.0.2.194,34EAE7AABBCC,HF-LPB130` from source port 48899. The older probe
 `Link_Wi-Fi` got no reply from this unit (its firmware answers only the HF-A11
 string). The v6 session handshake on UDP 5987/8899 is **not** answered by this
 unit — it is a legacy-generation bridge.

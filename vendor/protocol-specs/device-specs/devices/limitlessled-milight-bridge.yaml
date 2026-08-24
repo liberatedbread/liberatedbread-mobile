@@ -38,7 +38,7 @@ device:
     answer it. Discovery for all generations is a UDP 48899 broadcast probe:
     "Link_Wi-Fi" (v1-v5) or "HF-A11ASSISTHREAD" (later firmware, including the
     observed legacy unit); the reply is an ASCII CSV `ip,mac,module`, e.g.
-    `192.168.1.194,34EAE7AABBCC,HF-LPB130`. The legacy protocol is write-only
+    `192.0.2.194,34EAE7AABBCC,HF-LPB130`. The legacy protocol is write-only
     (no status/read command), so the byte-level command tables are transcribed
     from public sources (the published LimitlessLED developer documentation
     mirror and python-ledcontroller) and were NOT replayed against the user's
@@ -74,7 +74,7 @@ device:
               source: "csv:2"
         notes: >
           Reply is a single ASCII CSV line from source port 48899:
-          `ip,mac,module` — verified live: `192.168.1.194,34EAE7AABBCC,HF-LPB130`.
+          `ip,mac,module` — verified live: `192.0.2.194,34EAE7AABBCC,HF-LPB130`.
           Collect replies for ~1 s; each bridge on the segment answers once.
           (The schema's response_format enum has no ASCII-CSV value, so the
           shape is documented here.)
@@ -190,75 +190,78 @@ device:
 
 protocol_handler: "limitlessled_legacy_8899"
 
-limitlessled_protocol:
-  transport: "udp"
-  port: 8899
-  tcp_also_listens: true
-  authentication: "none"
-  reply_to_commands: "none — the legacy protocol is write-only"
-  legacy_command_frame:
-    description: >
-      Every legacy (v1-v5) command is exactly 3 bytes: the command byte, the
-      argument byte (0x00 for all commands except brightness and color), and
-      the constant terminator 0x55. Send to UDP 8899 (TCP 8899 also accepts
-      them on the observed unit). Repeat safe commands ~3 times with a
-      >=100 ms pause between sends — the bridge-to-bulb RF hop drops packets
-      and there is no acknowledgement, so retries-with-pacing is the
-      documented reliability strategy (python-ledcontroller defaults).
-  rgbw_commands:
-    notes: >
-      RGBW bulbs (the most common pairing). Zone = the group paired in the
-      vendor app; "all" addresses every paired group. Night mode per the
-      published docs: send OFF, then ~100 ms later send OFF|0x80 (e.g. zone 1:
-      46 00 55 then C6 00 55).
-    all_on: "42 00 55"
-    all_off: "41 00 55"
-    all_white: "C2 00 55"
-    all_nightmode: "C1 00 55"
-    disco_mode_cycle: "4D 00 55"
-    disco_faster: "44 00 55"
-    disco_slower: "43 00 55"
-    set_brightness: "4E <level> 55 — level 0x02 (min) .. 0x1B (max)"
-    set_color: "40 <hue> 55 — hue 0x00=violet .. 0xF0=lavender in 0x10 steps (0xB0 red, 0x60 green, 0x10 royal blue); color wheel starts at violet"
-    zone_on: ["45 00 55", "47 00 55", "49 00 55", "4B 00 55"]
-    zone_off: ["46 00 55", "48 00 55", "4A 00 55", "4C 00 55"]
-    zone_to_white: ["C5 00 55", "C7 00 55", "C9 00 55", "CB 00 55"]
-    zone_nightmode: ["C6 00 55", "C8 00 55", "CA 00 55", "CC 00 55"]
-  dual_white_commands:
-    notes: >
-      Dual-white (warm/cool white) bulbs use a different command page.
-      Brightness and color-temperature are relative steps, not absolute.
-    all_on: "35 00 55"
-    all_off: "39 00 55"
-    all_full_brightness: "B5 00 55"
-    all_nightmode: "B9 00 55"
-    warmer: "3E 00 55"
-    cooler: "3F 00 55"
-    brightness_up: "3C 00 55"
-    brightness_down: "34 00 55"
-    zone_on: ["38 00 55", "3D 00 55", "37 00 55", "32 00 55"]
-    zone_off: ["3B 00 55", "33 00 55", "3A 00 55", "36 00 55"]
-    zone_full_brightness: ["B8 00 55", "BD 00 55", "B7 00 55", "B2 00 55"]
-    zone_nightmode: ["BB 00 55", "B3 00 55", "BA 00 55", "B6 00 55"]
-  pairing:
-    notes: >
-      Bulbs pair to a bridge zone by powering the bulb and sending that zone's
-      ON command within ~3 s (the bulb flashes to confirm). Unlink a zone by
-      powering the bulb and sending zone ON five times within the same 3 s
-      window. FAQ-level public docs; not hardware-verified by this project.
-  v6:
-    notes: >
-      The v6 ("iBox") generation — included so a consumer can recognize and
-      drive it, but the observed legacy bridge does NOT answer any of this
-      (verified: no reply to the session init on UDP 5987 or 8899, unicast or
-      broadcast, with either published trailer variant D3 E6 / FE F7).
-    port: 5987
-    session_init: "20 00 00 00 16 02 62 3A D5 ED A3 01 AE 08 2D 46 61 41 A7 F6 DC AF D3 E6 00 00 1E"
-    session_init_response: "28 00 00 00 11 00 02 <mac:6> <4 bytes> 00 01 <session_id1> <session_id2> 00 — session ids at bytes 19-20"
-    command_frame: "80 00 00 00 11 <wb1> <wb2> 00 <seq> 00 <cmd:9 bytes> <zone 0-4> 00 <checksum>; checksum = sum of the last 11 bytes (cmd + zone + 00) & 0xFF; ack = 88 00 00 00 03 00 <seq> 00"
-    keepalive: "D0 00 00 00 02 <wb1> <wb2> every ~5 s; reply D8 00 00 00 07 <mac:6> 01"
-    rgbw_ww_cw_command_page: "31 00 00 08 <op> <arg> 00 00 00 (op 04 arg 01=on/02=off/05=night, 05 64=white, 01 hue x4, 02 saturation 00-64, 03 brightness 00-64, 05 kelvin 00-64, 06 mode 01-09); link 3D 00 00 08 00..., unlink 3E ..."
-    bridge_lamp_command_page: "31 00 00 00 ... (iBox's own built-in LED)"
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  limitlessled_protocol:
+    transport: "udp"
+    port: 8899
+    tcp_also_listens: true
+    authentication: "none"
+    reply_to_commands: "none — the legacy protocol is write-only"
+    legacy_command_frame:
+      description: >
+        Every legacy (v1-v5) command is exactly 3 bytes: the command byte, the
+        argument byte (0x00 for all commands except brightness and color), and
+        the constant terminator 0x55. Send to UDP 8899 (TCP 8899 also accepts
+        them on the observed unit). Repeat safe commands ~3 times with a
+        >=100 ms pause between sends — the bridge-to-bulb RF hop drops packets
+        and there is no acknowledgement, so retries-with-pacing is the
+        documented reliability strategy (python-ledcontroller defaults).
+    rgbw_commands:
+      notes: >
+        RGBW bulbs (the most common pairing). Zone = the group paired in the
+        vendor app; "all" addresses every paired group. Night mode per the
+        published docs: send OFF, then ~100 ms later send OFF|0x80 (e.g. zone 1:
+        46 00 55 then C6 00 55).
+      all_on: "42 00 55"
+      all_off: "41 00 55"
+      all_white: "C2 00 55"
+      all_nightmode: "C1 00 55"
+      disco_mode_cycle: "4D 00 55"
+      disco_faster: "44 00 55"
+      disco_slower: "43 00 55"
+      set_brightness: "4E <level> 55 — level 0x02 (min) .. 0x1B (max)"
+      set_color: "40 <hue> 55 — hue 0x00=violet .. 0xF0=lavender in 0x10 steps (0xB0 red, 0x60 green, 0x10 royal blue); color wheel starts at violet"
+      zone_on: ["45 00 55", "47 00 55", "49 00 55", "4B 00 55"]
+      zone_off: ["46 00 55", "48 00 55", "4A 00 55", "4C 00 55"]
+      zone_to_white: ["C5 00 55", "C7 00 55", "C9 00 55", "CB 00 55"]
+      zone_nightmode: ["C6 00 55", "C8 00 55", "CA 00 55", "CC 00 55"]
+    dual_white_commands:
+      notes: >
+        Dual-white (warm/cool white) bulbs use a different command page.
+        Brightness and color-temperature are relative steps, not absolute.
+      all_on: "35 00 55"
+      all_off: "39 00 55"
+      all_full_brightness: "B5 00 55"
+      all_nightmode: "B9 00 55"
+      warmer: "3E 00 55"
+      cooler: "3F 00 55"
+      brightness_up: "3C 00 55"
+      brightness_down: "34 00 55"
+      zone_on: ["38 00 55", "3D 00 55", "37 00 55", "32 00 55"]
+      zone_off: ["3B 00 55", "33 00 55", "3A 00 55", "36 00 55"]
+      zone_full_brightness: ["B8 00 55", "BD 00 55", "B7 00 55", "B2 00 55"]
+      zone_nightmode: ["BB 00 55", "B3 00 55", "BA 00 55", "B6 00 55"]
+    pairing:
+      notes: >
+        Bulbs pair to a bridge zone by powering the bulb and sending that zone's
+        ON command within ~3 s (the bulb flashes to confirm). Unlink a zone by
+        powering the bulb and sending zone ON five times within the same 3 s
+        window. FAQ-level public docs; not hardware-verified by this project.
+    v6:
+      notes: >
+        The v6 ("iBox") generation — included so a consumer can recognize and
+        drive it, but the observed legacy bridge does NOT answer any of this
+        (verified: no reply to the session init on UDP 5987 or 8899, unicast or
+        broadcast, with either published trailer variant D3 E6 / FE F7).
+      port: 5987
+      session_init: "20 00 00 00 16 02 62 3A D5 ED A3 01 AE 08 2D 46 61 41 A7 F6 DC AF D3 E6 00 00 1E"
+      session_init_response: "28 00 00 00 11 00 02 <mac:6> <4 bytes> 00 01 <session_id1> <session_id2> 00 — session ids at bytes 19-20"
+      command_frame: "80 00 00 00 11 <wb1> <wb2> 00 <seq> 00 <cmd:9 bytes> <zone 0-4> 00 <checksum>; checksum = sum of the last 11 bytes (cmd + zone + 00) & 0xFF; ack = 88 00 00 00 03 00 <seq> 00"
+      keepalive: "D0 00 00 00 02 <wb1> <wb2> every ~5 s; reply D8 00 00 00 07 <mac:6> 01"
+      rgbw_ww_cw_command_page: "31 00 00 08 <op> <arg> 00 00 00 (op 04 arg 01=on/02=off/05=night, 05 64=white, 01 hue x4, 02 saturation 00-64, 03 brightness 00-64, 05 kelvin 00-64, 06 mode 01-09); link 3D 00 00 08 00..., unlink 3E ..."
+      bridge_lamp_command_page: "31 00 00 00 ... (iBox's own built-in LED)"
 
 payload_formats:
   legacy_command:
@@ -274,11 +277,11 @@ evidence:
   live_lan_probe:
     date: "2026-08-19"
     devices:
-      - address: "192.168.1.194"
+      - address: "192.0.2.194"
         mac: "34:EA:E7:AA:BB:CC"
         mac_oui: "Shanghai High-Flying Electronics"
         wifi_module: "HF-LPB130 (self-reported in discovery reply)"
-        discovery: "UDP 48899 'HF-A11ASSISTHREAD' broadcast -> '192.168.1.194,34EAE7AABBCC,HF-LPB130' from :48899"
+        discovery: "UDP 48899 'HF-A11ASSISTHREAD' broadcast -> '192.0.2.194,34EAE7AABBCC,HF-LPB130' from :48899"
         discovery_negative: "No reply to 'Link_Wi-Fi' on UDP 48899 (broadcast or unicast)"
         tcp_8899: "Open; connects; no banner (client-speaks-first)"
         v6_negative: "No reply to the 27-byte v6 session init on UDP 5987 or UDP 8899 (unicast and broadcast, both published trailer variants)"

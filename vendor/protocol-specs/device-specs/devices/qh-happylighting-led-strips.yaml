@@ -336,26 +336,27 @@ helpful_urls:
     url: "https://apps.apple.com/app/id1145694075"
     description: "iOS companion app listing (same vendor family)."
 
-sources:
-  - type: "static_analysis"
-    artifact: "com.qh.Happylight (HappyLighting) v1.6.50 (versionCode 619)"
-    sha256: "862142cb91213b193d722dda687992b8b09387475ac5b058b2773c88b40c44ff"
-    description: >
-      Static analysis of the vendor "HappyLighting" Android app (2026-08-19).
-      Source of the command frame builders and status parsing, the GATT UUID
-      constants (ffe0/ffe1/ffe2 and ffd5/ffd9) and the advertised-name
-      matchers (Dream#/~/=, QLAMP, QHM*, Triones~).
-    notes: >
-      Source of every command frame, both UUID layouts and the advertised
-      name patterns in this spec.
-  - type: "public_research"
-    url: "https://github.com/sysofwan/ha-triones"
-    description: >
-      Community reverse engineering of the same Triones protocol;
-      corroborates the power/color/mode frame shapes.
-  - type: "product_listing"
-    description: >
-      AliExpress item 3256812708626256 (4x 72-LED USB car interior RGB kit).
-      The controller QR code decodes to the HappyLighting download portal
-      (download.appglobalmarket.com -> appstore.fonewe.com), which is what
-      ties this hardware to the HappyLighting app.
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.qh.Happylight (HappyLighting) v1.6.50 (versionCode 619)"
+      sha256: "862142cb91213b193d722dda687992b8b09387475ac5b058b2773c88b40c44ff"
+      description: >
+        Static analysis of the vendor "HappyLighting" Android app (2026-08-19).
+        Source of the command frame builders and status parsing, the GATT UUID
+        constants (ffe0/ffe1/ffe2 and ffd5/ffd9) and the advertised-name
+        matchers (Dream#/~/=, QLAMP, QHM*, Triones~).
+      notes: >
+        Source of every command frame, both UUID layouts and the advertised
+        name patterns in this spec.
+    - type: "public_research"
+      url: "https://github.com/sysofwan/ha-triones"
+      description: >
+        Community reverse engineering of the same Triones protocol;
+        corroborates the power/color/mode frame shapes.
+    - type: "product_listing"
+      description: >
+        AliExpress item 3256812708626256 (4x 72-LED USB car interior RGB kit).
+        The controller QR code decodes to the HappyLighting download portal
+        (download.appglobalmarket.com -> appstore.fonewe.com), which is what
+        ties this hardware to the HappyLighting app.

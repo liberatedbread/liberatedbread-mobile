@@ -1,6 +1,12 @@
 # GAPS.md
 
-Last updated: 2026-08-12
+Last updated: 2026-08-23
+
+This file is a record of the ORIGINAL 27-target research wave and what
+became of it. It is not a live list of everything the catalogue is missing
+-- the catalogue has roughly five times as many specs as that wave produced,
+and per-spec gaps live in each spec's own `evidence` and
+`remaining_unknowns` blocks, where the person who found them was standing.
 
 ## Remaining Gaps: 1
 
@@ -46,4 +52,9 @@ companion app `xfkj.fitpro`). `m6-fitness-band.yaml` was re-targeted accordingly
 keeps the Veryfit analysis only as a clearly-labeled mis-attribution note. See
 `research/m6-fitness-band/CONFIRMATION.md` §C.
 
-## Validation: 92/92 passing (91 device specs + 1 example)
+## Validation: 137/137 passing (136 device specs + 1 example)
+
+Pinned by `test_gaps_md_states_the_real_spec_count` in
+`scripts/test_device_specs.py`: this line said 92/92 for a fortnight after
+the catalogue passed 130, which is the failure mode of every hand-written
+count. It fails the suite now rather than quietly misleading a reader.

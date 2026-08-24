@@ -25,7 +25,6 @@ device:
   protocol: "wifi"
   category: "other"
   pictogram: "smart-device"
-  transport: "mdns"
   integration: "identify_only"
   notes: >
     Matter is the cross-ecosystem smart-home standard (from the Connectivity
@@ -141,13 +140,13 @@ device:
         passcode is entered by the user in their Matter controller during
         commissioning, never here.
 
-  local_access:
-    status: native
-    summary: >
-      Matter is a local-first, cross-vendor standard with no required cloud —
-      fully locally controllable through any Matter controller. This project
-      deliberately scopes the entry to identify-only and defers control to the
-      controller the user already runs.
+local_access:
+  status: native
+  summary: >
+    Matter is a local-first, cross-vendor standard with no required cloud —
+    fully locally controllable through any Matter controller. This project
+    deliberately scopes the entry to identify-only and defers control to the
+    controller the user already runs.
 
 helpful_urls:
   - url: "https://csa-iot.org/all-solutions/matter/"

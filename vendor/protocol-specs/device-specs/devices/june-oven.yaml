@@ -215,116 +215,119 @@ device:
         sensor visible in 10013 telemetry. This is the generation keithah's
         integration was verified against.
 
-pairing:
-  protocol: "SRP-6a with inverted roles: the companion is the SRP SERVER, the oven is the client"
-  group: "RFC 5054 8192-bit group, generator g = 19"
-  hash: "SHA-1"
-  identity: "I = 'user'"
-  password: "the displayed 8-digit PIN, INCLUDING its Damm check digit; x = SHA1(salt || SHA1('user:' + PIN))"
-  salt: "16 random bytes"
-  seal: "K = BLAKE2b-256(S); companion_info = base64(nonce(24) || crypto_secretbox_xsalsa20poly1305(json, nonce, K))"
-  completion: "wait for the SECOND 10026 frame carrying oven_info; only then resolve oven_id via GET /2/devices/{deviceId}/associated"
-  cautions: >
-    Never DELETE the pairing session before the second 10026 arrives — the
-    oven answers with 10027 PairingSessionInvalidated and the exchange must
-    restart. Conformance vectors for SRP, Damm, the secretbox seal and the
-    frame signature live in mvanhorn/printing-press-library
-    (internal/june/testdata/vectors.json); implement against those first,
-    hardware never.
-  verification: "reported"
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  pairing:
+    protocol: "SRP-6a with inverted roles: the companion is the SRP SERVER, the oven is the client"
+    group: "RFC 5054 8192-bit group, generator g = 19"
+    hash: "SHA-1"
+    identity: "I = 'user'"
+    password: "the displayed 8-digit PIN, INCLUDING its Damm check digit; x = SHA1(salt || SHA1('user:' + PIN))"
+    salt: "16 random bytes"
+    seal: "K = BLAKE2b-256(S); companion_info = base64(nonce(24) || crypto_secretbox_xsalsa20poly1305(json, nonce, K))"
+    completion: "wait for the SECOND 10026 frame carrying oven_info; only then resolve oven_id via GET /2/devices/{deviceId}/associated"
+    cautions: >
+      Never DELETE the pairing session before the second 10026 arrives — the
+      oven answers with 10027 PairingSessionInvalidated and the exchange must
+      restart. Conformance vectors for SRP, Damm, the secretbox seal and the
+      frame signature live in mvanhorn/printing-press-library
+      (internal/june/testdata/vectors.json); implement against those first,
+      hardware never.
+    verification: "reported"
 
-messaging:
-  transport: "wss://messaging.junelife.com/1/messaging/websocket/companion (the oven dials its own sibling channel wss://messaging.junelife.com/1/messaging/websocket/oven, which answers 401 to unauthenticated probes — the route exists)"
-  envelope: >
-    Compact JSON with EXACT key order: v, message_code, order, time,
-    signature, device_name, device_id, data, target. `order` is strictly
-    increasing and is echoed back by the oven as `request_order` in 10020
-    acks.
-  signature: >
-    72 bytes: base64( BLAKE2b(ed25519_pubkey, digest_size=8) ||
-    Ed25519_sign(privkey, canonical_json) ), computed over the envelope with
-    the signature field set to "". The 8-byte prefix is crypto_generichash
-    with an 8-byte OUTPUT LENGTH, not a truncated BLAKE2b-512. Standard
-    base64, not url-safe. A wrong signature is SILENTLY DROPPED — no ack, no
-    error — so a client must treat absence of an ack as a distinct,
-    timeout-bounded state rather than a hang.
-  units: >
-    Integer milli-degrees Celsius everywhere:
-    milliC = round((F - 32) * 5/9 * 1000); 350 F = 176667. Durations are
-    milliseconds. Probe presence is STRUCTURAL — a non-empty
-    sensor_data.probe array; there is no food_present field.
-  outgoing_codes:
-    11002: "Preheat / start cook — data {primitive_type, temperature_cavity milliC}. Only 'bake' and 'roast' are confirmed on-oven; the app's broil/air-fry/toast/dehydrate/pizza vocabulary was never enumerated against hardware. Rejected while a cook is running — clients cancel (11004) and restart instead."
-    11004: "CancelCooking — data {plan_id: 0}"
-    11005: "SetTemperatureCavity — data {plan_id: 0, temperature_cavity milliC}. Rejected mid-cook; cancel-and-restart is the working pattern."
-    11006: "SetTimer — data {plan_id: 0, duration ms}"
-    11007: "SetTemperatureTargetProbe"
-    11011: "Ping / keepalive, ~7 s interval — data {}"
-    11012: "Unpair"
-    11013: "KeepCooking"
-    11015: "SetCookMode"
-    11016: "StartCookPlan (guided cook)"
-    11017: "Set/ClearRecipeState"
-    11019: "SetTemperatureAccessory"
-    11031: "CookPlanEdit customization (add)"
-    11032: "CookPlanEdit customization (remove)"
-    11035: "CookAdjustmentOfferResponse"
-    12001: "UploadOvenBugReport — instructs the oven to upload its logs"
-  incoming_codes:
-    10011: "VideoFrame — data {video_id, ts, signed_url, image_url, content_type, image_size}; ~1 fps JPEG stills via pre-signed URLs expiring in ~300 s. NEVER video."
-    10012: "CookNotification"
-    10013: "Telemetry ~1 Hz — sensor_data.cavity (milliC), sensor_data.probe[], sensor_data.weight (Gen 3), cook_state_data.progress"
-    10014: "Cook plan started"
-    10015: "Cook plan updated"
-    10016: "Cook plan temperature changed"
-    10017: "Cook ended / cancelled"
-    10018: "Device state — data {state: 'idle' | 'active'}"
-    10020: "Ack — data {request_order, status: 'success' | 'not-allowed' | 'door-open' | 'not-ready' | 'cleaning'}. This is the protocol's safety channel; surface statuses verbatim. Door state is observable ONLY as a 10020 'door-open' rejection, never as a push."
-    10022: "Oven-initiated unpair"
-    10026: "Pairing info — data.key_info; the SECOND 10026 carries oven_info and completes pairing"
-    10027: "PairingSessionInvalidated"
-    10033: "Cook adjustment offer"
-  safety: >
-    Remote preheat starts a heating element. June shipped a remote-preheat
-    disable option and a 30-minute no-food auto-off after documented 2019
-    self-preheating incidents; both live on the oven. A client must never
-    offer a path that defeats them.
-  verification: "reported"
+  messaging:
+    transport: "wss://messaging.junelife.com/1/messaging/websocket/companion (the oven dials its own sibling channel wss://messaging.junelife.com/1/messaging/websocket/oven, which answers 401 to unauthenticated probes — the route exists)"
+    envelope: >
+      Compact JSON with EXACT key order: v, message_code, order, time,
+      signature, device_name, device_id, data, target. `order` is strictly
+      increasing and is echoed back by the oven as `request_order` in 10020
+      acks.
+    signature: >
+      72 bytes: base64( BLAKE2b(ed25519_pubkey, digest_size=8) ||
+      Ed25519_sign(privkey, canonical_json) ), computed over the envelope with
+      the signature field set to "". The 8-byte prefix is crypto_generichash
+      with an 8-byte OUTPUT LENGTH, not a truncated BLAKE2b-512. Standard
+      base64, not url-safe. A wrong signature is SILENTLY DROPPED — no ack, no
+      error — so a client must treat absence of an ack as a distinct,
+      timeout-bounded state rather than a hang.
+    units: >
+      Integer milli-degrees Celsius everywhere:
+      milliC = round((F - 32) * 5/9 * 1000); 350 F = 176667. Durations are
+      milliseconds. Probe presence is STRUCTURAL — a non-empty
+      sensor_data.probe array; there is no food_present field.
+    outgoing_codes:
+      11002: "Preheat / start cook — data {primitive_type, temperature_cavity milliC}. Only 'bake' and 'roast' are confirmed on-oven; the app's broil/air-fry/toast/dehydrate/pizza vocabulary was never enumerated against hardware. Rejected while a cook is running — clients cancel (11004) and restart instead."
+      11004: "CancelCooking — data {plan_id: 0}"
+      11005: "SetTemperatureCavity — data {plan_id: 0, temperature_cavity milliC}. Rejected mid-cook; cancel-and-restart is the working pattern."
+      11006: "SetTimer — data {plan_id: 0, duration ms}"
+      11007: "SetTemperatureTargetProbe"
+      11011: "Ping / keepalive, ~7 s interval — data {}"
+      11012: "Unpair"
+      11013: "KeepCooking"
+      11015: "SetCookMode"
+      11016: "StartCookPlan (guided cook)"
+      11017: "Set/ClearRecipeState"
+      11019: "SetTemperatureAccessory"
+      11031: "CookPlanEdit customization (add)"
+      11032: "CookPlanEdit customization (remove)"
+      11035: "CookAdjustmentOfferResponse"
+      12001: "UploadOvenBugReport — instructs the oven to upload its logs"
+    incoming_codes:
+      10011: "VideoFrame — data {video_id, ts, signed_url, image_url, content_type, image_size}; ~1 fps JPEG stills via pre-signed URLs expiring in ~300 s. NEVER video."
+      10012: "CookNotification"
+      10013: "Telemetry ~1 Hz — sensor_data.cavity (milliC), sensor_data.probe[], sensor_data.weight (Gen 3), cook_state_data.progress"
+      10014: "Cook plan started"
+      10015: "Cook plan updated"
+      10016: "Cook plan temperature changed"
+      10017: "Cook ended / cancelled"
+      10018: "Device state — data {state: 'idle' | 'active'}"
+      10020: "Ack — data {request_order, status: 'success' | 'not-allowed' | 'door-open' | 'not-ready' | 'cleaning'}. This is the protocol's safety channel; surface statuses verbatim. Door state is observable ONLY as a 10020 'door-open' rejection, never as a push."
+      10022: "Oven-initiated unpair"
+      10026: "Pairing info — data.key_info; the SECOND 10026 carries oven_info and completes pairing"
+      10027: "PairingSessionInvalidated"
+      10033: "Cook adjustment offer"
+    safety: >
+      Remote preheat starts a heating element. June shipped a remote-preheat
+      disable option and a 30-minute no-food auto-off after documented 2019
+      self-preheating incidents; both live on the oven. A client must never
+      offer a path that defeats them.
+    verification: "reported"
 
-ota:
-  summary: >
-    Oven updates are fully oven-initiated — the companion app contains no OTA
-    code at all. The OTA service was recovered from the sibling Weber grill
-    app's cloud SDK and probed live on 2026-08-18.
-  hosts:
-    prod: "https://devices-ota.walker-cloud.com"
-    dev: "https://dev-devices-ota.walker-cloud.com"
-    legacy_june: "https://dev-devices-ota.junelife.com — LegacyAppProdConfig points prod legacy devices at the DEV junelife OTA host; devices-ota.junelife.com (prod) has NO DNS, so June prod ovens were likely never migrated"
-  auth: >
-    Device-grade, not account-grade: POST /api/v2/login/ with form fields
-    username=<serial number> and password=<current version_name> returns a
-    bearer token; GET /api/v2/updates/ lists records with direct download_url
-    values. Companion tokens are rejected — separate auth domain.
-  container: >
-    Firmware ships as a .jota container (magic 'jota', channel/flavor/target
-    strings, ARM Thumb payload). On-device apply is a broadcast
-    (com.junelife.device.ota.APPLY_UPDATE) to a junelife-namespaced system
-    updater service. Whether .jota images are signature-verified on-device is
-    UNKNOWN — it decides whether community images can ever be pushed.
-  live_status_2026_08_18: >
-    dev-devices-ota.junelife.com/api/v2/login/ answers with
-    login:unknown_serial_number (service alive, auth working);
-    devices-ota.walker-cloud.com/api/v2/updates/ answers 401
-    auth:invalid_header (alive). The June oven's OTA target string is
-    unconfirmed (grills use 'stuart'; the gen-3 oven is 'meerkat'/JCH03).
-  brick_risk: >
-    Real June oven firmware images have never been obtained — prod delivery is
-    in-band over the oven's WSS channel with unguessable signed URLs. The only
-    known route: pair an oven BEFORE 2026-09-22, take serialNumber + software
-    version from the pairing response, log in to the OTA service as the
-    device, and download every eligible .jota. This is also the only known
-    path to un-bricking factory-reset ovens later.
-  verification: "reported"
+  ota:
+    summary: >
+      Oven updates are fully oven-initiated — the companion app contains no OTA
+      code at all. The OTA service was recovered from the sibling Weber grill
+      app's cloud SDK and probed live on 2026-08-18.
+    hosts:
+      prod: "https://devices-ota.walker-cloud.com"
+      dev: "https://dev-devices-ota.walker-cloud.com"
+      legacy_june: "https://dev-devices-ota.junelife.com — LegacyAppProdConfig points prod legacy devices at the DEV junelife OTA host; devices-ota.junelife.com (prod) has NO DNS, so June prod ovens were likely never migrated"
+    auth: >
+      Device-grade, not account-grade: POST /api/v2/login/ with form fields
+      username=<serial number> and password=<current version_name> returns a
+      bearer token; GET /api/v2/updates/ lists records with direct download_url
+      values. Companion tokens are rejected — separate auth domain.
+    container: >
+      Firmware ships as a .jota container (magic 'jota', channel/flavor/target
+      strings, ARM Thumb payload). On-device apply is a broadcast
+      (com.junelife.device.ota.APPLY_UPDATE) to a junelife-namespaced system
+      updater service. Whether .jota images are signature-verified on-device is
+      UNKNOWN — it decides whether community images can ever be pushed.
+    live_status_2026_08_18: >
+      dev-devices-ota.junelife.com/api/v2/login/ answers with
+      login:unknown_serial_number (service alive, auth working);
+      devices-ota.walker-cloud.com/api/v2/updates/ answers 401
+      auth:invalid_header (alive). The June oven's OTA target string is
+      unconfirmed (grills use 'stuart'; the gen-3 oven is 'meerkat'/JCH03).
+    brick_risk: >
+      Real June oven firmware images have never been obtained — prod delivery is
+      in-band over the oven's WSS channel with unguessable signed URLs. The only
+      known route: pair an oven BEFORE 2026-09-22, take serialNumber + software
+      version from the pairing response, log in to the OTA service as the
+      device, and download every eligible .jota. This is also the only known
+      path to un-bricking factory-reset ovens later.
+    verification: "reported"
 
 cloud:
   required: true
@@ -472,40 +475,41 @@ helpful_urls:
     url: "https://github.com/sanjay900/igrill"
     description: "BLE integration for the Weber iGrill probe. Shares no protocol surface with the June oven — the link is corporate, not technical. Listed only so nobody conflates the two."
 
-sources:
-  - type: "static_analysis"
-    artifact: "com.junelife.companion v1.24.1.11 (versionCode 1240111, final release)"
-    sha256: "430914bd946efe83a9c122105b08664482930fc69ed781c49a1b376605c96f0c"
-    signing_cert_sha1: "A7:12:63:B9:E5:76:BC:D5:95:0C:B5:79:8D:87:8B:BF:92:8E:C5:53"
-    obtained_via: "third-party APK mirror, 2026-08-18 (the app is delisted, so no official download). An earlier recon record lists sha256 e9de2c3a…35b7 at 21,032,158 bytes; both copies are 21,032,160 bytes with an identical v1 signing cert — a 2-byte mirror re-zip, and the hash above is the canonical mirror-copy hash."
-    description: >
-      Static analysis of the final release of the June companion Android app
-      (2026-08-18). Its environment enum supplied the prod/dev REST,
-      messaging, WebSocket and recipe hosts plus the app-constant
-      client_id/client_secret; its message-code factory and payload adapters
-      supplied the envelope; its HTTP client supplied the three hardcoded
-      certificate SPKI pins. Also verified here: zero BLE GATT service UUIDs
-      anywhere in the app, a bundled libsodium in seven ABIs, and no
-      OTA/firmware code in the companion at all.
-  - type: "static_analysis"
-    artifact: "com.weber.connect (sibling Weber grill app)"
-    sha256: "dfa0faadfd65c62dd03ff01907f0decc6ee2022205a6a884a94e43a376d1a985"
-    obtained_via: "third-party APK mirror, 2026-08"
-    description: >
-      Static analysis of the sibling Weber grill Android app (2026-08). It
-      embeds the entire June companion tree — the phone apps share a
-      codebase, the oven firmware does not. Its cloud SDK's OTA service
-      client and build configuration are the source of everything in the
-      `ota` block, including the shipped test .jota fixtures.
-  - type: "public_research"
-    url: "https://github.com/keithah/homebridge-june-oven"
-    description: "Clean-room protocol spec (JUNE_INTEGRATION_SPEC.md) verified end-to-end against a physical gen-3 oven — primary source for pairing, envelope, signature and message-code facts (marked 'reported' here)"
-  - type: "public_research"
-    url: "https://github.com/mvanhorn/printing-press-library"
-    description: "Synthetic byte-exact conformance vectors (signature, SRP-6a, Damm, secretbox) — the reimplementation test oracle"
-  - type: "vendor_notice"
-    url: "https://consumer-care.weber.com/s/article/What-is-happening-to-the-June-App"
-    description: "Weber consumer-care FAQ: all June app and cloud services retire 2026-09-22; Bluetooth not supported; clock is cloud-dependent"
-  - type: "fcc_filing"
-    url: "https://fccid.io/2AJGA"
-    description: "FCC grantee 2AJGA: gen-1 JCP01, gen-2 (Wi-Fi-only grants), gen-3 JCH03 'meerkat' — radio complements and label exhibits per generation"
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.junelife.companion v1.24.1.11 (versionCode 1240111, final release)"
+      sha256: "430914bd946efe83a9c122105b08664482930fc69ed781c49a1b376605c96f0c"
+      signing_cert_sha1: "A7:12:63:B9:E5:76:BC:D5:95:0C:B5:79:8D:87:8B:BF:92:8E:C5:53"
+      obtained_via: "third-party APK mirror, 2026-08-18 (the app is delisted, so no official download). An earlier recon record lists sha256 e9de2c3a…35b7 at 21,032,158 bytes; both copies are 21,032,160 bytes with an identical v1 signing cert — a 2-byte mirror re-zip, and the hash above is the canonical mirror-copy hash."
+      description: >
+        Static analysis of the final release of the June companion Android app
+        (2026-08-18). Its environment enum supplied the prod/dev REST,
+        messaging, WebSocket and recipe hosts plus the app-constant
+        client_id/client_secret; its message-code factory and payload adapters
+        supplied the envelope; its HTTP client supplied the three hardcoded
+        certificate SPKI pins. Also verified here: zero BLE GATT service UUIDs
+        anywhere in the app, a bundled libsodium in seven ABIs, and no
+        OTA/firmware code in the companion at all.
+    - type: "static_analysis"
+      artifact: "com.weber.connect (sibling Weber grill app)"
+      sha256: "dfa0faadfd65c62dd03ff01907f0decc6ee2022205a6a884a94e43a376d1a985"
+      obtained_via: "third-party APK mirror, 2026-08"
+      description: >
+        Static analysis of the sibling Weber grill Android app (2026-08). It
+        embeds the entire June companion tree — the phone apps share a
+        codebase, the oven firmware does not. Its cloud SDK's OTA service
+        client and build configuration are the source of everything in the
+        `ota` block, including the shipped test .jota fixtures.
+    - type: "public_research"
+      url: "https://github.com/keithah/homebridge-june-oven"
+      description: "Clean-room protocol spec (JUNE_INTEGRATION_SPEC.md) verified end-to-end against a physical gen-3 oven — primary source for pairing, envelope, signature and message-code facts (marked 'reported' here)"
+    - type: "public_research"
+      url: "https://github.com/mvanhorn/printing-press-library"
+      description: "Synthetic byte-exact conformance vectors (signature, SRP-6a, Damm, secretbox) — the reimplementation test oracle"
+    - type: "vendor_notice"
+      url: "https://consumer-care.weber.com/s/article/What-is-happening-to-the-June-App"
+      description: "Weber consumer-care FAQ: all June app and cloud services retire 2026-09-22; Bluetooth not supported; clock is cloud-dependent"
+    - type: "fcc_filing"
+      url: "https://fccid.io/2AJGA"
+      description: "FCC grantee 2AJGA: gen-1 JCP01, gen-2 (Wi-Fi-only grants), gen-3 JCH03 'meerkat' — radio complements and label exhibits per generation"

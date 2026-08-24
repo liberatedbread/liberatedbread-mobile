@@ -254,165 +254,165 @@ device:
       identification:
         local_name_prefix: "CGG_"
 
-  payload_formats:
-    ATC_3byte:
-      description: >
-        3-byte ATC layout. NOTE: this compact layout exists only as the
-        AES-CCM PLAINTEXT of the ENCRYPTED ATC beacon (adv_atc_data_t in
-        custom_beacon.h) — it never appears on the air unencrypted. The
-        unencrypted on-air ATC format is ATC_atc1441 below.
-      fields:
-        - index: 0
-          name: "temperature_raw"
-          description: "Temperature = (value / 2.0) - 40.0 °C."
-        - index: 1
-          name: "humidity_raw"
-          description: "Humidity = value / 2.0 %."
-        - index: 2
-          name: "battery_and_flags"
-          description: "Bits 6-0 = battery %, bit 7 = trigger/status flag."
-      example: "6c 64 63"
-      parse_rules:
-        - "temp = (byte[0] / 2.0) - 40.0"
-        - "humidity = byte[1] / 2.0"
-        - "battery = byte[2] & 0x7F"
-        - "trigger_flag = (byte[2] >> 7) & 1"
-    PVVX_6byte:
-      description: >
-        6-byte Custom layout. NOTE: as with ATC_3byte, this is the AES-CCM
-        PLAINTEXT of the ENCRYPTED Custom beacon (adv_cust_data_t in
-        custom_beacon.h) — the unencrypted on-air Custom format is
-        Custom_unencrypted below.
-      fields:
-        - index: 0
-          name: "temperature"
-          description: "Temperature in 0.01°C (int16 LE)."
-        - index: 2
-          name: "humidity"
-          description: "Humidity in 0.01% (uint16 LE)."
-        - index: 4
-          name: "battery"
-          description: "Battery percentage."
-        - index: 5
-          name: "flags"
-          description: "Status/trigger flags."
-      example: "ce 08 94 13 64 00"
-      parse_rules:
-        - "temp = int16_le(bytes[0:2]) / 100.0"
-        - "humidity = uint16_le(bytes[2:4]) / 100.0"
-        - "battery = byte[4]"
-        - "flags = byte[5]"
-    ATC_atc1441:
-      description: >
-        Unencrypted on-air ATC advertisement (adv_atc1441_t in
-        custom_beacon.h), Service Data 0x181A.
-      fields:
-        - index: 0
-          name: "mac"
-          description: "Device MAC, 6 bytes, big-endian."
-        - index: 6
-          name: "temperature"
-          description: "int16 big-endian, ×0.1 °C."
-        - index: 8
-          name: "humidity"
-          description: "uint8, percent."
-        - index: 9
-          name: "battery_percent"
-          description: "uint8, percent."
-        - index: 10
-          name: "battery_mv"
-          description: "uint16 big-endian, millivolts."
-        - index: 12
-          name: "counter"
-          description: "Advertisement counter."
-      parse_rules:
-        - "temp = int16_be(bytes[6:8]) / 10.0"
-        - "humidity = byte[8]"
-        - "battery_percent = byte[9]"
-        - "battery_mv = uint16_be(bytes[10:12])"
-    Custom_unencrypted:
-      description: >
-        Unencrypted on-air Custom (pvvx) advertisement (adv_custom_t in
-        custom_beacon.h), Service Data 0x181A, 14 bytes.
-      fields:
-        - index: 0
-          name: "mac"
-          description: "Device MAC, 6 bytes."
-        - index: 6
-          name: "temperature"
-          description: "int16 LE, ×0.01 °C."
-        - index: 8
-          name: "humidity"
-          description: "uint16 LE, ×0.01 %."
-        - index: 10
-          name: "battery_mv"
-          description: "uint16, millivolts."
-        - index: 12
-          name: "battery_percent"
-          description: "uint8, percent."
-        - index: 13
-          name: "counter"
-          description: "Advertisement counter; a flags byte follows on 15-byte frames."
-      parse_rules:
-        - "temp = int16_le(bytes[6:8]) / 100.0"
-        - "humidity = uint16_le(bytes[8:10]) / 100.0"
-        - "battery_mv = uint16_le(bytes[10:12])"
-        - "battery_percent = byte[12]"
-    BTHome_v2:
-      description: >
-        BTHome v2 advertisement, the pvvx firmware default since v5.8 and
-        so the layout most units are actually broadcasting. Carried as
-        Service Data under 0xFCD2, NOT 0x181A — 0x181A appears only in the
-        connected GATT table on a BTHome-configured unit. Unlike the four
-        layouts above this one is TLV, not fixed: byte 0 is the BTHome
-        device-info byte (0x40 = v2, unencrypted) and the rest is a run of
-        [object id][value] pairs in ascending id order. The indices below
-        are the run this firmware emits; a general decoder should walk the
-        ids rather than trust the offsets, because a field the device has
-        nothing to report is simply absent. Hardware-verified 2026-08-22 on
-        pvvx v5.8 (decoded 92 %, 23.81 °C, 59.93 % RH, matching the values
-        read back over GATT in the same session).
-      fields:
-        - index: 0
-          name: "device_info"
-          description: "BTHome device-info byte. 0x40 = BTHome v2, unencrypted, no trigger."
-        - index: 1
-          name: "packet_id_marker"
-          description: "Object id 0x00 = packet id."
-        - index: 2
-          name: "packet_id"
-          description: "uint8 advertisement counter."
-        - index: 3
-          name: "battery_marker"
-          description: "Object id 0x01 = battery."
-        - index: 4
-          name: "battery_percent"
-          unit: "%"
-          description: "uint8, percent."
-        - index: 5
-          name: "temperature_marker"
-          description: "Object id 0x02 = temperature."
-        - index: 6
-          name: "temperature"
-          unit: "C"
-          scale: 0.01
-          description: "int16 little-endian, x0.01 degrees C."
-        - index: 8
-          name: "humidity_marker"
-          description: "Object id 0x03 = humidity."
-        - index: 9
-          name: "humidity"
-          unit: "%"
-          scale: 0.01
-          description: "uint16 little-endian, x0.01 %."
-      example: "40 00 ?? 01 5c 02 4d 09 03 69 17"
-      parse_rules:
-        - "Reject the frame unless byte[0] == 0x40; any other value means a BTHome variant this table does not describe (encrypted, or a different version)."
-        - "Walk from byte 1: read an object id, then its value, whose width the id fixes (0x00 packet id = 1 byte, 0x01 battery = 1 byte, 0x02 temperature = 2 bytes, 0x03 humidity = 2 bytes)."
-        - "temp = int16_le(bytes[6:8]) / 100.0"
-        - "humidity = uint16_le(bytes[9:11]) / 100.0"
-        - "battery_percent = byte[4]"
-        - "The example is the verified reading (battery 0x5c = 92 %, temp 0x094d = 23.81 C, humidity 0x1769 = 59.93 %) with the packet counter written ?? because it changes every advertisement."
+payload_formats:
+  ATC_3byte:
+    description: >
+      3-byte ATC layout. NOTE: this compact layout exists only as the
+      AES-CCM PLAINTEXT of the ENCRYPTED ATC beacon (adv_atc_data_t in
+      custom_beacon.h) — it never appears on the air unencrypted. The
+      unencrypted on-air ATC format is ATC_atc1441 below.
+    fields:
+      - index: 0
+        name: "temperature_raw"
+        description: "Temperature = (value / 2.0) - 40.0 °C."
+      - index: 1
+        name: "humidity_raw"
+        description: "Humidity = value / 2.0 %."
+      - index: 2
+        name: "battery_and_flags"
+        description: "Bits 6-0 = battery %, bit 7 = trigger/status flag."
+    example: "6c 64 63"
+    parse_rules:
+      - "temp = (byte[0] / 2.0) - 40.0"
+      - "humidity = byte[1] / 2.0"
+      - "battery = byte[2] & 0x7F"
+      - "trigger_flag = (byte[2] >> 7) & 1"
+  PVVX_6byte:
+    description: >
+      6-byte Custom layout. NOTE: as with ATC_3byte, this is the AES-CCM
+      PLAINTEXT of the ENCRYPTED Custom beacon (adv_cust_data_t in
+      custom_beacon.h) — the unencrypted on-air Custom format is
+      Custom_unencrypted below.
+    fields:
+      - index: 0
+        name: "temperature"
+        description: "Temperature in 0.01°C (int16 LE)."
+      - index: 2
+        name: "humidity"
+        description: "Humidity in 0.01% (uint16 LE)."
+      - index: 4
+        name: "battery"
+        description: "Battery percentage."
+      - index: 5
+        name: "flags"
+        description: "Status/trigger flags."
+    example: "ce 08 94 13 64 00"
+    parse_rules:
+      - "temp = int16_le(bytes[0:2]) / 100.0"
+      - "humidity = uint16_le(bytes[2:4]) / 100.0"
+      - "battery = byte[4]"
+      - "flags = byte[5]"
+  ATC_atc1441:
+    description: >
+      Unencrypted on-air ATC advertisement (adv_atc1441_t in
+      custom_beacon.h), Service Data 0x181A.
+    fields:
+      - index: 0
+        name: "mac"
+        description: "Device MAC, 6 bytes, big-endian."
+      - index: 6
+        name: "temperature"
+        description: "int16 big-endian, ×0.1 °C."
+      - index: 8
+        name: "humidity"
+        description: "uint8, percent."
+      - index: 9
+        name: "battery_percent"
+        description: "uint8, percent."
+      - index: 10
+        name: "battery_mv"
+        description: "uint16 big-endian, millivolts."
+      - index: 12
+        name: "counter"
+        description: "Advertisement counter."
+    parse_rules:
+      - "temp = int16_be(bytes[6:8]) / 10.0"
+      - "humidity = byte[8]"
+      - "battery_percent = byte[9]"
+      - "battery_mv = uint16_be(bytes[10:12])"
+  Custom_unencrypted:
+    description: >
+      Unencrypted on-air Custom (pvvx) advertisement (adv_custom_t in
+      custom_beacon.h), Service Data 0x181A, 14 bytes.
+    fields:
+      - index: 0
+        name: "mac"
+        description: "Device MAC, 6 bytes."
+      - index: 6
+        name: "temperature"
+        description: "int16 LE, ×0.01 °C."
+      - index: 8
+        name: "humidity"
+        description: "uint16 LE, ×0.01 %."
+      - index: 10
+        name: "battery_mv"
+        description: "uint16, millivolts."
+      - index: 12
+        name: "battery_percent"
+        description: "uint8, percent."
+      - index: 13
+        name: "counter"
+        description: "Advertisement counter; a flags byte follows on 15-byte frames."
+    parse_rules:
+      - "temp = int16_le(bytes[6:8]) / 100.0"
+      - "humidity = uint16_le(bytes[8:10]) / 100.0"
+      - "battery_mv = uint16_le(bytes[10:12])"
+      - "battery_percent = byte[12]"
+  BTHome_v2:
+    description: >
+      BTHome v2 advertisement, the pvvx firmware default since v5.8 and
+      so the layout most units are actually broadcasting. Carried as
+      Service Data under 0xFCD2, NOT 0x181A — 0x181A appears only in the
+      connected GATT table on a BTHome-configured unit. Unlike the four
+      layouts above this one is TLV, not fixed: byte 0 is the BTHome
+      device-info byte (0x40 = v2, unencrypted) and the rest is a run of
+      [object id][value] pairs in ascending id order. The indices below
+      are the run this firmware emits; a general decoder should walk the
+      ids rather than trust the offsets, because a field the device has
+      nothing to report is simply absent. Hardware-verified 2026-08-22 on
+      pvvx v5.8 (decoded 92 %, 23.81 °C, 59.93 % RH, matching the values
+      read back over GATT in the same session).
+    fields:
+      - index: 0
+        name: "device_info"
+        description: "BTHome device-info byte. 0x40 = BTHome v2, unencrypted, no trigger."
+      - index: 1
+        name: "packet_id_marker"
+        description: "Object id 0x00 = packet id."
+      - index: 2
+        name: "packet_id"
+        description: "uint8 advertisement counter."
+      - index: 3
+        name: "battery_marker"
+        description: "Object id 0x01 = battery."
+      - index: 4
+        name: "battery_percent"
+        unit: "%"
+        description: "uint8, percent."
+      - index: 5
+        name: "temperature_marker"
+        description: "Object id 0x02 = temperature."
+      - index: 6
+        name: "temperature"
+        unit: "C"
+        scale: 0.01
+        description: "int16 little-endian, x0.01 degrees C."
+      - index: 8
+        name: "humidity_marker"
+        description: "Object id 0x03 = humidity."
+      - index: 9
+        name: "humidity"
+        unit: "%"
+        scale: 0.01
+        description: "uint16 little-endian, x0.01 %."
+    example: "40 00 ?? 01 5c 02 4d 09 03 69 17"
+    parse_rules:
+      - "Reject the frame unless byte[0] == 0x40; any other value means a BTHome variant this table does not describe (encrypted, or a different version)."
+      - "Walk from byte 1: read an object id, then its value, whose width the id fixes (0x00 packet id = 1 byte, 0x01 battery = 1 byte, 0x02 temperature = 2 bytes, 0x03 humidity = 2 bytes)."
+      - "temp = int16_le(bytes[6:8]) / 100.0"
+      - "humidity = uint16_le(bytes[9:11]) / 100.0"
+      - "battery_percent = byte[4]"
+      - "The example is the verified reading (battery 0x5c = 92 %, temp 0x094d = 23.81 C, humidity 0x1769 = 59.93 %) with the packet counter written ?? because it changes every advertisement."
 
 services:
   - uuid: "0000181a-0000-1000-8000-00805f9b34fb"
@@ -461,7 +461,7 @@ entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
-    unit: "°C"
+    unit: "C"
     state_characteristic: "00002a6e-0000-1000-8000-00805f9b34fb"
   - platform: "sensor"
     name: "Humidity"

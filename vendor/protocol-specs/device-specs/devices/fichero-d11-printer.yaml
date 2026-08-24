@@ -151,13 +151,13 @@ device:
       identification:
         local_name_prefix: "D11s_"
 
-  features:
-    - type: "image_upload"
-      max_width: 96
-      max_height: 65535
-      format: "1bit-bitmap"
+features:
+  - type: "image_upload"
+    max_width: 96
+    max_height: 65535
+    format: "1bit-bitmap"
 
-  protocol_handler: "fichero_d11"
+protocol_handler: "fichero_d11"
 
 services:
   - uuid: "0000ff00-0000-1000-8000-00805f9b34fb"

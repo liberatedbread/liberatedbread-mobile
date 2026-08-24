@@ -141,69 +141,72 @@ device:
         - "ZigBee and Z-Wave network keys"
       issued_to_client: []
 
-smartthings_local_protocol:
-  primary_service:
-    service_type: "_smartthings._tcp.local."
-    port: 8081
-  edge_driver_service:
-    service_type: "_smartthings-hedge._tcp.local."
-    port: 8766
-    transport: "HTTPS"
-    confidence: "medium"
-    confidence_notes: >
-      App-derived, not exercised on hardware: the vendor app's hub
-      diagnostics flow discovers _smartthings-hedge._tcp.local. via mDNS and
-      matches the endpoint against its L3_HTTPS protocol, then talks to it
-      through a plain Retrofit HTTPS interface (iv/d). The feat=ctrl TXT key
-      remains probe-only — the app never reads the hedge TXT record.
-    notes: >
-      Service and port are corroborated by community observation (Nov 2024)
-      and by the vendor app's mDNS discovery. The transport is HTTPS, not
-      WebSocket: the app matches the discovered endpoint against
-      DiagnosticsProtocol.L3_HTTPS. The feat=ctrl TXT key rests solely on
-      this spec's own probe — treat it as unverified.
-    auth:
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  smartthings_local_protocol:
+    primary_service:
+      service_type: "_smartthings._tcp.local."
+      port: 8081
+    edge_driver_service:
+      service_type: "_smartthings-hedge._tcp.local."
+      port: 8766
+      transport: "HTTPS"
       confidence: "medium"
-      type: "bearer"
+      confidence_notes: >
+        App-derived, not exercised on hardware: the vendor app's hub
+        diagnostics flow discovers _smartthings-hedge._tcp.local. via mDNS and
+        matches the endpoint against its L3_HTTPS protocol, then talks to it
+        through a plain Retrofit HTTPS interface (iv/d). The feat=ctrl TXT key
+        remains probe-only — the app never reads the hedge TXT record.
       notes: >
-        App-derived: requests carry an Authorization: Bearer header built
-        from a cloud-issued HubEdgeAuthentication (access_token plus a
-        client public certificate), obtained from the cloud API via
-        POST /hubdevices/{hubDeviceId}/hedge/auth.
-    txt:
-      feat: "ctrl"
-  matter_controller:
-    service_type: "_matter._tcp.local."
-    port: 49722
-    confidence: "unverified"
-    notes: >
-      Hub v2 is a CSA-certified Matter CONTROLLER (not a bridge — see device
-      notes). TXT T=6 is the Matter operational-discovery kTcpSupported
-      bitmask (TCP client + server). Port 49722 is probe-observed only:
-      Matter operational discovery uses ephemeral ports, so treat it as
-      instance-specific, not normative.
-    txt:
-      T: 6
-  cloud_hedge_api:
-    confidence: "medium"
-    notes: >
-      App-derived, not hardware-verified: the vendor app also speaks a
-      cloud-side "hedge" API family for Matter and Thread management
-      (MatterService) — e.g. /hedge/request/{hubId}/devices/{deviceId}/matter/fabrics,
-      /hedge/request/{hubId}/matter/rendezvous, and
-      /hedge/request/{hubId}/thread/networkInfo — plus Matter DCL
-      vendor/product lookups. These are cloud REST endpoints reached through
-      Samsung's backend, not endpoints served by the hub itself.
-  local_https_api:
-    port: 9495
-    transport: "HTTPS"
-    notes: >
-      Undocumented local API used by the official SmartThings CLI
-      (edge:drivers:logcat, defaultLiveLogPort = 9495): GET /drivers and
-      GET /drivers/logs (Server-Sent Events), authenticated with Samsung
-      OAuth bearer headers; the CLI pins the hub's TLS server certificate
-      against its identity. Source:
-      SmartThingsCommunity/smartthings-cli src/commands/edge/drivers/logcat.ts.
+        Service and port are corroborated by community observation (Nov 2024)
+        and by the vendor app's mDNS discovery. The transport is HTTPS, not
+        WebSocket: the app matches the discovered endpoint against
+        DiagnosticsProtocol.L3_HTTPS. The feat=ctrl TXT key rests solely on
+        this spec's own probe — treat it as unverified.
+      auth:
+        confidence: "medium"
+        type: "bearer"
+        notes: >
+          App-derived: requests carry an Authorization: Bearer header built
+          from a cloud-issued HubEdgeAuthentication (access_token plus a
+          client public certificate), obtained from the cloud API via
+          POST /hubdevices/{hubDeviceId}/hedge/auth.
+      txt:
+        feat: "ctrl"
+    matter_controller:
+      service_type: "_matter._tcp.local."
+      port: 49722
+      confidence: "unverified"
+      notes: >
+        Hub v2 is a CSA-certified Matter CONTROLLER (not a bridge — see device
+        notes). TXT T=6 is the Matter operational-discovery kTcpSupported
+        bitmask (TCP client + server). Port 49722 is probe-observed only:
+        Matter operational discovery uses ephemeral ports, so treat it as
+        instance-specific, not normative.
+      txt:
+        T: 6
+    cloud_hedge_api:
+      confidence: "medium"
+      notes: >
+        App-derived, not hardware-verified: the vendor app also speaks a
+        cloud-side "hedge" API family for Matter and Thread management
+        (MatterService) — e.g. /hedge/request/{hubId}/devices/{deviceId}/matter/fabrics,
+        /hedge/request/{hubId}/matter/rendezvous, and
+        /hedge/request/{hubId}/thread/networkInfo — plus Matter DCL
+        vendor/product lookups. These are cloud REST endpoints reached through
+        Samsung's backend, not endpoints served by the hub itself.
+    local_https_api:
+      port: 9495
+      transport: "HTTPS"
+      notes: >
+        Undocumented local API used by the official SmartThings CLI
+        (edge:drivers:logcat, defaultLiveLogPort = 9495): GET /drivers and
+        GET /drivers/logs (Server-Sent Events), authenticated with Samsung
+        OAuth bearer headers; the CLI pins the hub's TLS server certificate
+        against its identity. Source:
+        SmartThingsCommunity/smartthings-cli src/commands/edge/drivers/logcat.ts.
 
 evidence:
   live_lan_probe:
@@ -211,14 +214,14 @@ evidence:
     address: "192.168.1.162"
     hostname: "hubv2-0d052a8a662bc0001.local"
     mdns_services:
-      - service_type: "_smartthings._tcp"
+      - service_type: "_smartthings._tcp.local."
         port: 8081
         type: "hubv2"
         id: "D052A8A662BC0001"
-      - service_type: "_smartthings-hedge._tcp"
+      - service_type: "_smartthings-hedge._tcp.local."
         port: 8766
         feat: "ctrl"
-      - service_type: "_matter._tcp"
+      - service_type: "_matter._tcp.local."
         port: 49722
         T: 6
 

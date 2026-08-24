@@ -34,7 +34,7 @@ def spec() -> dict:
 
 @pytest.fixture(scope="module")
 def protocol(spec) -> dict:
-    return spec["tplink_smarthome_protocol"]
+    return spec["protocol_details"]["tplink_smarthome_protocol"]
 
 
 @pytest.fixture(scope="module")

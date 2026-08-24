@@ -21,7 +21,7 @@ device:              # identity, discovery, and one-time setup
   manufacturer: ...
   manufacturer_status: ...   # abandoned | shutdown | unsupported | active
   openness: ...              # was this protocol published, or did we recover it?
-  protocol: ...              # ble | wifi | zigbee | zwave | obd2 | uart | can
+  protocol: ...              # ble | wifi | lan | zigbee | zwave | obd2 | uart | can
   category: ...              # what KIND of thing it is — closed vocabulary
   type: ...                  # what the thing IS — free text
   identification: ...        # how to recognise it while scanning
@@ -44,16 +44,37 @@ A spec must have `device` plus at least one transport block such as `services`,
 14229 UDS services, ISO 15765-2 framing) documents a published standard that
 other specs cite instead of restating, so it carries protocol tables rather than
 an access surface of its own and is exempt from the transport requirement.
-Everything else is optional, and the schema is deliberately
-permissive — unknown keys are allowed so device-specific detail can travel
-alongside the standard fields. Consumers parse the subset they understand.
+Everything else is optional, but the **top level and `device` are closed**:
+every key written there must be one the schema declares. Bespoke,
+device-specific detail — a vendor's own framing, opcode table or session dance
+— goes under the top-level `protocol_details:` namespace, which accepts
+anything:
 
-Permissiveness has two deliberate exceptions, both places where an unknown key
-is not bespoke detail but a standard field spelled wrong, and where nothing
-downstream can tell the difference:
+```yaml
+protocol_details:
+  ecp2:                      # bespoke; nothing binds to it
+    description: "Roku's WebSocket layer over the ECP port."
+```
 
-- a top-level `references:` is rejected — reference links go in `helpful_urls`
-  (see below);
+Closing the top level is what makes the rest of it mean something. While it was
+open, a validator could not tell a bespoke block from a standard field spelled
+wrong or nested one level too deep — and both had happened at scale, silently:
+`local_access`, `features`, `protocol_handler` and `payload_formats` were
+written inside `device:` on seventeen specs, where no consumer looks, so five
+printers' `image_upload` capability was simply absent from the app. Neither
+class of mistake raised a single validation error. The price is that a new
+first-class key needs a schema change; that is deliberate, because a
+first-class key is a contract.
+
+Deeper objects — inside a service, an endpoint, an entity — remain open, so a
+spec can still annotate freely where it is describing rather than declaring.
+Consumers parse the subset they understand.
+
+Two keys are rejected by name rather than by the closure, because the error
+message matters more than the rejection:
+
+- a top-level `references:` — reference links go in `helpful_urls` (see below),
+  and "additional properties are not allowed" would not say so;
 - a command's `payload:` accepts only `key` and `value_type` — a raw byte
   sequence is `value` (fixed) or `template` (parameterized), never
   `payload.bytes`.
@@ -88,6 +109,37 @@ The field is `helpful_urls`, not `references`. A top-level `references:` is
 rejected by the schema rather than ignored: it reads like a spec field, it is
 not one, and a spec that used it kept its links in the file and out of every
 generated artifact with nothing to say so.
+
+### Where the facts came from
+
+`helpful_urls` points a reader onward. `evidence` says what *this document*
+rests on, so a later reader can tell a byte-accurate transcription from a
+plausible reconstruction — and knows which claim to re-check first when a
+device stops behaving.
+
+```yaml
+evidence:
+  app_static_analysis: >
+    Prose: what was read, and what it established.
+  open_questions: >
+    Prose: what is still inference.
+  artifacts:                        # the itemised half
+    - type: "static_analysis"
+      artifact: "com.example.app v1.2.3 (versionCode 1203)"
+      sha256: "…"
+      obtained_via: "third-party APK mirror, 2026-08"
+      description: "What this build established, negative findings included."
+```
+
+Every section but `artifacts` is free-form: name it for what it was
+(`live_lan_probe`, `documentation_review`, `app_static_analysis`) and write
+prose. `artifacts` is a list and each entry needs a `type`. Record the digest
+of an artifact, never the artifact — see the clean-room rules.
+
+Provenance is spelled `evidence` and nothing else. `sources:` and `source:`
+were two other spellings of the same idea and are rejected now, for the reason
+`references` is: three shapes meant nothing could ask a spec where its facts
+came from without already knowing which one its author had reached for.
 
 ### Three things that sound alike
 

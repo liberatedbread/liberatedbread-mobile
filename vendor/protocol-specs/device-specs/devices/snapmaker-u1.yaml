@@ -282,14 +282,14 @@ entities:
   - platform: "sensor"
     name: "Bed Temperature"
     device_class: "temperature"
-    unit: "°C"
+    unit: "C"
     state_topic: "/printer/objects/query?heater_bed"
     state_mapping:
       value: "heater_bed.temperature"
   - platform: "sensor"
     name: "Nozzle Temperature (T0)"
     device_class: "temperature"
-    unit: "°C"
+    unit: "C"
     state_topic: "/printer/objects/query?extruder"
     state_mapping:
       value: "extruder.temperature"

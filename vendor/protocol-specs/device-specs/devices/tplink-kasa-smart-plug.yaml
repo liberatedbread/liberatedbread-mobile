@@ -33,7 +33,7 @@ device:
       entity state paths were not).
   protocol: "wifi"
   category: "switch"
-  transport: "tcp-json"
+  transport: "tcp"  # JSON documents on a raw socket
   notes: >
     The Kasa-era TP-Link smart plugs — HS100 and HS110 (HS110 adds energy
     monitoring), plus the same-protocol HS103/HS105 and KP105/KP115 (KP115
@@ -100,9 +100,26 @@ device:
     # No mdns/ssdp: Kasa devices announce over neither. Discovery is a UDP
     # broadcast of the XOR-encoded get_sysinfo to 255.255.255.255:9999; every
     # Kasa-protocol device on the segment answers with its full sysinfo. The
-    # datagram bytes and reply shape are documented in
-    # tplink_smarthome_protocol.discovery below, because the schema's
-    # structured discovery.methods vocabulary has no udp_broadcast type yet.
+    # cipher, its test vectors and the reply shape stay in
+    # protocol_details.tplink_smarthome_protocol; what is here is the part a
+    # consumer executes.
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 9999
+          broadcast_address: "255.255.255.255"
+          # `{"system":{"get_sysinfo":null}}` under the 0xAB XOR autokey, with
+          # NO length prefix -- the prefix is TCP-only framing. Same vector the
+          # cipher test asserts against.
+          probe_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
+          passive_ok: false
+          response_format: "json_xor"
+          identity_mapping:
+            stable_keys:
+              - source: "json:system.get_sysinfo.deviceId"
+              - source: "json:system.get_sysinfo.mac"
+            display:
+              source: "json:system.get_sysinfo.alias"
     identity:
       stable_keys: ["deviceId", "mac"]
       display: "alias"
@@ -327,67 +344,70 @@ device:
 
 protocol_handler: "tplink_smarthome"
 
-# The TP-Link Kasa local protocol, byte for byte — the role soap_common plays
-# for Wemo and ecp_common for Roku. Everything a consumer needs to build a
-# request and read a reply without hardware is here; the `commands` block below
-# names the invocations entities bind, and their `body` is the JSON documented
-# here.
-tplink_smarthome_protocol:
-  transport: "TCP (control) / UDP (discovery), JSON payloads"
-  port: 9999
-  authentication: "none"
-  cipher:
-    name: "XOR autokey"
-    description: >
-      Byte-wise XOR with a running key. To ENCRYPT: start key = 0xAB (171);
-      for each plaintext byte p, emit c = key XOR p, then set key = c. To
-      DECRYPT: start key = 0xAB; for each ciphertext byte c, emit p = key XOR
-      c, then set key = c. The key is thus the previous CIPHERTEXT byte after
-      the first. This is obfuscation, not security — it has no secret.
-    initial_key: 0xAB
-    test_vectors:
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # The TP-Link Kasa local protocol, byte for byte — the role soap_common plays
+  # for Wemo and ecp_common for Roku. Everything a consumer needs to build a
+  # request and read a reply without hardware is here; the `commands` block below
+  # names the invocations entities bind, and their `body` is the JSON documented
+  # here.
+  tplink_smarthome_protocol:
+    transport: "TCP (control) / UDP (discovery), JSON payloads"
+    port: 9999
+    authentication: "none"
+    cipher:
+      name: "XOR autokey"
       description: >
-        Reproducible with the algorithm above and nothing else; asserted by
-        scripts/test_kasa_spec.py. Bytes are hex. The tiny inputs pin the
-        cipher direction; the get_sysinfo vector is the canonical discovery
-        datagram softScheck and python-kasa both publish.
-      cases:
-        - plaintext_hex: "000000"
-          cipher_hex: "ababab"
-        - plaintext_hex: "010203"
-          cipher_hex: "aaa8ab"
-        - plaintext_utf8: '{"system":{"get_sysinfo":null}}'
-          cipher_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
-  framing:
-    tcp: >
-      Each message on the TCP stream is a 4-byte big-endian length prefix (the
-      count of encrypted payload bytes, NOT including the prefix) followed by
-      the XOR-encrypted JSON. The reply uses the same framing.
-    udp: >
-      Discovery and its replies are a single datagram of the XOR-encrypted
-      JSON with NO length prefix.
-  discovery:
-    method: "udp_broadcast"
-    destination: "255.255.255.255:9999"
-    request_json: '{"system":{"get_sysinfo":null}}'
-    request_datagram_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
-    response: >
-      Each Kasa-protocol device answers with a unicast datagram carrying the
-      full get_sysinfo object (see the get_sysinfo command's returns): alias,
-      model, deviceId, hwId, mac, rssi and relay_state. deviceId is the stable
-      identity; alias is the user-facing name.
-  command_tree:
-    system.get_sysinfo: "Device info + current relay_state. The state poll and the discovery probe."
-    system.set_relay_state: "Set the outlet relay: {state: 1} on, {state: 0} off."
-    emeter.get_realtime: "Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below; see device.variants for which models have the hardware."
-    netif.set_stainfo: "Provisioning: join the plug to a Wi-Fi network (see device.setup)."
-  multi_outlet_note: >
-    Power strips (HS300 / KP200 / KP303 / EP40) report a `children` array in
-    get_sysinfo and address each outlet by wrapping a command in
-    {"context":{"child_ids":["<deviceId>0N"]}}. Handled here now: the instanced
-    "Outlets" switch enumerates the children, and relay_on_child /
-    relay_off_child scope the write. A single-relay plug reports no `children`,
-    so the plain "Outlet" switch covers it.
+        Byte-wise XOR with a running key. To ENCRYPT: start key = 0xAB (171);
+        for each plaintext byte p, emit c = key XOR p, then set key = c. To
+        DECRYPT: start key = 0xAB; for each ciphertext byte c, emit p = key XOR
+        c, then set key = c. The key is thus the previous CIPHERTEXT byte after
+        the first. This is obfuscation, not security — it has no secret.
+      initial_key: 0xAB
+      test_vectors:
+        description: >
+          Reproducible with the algorithm above and nothing else; asserted by
+          scripts/test_kasa_spec.py. Bytes are hex. The tiny inputs pin the
+          cipher direction; the get_sysinfo vector is the canonical discovery
+          datagram softScheck and python-kasa both publish.
+        cases:
+          - plaintext_hex: "000000"
+            cipher_hex: "ababab"
+          - plaintext_hex: "010203"
+            cipher_hex: "aaa8ab"
+          - plaintext_utf8: '{"system":{"get_sysinfo":null}}'
+            cipher_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
+    framing:
+      tcp: >
+        Each message on the TCP stream is a 4-byte big-endian length prefix (the
+        count of encrypted payload bytes, NOT including the prefix) followed by
+        the XOR-encrypted JSON. The reply uses the same framing.
+      udp: >
+        Discovery and its replies are a single datagram of the XOR-encrypted
+        JSON with NO length prefix.
+    discovery:
+      method: "udp_broadcast"
+      destination: "255.255.255.255:9999"
+      request_json: '{"system":{"get_sysinfo":null}}'
+      request_datagram_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
+      response: >
+        Each Kasa-protocol device answers with a unicast datagram carrying the
+        full get_sysinfo object (see the get_sysinfo command's returns): alias,
+        model, deviceId, hwId, mac, rssi and relay_state. deviceId is the stable
+        identity; alias is the user-facing name.
+    command_tree:
+      system.get_sysinfo: "Device info + current relay_state. The state poll and the discovery probe."
+      system.set_relay_state: "Set the outlet relay: {state: 1} on, {state: 0} off."
+      emeter.get_realtime: "Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below; see device.variants for which models have the hardware."
+      netif.set_stainfo: "Provisioning: join the plug to a Wi-Fi network (see device.setup)."
+    multi_outlet_note: >
+      Power strips (HS300 / KP200 / KP303 / EP40) report a `children` array in
+      get_sysinfo and address each outlet by wrapping a command in
+      {"context":{"child_ids":["<deviceId>0N"]}}. Handled here now: the instanced
+      "Outlets" switch enumerates the children, and relay_on_child /
+      relay_off_child scope the write. A single-relay plug reports no `children`,
+      so the plain "Outlet" switch covers it.
 
 # A stub access surface so the schema's "document at least one access surface"
 # rule is satisfied; control is the tcp-json protocol above, not REST. The
@@ -408,6 +428,7 @@ http_endpoints:
   - method: "GET"
     path: "/"
     name: "Local API Placeholder"
+    status: "placeholder"
     description: >
       Placeholder only. There is no HTTP surface: control is JSON over a raw
       TCP socket on port 9999 (see tplink_smarthome_protocol), not REST.

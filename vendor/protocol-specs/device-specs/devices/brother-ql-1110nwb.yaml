@@ -211,120 +211,123 @@ device:
         Near-identical successor; brother_ql assigns it the same model
         parameters as the QL-1110NWB.
 
-  features:
-    - type: "image_upload"
-      max_width: 1296
-      max_height: 35434
-      format: "1bit-bitmap"
+features:
+  - type: "image_upload"
+    max_width: 1296
+    max_height: 35434
+    format: "1bit-bitmap"
 
-  local_access:
-    status: "native"
-    summary: >
-      Fully local as shipped: raster printing over TCP 9100 / LPR / FTP /
-      SPP / USB with no account and no cloud anywhere in the path.
-    covers:
-      - "Raster label printing (all DK media)"
-      - "Status/error/media-remaining reporting"
-      - "P-touch Template standalone printing"
-    not_covered: []
+local_access:
+  status: "native"
+  summary: >
+    Fully local as shipped: raster printing over TCP 9100 / LPR / FTP /
+    SPP / USB with no account and no cloud anywhere in the path.
+  covers:
+    - "Raster label printing (all DK media)"
+    - "Status/error/media-remaining reporting"
+    - "P-touch Template standalone printing"
+  not_covered: []
 
 protocol_handler: "brother_ql_raster"
 
-# The Brother QL raster command language as it applies to the QL-1110NWB —
-# the role tplink_smarthome_protocol plays for the Kasa spec. Everything a
-# consumer needs to build a print job and read a status reply is here.
-brother_ql_raster_protocol:
-  transport: >
-    Raw byte stream, identical on every carriage: TCP 9100 (RAW/AppSocket),
-    LPR/LPD 515, FTP 21 (file drop), Bluetooth Classic SPP, or USB bulk.
-    No framing, no authentication; the printer consumes the stream as-is.
-  geometry:
-    dpi: 300
-    bytes_per_row: 162
-    head_dots: 1296
-    max_print_width_mm: 101.6
-    invalidate_bytes: 200
-    min_length_dots: 301
-    max_length_dots: 35434
-    additional_offset_right_dots: 44
-    notes: >
-      Every raster row is exactly 162 bytes wide; content narrower than the
-      head is padded white on the right (the last 44 dots of the head do not
-      print — right-side dead zone). Continuous media needs
-      ESC i z media length = 0 and lets the raster row count set the label
-      length (301–35434 dots, i.e. ~25.5 mm–3 m).
-  job_structure:
-    - "1B 69 61 01   switch to raster mode (also emitted once before the invalidate run)"
-    - "00 × 200      invalidate — clears any half-eaten command in the buffer"
-    - "1B 40         ESC @ initialize"
-    - "1B 69 53      (optional) status information request"
-    - "1B 69 7A …    media and quality (see commands.media_and_quality)"
-    - "1B 69 4D 40   auto-cut on (bit 6); 1B 69 41 01 cut every 1 page"
-    - "1B 69 4B 08   expanded mode: bit 3 = cut at end (bit 0 two-color and bit 6 600-dpi do NOT apply to this 300-dpi monochrome head)"
-    - "1B 69 64 23 00  margin/feed amount, u16 LE dots (35 typical)"
-    - "4D 02          (optional) enable PackBits compression of raster rows"
-    - "raster rows   one opcode per print line (see raster_rows)"
-    - "1A             print final page (0C prints an intermediate page in multi-page jobs)"
-  raster_rows:
-    encoding: >
-      1 bit per pixel, MSB first, 1 = black. The image is mirrored
-      left-to-right before packing (the head maps bit 7 of byte 0 to the
-      RIGHT edge), padded to 162 bytes with white on the right.
-    uncompressed_row: "67 00 <n> <n bytes>   (n = row length; 162 uncompressed)"
-    blank_row: "5A                            (whole row white)"
-    compression_toggle: "4D <mode>            (02 = on, 00 = off; rows keep the 67 00 framing but carry PackBits data)"
-    two_color_row: "77 <01|02> <n> <n bytes>  (QL-800-series red layer; not applicable here)"
-  status_reply:
-    request_hex: "1B6953"
-    notify_command_hex: "1B6921"
-    response_size: 32
-    response_header_hex: "802042"
-    fields:
-      - offset: 8
-        name: "error_information_1"
-        bits: "0 no media, 1 end of media (die-cut), 2 cutter jam, 4 main unit in use, 5 printer off, 7 fan failure"
-      - offset: 9
-        name: "error_information_2"
-        bits: "0 replace media, 1 expansion buffer full, 2 communication error, 4 cover open during print, 6 media cannot be fed, 7 system error"
-      - offset: 10
-        name: "media_width_mm"
-      - offset: 11
-        name: "media_type"
-        values: "0x00 none, 0x0A continuous length tape, 0x0B die-cut labels"
-      - offset: 17
-        name: "media_length_mm"
-      - offset: 18
-        name: "status_type"
-        values: "0x00 reply to status request, 0x01 printing completed, 0x02 error occurred, 0x05 notification, 0x06 phase change"
-      - offset: 19
-        name: "phase_type"
-        values: "0x00 waiting to receive, 0x01 printing"
-      - offset: 20
-        name: "phase_number (u16 BE across offsets 20-21)"
-      - offset: 22
-        name: "notification_number"
-    notes: >
-      A completed job shows up as a status_type 0x01 followed by a phase
-      change to "waiting to receive"; a consumer polling for job completion
-      watches for that pair. ESC i ! +1 enables/disables the printer pushing
-      these replies unsolicited.
-  media:
-    notes: >
-      DK rolls. dots_printable is the printable width at 300 dpi from
-      brother_ql's label table (die-cut entries also fix the length).
-      ESC i z takes the media width/length in mm.
-    rolls:
-      - {id: "12mm continuous", width_mm: 12, dots: 106}
-      - {id: "29mm continuous", width_mm: 29, dots: 306}
-      - {id: "38mm continuous", width_mm: 38, dots: 413}
-      - {id: "50mm continuous", width_mm: 50, dots: 554}
-      - {id: "54mm continuous", width_mm: 54, dots: 590}
-      - {id: "62mm continuous (DK-2205)", width_mm: 62, dots: 696}
-      - {id: "102mm continuous (DK-2243)", width_mm: 102, dots: 1164}
-      - {id: "104mm continuous (DK-22246)", width_mm: 104, dots: 1200}
-      - {id: "102x51 die-cut (DK-11240)", width_mm: 102, length_mm: 51, dots: "1164x526"}
-      - {id: "102x152 die-cut (DK-11241)", width_mm: 102, length_mm: 153, dots: "1164x1660"}
-      - {id: "103x164 die-cut (DK-11247)", width_mm: 104, length_mm: 164, dots: "1200x1822"}
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # The Brother QL raster command language as it applies to the QL-1110NWB —
+  # the role tplink_smarthome_protocol plays for the Kasa spec. Everything a
+  # consumer needs to build a print job and read a status reply is here.
+  brother_ql_raster_protocol:
+    transport: >
+      Raw byte stream, identical on every carriage: TCP 9100 (RAW/AppSocket),
+      LPR/LPD 515, FTP 21 (file drop), Bluetooth Classic SPP, or USB bulk.
+      No framing, no authentication; the printer consumes the stream as-is.
+    geometry:
+      dpi: 300
+      bytes_per_row: 162
+      head_dots: 1296
+      max_print_width_mm: 101.6
+      invalidate_bytes: 200
+      min_length_dots: 301
+      max_length_dots: 35434
+      additional_offset_right_dots: 44
+      notes: >
+        Every raster row is exactly 162 bytes wide; content narrower than the
+        head is padded white on the right (the last 44 dots of the head do not
+        print — right-side dead zone). Continuous media needs
+        ESC i z media length = 0 and lets the raster row count set the label
+        length (301–35434 dots, i.e. ~25.5 mm–3 m).
+    job_structure:
+      - "1B 69 61 01   switch to raster mode (also emitted once before the invalidate run)"
+      - "00 × 200      invalidate — clears any half-eaten command in the buffer"
+      - "1B 40         ESC @ initialize"
+      - "1B 69 53      (optional) status information request"
+      - "1B 69 7A …    media and quality (see commands.media_and_quality)"
+      - "1B 69 4D 40   auto-cut on (bit 6); 1B 69 41 01 cut every 1 page"
+      - "1B 69 4B 08   expanded mode: bit 3 = cut at end (bit 0 two-color and bit 6 600-dpi do NOT apply to this 300-dpi monochrome head)"
+      - "1B 69 64 23 00  margin/feed amount, u16 LE dots (35 typical)"
+      - "4D 02          (optional) enable PackBits compression of raster rows"
+      - "raster rows   one opcode per print line (see raster_rows)"
+      - "1A             print final page (0C prints an intermediate page in multi-page jobs)"
+    raster_rows:
+      encoding: >
+        1 bit per pixel, MSB first, 1 = black. The image is mirrored
+        left-to-right before packing (the head maps bit 7 of byte 0 to the
+        RIGHT edge), padded to 162 bytes with white on the right.
+      uncompressed_row: "67 00 <n> <n bytes>   (n = row length; 162 uncompressed)"
+      blank_row: "5A                            (whole row white)"
+      compression_toggle: "4D <mode>            (02 = on, 00 = off; rows keep the 67 00 framing but carry PackBits data)"
+      two_color_row: "77 <01|02> <n> <n bytes>  (QL-800-series red layer; not applicable here)"
+    status_reply:
+      request_hex: "1B6953"
+      notify_command_hex: "1B6921"
+      response_size: 32
+      response_header_hex: "802042"
+      fields:
+        - offset: 8
+          name: "error_information_1"
+          bits: "0 no media, 1 end of media (die-cut), 2 cutter jam, 4 main unit in use, 5 printer off, 7 fan failure"
+        - offset: 9
+          name: "error_information_2"
+          bits: "0 replace media, 1 expansion buffer full, 2 communication error, 4 cover open during print, 6 media cannot be fed, 7 system error"
+        - offset: 10
+          name: "media_width_mm"
+        - offset: 11
+          name: "media_type"
+          values: "0x00 none, 0x0A continuous length tape, 0x0B die-cut labels"
+        - offset: 17
+          name: "media_length_mm"
+        - offset: 18
+          name: "status_type"
+          values: "0x00 reply to status request, 0x01 printing completed, 0x02 error occurred, 0x05 notification, 0x06 phase change"
+        - offset: 19
+          name: "phase_type"
+          values: "0x00 waiting to receive, 0x01 printing"
+        - offset: 20
+          name: "phase_number (u16 BE across offsets 20-21)"
+        - offset: 22
+          name: "notification_number"
+      notes: >
+        A completed job shows up as a status_type 0x01 followed by a phase
+        change to "waiting to receive"; a consumer polling for job completion
+        watches for that pair. ESC i ! +1 enables/disables the printer pushing
+        these replies unsolicited.
+    media:
+      notes: >
+        DK rolls. dots_printable is the printable width at 300 dpi from
+        brother_ql's label table (die-cut entries also fix the length).
+        ESC i z takes the media width/length in mm.
+      rolls:
+        - {id: "12mm continuous", width_mm: 12, dots: 106}
+        - {id: "29mm continuous", width_mm: 29, dots: 306}
+        - {id: "38mm continuous", width_mm: 38, dots: 413}
+        - {id: "50mm continuous", width_mm: 50, dots: 554}
+        - {id: "54mm continuous", width_mm: 54, dots: 590}
+        - {id: "62mm continuous (DK-2205)", width_mm: 62, dots: 696}
+        - {id: "102mm continuous (DK-2243)", width_mm: 102, dots: 1164}
+        - {id: "104mm continuous (DK-22246)", width_mm: 104, dots: 1200}
+        - {id: "102x51 die-cut (DK-11240)", width_mm: 102, length_mm: 51, dots: "1164x526"}
+        - {id: "102x152 die-cut (DK-11241)", width_mm: 102, length_mm: 153, dots: "1164x1660"}
+        - {id: "103x164 die-cut (DK-11247)", width_mm: 104, length_mm: 164, dots: "1200x1822"}
 
 commands:
   switch_to_raster_mode:
@@ -400,6 +403,7 @@ http_endpoints:
   - method: "GET"
     path: "/"
     name: "Web Admin Placeholder"
+    status: "placeholder"
     description: >
       Placeholder only. Port 80 serves Brother's web admin UI (network and
       device settings); it is not the control surface. Printing is the raw

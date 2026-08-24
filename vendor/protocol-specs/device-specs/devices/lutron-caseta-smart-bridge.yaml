@@ -26,7 +26,7 @@ device:
       CSR signing and authenticated LEAP commands remain unexercised by us.
   protocol: "wifi"
   category: "hub"
-  transport: "tls-json"
+  transport: "tls"  # LEAP: JSON documents on a TLS socket
   integration: "identify_only"
   notes: >
     Lutron Caseta Smart Bridge 2 advertises multiple local services. LEAP on
@@ -153,43 +153,46 @@ device:
         no shared secret, no cloud, and a client credential that can be revoked
         by resetting the bridge.
 
-leap_protocol:
-  transport: "TLS JSON/WebSocket"
-  port: 8081
-  deprecated_services:
-    lap:
-      service_type: "_lap._tcp.local."
-      port: 8083
-  homekit:
-    service_type: "_hap._tcp.local."
-    port: 4548
-  authentication: "certificate-based local pairing"
-  # Message envelope and pairing exchanges below verified 2026-08-20 against
-  # the vendor app com.lutron.mmw 26.7.0.5 (the current "Lutron App"; the
-  # legacy Play package id com.lutron.mmjs is retired and no longer indexed).
-  message_envelope: >
-    Every LEAP frame is one JSON object:
-    {"CommuniqueType": "...", "Header": {"Url": "...", "ClientTag": "..."},
-    "Body": {...}}. CommuniqueTypes seen in the app: CreateRequest/Response,
-    ReadRequest/Response, UpdateRequest/Response, DeleteRequest/Response,
-    SubscribeRequest/Response, UnsubscribeRequest/Response, MetadataRequest/
-    Response, ExceptionResponse. Liveness check: ReadRequest to
-    /server/1/status/ping. Subscriptions accept a ?where= filter, e.g.
-    /zone/status/expanded?where=Level!:0 to list only zones that are on.
-  lap_pairing:
-    notes: >
-      Port 8083 speaks the same LEAP JSON envelope (not HTTP) and stays
-      reachable without a client certificate while the rear button is held.
-      Pairing is: Execute /pair with Body.CommandType=CSR and
-      Parameters={CSR (PEM), DisplayName, DeviceUID, Role (Admin or
-      Installer)}; a 200 reply carries Body.SigningResult.Certificate (the
-      signed client cert) and Body.SigningResult.RootCertificate (the bridge
-      CA to pin). Supporting exchanges: Read /certificate/root (fetch bridge
-      root cert), Read /system/macaddress (stable identity), Execute /pair
-      CommandType=Wipe (revoke certs; optional Filter.Subject.Organization),
-      Subscribe /system/status/crosssign (cloud cross-sign progress).
-      Responses carry an HTTP-style Header.StatusCode ("200 OK",
-      "204 No Content", "401 Unauthorized").
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  leap_protocol:
+    transport: "TLS JSON/WebSocket"
+    port: 8081
+    deprecated_services:
+      lap:
+        service_type: "_lap._tcp.local."
+        port: 8083
+    homekit:
+      service_type: "_hap._tcp.local."
+      port: 4548
+    authentication: "certificate-based local pairing"
+    # Message envelope and pairing exchanges below verified 2026-08-20 against
+    # the vendor app com.lutron.mmw 26.7.0.5 (the current "Lutron App"; the
+    # legacy Play package id com.lutron.mmjs is retired and no longer indexed).
+    message_envelope: >
+      Every LEAP frame is one JSON object:
+      {"CommuniqueType": "...", "Header": {"Url": "...", "ClientTag": "..."},
+      "Body": {...}}. CommuniqueTypes seen in the app: CreateRequest/Response,
+      ReadRequest/Response, UpdateRequest/Response, DeleteRequest/Response,
+      SubscribeRequest/Response, UnsubscribeRequest/Response, MetadataRequest/
+      Response, ExceptionResponse. Liveness check: ReadRequest to
+      /server/1/status/ping. Subscriptions accept a ?where= filter, e.g.
+      /zone/status/expanded?where=Level!:0 to list only zones that are on.
+    lap_pairing:
+      notes: >
+        Port 8083 speaks the same LEAP JSON envelope (not HTTP) and stays
+        reachable without a client certificate while the rear button is held.
+        Pairing is: Execute /pair with Body.CommandType=CSR and
+        Parameters={CSR (PEM), DisplayName, DeviceUID, Role (Admin or
+        Installer)}; a 200 reply carries Body.SigningResult.Certificate (the
+        signed client cert) and Body.SigningResult.RootCertificate (the bridge
+        CA to pin). Supporting exchanges: Read /certificate/root (fetch bridge
+        root cert), Read /system/macaddress (stable identity), Execute /pair
+        CommandType=Wipe (revoke certs; optional Filter.Subject.Organization),
+        Subscribe /system/status/crosssign (cloud cross-sign progress).
+        Responses carry an HTTP-style Header.StatusCode ("200 OK",
+        "204 No Content", "401 Unauthorized").
 
 evidence:
   live_lan_probe:
@@ -199,22 +202,17 @@ evidence:
     firmware: "08.25.17f000"
     accessory_count: 13
     mdns_services:
-      - service_type: "_leap._tcp"
+      - service_type: "_leap._tcp.local."
         port: 8081
-      - service_type: "_lap._tcp"
+      - service_type: "_lap._tcp.local."
         port: 8083
-      - service_type: "_lutron._tcp"
+      - service_type: "_lutron._tcp.local."
         port: 22
         SYSTYPE: "SmartBridge"
         MACADDR: "b8:94:d9:aa:bb:cc"
-      - service_type: "_hap._tcp"
+      - service_type: "_hap._tcp.local."
         port: 4548
 
-http_endpoints:
-  - method: "GET"
-    path: "/"
-    name: "LEAP Service Root"
-    description: "Placeholder for the LEAP TLS JSON/WebSocket service on port 8081; control uses LEAP messages rather than plain unauthenticated REST."
 
 entities:
   # DESCRIPTIVE DOCUMENTATION, not bindings: this spec is integration:

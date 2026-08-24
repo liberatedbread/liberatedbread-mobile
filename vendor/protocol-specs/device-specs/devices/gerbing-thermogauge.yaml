@@ -18,7 +18,6 @@ device:
     status: untested
   protocol: "ble"
   category: "wearable"
-  model: "coreheat7"
   notes: >
     BLE controller for Gerbing heated clothing. Supports dual-channel
     heat control (2 independent zones) and dual temperature sensor
@@ -209,7 +208,7 @@ services:
             type: "uint8"
             scale: 0.5
             value_offset: 85
-            unit: "°F"
+            unit: "F"
             notes: >
               Linear decode is value = raw * 0.5 + 85; on top of that the
               vendor app rounds UP to the next multiple of 5 for display
@@ -231,7 +230,7 @@ services:
             type: "uint8"
             scale: 0.5
             value_offset: 85
-            unit: "°F"
+            unit: "F"
             notes: "Same decode and inferred-°F caveat as Channel 1."
 
   - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
@@ -346,13 +345,13 @@ entities:
   - platform: "sensor"
     name: "Temperature 1"
     device_class: "temperature"
-    unit: "°F"
+    unit: "F"
     state_characteristic: "ab06bd91-cc16-11e4-8830-0800200c9a66"
 
   - platform: "sensor"
     name: "Temperature 2"
     device_class: "temperature"
-    unit: "°F"
+    unit: "F"
     state_characteristic: "ab06bd92-cc16-11e4-8830-0800200c9a66"
 
   - platform: "sensor"

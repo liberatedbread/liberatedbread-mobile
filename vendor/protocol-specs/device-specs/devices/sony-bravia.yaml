@@ -322,146 +322,149 @@ evidence:
       "reported" — published by Sony or exercised by pybravia/Home
       Assistant — and nothing here carries "confirmed".
 
-# Everything needed to build a request byte for byte, in the role
-# soap_common plays for Wemo. Two wire formats share one host and one auth
-# scheme, so both live here.
-bravia_common:
-  transport: "HTTP POST"
-  base_url: "http://<ip>/sony/<service>"
-  base_url_notes: >
-    Port 80 on every documented model, but resolve per-service base URLs
-    from dd.xml's X_ScalarWebAPI_ServiceList when available — the descriptor
-    exists precisely because services may move ports. <ip> comes from SSDP.
-  authentication:
-    description: >
-      One of two credentials rides on EVERY request to /sony/*, once IP
-      control is enabled on the TV. Which one is a per-client choice made at
-      setup time (device.setup). A request with neither, on a TV with
-      authentication enabled, answers 401 or 403.
-    psk:
-      header: "X-Auth-PSK: <pre-shared key>"
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # Everything needed to build a request byte for byte, in the role
+  # soap_common plays for Wemo. Two wire formats share one host and one auth
+  # scheme, so both live here.
+  bravia_common:
+    transport: "HTTP POST"
+    base_url: "http://<ip>/sony/<service>"
+    base_url_notes: >
+      Port 80 on every documented model, but resolve per-service base URLs
+      from dd.xml's X_ScalarWebAPI_ServiceList when available — the descriptor
+      exists precisely because services may move ports. <ip> comes from SSDP.
+    authentication:
       description: >
-        The string the user typed into the TV's IP control settings, sent as
-        a plain header on every request — SOAP and REST alike. No handshake,
-        no expiry.
-    pin_registration:
-      endpoint: "POST /sony/accessControl"
+        One of two credentials rides on EVERY request to /sony/*, once IP
+        control is enabled on the TV. Which one is a per-client choice made at
+        setup time (device.setup). A request with neither, on a TV with
+        authentication enabled, answers 401 or 403.
+      psk:
+        header: "X-Auth-PSK: <pre-shared key>"
+        description: >
+          The string the user typed into the TV's IP control settings, sent as
+          a plain header on every request — SOAP and REST alike. No handshake,
+          no expiry.
+      pin_registration:
+        endpoint: "POST /sony/accessControl"
+        description: >
+          The no-shared-secret flow. Step 1: POST actRegister with HTTP Basic
+          auth (username "", password "0000") — the TV answers 401/403 and
+          displays a PIN on screen. Step 2: repeat the identical call with the
+          displayed PIN as the Basic-auth password (username still ""). On
+          success the TV answers 200 with Set-Cookie: auth=<token>; the client
+          sends that cookie on every later request. The pybravia request body:
+          {"method": "actRegister", "params": [{"clientid": <client-chosen
+          stable id, conventionally "<name>:<uuid>", "nickname": <display
+          name>, "level": "private"}, [{"value": "yes", "function": "WOL"}]],
+          "id": 1, "version": "1.0"} — the WOL entry asks the TV to accept
+          wake-on-LAN from this client. A clientid already registered makes
+          the TV refuse to show a new PIN; deregister on the TV first
+          (device.setup.credentials).
+        cookie_notes: >
+          The TV's Set-Cookie spelling is not RFC-compliant (pybravia had to
+          add a normalizer, its issue #1) — a strict cookie jar silently drops
+          the credential and every later request fails auth. Parse the auth
+          value out of the header string if your stack is strict.
+    ircc:
       description: >
-        The no-shared-secret flow. Step 1: POST actRegister with HTTP Basic
-        auth (username "", password "0000") — the TV answers 401/403 and
-        displays a PIN on screen. Step 2: repeat the identical call with the
-        displayed PIN as the Basic-auth password (username still ""). On
-        success the TV answers 200 with Set-Cookie: auth=<token>; the client
-        sends that cookie on every later request. The pybravia request body:
-        {"method": "actRegister", "params": [{"clientid": <client-chosen
-        stable id, conventionally "<name>:<uuid>", "nickname": <display
-        name>, "level": "private"}, [{"value": "yes", "function": "WOL"}]],
-        "id": 1, "version": "1.0"} — the WOL entry asks the TV to accept
-        wake-on-LAN from this client. A clientid already registered makes
-        the TV refuse to show a new PIN; deregister on the TV first
-        (device.setup.credentials).
-      cookie_notes: >
-        The TV's Set-Cookie spelling is not RFC-compliant (pybravia had to
-        add a normalizer, its issue #1) — a strict cookie jar silently drops
-        the credential and every later request fails auth. Parse the auth
-        value out of the header string if your stack is strict.
-  ircc:
-    description: >
-      The remote-control surface: one SOAP call per key press. POST
-      http://<ip>/sony/IRCC with the headers below and an envelope whose
-      only variable is the base64 IRCCCode. Success is a bare 200 with an
-      empty (or empty-envelope) body; the TV gives no per-key feedback.
-    http:
-      method: "POST"
-      url: "http://<ip>/sony/IRCC"
-      headers:
-        Content-Type: "text/xml; charset=UTF-8"
-        SOAPACTION: "\"urn:schemas-sony-com:service:IRCC:1#X_SendIRCC\"  (literal double quotes, as Wemo)"
-        X-Auth-PSK: "<pre-shared key, or omit when using the auth cookie>"
-    template: |
-      <?xml version="1.0" encoding="utf-8"?>
-      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-      <s:Body>
-      <u:X_SendIRCC xmlns:u="urn:schemas-sony-com:service:IRCC:1">
-      <IRCCCode>{ircc_code}</IRCCCode>
-      </u:X_SendIRCC>
-      </s:Body>
-      </s:Envelope>
-    quirks:
-      endpoint_case: >
-        The path's case differs across models: /sony/IRCC on most, /sony/ircc
-        on some — the wrong case answers 404. pybravia detects this by
-        probing with an empty IRCCCode and swapping case on
-        BraviaNotFound; copy that rather than shipping two configs.
-      idle_drop: >
-        After roughly 13 minutes of inactivity some TVs silently ignore the
-        first IRCC command — no error, just nothing happens. pybravia works
-        around it by sending an empty-code request as a wake-up whenever the
-        last IRCC call is more than 10 minutes old.
-      code_authority: >
-        Codes are model-specific in detail. The TV's own
-        getRemoteControllerInfo REST call returns its exact name->code list
-        and is authoritative; Sony's published table (the one in `commands`)
-        is the professional-display set, and community tables disagree with
-        it on some keys (Left/Right and Prev are spelled differently in the
-        widely-copied community list). A client that can query the TV should
-        prefer the TV's list and treat `commands` as the fallback.
-  rest:
-    description: >
-      Every REST service is one POST path carrying a JSON-RPC-flavoured
-      document: {"method": "<name>", "params": [...], "id": <n>, "version":
-      "1.x"}. params is ALWAYS an array — an empty array when the method
-      takes nothing. A successful reply is {"result": [...], "id": <n>}; a
-      failure is {"error": [<code>, "<message>"], "id": <n>} — and a TV in
-      standby answers control calls with the error string "not power-on",
-      which a client should read as "off", not "broken". Method versions
-      and auth levels (none / generic / private) are per-method in Sony's
-      reference; query a specific TV's actual surface with getSupportedApiInfo
-      on /sony/guide, which is itself authLevel none.
-    example_request:
-      description: "getSystemInformation, as it goes on the wire."
-      body: |
-        POST /sony/system HTTP/1.1
-        Content-Type: application/json
-        X-Auth-PSK: <pre-shared key>
+        The remote-control surface: one SOAP call per key press. POST
+        http://<ip>/sony/IRCC with the headers below and an envelope whose
+        only variable is the base64 IRCCCode. Success is a bare 200 with an
+        empty (or empty-envelope) body; the TV gives no per-key feedback.
+      http:
+        method: "POST"
+        url: "http://<ip>/sony/IRCC"
+        headers:
+          Content-Type: "text/xml; charset=UTF-8"
+          SOAPACTION: "\"urn:schemas-sony-com:service:IRCC:1#X_SendIRCC\"  (literal double quotes, as Wemo)"
+          X-Auth-PSK: "<pre-shared key, or omit when using the auth cookie>"
+      template: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+        <s:Body>
+        <u:X_SendIRCC xmlns:u="urn:schemas-sony-com:service:IRCC:1">
+        <IRCCCode>{ircc_code}</IRCCCode>
+        </u:X_SendIRCC>
+        </s:Body>
+        </s:Envelope>
+      quirks:
+        endpoint_case: >
+          The path's case differs across models: /sony/IRCC on most, /sony/ircc
+          on some — the wrong case answers 404. pybravia detects this by
+          probing with an empty IRCCCode and swapping case on
+          BraviaNotFound; copy that rather than shipping two configs.
+        idle_drop: >
+          After roughly 13 minutes of inactivity some TVs silently ignore the
+          first IRCC command — no error, just nothing happens. pybravia works
+          around it by sending an empty-code request as a wake-up whenever the
+          last IRCC call is more than 10 minutes old.
+        code_authority: >
+          Codes are model-specific in detail. The TV's own
+          getRemoteControllerInfo REST call returns its exact name->code list
+          and is authoritative; Sony's published table (the one in `commands`)
+          is the professional-display set, and community tables disagree with
+          it on some keys (Left/Right and Prev are spelled differently in the
+          widely-copied community list). A client that can query the TV should
+          prefer the TV's list and treat `commands` as the fallback.
+    rest:
+      description: >
+        Every REST service is one POST path carrying a JSON-RPC-flavoured
+        document: {"method": "<name>", "params": [...], "id": <n>, "version":
+        "1.x"}. params is ALWAYS an array — an empty array when the method
+        takes nothing. A successful reply is {"result": [...], "id": <n>}; a
+        failure is {"error": [<code>, "<message>"], "id": <n>} — and a TV in
+        standby answers control calls with the error string "not power-on",
+        which a client should read as "off", not "broken". Method versions
+        and auth levels (none / generic / private) are per-method in Sony's
+        reference; query a specific TV's actual surface with getSupportedApiInfo
+        on /sony/guide, which is itself authLevel none.
+      example_request:
+        description: "getSystemInformation, as it goes on the wire."
+        body: |
+          POST /sony/system HTTP/1.1
+          Content-Type: application/json
+          X-Auth-PSK: <pre-shared key>
 
-        {"method": "getSystemInformation", "params": [], "id": 1, "version": "1.0"}
-    example_response: |
-      {"result": [{"product": "TV", "region": "XEU", "language": "eng",
-      "model": "KD-55X8000G", "serial": "1234567", "macAddr": "aa:bb:cc:dd:ee:ff",
-      "name": "Living Room", "generation": "5.2.0", "area": "ESP",
-      "cid": "AA00..."}], "id": 1}
-    services:
-      system: "Identity (getSystemInformation), power (getPowerStatus/setPowerStatus), getRemoteControllerInfo, getWolMode/setWolMode, requestReboot, LED indicator."
-      avContent: "What is playing (getPlayingContentInfo), input inventory (getCurrentExternalInputsStatus), content/channel listing (getSchemeList/getSourceList/getContentCount/getContentList), input and channel switching (setPlayContent)."
-      appControl: "getApplicationList, setActiveApp, terminateApps, getTextForm/setTextForm (on-screen keyboard)."
-      audio: "getVolumeInformation, setAudioVolume (absolute 'N' or relative '+N'/'-N'), setAudioMute, sound settings."
-      guide: "getSupportedApiInfo — the per-device API inventory; call it first."
-      accessControl: "actRegister — PIN pairing; see authentication.pin_registration."
-      video/videoScreen/cec/encryption/notification/recording/browser: >
-        Present on various models; catalogued in Sony's reference. Out of
-        scope for the controls this spec binds.
-  dial:
-    description: >
-      DIAL (Discovery and Launch) is the second-screen surface YouTube and
-      Netflix use to pair a phone with the TV. Discovery is SSDP ST
-      urn:dial-multiscreen-org:service:dial:1; the response's
-      Application-URL header is the DIAL REST base, against which app
-      launch/status requests are made per the DIAL 2.2.1 specification. On
-      Bravia the same /DIAL tree hosts app icons (the official
-      getApplicationList example returns http://<ip>/DIAL/icon/<uri>.png
-      URLs). DIAL needs no PSK or cookie; it also exposes no power, key or
-      volume control — it is a discovery plus app-launch channel, and this
-      spec binds nothing to it.
-  power_on:
-    description: >
-      Three documented ways to wake a Bravia, in the order pybravia tries
-      them: a Wake-on-LAN magic packet (broadcast UDP port 9; requires the
-      TV's Remote Start / WoL setting and the MAC from getSystemInformation),
-      the REST call setPowerStatus {"status": true}, and the IRCC PowerOn
-      code (AAAAAQAAAAEAAAAuAw==). All three presuppose network standby — a
-      TV in deep standby or cut at the wall is beyond any network command,
-      same caveat as every TV in this registry.
+          {"method": "getSystemInformation", "params": [], "id": 1, "version": "1.0"}
+      example_response: |
+        {"result": [{"product": "TV", "region": "XEU", "language": "eng",
+        "model": "KD-55X8000G", "serial": "1234567", "macAddr": "aa:bb:cc:dd:ee:ff",
+        "name": "Living Room", "generation": "5.2.0", "area": "ESP",
+        "cid": "AA00..."}], "id": 1}
+      services:
+        system: "Identity (getSystemInformation), power (getPowerStatus/setPowerStatus), getRemoteControllerInfo, getWolMode/setWolMode, requestReboot, LED indicator."
+        avContent: "What is playing (getPlayingContentInfo), input inventory (getCurrentExternalInputsStatus), content/channel listing (getSchemeList/getSourceList/getContentCount/getContentList), input and channel switching (setPlayContent)."
+        appControl: "getApplicationList, setActiveApp, terminateApps, getTextForm/setTextForm (on-screen keyboard)."
+        audio: "getVolumeInformation, setAudioVolume (absolute 'N' or relative '+N'/'-N'), setAudioMute, sound settings."
+        guide: "getSupportedApiInfo — the per-device API inventory; call it first."
+        accessControl: "actRegister — PIN pairing; see authentication.pin_registration."
+        video/videoScreen/cec/encryption/notification/recording/browser: >
+          Present on various models; catalogued in Sony's reference. Out of
+          scope for the controls this spec binds.
+    dial:
+      description: >
+        DIAL (Discovery and Launch) is the second-screen surface YouTube and
+        Netflix use to pair a phone with the TV. Discovery is SSDP ST
+        urn:dial-multiscreen-org:service:dial:1; the response's
+        Application-URL header is the DIAL REST base, against which app
+        launch/status requests are made per the DIAL 2.2.1 specification. On
+        Bravia the same /DIAL tree hosts app icons (the official
+        getApplicationList example returns http://<ip>/DIAL/icon/<uri>.png
+        URLs). DIAL needs no PSK or cookie; it also exposes no power, key or
+        volume control — it is a discovery plus app-launch channel, and this
+        spec binds nothing to it.
+    power_on:
+      description: >
+        Three documented ways to wake a Bravia, in the order pybravia tries
+        them: a Wake-on-LAN magic packet (broadcast UDP port 9; requires the
+        TV's Remote Start / WoL setting and the MAC from getSystemInformation),
+        the REST call setPowerStatus {"status": true}, and the IRCC PowerOn
+        code (AAAAAQAAAAEAAAAuAw==). All three presuppose network standby — a
+        TV in deep standby or cut at the wall is beyond any network command,
+        same caveat as every TV in this registry.
 
 http_endpoints:
   # The SOAP endpoint. One entry: the action never varies, only the code.

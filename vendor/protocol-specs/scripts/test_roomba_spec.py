@@ -60,7 +60,7 @@ def spec() -> dict:
 
 @pytest.fixture(scope="module")
 def protocol(spec) -> dict:
-    return spec["irobot_lan_protocol"]
+    return spec["protocol_details"]["irobot_lan_protocol"]
 
 
 @pytest.fixture(scope="module")

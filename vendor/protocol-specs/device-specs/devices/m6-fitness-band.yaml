@@ -221,24 +221,27 @@ helpful_urls:
 # M6/LT716 firmware (API returns data: null for M6/m6/M6S/LT716). Negative
 # result: no vendor firmware images exist for this device family.
 
-# --- Mis-attribution note (kept for reference; does NOT describe the M6) ---
-misattribution_note:
-  veryfit_0af0_analysis: >
-    Earlier revisions of this spec documented the Veryfit 2.0
-    (com.veryfit.multi, APK SHA-256
-    98fab69b465f77f84b44d7ea859678a115474999691e72b2c814716a8aa6d530)
-    protocol — primary service 00000af0 with write/notify chars
-    00000af6/00000af7 and health channel 00000af1/00000af2, 20-byte fixed
-    frames (command ID at byte 0, key at byte 1), and Nordic legacy DFU
-    (00001530-...) for OTA — as the M6's protocol. That analysis is a
-    byte-accurate spec of the Veryfit 2.0 app (every UUID and command ID
-    verified against its decompiled smali) and remains valid for the
-    ID107/ID111-class bands Veryfit 2.0 actually targets (Nordic nRF51822
-    hardware generation) — see the dedicated spec
-    device-specs/devices/veryfit-2-fitness-band.yaml — but it is
-    MIS-ATTRIBUTED to the M6: the stock M6
-    firmware dump contains no occurrence of the 0AF0 UUID anywhere in its
-    512 kB flash, its GATT table is NUS + Telink OTA, and vendor listings
-    pair the M6 with the FitPro app. Nordic DFU belongs to the nRF51822-based
-    ID107 bands, not the Telink M6. References: rbaron/m6-reveng firmware
-    dump; xor.co.za LT716 platform RE.
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # --- Mis-attribution note (kept for reference; does NOT describe the M6) ---
+  misattribution_note:
+    veryfit_0af0_analysis: >
+      Earlier revisions of this spec documented the Veryfit 2.0
+      (com.veryfit.multi, APK SHA-256
+      98fab69b465f77f84b44d7ea859678a115474999691e72b2c814716a8aa6d530)
+      protocol — primary service 00000af0 with write/notify chars
+      00000af6/00000af7 and health channel 00000af1/00000af2, 20-byte fixed
+      frames (command ID at byte 0, key at byte 1), and Nordic legacy DFU
+      (00001530-...) for OTA — as the M6's protocol. That analysis is a
+      byte-accurate spec of the Veryfit 2.0 app (every UUID and command ID
+      verified against its decompiled smali) and remains valid for the
+      ID107/ID111-class bands Veryfit 2.0 actually targets (Nordic nRF51822
+      hardware generation) — see the dedicated spec
+      device-specs/devices/veryfit-2-fitness-band.yaml — but it is
+      MIS-ATTRIBUTED to the M6: the stock M6
+      firmware dump contains no occurrence of the 0AF0 UUID anywhere in its
+      512 kB flash, its GATT table is NUS + Telink OTA, and vendor listings
+      pair the M6 with the FitPro app. Nordic DFU belongs to the nRF51822-based
+      ID107 bands, not the Telink M6. References: rbaron/m6-reveng firmware
+      dump; xor.co.za LT716 platform RE.

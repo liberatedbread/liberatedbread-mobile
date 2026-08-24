@@ -261,157 +261,160 @@ evidence:
       v1/ecp/token?assert=true JWT endpoint and its ecp2_jwt.enabled
       remote-config gate, and the app's 55-entry request-type table.
 
-# Everything needed to build an ECP request byte for byte, in the role
-# soap_common plays for Wemo. ECP is deliberately plain: the whole request is
-# the method and the path, and the chosen value (which key, which app) lives
-# in the path itself rather than in a body.
-ecp_common:
-  transport: "HTTP"
-  request_format:
-    description: >
-      Requests go to http://<ip>:8060<path>, where <ip> comes from SSDP
-      discovery (the LOCATION header is http://<ip>:8060/). Command POSTs
-      carry an EMPTY body: no Content-Type, no payload, no SOAPACTION — the
-      path is the entire instruction. No authentication exists at any firmware
-      level; see device.setup.credentials.
-    http:
-      url: "http://<ip>:8060<path>"
-      headers: >
-        None required. The device applies its own Host-header sanity check
-        (requests must come from a private/LAN address); a client on the same
-        network sends nothing special to pass it.
-      body: "Empty for every POST command."
-    escaping: >
-      Literal text entry uses the Lit_ key form: POST /keypress/Lit_a types
-      'a', and any UTF-8 character rides percent-encoded after the prefix —
-      /keypress/Lit_%20 is a space. Only the character is percent-encoded;
-      the Lit_ prefix itself is literal.
-  response_format:
-    description: >
-      Command endpoints answer 200 OK with an empty body on success; query
-      endpoints answer XML. A 403 Forbidden means the "Control by mobile
-      apps" gate below is closed — surface that as "enable control on the
-      TV", not as a network failure.
-    gating:
-      setting: >
-        Settings > System > Advanced system settings > "Control by mobile
-        apps", introduced in Roku OS 14.1.
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # Everything needed to build an ECP request byte for byte, in the role
+  # soap_common plays for Wemo. ECP is deliberately plain: the whole request is
+  # the method and the path, and the chosen value (which key, which app) lives
+  # in the path itself rather than in a body.
+  ecp_common:
+    transport: "HTTP"
+    request_format:
       description: >
-        The gate does NOT split along command/query lines, which is the
-        trap: it covers the three key endpoints plus three of the queries,
-        and leaves launching and the identity/app queries open. So a client
-        must not suppress the whole control surface on one 403, nor assume
-        a query cannot return one. The lists below name `http_endpoints`
-        entries, so a consumer filters on data rather than parsing this
-        paragraph.
-      gated:
-        - "Keypress"
-        - "Keydown"
-        - "Keyup"
-        - "App Icon"
-        - "TV Channels"
-        - "TV Active Channel"
-      open:
-        - "Device Info"
-        - "Installed Apps"
-        - "Active App"
-        - "Media Player"
-        - "Launch App"
-        - "Install App"
-        - "Custom Input"
-      open_notes: >
-        The gate notice enumerates what it covers, so `open` is everything
-        else — that is the rule these lists follow, not a per-endpoint
-        observation. Launching is open on the observed OS 15.2.4 fleet,
-        which is what makes a channel launcher work on a TV whose remote
-        keys are all refused, and the identity and app queries being open is
-        what lets that launcher build its list at all. Custom Input is open
-        by the same enumeration rule but is the one entry here this project
-        has not exercised: it forwards to whatever app is running, so there
-        is no reply that distinguishes "delivered" from "ignored".
-      limited_mode: >
-        Live correction, probed 2026-08-11 against the OS 15.2.4 fleet
-        (evidence.limited_mode_probe): with "Control by mobile apps" set to
-        the middle "Limited" position, the refusal is BROADER than the gate
-        notice suggests. /query/apps answered "ECP command not allowed in
-        Limited mode." — as HTTP 400 on Living Room TV and HTTP 403 on
-        Kitchen TV and Spare TV, and the same TV
-        switched between the two spellings within minutes — and
-        /query/media-player answered 403, while /query/device-info and
-        /query/active-app kept answering 200 and every keypress answered
-        403. So a client must treat 400-with-that-body as the same refusal
-        403 means, must NOT assume query endpoints are exempt, and must
-        expect the channel list to be unreadable over plain ECP until the
-        setting is raised to Permissive — OR switch to ECP2, the
-        authenticated WebSocket session documented in the `ecp2` block
-        below, which Limited mode does not refuse.
+        Requests go to http://<ip>:8060<path>, where <ip> comes from SSDP
+        discovery (the LOCATION header is http://<ip>:8060/). Command POSTs
+        carry an EMPTY body: no Content-Type, no payload, no SOAPACTION — the
+        path is the entire instruction. No authentication exists at any firmware
+        level; see device.setup.credentials.
+      http:
+        url: "http://<ip>:8060<path>"
+        headers: >
+          None required. The device applies its own Host-header sanity check
+          (requests must come from a private/LAN address); a client on the same
+          network sends nothing special to pass it.
+        body: "Empty for every POST command."
+      escaping: >
+        Literal text entry uses the Lit_ key form: POST /keypress/Lit_a types
+        'a', and any UTF-8 character rides percent-encoded after the prefix —
+        /keypress/Lit_%20 is a space. Only the character is percent-encoded;
+        the Lit_ prefix itself is literal.
+    response_format:
+      description: >
+        Command endpoints answer 200 OK with an empty body on success; query
+        endpoints answer XML. A 403 Forbidden means the "Control by mobile
+        apps" gate below is closed — surface that as "enable control on the
+        TV", not as a network failure.
+      gating:
+        setting: >
+          Settings > System > Advanced system settings > "Control by mobile
+          apps", introduced in Roku OS 14.1.
+        description: >
+          The gate does NOT split along command/query lines, which is the
+          trap: it covers the three key endpoints plus three of the queries,
+          and leaves launching and the identity/app queries open. So a client
+          must not suppress the whole control surface on one 403, nor assume
+          a query cannot return one. The lists below name `http_endpoints`
+          entries, so a consumer filters on data rather than parsing this
+          paragraph.
+        gated:
+          - "Keypress"
+          - "Keydown"
+          - "Keyup"
+          - "App Icon"
+          - "TV Channels"
+          - "TV Active Channel"
+        open:
+          - "Device Info"
+          - "Installed Apps"
+          - "Active App"
+          - "Media Player"
+          - "Launch App"
+          - "Install App"
+          - "Custom Input"
+        open_notes: >
+          The gate notice enumerates what it covers, so `open` is everything
+          else — that is the rule these lists follow, not a per-endpoint
+          observation. Launching is open on the observed OS 15.2.4 fleet,
+          which is what makes a channel launcher work on a TV whose remote
+          keys are all refused, and the identity and app queries being open is
+          what lets that launcher build its list at all. Custom Input is open
+          by the same enumeration rule but is the one entry here this project
+          has not exercised: it forwards to whatever app is running, so there
+          is no reply that distinguishes "delivered" from "ignored".
+        limited_mode: >
+          Live correction, probed 2026-08-11 against the OS 15.2.4 fleet
+          (evidence.limited_mode_probe): with "Control by mobile apps" set to
+          the middle "Limited" position, the refusal is BROADER than the gate
+          notice suggests. /query/apps answered "ECP command not allowed in
+          Limited mode." — as HTTP 400 on Living Room TV and HTTP 403 on
+          Kitchen TV and Spare TV, and the same TV
+          switched between the two spellings within minutes — and
+          /query/media-player answered 403, while /query/device-info and
+          /query/active-app kept answering 200 and every keypress answered
+          403. So a client must treat 400-with-that-body as the same refusal
+          403 means, must NOT assume query endpoints are exempt, and must
+          expect the channel list to be unreadable over plain ECP until the
+          setting is raised to Permissive — OR switch to ECP2, the
+          authenticated WebSocket session documented in the `ecp2` block
+          below, which Limited mode does not refuse.
 
-# ECP2: the authenticated session the official Roku app uses, and the way
-# through Limited mode. Reverse-engineered from the official Roku app's
-# ECP session layer and verified
-# live against the fleet on 2026-08-11 — see evidence.limited_mode_probe.
-ecp2:
-  transport: "websocket"
-  url: "ws://<ip>:8060/ecp-session"
-  subprotocol: "ecp-2"
-  headers:
-    Sec-WebSocket-Origin: "Android"
-  framing: >
-    JSON text frames. A client request is {"request": "<name>",
-    "request-id": "<n>", ...params}; the device answers {"response":
-    "<name>", "response-id": "<n>", "status": "200", ...} with any payload
-    base64 in content-data beside a content-type, and sends unsolicited
-    notices with "notify" in place of "response". The request names are
-    the ECP paths dashed: query-apps, query-active-app, query-device-info,
-    key-press/key-down/key-up (param-key), launch, input,
-    query-tv-channels-ex, query-icon, set-textedit-text (whole-string text
-    entry — no per-character Lit_ loop needed), and more: the app's
-    request-type table holds 55 entries in all, running from av-sync
-    queries to picture settings.
-  auth:
-    description: >
-      On connect the device sends {"notify": "authenticate",
-      "param-challenge": "<base64>", "param-methods": [...]}. Two methods
-      were offered by every fleet TV: "jwt" — a token from
-      https://auth.prod.mobile.roku.com/v1/ecp/token?assert=true tied to
-      the signed-in Roku account, gated in the app by the remote-config
-      flag ecp2_jwt.enabled, which defaults off — and "client-id", which
-      needs NO account: answer {"request":
-      "authenticate", "request-id": "1", "param-response":
-      base64(SHA-1(challenge + secret))}. The secret is the app's own
-      client id, shipped in the APK (the client-id challenge strategy):
-      the UUID 95E610D0-7C29-44EF-FB0F-97F1FCE4C297 with every hex nibble
-      n replaced by (24 - n) & 15, i.e.
-      F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1. A successful answer gets
-      {"response": "authenticate", "status": "200"} and the session then
-      accepts the full vocabulary — in Limited mode included. Client-id is
-      also the app's own fallback: when a jwt answer fails, the app
-      retries the same challenge with client-id automatically.
-    jwt_response_format:
+  # ECP2: the authenticated session the official Roku app uses, and the way
+  # through Limited mode. Reverse-engineered from the official Roku app's
+  # ECP session layer and verified
+  # live against the fleet on 2026-08-11 — see evidence.limited_mode_probe.
+  ecp2:
+    transport: "websocket"
+    url: "ws://<ip>:8060/ecp-session"
+    subprotocol: "ecp-2"
+    headers:
+      Sec-WebSocket-Origin: "Android"
+    framing: >
+      JSON text frames. A client request is {"request": "<name>",
+      "request-id": "<n>", ...params}; the device answers {"response":
+      "<name>", "response-id": "<n>", "status": "200", ...} with any payload
+      base64 in content-data beside a content-type, and sends unsolicited
+      notices with "notify" in place of "response". The request names are
+      the ECP paths dashed: query-apps, query-active-app, query-device-info,
+      key-press/key-down/key-up (param-key), launch, input,
+      query-tv-channels-ex, query-icon, set-textedit-text (whole-string text
+      entry — no per-character Lit_ loop needed), and more: the app's
+      request-type table holds 55 entries in all, running from av-sync
+      queries to picture settings.
+    auth:
       description: >
-        The jwt method's on-wire param-response: the literal prefix
-        "JWT:" followed by base64 of the token bytes XORed byte-wise with
-        the decoded challenge and the device ESN — token and ESN taken as
-        US-ASCII, the challenge base64-decoded, and challenge and ESN
-        repeated cyclically over the token length.
-      confidence: "medium"
-      confidence_notes: >
-        Read from the app's JWT challenge-response strategy but never
-        exercised against hardware: the fleet session
-        authenticated with client-id, and the ecp2_jwt.enabled flag gates
-        the jwt path off by default, so this construction is app-derived
-        only.
-    verification: "confirmed"
-  notes: >
-    Whether using a competitor-shaped client id is acceptable is a policy
-    question for a consumer of this spec, not a technical one; the
-    mechanism itself is documented here because it is how the protocol
-    works. Roku can rotate or revoke the id in a firmware update at any
-    time, so a client should treat ECP2 as an enhancement over plain ECP
-    with fallback, never the only path. Consumers may treat this block's
-    presence in a spec as the signed-session capability signal: a device
-    spec carrying `ecp2` supports the authenticated WebSocket session, and
-    one without it is plain-ECP only.
+        On connect the device sends {"notify": "authenticate",
+        "param-challenge": "<base64>", "param-methods": [...]}. Two methods
+        were offered by every fleet TV: "jwt" — a token from
+        https://auth.prod.mobile.roku.com/v1/ecp/token?assert=true tied to
+        the signed-in Roku account, gated in the app by the remote-config
+        flag ecp2_jwt.enabled, which defaults off — and "client-id", which
+        needs NO account: answer {"request":
+        "authenticate", "request-id": "1", "param-response":
+        base64(SHA-1(challenge + secret))}. The secret is the app's own
+        client id, shipped in the APK (the client-id challenge strategy):
+        the UUID 95E610D0-7C29-44EF-FB0F-97F1FCE4C297 with every hex nibble
+        n replaced by (24 - n) & 15, i.e.
+        F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1. A successful answer gets
+        {"response": "authenticate", "status": "200"} and the session then
+        accepts the full vocabulary — in Limited mode included. Client-id is
+        also the app's own fallback: when a jwt answer fails, the app
+        retries the same challenge with client-id automatically.
+      jwt_response_format:
+        description: >
+          The jwt method's on-wire param-response: the literal prefix
+          "JWT:" followed by base64 of the token bytes XORed byte-wise with
+          the decoded challenge and the device ESN — token and ESN taken as
+          US-ASCII, the challenge base64-decoded, and challenge and ESN
+          repeated cyclically over the token length.
+        confidence: "medium"
+        confidence_notes: >
+          Read from the app's JWT challenge-response strategy but never
+          exercised against hardware: the fleet session
+          authenticated with client-id, and the ecp2_jwt.enabled flag gates
+          the jwt path off by default, so this construction is app-derived
+          only.
+      verification: "confirmed"
+    notes: >
+      Whether using a competitor-shaped client id is acceptable is a policy
+      question for a consumer of this spec, not a technical one; the
+      mechanism itself is documented here because it is how the protocol
+      works. Roku can rotate or revoke the id in a firmware update at any
+      time, so a client should treat ECP2 as an enhancement over plain ECP
+      with fallback, never the only path. Consumers may treat this block's
+      presence in a spec as the signed-session capability signal: a device
+      spec carrying `ecp2` supports the authenticated WebSocket session, and
+      one without it is plain-ECP only.
 
 http_endpoints:
   - method: "GET"

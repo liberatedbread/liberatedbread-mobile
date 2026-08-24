@@ -212,174 +212,177 @@ helpful_urls:
     url: "https://developer.samsung.com/smarttv/develop/specifications/tv-model-groups.html"
     description: "Official model-year ↔ Tizen version table; settles whether a given Samsung TV is Tizen (2016+, this spec) or Orsay (samsung_legacy_common)."
 
-# Everything needed to build the WebSocket channel byte for byte, in the role
-# ecp_common plays for Roku. Reconstructed from samsungtvws connection.py /
-# remote.py / rest.py (v2.x/3.x), cross-checked against Home Assistant's
-# samsungtv integration. Verification is "reported" throughout: exercised
-# daily by those clients, replayed against no hardware here.
-samsung_remote_common:
-  transport: "WebSocket (RFC 6455), JSON text frames"
-  transport_gap: >
-    NOT SUPPORTED by the reference app today: the app's command transports
-    are "http" and "soap", and this channel is a persistent WebSocket with a
-    token-auth handshake. A client must implement: RFC 6455 (including TLS
-    with a self-signed cert on 8002), the ms.channel.connect /
-    ms.channel.unauthorized handshake events, token capture and reuse, and
-    keepalive for the session. The commands block below therefore declares
-    the key commands with NO `transport` key — they inherit
-    device.transport "websocket", and a consumer that only speaks http/soap
-    must treat them as documented-but-not-sendable rather than rendering a
-    dead control. Only launch_app (REST POST) is directly sendable today.
-  ports:
-    8001: "ws:// plain WebSocket + http:// REST under /api/v2/. Older Tizen sets (2016-2018 era) commonly listen here; per samsungtvws connection.py the token query parameter is only appended on the TLS port, so 8001 clients typically authenticate by client name alone."
-    8002: "wss:// WebSocket + https:// REST. TLS with the TV's self-signed certificate — clients disable verification (samsungtvws passes CERT_NONE). Newer Tizen sets listen here only; the token query parameter is appended when one is stored."
-  connection:
-    url: >
-      <scheme>://<ip>:<port>/api/v2/channels/samsung.remote.control?name=<name>[&token=<token>]
-      where scheme/port is ws/8001 or wss/8002, <name> is the client display
-      name STANDARD-base64-encoded (samsungtvws: base64 of the UTF-8 name,
-      e.g. 'SamsungTvRemote' -> 'U2Ftc3VuZ1R2UmVtb3Rl'), and token is the
-      stored auth token (8002 only, when known).
-    handshake: >
-      The TV speaks first. A good connection delivers an ms.channel.connect
-      event whose data carries the new-or-reused token and the currently
-      connected client list; the client must read and store data.token
-      before sending anything. Refusal is an ms.channel.unauthorized event
-      (user pressed Deny, or the prompt timed out) — surface it as "approve
-      the connection on the TV", not as a network failure. Startup may also
-      deliver client connect/disconnect noise events; samsungtvws ignores
-      everything until it sees connect or unauthorized.
-    connect_event_example: >
-      {"event":"ms.channel.connect","data":{"id":"...","clients":[{"attributes":{"name":"U2Ftc3VuZ1R2UmVtb3Rl"},"connectTime":...,"deviceName":"...","id":"...","isHost":false}],"token":"12345678"}}
-    subnet_rule: >
-      The TV refuses WebSocket connections that arrive from a different
-      subnet/VLAN (both samsungtvws and the Home Assistant docs state this
-      plainly). A client that can reach the REST API but never completes the
-      WS handshake should suspect routing, not auth.
-  key_injection:
-    description: >
-      One JSON text frame per key event, method ms.remote.control. Cmd is
-      Click (press+release, the normal case), Press, or Release — a held key
-      is Press, a pause, then Release. DataOfCmd is the key name from the
-      KEY_* vocabulary. Option is the literal string "false" and
-      TypeOfRemote the literal "SendRemoteKey" for every key. Clients
-      throttle repeats (samsungtvws defaults to a 1s key_press_delay).
-    example: '{"method":"ms.remote.control","params":{"Cmd":"Click","DataOfCmd":"KEY_HOME","Option":"false","TypeOfRemote":"SendRemoteKey"}}'
-    text_entry: >
-      Free text into a focused input field is TypeOfRemote "SendInputString"
-      with DataOfCmd "base64" and Cmd the base64-encoded text, followed by a
-      SendInputEnd message; some TVs additionally require a one-time
-      ms.channel.emit broadcast of event "custom.remote.textReceived" before
-      the first string (samsungtvws send_text). A cursor device exists too
-      (TypeOfRemote "ProcessMouseDevice", Cmd "Move" with a Position object).
-    key_vocabulary: >
-      The commands block below names the common subset; the full published
-      list (power, navigation, digits, channel, volume, inputs, media,
-      colour keys, teletext, PIP, KEY_EXT1-41 and friends) is in
-      samsungtvws COMMANDS.md and homebridge-samsung-tizen's command page —
-      both self-described as unofficial, and individual keys vary by model
-      and year. Known generational trap: pre-2016 KEY_POWEROFF/KEY_POWERON
-      collapse to a single KEY_POWER toggle on 2016+ sets (Home Assistant
-      key-table note).
-  app_control:
-    over_websocket: >
-      ms.channel.emit frames, params {"event": ..., "to": "host"}.
-      ed.installedApp.get asks for the installed-app list, answered by an
-      ed.installedApp event whose data is a JSON string of app records
-      (appId, name, ...) — NOT answered on all models (samsungtvws waits up
-      to 10s and gives up; see its issue #23). ed.apps.launch launches:
-      params data {"action_type": "DEEP_LINK"|"NATIVE_LAUNCH", "appId": ...,
-      "metaTag": ...}; opening a URL is org.tizen.browser with NATIVE_LAUNCH
-      and the URL as metaTag.
-    over_rest: >
-      The same launches and lifecycle operations exist as plain
-      unauthenticated REST (samsungtvws rest.py): GET/POST/DELETE/PUT
-      /api/v2/applications/{appId} = status/run/close/install, and
-      GET /api/v2/ = the device-info document. These are the endpoints in
-      http_endpoints below. There is no REST app LIST; the list is the
-      WebSocket ed.installedApp.get above, which is why no app-picker select
-      entity exists here — options_source's contract is XML-over-HTTP and
-      this list is JSON-over-WebSocket.
-    device_info_example: >
-      GET http://<ip>:8001/api/v2/ answers JSON shaped like
-      {"id":"uuid:...","name":"[TV] Samsung 6 Series (55)","version":"2.0.25",
-      "device":{"type":"Samsung SmartTV","duid":"...","model":"16_JAZZM_UHD",
-      "modelName":"UE55KU6079","networkType":"wireless","ip":"...",
-      "wifiMac":"...","udn":"uuid:...","resolution":"3840x2160",...},
-      "type":"Samsung SmartTV","uri":"http://<ip>:8001/api/v2/"}.
-      device.duid / device.wifiMac are the stable identities the SSDP
-      description does not carry; device.wifiMac is also what Wake-on-LAN
-      needs.
-  pairing:
-    flow: >
-      No PIN, no shared secret: authorization is the user pressing Allow on
-      the TV. First connection from an unknown name -> Allow/Deny dialog.
-      Allow -> ms.channel.connect carries data.token; the client stores it
-      and sends it as &token= on every later connection (8002). Deny or
-      timeout -> ms.channel.unauthorized. The whole flow is driven by the
-      client NAME in the URL, so a client that renames itself is a new
-      stranger to the TV.
-    tv_settings: >
-      General > External Device Manager > Device Connection Manager: Access
-      Notification set to "First Time Only" stops the prompt-every-time
-      behaviour newer TVs default to (Home Assistant and samsungtvws both
-      document this), and Device List is where stale approvals are revoked.
-      Menu labels vary slightly by Tizen generation.
-  power:
-    description: >
-      KEY_POWER turns the TV OFF from any network client, but no network
-      command can turn a standby TV on — the network stack is down. Power-on
-      is Wake-on-LAN to the MAC from device.wifiMac (Home Assistant does
-      exactly this; it requires WoL enabled on the TV, and ethernet-connected
-      sets wake more reliably than WiFi ones).
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # Everything needed to build the WebSocket channel byte for byte, in the role
+  # ecp_common plays for Roku. Reconstructed from samsungtvws connection.py /
+  # remote.py / rest.py (v2.x/3.x), cross-checked against Home Assistant's
+  # samsungtv integration. Verification is "reported" throughout: exercised
+  # daily by those clients, replayed against no hardware here.
+  samsung_remote_common:
+    transport: "WebSocket (RFC 6455), JSON text frames"
+    transport_gap: >
+      NOT SUPPORTED by the reference app today: the app's command transports
+      are "http" and "soap", and this channel is a persistent WebSocket with a
+      token-auth handshake. A client must implement: RFC 6455 (including TLS
+      with a self-signed cert on 8002), the ms.channel.connect /
+      ms.channel.unauthorized handshake events, token capture and reuse, and
+      keepalive for the session. The commands block below therefore declares
+      the key commands with NO `transport` key — they inherit
+      device.transport "websocket", and a consumer that only speaks http/soap
+      must treat them as documented-but-not-sendable rather than rendering a
+      dead control. Only launch_app (REST POST) is directly sendable today.
+    ports:
+      8001: "ws:// plain WebSocket + http:// REST under /api/v2/. Older Tizen sets (2016-2018 era) commonly listen here; per samsungtvws connection.py the token query parameter is only appended on the TLS port, so 8001 clients typically authenticate by client name alone."
+      8002: "wss:// WebSocket + https:// REST. TLS with the TV's self-signed certificate — clients disable verification (samsungtvws passes CERT_NONE). Newer Tizen sets listen here only; the token query parameter is appended when one is stored."
+    connection:
+      url: >
+        <scheme>://<ip>:<port>/api/v2/channels/samsung.remote.control?name=<name>[&token=<token>]
+        where scheme/port is ws/8001 or wss/8002, <name> is the client display
+        name STANDARD-base64-encoded (samsungtvws: base64 of the UTF-8 name,
+        e.g. 'SamsungTvRemote' -> 'U2Ftc3VuZ1R2UmVtb3Rl'), and token is the
+        stored auth token (8002 only, when known).
+      handshake: >
+        The TV speaks first. A good connection delivers an ms.channel.connect
+        event whose data carries the new-or-reused token and the currently
+        connected client list; the client must read and store data.token
+        before sending anything. Refusal is an ms.channel.unauthorized event
+        (user pressed Deny, or the prompt timed out) — surface it as "approve
+        the connection on the TV", not as a network failure. Startup may also
+        deliver client connect/disconnect noise events; samsungtvws ignores
+        everything until it sees connect or unauthorized.
+      connect_event_example: >
+        {"event":"ms.channel.connect","data":{"id":"...","clients":[{"attributes":{"name":"U2Ftc3VuZ1R2UmVtb3Rl"},"connectTime":...,"deviceName":"...","id":"...","isHost":false}],"token":"12345678"}}
+      subnet_rule: >
+        The TV refuses WebSocket connections that arrive from a different
+        subnet/VLAN (both samsungtvws and the Home Assistant docs state this
+        plainly). A client that can reach the REST API but never completes the
+        WS handshake should suspect routing, not auth.
+    key_injection:
+      description: >
+        One JSON text frame per key event, method ms.remote.control. Cmd is
+        Click (press+release, the normal case), Press, or Release — a held key
+        is Press, a pause, then Release. DataOfCmd is the key name from the
+        KEY_* vocabulary. Option is the literal string "false" and
+        TypeOfRemote the literal "SendRemoteKey" for every key. Clients
+        throttle repeats (samsungtvws defaults to a 1s key_press_delay).
+      example: '{"method":"ms.remote.control","params":{"Cmd":"Click","DataOfCmd":"KEY_HOME","Option":"false","TypeOfRemote":"SendRemoteKey"}}'
+      text_entry: >
+        Free text into a focused input field is TypeOfRemote "SendInputString"
+        with DataOfCmd "base64" and Cmd the base64-encoded text, followed by a
+        SendInputEnd message; some TVs additionally require a one-time
+        ms.channel.emit broadcast of event "custom.remote.textReceived" before
+        the first string (samsungtvws send_text). A cursor device exists too
+        (TypeOfRemote "ProcessMouseDevice", Cmd "Move" with a Position object).
+      key_vocabulary: >
+        The commands block below names the common subset; the full published
+        list (power, navigation, digits, channel, volume, inputs, media,
+        colour keys, teletext, PIP, KEY_EXT1-41 and friends) is in
+        samsungtvws COMMANDS.md and homebridge-samsung-tizen's command page —
+        both self-described as unofficial, and individual keys vary by model
+        and year. Known generational trap: pre-2016 KEY_POWEROFF/KEY_POWERON
+        collapse to a single KEY_POWER toggle on 2016+ sets (Home Assistant
+        key-table note).
+    app_control:
+      over_websocket: >
+        ms.channel.emit frames, params {"event": ..., "to": "host"}.
+        ed.installedApp.get asks for the installed-app list, answered by an
+        ed.installedApp event whose data is a JSON string of app records
+        (appId, name, ...) — NOT answered on all models (samsungtvws waits up
+        to 10s and gives up; see its issue #23). ed.apps.launch launches:
+        params data {"action_type": "DEEP_LINK"|"NATIVE_LAUNCH", "appId": ...,
+        "metaTag": ...}; opening a URL is org.tizen.browser with NATIVE_LAUNCH
+        and the URL as metaTag.
+      over_rest: >
+        The same launches and lifecycle operations exist as plain
+        unauthenticated REST (samsungtvws rest.py): GET/POST/DELETE/PUT
+        /api/v2/applications/{appId} = status/run/close/install, and
+        GET /api/v2/ = the device-info document. These are the endpoints in
+        http_endpoints below. There is no REST app LIST; the list is the
+        WebSocket ed.installedApp.get above, which is why no app-picker select
+        entity exists here — options_source's contract is XML-over-HTTP and
+        this list is JSON-over-WebSocket.
+      device_info_example: >
+        GET http://<ip>:8001/api/v2/ answers JSON shaped like
+        {"id":"uuid:...","name":"[TV] Samsung 6 Series (55)","version":"2.0.25",
+        "device":{"type":"Samsung SmartTV","duid":"...","model":"16_JAZZM_UHD",
+        "modelName":"UE55KU6079","networkType":"wireless","ip":"...",
+        "wifiMac":"...","udn":"uuid:...","resolution":"3840x2160",...},
+        "type":"Samsung SmartTV","uri":"http://<ip>:8001/api/v2/"}.
+        device.duid / device.wifiMac are the stable identities the SSDP
+        description does not carry; device.wifiMac is also what Wake-on-LAN
+        needs.
+    pairing:
+      flow: >
+        No PIN, no shared secret: authorization is the user pressing Allow on
+        the TV. First connection from an unknown name -> Allow/Deny dialog.
+        Allow -> ms.channel.connect carries data.token; the client stores it
+        and sends it as &token= on every later connection (8002). Deny or
+        timeout -> ms.channel.unauthorized. The whole flow is driven by the
+        client NAME in the URL, so a client that renames itself is a new
+        stranger to the TV.
+      tv_settings: >
+        General > External Device Manager > Device Connection Manager: Access
+        Notification set to "First Time Only" stops the prompt-every-time
+        behaviour newer TVs default to (Home Assistant and samsungtvws both
+        document this), and Device List is where stale approvals are revoked.
+        Menu labels vary slightly by Tizen generation.
+    power:
+      description: >
+        KEY_POWER turns the TV OFF from any network client, but no network
+        command can turn a standby TV on — the network stack is down. Power-on
+        is Wake-on-LAN to the MAC from device.wifiMac (Home Assistant does
+        exactly this; it requires WoL enabled on the TV, and ethernet-connected
+        sets wake more reliably than WiFi ones).
 
-# The pre-2016 protocol, kept in the same file because a scanner will meet
-# both on one LAN and must not confuse them: an Orsay TV answers the same
-# SSDP target family but has nothing on 8001/8002. Reference: samsungctl
-# remote_legacy.py (0.7.1). Also a documented gap — the reference app has no
-# raw-TCP transport either.
-samsung_legacy_common:
-  applies_to: >
-    Pre-2016 Samsung Smart TVs on the Orsay platform (roughly 2011-2015:
-    C/D/E/F series and most H/J series). Between the two sits a third,
-    messier generation: H-series (2014) and part of J-series (2015) speak a
-    WebSocket API on port 8001 wrapped in an AES-encrypted pairing exchange
-    (the "encrypted" extra of samsungtvws, py3rijndael-based). That variant
-    is noted here for completeness but NOT specified — treat it as an open
-    research item, not as covered by either block in this file.
-  transport: "TCP 55000"
-  wire_format: >
-    Every packet is a 3-byte header followed by a length-prefixed,
-    base64-carrying payload. serialize(s) = [len(s) as one byte][0x00][s];
-    strings are base64-encoded BEFORE serializing. The handshake (sent once,
-    on connect) is: outer header 0x00 0x00 0x00, then serialize-raw of an
-    inner payload 0x64 0x00 + serialize(base64(description)) +
-    serialize(base64(id)) + serialize(base64(name)) — the "controller
-    string": a description/app-string, a client id, and the client name the
-    TV's prompt will show (samsungctl defaults: description "PC", id "",
-    name "samsungctl"; other clients famously use "iphone..iapp.samsung").
-    A key press is: outer header 0x00 0x00 0x00 + serialize-raw of inner
-    payload 0x00 0x00 0x00 + serialize(base64("KEY_*")).
-  responses: >
-    The TV answers with a 3-byte header whose bytes 1-2 are the little-endian
-    length of a TV-name string, then the name, then a 2-byte little-endian
-    length and the response body. Body 0x64 0x00 0x01 0x00 = access granted;
-    0x64 0x00 0x00 0x00 = denied; a body starting 0x0A = the TV is showing
-    the Allow/Deny prompt (wait and read again); 0x65 = user cancelled;
-    0x00 0x00 0x00 0x00 = key accepted. An empty read means the TV hung up.
-  pairing: >
-    Same model as Tizen, older suit: the first connection from an unknown
-    controller name raises the on-screen prompt, and approval is remembered
-    per name/MAC. There is no token — the client simply reconnects.
-  key_vocabulary: >
-    Same KEY_* names as the Tizen vocabulary (they share the remote), per
-    samsungctl's table. The generational traps run the other way here:
-    KEY_POWERON/KEY_POWEROFF exist on these sets where 2016+ collapsed them
-    to KEY_POWER.
-  transport_gap: >
-    Raw TCP with a custom binary-ish envelope — also not one of the reference
-    app's "http"/"soap" transports. Documented so the gap is recorded, not
-    hidden.
+  # The pre-2016 protocol, kept in the same file because a scanner will meet
+  # both on one LAN and must not confuse them: an Orsay TV answers the same
+  # SSDP target family but has nothing on 8001/8002. Reference: samsungctl
+  # remote_legacy.py (0.7.1). Also a documented gap — the reference app has no
+  # raw-TCP transport either.
+  samsung_legacy_common:
+    applies_to: >
+      Pre-2016 Samsung Smart TVs on the Orsay platform (roughly 2011-2015:
+      C/D/E/F series and most H/J series). Between the two sits a third,
+      messier generation: H-series (2014) and part of J-series (2015) speak a
+      WebSocket API on port 8001 wrapped in an AES-encrypted pairing exchange
+      (the "encrypted" extra of samsungtvws, py3rijndael-based). That variant
+      is noted here for completeness but NOT specified — treat it as an open
+      research item, not as covered by either block in this file.
+    transport: "TCP 55000"
+    wire_format: >
+      Every packet is a 3-byte header followed by a length-prefixed,
+      base64-carrying payload. serialize(s) = [len(s) as one byte][0x00][s];
+      strings are base64-encoded BEFORE serializing. The handshake (sent once,
+      on connect) is: outer header 0x00 0x00 0x00, then serialize-raw of an
+      inner payload 0x64 0x00 + serialize(base64(description)) +
+      serialize(base64(id)) + serialize(base64(name)) — the "controller
+      string": a description/app-string, a client id, and the client name the
+      TV's prompt will show (samsungctl defaults: description "PC", id "",
+      name "samsungctl"; other clients famously use "iphone..iapp.samsung").
+      A key press is: outer header 0x00 0x00 0x00 + serialize-raw of inner
+      payload 0x00 0x00 0x00 + serialize(base64("KEY_*")).
+    responses: >
+      The TV answers with a 3-byte header whose bytes 1-2 are the little-endian
+      length of a TV-name string, then the name, then a 2-byte little-endian
+      length and the response body. Body 0x64 0x00 0x01 0x00 = access granted;
+      0x64 0x00 0x00 0x00 = denied; a body starting 0x0A = the TV is showing
+      the Allow/Deny prompt (wait and read again); 0x65 = user cancelled;
+      0x00 0x00 0x00 0x00 = key accepted. An empty read means the TV hung up.
+    pairing: >
+      Same model as Tizen, older suit: the first connection from an unknown
+      controller name raises the on-screen prompt, and approval is remembered
+      per name/MAC. There is no token — the client simply reconnects.
+    key_vocabulary: >
+      Same KEY_* names as the Tizen vocabulary (they share the remote), per
+      samsungctl's table. The generational traps run the other way here:
+      KEY_POWERON/KEY_POWEROFF exist on these sets where 2016+ collapsed them
+      to KEY_POWER.
+    transport_gap: >
+      Raw TCP with a custom binary-ish envelope — also not one of the reference
+      app's "http"/"soap" transports. Documented so the gap is recorded, not
+      hidden.
 
 http_endpoints:
   # The REST half of the Tizen API (samsungtvws rest.py). Same paths on

@@ -162,108 +162,111 @@ device:
 
 protocol_handler: "ht_w01_command"
 
-# The HT-W01 command/data protocol, recovered from the OEM's "W01" companion
-# app — its generic command-protocol layer plus its W01-specific command
-# tables. Every fact in this block is `reported`
-# grade: read from code, never replayed against hardware.
-ht_w01_protocol:
-  transport: "Three parallel channels, all against the camera at its fixed AP address 192.168.1.10"
-  channels:
-    video:
-      transport: "RTSP"
-      endpoint: "rtsp://192.168.1.10:654/test.264"
-      format: "H.264 composite (visible + thermal fusion as rendered by the camera)"
-      notes: >
-        Plain unauthenticated RTSP — any off-the-shelf client (VLC, FFmpeg)
-        can open it once joined to the camera's AP.
-    command:
-      transport: "TCP"
-      endpoint: "192.168.1.10:8080"
-      notes: "0xFB-framed request/response; see framing below."
-    thermal_data:
-      transport: "UDP"
-      endpoint: "192.168.1.10:8888"
-      notes: >
-        Raw thermal image frames and temperature frames. The app binds locally
-        on UDP 8090 with a 49163-byte receive buffer. Frame delimiting is by
-        marker pairs (see udp_thermal_stream); the per-pixel element size and
-        datagram packing were not fully recovered (49152 = 256x192 pixels is
-        suggestive of one byte per pixel plus framing, unverified).
-  framing: >
-    Fixed 25-byte overhead per frame: [0xFB][length:4 LE][cmdType:1]
-    [reserved:17][dataUnit:N][CRC16:2]. Byte 0 is the magic 0xFB. Bytes 1-4
-    are the frame length as a little-endian u32 equal to total_size - 3
-    (i.e. it counts everything after byte 0 except the 2 CRC bytes). Byte 5
-    is the command type. Bytes 6-22 are reserved (the app sends them as
-    zero). The data unit starts at offset 23. The last 2 bytes are a CRC-16
-    (poly 0x1021, init 0x0000, no input/output reflection, no final XOR —
-    the CRC-16/XMODEM parameter set) computed over bytes[1 .. len-3]
-    inclusive — everything except the magic and the CRC itself — and appended
-    LOW BYTE FIRST (the app's helper names invert the usual LE/BE sense; the
-    wire order observed in code is low byte then high byte). Reply parsing in
-    the app reads a 5-byte header and derives the body length as
-    le32(bytes[1..4]) - 2, so replies follow the same envelope.
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # The HT-W01 command/data protocol, recovered from the OEM's "W01" companion
+  # app — its generic command-protocol layer plus its W01-specific command
+  # tables. Every fact in this block is `reported`
+  # grade: read from code, never replayed against hardware.
+  ht_w01_protocol:
+    transport: "Three parallel channels, all against the camera at its fixed AP address 192.168.1.10"
+    channels:
+      video:
+        transport: "RTSP"
+        endpoint: "rtsp://192.168.1.10:654/test.264"
+        format: "H.264 composite (visible + thermal fusion as rendered by the camera)"
+        notes: >
+          Plain unauthenticated RTSP — any off-the-shelf client (VLC, FFmpeg)
+          can open it once joined to the camera's AP.
+      command:
+        transport: "TCP"
+        endpoint: "192.168.1.10:8080"
+        notes: "0xFB-framed request/response; see framing below."
+      thermal_data:
+        transport: "UDP"
+        endpoint: "192.168.1.10:8888"
+        notes: >
+          Raw thermal image frames and temperature frames. The app binds locally
+          on UDP 8090 with a 49163-byte receive buffer. Frame delimiting is by
+          marker pairs (see udp_thermal_stream); the per-pixel element size and
+          datagram packing were not fully recovered (49152 = 256x192 pixels is
+          suggestive of one byte per pixel plus framing, unverified).
+    framing: >
+      Fixed 25-byte overhead per frame: [0xFB][length:4 LE][cmdType:1]
+      [reserved:17][dataUnit:N][CRC16:2]. Byte 0 is the magic 0xFB. Bytes 1-4
+      are the frame length as a little-endian u32 equal to total_size - 3
+      (i.e. it counts everything after byte 0 except the 2 CRC bytes). Byte 5
+      is the command type. Bytes 6-22 are reserved (the app sends them as
+      zero). The data unit starts at offset 23. The last 2 bytes are a CRC-16
+      (poly 0x1021, init 0x0000, no input/output reflection, no final XOR —
+      the CRC-16/XMODEM parameter set) computed over bytes[1 .. len-3]
+      inclusive — everything except the magic and the CRC itself — and appended
+      LOW BYTE FIRST (the app's helper names invert the usual LE/BE sense; the
+      wire order observed in code is low byte then high byte). Reply parsing in
+      the app reads a 5-byte header and derives the body length as
+      le32(bytes[1..4]) - 2, so replies follow the same envelope.
 
-    Building a SET_PARAM frame from the worked examples: the value bytes sit
-    at offset 24 onwards, immediately after the 1-byte parameter id at offset
-    23. Substituting a value means rewriting those bytes, re-deriving the
-    length at bytes 1-4 if the value width changed, and recomputing the CRC
-    over the new bytes[1 .. len-3]. That is why none of the `set_*` commands
-    below declare `parameters:` — a `body` is a literal frame, and this schema
-    has no way to say "substitute at offset 24, then recompute the trailer".
-    A declared parameter would have left a consumer with two wrong choices:
-    send the example verbatim, silently setting the example's value, or patch
-    the byte and emit a stale CRC the camera rejects. The examples are
-    therefore exact frames for the value each one names; construct the others.
-  command_types:
-    "0x31": "HEART_BEAT — keep-alive; data unit is a single incrementing counter byte (starts at 1). Send cadence not recovered (unverified)."
-    "0x33": "GET_PARAM — data unit is the 1-byte parameter id (palette/range/emissivity/...)."
-    "0x34": "SET_PARAM — data unit is [paramId, value...]; value is 1 byte for most parameters, 2-byte LE for distance."
-    "0x35": "ACTION — data unit is [actionId, value...]; value is 0x00 for plain actions, 2-byte LE temperature for the factory-mode calibration actions."
-  status_codes:
-    "0x00": "SUCCESS"
-    "0x1F": "POST_CMS"
-    "0x33": "ERROR_PARAM"
-    "0x44": "ERROR_CRC"
-    "0xFD": "UNKNOWN_CMD"
-  parameter_ids:
-    "0x01": "palette (1 byte; see palette_values)"
-    "0x03": "measuring range (1 byte: 0 = Large 120..550 C, 1 = Small -20..120 C)"
-    "0x04": "emissivity (1 byte = emissivity x 100; set 0.95 as 95)"
-    "0x06": "reflect temperature — marked deprecated in the app source"
-    "0x08": "distance (2-byte LE)"
-    "0x09": "brightness (1 byte)"
-    "0x0A": "contrast (1 byte)"
-    "0x0B": "TNR — marked deprecated in the app source (superseded by SNR per the deprecation note)"
-    "0x0C": "SNR (1 byte)"
-    "0x0D": "DE — detail enhancement (1 byte)"
-    "0x0F": "boot-5-minutes flag (GET only in app code; semantics not recovered)"
-    "0x10": "version info (GET only; reply layout not recovered)"
-    "0x11": "Wi-Fi channel (1 byte: 0 = automatic, 1..8 = channel; the app's GET sends a 2-byte data unit [0x11, current] — quirk preserved here)"
-  palette_values:
-    1: "white hot"
-    3: "sepia"
-    4: "ironbow"
-    5: "rainbow"
-    6: "night"
-    7: "aurora"
-    8: "red hot"
-    9: "jungle"
-    10: "medical"
-    11: "black hot"
-  action_ids:
-    "0x00": "ResetConfig — reset stored configuration"
-    "0x01": "RefreshShutter — trigger a shutter/FFC refresh"
-    "0x02": "RestartDevice — reboot the camera"
-    "0x0A-0x11": "Factory-mode low/high range calibration points (take a 2-byte LE temperature); factory use only, do not send"
-  udp_thermal_stream: >
-    Frames on UDP 8888 are delimited by 2-byte marker pairs: thermal image
-    frames open with FB FC and close with FC FB; temperature frames open
-    with FB FE and close with FE FB. The thermal matrix is 256x192
-    (49152 pixels); the visible sensor behind the RTSP fusion feed is
-    640x480. Element width, temperature scaling and datagram packing are
-    NOT recovered — the first hardware capture should dump frames between
-    markers and establish them.
+      Building a SET_PARAM frame from the worked examples: the value bytes sit
+      at offset 24 onwards, immediately after the 1-byte parameter id at offset
+      23. Substituting a value means rewriting those bytes, re-deriving the
+      length at bytes 1-4 if the value width changed, and recomputing the CRC
+      over the new bytes[1 .. len-3]. That is why none of the `set_*` commands
+      below declare `parameters:` — a `body` is a literal frame, and this schema
+      has no way to say "substitute at offset 24, then recompute the trailer".
+      A declared parameter would have left a consumer with two wrong choices:
+      send the example verbatim, silently setting the example's value, or patch
+      the byte and emit a stale CRC the camera rejects. The examples are
+      therefore exact frames for the value each one names; construct the others.
+    command_types:
+      "0x31": "HEART_BEAT — keep-alive; data unit is a single incrementing counter byte (starts at 1). Send cadence not recovered (unverified)."
+      "0x33": "GET_PARAM — data unit is the 1-byte parameter id (palette/range/emissivity/...)."
+      "0x34": "SET_PARAM — data unit is [paramId, value...]; value is 1 byte for most parameters, 2-byte LE for distance."
+      "0x35": "ACTION — data unit is [actionId, value...]; value is 0x00 for plain actions, 2-byte LE temperature for the factory-mode calibration actions."
+    status_codes:
+      "0x00": "SUCCESS"
+      "0x1F": "POST_CMS"
+      "0x33": "ERROR_PARAM"
+      "0x44": "ERROR_CRC"
+      "0xFD": "UNKNOWN_CMD"
+    parameter_ids:
+      "0x01": "palette (1 byte; see palette_values)"
+      "0x03": "measuring range (1 byte: 0 = Large 120..550 C, 1 = Small -20..120 C)"
+      "0x04": "emissivity (1 byte = emissivity x 100; set 0.95 as 95)"
+      "0x06": "reflect temperature — marked deprecated in the app source"
+      "0x08": "distance (2-byte LE)"
+      "0x09": "brightness (1 byte)"
+      "0x0A": "contrast (1 byte)"
+      "0x0B": "TNR — marked deprecated in the app source (superseded by SNR per the deprecation note)"
+      "0x0C": "SNR (1 byte)"
+      "0x0D": "DE — detail enhancement (1 byte)"
+      "0x0F": "boot-5-minutes flag (GET only in app code; semantics not recovered)"
+      "0x10": "version info (GET only; reply layout not recovered)"
+      "0x11": "Wi-Fi channel (1 byte: 0 = automatic, 1..8 = channel; the app's GET sends a 2-byte data unit [0x11, current] — quirk preserved here)"
+    palette_values:
+      1: "white hot"
+      3: "sepia"
+      4: "ironbow"
+      5: "rainbow"
+      6: "night"
+      7: "aurora"
+      8: "red hot"
+      9: "jungle"
+      10: "medical"
+      11: "black hot"
+    action_ids:
+      "0x00": "ResetConfig — reset stored configuration"
+      "0x01": "RefreshShutter — trigger a shutter/FFC refresh"
+      "0x02": "RestartDevice — reboot the camera"
+      "0x0A-0x11": "Factory-mode low/high range calibration points (take a 2-byte LE temperature); factory use only, do not send"
+    udp_thermal_stream: >
+      Frames on UDP 8888 are delimited by 2-byte marker pairs: thermal image
+      frames open with FB FC and close with FC FB; temperature frames open
+      with FB FE and close with FE FB. The thermal matrix is 256x192
+      (49152 pixels); the visible sensor behind the RTSP fusion feed is
+      640x480. Element width, temperature scaling and datagram packing are
+      NOT recovered — the first hardware capture should dump frames between
+      markers and establish them.
 
 # A stub access surface so the schema's "document at least one access
 # surface" rule stays satisfied alongside the camera block; control is the
@@ -274,6 +277,7 @@ http_endpoints:
   - method: "GET"
     path: "/"
     name: "Local API Placeholder"
+    status: "placeholder"
     description: >
       Placeholder only. There is no HTTP surface: control is 0xFB-framed
       binary over TCP 8080 (see ht_w01_protocol), the video feed is RTSP on
@@ -448,33 +452,34 @@ helpful_urls:
     url: "https://gist.github.com/marcelrv/e81253c14053bcd78753554df1230dd3"
     description: "Collected open resources for thermal imagers; useful starting point for a clean-room HT-W01 client."
 
-sources:
-  - type: "static_analysis"
-    artifact: "com.htimeter.w01 v1.1.4 (versionCode 101004, built 2024-09-04) — store name 'W01' / 'HT-W01'"
-    sha256: "219010668b155e5bd125cd7e0c17376ecc8b58d21256b3669c38adfb7183e477"
-    obtained_via: "the OEM's own download page — the page Vevor's product QR decodes to, 2026-08"
-    description: >
-      Static analysis of the OEM's "W01" companion app (2026-08) — the source
-      of every protocol fact in this spec. Its W01 configuration gave the
-      RTSP URL rtsp://192.168.1.10:654/test.264, the TCP 8080 command port,
-      the UDP 8888 thermal stream and the 256x192 / 640x480 frame sizes; its
-      generic command-protocol layer gave the frame layout (0xFB magic, LE
-      length = total-3, cmdType at byte 5, data unit at offset 23) and the
-      CRC-16 (poly 0x1021, init 0x0000, low byte first on the wire); its
-      command tables gave the Type/Code/Param sets, the per-parameter GET/SET
-      encoders and the palette/range/channel/action enums; and its stream
-      processor gave the UDP markers (FB FC / FC FB thermal, FB FE / FE FB
-      temperature), the local bind port 8090 and the 49163-byte buffer.
-      Network/storage permissions only; no cloud endpoints anywhere in it.
-      Example frames in `commands` were generated by re-implementing the
-      framing code in a scratch script, so they are internally consistent
-      with the app but unverified against hardware.
-  - type: "vendor_documentation"
-    url: "https://manuals.plus/asin/B0FV77VZP9"
-    notes: "Vevor-branded 'HT-W01 Thermal Imager Camera' manual (YXP160/YXP256/VT256): AP SSID HT-W01-*, passphrase 12345678, Wi-Fi connection model. sha256 48b4b1c1f09baa40c63d3e29ba70806a54aa583bcb7d6cee8a712d8e97e7ba6e for the Vevor product-page PDF the app QR was decoded from."
-  - type: "vendor_documentation"
-    url: "https://hti-instrument.com/products/ht-w01-wifi-thermal-imaging-camera-256-192"
-    notes: "OEM hardware specifications (detector class, ranges, visible camera)."
-  - type: "community_thread"
-    url: "https://github.com/LeoDJ/P2Pro-Viewer"
-    notes: "Contrast reference establishing that the Infiray P2 Pro ecosystem does NOT cover this device."
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.htimeter.w01 v1.1.4 (versionCode 101004, built 2024-09-04) — store name 'W01' / 'HT-W01'"
+      sha256: "219010668b155e5bd125cd7e0c17376ecc8b58d21256b3669c38adfb7183e477"
+      obtained_via: "the OEM's own download page — the page Vevor's product QR decodes to, 2026-08"
+      description: >
+        Static analysis of the OEM's "W01" companion app (2026-08) — the source
+        of every protocol fact in this spec. Its W01 configuration gave the
+        RTSP URL rtsp://192.168.1.10:654/test.264, the TCP 8080 command port,
+        the UDP 8888 thermal stream and the 256x192 / 640x480 frame sizes; its
+        generic command-protocol layer gave the frame layout (0xFB magic, LE
+        length = total-3, cmdType at byte 5, data unit at offset 23) and the
+        CRC-16 (poly 0x1021, init 0x0000, low byte first on the wire); its
+        command tables gave the Type/Code/Param sets, the per-parameter GET/SET
+        encoders and the palette/range/channel/action enums; and its stream
+        processor gave the UDP markers (FB FC / FC FB thermal, FB FE / FE FB
+        temperature), the local bind port 8090 and the 49163-byte buffer.
+        Network/storage permissions only; no cloud endpoints anywhere in it.
+        Example frames in `commands` were generated by re-implementing the
+        framing code in a scratch script, so they are internally consistent
+        with the app but unverified against hardware.
+    - type: "vendor_documentation"
+      url: "https://manuals.plus/asin/B0FV77VZP9"
+      notes: "Vevor-branded 'HT-W01 Thermal Imager Camera' manual (YXP160/YXP256/VT256): AP SSID HT-W01-*, passphrase 12345678, Wi-Fi connection model. sha256 48b4b1c1f09baa40c63d3e29ba70806a54aa583bcb7d6cee8a712d8e97e7ba6e for the Vevor product-page PDF the app QR was decoded from."
+    - type: "vendor_documentation"
+      url: "https://hti-instrument.com/products/ht-w01-wifi-thermal-imaging-camera-256-192"
+      notes: "OEM hardware specifications (detector class, ranges, visible camera)."
+    - type: "community_thread"
+      url: "https://github.com/LeoDJ/P2Pro-Viewer"
+      notes: "Contrast reference establishing that the Infiray P2 Pro ecosystem does NOT cover this device."

@@ -292,7 +292,7 @@ def test_the_gate_lists_name_real_endpoints_and_do_not_overlap(spec, endpoints):
     machine-readable form of that, and this holds them to naming real,
     non-overlapping endpoints.
     """
-    gating = spec["ecp_common"]["response_format"]["gating"]
+    gating = spec["protocol_details"]["ecp_common"]["response_format"]["gating"]
     gated, open_ = set(gating["gated"]), set(gating["open"])
 
     assert gated <= set(endpoints), f"gated names no such endpoint: {gated - set(endpoints)}"

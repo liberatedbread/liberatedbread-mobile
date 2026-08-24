@@ -99,6 +99,12 @@ device:
         response_id: "0x7E8"
       notes: "CAN SSM with extended PID set. FA20/FA24 Denso ECU."
 
+  discovery:
+    none: >
+      Nothing to discover: the ECU is reached through the OBD-II connector.
+      The discoverable thing is the adapter plugged into it
+      (obd2-bluetooth-adapter.yaml); the ECU behind it is identified by
+      querying it, not by scanning for it.
   setup:
     required: false
     confidence: "high"
@@ -414,7 +420,7 @@ obd:
       name: "Coolant Temperature"
       type: "uint8"
       formula: "x - 40"
-      unit: "°C"
+      unit: "C"
       source: "P2, ecubyteindex=8, ecubit=6"
       verification: "reported"
     - did: "0x000009"
@@ -456,14 +462,15 @@ obd:
       name: "Ignition Total Timing"
       type: "uint8"
       formula: "(x - 128) * 0.5"
-      unit: "° BTDC"
+      unit: "°"
+      description: "Crank degrees BEFORE top dead centre."
       source: "P10, ecubyteindex=9, ecubit=6"
       verification: "reported"
     - did: "0x000012"
       name: "Intake Air Temperature"
       type: "uint8"
       formula: "x - 40"
-      unit: "°C"
+      unit: "C"
       source: "P11, ecubyteindex=9, ecubit=5"
       verification: "reported"
     - did: "0x000013"

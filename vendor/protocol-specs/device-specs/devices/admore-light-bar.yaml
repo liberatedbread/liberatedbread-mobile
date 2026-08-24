@@ -123,6 +123,10 @@ device:
       notes: >
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
+
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
   protobuf:
     package: "messaging_common"
     schema_file: "lightbar.pb.dart"
@@ -342,6 +346,7 @@ device:
           241: "DST_EVT_KMSG"
           242: "SRC_CMD_KMSG"
           243: "SRC_EVT_KMSG"
+
   state_machine:
     states:
       - "INITIAL"
@@ -363,6 +368,7 @@ device:
       - "EXIT_SLEEP"
       - "RECONNECTING"
       - "RECONNECT_FAIL"
+
   version_fields:
     - field: "productFirmware"
       description: "Firmware version"

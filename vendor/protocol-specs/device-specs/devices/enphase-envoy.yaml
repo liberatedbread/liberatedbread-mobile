@@ -190,7 +190,7 @@ evidence:
     address: "192.168.1.230"
     serial: "000000000000"
     protovers: "v8.3.5427"
-    mdns_service_type: "_enphase-envoy._tcp"
+    mdns_service_type: "_enphase-envoy._tcp.local."
     protocol: >
       REST API on HTTPS 443 (self-signed cert); port 80 refused connections
       despite the mDNS answer advertising it. /info and /info.xml served

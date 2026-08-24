@@ -6,7 +6,6 @@ device:
     status: untested
   protocol: wifi
   category: display
-  model: pixoo64_wifi
   notes: "WiFi-connected RGB LED pixel-matrix display. Displays static images, animations\
     \ (GIF-like), scrolling text, clock faces, EQ visualizer, and cloud gallery content.\
     \ Cloud-mediated device discovery: the device registers itself with Divoom's servers;\
@@ -52,6 +51,14 @@ device:
     local_name_prefix: Pixoo16-WiFi,Pixoo16WiFi,Pixoo64,Di-Da
     local_name_contains:
     - PixooLCDWIFI
+  discovery:
+    none: >
+      No local discovery protocol exists -- no UDP broadcast, no mDNS, no BLE
+      advertisement. Established by static analysis of the vendor app, which
+      gets a device's LAN address from Divoom's cloud device-list API and
+      only then talks to port 9000 directly. A consumer without the cloud has
+      to be given the address, or find the device by probing port 9000 across
+      the subnet.
   setup:
     required: true
     confidence: high
@@ -165,285 +172,290 @@ device:
       firmware 96022 (2026-07).
     pixel_width: 64
     pixel_height: 64
-pixel_encodings:
-- type_byte: 1
-  name: Pic11
-  description: 11x11 static picture, raw RGB data
-  dimensions:
-  - 11
-  - 11
-  bytes_per_frame: 363
-  compression: none
-  header:
-  - offset: 0
-    length: 1
-    name: type
-    value: 1
-  - offset: 1
-    length: 363
-    name: pixel_data
-    description: 363 bytes raw RGB (11×11×3)
-- type_byte: 2
-  name: Ani11
-  description: 11x11 animation, raw RGB frames
-  dimensions:
-  - 11
-  - 11
-  bytes_per_frame: 363
-  compression: none
-  header:
-  - offset: 0
-    length: 1
-    name: type
-    value: 2
-  - offset: 1
-    length: 1
-    name: frame_count
-  - offset: 2
-    length: 1
-    name: speed_hi
-  - offset: 3
-    length: 1
-    name: speed_lo
-  - offset: 4
-    length: -1
-    name: frames
-    description: frame_count × 363 bytes raw RGB
-  notes: 'Header order corrected 2026-07 (count first, then speed), per the pixel
-    encoder in the vendor app.
 
-    '
-- type_byte: 3
-  name: Pic16
-  description: 16x16 static picture, raw RGB data
-  dimensions:
-  - 16
-  - 16
-  bytes_per_frame: 768
-  compression: none
-  confidence: high
-- type_byte: 4
-  name: Ani16
-  description: 16x16 animation, raw RGB frames (uncompressed)
-  dimensions:
-  - 16
-  - 16
-  bytes_per_frame: 768
-  compression: none
-  header:
-  - offset: 0
-    length: 1
-    name: type
-    value: 4
-  - offset: 1
-    length: 1
-    name: frame_count
-  - offset: 2
-    length: 1
-    name: speed_hi
-  - offset: 3
-    length: 1
-    name: speed_lo
-  - offset: 4
-    length: -1
-    name: frames
-  notes: 'Header order corrected 2026-07 (count first, then speed), per the pixel
-    encoder in the vendor app.
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  pixel_encodings:
+  - type_byte: 1
+    name: Pic11
+    description: 11x11 static picture, raw RGB data
+    dimensions:
+    - 11
+    - 11
+    bytes_per_frame: 363
+    compression: none
+    header:
+    - offset: 0
+      length: 1
+      name: type
+      value: 1
+    - offset: 1
+      length: 363
+      name: pixel_data
+      description: 363 bytes raw RGB (11×11×3)
+  - type_byte: 2
+    name: Ani11
+    description: 11x11 animation, raw RGB frames
+    dimensions:
+    - 11
+    - 11
+    bytes_per_frame: 363
+    compression: none
+    header:
+    - offset: 0
+      length: 1
+      name: type
+      value: 2
+    - offset: 1
+      length: 1
+      name: frame_count
+    - offset: 2
+      length: 1
+      name: speed_hi
+    - offset: 3
+      length: 1
+      name: speed_lo
+    - offset: 4
+      length: -1
+      name: frames
+      description: frame_count × 363 bytes raw RGB
+    notes: 'Header order corrected 2026-07 (count first, then speed), per the pixel
+      encoder in the vendor app.
 
-    '
-- type_byte: 8
-  name: Pic16AES
-  description: 16x16 static picture, AES-128-CBC encrypted (hardcoded key/IV
-    compiled into the app — obfuscation, not compression; output is padded to
-    a 16-byte multiple). Corrected 2026-07 from "ZSTD" against the pixel encoder
-    in the vendor app.
-  dimensions:
-  - 16
-  - 16
-  bytes_per_frame: 768
-  compression: aes-128-cbc
-- type_byte: 9
-  name: Ani16AES
-  description: 16x16 animation, AES-128-CBC encrypted frames (same hardcoded-key
-    mechanism as type 8). Corrected 2026-07 from "ZSTD" per the pixel encoder in
-    the vendor app.
-  dimensions:
-  - 16
-  - 16
-  bytes_per_frame: 768
-  compression: aes-128-cbc
-- type_byte: 12
-  name: Scroll
-  description: Scrolling text/image
-  dimensions:
-  - 16
-  - 16
-  compression: aes-128-cbc
-  header:
-  - offset: 0
-    length: 1
-    name: type
-    value: 12
-  - offset: 1
-    length: 1
-    name: scroll_mode
-    description: 0=left, 1=right, or ScrollModeEnum value
-  - offset: 2
-    length: 1
-    name: speed_hi
-  - offset: 3
-    length: 1
-    name: speed_lo
-  - offset: 4
-    length: -1
-    name: encrypted_data
-    description: AES-128-CBC encrypted scroll bitmap (hardcoded key)
-  notes: 'Corrected 2026-07: header order is [12, scroll_mode, speed_hi,
-    speed_lo] and the payload is AES-128-CBC, not LZO, per the pixel encoder in
-    the vendor app.
+      '
+  - type_byte: 3
+    name: Pic16
+    description: 16x16 static picture, raw RGB data
+    dimensions:
+    - 16
+    - 16
+    bytes_per_frame: 768
+    compression: none
+    confidence: high
+  - type_byte: 4
+    name: Ani16
+    description: 16x16 animation, raw RGB frames (uncompressed)
+    dimensions:
+    - 16
+    - 16
+    bytes_per_frame: 768
+    compression: none
+    header:
+    - offset: 0
+      length: 1
+      name: type
+      value: 4
+    - offset: 1
+      length: 1
+      name: frame_count
+    - offset: 2
+      length: 1
+      name: speed_hi
+    - offset: 3
+      length: 1
+      name: speed_lo
+    - offset: 4
+      length: -1
+      name: frames
+    notes: 'Header order corrected 2026-07 (count first, then speed), per the pixel
+      encoder in the vendor app.
 
-    '
-- type_byte: 25
-  name: Pixoo64LZO
-  description: 64x64 picture/animation, per-frame LZO compressed
-  dimensions:
-  - 64
-  - 64
-  bytes_per_frame: 12288
-  compression: lzo
-  confidence: high
-  header:
-  - offset: 0
-    length: 1
-    name: type
-    value: 25
-  - offset: 1
-    length: 1
-    name: frame_count
-  - offset: 2
-    length: 1
-    name: speed_hi
-  - offset: 3
-    length: 1
-    name: speed_lo
-  - offset: 4
-    length: 1
-    name: row_cnt
-  - offset: 5
-    length: 1
-    name: col_cnt
-  - offset: 6
-    length: -1
-    name: frames
-    description: 'Each frame: 4-byte LE length prefix + LZO-compressed data'
-  notes: 'Corrected 2026-07: types 25/37 were swapped — type 25 is per-frame
-    LZO (per the pixel encoder in the vendor app); the NDK PixelEncode64 encoding
-    previously described here belongs to type 26.
+      '
+  - type_byte: 8
+    name: Pic16AES
+    description: 16x16 static picture, AES-128-CBC encrypted (hardcoded key/IV
+      compiled into the app — obfuscation, not compression; output is padded to
+      a 16-byte multiple). Corrected 2026-07 from "ZSTD" against the pixel encoder
+      in the vendor app.
+    dimensions:
+    - 16
+    - 16
+    bytes_per_frame: 768
+    compression: aes-128-cbc
+  - type_byte: 9
+    name: Ani16AES
+    description: 16x16 animation, AES-128-CBC encrypted frames (same hardcoded-key
+      mechanism as type 8). Corrected 2026-07 from "ZSTD" per the pixel encoder in
+      the vendor app.
+    dimensions:
+    - 16
+    - 16
+    bytes_per_frame: 768
+    compression: aes-128-cbc
+  - type_byte: 12
+    name: Scroll
+    description: Scrolling text/image
+    dimensions:
+    - 16
+    - 16
+    compression: aes-128-cbc
+    header:
+    - offset: 0
+      length: 1
+      name: type
+      value: 12
+    - offset: 1
+      length: 1
+      name: scroll_mode
+      description: 0=left, 1=right, or ScrollModeEnum value
+    - offset: 2
+      length: 1
+      name: speed_hi
+    - offset: 3
+      length: 1
+      name: speed_lo
+    - offset: 4
+      length: -1
+      name: encrypted_data
+      description: AES-128-CBC encrypted scroll bitmap (hardcoded key)
+    notes: 'Corrected 2026-07: header order is [12, scroll_mode, speed_hi,
+      speed_lo] and the payload is AES-128-CBC, not LZO, per the pixel encoder in
+      the vendor app.
 
-    '
-- type_byte: 26
-  name: Pixoo64Multi
-  description: 64x64 multi-frame animation, NDK-encoded
-  dimensions:
-  - 64
-  - 64
-  bytes_per_frame: 12288
-  compression: ndk_proprietary
-  confidence: medium
-  header:
-  - offset: 0
-    length: 1
-    name: type
-    value: 26
-  - offset: 1
-    length: 1
-    name: frame_count
-  - offset: 2
-    length: 1
-    name: speed_hi
-  - offset: 3
-    length: 1
-    name: speed_lo
-  - offset: 4
-    length: 1
-    name: row_cnt
-  - offset: 5
-    length: 1
-    name: col_cnt
-- type_byte: 37
-  name: Pixoo64ZSTD
-  description: 64x64 picture/animation, ZSTD compressed (single blob)
-  dimensions:
-  - 64
-  - 64
-  bytes_per_frame: 12288
-  compression: zstd
-  confidence: high
-  header:
-  - offset: 0
-    length: 1
-    name: type
-    value: 37
-  - offset: 1
-    length: 1
-    name: frame_count
-  - offset: 2
-    length: 1
-    name: speed_hi
-  - offset: 3
-    length: 1
-    name: speed_lo
-  - offset: 4
-    length: 1
-    name: row_cnt
-  - offset: 5
-    length: 1
-    name: col_cnt
-  - offset: 6
-    length: -1
-    name: data
-    description: 4-byte LE length + single ZSTD-compressed blob + optional
-      trailing text block
-  notes: 'Corrected 2026-07: types 25/37 were swapped — type 37 is ZSTD
-    (per the pixel encoder in the vendor app; 45 if circular), not LZO.
+      '
+  - type_byte: 25
+    name: Pixoo64LZO
+    description: 64x64 picture/animation, per-frame LZO compressed
+    dimensions:
+    - 64
+    - 64
+    bytes_per_frame: 12288
+    compression: lzo
+    confidence: high
+    header:
+    - offset: 0
+      length: 1
+      name: type
+      value: 25
+    - offset: 1
+      length: 1
+      name: frame_count
+    - offset: 2
+      length: 1
+      name: speed_hi
+    - offset: 3
+      length: 1
+      name: speed_lo
+    - offset: 4
+      length: 1
+      name: row_cnt
+    - offset: 5
+      length: 1
+      name: col_cnt
+    - offset: 6
+      length: -1
+      name: frames
+      description: 'Each frame: 4-byte LE length prefix + LZO-compressed data'
+    notes: 'Corrected 2026-07: types 25/37 were swapped — type 25 is per-frame
+      LZO (per the pixel encoder in the vendor app); the NDK PixelEncode64 encoding
+      previously described here belongs to type 26.
 
-    '
-- type_byte: 42
-  name: TempUpload
-  description: Temporary upload encoding (ZSTD compressed, 16x16)
-  dimensions:
-  - 16
-  - 16
-  compression: zstd
-  header:
-  - offset: 0
-    length: 1
-    name: type
-    value: 42
-  - offset: 1
-    length: 1
-    name: frame_count
-  - offset: 2
-    length: 1
-    name: speed_hi
-  - offset: 3
-    length: 1
-    name: speed_lo
-  - offset: 4
-    length: 1
-    name: row_cnt
-  - offset: 5
-    length: 1
-    name: col_cnt
-  - offset: 6
-    length: 4
-    name: text_length
-    endian: little
-  - offset: 10
-    length: -1
-    name: variable
-    description: '[text_data (text_length bytes)] [4-byte LE data_length] [ZSTD-compressed
-      pixel data]'
+      '
+  - type_byte: 26
+    name: Pixoo64Multi
+    description: 64x64 multi-frame animation, NDK-encoded
+    dimensions:
+    - 64
+    - 64
+    bytes_per_frame: 12288
+    compression: ndk_proprietary
+    confidence: medium
+    header:
+    - offset: 0
+      length: 1
+      name: type
+      value: 26
+    - offset: 1
+      length: 1
+      name: frame_count
+    - offset: 2
+      length: 1
+      name: speed_hi
+    - offset: 3
+      length: 1
+      name: speed_lo
+    - offset: 4
+      length: 1
+      name: row_cnt
+    - offset: 5
+      length: 1
+      name: col_cnt
+  - type_byte: 37
+    name: Pixoo64ZSTD
+    description: 64x64 picture/animation, ZSTD compressed (single blob)
+    dimensions:
+    - 64
+    - 64
+    bytes_per_frame: 12288
+    compression: zstd
+    confidence: high
+    header:
+    - offset: 0
+      length: 1
+      name: type
+      value: 37
+    - offset: 1
+      length: 1
+      name: frame_count
+    - offset: 2
+      length: 1
+      name: speed_hi
+    - offset: 3
+      length: 1
+      name: speed_lo
+    - offset: 4
+      length: 1
+      name: row_cnt
+    - offset: 5
+      length: 1
+      name: col_cnt
+    - offset: 6
+      length: -1
+      name: data
+      description: 4-byte LE length + single ZSTD-compressed blob + optional
+        trailing text block
+    notes: 'Corrected 2026-07: types 25/37 were swapped — type 37 is ZSTD
+      (per the pixel encoder in the vendor app; 45 if circular), not LZO.
+
+      '
+  - type_byte: 42
+    name: TempUpload
+    description: Temporary upload encoding (ZSTD compressed, 16x16)
+    dimensions:
+    - 16
+    - 16
+    compression: zstd
+    header:
+    - offset: 0
+      length: 1
+      name: type
+      value: 42
+    - offset: 1
+      length: 1
+      name: frame_count
+    - offset: 2
+      length: 1
+      name: speed_hi
+    - offset: 3
+      length: 1
+      name: speed_lo
+    - offset: 4
+      length: 1
+      name: row_cnt
+    - offset: 5
+      length: 1
+      name: col_cnt
+    - offset: 6
+      length: 4
+      name: text_length
+      endian: little
+    - offset: 10
+      length: -1
+      name: variable
+      description: '[text_data (text_length bytes)] [4-byte LE data_length] [ZSTD-compressed
+        pixel data]'
+
 commands:
   # Divoom's own documented local API on port 80: a plain JSON body whose
   # `Command` names the action, no LocalToken. The `Channel/GetOnOff` this

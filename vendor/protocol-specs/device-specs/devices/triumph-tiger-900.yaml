@@ -74,6 +74,12 @@ device:
         and DealerTool is reported to work on MY2024+ Gen 2 (forum report,
         May 2025) — so the 2020–2023 findings must not be assumed to carry over.
 
+  discovery:
+    none: >
+      Nothing to discover: the ECU is reached through the vehicle's J1962
+      connector. The adapter plugged into it is the discoverable part
+      (obd2-bluetooth-adapter.yaml); this spec starts once a session is
+      already open.
   setup:
     required: false
     confidence: "high"

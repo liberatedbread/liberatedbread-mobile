@@ -172,11 +172,11 @@ device:
         local_name_prefix: "D11"
       notes: "Similar to D110. 1-byte PrintStart; old D11 uses the 2-byte SetPageSize."
 
-  features:
-    - type: "image_upload"
-      max_width: 96
-      max_height: 65535
-      format: "1bit-bitmap"
+features:
+  - type: "image_upload"
+    max_width: 96
+    max_height: 65535
+    format: "1bit-bitmap"
 
 services:
   - uuid: "e7810a71-73ae-499d-8c15-faa9aef0c3f2"

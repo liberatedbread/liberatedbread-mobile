@@ -52,6 +52,11 @@ device:
     dumps (hurzhurz) are archived in the research store -- the stock dumps are
     effectively the only public stock-firmware image.
 
+  discovery:
+    none: >
+      Nothing to discover: the protocol here is a serial link between the
+      controller and its display, reached by wiring an adapter into the
+      harness. There is no radio and no address space to scan.
   setup:
     required: false
     confidence: "medium"
