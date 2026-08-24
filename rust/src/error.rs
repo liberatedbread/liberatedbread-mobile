@@ -173,4 +173,32 @@ pub enum SpecError {
         min: i64,
         max: i64,
     },
+
+    #[error(
+        "parameter '{parameter_name}' declares auto: {role}, which emits values up to {emits}, but type {value_type} holds at most {holds}; every send would fail encoding"
+    )]
+    AutoRoleTooWideForType {
+        parameter_name: String,
+        role: String,
+        value_type: crate::spec::types::ValueType,
+        emits: i64,
+        holds: i64,
+    },
+
+    #[error(
+        "parameter '{parameter_name}' declares auto: {role}, which the encoder fills with a number, but type {value_type} carries no number"
+    )]
+    AutoRoleOnNonNumericType {
+        parameter_name: String,
+        role: String,
+        value_type: crate::spec::types::ValueType,
+    },
+
+    #[error(
+        "parameter '{parameter_name}' declares auto: packet_length, which is patched into a reserved slot, but type {value_type} has no fixed width to reserve"
+    )]
+    AutoLengthOnVariableWidthType {
+        parameter_name: String,
+        value_type: crate::spec::types::ValueType,
+    },
 }
