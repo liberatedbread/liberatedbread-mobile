@@ -171,6 +171,13 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
             a
         }
     };
+    let three = |a: [u8; 3]| {
+        if field.is_big_endian() {
+            [a[2], a[1], a[0]]
+        } else {
+            a
+        }
+    };
     let four = |a: [u8; 4]| {
         if field.is_big_endian() {
             [a[3], a[2], a[1], a[0]]
@@ -193,6 +200,14 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
             Ok(DecodedValue::Int(
                 i32::from_le_bytes(four([slice[0], slice[1], slice[2], slice[3]])) as i64,
             ))
+        }
+        // Three bytes, widened to four so the standard conversion applies.
+        // `three` reorders for a big-endian field exactly as `two`/`four` do,
+        // and the pad byte goes on the END because the result is read
+        // little-endian either way.
+        ValueType::Uint24 => {
+            let [a, b, c] = three([slice[0], slice[1], slice[2]]);
+            Ok(DecodedValue::Uint(u32::from_le_bytes([a, b, c, 0]) as u64))
         }
         ValueType::Uint32 => {
             Ok(DecodedValue::Uint(
@@ -275,6 +290,9 @@ pub(crate) enum TypedParam {
     U8(u8),
     U16(u16),
     U32(u32),
+    /// Three bytes, unsigned — see [`ValueType::Uint24`]. Carried as a u32
+    /// whose top byte is always zero; the emitter drops it.
+    U24(u32),
     I8(i8),
     I16(i16),
     I32(i32),
@@ -717,6 +735,11 @@ pub(crate) fn coerce_param(
         ValueType::Uint32 => u32::try_from(as_int)
             .map(TypedParam::U32)
             .map_err(|_| oor()),
+        ValueType::Uint24 => u32::try_from(as_int)
+            .ok()
+            .filter(|v| *v <= 0xFF_FFFF)
+            .map(TypedParam::U24)
+            .ok_or_else(oor),
         ValueType::Int8 => i8::try_from(as_int).map(TypedParam::I8).map_err(|_| oor()),
         ValueType::Int16 => i16::try_from(as_int)
             .map(TypedParam::I16)
@@ -769,6 +792,17 @@ fn append_typed(bytes: &mut Vec<u8>, val: TypedParam, big_endian: bool) {
         TypedParam::U16(v) => push!(v),
         TypedParam::I16(v) => push!(v),
         TypedParam::U32(v) => push!(v),
+        // The four-byte encoding minus the byte that is always zero: drop
+        // the last for little-endian, the first for big.
+        TypedParam::U24(v) => {
+            let all = if big_endian {
+                v.to_be_bytes()
+            } else {
+                v.to_le_bytes()
+            };
+            let three = if big_endian { &all[1..4] } else { &all[0..3] };
+            bytes.extend_from_slice(three);
+        }
         TypedParam::I32(v) => push!(v),
         // Protobuf base-128 varint: 7 bits per byte, high bit = "more".
         // Byte order is intrinsic, so `big_endian` does not apply.
@@ -907,6 +941,59 @@ mod tests {
         );
     }
 
+    /// The 24-bit width, in the shape the hardware that needs it uses.
+    ///
+    /// A three-byte counter is not a width any language names, which is why
+    /// it was previously typed `bytes` — and a `bytes` field renders as hex,
+    /// so a KingSmith WalkingPad displayed its step count as `4E 12 00`. The
+    /// pad reports distance, steps and elapsed seconds this way; the round
+    /// trip is what says the decoder and the encoder agree about the missing
+    /// fourth byte.
+    #[test]
+    fn a_uint24_field_round_trips_at_its_declared_width() {
+        let field = |endianness: Option<&str>| FormatField {
+            offset: 0,
+            length: 3,
+            name: "steps".into(),
+            field_type: ValueType::Uint24,
+            endianness: endianness.map(str::to_string),
+            ..Default::default()
+        };
+
+        // 4686 steps: the value that used to reach the screen as "4E 12 00".
+        assert_eq!(
+            decode_field(&[0x4E, 0x12, 0x00], &field(None)).unwrap(),
+            DecodedValue::Uint(4686)
+        );
+        // The full range fits, and the byte above it does not.
+        assert_eq!(
+            decode_field(&[0xFF, 0xFF, 0xFF], &field(None)).unwrap(),
+            DecodedValue::Uint(0xFF_FFFF)
+        );
+        assert_eq!(ValueType::Uint24.fixed_byte_size(), Some(3));
+        assert_eq!(ValueType::Uint24.integer_range(), Some((0, 0xFF_FFFF)));
+
+        // Encoding emits three bytes, in the declared order, and refuses a
+        // value that would need a fourth.
+        let mut le = Vec::new();
+        append_typed(
+            &mut le,
+            coerce_param(4686.0, &ValueType::Uint24, "steps").unwrap(),
+            false,
+        );
+        assert_eq!(le, vec![0x4E, 0x12, 0x00]);
+
+        let mut be = Vec::new();
+        append_typed(
+            &mut be,
+            coerce_param(4686.0, &ValueType::Uint24, "steps").unwrap(),
+            true,
+        );
+        assert_eq!(be, vec![0x00, 0x12, 0x4E]);
+
+        assert!(coerce_param(0x100_0000 as f64, &ValueType::Uint24, "steps").is_err());
+    }
+
     /// The same bytes, both ways round, for every multi-byte width.
     ///
     /// `endianness` is a spec key the decoder ignored until recently: six
@@ -953,6 +1040,16 @@ mod tests {
         assert_eq!(
             decode_field(&[0xFF, 0x00], &field(ValueType::Int16, Some("big"))).unwrap(),
             DecodedValue::Int(-256)
+        );
+
+        let three = &[0x01, 0x02, 0x03];
+        assert_eq!(
+            decode_field(three, &field(ValueType::Uint24, None)).unwrap(),
+            DecodedValue::Uint(0x0003_0201)
+        );
+        assert_eq!(
+            decode_field(three, &field(ValueType::Uint24, Some("big"))).unwrap(),
+            DecodedValue::Uint(0x0001_0203)
         );
 
         let four = &[0x01, 0x02, 0x03, 0x04];

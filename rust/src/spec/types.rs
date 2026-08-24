@@ -2029,6 +2029,14 @@ pub enum ValueType {
     Int8,
     Int16,
     Int32,
+    /// Three bytes, unsigned. Not a width any language has a name for, and
+    /// that is exactly why it needs one here: fitness hardware counts
+    /// distance, steps and elapsed seconds in 24 bits because two bytes run
+    /// out at 65535 and four would waste one on a 20-byte notification.
+    /// KingSmith's WalkingPad reports all three that way. Without this the
+    /// fields could only be typed `bytes`, and a `bytes` field renders as
+    /// hex — a step count displayed as `4E 12 00`.
+    Uint24,
     Uint32,
     /// A protobuf base-128 varint (LEB128, unsigned): 1 byte for values
     /// <= 127, more for larger ones. Variable width, so it has no
@@ -2048,6 +2056,7 @@ impl std::fmt::Display for ValueType {
             ValueType::Int8 => write!(f, "int8"),
             ValueType::Int16 => write!(f, "int16"),
             ValueType::Int32 => write!(f, "int32"),
+            ValueType::Uint24 => write!(f, "uint24"),
             ValueType::Uint32 => write!(f, "uint32"),
             ValueType::Varint => write!(f, "varint"),
             ValueType::Bytes => write!(f, "bytes"),
@@ -2063,6 +2072,7 @@ impl ValueType {
         match self {
             ValueType::Bool | ValueType::Uint8 | ValueType::Int8 => Some(1),
             ValueType::Uint16 | ValueType::Int16 => Some(2),
+            ValueType::Uint24 => Some(3),
             ValueType::Int32 | ValueType::Uint32 => Some(4),
             // Varint width depends on the value, so it is not fixed.
             ValueType::Varint | ValueType::Bytes | ValueType::String => None,
@@ -2093,6 +2103,7 @@ impl ValueType {
             ValueType::Int8 => Some((i8::MIN as i64, i8::MAX as i64)),
             ValueType::Int16 => Some((i16::MIN as i64, i16::MAX as i64)),
             ValueType::Int32 => Some((i32::MIN as i64, i32::MAX as i64)),
+            ValueType::Uint24 => Some((0, 0xFF_FFFF)),
             ValueType::Uint32 | ValueType::Varint => Some((0, u32::MAX as i64)),
             ValueType::Bytes | ValueType::String => None,
         }
