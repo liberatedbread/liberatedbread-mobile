@@ -6,6 +6,7 @@ pub mod daniao;
 pub mod daniao_store;
 pub mod daniao_upload;
 pub mod dispatch;
+pub mod fichero_d11;
 pub mod generic;
 pub mod http;
 pub mod idotmatrix;
@@ -114,6 +115,10 @@ const IMAGE_UPLOAD_HANDLERS: &[ImageUploadHandler] = &[
     ImageUploadHandler {
         name: cat_printer::HANDLER_NAME,
         encode: cat_printer::encode_print_job,
+    },
+    ImageUploadHandler {
+        name: fichero_d11::HANDLER_NAME,
+        encode: fichero_d11::encode_print_job,
     },
 ];
 

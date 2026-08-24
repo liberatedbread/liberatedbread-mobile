@@ -1097,6 +1097,61 @@ fn vendored_cat_printer_spec_is_encodable_with_its_declared_bounds() {
     assert_eq!(plan.next_frame_index, 16);
 }
 
+/// The vendored Fichero / AiYin D11 spec now reports its image uploads
+/// encodable.
+///
+/// Same gate as the cat printer above, and the same device-nested tolerance:
+/// this spec declares `features` and `protocol_handler` under `device:` too.
+/// The DTO must carry the handler and the 96-dot printhead bound, and the
+/// REAL spec must encode a job onto the 0x2AF1 write characteristic of the
+/// 0x18F0 service it identifies the printer by — never onto the vendor-app
+/// 0xFF00 service, which carries a write characteristic of its own.
+#[test]
+fn vendored_fichero_d11_spec_is_encodable_with_its_declared_bounds() {
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("fichero-d11-printer.yaml"))
+        .expect("fichero spec should be readable");
+    let dto = load_device_spec(yaml.clone()).expect("fichero spec loads");
+    let img = dto
+        .image_upload
+        .expect("the D11 declares an image_upload feature (under device:)");
+    assert_eq!(img.handler.as_deref(), Some("fichero_d11"));
+    assert!(img.encodable, "fichero_d11 is implemented now");
+    assert_eq!((img.max_width, img.max_height), (Some(96), Some(65535)));
+    assert_eq!(img.format.as_deref(), Some("1bit-bitmap"));
+
+    let plan = encode_image_frame(yaml, 96, 4, vec![0x00; 96 * 4 * 3], 0, 509)
+        .expect("the vendored D11 spec must encode a print job");
+    assert_eq!(plan.service_uuid, "000018f0-0000-1000-8000-00805f9b34fb");
+    assert!(plan
+        .writes
+        .iter()
+        .all(|w| w.characteristic_uuid == "00002af1-0000-1000-8000-00805f9b34fb"));
+    // The stream opens with the AiYin density opcode the documented sequence
+    // starts on, and the seven steps are the logical packet count however
+    // many BLE writes carry them.
+    assert_eq!(
+        &plan.writes[0].bytes[..9],
+        &[0x10, 0xFF, 0x10, 0x00, 0x01, 0x10, 0xFF, 0x84, 0x00]
+    );
+    assert_eq!(plan.next_frame_index, 7);
+    // 96 dots = 12 bytes/row, so the GS v 0 header states 0C 00 rows of 4.
+    let stream: Vec<u8> = plan
+        .writes
+        .iter()
+        .flat_map(|w| w.bytes.iter().copied())
+        .collect();
+    let at = stream
+        .windows(3)
+        .position(|w| w == [0x1D, 0x76, 0x30])
+        .expect("the raster header is in the stream");
+    assert_eq!(
+        &stream[at..at + 8],
+        &[0x1D, 0x76, 0x30, 0x00, 0x0C, 0x00, 0x04, 0x00]
+    );
+}
+
 /// The discovery matchers, against the real catalogue: a platform's service
 /// type belongs to whichever spec the device's TXT records name, and to the
 /// catch-all only when none of them does.

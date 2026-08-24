@@ -55,7 +55,7 @@
 //! them by name the way the other handlers do.
 
 use super::image_upload::{
-    brightness_mask, is_writable, validate_rgb_canvas, MIN_PAYLOAD_PER_WRITE,
+    brightness_mask, is_writable, printhead_row_bytes, validate_rgb_canvas, MIN_PAYLOAD_PER_WRITE,
 };
 use super::{EncodedFrame, EncodedWrite};
 use crate::error::ProtocolError;
@@ -131,7 +131,9 @@ pub fn encode_print_job(
         });
     }
     let tx = resolve_tx_characteristic(spec)?;
-    let row_bytes = row_bytes(spec)?;
+    // 384 dots on every known model; the spec's `image_upload.max_width`
+    // states it.
+    let row_bytes = printhead_row_bytes(spec)?;
 
     let mut stream = Vec::new();
     let mut packets: u32 = 0;
@@ -184,22 +186,6 @@ pub fn encode_print_job(
         })
         .collect();
     Ok(EncodedFrame { writes, packets })
-}
-
-/// Bytes per bitmap row: the spec's declared paper width (`image_upload
-/// .max_width`, 384 dots on every known model) over 8.
-fn row_bytes(spec: &DeviceSpec) -> Result<usize, ProtocolError> {
-    let width = super::image_upload::image_feature(spec)
-        .and_then(|f| f.max_width)
-        .ok_or_else(|| ProtocolError::ImageUploadUnsupported {
-            reason: "spec declares no image_upload.max_width to size the paper by".to_string(),
-        })?;
-    if width == 0 || width % 8 != 0 {
-        return Err(ProtocolError::ImageUploadUnsupported {
-            reason: format!("paper width {width} is not a whole number of 8-dot bytes"),
-        });
-    }
-    Ok(width as usize / 8)
 }
 
 /// The TX channel: the single writable characteristic of the service the

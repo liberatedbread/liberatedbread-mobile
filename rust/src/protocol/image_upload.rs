@@ -267,6 +267,27 @@ pub(crate) fn validate_rgb_canvas(
     Ok(())
 }
 
+/// Bytes per raster row on a fixed-width printhead: the spec's declared
+/// `image_upload.max_width` (the paper width in dots) over 8.
+///
+/// Shared by the two thermal printers, which agree on the derivation and
+/// differ only in what they wrap the rows in — 384 dots on the cat printers,
+/// 96 on the D11. A printhead is a physical width, so a canvas narrower than
+/// it is padded rather than shrinking the row.
+pub(crate) fn printhead_row_bytes(spec: &DeviceSpec) -> Result<usize, ProtocolError> {
+    let width = image_feature(spec)
+        .and_then(|f| f.max_width)
+        .ok_or_else(|| ProtocolError::ImageUploadUnsupported {
+            reason: "spec declares no image_upload.max_width to size the paper by".to_string(),
+        })?;
+    if width == 0 || width % 8 != 0 {
+        return Err(ProtocolError::ImageUploadUnsupported {
+            reason: format!("paper width {width} is not a whole number of 8-dot bytes"),
+        });
+    }
+    Ok(width as usize / 8)
+}
+
 /// Row-major brightness mask of an RGB888 canvas: `true` where the pixel's
 /// Rec. 601 luma (`0.299 R + 0.587 G + 0.114 B`) reaches 50% of full scale.
 /// The shared half of 1-bit conversion — what a bright pixel MEANS (a lit
