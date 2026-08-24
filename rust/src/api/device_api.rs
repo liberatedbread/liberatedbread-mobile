@@ -801,31 +801,40 @@ pub fn advertised_resolution(
     manufacturer_data: Vec<(u16, Vec<u8>)>,
 ) -> anyhow::Result<Option<PanelResolutionDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let Some(adv) = spec
+    let Some(feature) = spec
         .features
         .iter()
         .find(|f| f.feature_type == "image_upload")
-        .and_then(|f| f.resolution_advertisement.as_ref())
     else {
         return Ok(None);
     };
-    let max = spec
-        .features
-        .iter()
-        .find(|f| f.feature_type == "image_upload")
-        .and_then(|f| f.max_width.max(f.max_height))
-        .unwrap_or(255);
+    let Some(adv) = feature.resolution_advertisement.as_ref() else {
+        return Ok(None);
+    };
+    // Each axis is checked against its OWN declared bound. This used to take
+    // the larger of the two as one shared ceiling, which quietly let a wide,
+    // short panel report a height it cannot have — a 255×20 strip advertising
+    // height 200 passed, and the canvas came back 200 rows tall.
+    //
+    // 255 is the fallback because these are single advertisement BYTES: a
+    // spec that declares no bound can still be held to what the field can
+    // physically carry.
+    let max_width = feature.max_width.unwrap_or(255);
+    let max_height = feature.max_height.unwrap_or(255);
     let Some((_, bytes)) = manufacturer_data
         .iter()
         .find(|(cid, _)| *cid == adv.company_id)
     else {
         return Ok(None);
     };
-    let read = |off: usize| -> Option<u32> {
+    let read = |off: usize, max: u32| -> Option<u32> {
         let v = *bytes.get(off)? as u32;
         (v >= 1 && v <= max).then_some(v)
     };
-    match (read(adv.width_offset), read(adv.height_offset)) {
+    match (
+        read(adv.width_offset, max_width),
+        read(adv.height_offset, max_height),
+    ) {
         (Some(width), Some(height)) => Ok(Some(PanelResolutionDto { width, height })),
         _ => Ok(None),
     }
@@ -5167,6 +5176,31 @@ device:
             advertised_resolution(plain, vec![(0x61EA, vec![0, 0, 0, 0, 20, 20])])
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    /// Each axis is held to its OWN declared bound. A shared ceiling (the
+    /// larger of the two) let a wide, short panel advertise a height it
+    /// cannot have, and the canvas opened that many rows tall.
+    #[test]
+    fn advertised_resolution_bounds_each_axis_separately() {
+        let short = IMAGE_SPEC_YAML.replace("max_height: 255", "max_height: 20");
+        // Height 20 is within the panel's own bound: still resolves.
+        let ok = advertised_resolution(
+            short.clone(),
+            vec![(0x61EA, vec![0, 0, 0, 0, 200, 20, 0, 0])],
+        )
+        .unwrap()
+        .expect("a 200x20 strip is what this spec now describes");
+        assert_eq!((ok.width, ok.height), (200, 20));
+
+        // Height 200 exceeds it — and must not be waved through on the
+        // strength of the WIDTH bound being 255.
+        assert!(
+            advertised_resolution(short, vec![(0x61EA, vec![0, 0, 0, 0, 200, 200, 0, 0])])
+                .unwrap()
+                .is_none(),
+            "a height above max_height is not a height"
         );
     }
 
