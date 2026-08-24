@@ -76,6 +76,11 @@ class FakeBleService implements BleService {
   final List<String> connectedIds = [];
   final List<String> disconnectedIds = [];
   final List<({String deviceId, String charUuid, List<int> value})> writes = [];
+
+  /// Every characteristic read, in call order — the read half of [writes].
+  /// Some rules are about a read NOT happening (a notify-only characteristic
+  /// must not be read), which is unobservable without this.
+  final List<({String deviceId, String charUuid})> reads = [];
   int stopScanCount = 0;
   int rssiReadCount = 0;
 
@@ -184,6 +189,7 @@ class FakeBleService implements BleService {
     String serviceUuid,
     String charUuid,
   ) async {
+    reads.add((deviceId: deviceId, charUuid: charUuid));
     if (readError != null) throw readError!;
     return readValues[charUuid.toLowerCase()] ?? const [0];
   }

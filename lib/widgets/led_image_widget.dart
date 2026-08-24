@@ -501,10 +501,22 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   void dispose() {
     _previewTimer?.cancel();
     _deviceCycleTimer?.cancel();
+    // The effect-list diagnostic holds a notify subscription open for 2.5 s
+    // to collect the device's reply burst. Left alone it outlives the
+    // screen: the widget is gone, the subscription is not, and the log line
+    // lands for a device nobody is looking at. Both are cancelled here.
+    _effectListTimer?.cancel();
+    unawaited(_effectListSub?.cancel() ?? Future<void>.value());
+    _effectListSub = null;
     _streaming = false;
     _streamEpoch++;
     super.dispose();
   }
+
+  /// The effect-list diagnostic's in-flight subscription and its settle
+  /// timer, held so [dispose] can end them. Null whenever none is running.
+  StreamSubscription<List<int>>? _effectListSub;
+  Timer? _effectListTimer;
 
   /// Drive the on-device cycle in-app: step [cids]/[slots] with `play_effect`
   /// every [frameMs] (floored to [_minDeviceCycleMs]) so the panel animates
@@ -1237,6 +1249,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final codec = ref.read(specCodecProvider);
     final deviceId = widget.deviceId;
     final entries = <int, EffectEntryDto>{};
+    // A previous run's subscription would otherwise be orphaned by this one.
+    unawaited(_effectListSub?.cancel() ?? Future<void>.value());
+    _effectListTimer?.cancel();
     final sub = ble
         .subscribeCharacteristic(deviceId, serviceUuid, respChar)
         .listen((bytes) async {
@@ -1246,20 +1261,20 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         entries[e.cid] = e;
       }
     });
+    _effectListSub = sub;
     await _sendFramedCommand(specYaml, serviceUuid, charUuid, 'effect_list');
-    unawaited(
-      Future<void>.delayed(const Duration(milliseconds: 2500)).then((_) {
-        unawaited(sub.cancel());
-        final summary = entries.values
-            .map((e) => 'cid=${e.cid} type=${e.type} diy=${e.diy}')
-            .join(', ');
-        Log.ble.info(
-          '$deviceId effect list (${entries.length}): '
-          '${summary.isEmpty ? '<none decoded>' : summary} — saved cid '
-          '$expectCid ${entries.containsKey(expectCid) ? 'REGISTERED' : 'MISSING'}',
-        );
-      }),
-    );
+    _effectListTimer = Timer(const Duration(milliseconds: 2500), () {
+      unawaited(sub.cancel());
+      if (identical(_effectListSub, sub)) _effectListSub = null;
+      final summary = entries.values
+          .map((e) => 'cid=${e.cid} type=${e.type} diy=${e.diy}')
+          .join(', ');
+      Log.ble.info(
+        '$deviceId effect list (${entries.length}): '
+        '${summary.isEmpty ? '<none decoded>' : summary} — saved cid '
+        '$expectCid ${entries.containsKey(expectCid) ? 'REGISTERED' : 'MISSING'}',
+      );
+    });
   }
 
   /// Store a multi-frame animation as a CYCLE of stored type-3 stills and start

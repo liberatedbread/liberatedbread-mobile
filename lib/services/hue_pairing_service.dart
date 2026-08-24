@@ -74,7 +74,14 @@ class HuePairingService {
     final deadline = clock.now().add(window);
     var attempt = 0;
     var wasCancelled = false;
-    unawaited(cancelled?.then((_) => wasCancelled = true));
+    // onError as well as onValue: a cancellation future that completes with
+    // an error (the caller's own screen tearing down mid-pairing) would
+    // otherwise surface as an unhandled async error from a chain nobody
+    // awaits. Either way the answer is the same — stop polling.
+    unawaited(cancelled?.then(
+      (_) => wasCancelled = true,
+      onError: (Object _) => wasCancelled = true,
+    ));
 
     while (clock.now().isBefore(deadline)) {
       if (wasCancelled) throw PairingCancelledException();
