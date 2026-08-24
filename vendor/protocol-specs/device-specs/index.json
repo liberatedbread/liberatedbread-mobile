@@ -16,6 +16,8 @@
     "category": "sensor",
     "manufacturer": "Airthings ASA",
     "manufacturer_status": "active",
+    "testing_status": "untested",
+    "testing_detail": "capture-verified",
     "schema_version": "2020-12"
   },
   {
@@ -520,6 +522,7 @@
     "category": "printer",
     "manufacturer": "Unbranded / various OEMs",
     "manufacturer_status": "unsupported",
+    "protocol_handler": "cat_printer_mxw01",
     "testing_status": "untested",
     "helpful_urls": [
       {
@@ -562,6 +565,7 @@
     "category": "printer",
     "manufacturer": "Unbranded / Yu Tian (YT01) / various OEMs",
     "manufacturer_status": "unsupported",
+    "protocol_handler": "cat_printer",
     "testing_status": "untested",
     "helpful_urls": [
       {
@@ -1072,6 +1076,7 @@
     "category": "printer",
     "manufacturer": "Xiamen Print Future Technology Co., Ltd",
     "manufacturer_status": "unsupported",
+    "protocol_handler": "fichero_d11",
     "testing_status": "untested",
     "schema_version": "2020-12"
   },
@@ -2949,6 +2954,8 @@
     "manufacturer": "Hangzhou Daniao Technology Co., Ltd (SmartDawn/Minetom store brand)",
     "manufacturer_status": "active",
     "protocol_handler": "daniao_ddp",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "SmartDawn store — smart lights collection",

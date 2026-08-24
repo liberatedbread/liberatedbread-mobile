@@ -2492,24 +2492,24 @@ pub fn roomba_connect_packet(blid: String, password: String) -> Vec<u8> {
 /// publishes locally is not settled, so subscribing to everything is the only
 /// reading that works across all of them.
 pub fn roomba_subscribe_packet(topic: String, packet_id: u16) -> Vec<u8> {
-    crate::protocol::roomba::subscribe_packet(&topic, packet_id)
+    crate::protocol::mqtt::subscribe_packet(&topic, packet_id)
 }
 
 /// MQTT PUBLISH at QoS 0 — the robot does not acknowledge commands.
 pub fn roomba_publish_packet(topic: String, payload: String) -> Vec<u8> {
-    crate::protocol::roomba::publish_packet(&topic, &payload)
+    crate::protocol::mqtt::publish_packet(&topic, &payload)
 }
 
 /// MQTT PINGREQ, sent inside the keepalive window to hold the session open.
 pub fn roomba_pingreq_packet() -> Vec<u8> {
-    crate::protocol::roomba::pingreq_packet()
+    crate::protocol::mqtt::pingreq_packet()
 }
 
 /// MQTT DISCONNECT. Sent on the way out, always: the robot serves one local
 /// client at a time, so a client that just drops the socket leaves the owner
 /// locked out of their own app until the robot notices.
 pub fn roomba_disconnect_packet() -> Vec<u8> {
-    crate::protocol::roomba::disconnect_packet()
+    crate::protocol::mqtt::disconnect_packet()
 }
 
 /// One packet read off the MQTT stream.
@@ -2539,8 +2539,8 @@ pub struct RoombaParsedDto {
 
 /// Parse whole MQTT packets out of whatever has arrived so far.
 pub fn roomba_parse_incoming(buffer: Vec<u8>) -> anyhow::Result<RoombaParsedDto> {
-    use crate::protocol::roomba::{ConnectOutcome, Incoming};
-    let (packets, consumed) = crate::protocol::roomba::parse_incoming(&buffer)?;
+    use crate::protocol::mqtt::{ConnectOutcome, Incoming};
+    let (packets, consumed) = crate::protocol::mqtt::parse_incoming(&buffer)?;
     Ok(RoombaParsedDto {
         consumed: consumed as u32,
         packets: packets

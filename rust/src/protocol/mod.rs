@@ -15,6 +15,7 @@ pub mod image_upload;
 pub mod kasa;
 pub mod ledbadge_bitmap;
 pub mod lifx;
+pub mod mqtt;
 pub mod profiles;
 pub mod rabbit_air;
 pub mod rabbit_air_ble;
