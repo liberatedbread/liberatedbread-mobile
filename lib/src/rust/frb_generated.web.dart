@@ -226,6 +226,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<MatchResult> dco_decode_list_match_result(dynamic raw);
 
   @protected
+  List<NameMatchDto> dco_decode_list_name_match_dto(dynamic raw);
+
+  @protected
   List<NetworkActionDto> dco_decode_list_network_action_dto(dynamic raw);
 
   @protected
@@ -318,6 +321,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TroubleshootingDto> dco_decode_list_troubleshooting_dto(dynamic raw);
 
   @protected
+  List<TxtMatchDto> dco_decode_list_txt_match_dto(dynamic raw);
+
+  @protected
+  List<TxtMatchGroupDto> dco_decode_list_txt_match_group_dto(dynamic raw);
+
+  @protected
   List<WemoAccessPointDto> dco_decode_list_wemo_access_point_dto(dynamic raw);
 
   @protected
@@ -331,6 +340,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MatchResult dco_decode_match_result(dynamic raw);
+
+  @protected
+  NameMatchDto dco_decode_name_match_dto(dynamic raw);
 
   @protected
   NetworkActionDto dco_decode_network_action_dto(dynamic raw);
@@ -539,6 +551,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TuyaBroadcastDto dco_decode_tuya_broadcast_dto(dynamic raw);
+
+  @protected
+  TxtMatchDto dco_decode_txt_match_dto(dynamic raw);
+
+  @protected
+  TxtMatchGroupDto dco_decode_txt_match_group_dto(dynamic raw);
 
   @protected
   int dco_decode_u_16(dynamic raw);
@@ -793,6 +811,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<MatchResult> sse_decode_list_match_result(SseDeserializer deserializer);
 
   @protected
+  List<NameMatchDto> sse_decode_list_name_match_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<NetworkActionDto> sse_decode_list_network_action_dto(
       SseDeserializer deserializer);
 
@@ -902,6 +924,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<TxtMatchDto> sse_decode_list_txt_match_dto(SseDeserializer deserializer);
+
+  @protected
+  List<TxtMatchGroupDto> sse_decode_list_txt_match_group_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<WemoAccessPointDto> sse_decode_list_wemo_access_point_dto(
       SseDeserializer deserializer);
 
@@ -917,6 +946,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MatchResult sse_decode_match_result(SseDeserializer deserializer);
+
+  @protected
+  NameMatchDto sse_decode_name_match_dto(SseDeserializer deserializer);
 
   @protected
   NetworkActionDto sse_decode_network_action_dto(SseDeserializer deserializer);
@@ -1155,6 +1187,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TuyaBroadcastDto sse_decode_tuya_broadcast_dto(SseDeserializer deserializer);
+
+  @protected
+  TxtMatchDto sse_decode_txt_match_dto(SseDeserializer deserializer);
+
+  @protected
+  TxtMatchGroupDto sse_decode_txt_match_group_dto(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_16(SseDeserializer deserializer);
@@ -1427,6 +1465,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<MatchResult> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_name_match_dto(
+      List<NameMatchDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_network_action_dto(
       List<NetworkActionDto> self, SseSerializer serializer);
 
@@ -1542,6 +1584,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<TroubleshootingDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_txt_match_dto(
+      List<TxtMatchDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_txt_match_group_dto(
+      List<TxtMatchGroupDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_wemo_access_point_dto(
       List<WemoAccessPointDto> self, SseSerializer serializer);
 
@@ -1558,6 +1608,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_match_result(MatchResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_name_match_dto(NameMatchDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_network_action_dto(
@@ -1814,6 +1867,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_tuya_broadcast_dto(
       TuyaBroadcastDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_txt_match_dto(TxtMatchDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_txt_match_group_dto(
+      TxtMatchGroupDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_16(int self, SseSerializer serializer);

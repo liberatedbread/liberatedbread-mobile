@@ -1096,3 +1096,77 @@ fn vendored_cat_printer_spec_is_encodable_with_its_declared_bounds() {
     );
     assert_eq!(plan.next_frame_index, 16);
 }
+
+/// The discovery matchers, against the real catalogue: a platform's service
+/// type belongs to whichever spec the device's TXT records name, and to the
+/// catch-all only when none of them does.
+///
+/// This is the bug the ESPHome spec was written for. `_esphomelib._tcp` is
+/// the FIRMWARE's service type, so with ratgdo the only claimant every
+/// ESPHome node on the LAN rendered as a garage-door opener — complete with
+/// open/close controls pointing at entities the node does not have.
+#[test]
+fn vendored_specs_narrow_a_platform_service_type_by_its_txt_records() {
+    use liberated_bread_core::api::device_api::{
+        load_device_spec, match_network_device, NetworkDeviceDto, SpecIdentityDto,
+    };
+    use std::collections::HashMap;
+
+    let identity = |file: &str| {
+        let path = spec_path(file);
+        let yaml =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        SpecIdentityDto::from(&load_device_spec(yaml).unwrap_or_else(|e| panic!("{file}: {e}")))
+    };
+    // Order matters not at all to the rule, but listing the product spec
+    // first proves the catch-all is stepped aside from deliberately rather
+    // than merely out-ranked.
+    let catalogue = vec![identity("ratgdo.yaml"), identity("esphome-device.yaml")];
+
+    let node = |project: &str| NetworkDeviceDto {
+        name: "garage".into(),
+        hostname: Some("garage.local".into()),
+        service_types: vec!["_esphomelib._tcp.local.".into()],
+        ssdp_targets: vec![],
+        answered_lan_protocols: vec![],
+        port: Some(6053),
+        txt: HashMap::from([("project_name".to_string(), project.to_string())]),
+    };
+    let named = |device: NetworkDeviceDto| -> Vec<String> {
+        match_network_device(catalogue.clone(), device)
+            .into_iter()
+            .map(|m| m.device_name)
+            .collect()
+    };
+
+    // A ratgdo board: its project_name carries the prefix ratgdo's spec
+    // matches on, so the garage-door spec claims it and the catch-all stands
+    // aside.
+    let ratgdo = named(node("ratgdo.v25iboard_secplus2"));
+    assert!(
+        ratgdo.first().is_some_and(|name| name.contains("ratgdo")),
+        "a ratgdo board must match its own spec first, got {ratgdo:?}"
+    );
+
+    // Any other ESPHome node: ratgdo's TXT condition fails, so it must not
+    // claim the node at all — and the catch-all picks it up instead.
+    let other = named(node("esphome.bedroom_sensor"));
+    assert!(
+        !other.iter().any(|name| name.contains("ratgdo")),
+        "a non-ratgdo ESPHome node must not match the garage-door spec, got {other:?}"
+    );
+    assert!(
+        !other.is_empty(),
+        "the platform catch-all must still recognise the node"
+    );
+
+    // A node publishing no TXT records at all is the same case: unnarrowed,
+    // so the product spec has no evidence and must not claim it.
+    let mut bare = node("");
+    bare.txt.clear();
+    let bare = named(bare);
+    assert!(
+        !bare.iter().any(|name| name.contains("ratgdo")),
+        "no TXT evidence is not evidence, got {bare:?}"
+    );
+}

@@ -53,6 +53,9 @@ class _FakeNetworkScanService implements NetworkScanService {
 }
 
 final _spec = DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallback: false,
+  txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Hue Bridge',
   manufacturer: 'Signify',
@@ -323,6 +326,9 @@ void main() {
     await tester.pumpWidget(_wrap(
       service,
       spec: DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallback: false,
+        txtMatchGroups: const [],
         hiddenEntityNames: const [],
         deviceName: 'Roku External Control Protocol',
         manufacturer: 'Roku / TCL',

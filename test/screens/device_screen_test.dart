@@ -443,6 +443,9 @@ void main() {
   testWidgets('a resolved spec match lands on the saved-device record',
       (tester) async {
     final matched = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Example Smart Bulb',
       manufacturer: 'Acme Corp',
@@ -488,6 +491,9 @@ void main() {
       'a failed connect offers "How to connect" when the catalogue names the '
       'device, and it opens the setup screen', (tester) async {
     final specSpec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Ember Mug',
       manufacturer: 'Ember',
@@ -565,6 +571,9 @@ void main() {
       (tester) async {
     final codec = FakeSpecCodec(
       spec: DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallback: false,
+        txtMatchGroups: const [],
         hiddenEntityNames: const [],
         deviceName: 'Unknown',
         manufacturer: 'Unknown',

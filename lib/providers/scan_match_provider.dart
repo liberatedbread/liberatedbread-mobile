@@ -234,6 +234,9 @@ final specIdentitiesProvider =
         ssdpSearchTargets: p.spec.ssdpSearchTargets,
         lanProtocols: p.spec.lanProtocols,
         defaultPort: p.spec.defaultPort,
+        nameMatchers: p.spec.nameMatchers,
+        txtMatchGroups: p.spec.txtMatchGroups,
+        platformFallback: p.spec.platformFallback,
       ),
   ];
 });

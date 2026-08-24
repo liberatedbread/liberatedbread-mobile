@@ -106,6 +106,15 @@ pub struct DeviceSpecDto {
     pub lan_protocols: Vec<String>,
     /// Default TCP port for the device's local API.
     pub default_port: Option<u16>,
+    /// BLE local-name matchers from the `discovery` block — the regex and
+    /// substring comparisons `local_name_prefixes`/`local_names` cannot
+    /// express. See [`NameMatchDto`].
+    pub name_matchers: Vec<NameMatchDto>,
+    /// TXT-record conditions narrowing this spec's mDNS service type from a
+    /// platform to this device. See [`TxtMatchGroupDto`].
+    pub txt_match_groups: Vec<TxtMatchGroupDto>,
+    /// Whether this spec is its service type's catch-all.
+    pub platform_fallback: bool,
     pub services: Vec<ServiceDto>,
     /// Named consumer-side protocol handler (`daniao_ddp`, `rabbit_air`,
     /// `roomba_mqtt`, …), when the spec declares one. Surfaced so Dart can
@@ -636,6 +645,10 @@ pub struct NetworkDeviceDto {
     pub answered_lan_protocols: Vec<String>,
     /// Port the advertised service listens on.
     pub port: Option<u16>,
+    /// The device's mDNS TXT records, as published. What tells one ESPHome
+    /// node from another — the platform's service type is identical across
+    /// every board it ever flashed.
+    pub txt: std::collections::HashMap<String, String>,
 }
 
 /// The identifying fields of a spec, without the services, characteristics and
@@ -685,6 +698,20 @@ pub struct SpecIdentityDto {
     /// Default TCP port. The weakest network signal by far -- port 80 says
     /// nothing -- so it only ever ranks, never identifies.
     pub default_port: Option<u16>,
+    /// BLE local-name matchers from the spec's `discovery` block, for the
+    /// comparisons `local_name_prefixes`/`local_names` cannot express: the
+    /// regex a security advisory hangs on, the substring an OBD adapter is
+    /// known by. Matched alongside those two, into the same name axis.
+    pub name_matchers: Vec<NameMatchDto>,
+    /// TXT-record conditions that narrow this spec's mDNS service type from a
+    /// PLATFORM to this device. Any group holding admits the service type;
+    /// declaring groups that all fail withholds it — which is what stops
+    /// ratgdo claiming every ESPHome node on the LAN.
+    pub txt_match_groups: Vec<TxtMatchGroupDto>,
+    /// This spec is its service type's catch-all: it claims the type only
+    /// when no narrowed spec did (esphome-device). See
+    /// [`match_network_device`].
+    pub platform_fallback: bool,
 }
 
 /// One spec that a scanned device might be, and why we think so.
@@ -872,6 +899,9 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
             ssdp_search_targets: spec.ssdp_search_targets.clone(),
             lan_protocols: spec.lan_protocols.clone(),
             default_port: spec.default_port,
+            name_matchers: spec.name_matchers.clone(),
+            txt_match_groups: spec.txt_match_groups.clone(),
+            platform_fallback: spec.platform_fallback,
         }
     }
 }
@@ -935,6 +965,53 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .and_then(|i| i.lan_protocols.clone())
                 .unwrap_or_default(),
             default_port: ident.and_then(|i| i.default_port),
+            name_matchers: spec
+                .device
+                .discovery_name_matchers()
+                .into_iter()
+                .flat_map(|m| {
+                    // The schema's default when a matcher states no `match`:
+                    // a prefix, the comparison the plain lists already make.
+                    // A `values` list flattens to one matcher per needle —
+                    // they are alternatives, which is what the name axis
+                    // already means.
+                    let kind = m.kind.clone().unwrap_or_else(|| "prefix".to_string());
+                    m.needles()
+                        .into_iter()
+                        .map(move |value| NameMatchDto {
+                            kind: kind.clone(),
+                            value,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect(),
+            // Both narrowing rules are per service type, and the only one
+            // this identity can match on is its own — so they are resolved
+            // against it here rather than carried across the FFI and
+            // re-associated by every caller. A group or a catch-all flag
+            // that names a DIFFERENT service type governs a match this
+            // build does not make, and is dropped rather than misapplied.
+            txt_match_groups: spec
+                .device
+                .mdns_txt_groups()
+                .into_iter()
+                .filter(|(service_type, _)| governs_own_type(service_type.as_deref(), ident))
+                .map(|(_, conditions)| TxtMatchGroupDto {
+                    conditions: conditions
+                        .into_iter()
+                        .map(|c| TxtMatchDto {
+                            key: c.key,
+                            kind: c.kind.unwrap_or_else(|| "exact".to_string()),
+                            value: c.value,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            platform_fallback: spec
+                .device
+                .mdns_fallback_types()
+                .iter()
+                .any(|service_type| governs_own_type(service_type.as_deref(), ident)),
             services: spec.services.iter().map(ServiceDto::from).collect(),
             protocol_handler: spec.protocol_handler.clone(),
             entities,
@@ -3082,6 +3159,135 @@ fn name_has_prefix(value: &str, prefix: &str) -> bool {
             .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
+/// One `discovery.methods[].ble.local_name` matcher, flattened for the FFI.
+///
+/// The schema's four comparisons against an advertised BLE local name, of
+/// which only `prefix` and `exact` had code behind them before — the rest
+/// lived in the catalogue as documentation, which is how a renamed HC-05
+/// skimmer walked past the malicious-device warning its spec declares.
+#[derive(Debug, Clone)]
+pub struct NameMatchDto {
+    /// `prefix` | `exact` | `contains` | `regex`. Carried verbatim: a value
+    /// this build does not know never matches, rather than falling back to a
+    /// looser comparison than the spec asked for.
+    pub kind: String,
+    pub value: String,
+}
+
+/// One condition on a device's mDNS TXT records, flattened for the FFI.
+#[derive(Debug, Clone)]
+pub struct TxtMatchDto {
+    pub key: String,
+    /// `exact` | `prefix` | `contains` | `regex` | `present` | `absent`.
+    pub kind: String,
+    /// Absent for `present`/`absent`, which test the key itself.
+    pub value: Option<String>,
+}
+
+/// One AND-group of TXT conditions. A spec is satisfied when ANY group holds;
+/// a struct rather than a bare `Vec<Vec<_>>` because the FFI has no nesting.
+#[derive(Debug, Clone)]
+pub struct TxtMatchGroupDto {
+    pub conditions: Vec<TxtMatchDto>,
+}
+
+/// Compiled regexes, keyed by pattern.
+///
+/// Matching runs per newly-seen device across the whole catalogue, so the
+/// dozen-odd regex specs would otherwise recompile on every scan tick. A
+/// pattern that fails to compile caches its failure too: a malformed spec
+/// must not be retried 137 times a second, and it must never match.
+fn regex_for(pattern: &str) -> Option<std::sync::Arc<regex::Regex>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<Arc<regex::Regex>>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache.lock().ok()?;
+    cache
+        .entry(pattern.to_string())
+        .or_insert_with(|| regex::Regex::new(pattern).ok().map(Arc::new))
+        .clone()
+}
+
+/// Apply one string comparison from the schema's matcher vocabulary.
+///
+/// Case-insensitive for every kind but `regex`, matching [`name_has_prefix`]'s
+/// reasoning: BLE local names and DNS labels are ASCII and vendors are not
+/// consistent about casing. A regex is left exactly as the spec wrote it —
+/// a pattern's own flags (`(?i)`) are the author's to set, and quietly
+/// case-folding one would change what an anchored character class means.
+///
+/// An empty needle is treated as absent rather than as a wildcard, the same
+/// rule an empty prefix gets: a matcher that claims every device is never
+/// what the author meant.
+fn value_matches(kind: &str, needle: &str, haystack: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    match kind {
+        "prefix" => name_has_prefix(haystack, needle),
+        "exact" => haystack.eq_ignore_ascii_case(needle),
+        "contains" => haystack
+            .to_ascii_lowercase()
+            .contains(&needle.to_ascii_lowercase()),
+        "regex" => regex_for(needle).is_some_and(|re| re.is_match(haystack)),
+        // A comparison this build does not implement matches nothing. The
+        // spec asked for something specific; guessing a looser rule is how a
+        // matcher that exists to EXCLUDE devices starts including them.
+        _ => false,
+    }
+}
+
+/// Whether every condition in one AND-group holds against a device's TXT
+/// records. An empty group holds nothing — see [`value_matches`].
+fn txt_group_holds(
+    group: &TxtMatchGroupDto,
+    txt: &std::collections::HashMap<String, String>,
+) -> bool {
+    !group.conditions.is_empty()
+        && group.conditions.iter().all(|condition| {
+            let observed = txt.get(&condition.key);
+            match condition.kind.as_str() {
+                "present" => observed.is_some(),
+                "absent" => observed.is_none(),
+                kind => observed.is_some_and(|value| {
+                    condition
+                        .value
+                        .as_deref()
+                        .is_some_and(|needle| value_matches(kind, needle, value))
+                }),
+            }
+        })
+}
+
+/// Whether the device's TXT records satisfy a spec's mDNS narrowing — any
+/// group holding is enough. A spec that declares none is unnarrowed and
+/// claims its service type outright, which is the historical behaviour.
+fn txt_conditions_hold(
+    groups: &[TxtMatchGroupDto],
+    txt: &std::collections::HashMap<String, String>,
+) -> bool {
+    groups.is_empty() || groups.iter().any(|group| txt_group_holds(group, txt))
+}
+
+/// Whether a discovery method's service type is the one the identification
+/// block declares — the only service type this build matches on.
+///
+/// `None` means the method named none, which the schema reads as the
+/// identification block's own. Compared on the [`normalize_service_type`]
+/// stem, so a trailing dot is not a missed rule.
+fn governs_own_type(
+    method_type: Option<&str>,
+    ident: Option<&crate::spec::types::Identification>,
+) -> bool {
+    let Some(method_type) = method_type else {
+        return true;
+    };
+    ident
+        .and_then(|i| i.mdns_service_type.as_deref())
+        .is_some_and(|own| normalize_service_type(own) == normalize_service_type(method_type))
+}
+
 /// Compare one spec identity against one observation. The single place the
 /// matching rules live — both public matchers go through it, so the post-connect
 /// path and the scan path can never disagree about what "matched" means.
@@ -3106,7 +3312,14 @@ fn match_axes(
         || identity
             .local_names
             .iter()
-            .any(|name| name.eq_ignore_ascii_case(&device.name));
+            .any(|name| name.eq_ignore_ascii_case(&device.name))
+        // The discovery block's own matchers, for the comparisons those two
+        // lists cannot express. Same axis, same weight: a name is a name
+        // however the spec spelled the test.
+        || identity
+            .name_matchers
+            .iter()
+            .any(|m| value_matches(&m.kind, &m.value, &device.name));
 
     // Return the lowercased intersection. Matches the docstring's contract and
     // gives Dart callers a predictable casing. We only allocate the lowercased
@@ -3224,6 +3437,7 @@ fn match_network_axes(
     identity: &SpecIdentityDto,
     device: &NetworkDeviceDto,
     device_types: &[String],
+    narrowed_types: &[String],
 ) -> MatchAxes {
     // A spec that declares nothing about the network cannot match a host on it.
     // Without this, any BLE spec whose local_name_prefix happened to prefix an
@@ -3263,7 +3477,14 @@ fn match_network_axes(
         // interchangeably, and so do devices. Compare on the trimmed stem so a
         // trailing-dot difference is not a missed device.
         let wanted = normalize_service_type(declared);
-        if device_types.contains(&wanted) {
+        // A service type can be a PLATFORM's rather than a product's:
+        // `_esphomelib._tcp` is every ESPHome node ever flashed. Two rules
+        // keep one board's spec from claiming all of them — the spec's own
+        // TXT conditions must hold, and a catch-all spec stands aside for
+        // any narrowed spec whose conditions did.
+        let narrowed_ok = txt_conditions_hold(&identity.txt_match_groups, &device.txt);
+        let fallback_ok = !identity.platform_fallback || !narrowed_types.contains(&wanted);
+        if device_types.contains(&wanted) && narrowed_ok && fallback_ok {
             record(declared, &wanted);
         }
     }
@@ -3424,8 +3645,26 @@ pub fn match_network_device(
         .iter()
         .map(|t| normalize_service_type(t))
         .collect();
+    // Which advertised service types a NARROWED spec claims for this device:
+    // one that declares TXT conditions and whose conditions hold. The
+    // catch-all spec for such a type stands aside — that is what
+    // `platform_fallback` buys, and it is a cross-spec question, so it is
+    // answered here rather than inside the per-identity axes.
+    let narrowed_types: Vec<String> = identities
+        .iter()
+        .filter(|identity| {
+            !identity.platform_fallback
+                && !identity.txt_match_groups.is_empty()
+                && txt_conditions_hold(&identity.txt_match_groups, &device.txt)
+        })
+        .filter_map(|identity| {
+            let declared = identity.mdns_service_type.as_ref()?;
+            let wanted = normalize_service_type(declared);
+            device_types.contains(&wanted).then_some(wanted)
+        })
+        .collect();
     rank_matches(&identities, |identity| {
-        match_network_axes(identity, &device, &device_types)
+        match_network_axes(identity, &device, &device_types, &narrowed_types)
     })
 }
 
@@ -5635,6 +5874,7 @@ http_endpoints:
             ssdp_targets: vec![],
             answered_lan_protocols: vec![],
             port: None,
+            txt: Default::default(),
         }
     }
 
@@ -5673,6 +5913,125 @@ http_endpoints:
             ..anonymous_host()
         };
         assert!(match_network_device(vec![lan_protocol_identity()], device).is_empty());
+    }
+
+    /// The BLE discovery matchers: comparisons the plain name lists cannot
+    /// express, which is why they were worth implementing rather than
+    /// leaving as catalogue documentation.
+    #[test]
+    fn discovery_name_matchers_catch_what_the_plain_lists_cannot() {
+        const YAML: &str = r#"
+device:
+  name: "OBD Adapter"
+  manufacturer: "Generic"
+  manufacturer_status: "active"
+  protocol: "ble"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "contains"
+            value: "OBD"
+"#;
+        let identity = SpecIdentityDto::from(&load_device_spec(YAML.into()).unwrap());
+        assert_eq!(identity.name_matchers.len(), 1);
+        // The whole point: "OBD" sits in the MIDDLE of the advertised name,
+        // so neither a prefix nor a whole-string list would ever see it.
+        let mut device = anonymous_device();
+        device.name = "Vgate iCar OBD BLE".into();
+        let matches = match_scanned_device(vec![identity.clone()], device.clone());
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0].matched_by_name_prefix);
+
+        device.name = "Some Other Dongle".into();
+        assert!(match_scanned_device(vec![identity], device).is_empty());
+    }
+
+    #[test]
+    fn a_regex_matcher_is_anchored_as_the_spec_wrote_it() {
+        // The skimmer spec's shape: a bare factory name is the signal, a
+        // configured one is not, and the anchors are what say so.
+        const YAML: &str = r#"
+device:
+  name: "Suspicious Module"
+  manufacturer: "Unknown"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "warning"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^HC-0[56]$"
+"#;
+        let identity = SpecIdentityDto::from(&load_device_spec(YAML.into()).unwrap());
+        let matched = |name: &str| {
+            let mut device = anonymous_device();
+            device.name = name.into();
+            !match_scanned_device(vec![identity.clone()], device).is_empty()
+        };
+        assert!(matched("HC-05"));
+        assert!(matched("HC-06"));
+        assert!(!matched("HC-05Foo"), "the spec anchored the end");
+        assert!(!matched("MyHC-05"), "the spec anchored the start");
+    }
+
+    #[test]
+    fn a_values_list_matches_any_of_its_needles() {
+        // Eight catalogue entries write `values:` for rebadged families —
+        // Inkbird ships one thermometer under four names.
+        const YAML: &str = r#"
+device:
+  name: "Rebadged Thermometer"
+  manufacturer: "Inkbird"
+  manufacturer_status: "active"
+  protocol: "ble"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "contains"
+            values: ["IBT-", "Inkbird@"]
+"#;
+        let identity = SpecIdentityDto::from(&load_device_spec(YAML.into()).unwrap());
+        assert_eq!(identity.name_matchers.len(), 2, "one matcher per needle");
+        let matched = |name: &str| {
+            let mut device = anonymous_device();
+            device.name = name.into();
+            !match_scanned_device(vec![identity.clone()], device).is_empty()
+        };
+        assert!(matched("IBT-4XS"));
+        assert!(matched("Inkbird@1234"));
+        assert!(!matched("ThermoPro TP357"));
+    }
+
+    #[test]
+    fn a_comparison_this_build_does_not_know_matches_nothing() {
+        // A matcher kind from a newer schema must not silently degrade to a
+        // looser comparison: these matchers exist to EXCLUDE devices, and a
+        // fallback would start including them.
+        const YAML: &str = r#"
+device:
+  name: "Future Device"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "fuzzy"
+            value: "Thing"
+"#;
+        let identity = SpecIdentityDto::from(&load_device_spec(YAML.into()).unwrap());
+        let mut device = anonymous_device();
+        device.name = "Thing".into();
+        assert!(match_scanned_device(vec![identity], device).is_empty());
     }
 
     #[test]

@@ -23,6 +23,9 @@ const _char = '0000fe02-0000-1000-8000-00805f9b34fb';
 // checksum byte, and the shared stop-or-pause opcode whose action byte splits
 // Stop (1) from Pause (2).
 final _treadmillSpec = DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallback: false,
+  txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Test Walking Pad',
   manufacturer: 'Acme Fitness',
@@ -294,6 +297,9 @@ void main() {
     // spellings: the card steps aside and the per-characteristic command
     // widgets below remain the control surface.
     final spec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Odd Treadmill',
       manufacturer: 'Acme Fitness',
@@ -474,6 +480,9 @@ void main() {
     // naming — while ALSO declaring a command called start_belt that the
     // historical name list would pick. The entity binding must win.
     final spec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Keyed Pad',
       manufacturer: 'Acme Fitness',
@@ -559,6 +568,9 @@ void main() {
 /// A treadmill-category spec whose one write characteristic carries [commands]
 /// — the shape most of these tests need with a different command set each.
 DeviceSpecDto _spedSpec(List<CommandDto> commands) => DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Treadmill',
       manufacturer: 'Acme Fitness',

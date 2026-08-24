@@ -38,6 +38,11 @@ class NetworkIdentity {
   final List<String> ssdpTargets;
   final List<String> answeredLanProtocols;
 
+  /// The device's mDNS TXT records. Part of the identity because they are
+  /// part of the match: on a platform service type like `_esphomelib._tcp`
+  /// the TXT records are the only thing that says WHICH device this is.
+  final Map<String, String> txt;
+
   const NetworkIdentity({
     required this.name,
     required this.hostname,
@@ -45,6 +50,7 @@ class NetworkIdentity {
     required this.serviceTypes,
     required this.ssdpTargets,
     required this.answeredLanProtocols,
+    this.txt = const {},
   });
 
   NetworkIdentity.of(NetworkDevice device)
@@ -53,7 +59,8 @@ class NetworkIdentity {
         port = device.port,
         serviceTypes = device.serviceTypes,
         ssdpTargets = device.ssdpTargets,
-        answeredLanProtocols = device.answeredLanProtocols;
+        answeredLanProtocols = device.answeredLanProtocols,
+        txt = device.txt;
 
   @override
   bool operator ==(Object other) =>
@@ -63,7 +70,8 @@ class NetworkIdentity {
       other.port == port &&
       listEquals(other.serviceTypes, serviceTypes) &&
       listEquals(other.ssdpTargets, ssdpTargets) &&
-      listEquals(other.answeredLanProtocols, answeredLanProtocols);
+      listEquals(other.answeredLanProtocols, answeredLanProtocols) &&
+      mapEquals(other.txt, txt);
 
   @override
   int get hashCode => Object.hash(
@@ -96,6 +104,7 @@ final networkGuessProvider = FutureProvider.autoDispose
         ssdpTargets: identity.ssdpTargets,
         answeredLanProtocols: identity.answeredLanProtocols,
         port: identity.port,
+        txt: identity.txt,
       ),
     );
   } catch (e) {

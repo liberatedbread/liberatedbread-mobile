@@ -3570,6 +3570,11 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
         let mut var_ssdpSearchTargets = <Vec<String>>::sse_decode(deserializer);
         let mut var_lanProtocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_defaultPort = <Option<u16>>::sse_decode(deserializer);
+        let mut var_nameMatchers =
+            <Vec<crate::api::device_api::NameMatchDto>>::sse_decode(deserializer);
+        let mut var_txtMatchGroups =
+            <Vec<crate::api::device_api::TxtMatchGroupDto>>::sse_decode(deserializer);
+        let mut var_platformFallback = <bool>::sse_decode(deserializer);
         let mut var_services = <Vec<crate::api::device_api::ServiceDto>>::sse_decode(deserializer);
         let mut var_protocolHandler = <Option<String>>::sse_decode(deserializer);
         let mut var_entities = <Vec<crate::api::device_api::EntityDto>>::sse_decode(deserializer);
@@ -3598,6 +3603,9 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             ssdp_search_targets: var_ssdpSearchTargets,
             lan_protocols: var_lanProtocols,
             default_port: var_defaultPort,
+            name_matchers: var_nameMatchers,
+            txt_match_groups: var_txtMatchGroups,
+            platform_fallback: var_platformFallback,
             services: var_services,
             protocol_handler: var_protocolHandler,
             entities: var_entities,
@@ -4155,6 +4163,20 @@ impl SseDecode for Vec<crate::api::device_api::MatchResult> {
     }
 }
 
+impl SseDecode for Vec<crate::api::device_api::NameMatchDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::NameMatchDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::device_api::NetworkActionDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4517,6 +4539,34 @@ impl SseDecode for Vec<crate::api::device_api::TroubleshootingDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::device_api::TxtMatchDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::TxtMatchDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::TxtMatchGroupDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::TxtMatchGroupDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::device_api::WemoAccessPointDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4587,6 +4637,18 @@ impl SseDecode for crate::api::device_api::MatchResult {
     }
 }
 
+impl SseDecode for crate::api::device_api::NameMatchDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_kind = <String>::sse_decode(deserializer);
+        let mut var_value = <String>::sse_decode(deserializer);
+        return crate::api::device_api::NameMatchDto {
+            kind: var_kind,
+            value: var_value,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::NetworkActionDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4639,6 +4701,7 @@ impl SseDecode for crate::api::device_api::NetworkDeviceDto {
         let mut var_ssdpTargets = <Vec<String>>::sse_decode(deserializer);
         let mut var_answeredLanProtocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_port = <Option<u16>>::sse_decode(deserializer);
+        let mut var_txt = <std::collections::HashMap<String, String>>::sse_decode(deserializer);
         return crate::api::device_api::NetworkDeviceDto {
             name: var_name,
             hostname: var_hostname,
@@ -4646,6 +4709,7 @@ impl SseDecode for crate::api::device_api::NetworkDeviceDto {
             ssdp_targets: var_ssdpTargets,
             answered_lan_protocols: var_answeredLanProtocols,
             port: var_port,
+            txt: var_txt,
         };
     }
 }
@@ -5510,6 +5574,11 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
         let mut var_ssdpSearchTargets = <Vec<String>>::sse_decode(deserializer);
         let mut var_lanProtocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_defaultPort = <Option<u16>>::sse_decode(deserializer);
+        let mut var_nameMatchers =
+            <Vec<crate::api::device_api::NameMatchDto>>::sse_decode(deserializer);
+        let mut var_txtMatchGroups =
+            <Vec<crate::api::device_api::TxtMatchGroupDto>>::sse_decode(deserializer);
+        let mut var_platformFallback = <bool>::sse_decode(deserializer);
         return crate::api::device_api::SpecIdentityDto {
             device_name: var_deviceName,
             manufacturer: var_manufacturer,
@@ -5527,6 +5596,9 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
             ssdp_search_targets: var_ssdpSearchTargets,
             lan_protocols: var_lanProtocols,
             default_port: var_defaultPort,
+            name_matchers: var_nameMatchers,
+            txt_match_groups: var_txtMatchGroups,
+            platform_fallback: var_platformFallback,
         };
     }
 }
@@ -5633,6 +5705,31 @@ impl SseDecode for crate::api::device_api::TuyaBroadcastDto {
             version: var_version,
             product_key: var_productKey,
             encrypted: var_encrypted,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::TxtMatchDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_key = <String>::sse_decode(deserializer);
+        let mut var_kind = <String>::sse_decode(deserializer);
+        let mut var_value = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::TxtMatchDto {
+            key: var_key,
+            kind: var_kind,
+            value: var_value,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::TxtMatchGroupDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_conditions =
+            <Vec<crate::api::device_api::TxtMatchDto>>::sse_decode(deserializer);
+        return crate::api::device_api::TxtMatchGroupDto {
+            conditions: var_conditions,
         };
     }
 }
@@ -6289,6 +6386,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DeviceSpecDto {
             self.ssdp_search_targets.into_into_dart().into_dart(),
             self.lan_protocols.into_into_dart().into_dart(),
             self.default_port.into_into_dart().into_dart(),
+            self.name_matchers.into_into_dart().into_dart(),
+            self.txt_match_groups.into_into_dart().into_dart(),
+            self.platform_fallback.into_into_dart().into_dart(),
             self.services.into_into_dart().into_dart(),
             self.protocol_handler.into_into_dart().into_dart(),
             self.entities.into_into_dart().into_dart(),
@@ -6811,6 +6911,27 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::MatchResult>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::NameMatchDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.kind.into_into_dart().into_dart(),
+            self.value.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::NameMatchDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::NameMatchDto>
+    for crate::api::device_api::NameMatchDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::NameMatchDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkActionDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -6870,6 +6991,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkDeviceDto 
             self.ssdp_targets.into_into_dart().into_dart(),
             self.answered_lan_protocols.into_into_dart().into_dart(),
             self.port.into_into_dart().into_dart(),
+            self.txt.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -7616,6 +7738,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::SpecIdentityDto {
             self.ssdp_search_targets.into_into_dart().into_dart(),
             self.lan_protocols.into_into_dart().into_dart(),
             self.default_port.into_into_dart().into_dart(),
+            self.name_matchers.into_into_dart().into_dart(),
+            self.txt_match_groups.into_into_dart().into_dart(),
+            self.platform_fallback.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -7792,6 +7917,45 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::TuyaBroadcastDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::TxtMatchDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.key.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.value.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::TxtMatchDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::TxtMatchDto>
+    for crate::api::device_api::TxtMatchDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::TxtMatchDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::TxtMatchGroupDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [self.conditions.into_into_dart().into_dart()].into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::TxtMatchGroupDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::TxtMatchGroupDto>
+    for crate::api::device_api::TxtMatchGroupDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::TxtMatchGroupDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::WemoAccessPointDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -7957,6 +8121,12 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
         <Vec<String>>::sse_encode(self.ssdp_search_targets, serializer);
         <Vec<String>>::sse_encode(self.lan_protocols, serializer);
         <Option<u16>>::sse_encode(self.default_port, serializer);
+        <Vec<crate::api::device_api::NameMatchDto>>::sse_encode(self.name_matchers, serializer);
+        <Vec<crate::api::device_api::TxtMatchGroupDto>>::sse_encode(
+            self.txt_match_groups,
+            serializer,
+        );
+        <bool>::sse_encode(self.platform_fallback, serializer);
         <Vec<crate::api::device_api::ServiceDto>>::sse_encode(self.services, serializer);
         <Option<String>>::sse_encode(self.protocol_handler, serializer);
         <Vec<crate::api::device_api::EntityDto>>::sse_encode(self.entities, serializer);
@@ -8337,6 +8507,16 @@ impl SseEncode for Vec<crate::api::device_api::MatchResult> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::NameMatchDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::NameMatchDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::device_api::NetworkActionDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -8607,6 +8787,26 @@ impl SseEncode for Vec<crate::api::device_api::TroubleshootingDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::TxtMatchDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::TxtMatchDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::TxtMatchGroupDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::TxtMatchGroupDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::device_api::WemoAccessPointDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -8669,6 +8869,14 @@ impl SseEncode for crate::api::device_api::MatchResult {
     }
 }
 
+impl SseEncode for crate::api::device_api::NameMatchDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.kind, serializer);
+        <String>::sse_encode(self.value, serializer);
+    }
+}
+
 impl SseEncode for crate::api::device_api::NetworkActionDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -8708,6 +8916,7 @@ impl SseEncode for crate::api::device_api::NetworkDeviceDto {
         <Vec<String>>::sse_encode(self.ssdp_targets, serializer);
         <Vec<String>>::sse_encode(self.answered_lan_protocols, serializer);
         <Option<u16>>::sse_encode(self.port, serializer);
+        <std::collections::HashMap<String, String>>::sse_encode(self.txt, serializer);
     }
 }
 
@@ -9335,6 +9544,12 @@ impl SseEncode for crate::api::device_api::SpecIdentityDto {
         <Vec<String>>::sse_encode(self.ssdp_search_targets, serializer);
         <Vec<String>>::sse_encode(self.lan_protocols, serializer);
         <Option<u16>>::sse_encode(self.default_port, serializer);
+        <Vec<crate::api::device_api::NameMatchDto>>::sse_encode(self.name_matchers, serializer);
+        <Vec<crate::api::device_api::TxtMatchGroupDto>>::sse_encode(
+            self.txt_match_groups,
+            serializer,
+        );
+        <bool>::sse_encode(self.platform_fallback, serializer);
     }
 }
 
@@ -9410,6 +9625,22 @@ impl SseEncode for crate::api::device_api::TuyaBroadcastDto {
         <Option<String>>::sse_encode(self.version, serializer);
         <Option<String>>::sse_encode(self.product_key, serializer);
         <bool>::sse_encode(self.encrypted, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::TxtMatchDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.key, serializer);
+        <String>::sse_encode(self.kind, serializer);
+        <Option<String>>::sse_encode(self.value, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::TxtMatchGroupDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<crate::api::device_api::TxtMatchDto>>::sse_encode(self.conditions, serializer);
     }
 }
 

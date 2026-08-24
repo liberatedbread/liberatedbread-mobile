@@ -505,6 +505,7 @@ dependencies = [
  "getrandom",
  "indexmap",
  "md-5",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml_ng",

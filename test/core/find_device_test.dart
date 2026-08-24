@@ -30,6 +30,9 @@ DeviceSpecDto _spec({
   required List<CommandDto> commands,
 }) =>
     DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Test Device',
       manufacturer: 'Test Co',

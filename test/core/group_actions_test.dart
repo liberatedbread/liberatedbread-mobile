@@ -65,6 +65,9 @@ DeviceSpecDto _spec({
   List<ServiceDto> services = const [],
 }) =>
     DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Test Device',
       manufacturer: 'Test Co',

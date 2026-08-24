@@ -184,6 +184,9 @@ void main() {
     // `final`, not `const`: DeviceSpecDto.companyIds is a Uint16List, which has
     // no const form.
     final spec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Example Smart Bulb',
       manufacturer: 'Acme',
@@ -394,6 +397,9 @@ void main() {
     // user to infer what the app decided, with nothing to check it against.
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Example Smart Bulb',
       manufacturer: 'Acme Corp',
@@ -448,6 +454,9 @@ void main() {
     const svcUuid = '0000fe00-0000-1000-8000-00805f9b34fb';
     const charUuid = '0000fe02-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Test Walking Pad',
       manufacturer: 'Acme Fitness',
@@ -567,6 +576,9 @@ void main() {
         );
 
     DeviceSpecDto airSpec({String category = 'sensor'}) => DeviceSpecDto(
+          nameMatchers: const [],
+          platformFallback: false,
+          txtMatchGroups: const [],
           hiddenEntityNames: const [],
           deviceName: 'Acme Air Monitor',
           manufacturer: 'Acme Corp',
@@ -796,6 +808,9 @@ void main() {
     // render a stray separator or a placeholder saying nothing.
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Legacy Device',
       manufacturer: 'Acme Corp',
@@ -848,6 +863,9 @@ const _tieSvcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _tieCharUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 final _brandA = DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallback: false,
+  txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Brand A Lights',
   manufacturer: 'Vendor A',
@@ -889,6 +907,9 @@ final _brandA = DeviceSpecDto(
 );
 
 final _brandB = DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallback: false,
+  txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Brand B Lights',
   manufacturer: 'Vendor B',

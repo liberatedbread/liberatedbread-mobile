@@ -63,6 +63,9 @@ IoTDevice _device(
 
 /// The one spec in the catalogue for the ranking tests below.
 final _catalogueSpec = DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallback: false,
+  txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Example Smart Bulb',
   manufacturer: 'Acme',

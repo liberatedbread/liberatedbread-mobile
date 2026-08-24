@@ -17,6 +17,9 @@ import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import '../fakes/fake_spec_codec.dart';
 
 DeviceSpecDto _spec(String name, String manufacturer) => DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: name,
       manufacturer: manufacturer,

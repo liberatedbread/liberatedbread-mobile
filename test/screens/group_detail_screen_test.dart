@@ -33,6 +33,9 @@ const _svc = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _chr = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 final _bulbSpec = DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallback: false,
+  txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Example Smart Bulb',
   manufacturer: 'Acme Corp',
@@ -361,6 +364,9 @@ void main() {
     _prefs = await SharedPreferences.getInstance();
 
     final wifiSpec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Wifi Strip',
       manufacturer: 'Acme Corp',

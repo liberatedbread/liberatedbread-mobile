@@ -3220,8 +3220,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 25)
-      throw Exception('unexpected arr length: expect 25 but see ${arr.length}');
+    if (arr.length != 28)
+      throw Exception('unexpected arr length: expect 28 but see ${arr.length}');
     return DeviceSpecDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
@@ -3243,12 +3243,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       ssdpSearchTargets: dco_decode_list_String(arr[16]),
       lanProtocols: dco_decode_list_String(arr[17]),
       defaultPort: dco_decode_opt_box_autoadd_u_16(arr[18]),
-      services: dco_decode_list_service_dto(arr[19]),
-      protocolHandler: dco_decode_opt_String(arr[20]),
-      entities: dco_decode_list_entity_dto(arr[21]),
-      hiddenEntityNames: dco_decode_list_String(arr[22]),
-      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[23]),
-      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[24]),
+      nameMatchers: dco_decode_list_name_match_dto(arr[19]),
+      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[20]),
+      platformFallback: dco_decode_bool(arr[21]),
+      services: dco_decode_list_service_dto(arr[22]),
+      protocolHandler: dco_decode_opt_String(arr[23]),
+      entities: dco_decode_list_entity_dto(arr[24]),
+      hiddenEntityNames: dco_decode_list_String(arr[25]),
+      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[26]),
+      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[27]),
     );
   }
 
@@ -3626,6 +3629,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<NameMatchDto> dco_decode_list_name_match_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_name_match_dto).toList();
+  }
+
+  @protected
   List<NetworkActionDto> dco_decode_list_network_action_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_network_action_dto).toList();
@@ -3817,6 +3826,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TxtMatchDto> dco_decode_list_txt_match_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_txt_match_dto).toList();
+  }
+
+  @protected
+  List<TxtMatchGroupDto> dco_decode_list_txt_match_group_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_txt_match_group_dto).toList();
+  }
+
+  @protected
   List<WemoAccessPointDto> dco_decode_list_wemo_access_point_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>)
@@ -3863,6 +3884,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  NameMatchDto dco_decode_name_match_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return NameMatchDto(
+      kind: dco_decode_String(arr[0]),
+      value: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
   NetworkActionDto dco_decode_network_action_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -3898,8 +3931,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkDeviceDto dco_decode_network_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return NetworkDeviceDto(
       name: dco_decode_String(arr[0]),
       hostname: dco_decode_opt_String(arr[1]),
@@ -3907,6 +3940,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       ssdpTargets: dco_decode_list_String(arr[3]),
       answeredLanProtocols: dco_decode_list_String(arr[4]),
       port: dco_decode_opt_box_autoadd_u_16(arr[5]),
+      txt: dco_decode_Map_String_String_None(arr[6]),
     );
   }
 
@@ -4548,8 +4582,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 16)
-      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
+    if (arr.length != 19)
+      throw Exception('unexpected arr length: expect 19 but see ${arr.length}');
     return SpecIdentityDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
@@ -4568,6 +4602,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       ssdpSearchTargets: dco_decode_list_String(arr[13]),
       lanProtocols: dco_decode_list_String(arr[14]),
       defaultPort: dco_decode_opt_box_autoadd_u_16(arr[15]),
+      nameMatchers: dco_decode_list_name_match_dto(arr[16]),
+      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[17]),
+      platformFallback: dco_decode_bool(arr[18]),
     );
   }
 
@@ -4654,6 +4691,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       version: dco_decode_opt_String(arr[2]),
       productKey: dco_decode_opt_String(arr[3]),
       encrypted: dco_decode_bool(arr[4]),
+    );
+  }
+
+  @protected
+  TxtMatchDto dco_decode_txt_match_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return TxtMatchDto(
+      key: dco_decode_String(arr[0]),
+      kind: dco_decode_String(arr[1]),
+      value: dco_decode_opt_String(arr[2]),
+    );
+  }
+
+  @protected
+  TxtMatchGroupDto dco_decode_txt_match_group_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 1)
+      throw Exception('unexpected arr length: expect 1 but see ${arr.length}');
+    return TxtMatchGroupDto(
+      conditions: dco_decode_list_txt_match_dto(arr[0]),
     );
   }
 
@@ -4994,6 +5055,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_ssdpSearchTargets = sse_decode_list_String(deserializer);
     var var_lanProtocols = sse_decode_list_String(deserializer);
     var var_defaultPort = sse_decode_opt_box_autoadd_u_16(deserializer);
+    var var_nameMatchers = sse_decode_list_name_match_dto(deserializer);
+    var var_txtMatchGroups = sse_decode_list_txt_match_group_dto(deserializer);
+    var var_platformFallback = sse_decode_bool(deserializer);
     var var_services = sse_decode_list_service_dto(deserializer);
     var var_protocolHandler = sse_decode_opt_String(deserializer);
     var var_entities = sse_decode_list_entity_dto(deserializer);
@@ -5022,6 +5086,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         ssdpSearchTargets: var_ssdpSearchTargets,
         lanProtocols: var_lanProtocols,
         defaultPort: var_defaultPort,
+        nameMatchers: var_nameMatchers,
+        txtMatchGroups: var_txtMatchGroups,
+        platformFallback: var_platformFallback,
         services: var_services,
         protocolHandler: var_protocolHandler,
         entities: var_entities,
@@ -5519,6 +5586,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<NameMatchDto> sse_decode_list_name_match_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <NameMatchDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_name_match_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<NetworkActionDto> sse_decode_list_network_action_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -5859,6 +5939,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TxtMatchDto> sse_decode_list_txt_match_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TxtMatchDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_txt_match_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<TxtMatchGroupDto> sse_decode_list_txt_match_group_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TxtMatchGroupDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_txt_match_group_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<WemoAccessPointDto> sse_decode_list_wemo_access_point_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -5909,6 +6015,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  NameMatchDto sse_decode_name_match_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_kind = sse_decode_String(deserializer);
+    var var_value = sse_decode_String(deserializer);
+    return NameMatchDto(kind: var_kind, value: var_value);
+  }
+
+  @protected
   NetworkActionDto sse_decode_network_action_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_role = sse_decode_String(deserializer);
@@ -5956,13 +6070,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_ssdpTargets = sse_decode_list_String(deserializer);
     var var_answeredLanProtocols = sse_decode_list_String(deserializer);
     var var_port = sse_decode_opt_box_autoadd_u_16(deserializer);
+    var var_txt = sse_decode_Map_String_String_None(deserializer);
     return NetworkDeviceDto(
         name: var_name,
         hostname: var_hostname,
         serviceTypes: var_serviceTypes,
         ssdpTargets: var_ssdpTargets,
         answeredLanProtocols: var_answeredLanProtocols,
-        port: var_port);
+        port: var_port,
+        txt: var_txt);
   }
 
   @protected
@@ -6725,6 +6841,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_ssdpSearchTargets = sse_decode_list_String(deserializer);
     var var_lanProtocols = sse_decode_list_String(deserializer);
     var var_defaultPort = sse_decode_opt_box_autoadd_u_16(deserializer);
+    var var_nameMatchers = sse_decode_list_name_match_dto(deserializer);
+    var var_txtMatchGroups = sse_decode_list_txt_match_group_dto(deserializer);
+    var var_platformFallback = sse_decode_bool(deserializer);
     return SpecIdentityDto(
         deviceName: var_deviceName,
         manufacturer: var_manufacturer,
@@ -6741,7 +6860,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         mdnsServiceType: var_mdnsServiceType,
         ssdpSearchTargets: var_ssdpSearchTargets,
         lanProtocols: var_lanProtocols,
-        defaultPort: var_defaultPort);
+        defaultPort: var_defaultPort,
+        nameMatchers: var_nameMatchers,
+        txtMatchGroups: var_txtMatchGroups,
+        platformFallback: var_platformFallback);
   }
 
   @protected
@@ -6825,6 +6947,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         version: var_version,
         productKey: var_productKey,
         encrypted: var_encrypted);
+  }
+
+  @protected
+  TxtMatchDto sse_decode_txt_match_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_key = sse_decode_String(deserializer);
+    var var_kind = sse_decode_String(deserializer);
+    var var_value = sse_decode_opt_String(deserializer);
+    return TxtMatchDto(key: var_key, kind: var_kind, value: var_value);
+  }
+
+  @protected
+  TxtMatchGroupDto sse_decode_txt_match_group_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_conditions = sse_decode_list_txt_match_dto(deserializer);
+    return TxtMatchGroupDto(conditions: var_conditions);
   }
 
   @protected
@@ -7137,6 +7276,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.ssdpSearchTargets, serializer);
     sse_encode_list_String(self.lanProtocols, serializer);
     sse_encode_opt_box_autoadd_u_16(self.defaultPort, serializer);
+    sse_encode_list_name_match_dto(self.nameMatchers, serializer);
+    sse_encode_list_txt_match_group_dto(self.txtMatchGroups, serializer);
+    sse_encode_bool(self.platformFallback, serializer);
     sse_encode_list_service_dto(self.services, serializer);
     sse_encode_opt_String(self.protocolHandler, serializer);
     sse_encode_list_entity_dto(self.entities, serializer);
@@ -7504,6 +7646,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_name_match_dto(
+      List<NameMatchDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_name_match_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_network_action_dto(
       List<NetworkActionDto> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -7784,6 +7936,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_txt_match_dto(
+      List<TxtMatchDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_txt_match_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_txt_match_group_dto(
+      List<TxtMatchGroupDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_txt_match_group_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_wemo_access_point_dto(
       List<WemoAccessPointDto> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -7824,6 +7996,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_name_match_dto(NameMatchDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.kind, serializer);
+    sse_encode_String(self.value, serializer);
+  }
+
+  @protected
   void sse_encode_network_action_dto(
       NetworkActionDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -7857,6 +8036,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.ssdpTargets, serializer);
     sse_encode_list_String(self.answeredLanProtocols, serializer);
     sse_encode_opt_box_autoadd_u_16(self.port, serializer);
+    sse_encode_Map_String_String_None(self.txt, serializer);
   }
 
   @protected
@@ -8464,6 +8644,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.ssdpSearchTargets, serializer);
     sse_encode_list_String(self.lanProtocols, serializer);
     sse_encode_opt_box_autoadd_u_16(self.defaultPort, serializer);
+    sse_encode_list_name_match_dto(self.nameMatchers, serializer);
+    sse_encode_list_txt_match_group_dto(self.txtMatchGroups, serializer);
+    sse_encode_bool(self.platformFallback, serializer);
   }
 
   @protected
@@ -8527,6 +8710,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.version, serializer);
     sse_encode_opt_String(self.productKey, serializer);
     sse_encode_bool(self.encrypted, serializer);
+  }
+
+  @protected
+  void sse_encode_txt_match_dto(TxtMatchDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.key, serializer);
+    sse_encode_String(self.kind, serializer);
+    sse_encode_opt_String(self.value, serializer);
+  }
+
+  @protected
+  void sse_encode_txt_match_group_dto(
+      TxtMatchGroupDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_txt_match_dto(self.conditions, serializer);
   }
 
   @protected

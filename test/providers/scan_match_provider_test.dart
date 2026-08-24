@@ -17,6 +17,9 @@ import '../fakes/fake_spec_codec.dart';
 const _svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
 
 final _spec = DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallback: false,
+  txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Example Smart Bulb',
   manufacturer: 'Acme',

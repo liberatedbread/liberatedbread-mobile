@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `governs_own_type`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -1163,6 +1163,18 @@ class DeviceSpecDto {
 
   /// Default TCP port for the device's local API.
   final int? defaultPort;
+
+  /// BLE local-name matchers from the `discovery` block — the regex and
+  /// substring comparisons `local_name_prefixes`/`local_names` cannot
+  /// express. See [`NameMatchDto`].
+  final List<NameMatchDto> nameMatchers;
+
+  /// TXT-record conditions narrowing this spec's mDNS service type from a
+  /// platform to this device. See [`TxtMatchGroupDto`].
+  final List<TxtMatchGroupDto> txtMatchGroups;
+
+  /// Whether this spec is its service type's catch-all.
+  final bool platformFallback;
   final List<ServiceDto> services;
 
   /// Named consumer-side protocol handler (`daniao_ddp`, `rabbit_air`,
@@ -1215,6 +1227,9 @@ class DeviceSpecDto {
     required this.ssdpSearchTargets,
     required this.lanProtocols,
     this.defaultPort,
+    required this.nameMatchers,
+    required this.txtMatchGroups,
+    required this.platformFallback,
     required this.services,
     this.protocolHandler,
     required this.entities,
@@ -1244,6 +1259,9 @@ class DeviceSpecDto {
       ssdpSearchTargets.hashCode ^
       lanProtocols.hashCode ^
       defaultPort.hashCode ^
+      nameMatchers.hashCode ^
+      txtMatchGroups.hashCode ^
+      platformFallback.hashCode ^
       services.hashCode ^
       protocolHandler.hashCode ^
       entities.hashCode ^
@@ -1275,6 +1293,9 @@ class DeviceSpecDto {
           ssdpSearchTargets == other.ssdpSearchTargets &&
           lanProtocols == other.lanProtocols &&
           defaultPort == other.defaultPort &&
+          nameMatchers == other.nameMatchers &&
+          txtMatchGroups == other.txtMatchGroups &&
+          platformFallback == other.platformFallback &&
           services == other.services &&
           protocolHandler == other.protocolHandler &&
           entities == other.entities &&
@@ -2152,6 +2173,36 @@ class MatchResult {
           confidence == other.confidence;
 }
 
+/// One `discovery.methods[].ble.local_name` matcher, flattened for the FFI.
+///
+/// The schema's four comparisons against an advertised BLE local name, of
+/// which only `prefix` and `exact` had code behind them before — the rest
+/// lived in the catalogue as documentation, which is how a renamed HC-05
+/// skimmer walked past the malicious-device warning its spec declares.
+class NameMatchDto {
+  /// `prefix` | `exact` | `contains` | `regex`. Carried verbatim: a value
+  /// this build does not know never matches, rather than falling back to a
+  /// looser comparison than the spec asked for.
+  final String kind;
+  final String value;
+
+  const NameMatchDto({
+    required this.kind,
+    required this.value,
+  });
+
+  @override
+  int get hashCode => kind.hashCode ^ value.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NameMatchDto &&
+          runtimeType == other.runtimeType &&
+          kind == other.kind &&
+          value == other.value;
+}
+
 /// One resolved control action on a network entity.
 class NetworkActionDto {
   /// `turn_on` | `turn_off` | `press` | `set_value` | `select_option` | …
@@ -2295,6 +2346,11 @@ class NetworkDeviceDto {
   /// Port the advertised service listens on.
   final int? port;
 
+  /// The device's mDNS TXT records, as published. What tells one ESPHome
+  /// node from another — the platform's service type is identical across
+  /// every board it ever flashed.
+  final Map<String, String> txt;
+
   const NetworkDeviceDto({
     required this.name,
     this.hostname,
@@ -2302,6 +2358,7 @@ class NetworkDeviceDto {
     required this.ssdpTargets,
     required this.answeredLanProtocols,
     this.port,
+    required this.txt,
   });
 
   @override
@@ -2311,7 +2368,8 @@ class NetworkDeviceDto {
       serviceTypes.hashCode ^
       ssdpTargets.hashCode ^
       answeredLanProtocols.hashCode ^
-      port.hashCode;
+      port.hashCode ^
+      txt.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2323,7 +2381,8 @@ class NetworkDeviceDto {
           serviceTypes == other.serviceTypes &&
           ssdpTargets == other.ssdpTargets &&
           answeredLanProtocols == other.answeredLanProtocols &&
-          port == other.port;
+          port == other.port &&
+          txt == other.txt;
 }
 
 /// A spec-declared control or reading on a network device: what to draw,
@@ -3576,6 +3635,23 @@ class SpecIdentityDto {
   /// nothing -- so it only ever ranks, never identifies.
   final int? defaultPort;
 
+  /// BLE local-name matchers from the spec's `discovery` block, for the
+  /// comparisons `local_name_prefixes`/`local_names` cannot express: the
+  /// regex a security advisory hangs on, the substring an OBD adapter is
+  /// known by. Matched alongside those two, into the same name axis.
+  final List<NameMatchDto> nameMatchers;
+
+  /// TXT-record conditions that narrow this spec's mDNS service type from a
+  /// PLATFORM to this device. Any group holding admits the service type;
+  /// declaring groups that all fail withholds it — which is what stops
+  /// ratgdo claiming every ESPHome node on the LAN.
+  final List<TxtMatchGroupDto> txtMatchGroups;
+
+  /// This spec is its service type's catch-all: it claims the type only
+  /// when no narrowed spec did (esphome-device). See
+  /// [`match_network_device`].
+  final bool platformFallback;
+
   const SpecIdentityDto({
     required this.deviceName,
     required this.manufacturer,
@@ -3593,6 +3669,9 @@ class SpecIdentityDto {
     required this.ssdpSearchTargets,
     required this.lanProtocols,
     this.defaultPort,
+    required this.nameMatchers,
+    required this.txtMatchGroups,
+    required this.platformFallback,
   });
 
   @override
@@ -3612,7 +3691,10 @@ class SpecIdentityDto {
       mdnsServiceType.hashCode ^
       ssdpSearchTargets.hashCode ^
       lanProtocols.hashCode ^
-      defaultPort.hashCode;
+      defaultPort.hashCode ^
+      nameMatchers.hashCode ^
+      txtMatchGroups.hashCode ^
+      platformFallback.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -3634,7 +3716,10 @@ class SpecIdentityDto {
           mdnsServiceType == other.mdnsServiceType &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
           lanProtocols == other.lanProtocols &&
-          defaultPort == other.defaultPort;
+          defaultPort == other.defaultPort &&
+          nameMatchers == other.nameMatchers &&
+          txtMatchGroups == other.txtMatchGroups &&
+          platformFallback == other.platformFallback;
 }
 
 /// The single play-by-cid write for RE-triggering an already stored item.
@@ -3859,6 +3944,55 @@ class TuyaBroadcastDto {
           version == other.version &&
           productKey == other.productKey &&
           encrypted == other.encrypted;
+}
+
+/// One condition on a device's mDNS TXT records, flattened for the FFI.
+class TxtMatchDto {
+  final String key;
+
+  /// `exact` | `prefix` | `contains` | `regex` | `present` | `absent`.
+  final String kind;
+
+  /// Absent for `present`/`absent`, which test the key itself.
+  final String? value;
+
+  const TxtMatchDto({
+    required this.key,
+    required this.kind,
+    this.value,
+  });
+
+  @override
+  int get hashCode => key.hashCode ^ kind.hashCode ^ value.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TxtMatchDto &&
+          runtimeType == other.runtimeType &&
+          key == other.key &&
+          kind == other.kind &&
+          value == other.value;
+}
+
+/// One AND-group of TXT conditions. A spec is satisfied when ANY group holds;
+/// a struct rather than a bare `Vec<Vec<_>>` because the FFI has no nesting.
+class TxtMatchGroupDto {
+  final List<TxtMatchDto> conditions;
+
+  const TxtMatchGroupDto({
+    required this.conditions,
+  });
+
+  @override
+  int get hashCode => conditions.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TxtMatchGroupDto &&
+          runtimeType == other.runtimeType &&
+          conditions == other.conditions;
 }
 
 /// One network out of a Wemo `GetApList` reply.

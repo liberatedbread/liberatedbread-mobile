@@ -146,6 +146,9 @@ void main() {
     // wiring, and an identity written here says exactly which field is
     // expected to do the matching.
     final identity = SpecIdentityDto(
+      nameMatchers: const [],
+      platformFallback: false,
+      txtMatchGroups: const [],
       deviceName: 'Philips Hue Bridge',
       manufacturer: 'Signify',
       localNamePrefixes: const [],
@@ -159,6 +162,7 @@ void main() {
       defaultPort: 80,
     );
     const device = NetworkDeviceDto(
+      txt: {},
       name: 'Philips Hue',
       hostname: 'Philips-hue.local',
       serviceTypes: ['_hue._tcp.local'],

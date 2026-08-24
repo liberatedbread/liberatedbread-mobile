@@ -918,6 +918,141 @@ pub struct DeviceInfo {
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
 
+/// One condition on a device's mDNS TXT records — `identification.mdns_txt_match`
+/// and `discovery.methods[].mdns.txt_match` share this shape and meaning.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct TxtMatch {
+    /// The TXT key, spelled as the device publishes it (case-sensitive).
+    pub key: String,
+    /// `exact` (default) | `prefix` | `contains` | `regex` | `present` |
+    /// `absent`. Unknown spellings are kept verbatim and never match.
+    #[serde(rename = "match", default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub value: Option<String>,
+}
+
+/// A `discovery.methods[].ble.local_name` matcher: how to compare its value
+/// against an advertised BLE local name.
+///
+/// Two spellings, because the catalogue uses both: `value` for one needle
+/// (what the schema documents) and `values` for a list any of which matches
+/// — the form the Inkbird, Gerbing and Omron families are written with,
+/// where a single `contains` needle could not cover their rebadged names.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct NameMatch {
+    /// `prefix` (default) | `exact` | `contains` | `regex`.
+    #[serde(rename = "match", default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub value: Option<String>,
+    #[serde(default)]
+    pub values: Option<Vec<String>>,
+}
+
+impl NameMatch {
+    /// Every needle this matcher offers, singular and plural forms together.
+    pub fn needles(&self) -> Vec<String> {
+        self.value
+            .iter()
+            .cloned()
+            .chain(self.values.iter().flatten().cloned())
+            .filter(|needle| !needle.is_empty())
+            .collect()
+    }
+}
+
+impl DeviceInfo {
+    /// The `discovery.methods` entries, as raw YAML — the block this core
+    /// otherwise preserves unexecuted.
+    fn discovery_methods(&self) -> impl Iterator<Item = &serde_yaml::Value> {
+        self.extensions
+            .get("discovery")
+            .and_then(|d| d.get("methods"))
+            .and_then(|m| m.as_sequence())
+            .into_iter()
+            .flatten()
+    }
+
+    /// Every BLE local-name matcher the discovery block declares (one per
+    /// `ble_scan` method that states a `local_name`). A malformed entry is
+    /// skipped, never fatal — the block is advisory to every other reader.
+    pub fn discovery_name_matchers(&self) -> Vec<NameMatch> {
+        self.discovery_methods()
+            .filter(|m| m.get("type").and_then(|t| t.as_str()) == Some("ble_scan"))
+            .filter_map(|m| m.get("ble")?.get("local_name"))
+            .filter_map(|v| serde_yaml::from_value(v.clone()).ok())
+            .collect()
+    }
+
+    /// The TXT-record condition groups this spec declares, each paired with
+    /// the mDNS service type it governs (`None` = the identification block's
+    /// own `mdns_service_type`).
+    ///
+    /// Narrowing is PER SERVICE TYPE, which is the whole subtlety: the
+    /// ESPHome spec conditions `_http._tcp` on a `config_hash` record while
+    /// claiming `_esphomelib._tcp` outright, and pooling the two would
+    /// silently apply a web-server condition to the native API's service.
+    /// Conditions AND within a group; a device satisfies a service type when
+    /// ANY of its groups holds.
+    pub fn mdns_txt_groups(&self) -> Vec<(Option<String>, Vec<TxtMatch>)> {
+        let mut groups: Vec<(Option<String>, Vec<TxtMatch>)> = Vec::new();
+        if let Some(conditions) = self
+            .identification
+            .as_ref()
+            .and_then(|i| i.mdns_txt_match.as_ref())
+            .filter(|c| !c.is_empty())
+        {
+            groups.push((None, conditions.clone()));
+        }
+        for method in self.discovery_methods() {
+            if method.get("type").and_then(|t| t.as_str()) != Some("mdns") {
+                continue;
+            }
+            let Some(mdns) = method.get("mdns") else {
+                continue;
+            };
+            let Some(conditions) = mdns.get("txt_match") else {
+                continue;
+            };
+            let Ok(parsed) = serde_yaml::from_value::<Vec<TxtMatch>>(conditions.clone()) else {
+                continue;
+            };
+            if parsed.is_empty() {
+                continue;
+            }
+            let service_type = mdns
+                .get("service_type")
+                .and_then(|t| t.as_str())
+                .map(str::to_string);
+            groups.push((service_type, parsed));
+        }
+        groups
+    }
+
+    /// The mDNS service types this spec is the CATCH-ALL for: it claims one
+    /// only when no narrowed spec's conditions held for it
+    /// (`discovery.methods[].mdns.platform_fallback`). `None` in the pair
+    /// means the method stated no service type, so the identification
+    /// block's own applies.
+    pub fn mdns_fallback_types(&self) -> Vec<Option<String>> {
+        self.discovery_methods()
+            .filter(|m| m.get("type").and_then(|t| t.as_str()) == Some("mdns"))
+            .filter_map(|m| m.get("mdns"))
+            .filter(|mdns| {
+                mdns.get("platform_fallback")
+                    .and_then(|f| f.as_bool())
+                    .unwrap_or(false)
+            })
+            .map(|mdns| {
+                mdns.get("service_type")
+                    .and_then(|t| t.as_str())
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+}
+
 /// A named security problem with a device, for the app to warn about rather
 /// than quietly control. Deliberately small: a severity, a one-line summary,
 /// the writeup to link to, and — when the vendor shipped one — how to fix it.
@@ -1082,6 +1217,12 @@ pub struct Identification {
     /// Default TCP port for the device's local API.
     #[serde(default)]
     pub default_port: Option<u16>,
+    /// Conditions on the TXT records of `mdns_service_type` that narrow it
+    /// from a platform to THIS device (ANDed). `_esphomelib._tcp` finds every
+    /// ESPHome node; `project_name` starting `ratgdo.` is what makes one a
+    /// garage-door controller. See [`DeviceInfo::txt_match_groups`].
+    #[serde(default)]
+    pub mdns_txt_match: Option<Vec<TxtMatch>>,
     /// URL scheme of the local API at `default_port` — absent means `http`.
     /// `https` is what authorizes a consumer to open TLS to a LAN address
     /// (the Envoy's 443, SmartCast's 7345), whose certificate is almost
