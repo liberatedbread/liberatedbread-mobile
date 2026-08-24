@@ -545,7 +545,24 @@ abstract class SpecCodec {
     required int sequence,
   });
 
-  /// Encode the BLE writes that persist a multi-frame animation on the device.
+  /// Encode the BLE writes that persist a multi-frame animation as one `.eff`
+  /// container.
+  ///
+  /// **DORMANT — do not wire an "animate" button to this.** On the JY25CUT
+  /// curtain, the only Daniao hardware anyone here has tested, a `.eff`
+  /// container COMMITS and then never registers as a playable effect: the
+  /// upload succeeds, the effect list comes back without it, and nothing
+  /// plays. That is hardware-confirmed, and it is invisible from this side —
+  /// every call here returns a valid-looking plan.
+  ///
+  /// The curtain's real animation path is the cycling-stills loop the LED
+  /// editor already implements: [encodeStoredImage] once per frame, then
+  /// [encodeSetPlaylist] and `play_next`. If you are here because animations
+  /// do not persist, that loop is what to fix — not this.
+  ///
+  /// Kept because the vendor's matrix panels are a different renderer and may
+  /// well play a `.eff`; nobody has captured one. Reaching for it means doing
+  /// that capture first.
   ///
   /// [frames] are the screens in play order, each row-major RGB888
   /// `width * height * 3` bytes, ≤16 colours each. [frameMs] is the editor's
