@@ -8,12 +8,16 @@
 // unavailability behind that, and the errors a headless caller can now reach
 // that a screen's load path used to make impossible.
 
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
+import 'package:liberated_bread_mobile/services/mqtt_session.dart';
 import 'package:liberated_bread_mobile/services/network_command_sender.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_control_service.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
@@ -48,15 +52,21 @@ void main() {
     int? discoveredControlPort = 8060,
     List<String> ssdpTargets = const ['roku:ecp'],
     NetworkCapabilitiesDto? capabilities = rokuCapabilities,
+    int? devicePort,
+    MqttConnect? mqttConnect,
+    Map<String, String> mqttCredentials = const {},
+    SpecCodec? withCodec,
   }) =>
       NetworkCommandSender(
+        mqttConnect: mqttConnect,
+        mqttCredentials: mqttCredentials,
         host: '192.0.2.9',
         discoveredControlPort: discoveredControlPort,
-        devicePort: null,
+        devicePort: devicePort,
         ssdpTargets: ssdpTargets,
         capabilities: capabilities,
         specYaml: 'yaml',
-        codec: codec,
+        codec: withCodec ?? codec,
         http: HttpControlClient(
             httpClient: httpClient ??
                 MockClient((request) async => http.Response('', 200))),
@@ -207,4 +217,145 @@ void main() {
   test('close is safe on a sender that never opened a session', () async {
     await sender().close();
   });
+
+  // ── MQTT ──────────────────────────────────────────────────────────────────
+  // A device whose control surface is its own broker: a Hisense set's remote.
+  // The session is the device's, not the request's — a broker serving one
+  // client at a time is held out by a client that reconnects per keypress.
+
+  group('the mqtt transport', () {
+    late _ScriptedBroker broker;
+    late FakeSpecCodec mqttCodec;
+
+    setUp(() {
+      broker = _ScriptedBroker();
+      mqttCodec = FakeSpecCodec()
+        ..mqttRequest = const MqttRequestDto(
+          topic: '/remoteapp/tv/remote_service/phone/actions/sendkey',
+          payload: 'KEY_POWER',
+        );
+    });
+
+    NetworkCommandSender mqttSender({
+      Map<String, String> credentials = const {
+        'client_id': 'phone',
+        'username': 'hisenseservice',
+        'password': 'multimqttservice',
+      },
+    }) =>
+        sender(
+          withCodec: mqttCodec,
+          devicePort: 36669,
+          mqttCredentials: credentials,
+          mqttConnect: (host, port, timeout) async {
+            scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+            return broker;
+          },
+        );
+
+    test('renders the command and publishes it', () async {
+      final s = mqttSender();
+      addTearDown(s.close);
+
+      await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});
+
+      expect(mqttCodec.mqttRenderCalls.single.commandName, 'press_power');
+      expect(
+        broker.written.last,
+        await mqttCodec.mqttPublishPacket(
+          topic: '/remoteapp/tv/remote_service/phone/actions/sendkey',
+          payload: 'KEY_POWER',
+        ),
+      );
+    });
+
+    test('the stored credentials reach both the session and the renderer',
+        () async {
+      final s = mqttSender();
+      addTearDown(s.close);
+
+      await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});
+
+      expect(mqttCodec.mqttConnectArgs?.clientId, 'phone');
+      expect(mqttCodec.mqttConnectArgs?.username, 'hisenseservice');
+      // The topic is addressed to the client id, so the renderer needs it too.
+      expect(mqttCodec.mqttRenderCalls.single.values['client_id'], 'phone');
+    });
+
+    /// A value the caller set beats a stored credential of the same name:
+    /// the caller is the one operating the control.
+    test('a caller value wins over a stored credential of the same name',
+        () async {
+      final s = mqttSender();
+      addTearDown(s.close);
+
+      await s.sendAction(action('press', 'press_power', transport: 'mqtt'),
+          {'client_id': 'other'});
+      expect(mqttCodec.mqttRenderCalls.single.values['client_id'], 'other');
+    });
+
+    test('the session is opened once and reused across sends', () async {
+      final s = mqttSender();
+      addTearDown(s.close);
+
+      await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});
+      final afterFirst = broker.written.length;
+      await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});
+
+      // One more PUBLISH, no second CONNECT.
+      expect(broker.written.length, afterFirst + 1);
+      expect(broker.connects, 1);
+    });
+
+    /// Every topic is addressed to the client id, so an unpaired device has no
+    /// useful session. Refused by name rather than connecting under a
+    /// generated id, which would be silently unauthorised on a set that pairs.
+    test('an unpaired device says so instead of improvising an identity',
+        () async {
+      final s = mqttSender(credentials: const {});
+      addTearDown(s.close);
+
+      await expectLater(
+        s.sendAction(action('press', 'press_power', transport: 'mqtt'), {}),
+        throwsA(isA<MqttConnectionException>()
+            .having((e) => e.message, 'message', contains('paired'))),
+      );
+    });
+
+    test('closing the sender disconnects the broker', () async {
+      final s = mqttSender();
+      await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});
+
+      await s.close();
+      // DISCONNECT, not a dropped socket: a broker that serves one local
+      // client leaves the owner's own app locked out until it notices.
+      expect(broker.written.last, await mqttCodec.mqttDisconnectPacket());
+      expect(broker.closed, isTrue);
+    });
+  });
+}
+
+/// A scripted broker behind the sender's MQTT socket seam.
+class _ScriptedBroker implements MqttSocket {
+  final _out = StreamController<Uint8List>();
+  final List<List<int>> written = [];
+  var closed = false;
+  var connects = 0;
+
+  @override
+  Stream<Uint8List> get incoming {
+    connects++;
+    return _out.stream;
+  }
+
+  @override
+  void add(List<int> bytes) => written.add(List.of(bytes));
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    if (!_out.isClosed) await _out.close();
+  }
+
+  void send(List<int> bytes) => _out.add(Uint8List.fromList(bytes));
 }

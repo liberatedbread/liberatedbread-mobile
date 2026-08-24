@@ -6,12 +6,13 @@ import '../core/log.dart';
 import 'ecp2_control_service.dart';
 import 'http_control_service.dart';
 import 'kasa_control_service.dart';
+import 'mqtt_session.dart';
 import 'rabbit_air_control_service.dart';
 import 'soap_control_service.dart';
 import 'spec_codec.dart';
 
 /// Sends spec-resolved actions to one network device, over whichever of the
-/// four transports each action declares — the send half of what
+/// five transports each action declares — the send half of what
 /// NetworkDeviceScreen used to do inline, extracted so anything headless (a
 /// group run, a voice intent) can drive a device without building a widget.
 ///
@@ -59,6 +60,18 @@ class NetworkCommandSender {
   final RabbitAirControlClient _rabbitAir;
   final Ecp2ControlService _ecp2Service;
 
+  /// Opens the MQTT session for a device whose commands ride that transport.
+  /// Injected so a test answers from canned bytes; null means the default
+  /// TLS connector.
+  final MqttConnect? _mqttConnect;
+
+  /// Values for the `credential:`-sourced parameters a spec's MQTT commands
+  /// declare — the client id the session connects under, and whatever login
+  /// the broker wants. Empty when the device has not been paired: the render
+  /// then fails by name, which is the honest answer, rather than publishing
+  /// to a half-addressed topic.
+  final Map<String, String> mqttCredentials;
+
   NetworkCommandSender({
     required this.host,
     required this.discoveredControlPort,
@@ -72,7 +85,10 @@ class NetworkCommandSender {
     required KasaControlClient kasa,
     required RabbitAirControlClient rabbitAir,
     required Ecp2ControlService ecp2,
-  })  : _codec = codec,
+    MqttConnect? mqttConnect,
+    this.mqttCredentials = const {},
+  })  : _mqttConnect = mqttConnect,
+        _codec = codec,
         _http = http,
         _soap = soap,
         _kasa = kasa,
@@ -86,6 +102,10 @@ class NetworkCommandSender {
   /// The TP-Link Smart Home port, the fallback when discovery did not carry
   /// one (a manually added device, a mock). Real discovery reports 9999.
   static const kasaPort = 9999;
+
+  /// The MQTT transport constant. A device's own broker, addressed by topic —
+  /// a Hisense set's remote, a Dyson purifier's state.
+  static const mqttTransport = 'mqtt';
 
   /// The Rabbit Air transport constant — encrypted JSON over UDP.
   static const rabbitAirTransport = 'udp';
@@ -116,6 +136,9 @@ class NetworkCommandSender {
   Future<Ecp2Session?>? _ecp2Opening;
   bool _ecp2Unavailable = false;
 
+  /// The MQTT session, for a device whose control surface rides one.
+  MqttSession? _mqtt;
+
   /// Set by [close], so a connect still in flight closes its socket rather
   /// than handing it to nobody.
   bool _closed = false;
@@ -126,7 +149,12 @@ class NetworkCommandSender {
     final session = _ecp2;
     _ecp2 = null;
     _ecp2Opening = null;
+    final mqtt = _mqtt;
+    _mqtt = null;
     await (session?.close() ?? Future<void>.value());
+    // DISCONNECT rather than a dropped socket: a broker that serves one local
+    // client leaves the owner's own app locked out until it notices.
+    await (mqtt?.dispose() ?? Future<void>.value());
   }
 
   /// Whether [action] rides a transport with no read-back coupling. HTTP,
@@ -136,6 +164,7 @@ class NetworkCommandSender {
   static bool isIndependentTransport(NetworkActionDto action) =>
       action.transport == 'http' ||
       action.transport == kasaTransport ||
+      action.transport == mqttTransport ||
       action.transport == rabbitAirTransport;
 
   /// Send one resolved action with [values] as its user-owned parameters,
@@ -156,6 +185,8 @@ class NetworkCommandSender {
         await _sendHttp(action, values);
       case kasaTransport:
         await _sendKasa(action, values);
+      case mqttTransport:
+        await _sendMqtt(action, values);
       case rabbitAirTransport:
         await _sendRabbitAir(action, values, rabbitAirKey);
       default:
@@ -174,6 +205,68 @@ class NetworkCommandSender {
       values: values,
     );
     await sendHttpRequest(request);
+  }
+
+  /// The MQTT send: render the topic and payload from the spec, then publish
+  /// them over a session opened once and held.
+  ///
+  /// The session is the device's, not the request's — a broker that serves one
+  /// client at a time is held out by a client that reconnects per keypress,
+  /// and the keepalive exists so the session survives between them. Closed
+  /// with the sender.
+  Future<void> _sendMqtt(
+      NetworkActionDto action, Map<String, String> values) async {
+    final request = await _codec.renderNetworkMqttCommand(
+      specYaml: specYaml,
+      commandName: action.commandName,
+      // The user's values first, then the stored credentials — a spec that
+      // names a parameter the caller also set means the caller.
+      values: {...mqttCredentials, ...values},
+    );
+    final session = await _openMqtt();
+    await session.publish(request.topic, request.payload);
+  }
+
+  /// The MQTT session, opened once and reused.
+  ///
+  /// Unlike the ECP2 session there is no fallback path: a device whose control
+  /// surface is MQTT has no second way in, so a failure to connect is the
+  /// caller's to report rather than something to latch and route around.
+  Future<MqttSession> _openMqtt() async {
+    final existing = _mqtt;
+    if (existing != null && existing.isConnected) return existing;
+    if (_closed) {
+      throw const MqttConnectionException('This device screen has closed.');
+    }
+    final port = devicePort ?? capabilities?.defaultPort;
+    if (port == null) {
+      throw const MqttConnectionException(
+          'the device did not advertise a broker port');
+    }
+    final clientId = mqttCredentials['client_id'];
+    if (clientId == null || clientId.isEmpty) {
+      // Every topic is addressed to it, so there is no useful session without
+      // one. Named rather than improvised: a generated id would connect and
+      // then be silently unauthorised on a set that pairs.
+      throw const MqttConnectionException(
+        'This device has not been paired yet — there is no client id to '
+        'connect with.',
+      );
+    }
+    final session = MqttSession(
+      codec: _codec,
+      connect: _mqttConnect,
+      label: 'mqtt $host',
+    );
+    _mqtt = session;
+    await session.connect(
+      host,
+      port,
+      clientId: clientId,
+      username: mqttCredentials['username'],
+      password: mqttCredentials['password'],
+    );
+    return session;
   }
 
   /// Send one control request. A Roku is driven over the app's
