@@ -20,7 +20,7 @@ use super::types::{
     TemplateElement, ValueType,
 };
 use crate::codec::types::unsupported_encoding_kind;
-use crate::protocol::{http, kasa, rabbit_air, soap};
+use crate::protocol::{http, kasa, mqtt, rabbit_air, soap};
 use std::collections::HashMap;
 
 /// Whether a characteristic's payloads must pass through a byte transform
@@ -1001,6 +1001,18 @@ fn qualify_network<'a>(
             // nothing to send, exactly as a SOAP command without its service
             // or an HTTP command without its path does.
             command.body.as_ref()?;
+        }
+        mqtt::TRANSPORT => {
+            // The topic IS the address, exactly as `path` is for HTTP and the
+            // service/action pair is for SOAP. A payload is optional — several
+            // real commands are a bare poke at a topic — so only the topic is
+            // required here.
+            command.path.as_ref()?;
+            // Two payloads is not a merge, it is a spec bug; declining keeps
+            // it off the surface rather than publishing half of it.
+            if !command.arguments.is_empty() && command.body.is_some() {
+                return None;
+            }
         }
         // Rabbit Air's envelope bodies ride bare `udp` — a name any spec could
         // claim, so admission keys on the spec's `protocol_handler` too (the

@@ -348,6 +348,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MatchResult dco_decode_match_result(dynamic raw);
 
   @protected
+  MqttRequestDto dco_decode_mqtt_request_dto(dynamic raw);
+
+  @protected
   NameMatchDto dco_decode_name_match_dto(dynamic raw);
 
   @protected
@@ -960,6 +963,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MatchResult sse_decode_match_result(SseDeserializer deserializer);
+
+  @protected
+  MqttRequestDto sse_decode_mqtt_request_dto(SseDeserializer deserializer);
 
   @protected
   NameMatchDto sse_decode_name_match_dto(SseDeserializer deserializer);
@@ -1630,6 +1636,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_match_result(MatchResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_mqtt_request_dto(
+      MqttRequestDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_name_match_dto(NameMatchDto self, SseSerializer serializer);

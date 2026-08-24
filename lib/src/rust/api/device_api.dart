@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `governs_own_type`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -328,6 +328,31 @@ Future<Uint8List> roombaPasswordProbe() =>
 Future<String> roombaParsePasswordReply({required List<int> reply}) =>
     RustLib.instance.api
         .crateApiDeviceApiRoombaParsePasswordReply(reply: reply);
+
+/// Render one of a spec's `transport: mqtt` commands.
+///
+/// `values` carries the caller's parameters — the user-chosen ones and the
+/// session identity the topic is addressed with (a client id the app
+/// generated, held as a credential). A placeholder with no value, or one the
+/// command never declared, is an error rather than a blank: a publish to a
+/// half-rendered topic succeeds at the socket and does nothing at the device.
+Future<MqttRequestDto> renderNetworkMqttCommand(
+        {required String specYaml,
+        required String commandName,
+        required Map<String, String> values}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderNetworkMqttCommand(
+        specYaml: specYaml, commandName: commandName, values: values);
+
+/// MQTT CONNECT for a spec-declared broker.
+///
+/// The generic sibling of [`roomba_connect_packet`]. Username and password are
+/// each sent only when supplied: a broker that expects neither refuses a
+/// CONNECT carrying two empty strings, and one that expects a token takes a
+/// username with no password.
+Future<Uint8List> mqttConnectPacket(
+        {required String clientId, String? username, String? password}) =>
+    RustLib.instance.api.crateApiDeviceApiMqttConnectPacket(
+        clientId: clientId, username: username, password: password);
 
 /// Render a named `transport: mqtt` command — the Roomba sibling of
 /// [`render_network_kasa_command`].
@@ -2264,6 +2289,33 @@ class MatchResult {
           matchedByNamePrefix == other.matchedByNamePrefix &&
           matchedServiceUuids == other.matchedServiceUuids &&
           confidence == other.confidence;
+}
+
+/// A rendered MQTT publish: the topic and the payload.
+///
+/// The generic sibling of [`RoombaRequestDto`], for specs whose MQTT commands
+/// are declarative all the way down (a Hisense set's key presses and input
+/// switches). The Roomba keeps its own entry point because its payload needs a
+/// timestamp this crate refuses to invent.
+class MqttRequestDto {
+  final String topic;
+  final String payload;
+
+  const MqttRequestDto({
+    required this.topic,
+    required this.payload,
+  });
+
+  @override
+  int get hashCode => topic.hashCode ^ payload.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MqttRequestDto &&
+          runtimeType == other.runtimeType &&
+          topic == other.topic &&
+          payload == other.payload;
 }
 
 /// One `discovery.methods[].ble.local_name` matcher, flattened for the FFI.

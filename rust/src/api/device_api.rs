@@ -2451,6 +2451,59 @@ impl From<crate::protocol::roomba::RoombaRequest> for RoombaRequestDto {
     }
 }
 
+/// A rendered MQTT publish: the topic and the payload.
+///
+/// The generic sibling of [`RoombaRequestDto`], for specs whose MQTT commands
+/// are declarative all the way down (a Hisense set's key presses and input
+/// switches). The Roomba keeps its own entry point because its payload needs a
+/// timestamp this crate refuses to invent.
+#[derive(Debug, Clone)]
+pub struct MqttRequestDto {
+    pub topic: String,
+    pub payload: String,
+}
+
+/// Render one of a spec's `transport: mqtt` commands.
+///
+/// `values` carries the caller's parameters — the user-chosen ones and the
+/// session identity the topic is addressed with (a client id the app
+/// generated, held as a credential). A placeholder with no value, or one the
+/// command never declared, is an error rather than a blank: a publish to a
+/// half-rendered topic succeeds at the socket and does nothing at the device.
+pub fn render_network_mqtt_command(
+    spec_yaml: String,
+    command_name: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<MqttRequestDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let request =
+        crate::protocol::mqtt::render_request(&spec, &command_name, &values.into_iter().collect())?;
+    Ok(MqttRequestDto {
+        topic: request.topic,
+        payload: request.payload,
+    })
+}
+
+/// MQTT CONNECT for a spec-declared broker.
+///
+/// The generic sibling of [`roomba_connect_packet`]. Username and password are
+/// each sent only when supplied: a broker that expects neither refuses a
+/// CONNECT carrying two empty strings, and one that expects a token takes a
+/// username with no password.
+pub fn mqtt_connect_packet(
+    client_id: String,
+    username: Option<String>,
+    password: Option<String>,
+) -> Vec<u8> {
+    crate::protocol::mqtt::connect_packet(&crate::protocol::mqtt::ConnectOptions {
+        client_id: &client_id,
+        username: username.as_deref(),
+        password: password.as_deref(),
+        keepalive_seconds: crate::protocol::mqtt::KEEPALIVE_SECONDS,
+        clean_session: true,
+    })
+}
+
 /// Render a named `transport: mqtt` command — the Roomba sibling of
 /// [`render_network_kasa_command`].
 ///

@@ -14,7 +14,10 @@
 //! knows about any device: what a client id means, which topics exist, what a
 //! payload says are all the caller's, read from the spec.
 
+use std::collections::BTreeMap;
+
 use crate::protocol::ProtocolError;
+use crate::spec::types::{scalar_to_string, DeviceSpec, SpecCommand};
 
 // ── MQTT 3.1.1 ───────────────────────────────────────────────────────────────
 
@@ -299,6 +302,191 @@ fn decode_remaining_length(bytes: &[u8]) -> Result<Option<(usize, usize)>, Proto
     Ok(None)
 }
 
+// ── Rendering a spec's MQTT commands ────────────────────────────────────────
+// The other half: turning a `transport: mqtt` command into the topic to
+// publish on and the payload to publish. The codec above is device-blind and
+// so is this — every fact comes from the spec.
+
+/// The transport string a command must declare to be rendered from here.
+pub const TRANSPORT: &str = "mqtt";
+
+/// A rendered command: where to publish, and what.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MqttRequest {
+    /// The full topic, every `{placeholder}` filled.
+    pub topic: String,
+    /// The payload. Empty is a legitimate payload — several commands are a
+    /// poke at a topic and carry nothing.
+    pub payload: String,
+}
+
+/// Render one of a spec's `commands` for publication.
+///
+/// Two payload shapes, and the choice is the spec author's:
+///
+/// - `arguments:` builds a JSON object exactly as the HTTP transport does —
+///   declared order, each value taking the JSON type its parameter declares.
+///   One rule, one implementation, one set of tests.
+/// - `body:` is a literal payload template, for the many device commands whose
+///   payload is not JSON at all (a Hisense key press publishes the bare string
+///   `KEY_POWER`).
+///
+/// Neither means an empty payload, which is what a "please republish your
+/// state" poke sends.
+///
+/// A command declaring both is a spec bug rather than a merge: they are two
+/// answers to one question, and picking one silently would hide the mistake
+/// until someone wondered why half their payload went missing.
+pub fn render_command(
+    command_name: &str,
+    command: &SpecCommand,
+    values: &BTreeMap<String, String>,
+) -> Result<MqttRequest, ProtocolError> {
+    // Absent transport means the spec's single declared one, which for every
+    // spec carrying SOAP commands is SOAP — so only an explicit `mqtt`
+    // qualifies. The same rule the HTTP and Kasa modules apply.
+    if command.transport.as_deref() != Some(TRANSPORT) {
+        return Err(ProtocolError::UnsupportedCommandEncoding(
+            command.transport.clone().unwrap_or_default(),
+        ));
+    }
+    let Some(topic_template) = command.path.as_deref() else {
+        // A publish with no topic has nowhere to go. Named as an empty command
+        // for the same reason an HTTP command without a path is.
+        return Err(ProtocolError::EmptyCommand);
+    };
+
+    if !command.arguments.is_empty() && command.body.is_some() {
+        // Named as an unsupported encoding rather than a missing parameter:
+        // nothing is missing, the command asks for two payloads at once.
+        return Err(ProtocolError::UnsupportedCommandEncoding(format!(
+            "{command_name} declares both `arguments` and `body`; an MQTT \
+             command has one payload, so declare one or the other"
+        )));
+    }
+
+    let payload = if !command.arguments.is_empty() {
+        crate::protocol::http::render_body(command, command_name, values)?
+    } else if let Some(body) = command.body.as_deref() {
+        // Plain substitution, NOT the JSON escaping a `body` gets on the Kasa
+        // transport: this payload is a bare string as often as it is JSON, and
+        // escaping `KEY_POWER` into a non-JSON payload would corrupt any value
+        // carrying a quote or a backslash rather than protect it. A spec whose
+        // payload is JSON declares `arguments` and gets the typed, escaped
+        // path.
+        substitute_plain(body, command, command_name, values)?
+    } else {
+        String::new()
+    };
+
+    Ok(MqttRequest {
+        topic: substitute_topic(topic_template, command, command_name, values)?,
+        payload,
+    })
+}
+
+/// Fill `{name}` placeholders in a topic.
+///
+/// A substituted value may not contain `/`, `+` or `#`. Those three are the
+/// topic language itself — a separator and the two wildcards — so a value
+/// carrying one does not fill a level, it rewrites the topic. The values here
+/// are rarely the author's (a client id the app generated, a serial read off a
+/// device's own announcement), and publishing a command to a topic the spec
+/// never named is the failure worth refusing: at best nothing happens, at
+/// worst it lands somewhere that acts on it. The parallel is Kasa's JSON
+/// escaping, one layer up: same class of bug, and a topic cannot be escaped —
+/// there is no quoting in MQTT topic names — so the only safe answer is no.
+fn substitute_topic(
+    template: &str,
+    command: &SpecCommand,
+    command_name: &str,
+    values: &BTreeMap<String, String>,
+) -> Result<String, ProtocolError> {
+    let mut out = template.to_string();
+    for name in command.parameters.keys() {
+        let placeholder = format!("{{{name}}}");
+        if !out.contains(&placeholder) {
+            continue;
+        }
+        let value = resolve(command, command_name, name, values)?;
+        if value.contains(['/', '+', '#']) {
+            return Err(ProtocolError::ParameterMissing(format!(
+                "{command_name}.{name} carries a topic separator or wildcard \
+                 ({value:?}); it would rewrite the topic rather than fill it"
+            )));
+        }
+        out = out.replace(&placeholder, &value);
+    }
+    // A placeholder the command never declared as a parameter is left standing
+    // by the loop above, and a topic containing a literal `{client_id}` is a
+    // topic no broker routes — the publish would succeed and nothing would
+    // happen, which is the worst failure to debug. Refuse instead, naming what
+    // the spec forgot to declare.
+    if let Some(unfilled) = first_placeholder(&out) {
+        return Err(ProtocolError::ParameterMissing(format!(
+            "{command_name}'s topic still holds {{{unfilled}}}: the command \
+             does not declare it as a parameter"
+        )));
+    }
+    Ok(out)
+}
+
+/// The first `{name}` still standing in a rendered template, if any.
+fn first_placeholder(rendered: &str) -> Option<&str> {
+    let start = rendered.find('{')?;
+    let rest = &rendered[start + 1..];
+    let end = rest.find('}')?;
+    Some(&rest[..end])
+}
+
+/// Fill `{name}` placeholders in a payload, verbatim.
+fn substitute_plain(
+    template: &str,
+    command: &SpecCommand,
+    command_name: &str,
+    values: &BTreeMap<String, String>,
+) -> Result<String, ProtocolError> {
+    let mut out = template.to_string();
+    for name in command.parameters.keys() {
+        let placeholder = format!("{{{name}}}");
+        if out.contains(&placeholder) {
+            let value = resolve(command, command_name, name, values)?;
+            out = out.replace(&placeholder, &value);
+        }
+    }
+    Ok(out)
+}
+
+/// A parameter's value: the caller's, else the spec's declared default, else
+/// a visible failure. Never a blank — a command published with an empty
+/// placeholder is the plausible-but-wrong request that is hardest to debug.
+fn resolve(
+    command: &SpecCommand,
+    command_name: &str,
+    param: &str,
+    values: &BTreeMap<String, String>,
+) -> Result<String, ProtocolError> {
+    if let Some(value) = values.get(param) {
+        return Ok(value.clone());
+    }
+    command
+        .parameters
+        .get(param)
+        .and_then(|p| p.default.as_ref())
+        .and_then(scalar_to_string)
+        .ok_or_else(|| ProtocolError::ParameterMissing(format!("{command_name}.{param}")))
+}
+
+/// Render a command by name out of a spec.
+pub fn render_request(
+    spec: &DeviceSpec,
+    command_name: &str,
+    values: &BTreeMap<String, String>,
+) -> Result<MqttRequest, ProtocolError> {
+    let command = super::top_level_command(spec, command_name)?;
+    render_command(command_name, command, values)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,5 +645,175 @@ mod tests {
             clean_session: false,
         });
         assert_eq!(packet[9], 0x80, "username flag, no clean session");
+    }
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+    use crate::spec::parser::parse_device_spec;
+
+    /// A Hisense-shaped spec: topics carrying a client id the app chose, one
+    /// bare-string payload, one JSON payload, one poke with no payload.
+    const TV: &str = r#"
+device:
+  name: "Test TV"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "media_player"
+  transport: "mqtt"
+commands:
+  press_power:
+    description: "Power toggle."
+    transport: "mqtt"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_POWER"
+  change_source:
+    description: "Switch input."
+    transport: "mqtt"
+    path: "/remoteapp/tv/ui_service/{client_id}/actions/changesource"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+      sourceid:
+        type: "string"
+        required: true
+    arguments:
+      sourceid: "{sourceid}"
+  get_state:
+    description: "Ask the set to republish its state."
+    transport: "mqtt"
+    path: "/remoteapp/tv/ui_service/{client_id}/actions/gettvstate"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+"#;
+
+    fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn spec() -> DeviceSpec {
+        parse_device_spec(TV).expect("fixture parses")
+    }
+
+    #[test]
+    fn a_literal_body_publishes_verbatim_on_the_filled_topic() {
+        let request = render_request(&spec(), "press_power", &values(&[("client_id", "phone1")]))
+            .expect("renders");
+        assert_eq!(
+            request.topic,
+            "/remoteapp/tv/remote_service/phone1/actions/sendkey"
+        );
+        // Not JSON, not quoted, not escaped — the payload IS the key name.
+        assert_eq!(request.payload, "KEY_POWER");
+    }
+
+    #[test]
+    fn arguments_build_a_json_payload_the_way_they_do_over_http() {
+        let request = render_request(
+            &spec(),
+            "change_source",
+            &values(&[("client_id", "phone1"), ("sourceid", "3")]),
+        )
+        .expect("renders");
+        assert_eq!(request.payload, r#"{"sourceid":"3"}"#);
+    }
+
+    #[test]
+    fn a_command_with_neither_payload_shape_publishes_nothing() {
+        // A poke: the topic is the whole message.
+        let request =
+            render_request(&spec(), "get_state", &values(&[("client_id", "p")])).expect("renders");
+        assert_eq!(
+            request.topic,
+            "/remoteapp/tv/ui_service/p/actions/gettvstate"
+        );
+        assert!(request.payload.is_empty());
+    }
+
+    /// The injection case. A client id is generated by the app or read off a
+    /// device announcement, so it is not the spec author's string, and MQTT
+    /// has no quoting: a value carrying `/`, `+` or `#` would rewrite the
+    /// topic rather than fill a level of it.
+    #[test]
+    fn a_topic_separator_or_wildcard_in_a_value_is_refused() {
+        for hostile in ["a/../b", "phone+1", "#"] {
+            let error = render_request(&spec(), "press_power", &values(&[("client_id", hostile)]))
+                .expect_err("a topic-rewriting value must be refused");
+            assert!(
+                matches!(error, ProtocolError::ParameterMissing(_)),
+                "{hostile:?} gave {error}"
+            );
+        }
+        // An ordinary id with the characters MQTT does not reserve is fine.
+        assert!(render_request(
+            &spec(),
+            "press_power",
+            &values(&[("client_id", "56:b8:88:4e$his$256DBF")])
+        )
+        .is_ok());
+    }
+
+    /// A topic placeholder the command never declared as a parameter would be
+    /// left standing, and a publish to a topic containing a literal
+    /// `{client_id}` succeeds while nothing happens — the worst kind of
+    /// failure. Refused, naming what the spec forgot.
+    #[test]
+    fn an_undeclared_topic_placeholder_is_refused_not_published_literally() {
+        let yaml = TV.replace(
+            r#"    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+    body: "KEY_POWER"#,
+            r#"    body: "KEY_POWER"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("fixture parses");
+        let error = render_request(&spec, "press_power", &values(&[("client_id", "phone1")]))
+            .expect_err("an undeclared placeholder must not reach the wire");
+        let message = error.to_string();
+        assert!(message.contains("client_id"), "{message}");
+    }
+
+    #[test]
+    fn a_missing_value_fails_rather_than_publishing_a_blank_topic_level() {
+        let error =
+            render_request(&spec(), "press_power", &BTreeMap::new()).expect_err("no client id");
+        assert!(
+            matches!(error, ProtocolError::ParameterMissing(_)),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_command_on_another_transport_is_refused() {
+        let yaml = TV.replace(
+            r#"    transport: "mqtt"
+    path: "/remoteapp/tv/remote_service"#,
+            r#"    transport: "http"
+    path: "/remoteapp/tv/remote_service"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("fixture parses");
+        let error = render_request(&spec, "press_power", &values(&[("client_id", "p")]))
+            .expect_err("an http command must not render as mqtt");
+        assert!(
+            matches!(error, ProtocolError::UnsupportedCommandEncoding(_)),
+            "{error}"
+        );
     }
 }
