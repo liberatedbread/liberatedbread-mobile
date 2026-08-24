@@ -125,7 +125,7 @@ Map<String, String> kasaSysinfoFields(String replyJson) {
   if (sysinfo is! Map) return const {};
 
   final out = <String, String>{};
-  void flatten(Map node, String prefix) {
+  void flatten(Map<dynamic, dynamic> node, String prefix) {
     node.forEach((key, value) {
       final path = '$prefix$key';
       if (value is String || value is num || value is bool) {
@@ -145,9 +145,10 @@ Map<String, String> kasaSysinfoFields(String replyJson) {
 /// Flatten whatever a Kasa state poll answered — the dispatch wrapper every
 /// state command goes through.
 ///
-/// A `get_sysinfo` reply lifts exactly as [kasaSysinfoFields] has always done
-/// (flat keys, a strip's `children` dropped), because the outlet switch's
-/// `state_mapping` names `relay_state` bare. Anything else — the HS110's
+/// A `get_sysinfo` reply lifts as [kasaSysinfoFields] describes — top-level
+/// scalars stay bare keys, because the outlet switch's `state_mapping` names
+/// `relay_state` that way, while nested objects flatten to dotted paths and
+/// arrays land whole under their key. Anything else — the HS110's
 /// `get_emeter` reply — flattens recursively from the reply root via
 /// [jsonStateFields], so the emeter sensors' dotted `state_mapping` paths
 /// (`emeter.get_realtime.voltage`) name their values. Milli-unit hardware

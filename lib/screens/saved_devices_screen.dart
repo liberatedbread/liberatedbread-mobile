@@ -45,7 +45,7 @@ class SavedDevicesScreen extends ConsumerWidget {
     final navigator = Navigator.of(context);
     await ref.read(bleServiceProvider).stopScan().catchError((Object _) {});
     await navigator.push(
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => DeviceScreen(
           device: IoTDevice(
             id: saved.id,

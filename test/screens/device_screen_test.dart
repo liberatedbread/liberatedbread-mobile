@@ -345,7 +345,7 @@ void main() {
               child: ElevatedButton(
                 onPressed: () => Navigator.push(
                   context,
-                  MaterialPageRoute(
+                  MaterialPageRoute<void>(
                       builder: (_) => DeviceScreen(device: _device)),
                 ),
                 child: const Text('The listing'),

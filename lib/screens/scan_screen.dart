@@ -416,7 +416,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     try {
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => DeviceScreen(device: device)),
+        MaterialPageRoute<void>(builder: (_) => DeviceScreen(device: device)),
       );
     } finally {
       _onDeviceScreen = false;
@@ -454,7 +454,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             tooltip: 'Device Spec Packs',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const SpecPackSettingsScreen()),
+              MaterialPageRoute<void>(
+                  builder: (_) => const SpecPackSettingsScreen()),
             ),
           ),
           IconButton(
@@ -462,7 +463,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             tooltip: 'Home Assistant',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const HaSettingsScreen()),
+              MaterialPageRoute<void>(builder: (_) => const HaSettingsScreen()),
             ),
           ),
           if (isMockMode) const _MockBadge(),
@@ -618,7 +619,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   Future<void> _openWarning(IoTDevice device, ScanGuess guess) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => SecurityWarningScreen(
           device: device,
           advisory: guess.advisory!,

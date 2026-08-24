@@ -83,7 +83,7 @@ void main() {
   test('bad records and non-string member ids are skipped', () async {
     final store = await _store({
       'device_groups_v1': jsonEncode([
-        {'id': 'g1', 'name': '', 'deviceIds': []}, // empty name
+        {'id': 'g1', 'name': '', 'deviceIds': <String>[]}, // empty name
         {'id': 'g2', 'name': 'no members key'}, // deviceIds missing
         {
           'id': 'g3',

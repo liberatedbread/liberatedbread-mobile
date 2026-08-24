@@ -167,7 +167,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   void _openFind() {
     Navigator.push(
       context,
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => FindDeviceScreen(
           deviceId: widget.device.id,
           deviceName: widget.device.displayName,
@@ -193,7 +193,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   void _openSetupHelp(DeviceSetupHelp help) {
     Navigator.push(
       context,
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => SetupInstructionsScreen(
           deviceName: help.deviceName,
           instructions: help.instructions,

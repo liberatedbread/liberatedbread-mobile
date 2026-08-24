@@ -158,7 +158,7 @@ class _RawCharacteristicWidgetState
       (value) {
         if (mounted) setState(() => _value = value);
       },
-      onError: (e) {
+      onError: (Object e) {
         if (mounted) {
           setState(() => _error = friendlyErrorText(
                 e,

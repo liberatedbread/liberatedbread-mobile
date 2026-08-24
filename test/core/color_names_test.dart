@@ -23,7 +23,8 @@ void main() {
     final names = [for (final c in swatches) colorSwatchName(Color(c))];
 
     expect(names.first, 'White');
-    expect(names[1], 'Warm white', reason: 'not "orange" — nobody calls it that');
+    expect(names[1], 'Warm white',
+        reason: 'not "orange" — nobody calls it that');
     expect(names[2], 'Red');
     expect(names[7], 'Green');
     expect(names[9], 'Cyan');
