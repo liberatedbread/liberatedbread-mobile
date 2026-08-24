@@ -103,15 +103,23 @@ void main() {
     });
 
     test(
-        'drops nested arrays and objects (a strip\'s children), keeping scalars',
+        'flattens nested objects to dotted keys and lands arrays under their key',
         () {
+      // A bulb's light_state must reach the entity mappings as the dotted
+      // paths they name (light_state.on_off), and a strip's children array
+      // must be visible AT ALL — the spec's state_probe tells a power strip
+      // from a plug by that key's presence. Bare top-level scalars keep the
+      // switch's contract unchanged.
       const reply =
           '{"system":{"get_sysinfo":{"relay_state":0,"children":[{"state":1}],'
-          '"next":{"x":1}}}}';
+          '"light_state":{"on_off":1,"dft_on_state":{"brightness":40}}}}}';
       final fields = kasaSysinfoFields(reply);
       expect(fields['relay_state'], '0');
-      expect(fields.containsKey('children'), isFalse);
-      expect(fields.containsKey('next'), isFalse);
+      expect(fields['children'], '[{"state":1}]');
+      expect(fields['light_state.on_off'], '1');
+      expect(fields['light_state.dft_on_state.brightness'], '40');
+      expect(fields.containsKey('light_state'), isFalse,
+          reason: 'an object flattens to its members, not to a blob');
     });
 
     test('a reply that is not a sysinfo answer yields no fields', () {
@@ -123,16 +131,18 @@ void main() {
   });
 
   group('kasaStateFields', () {
-    test('a sysinfo reply still lifts flat, children dropped', () {
+    test('a sysinfo reply still lifts from the sysinfo object, never the root',
+        () {
       // The dispatch wrapper must not change the switch's contract:
-      // `relay_state` stays a bare key, exactly as kasaSysinfoFields gives it.
+      // `relay_state` stays a bare key, exactly as kasaSysinfoFields gives it
+      // (with the children array landing under its own key for the probe).
       const reply =
           '{"system":{"get_sysinfo":{"relay_state":1,"alias":"Desk Lamp",'
           '"children":[{"state":1}]}}}';
       final fields = kasaStateFields(reply);
       expect(fields['relay_state'], '1');
       expect(fields['alias'], 'Desk Lamp');
-      expect(fields.containsKey('children'), isFalse);
+      expect(fields['children'], '[{"state":1}]');
       expect(fields.containsKey('system.get_sysinfo.relay_state'), isFalse);
     });
 
