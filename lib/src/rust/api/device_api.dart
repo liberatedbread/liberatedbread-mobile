@@ -44,6 +44,13 @@ Future<PanelResolutionDto?> deviceInfoResolution(
         .crateApiDeviceApiDeviceInfoResolution(notifications: notifications);
 
 /// Parse a device spec from a YAML string and return a DTO.
+///
+/// Deliberately NOT routed through the dispatcher's spec cache, unlike the
+/// per-command and per-poll entry points below. This is the catalogue sweep:
+/// the match provider hands it every bundled spec in turn, and filing 136
+/// one-shot parses would blow past the cache's bound and clear it — evicting
+/// the one spec the open device screen is polling with. A cache earns its
+/// keep on repeated hits, and this call site has none.
 Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
     RustLib.instance.api.crateApiDeviceApiLoadDeviceSpec(yaml: yaml);
 
@@ -825,6 +832,10 @@ Future<List<ProfileInfoDto>> identifyStandardProfiles(
 /// Every softap setup method the given specs declare, catalogue order. Specs
 /// that fail to parse are skipped — the watcher must not lose Wemo because a
 /// different spec broke.
+///
+/// Another catalogue sweep, so it stays off the spec cache for the reason
+/// [`load_device_spec`] gives: one pass over every spec would clear the cache
+/// out from under whatever the app is actually polling.
 Future<List<SoftApProfileDto>> softApProfiles(
         {required List<String> specYamls}) =>
     RustLib.instance.api.crateApiDeviceApiSoftApProfiles(specYamls: specYamls);
