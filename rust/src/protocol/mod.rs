@@ -24,7 +24,35 @@ pub mod tuya;
 pub mod wemo_setup;
 
 use crate::error::ProtocolError;
-use crate::spec::types::DeviceSpec;
+use crate::spec::types::{DeviceSpec, SpecCommand};
+
+/// Stands in for a characteristic UUID when the lookup that failed was in the
+/// spec's TOP-LEVEL `commands:` block rather than on a GATT characteristic.
+///
+/// [`ProtocolError::CommandNotFound`] was shaped for BLE, where every command
+/// hangs off a characteristic and the UUID says which. The network transports
+/// have no characteristic to name, so they name the block. One home for the
+/// sentinel because the string is what a reader of the error message sees:
+/// five copies is five chances for one of them to say something else.
+pub const TOP_LEVEL_COMMANDS: &str = "commands";
+
+/// Look one of the spec's top-level `commands:` up by name.
+///
+/// The five network transports each resolve a command this way before
+/// rendering it, and each reports the same miss — a role bound to a command
+/// the spec never declared, or a caller asking for one by a name that has
+/// since changed.
+pub fn top_level_command<'a>(
+    spec: &'a DeviceSpec,
+    command_name: &str,
+) -> Result<&'a SpecCommand, ProtocolError> {
+    spec.commands
+        .get(command_name)
+        .ok_or_else(|| ProtocolError::CommandNotFound {
+            uuid: TOP_LEVEL_COMMANDS.to_string(),
+            command: command_name.to_string(),
+        })
+}
 
 /// One ordered BLE write of an encoded frame: the payload and the
 /// characteristic it targets. Per-write targets exist because a protocol can

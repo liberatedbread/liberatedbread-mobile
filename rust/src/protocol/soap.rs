@@ -75,13 +75,7 @@ pub fn render_request(
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<SoapRequest, ProtocolError> {
-    let command =
-        spec.commands
-            .get(command_name)
-            .ok_or_else(|| ProtocolError::CommandNotFound {
-                uuid: "commands".to_string(),
-                command: command_name.to_string(),
-            })?;
+    let command = super::top_level_command(spec, command_name)?;
     render_command(spec, command_name, command, values)
 }
 

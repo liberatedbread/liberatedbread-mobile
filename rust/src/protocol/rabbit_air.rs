@@ -79,13 +79,7 @@ pub fn render_request(
     id: u32,
     ts: u32,
 ) -> Result<RabbitAirRequest, ProtocolError> {
-    let command =
-        spec.commands
-            .get(command_name)
-            .ok_or_else(|| ProtocolError::CommandNotFound {
-                uuid: "commands".to_string(),
-                command: command_name.to_string(),
-            })?;
+    let command = super::top_level_command(spec, command_name)?;
     render_command(command_name, command, values, id, ts)
 }
 
