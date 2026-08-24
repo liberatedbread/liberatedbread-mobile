@@ -118,12 +118,35 @@ class SavedNetworkDevicesNotifier
       final byHostname = state.where((d) => d.hostname == hostname).firstOrNull;
       if (byHostname != null) return byHostname;
     }
+    // Last rung: a name at the same address. Weaker than the two above,
+    // because one address can front more than one logical device — a hub, a
+    // host running several services — and two of them sharing a display name
+    // would fold into one record.
+    //
+    // What makes it safe enough to keep is the contradiction check rather
+    // than a narrower match: a candidate that states an identity the sighting
+    // also states, DIFFERENTLY, is a different device however much its
+    // address and name agree. A candidate that simply says nothing (the case
+    // this rung exists for — an SSDP sighting of a device first seen over
+    // mDNS) still matches, because silence is not disagreement.
     final name = device.displayName;
+    if (name.isEmpty) return null;
+    final sightingMac = device.advertisedMac;
     return state
-        .where(
-            (d) => d.host == device.host && d.name == name && name.isNotEmpty)
+        .where((d) => d.host == device.host && d.name == name)
+        .where((d) => !_contradicts(d.hostname, device.hostname))
+        .where((d) => !_contradicts(_macOf(d.id), sightingMac))
         .firstOrNull;
   }
+
+  /// Whether two statements of the same identity disagree. Either side being
+  /// absent (or empty) is silence, not disagreement.
+  static bool _contradicts(String? a, String? b) =>
+      a != null && a.isNotEmpty && b != null && b.isNotEmpty && a != b;
+
+  /// The MAC a saved record was filed under, when it was filed under one.
+  static String? _macOf(String id) =>
+      id.startsWith('mac:') ? id.substring('mac:'.length) : null;
 
   /// The cached TXT map after [sighting] is folded into [existing].
   ///

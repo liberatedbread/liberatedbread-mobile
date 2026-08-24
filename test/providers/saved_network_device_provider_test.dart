@@ -133,6 +133,36 @@ void main() {
       expect(saved.txt['blid'], 'ABC123');
     });
 
+    test('two devices behind one address do not fold into one record',
+        () async {
+      // The (host, name) rung is the weakest, and one address can front more
+      // than one logical device. A sighting that states a hostname the saved
+      // record contradicts is a different device, however much the address
+      // and the display name agree.
+      final c = await container();
+      final notifier = c.read(savedNetworkDevicesProvider.notifier);
+
+      await notifier.touch(thin(hostname: 'tv.local'));
+      await notifier.touch(thin(hostname: 'speaker.local'));
+
+      final saved = c.read(savedNetworkDevicesProvider);
+      expect(saved, hasLength(2),
+          reason: 'contradicting hostnames are two devices, not one');
+    });
+
+    test('a sighting that states nothing still rejoins its record', () async {
+      // The other half of the rule: silence is not disagreement. This is the
+      // case the rung exists for — an SSDP sighting of a device first seen
+      // over mDNS carries no hostname at all.
+      final c = await container();
+      final notifier = c.read(savedNetworkDevicesProvider.notifier);
+
+      await notifier.touch(thin(hostname: 'tv.local'));
+      await notifier.touch(thin(hostname: null));
+
+      expect(c.read(savedNetworkDevicesProvider), hasLength(1));
+    });
+
     test('a bare TXT flag does not blank an established identity', () async {
       // A TXT record may carry a key with no value, which the parser stores as
       // an empty string. An empty blid is not an identity — it looks up no

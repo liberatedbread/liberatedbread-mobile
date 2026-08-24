@@ -48,7 +48,8 @@ void main() {
     await controller.close();
     await Future<void>.delayed(Duration.zero);
 
-    expect(done, isTrue, reason: 'listeners must learn the controller is spent');
+    expect(done, isTrue,
+        reason: 'listeners must learn the controller is spent');
   });
 
   test('close is safe to call twice', () async {

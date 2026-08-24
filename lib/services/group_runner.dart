@@ -437,15 +437,42 @@ class NetworkGroupRunner {
           continue;
         }
         live++;
-        _runMember(op, member, brightnessPercent, stop)
-            .timeout(memberTimeout,
-                onTimeout: () => GroupRunEvent(
-                      deviceId: member.memberId,
-                      status: GroupDeviceStatus.failed,
-                      detail: 'The device did not answer in time.',
-                    ))
-            .then(controller.add)
+        // The timeout reports; it does not release the slot. `.timeout` only
+        // completes the future you are holding — the work behind it keeps
+        // running, keeps its sender open and keeps talking to the network.
+        // Freeing the slot on it let `pump` start a fifth member while four
+        // were still in flight, which is precisely what `concurrency` exists
+        // to prevent (a burst of simultaneous TCP opens at a home AP). So the
+        // event goes out at the deadline and the slot is held until the work
+        // genuinely settles.
+        //
+        // A per-member stop is tripped at the same moment, so the abandoned
+        // run unwinds at its next checkpoint instead of finishing an
+        // operation nobody is waiting for. Every underlying step has its own
+        // ceiling (connect, discover, io), so "settles" is bounded even for a
+        // device that has stopped answering.
+        final memberStop = StopSignal();
+        unawaited(stop.whenStopped.then((_) => memberStop.stop()));
+        var reported = false;
+        void report(GroupRunEvent event) {
+          if (reported || controller.isClosed) return;
+          reported = true;
+          controller.add(event);
+        }
+
+        final deadline = Timer(memberTimeout, () {
+          report(GroupRunEvent(
+            deviceId: member.memberId,
+            status: GroupDeviceStatus.failed,
+            detail: 'The device did not answer in time.',
+          ));
+          memberStop.stop();
+        });
+
+        _runMember(op, member, brightnessPercent, memberStop)
+            .then(report)
             .whenComplete(() {
+          deadline.cancel();
           live--;
           pump();
           if (live == 0 && next >= members.length) {
