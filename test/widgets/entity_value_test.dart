@@ -134,7 +134,9 @@ void main() {
       (tester) async {
     final ble = FakeBleService(
       servicesToReturn: [_discovered(canRead: true, canNotify: false)],
-      readValues: {_stateChar: const [21]},
+      readValues: {
+        _stateChar: const [21]
+      },
     );
     final seen = await pumpValues(
       tester,
@@ -186,7 +188,9 @@ void main() {
     addTearDown(notify.close);
     final ble = FakeBleService(
       servicesToReturn: [_discovered(canRead: true, canNotify: true)],
-      readValues: {_stateChar: const [21]},
+      readValues: {
+        _stateChar: const [21]
+      },
       notifyStream: notify.stream,
     );
     final seen = await pumpValues(
@@ -249,7 +253,9 @@ void main() {
     addTearDown(notify.close);
     final ble = FakeBleService(
       servicesToReturn: [_discovered(canRead: true, canNotify: true)],
-      readValues: {_stateChar: const [21]},
+      readValues: {
+        _stateChar: const [21]
+      },
       notifyStream: notify.stream,
     );
     await pumpValues(

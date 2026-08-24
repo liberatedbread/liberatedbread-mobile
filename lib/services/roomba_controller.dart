@@ -134,10 +134,18 @@ class Rest980Controller implements RoombaController {
     // Poll once up front so the screen has state before the first tick, then
     // settle into the interval.
     await _readState();
-    _poll = Timer.periodic(pollInterval, (_) => _readState());
+    _poll = Timer.periodic(pollInterval, (_) => unawaited(_readState()));
   }
 
+  /// True while a poll is on the wire. rest980 in front of a busy robot can
+  /// answer slower than the interval, and an unguarded `Timer.periodic`
+  /// then stacks requests until the slowest one decides the state — each
+  /// tick queueing another, none of them cancelled.
+  bool _reading = false;
+
   Future<void> _readState() async {
+    if (_reading) return;
+    _reading = true;
     try {
       final fields = await _client.state(_baseUrl);
       if (fields.isNotEmpty && !_state.isClosed) _state.add(fields);
@@ -146,6 +154,8 @@ class Rest980Controller implements RoombaController {
       // answering looks exactly like a robot that has stopped reporting, and
       // the fix is different.
       if (!_state.isClosed) _state.addError(e);
+    } finally {
+      _reading = false;
     }
   }
 
@@ -163,15 +173,23 @@ class Rest980Controller implements RoombaController {
   bool supports(String commandName) => Rest980Client.supports(commandName);
 
   @override
+
+  /// Stop polling and close the stream. Terminal: the interface offers only
+  /// `close`, and every caller treats it as the end of the controller —
+  /// the device screen closes on dispose and builds a fresh controller to
+  /// reconnect. Leaving the broadcast stream open here (the old split
+  /// between `close` and `dispose`) meant it never closed at all, because
+  /// nothing ever called `dispose`.
   Future<void> close() async {
     _poll?.cancel();
     _poll = null;
+    if (!_state.isClosed) await _state.close();
   }
 
-  /// Stop polling and close the stream. After this the controller is spent.
+  /// Retained as the name a `StreamController`-shaped object is expected to
+  /// answer to; [close] is the whole of it.
   Future<void> dispose() async {
     await close();
-    await _state.close();
   }
 }
 
@@ -207,10 +225,16 @@ class HaRoombaController implements RoombaController {
   Future<void> connect() async {
     if (_poll != null) return;
     await _read();
-    _poll = Timer.periodic(pollInterval, (_) => _read());
+    _poll = Timer.periodic(pollInterval, (_) => unawaited(_read()));
   }
 
+  /// True while a poll is on the wire — see the rest980 controller's note;
+  /// a Home Assistant instance under load answers the same way.
+  bool _reading = false;
+
   Future<void> _read() async {
+    if (_reading) return;
+    _reading = true;
     try {
       final vacuum = await _client.vacuum(_entityId);
       if (vacuum == null) {
@@ -243,6 +267,8 @@ class HaRoombaController implements RoombaController {
       if (fields.isNotEmpty && !_state.isClosed) _state.add(fields);
     } catch (e) {
       if (!_state.isClosed) _state.addError(e);
+    } finally {
+      _reading = false;
     }
   }
 
@@ -270,15 +296,23 @@ class HaRoombaController implements RoombaController {
   }
 
   @override
+
+  /// Stop polling and close the stream. Terminal: the interface offers only
+  /// `close`, and every caller treats it as the end of the controller —
+  /// the device screen closes on dispose and builds a fresh controller to
+  /// reconnect. Leaving the broadcast stream open here (the old split
+  /// between `close` and `dispose`) meant it never closed at all, because
+  /// nothing ever called `dispose`.
   Future<void> close() async {
     _poll?.cancel();
     _poll = null;
+    if (!_state.isClosed) await _state.close();
   }
 
-  /// Stop polling and close the stream. After this the controller is spent.
+  /// Retained as the name a `StreamController`-shaped object is expected to
+  /// answer to; [close] is the whole of it.
   Future<void> dispose() async {
     await close();
-    await _state.close();
   }
 }
 

@@ -76,7 +76,10 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
     super.dispose();
   }
 
-  bool get _haConnected => ref.read(haRoombaClientProvider) != null;
+  /// Watched, not read: the HA client resolves from stored config that can
+  /// land after the first build, and a `ref.read` here left the screen
+  /// showing "not connected" until something else happened to rebuild it.
+  bool get _haConnected => ref.watch(haRoombaClientProvider) != null;
 
   Future<void> _loadVacuums() async {
     final client = ref.read(haRoombaClientProvider);

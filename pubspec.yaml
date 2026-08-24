@@ -42,6 +42,12 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  # Test-only: fake time for the polled Roomba adapters, whose rule is about
+  # what a `Timer.periodic` does when the server answers slower than the
+  # interval — real-time waiting would make that a ten-second test. Already
+  # transitive via flutter_test; declared because depending on a transitive
+  # is how an upstream change breaks a suite for no visible reason.
+  fake_async: ^1.3.1
   # Test-only: the live-hardware smoke (test/live/) registers the Linux BlueZ
   # backend by hand, because a test VM has no app startup to do it. Pinned to
   # the exact version flutter_blue_plus 1.35.4 resolves anyway, so this adds
