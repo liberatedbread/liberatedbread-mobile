@@ -267,4 +267,38 @@ void main() {
     expect(tester.widget<Slider>(find.byType(Slider)).value, 80);
     expect(find.text('On'), findsOneWidget);
   });
+  testWidgets('a parameter the card has no value for is omitted, never zeroed',
+      (tester) async {
+    // A spec naming its knob something this card does not know (`warmth`)
+    // used to get 0.0 written to the hardware — a real value nobody chose,
+    // sent silently while the card looked like it had worked. Omitting it
+    // hands the choice to the encoder: the spec's own default, or a visible
+    // ParameterMissing.
+    final entity = EntityDto(
+      options: const [],
+      name: 'Tunable Strip',
+      platform: 'light',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        _action('set_color', 'set_rgb_color',
+            userParams: const ['red', 'green', 'blue', 'warmth']),
+      ],
+    );
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester.pumpWidget(_wrap(entity, codec: codec, ble: FakeBleService()));
+    await tester.pumpAndSettle();
+
+    final swatches = find.byWidgetPredicate(
+      (w) => w is InkWell && w.borderRadius == BorderRadius.circular(19),
+    );
+    await tester.tap(swatches.at(2));
+    await tester.pumpAndSettle();
+
+    final sent = codec.encodeCalls.single.params;
+    expect(sent.keys, containsAll(<String>['red', 'green', 'blue']));
+    expect(sent.containsKey('warmth'), isFalse,
+        reason: 'an unknown parameter must not be sent as 0');
+  });
 }

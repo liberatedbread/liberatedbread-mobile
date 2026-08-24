@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
+import '../core/log.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
@@ -102,18 +103,32 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
   /// Parameter values for one action, drawn from the card's current state.
   /// Only the parameters the action declares as UI-owned are sent; the
   /// encoder fills the rest from spec defaults.
+  ///
+  /// A parameter this card has no value for is OMITTED, not zeroed. It used
+  /// to send 0.0, which is a real value: a spec naming its knob `warmth`
+  /// got a zero written to the hardware, silently, and the card looked like
+  /// it had worked. Omitting hands the decision back to the encoder, which
+  /// either fills the spec's own default or fails the send visibly with
+  /// ParameterMissing — both honest answers, unlike a zero nobody chose.
   Map<String, double> _paramsFor(EntityActionDto action) {
     final color = _color ?? _swatches.first;
-    return {
-      for (final p in action.userParams)
-        p: switch (p) {
-          'brightness' || 'level' => _effectiveBrightness.roundToDouble(),
-          'red' => color.r * 255.0,
-          'green' => color.g * 255.0,
-          'blue' => color.b * 255.0,
-          _ => 0.0,
-        },
-    };
+    final values = <String, double>{};
+    for (final p in action.userParams) {
+      final value = switch (p) {
+        'brightness' || 'level' => _effectiveBrightness.roundToDouble(),
+        'red' => color.r * 255.0,
+        'green' => color.g * 255.0,
+        'blue' => color.b * 255.0,
+        _ => null,
+      };
+      if (value == null) {
+        Log.ui.debug('light card: no value for "$p" on ${action.role} '
+            '(${action.commandName}) — leaving it to the spec default');
+        continue;
+      }
+      values[p] = value;
+    }
+    return values;
   }
 
   Future<void> _send(EntityActionDto action, {bool? assumeOn}) async {

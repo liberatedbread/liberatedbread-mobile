@@ -337,7 +337,11 @@ class Ecp2Session {
   }
 
   Future<void> close() async {
-    _closed = true;
+    // Fail whatever is in flight rather than leaving it to the 10 s
+    // per-request timeout: closing the session is a definite answer, and a
+    // caller awaiting a keypress on a session the screen just disposed
+    // should learn that now, not ten seconds after the screen is gone.
+    _failAll(const Ecp2Exception('the session was closed'));
     await _subscription.cancel();
     await _textEditFocus.close();
     await _socket.close();

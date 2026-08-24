@@ -306,6 +306,25 @@ void main() {
       expect(focuses, [true, false]);
     });
 
+    test('closing the session fails what is in flight, rather than hanging it',
+        () async {
+      // A request awaiting a reply on a session the screen just disposed used
+      // to sit on its 10 s per-request timeout, resolving long after the
+      // screen was gone. Closing is a definite answer; say so now.
+      final (session, _) = await authenticatedSession();
+      final inFlight = session.send(const HttpRequestDto(
+          method: 'POST', path: '/keypress/Home', body: ''));
+      // The expectation is attached BEFORE the close: the failure lands the
+      // instant close() runs, and an error completed onto a future nobody is
+      // listening to yet is an unhandled async error rather than a caught
+      // one. In the app the caller is already awaiting its send.
+      final settled = expectLater(inFlight, throwsA(isA<Ecp2Exception>()));
+      await Future<void>.delayed(Duration.zero);
+
+      await session.close();
+      await settled;
+    });
+
     test('overlapping requests match their own responses by id', () async {
       final (session, socket) = await authenticatedSession();
       addTearDown(session.close);
