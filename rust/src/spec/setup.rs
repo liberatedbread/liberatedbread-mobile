@@ -152,6 +152,137 @@ fn profiles_for_spec(spec: &DeviceSpec) -> Vec<SoftApProfile> {
         .collect()
 }
 
+// ── BLE provisioning profiles ───────────────────────────────────────────────
+// The Bluetooth sibling of the softap block above. Some devices never raise a
+// setup AP at all: they advertise a setup-mode peripheral and take their Wi-Fi
+// credentials over GATT. The adopt flow needs the same three facts it needs for
+// a softap family — what to look for, what to call it, and which conversation
+// it speaks — so the shapes are deliberately parallel, `advertised_name` where
+// softap has `ssid_prefix`.
+
+/// How a spec says its setup-mode advertised name is compared. The default is
+/// [`Prefix`](NameMatch::Prefix), matching `local_name_prefixes` elsewhere in
+/// the catalogue; a spec that has watched the radio and knows the name is
+/// whole says `exact` and gets an equality test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameMatch {
+    Exact,
+    Prefix,
+}
+
+/// One spec's `ble_provisioning` setup method, reduced to what a client can act
+/// on. The GATT addresses ride along because the provisioning conversation
+/// needs them and the spec is the only place they are written down.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BleProvisioningProfile {
+    /// `device.name` — what the adopt UI calls the family.
+    pub spec_name: String,
+    /// `device.category`, for the icon.
+    pub category: Option<String>,
+    /// The name the device advertises while it is waiting to be set up.
+    pub advertised_name: String,
+    /// Whether that name is the whole advertised name or its start.
+    pub name_match: NameMatch,
+    /// The setup service and characteristics, when the spec names them.
+    pub service_uuid: Option<String>,
+    pub write_characteristic: Option<String>,
+    pub read_characteristic: Option<String>,
+    /// The MTU the vendor app negotiates, when the spec's `timing` says.
+    pub mtu: Option<u16>,
+}
+
+impl BleProvisioningProfile {
+    /// Whether an advertised name is this profile's setup-mode peripheral.
+    pub fn matches_name(&self, name: &str) -> bool {
+        advertised_name_matches(&self.advertised_name, self.name_match, name)
+    }
+}
+
+/// The name rule on its own, so the FFI layer can apply it to a DTO without
+/// rebuilding a profile. Case-insensitive both ways — BLE advertisements come
+/// back with whatever case the firmware felt like — and an empty declared name
+/// matches nothing, the same trap `ssid_matches_prefix` guards against: an
+/// empty prefix is a claim on every peripheral in the air.
+pub fn advertised_name_matches(declared: &str, rule: NameMatch, advertised: &str) -> bool {
+    let advertised = advertised.trim();
+    if declared.is_empty() {
+        return false;
+    }
+    match rule {
+        NameMatch::Exact => advertised.eq_ignore_ascii_case(declared),
+        NameMatch::Prefix => {
+            advertised.len() >= declared.len()
+                && advertised.is_char_boundary(declared.len())
+                && advertised[..declared.len()].eq_ignore_ascii_case(declared)
+        }
+    }
+}
+
+/// Every `ble_provisioning` setup method the given specs declare, catalogue
+/// order. A method with no advertised name is skipped: without it there is
+/// nothing to scan for, so it cannot drive an adopt card.
+pub fn ble_provisioning_profiles<'a>(
+    specs: impl IntoIterator<Item = &'a DeviceSpec>,
+) -> Vec<BleProvisioningProfile> {
+    specs.into_iter().flat_map(ble_profiles_for_spec).collect()
+}
+
+fn ble_profiles_for_spec(spec: &DeviceSpec) -> Vec<BleProvisioningProfile> {
+    let Some(setup) = spec.device.extensions.get("setup") else {
+        return Vec::new();
+    };
+    let Some(methods) = setup.get("methods").and_then(|m| m.as_sequence()) else {
+        return Vec::new();
+    };
+
+    methods
+        .iter()
+        .filter_map(|method| {
+            if method.get("type")?.as_str()? != "ble_provisioning" {
+                return None;
+            }
+            let ble = method.get("ble");
+            let advertised_name = ble
+                .and_then(|b| b.get("advertised_name"))
+                .and_then(|n| n.as_str())
+                .map(str::to_string)
+                .filter(|n| !n.is_empty())?;
+            let name_match = match ble
+                .and_then(|b| b.get("advertised_name_match"))
+                .and_then(|m| m.as_str())
+            {
+                Some("exact") => NameMatch::Exact,
+                // Anything else — "prefix", absent, or a value a newer schema
+                // grew — reads as the catalogue-wide default. A stricter rule
+                // we do not understand must not silently become a looser one,
+                // and prefix IS the looser one, so this stays the fallback
+                // only because an unmatched setup device is invisible while a
+                // wrongly-matched one sends a stranger's Wi-Fi password.
+                _ => NameMatch::Prefix,
+            };
+            let uuid = |key: &str| {
+                ble.and_then(|b| b.get(key))
+                    .and_then(|u| u.as_str())
+                    .map(str::to_string)
+            };
+            Some(BleProvisioningProfile {
+                spec_name: spec.device.name.clone(),
+                category: spec.device.category.clone(),
+                advertised_name,
+                name_match,
+                service_uuid: uuid("service_uuid"),
+                write_characteristic: uuid("write_characteristic"),
+                read_characteristic: uuid("read_characteristic"),
+                mtu: method
+                    .get("timing")
+                    .and_then(|t| t.get("mtu"))
+                    .and_then(|m| m.as_u64())
+                    .and_then(|m| u16::try_from(m).ok()),
+            })
+        })
+        .collect()
+}
+
 // ── Human-readable setup / troubleshooting instructions ─────────────────────
 // The prose half of `device.setup`, shaped so a client can render "how do I
 // connect this / why won't it / how do I reset it" when a connect fails. Every
@@ -392,6 +523,77 @@ device:
           port: 49153
           port_probe_list: [49153, 49152]
 "#;
+
+    const BLE_PROVISIONED_DEVICE: &str = r#"
+device:
+  name: "Test Purifier"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "fan"
+  setup:
+    required: true
+    methods:
+      - type: "ble_provisioning"
+        ble:
+          advertised_name: "TestSetup"
+          advertised_name_match: "exact"
+          service_uuid: "0000aaaa-0000-1000-8000-00805f9b34fb"
+          write_characteristic: "0000bbbb-0000-1000-8000-00805f9b34fb"
+          read_characteristic: "0000bbbb-0000-1000-8000-00805f9b34fb"
+        timing:
+          mtu: 515
+"#;
+
+    #[test]
+    fn a_ble_provisioning_method_becomes_one_profile() {
+        let spec = spec(BLE_PROVISIONED_DEVICE);
+        let profiles = ble_provisioning_profiles([&spec]);
+        assert_eq!(profiles.len(), 1);
+        let p = &profiles[0];
+        assert_eq!(p.spec_name, "Test Purifier");
+        assert_eq!(p.advertised_name, "TestSetup");
+        assert_eq!(p.name_match, NameMatch::Exact);
+        assert_eq!(p.mtu, Some(515));
+        assert_eq!(
+            p.write_characteristic.as_deref(),
+            Some("0000bbbb-0000-1000-8000-00805f9b34fb")
+        );
+    }
+
+    #[test]
+    fn an_exact_name_rule_rejects_the_prefix_it_would_have_matched() {
+        let spec = spec(BLE_PROVISIONED_DEVICE);
+        let p = &ble_provisioning_profiles([&spec])[0];
+        // Case-insensitive, whitespace-tolerant — advertisements arrive in
+        // whatever case and padding the firmware chose.
+        assert!(p.matches_name("TestSetup"));
+        assert!(p.matches_name(" testsetup "));
+        // The whole point of `exact`: a longer name is a DIFFERENT device, and
+        // sending it Wi-Fi credentials would be handing them to a stranger.
+        assert!(!p.matches_name("TestSetup-2"));
+        assert!(!p.matches_name("Test"));
+    }
+
+    #[test]
+    fn an_unstated_match_rule_falls_back_to_prefix() {
+        let yaml =
+            BLE_PROVISIONED_DEVICE.replace("          advertised_name_match: \"exact\"\n", "");
+        let spec = spec(&yaml);
+        let p = &ble_provisioning_profiles([&spec])[0];
+        assert_eq!(p.name_match, NameMatch::Prefix);
+        assert!(p.matches_name("TestSetup-2"));
+    }
+
+    #[test]
+    fn a_method_with_no_advertised_name_drives_no_card() {
+        // Nothing to scan for; a card offering to find it could only fail.
+        let yaml = BLE_PROVISIONED_DEVICE
+            .replace("advertised_name: \"TestSetup\"", "advertised_name: \"\"");
+        assert!(ble_provisioning_profiles([&spec(&yaml)]).is_empty());
+        // And a softap spec is not a BLE one.
+        assert!(ble_provisioning_profiles([&spec(SOAP_DEVICE)]).is_empty());
+    }
 
     #[test]
     fn a_softap_method_becomes_one_profile() {

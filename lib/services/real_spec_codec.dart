@@ -608,6 +608,19 @@ class RealSpecCodec implements SpecCodec {
       rust.setupInstructions(specYaml: specYaml);
 
   @override
+  Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
+          List<String> specYamls) =>
+      rust.bleProvisioningProfiles(specYamls: specYamls);
+
+  @override
+  Future<int?> matchBleProvisioningName({
+    required List<BleProvisioningProfileDto> profiles,
+    required String advertisedName,
+  }) =>
+      rust.matchBleProvisioningName(
+          profiles: profiles, advertisedName: advertisedName);
+
+  @override
   Future<int?> matchSoftApSsid({
     required List<SoftApProfileDto> profiles,
     required String ssid,

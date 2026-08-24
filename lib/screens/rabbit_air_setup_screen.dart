@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
 import '../models/iot_device.dart';
+import '../providers/adopt_provider.dart';
 import '../providers/ble_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../services/rabbit_air_provision_service.dart';
@@ -23,6 +24,12 @@ import '../widgets/device_list_tile.dart';
 /// flow — in which case the first job is finding the unit advertising as
 /// "RabbitAirSetup".
 class RabbitAirSetupScreen extends ConsumerStatefulWidget {
+  /// The `protocol_handler` of the spec this screen drives — the key it looks
+  /// its own provisioning profile up by. The one product fact left in this
+  /// file: the advertised name, the match rule and the GATT addresses all come
+  /// from the spec that declares this handler.
+  static const protocolHandler = 'rabbit_air_lan';
+
   /// The purifier to provision, when the BLE device screen sent us. Null
   /// means scan for one.
   final IoTDevice? device;
@@ -37,9 +44,6 @@ class RabbitAirSetupScreen extends ConsumerStatefulWidget {
 enum _Stage { intro, scanning, working, pickNetwork, failed, done }
 
 class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
-  /// An unprovisioned purifier advertises under this name.
-  static const setupNamePrefix = 'RabbitAirSetup';
-
   _Stage _stage = _Stage.intro;
   String _busyLabel = '';
   String? _error;
@@ -149,6 +153,29 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
     await _service.begin(device.id);
   }
 
+  /// Add [device] to the found set if the catalogue says it is a setup-mode
+  /// unit of the family this screen provisions.
+  Future<void> _considerCandidate(IoTDevice device) async {
+    final match = await ref.read(bleSetupModeMatchProvider(device.name).future);
+    if (!mounted || _stage != _Stage.scanning) return;
+    if (match?.protocolHandler != RabbitAirSetupScreen.protocolHandler) {
+      return;
+    }
+    setState(() => _found[device.id] = device);
+  }
+
+  /// What the spec says a unit awaiting setup advertises as, for the
+  /// instructions. Null until the catalogue resolves, or if no spec declares
+  /// this handler — the sentence then simply omits the name rather than
+  /// printing a guess.
+  String? get _setupName => ref
+      .watch(bleAdoptableDevicesProvider)
+      .valueOrNull
+      ?.where((d) => d.protocolHandler == RabbitAirSetupScreen.protocolHandler)
+      .firstOrNull
+      ?.profile
+      .advertisedName;
+
   void _startScan() {
     unawaited(_scanSub?.cancel() ?? Future<void>.value());
     setState(() {
@@ -158,10 +185,13 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
       _error = null;
     });
     _scanSub = ref.read(bleServiceProvider).scan().listen(
-      (device) {
-        if (!device.name.startsWith(setupNamePrefix)) return;
-        setState(() => _found[device.id] = device);
-      },
+      // Asked of the catalogue rather than tested against a literal here, so
+      // the rule stays the spec's (Rabbit Air's is `exact`, and an exact rule
+      // matters: a look-alike peripheral must never be offered a screen that
+      // would send it the home Wi-Fi passphrase). Fired without awaiting —
+      // the scan stream must not stall behind an FFI round trip — and the
+      // found-set is a map, so out-of-order arrivals are harmless.
+      (device) => unawaited(_considerCandidate(device)),
       onError: (Object e) {
         if (!mounted) return;
         setState(() {
@@ -238,7 +268,8 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
             context,
             '2',
             'Hold the Speed and Wireless buttons until the wireless LED '
-                'blinks — the purifier now advertises as "$setupNamePrefix".'),
+                'blinks — the purifier is now in setup mode'
+                '${_setupName == null ? '' : ', advertising as "$_setupName"'}.'),
         const SizedBox(height: 24),
         Center(
           child: ActionPillButton(

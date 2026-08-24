@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
+import '../providers/adopt_provider.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/device_setup_help_provider.dart';
@@ -419,14 +420,20 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         );
 
       case _ScreenState.ready:
-        // The one place the advertised-name decision lives: an
-        // unprovisioned purifier ("RabbitAirSetup") gets the read-only
-        // setup-info view — which carries the "Set up Wi-Fi" way into the
-        // onboarding flow — and anything else the spec-matched control
-        // panel (which itself forks to the keyed Rabbit Air BLE controls
-        // for a provisioned purifier).
-        final isRabbitAirSetup =
-            widget.device.name.startsWith('RabbitAirSetup');
+        // The one place the advertised-name decision lives — and it is the
+        // catalogue's decision, not this screen's: a peripheral whose name
+        // matches some spec's `ble_provisioning` advertised name (under that
+        // spec's own exact/prefix rule) is a unit waiting to be set up, and
+        // gets the read-only setup-info view — which carries the "Set up
+        // Wi-Fi" way into the onboarding flow. Anything else gets the
+        // spec-matched control panel (which itself forks to the keyed Rabbit
+        // Air BLE controls for a provisioned purifier). Unresolved reads as
+        // "not in setup mode", so the ordinary panel renders immediately
+        // rather than the screen waiting on the catalogue.
+        final isRabbitAirSetup = ref
+                .watch(bleSetupModeMatchProvider(widget.device.name))
+                .valueOrNull !=
+            null;
         return Column(
           children: [
             _ConnectedHeader(

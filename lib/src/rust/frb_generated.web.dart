@@ -39,6 +39,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  BleProvisioningProfileDto dco_decode_ble_provisioning_profile_dto(
+      dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
@@ -181,6 +185,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
+  List<BleProvisioningProfileDto> dco_decode_list_ble_provisioning_profile_dto(
+      dynamic raw);
 
   @protected
   List<CharacteristicDto> dco_decode_list_characteristic_dto(dynamic raw);
@@ -599,6 +607,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  BleProvisioningProfileDto sse_decode_ble_provisioning_profile_dto(
+      SseDeserializer deserializer);
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
@@ -756,6 +768,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<BleProvisioningProfileDto> sse_decode_list_ble_provisioning_profile_dto(
+      SseDeserializer deserializer);
 
   @protected
   List<CharacteristicDto> sse_decode_list_characteristic_dto(
@@ -1236,6 +1252,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_ble_provisioning_profile_dto(
+      BleProvisioningProfileDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
@@ -1407,6 +1427,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_ble_provisioning_profile_dto(
+      List<BleProvisioningProfileDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_characteristic_dto(

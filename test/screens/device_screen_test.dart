@@ -610,9 +610,28 @@ void main() {
   });
   // ── Rabbit Air setup CTA ────────────────────────────────────────────────
   // An unprovisioned purifier advertises as "RabbitAirSetup": the device
-  // screen leads with the way into the BLE setup flow. A quiet provisioning
-  // service keeps the pushed screen from touching the fake radio.
+  // screen leads with the way into the BLE setup flow. Which name that is, and
+  // whether it is matched whole, comes from the catalogue — so these tests
+  // install one, the same way the screen's users have one. A quiet
+  // provisioning service keeps the pushed screen from touching the fake radio.
   group('Rabbit Air setup CTA', () {
+    final catalogue = FakeSpecCodec(spec: _rabbitAirSpec)
+      ..bleProvisioningProfilesResult = const [
+        BleProvisioningProfileDto(
+          specName: 'Rabbit Air Purifier',
+          category: 'fan',
+          advertisedName: 'RabbitAirSetup',
+          exactName: false,
+          serviceUuid: '366048ae-9f36-43cf-8004-010c0c9fa52e',
+          writeCharacteristic: '53ef7d7d-c244-42bd-9064-a1569a521ca9',
+          readCharacteristic: '53ef7d7d-c244-42bd-9064-a1569a521ca9',
+          mtu: 515,
+        ),
+      ];
+    final catalogueOverrides = [
+      specCodecProvider.overrideWithValue(catalogue),
+      deviceSpecsProvider.overrideWith((ref) => {'rabbit.yaml': 'r-yaml'}),
+    ];
     final setupDevice = IoTDevice(
       id: '07',
       name: 'RabbitAirSetup-789A',
@@ -638,6 +657,7 @@ void main() {
           sharedPreferencesProvider.overrideWithValue(_prefs),
           numberRegistryProvider.overrideWith((ref) async => _registry),
           rabbitAirProvisionServiceProvider.overrideWithValue(quietService()),
+          ...catalogueOverrides,
         ],
         child: MaterialApp(home: DeviceScreen(device: setupDevice)),
       ));
@@ -669,14 +689,51 @@ void main() {
         BleDiscoveredService(
             uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
       ]);
-      await tester.pumpWidget(_wrap(fake, device: provisioned));
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(fake),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          numberRegistryProvider.overrideWith((ref) async => _registry),
+          rabbitAirProvisionServiceProvider.overrideWithValue(quietService()),
+          ...catalogueOverrides,
+        ],
+        child: MaterialApp(home: DeviceScreen(device: provisioned)),
+      ));
       await tester.pumpAndSettle();
 
+      // The catalogue IS installed here — a plain "RabbitAir" is simply not a
+      // setup-mode name, which is the distinction under test.
       expect(find.text('Finish setting up this purifier'), findsNothing);
       expect(find.text('Set up Wi-Fi'), findsNothing);
     });
   });
 }
+
+/// The one catalogue entry the setup-CTA tests need: a spec that declares the
+/// Rabbit Air provisioning handler, so the profile above joins to it.
+final _rabbitAirSpec = DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallback: false,
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'Rabbit Air Purifier',
+  manufacturer: 'Rabbit Air',
+  manufacturerStatus: 'active',
+  protocol: 'wifi',
+  category: 'fan',
+  protocolHandler: 'rabbit_air_lan',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceType: null,
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  defaultPort: null,
+  entities: const <EntityDto>[],
+  services: const [],
+);
 
 /// The provisioning service the CTA tests install: records nothing, answers
 /// begin() with a held "connecting" state, never touches the radio.

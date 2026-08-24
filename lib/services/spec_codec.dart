@@ -69,6 +69,7 @@ export '../src/rust/api/device_api.dart'
         LifxZonesDto,
         LifxAccessPointDto,
         SoftApProfileDto,
+        BleProvisioningProfileDto,
         SecurityAdvisoryDto,
         SetupInstructionsDto,
         SetupMethodDto,
@@ -686,6 +687,21 @@ abstract class SpecCodec {
   /// spec carries no such prose. Shown when a connect fails, from the single
   /// YAML the caller resolved for the device.
   Future<SetupInstructionsDto?> setupInstructions(String specYaml);
+
+  /// Every BLE-provisioning setup method the catalogue declares — the
+  /// families that take their Wi-Fi credentials over Bluetooth instead of from
+  /// a setup network of their own, so the adopt screen lists them from the
+  /// specs rather than from a hand-written card.
+  Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
+      List<String> specYamls);
+
+  /// The index of the first profile whose setup-mode advertised name matches
+  /// [advertisedName] under that spec's exact/prefix rule, or null. Decides
+  /// both "is this peripheral waiting to be set up" and which family it is.
+  Future<int?> matchBleProvisioningName({
+    required List<BleProvisioningProfileDto> profiles,
+    required String advertisedName,
+  });
 
   /// The index of the first profile whose setup-AP prefix matches [ssid]
   /// (case-insensitive, anchored), or null. Drives the spinning hint.

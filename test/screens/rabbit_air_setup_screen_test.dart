@@ -5,13 +5,18 @@
 // intro through scanning, network choice and credentials to done, driven by
 // a scripted provisioning service so no radio is involved.
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
+import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/rabbit_air_setup_screen.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_provision_service.dart';
 
@@ -87,11 +92,42 @@ void main() {
 
   late _FakeProvisionService service;
   late FakeBleService ble;
+  late FakeSpecCodec codec;
+
+  // The catalogue the screen reads its own product facts from: which name a
+  // unit awaiting setup advertises, and that the name is matched whole. The
+  // screen holds only the handler key, so without this the scan matches
+  // nothing — which is the behaviour under test as much as the happy path is.
+  final specDto = DeviceSpecDto(
+    nameMatchers: const [],
+    platformFallback: false,
+    txtMatchGroups: const [],
+    hiddenEntityNames: const [],
+    deviceName: 'Rabbit Air Purifier',
+    manufacturer: 'Rabbit Air',
+    manufacturerStatus: 'active',
+    protocol: 'wifi',
+    category: 'fan',
+    protocolHandler: RabbitAirSetupScreen.protocolHandler,
+    localNamePrefixes: const [],
+    localNames: const [],
+    serviceUuids: const [],
+    companyIds: Uint16List(0),
+    macPrefixes: const [],
+    mdnsServiceType: null,
+    ssdpSearchTargets: const [],
+    lanProtocols: const [],
+    defaultPort: null,
+    entities: const <EntityDto>[],
+    services: const [],
+  );
 
   Widget wrap({IoTDevice? preselected}) => ProviderScope(
         overrides: [
           bleServiceProvider.overrideWithValue(ble),
           rabbitAirProvisionServiceProvider.overrideWithValue(service),
+          specCodecProvider.overrideWithValue(codec),
+          deviceSpecsProvider.overrideWith((ref) => {'rabbit.yaml': 'r-yaml'}),
         ],
         child: MaterialApp(home: RabbitAirSetupScreen(device: preselected)),
       );
@@ -99,6 +135,19 @@ void main() {
   setUp(() {
     service = _FakeProvisionService();
     ble = FakeBleService(devicesToEmit: [setupDevice, someOtherDevice]);
+    codec = FakeSpecCodec(spec: specDto)
+      ..bleProvisioningProfilesResult = const [
+        BleProvisioningProfileDto(
+          specName: 'Rabbit Air Purifier',
+          category: 'fan',
+          advertisedName: 'RabbitAirSetup',
+          exactName: false,
+          serviceUuid: '366048ae-9f36-43cf-8004-010c0c9fa52e',
+          writeCharacteristic: '53ef7d7d-c244-42bd-9064-a1569a521ca9',
+          readCharacteristic: '53ef7d7d-c244-42bd-9064-a1569a521ca9',
+          mtu: 515,
+        ),
+      ];
   });
 
   testWidgets(

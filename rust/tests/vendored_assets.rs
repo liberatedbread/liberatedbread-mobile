@@ -1170,3 +1170,41 @@ fn vendored_specs_narrow_a_platform_service_type_by_its_txt_records() {
         "no TXT evidence is not evidence, got {bare:?}"
     );
 }
+
+/// The Rabbit Air purifier is the catalogue's one BLE-provisioned family, and
+/// the adopt screen used to hard-code its card and its advertised name in Dart.
+/// This pins the facts the screen now reads from the spec: that the profile
+/// exists, that the name it scans for is the spec's, and that the spec's
+/// `exact` rule is what decides the match — so a rename upstream moves the app
+/// and a stray look-alike peripheral is never handed Wi-Fi credentials.
+#[test]
+fn the_vendored_rabbit_air_spec_drives_its_own_ble_adopt_card() {
+    use liberated_bread_core::spec::setup::{ble_provisioning_profiles, NameMatch};
+
+    let yamls: Vec<String> = vendored_yaml_paths()
+        .iter()
+        .map(|p| fs::read_to_string(p).expect("vendored spec reads"))
+        .collect();
+    let specs: Vec<_> = yamls
+        .iter()
+        .filter_map(|y| parse_device_spec(y).ok())
+        .collect();
+    let profiles = ble_provisioning_profiles(specs.iter());
+
+    let rabbit = profiles
+        .iter()
+        .find(|p| p.spec_name.to_lowercase().contains("rabbit"))
+        .unwrap_or_else(|| {
+            panic!("the Rabbit Air spec should declare a ble_provisioning method, got {profiles:?}")
+        });
+    assert_eq!(rabbit.advertised_name, "RabbitAirSetup");
+    assert_eq!(rabbit.name_match, NameMatch::Exact);
+    assert!(rabbit.matches_name("RabbitAirSetup"));
+    // A provisioned unit renames itself; it must fall through to the ordinary
+    // control panel rather than back into the setup flow.
+    assert!(!rabbit.matches_name("RabbitAir-Living Room"));
+    assert!(
+        rabbit.service_uuid.is_some() && rabbit.write_characteristic.is_some(),
+        "the provisioning conversation needs its GATT addresses from the spec"
+    );
+}

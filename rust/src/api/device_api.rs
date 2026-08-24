@@ -4405,6 +4405,77 @@ pub fn soft_ap_profiles(spec_yamls: Vec<String>) -> Vec<SoftApProfileDto> {
         .collect()
 }
 
+/// One spec's `ble_provisioning` setup method — the answer to "which devices
+/// are set up over Bluetooth instead of from a setup network, and what does one
+/// advertise as while it waits".
+#[derive(Debug, Clone)]
+pub struct BleProvisioningProfileDto {
+    /// `device.name` — what the adopt UI calls the family.
+    pub spec_name: String,
+    /// `device.category`, for the icon.
+    pub category: Option<String>,
+    /// The name the device advertises while it is waiting to be set up.
+    pub advertised_name: String,
+    /// True when the spec says that name is the whole advertised name; false
+    /// when it is a prefix (the catalogue-wide default).
+    pub exact_name: bool,
+    /// The setup service and characteristics, when the spec names them.
+    pub service_uuid: Option<String>,
+    pub write_characteristic: Option<String>,
+    pub read_characteristic: Option<String>,
+    /// The MTU the vendor app negotiates, when the spec's `timing` says.
+    pub mtu: Option<u16>,
+}
+
+/// Every BLE-provisioning setup method the given specs declare, catalogue
+/// order — the Bluetooth half of the adopt screen's device list, so a second
+/// such family is a spec, not a hand-written card.
+///
+/// Same whole-catalogue sweep caveat as [`soft_ap_profiles`]: specs that fail
+/// to parse are skipped, and the pass stays off the spec cache.
+pub fn ble_provisioning_profiles(spec_yamls: Vec<String>) -> Vec<BleProvisioningProfileDto> {
+    let specs: Vec<DeviceSpec> = spec_yamls
+        .iter()
+        .filter_map(|yaml| parse_device_spec(yaml).ok())
+        .collect();
+    crate::spec::setup::ble_provisioning_profiles(specs.iter())
+        .into_iter()
+        .map(|p| BleProvisioningProfileDto {
+            spec_name: p.spec_name,
+            category: p.category,
+            advertised_name: p.advertised_name,
+            exact_name: p.name_match == crate::spec::setup::NameMatch::Exact,
+            service_uuid: p.service_uuid,
+            write_characteristic: p.write_characteristic,
+            read_characteristic: p.read_characteristic,
+            mtu: p.mtu,
+        })
+        .collect()
+}
+
+/// Whether an advertised BLE name is any profile's setup-mode peripheral; the
+/// index of the first profile it matches, else null. The exact/prefix rule is
+/// the spec's, applied case-insensitively.
+pub fn match_ble_provisioning_name(
+    profiles: Vec<BleProvisioningProfileDto>,
+    advertised_name: String,
+) -> Option<u32> {
+    profiles
+        .iter()
+        .position(|p| {
+            crate::spec::setup::advertised_name_matches(
+                &p.advertised_name,
+                if p.exact_name {
+                    crate::spec::setup::NameMatch::Exact
+                } else {
+                    crate::spec::setup::NameMatch::Prefix
+                },
+                &advertised_name,
+            )
+        })
+        .map(|i| i as u32)
+}
+
 /// Whether `ssid` looks like any profile's setup AP; the index of the first
 /// profile it matches, else null. The prefix rule is the spec's:
 /// case-insensitive, anchored at the start.

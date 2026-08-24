@@ -32,6 +32,21 @@ class AdoptDeviceScreen extends ConsumerStatefulWidget {
 
 enum _Stage { pickDevice, connecting, pickNetwork, credentials, working, done }
 
+/// Which screen drives each spec-declared BLE provisioning conversation, keyed
+/// by the spec's `protocol_handler`.
+///
+/// The counterpart of [AdoptFamily] for the Bluetooth path: those two
+/// conversations are declarative enough for [AdoptService] to speak from the
+/// spec, whereas a BLE provisioning handshake is stateful enough to need its
+/// own service and screen — the sanctioned protocol-handler shape. What stays
+/// out of Dart is everything about the device: only the handler key is here,
+/// and a family whose handler is missing simply is not offered.
+const _bleSetupScreens = <String, WidgetBuilder>{
+  'rabbit_air_lan': _rabbitAirSetupScreen,
+};
+
+Widget _rabbitAirSetupScreen(BuildContext _) => const RabbitAirSetupScreen();
+
 class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
   _Stage _stage = _Stage.pickDevice;
 
@@ -302,30 +317,57 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
             );
           },
         ),
-        const SizedBox(height: 28),
-        const SectionHeader(label: 'Sets up over Bluetooth instead'),
-        const SizedBox(height: 12),
+        ..._bleSection(context),
+      ],
+    );
+  }
+
+  /// The "sets up over Bluetooth instead" section, one card per catalogue
+  /// family whose provisioning conversation this app can actually drive.
+  ///
+  /// The whole section disappears when there is nothing to show — a heading
+  /// over an empty space reads as a bug — and each card's name, icon and
+  /// wording come from the spec, so a second BLE-provisioned family is a spec
+  /// upstream plus one entry in [_bleSetupScreens].
+  List<Widget> _bleSection(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final devices = ref.watch(bleAdoptableDevicesProvider).valueOrNull ??
+        const <BleAdoptableDevice>[];
+    final drivable = devices
+        .where((d) => _bleSetupScreens.containsKey(d.protocolHandler))
+        .toList();
+    if (drivable.isEmpty) return const [];
+
+    return [
+      const SizedBox(height: 28),
+      const SectionHeader(label: 'Sets up over Bluetooth instead'),
+      const SizedBox(height: 12),
+      for (final device in drivable) ...[
         Card(
           margin: EdgeInsets.zero,
           child: ListTile(
-            leading: Icon(Icons.bluetooth, color: scheme.secondary),
-            title: Text('Rabbit Air purifier',
+            leading: Icon(_iconFor(device.profile.category),
+                color: scheme.secondary),
+            title: Text(device.profile.specName,
                 style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
             subtitle: Text(
-              'No setup network to join — provisioning talks to the '
-              'purifier over Bluetooth.',
+              'No setup network to join — provisioning talks to it over '
+              'Bluetooth, while it advertises as '
+              '"${device.profile.advertisedName}".',
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => const RabbitAirSetupScreen(),
+                builder: _bleSetupScreens[device.protocolHandler]!,
               ),
             ),
           ),
         ),
+        const SizedBox(height: 10),
       ],
-    );
+    ];
   }
 
   Widget _deviceCard(

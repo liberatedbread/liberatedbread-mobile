@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `governs_own_type`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -840,6 +840,26 @@ Future<List<SoftApProfileDto>> softApProfiles(
         {required List<String> specYamls}) =>
     RustLib.instance.api.crateApiDeviceApiSoftApProfiles(specYamls: specYamls);
 
+/// Every BLE-provisioning setup method the given specs declare, catalogue
+/// order — the Bluetooth half of the adopt screen's device list, so a second
+/// such family is a spec, not a hand-written card.
+///
+/// Same whole-catalogue sweep caveat as [`soft_ap_profiles`]: specs that fail
+/// to parse are skipped, and the pass stays off the spec cache.
+Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
+        {required List<String> specYamls}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiBleProvisioningProfiles(specYamls: specYamls);
+
+/// Whether an advertised BLE name is any profile's setup-mode peripheral; the
+/// index of the first profile it matches, else null. The exact/prefix rule is
+/// the spec's, applied case-insensitively.
+Future<int?> matchBleProvisioningName(
+        {required List<BleProvisioningProfileDto> profiles,
+        required String advertisedName}) =>
+    RustLib.instance.api.crateApiDeviceApiMatchBleProvisioningName(
+        profiles: profiles, advertisedName: advertisedName);
+
 /// Whether `ssid` looks like any profile's setup AP; the index of the first
 /// profile it matches, else null. The prefix rule is the spec's:
 /// case-insensitive, anchored at the start.
@@ -900,6 +920,68 @@ Future<WemoJoinStatus> wemoNetworkStatus({required String code}) =>
 /// split on `|`, the LAST column is `AUTHMODE/CIPHER`.
 Future<List<WemoAccessPointDto>> parseWemoApList({required String apList}) =>
     RustLib.instance.api.crateApiDeviceApiParseWemoApList(apList: apList);
+
+/// One spec's `ble_provisioning` setup method — the answer to "which devices
+/// are set up over Bluetooth instead of from a setup network, and what does one
+/// advertise as while it waits".
+class BleProvisioningProfileDto {
+  /// `device.name` — what the adopt UI calls the family.
+  final String specName;
+
+  /// `device.category`, for the icon.
+  final String? category;
+
+  /// The name the device advertises while it is waiting to be set up.
+  final String advertisedName;
+
+  /// True when the spec says that name is the whole advertised name; false
+  /// when it is a prefix (the catalogue-wide default).
+  final bool exactName;
+
+  /// The setup service and characteristics, when the spec names them.
+  final String? serviceUuid;
+  final String? writeCharacteristic;
+  final String? readCharacteristic;
+
+  /// The MTU the vendor app negotiates, when the spec's `timing` says.
+  final int? mtu;
+
+  const BleProvisioningProfileDto({
+    required this.specName,
+    this.category,
+    required this.advertisedName,
+    required this.exactName,
+    this.serviceUuid,
+    this.writeCharacteristic,
+    this.readCharacteristic,
+    this.mtu,
+  });
+
+  @override
+  int get hashCode =>
+      specName.hashCode ^
+      category.hashCode ^
+      advertisedName.hashCode ^
+      exactName.hashCode ^
+      serviceUuid.hashCode ^
+      writeCharacteristic.hashCode ^
+      readCharacteristic.hashCode ^
+      mtu.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BleProvisioningProfileDto &&
+          runtimeType == other.runtimeType &&
+          specName == other.specName &&
+          category == other.category &&
+          advertisedName == other.advertisedName &&
+          exactName == other.exactName &&
+          serviceUuid == other.serviceUuid &&
+          writeCharacteristic == other.writeCharacteristic &&
+          readCharacteristic == other.readCharacteristic &&
+          mtu == other.mtu;
+}
 
 class CharacteristicDto {
   final String uuid;

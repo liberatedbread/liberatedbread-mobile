@@ -76,6 +76,86 @@ final adoptableDevicesProvider =
   return devices;
 });
 
+/// One device family that is set up over Bluetooth rather than from a setup
+/// network of its own: the catalogue's `ble_provisioning` profile joined to the
+/// spec that declared it.
+///
+/// The softap sibling of [AdoptableDevice]. It carries no [AdoptFamily]: that
+/// enum names the two conversations [AdoptService] itself speaks over a setup
+/// AP, and a BLE provisioning conversation is a spec-named protocol handler
+/// with its own service and screen (the sanctioned shape for a handshake too
+/// stateful to declare). What the spec decides here is everything the UI shows
+/// and scans for — the family's name, its icon, and the advertised name that
+/// means "waiting to be set up".
+class BleAdoptableDevice {
+  final BleProvisioningProfileDto profile;
+  final String specYaml;
+
+  /// `protocol_handler` from the spec — which provisioning conversation this
+  /// family speaks, and so which screen the card opens.
+  final String? protocolHandler;
+
+  const BleAdoptableDevice({
+    required this.profile,
+    required this.specYaml,
+    required this.protocolHandler,
+  });
+}
+
+/// Every device family the catalogue says is provisioned over BLE.
+///
+/// Unlike [adoptableDevicesProvider] this does NOT narrow to what the app can
+/// drive: a card is only rendered for a family whose handler the adopt screen
+/// knows, and that decision belongs to the screen (which owns the routing
+/// table), not here.
+final bleAdoptableDevicesProvider =
+    FutureProvider<List<BleAdoptableDevice>>((ref) async {
+  final codec = ref.watch(specCodecProvider);
+  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
+  final byName = <String, ({String yaml, String? handler})>{
+    for (final entry in parsed)
+      entry.spec.deviceName: (
+        yaml: entry.yaml,
+        handler: entry.spec.protocolHandler
+      ),
+  };
+  final profiles =
+      await codec.bleProvisioningProfiles(parsed.map((p) => p.yaml).toList());
+
+  final devices = <BleAdoptableDevice>[];
+  final seen = <String>{};
+  for (final profile in profiles) {
+    final spec = byName[profile.specName];
+    if (spec == null) continue;
+    // One card per advertised name: two specs in a product family that share a
+    // setup peripheral are one thing to the user.
+    if (!seen.add(profile.advertisedName.toLowerCase())) continue;
+    devices.add(BleAdoptableDevice(
+      profile: profile,
+      specYaml: spec.yaml,
+      protocolHandler: spec.handler,
+    ));
+  }
+  return devices;
+});
+
+/// Whether a BLE peripheral advertising [advertisedName] is some family's
+/// setup-mode unit — and if so, which. Null when it is an ordinary device.
+///
+/// The one place the "is this waiting to be set up" question is answered, so
+/// the BLE device screen and the setup screen's own scan agree, and neither
+/// spells a product's advertised name in Dart.
+final bleSetupModeMatchProvider = FutureProvider.autoDispose
+    .family<BleAdoptableDevice?, String>((ref, advertisedName) async {
+  final devices = await ref.watch(bleAdoptableDevicesProvider.future);
+  if (devices.isEmpty) return null;
+  final index = await ref.watch(specCodecProvider).matchBleProvisioningName(
+        profiles: devices.map((d) => d.profile).toList(),
+        advertisedName: advertisedName,
+      );
+  return index == null ? null : devices[index];
+});
+
 /// The adoptable family whose setup network the OS can currently see, or null.
 ///
 /// The signal behind the spinning icon: it polls the OS Wi-Fi list on a slow

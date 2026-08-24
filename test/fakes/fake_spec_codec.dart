@@ -1250,6 +1250,13 @@ class FakeSpecCodec implements SpecCodec {
   /// Returned by [matchSoftApSsid].
   int? Function(String ssid)? matchSoftApSsidFor;
 
+  /// Returned by [bleProvisioningProfiles].
+  List<BleProvisioningProfileDto> bleProvisioningProfilesResult = const [];
+
+  /// Returned by [matchBleProvisioningName]. The default applies the real
+  /// exact/prefix rule to [bleProvisioningProfilesResult], so a test that sets
+  /// up profiles gets honest matching without also stubbing the matcher.
+
   /// Returned by [renderWemoConnectRequests]; if [wemoConnectError] is set, the
   /// call throws it instead (the short-passphrase path).
   List<SoapRequestDto> wemoConnectRequests = const [
@@ -1281,6 +1288,32 @@ class FakeSpecCodec implements SpecCodec {
   Future<SetupInstructionsDto?> setupInstructions(String specYaml) async {
     setupInstructionsCalls.add(specYaml);
     return setupInstructionsFor?.call(specYaml);
+  }
+
+  int? Function(String advertisedName)? matchBleProvisioningNameFor;
+
+  @override
+  Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
+          List<String> specYamls) async =>
+      bleProvisioningProfilesResult;
+
+  @override
+  Future<int?> matchBleProvisioningName({
+    required List<BleProvisioningProfileDto> profiles,
+    required String advertisedName,
+  }) async {
+    if (matchBleProvisioningNameFor != null) {
+      return matchBleProvisioningNameFor!(advertisedName);
+    }
+    final name = advertisedName.trim().toLowerCase();
+    for (var i = 0; i < profiles.length; i++) {
+      final declared = profiles[i].advertisedName.toLowerCase();
+      if (declared.isEmpty) continue;
+      final hit =
+          profiles[i].exactName ? name == declared : name.startsWith(declared);
+      if (hit) return i;
+    }
+    return null;
   }
 
   @override
