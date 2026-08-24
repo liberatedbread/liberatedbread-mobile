@@ -1897,7 +1897,17 @@ fn network_surface_for(
                 // for a `button`, which has no state to poll; a caller
                 // gathering state commands must skip the empty string rather
                 // than render a request from it.
-                state_command: entity.state_command.clone().unwrap_or_default(),
+                //
+                // On a device that pushes its readings the state binding is a
+                // topic, and it rides this same field — the convention the
+                // Roomba synthesiser above already follows. One field for
+                // "where the reading comes from", whatever the transport calls
+                // it; the transport below says which it is.
+                state_command: entity
+                    .state_command
+                    .clone()
+                    .or_else(|| entity.state_topic.clone())
+                    .unwrap_or_default(),
                 // Every resolved action on one entity rides one transport —
                 // a spec binding a light's toggle to SOAP and its slider to
                 // HTTP would be describing two devices — so the first

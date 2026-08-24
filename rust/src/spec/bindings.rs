@@ -1048,7 +1048,8 @@ fn qualify_network<'a>(
 /// Whether an entity belongs on the network control surface at all.
 ///
 /// The honesty rule with its four carve-outs: an entity is listed when it
-/// says where its reading comes from (`state_command`), because a control
+/// says where its reading comes from (`state_command`, or `state_topic` on a
+/// transport that pushes rather than polls), because a control
 /// that can never update is worse than an absent one — except a `button`,
 /// which is momentary and has no resulting state to read, a `text`, whose
 /// surface is the input field itself (the device never reports what its
@@ -1076,7 +1077,21 @@ fn qualify_network<'a>(
 /// by policy — admitting a switch on its strength alone would list a
 /// control the client must then refuse to operate.
 fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
+    // A `state_topic` is the same promise as a `state_command` where readings
+    // are pushed rather than polled: the entity says where its reading comes
+    // from, which is the whole of the honesty rule. Without it an MQTT set's
+    // Power switch — a toggle whose state arrives on a subscribed broadcast
+    // topic — is hidden as though it had no reading, and only the momentary
+    // buttons survive.
+    //
+    // Narrowed to devices that actually speak MQTT, and that is not
+    // pedantry: the Hue bridge stores an HTTP path in `state_topic` for a
+    // sensor family its spec deliberately leaves unbound, and reading that as
+    // a subscription would put a control on screen that can never update.
+    // Where the field means a topic, it is a binding; elsewhere it means
+    // whatever the author meant and this does not guess.
     entity.state_command.is_some()
+        || (entity.state_topic.is_some() && speaks_mqtt(spec))
         || matches!(entity.platform.as_deref(), Some("button") | Some("text"))
         || entity
             .options_source
@@ -1084,6 +1099,26 @@ fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
             .is_some_and(|source| http::endpoint_request(spec, &source.command).is_some())
         || is_assumed_state_switch(spec, entity)
         || is_assumed_state_cover(spec, entity)
+}
+
+/// Whether this device's readings arrive over MQTT — the spec's declared
+/// `device.transport`, or failing that any command riding the transport.
+///
+/// The device-level answer matters on its own: a purifier whose spec records
+/// that its command keys were never recovered has sensors and no commands at
+/// all, and its readings still arrive on a subscribed topic.
+fn speaks_mqtt(spec: &DeviceSpec) -> bool {
+    let declared = spec
+        .device
+        .extensions
+        .get("transport")
+        .and_then(|t| t.as_str())
+        == Some(mqtt::TRANSPORT);
+    declared
+        || spec
+            .commands
+            .values()
+            .any(|command| command.transport.as_deref() == Some(mqtt::TRANSPORT))
 }
 
 /// The switch carve-out of [`on_network_surface`], separated so the P13

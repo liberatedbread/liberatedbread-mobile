@@ -1350,3 +1350,88 @@ fn the_vendored_rabbit_air_spec_drives_its_own_ble_adopt_card() {
         "the provisioning conversation needs its GATT addresses from the spec"
     );
 }
+
+/// The Hisense set is the catalogue's MQTT control surface, and the whole
+/// point of the transport work is that its remote resolves without a line of
+/// TV-specific code.
+///
+/// Pins the three things a consumer depends on: that the entities reach the
+/// surface at all (a transport the resolver cannot send would hide every one
+/// of them), that a key press renders to the topic and payload the spec
+/// declares, and that the topic's client id comes from the caller rather than
+/// being guessed. The last is the one that fails silently: a publish to a
+/// topic still holding a literal `{client_id}` succeeds at the socket.
+#[test]
+fn the_vendored_hisense_spec_resolves_a_remote_over_mqtt() {
+    use liberated_bread_core::api::device_api::{
+        network_entities_for_device, render_network_mqtt_command,
+    };
+
+    let yaml = fs::read_to_string(spec_path("hisense-vidaa.yaml")).expect("spec reads");
+
+    let surface =
+        network_entities_for_device(yaml.clone(), vec![]).expect("hisense resolves a surface");
+    let names: BTreeSet<&str> = surface.entities.iter().map(|e| e.name.as_str()).collect();
+    for expected in ["Power", "Up", "Down", "Left", "Right", "OK"] {
+        assert!(
+            names.contains(expected),
+            "{expected:?} should be on the surface, got {names:?}"
+        );
+    }
+
+    let values = std::collections::HashMap::from([(
+        "client_id".to_string(),
+        "56:b8:88:4e:f7:19$normal".to_string(),
+    )]);
+    let request = render_network_mqtt_command(yaml.clone(), "press_power".to_string(), values)
+        .expect("a key press renders");
+    assert_eq!(
+        request.topic,
+        "/remoteapp/tv/remote_service/56:b8:88:4e:f7:19$normal/actions/sendkey"
+    );
+    // The bare key name, not JSON: this spec's payload is a string.
+    assert_eq!(request.payload, "KEY_POWER");
+
+    // With no client id there is nothing to address, and rendering must say so
+    // rather than publish a topic containing a brace.
+    let unaddressed = render_network_mqtt_command(
+        yaml,
+        "press_power".to_string(),
+        std::collections::HashMap::new(),
+    );
+    assert!(
+        unaddressed.is_err(),
+        "an unaddressed command must not render, got {unaddressed:?}"
+    );
+}
+
+/// The Dyson purifier is the read-only end of the same transport: its spec
+/// records that the STATE-SET key names were never recovered, so it declares
+/// no commands at all — and its sensors still have to reach the screen, on
+/// the strength of the topic they arrive on.
+///
+/// The pair with the Hue bridge is the point. Hue stores an HTTP path in
+/// `state_topic` for a sensor family it deliberately leaves unbound, so
+/// reading every `state_topic` as a subscription would put a control on
+/// screen that can never update. One is a topic and the other is not, and
+/// what tells them apart is whether the device speaks MQTT.
+#[test]
+fn a_state_topic_is_a_binding_only_where_the_device_speaks_mqtt() {
+    use liberated_bread_core::api::device_api::network_entities_for_device;
+
+    let dyson = fs::read_to_string(spec_path("dyson-air-purifier.yaml")).expect("spec reads");
+    let surface = network_entities_for_device(dyson, vec![]).expect("dyson resolves a surface");
+    let names: BTreeSet<&str> = surface.entities.iter().map(|e| e.name.as_str()).collect();
+    assert!(
+        names.contains("Air Quality") && names.contains("Filter Life"),
+        "a purifier's sensors arrive on a subscribed topic, got {names:?}"
+    );
+
+    let hue = fs::read_to_string(spec_path("hue-bridge.yaml")).expect("spec reads");
+    let surface = network_entities_for_device(hue, vec![]).expect("hue resolves a surface");
+    let names: BTreeSet<&str> = surface.entities.iter().map(|e| e.name.as_str()).collect();
+    assert!(
+        !names.contains("Hue Sensor"),
+        "hue's state_topic is an HTTP path for an unbound family, got {names:?}"
+    );
+}
