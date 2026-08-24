@@ -257,6 +257,8 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
           ),
         if (percentage != null && max > min)
           Slider(
+            semanticFormatterCallback: (v) =>
+                '${widget.entity.name} ${v.round()}',
             value: (speed ?? min).clamp(min, max),
             min: min,
             max: max,
@@ -335,6 +337,8 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         // by a live position; the motions above promise nothing.
         if (position != null && positionValue != null && max > min)
           Slider(
+            semanticFormatterCallback: (v) =>
+                '${widget.entity.name} ${v.round()}',
             value: positionValue.clamp(min, max),
             min: min,
             max: max,

@@ -151,6 +151,7 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
       subtitle: _buildBody(),
       trailing: widget.canRead
           ? IconButton(
+              tooltip: 'Read ${widget.specChar.name} again',
               icon: const Icon(Icons.refresh, size: 18),
               onPressed: _loading ? null : _read,
             )

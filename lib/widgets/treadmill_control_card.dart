@@ -570,6 +570,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                     ),
                   ),
                   IconButton.outlined(
+                    tooltip: 'Slow down',
                     onPressed: _sending == null
                         ? () => _nudgeSpeed(speed, -_speedStep)
                         : null,
@@ -579,6 +580,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                   ),
                   const SizedBox(width: 8),
                   IconButton.outlined(
+                    tooltip: 'Speed up',
                     onPressed: _sending == null
                         ? () => _nudgeSpeed(speed, _speedStep)
                         : null,
@@ -589,6 +591,8 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                 ],
               ),
               Slider(
+                semanticFormatterCallback: (v) =>
+                    'Speed ${v.toStringAsFixed(1)} km/h',
                 min: speed.minDisplay,
                 max: speed.maxDisplay,
                 // Discrete half-km/h stops where the range allows; null past

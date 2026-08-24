@@ -317,11 +317,15 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
           const Spacer(),
           _StepButton(
             icon: Icons.remove,
+            // Named, because "button" is all a screen reader can say about a
+            // bare minus sign — and this one moves a thermostat.
+            label: 'Decrease ${widget.entity.name}',
             onTap: _sending ? null : () => _nudge(-_step),
           ),
           const SizedBox(width: 8),
           _StepButton(
             icon: Icons.add,
+            label: 'Increase ${widget.entity.name}',
             onTap: _sending ? null : () => _nudge(_step),
           ),
           const SizedBox(width: 8),
@@ -360,6 +364,7 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
           ],
         ),
         Slider(
+          semanticFormatterCallback: (v) => '${widget.entity.name} ${_fmt(v)}',
           min: min,
           max: max,
           divisions: divisions,
@@ -414,12 +419,18 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
 
 class _StepButton extends StatelessWidget {
   final IconData icon;
+  final String label;
   final VoidCallback? onTap;
 
-  const _StepButton({required this.icon, required this.onTap});
+  const _StepButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) => IconButton.outlined(
+        tooltip: label,
         onPressed: onTap,
         icon: Icon(icon, size: 18),
         constraints: const BoxConstraints(minWidth: 44, minHeight: 44),

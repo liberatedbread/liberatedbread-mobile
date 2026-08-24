@@ -205,6 +205,7 @@ class _RawCharacteristicWidgetState
           subtitle: _buildValue(),
           trailing: char.canRead
               ? IconButton(
+                  tooltip: 'Read this characteristic again',
                   icon: const Icon(Icons.refresh, size: 18),
                   onPressed: _loading ? null : _read,
                 )

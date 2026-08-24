@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/color_names.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import '../providers/ble_provider.dart';
@@ -342,6 +343,10 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                     size: 18, color: scheme.onSurfaceVariant),
                 Expanded(
                   child: Slider(
+                    // Without this a screen reader announces the bare number
+                    // — "40" — and which of a light card's several numbers it
+                    // is has to be guessed from focus order.
+                    semanticFormatterCallback: (v) => 'Brightness ${v.round()}',
                     min: _brightnessMin,
                     max: _brightnessMax,
                     value: _effectiveBrightness,
@@ -438,6 +443,16 @@ class _SwatchButton extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     // Dark checkmark on light swatches, light on dark ones.
     final luminance = color.computeLuminance();
+    return Semantics(
+      label: colorSwatchName(color),
+      button: true,
+      selected: selected,
+      enabled: enabled,
+      child: _swatch(scheme, luminance),
+    );
+  }
+
+  Widget _swatch(ColorScheme scheme, double luminance) {
     return InkWell(
       onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(19),

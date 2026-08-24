@@ -133,6 +133,8 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Slider(
+                semanticFormatterCallback: (v) =>
+                    'Brightness ${v.round()} percent',
                 value: percent,
                 min: 0,
                 max: 100,

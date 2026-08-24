@@ -116,6 +116,8 @@ class _HubChildLightCardState extends State<HubChildLightCard> {
                       size: 18, color: scheme.onSurfaceVariant),
                   Expanded(
                     child: Slider(
+                      semanticFormatterCallback: (v) =>
+                          'Brightness ${v.round()}',
                       min: widget.brightnessMin,
                       max: widget.brightnessMax,
                       value: _sliderValue,

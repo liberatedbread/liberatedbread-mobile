@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/color_names.dart';
 import '../core/error_text.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
@@ -372,6 +373,8 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                       size: 18, color: scheme.onSurfaceVariant),
                   Expanded(
                     child: Slider(
+                      semanticFormatterCallback: (v) =>
+                          'Brightness ${v.round()}',
                       min: _brightnessMin,
                       max: _brightnessMax,
                       value: _brightness.clamp(_brightnessMin, _brightnessMax),
@@ -402,6 +405,8 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                         _setColorTemperature!.min ?? 1500,
                         _setColorTemperature!.max ?? 9000,
                       ),
+                      semanticFormatterCallback: (v) =>
+                          'Colour temperature ${v.round()} kelvin',
                       label: '${_kelvin.round()}K',
                       onChanged:
                           _sending ? null : (v) => setState(() => _kelvin = v),
@@ -548,6 +553,16 @@ class _SwatchButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final luminance = color.computeLuminance();
+    return Semantics(
+      label: colorSwatchName(color),
+      button: true,
+      selected: selected,
+      enabled: enabled,
+      child: _swatch(scheme, luminance),
+    );
+  }
+
+  Widget _swatch(ColorScheme scheme, double luminance) {
     return InkWell(
       onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(19),

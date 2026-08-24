@@ -1979,6 +1979,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           ),
           if (hasRange)
             Slider(
+              semanticFormatterCallback: (v) =>
+                  '${entity.name} ${_trimNumber(v)}'
+                  '${unit == null ? '' : ' $unit'}',
               value: (shown ?? min).clamp(min, max),
               min: min,
               max: max,
@@ -2131,6 +2134,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               positionValue != null &&
               positionMax > positionMin)
             Slider(
+              // A cover's position slider reads as a bare fraction otherwise,
+              // and this one drives a garage door.
+              semanticFormatterCallback: (v) =>
+                  '${entity.name} position ${_trimNumber(v)}',
               value: positionValue.clamp(positionMin, positionMax),
               min: positionMin,
               max: positionMax,
@@ -2193,6 +2200,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           ),
           if (percentage != null && max > min)
             Slider(
+              semanticFormatterCallback: (v) =>
+                  '${entity.name} speed ${_trimNumber(v)}',
               value: (speed ?? min).clamp(min, max),
               min: min,
               max: max,
