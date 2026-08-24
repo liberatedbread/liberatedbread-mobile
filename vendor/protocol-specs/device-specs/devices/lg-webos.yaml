@@ -8,14 +8,21 @@
 # SSAP service URIs (ssap://audio/volumeUp, ssap://system/turnOff, ...) for
 # every command thereafter.
 #
-# TRANSPORT GAP, stated up front: the reference app's command transports are
-# http and soap, and this protocol is neither. The `commands` block below
-# therefore declares no `transport:` at all — `device.transport` names the
-# real one — and carries each invocation's wire spelling in `action`, with
-# the frame format in webos_common. The single `http_endpoints` entry is a
-# placeholder that marks the port, as in lutron-caseta-smart-bridge; do not
-# build HTTP requests from it. A consumer must implement the WebSocket
-# transport before anything here is sendable.
+# The access surface is the `websocket:` block below: where the socket is,
+# how a client is authorised on it, and how each command becomes a frame.
+# There is no REST here at all — the placeholder `http_endpoints` entry this
+# file used to carry existed only to name the port, and the websocket block
+# names it properly.
+#
+# The `commands` block declares no `transport:` on each entry — `device.transport`
+# names the one they all ride — and carries each invocation's wire spelling in
+# `action`, with the frame format in webos_common.
+#
+# WHAT IS STILL NOT SENDABLE, stated up front: a first pairing. The
+# registration manifest's static Connect SDK signature has not been recovered
+# by this project (see remaining_unknowns), so a client cannot complete the
+# handshake that issues a client-key. Everything after that point — both
+# channels, every command — is declared and renderable.
 #
 # No LG hardware was available to this project. Every command is
 # verification "reported": read out of LG's own Connect SDK source and the
@@ -366,17 +373,119 @@ protocol_details:
 # GET. Do not catalogue SSAP URIs here as if they were paths — they are
 # WebSocket message fields (webos_common.request_format), and a consumer
 # that POSTed them would get nothing.
-http_endpoints:
-  - method: "GET"
+# The WebSocket control surface: where the sockets are, how a client is
+# authorised, and how a command becomes a frame. Everything here is
+# executable; webos_common above is why it looks like this.
+#
+# TWO channels, and that is the shape of this device rather than an
+# abstraction for its own sake: SSAP requests are JSON on the main socket,
+# and remote BUTTONS go to a second socket the TV hands out at runtime,
+# carrying plain-text frames.
+websocket:
+  connect:
+    # aiowebostv's rule: try plain ws on 3000, fall back to wss on 3001 when
+    # the connection is refused or the upgrade rejected. Late firmware listens
+    # on the TLS port only.
+    port: 3000
+    scheme: "ws"
     path: "/"
-    name: "webOS Second Screen WebSocket"
-    status: "placeholder"
-    description: >
-      Placeholder for the SSAP service on ports 3000 (ws) and 3001 (wss).
-      A plain GET here is only the WebSocket upgrade; every real exchange
-      is JSON frames per webos_common. Recorded so the access surface names
-      the port, not because any REST endpoint exists.
+    fallback:
+      port: 3001
+      scheme: "wss"
+      path: "/"
+    tls:
+      self_signed: true
+      # aiowebostv passes ssl=False. Recorded as none because that is what
+      # clients do: TLS here buys obfuscation, and what authenticates is the
+      # client-key.
+      verification: "none"
+    heartbeat_seconds: 5
+  pairing:
+    mode: "register_frame"
+    credential_name: "webos_client_key"
+    issued_at: "payload.client-key"
+    prompt_notes: >
+      The TV shows an on-screen accept prompt on a first registration
+      (pairingType PROMPT with no valid key). The register call answers first
+      with a type "response" echoing the pairingType, and only after the
+      viewer accepts does a second message of type "registered" carry the
+      client-key. A declined or timed-out prompt answers type "error" — say
+      "accept the pairing request on the TV", not "the network failed".
+    # The payload every open client sends, verbatim except for the one value
+    # this project has not recovered (see remaining_unknowns): the static
+    # Connect SDK signature. `{credential}` is the stored client-key, absent
+    # on a first pairing.
+    register_frame:
+      id: "register_0"
+      type: "register"
+      payload:
+        forcePairing: false
+        pairingType: "PROMPT"
+        client-key: "{credential}"
+        manifest:
+          manifestVersion: 1
+          appVersion: "1.1"
+          permissions:
+            - "LAUNCH"
+            - "LAUNCH_WEBAPP"
+            - "APP_TO_APP"
+            - "CLOSE"
+            - "TEST_OPEN"
+            - "TEST_PROTECTED"
+            - "CONTROL_AUDIO"
+            - "CONTROL_DISPLAY"
+            - "CONTROL_INPUT_JOYSTICK"
+            - "CONTROL_INPUT_MEDIA_RECORDING"
+            - "CONTROL_INPUT_MEDIA_PLAYBACK"
+            - "CONTROL_INPUT_TV"
+            - "CONTROL_POWER"
+            - "CONTROL_TV_SCREEN"
+            - "READ_APP_STATUS"
+            - "READ_CURRENT_CHANNEL"
+            - "READ_INPUT_DEVICE_LIST"
+            - "READ_NETWORK_STATE"
+            - "READ_RUNNING_APPS"
+            - "READ_TV_CHANNEL_LIST"
+            - "WRITE_NOTIFICATION_TOAST"
+            - "READ_POWER_STATE"
+            - "READ_COUNTRY_INFO"
+            - "CONTROL_INPUT_TEXT"
+            - "CONTROL_MOUSE_AND_KEYBOARD"
+            - "READ_INSTALLED_APPS"
+            - "READ_SETTINGS"
+  channels:
+    - name: "ssap"
+      default: true
+      encoding: "json"
+      frame:
+        id: "{request_id}"
+        type: "request"
+        uri: "{action}"
+        payload: "{arguments}"
+      description: >
+        The main socket. `id` is a client-chosen integer matching request to
+        response; payload is {} when the URI takes no arguments.
+    - name: "pointer"
+      encoding: "text"
+      # Not JSON: key:value lines terminated by a blank line.
+      frame_template: "type:button\nname:{action}\n\n"
+      obtained_by: "get_pointer_socket"
+      address_path: "payload.socketPath"
+      description: >
+        The remote-button socket, a SECOND WebSocket whose address the TV
+        returns from get_pointer_socket. Accepted but inert on the earliest
+        webOS 1.x sets (2014-2015): a firmware limitation, not a client bug,
+        and on those models only the ssap channel works.
 
+remaining_unknowns:
+  - >
+    The static Connect SDK signature in the registration manifest's
+    `signatures[0].signature`. Every open client ships the same string and the
+    TV is reported not to validate it against any store, but this project has
+    not recovered the value and has not tested whether registration succeeds
+    without the field — so `websocket.pairing.register_frame` omits
+    `signatures` entirely rather than carrying a guess. Until that is settled,
+    a client cannot complete a first pairing from this spec alone.
 # One invocation per remote function, in the shape entities can bind. Every
 # command is verification "reported" — the URIs and button names are what
 # aiowebostv/bscpylgtv/openHAB ship against production TVs, but nothing here
@@ -416,42 +525,59 @@ commands:
     action: "ssap://com.webos.service.tvpower/power/turnOnScreen"
     verification: "reported"
 
+  # The pointer socket's own address comes from the main one. Declared as a
+  # command rather than written into the channel block because it IS one: an
+  # ordinary ssap request whose reply happens to carry an address.
+  get_pointer_socket:
+    description: "Ask for the remote-button socket's address; the reply's payload.socketPath is a second WebSocket URL on the same ports."
+    action: "ssap://com.webos.service.networkinput/getPointerInputSocket"
+    verification: "reported"
+
   # -- Navigation (pointer socket).
   press_back:
     description: "Back one screen."
     action: "BACK"
+    channel: "pointer"
     verification: "reported"
   press_home:
     description: "Home / launcher."
     action: "HOME"
+    channel: "pointer"
     verification: "reported"
   press_exit:
     description: "Exit — leave the current app/overlay."
     action: "EXIT"
+    channel: "pointer"
     verification: "reported"
   press_up:
     description: "D-pad up."
     action: "UP"
+    channel: "pointer"
     verification: "reported"
   press_down:
     description: "D-pad down."
     action: "DOWN"
+    channel: "pointer"
     verification: "reported"
   press_left:
     description: "D-pad left."
     action: "LEFT"
+    channel: "pointer"
     verification: "reported"
   press_right:
     description: "D-pad right."
     action: "RIGHT"
+    channel: "pointer"
     verification: "reported"
   press_ok:
     description: "OK — activate the focused item. The wire name is ENTER; there is no separate OK."
     action: "ENTER"
+    channel: "pointer"
     verification: "reported"
   press_info:
     description: "Info — details for the focused item/channel."
     action: "INFO"
+    channel: "pointer"
     verification: "reported"
   # Digit buttons exist too: the name is the digit itself ("0".."9"), same
   # frame — documented once in webos_common.input_channel rather than as

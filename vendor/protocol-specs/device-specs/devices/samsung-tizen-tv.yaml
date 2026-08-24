@@ -426,6 +426,51 @@ http_endpoints:
     name: "Install App"
     description: "Install an app from the Samsung store by id. Same cataloguing caveat as Close App."
 
+# The WebSocket control surface: where the socket is, how a client is
+# authorised on it, and how a command becomes a frame. Everything here is
+# executable; samsung_remote_common above is why it looks like this.
+websocket:
+  connect:
+    # Newer sets listen on 8002 only, and it is the port that accepts a token
+    # at all — samsungtvws appends the query parameter on TLS only. The plain
+    # 8001 listener older sets offer is the fallback below, where a client
+    # authenticates by name alone.
+    port: 8002
+    scheme: "wss"
+    path: "/api/v2/channels/samsung.remote.control?name={client_name}&token={token}"
+    fallback:
+      port: 8001
+      scheme: "ws"
+      path: "/api/v2/channels/samsung.remote.control?name={client_name}"
+    tls:
+      self_signed: true
+      # Clients disable verification (samsungtvws passes CERT_NONE). Recorded
+      # as none rather than implying a check nobody performs: what
+      # authenticates here is the token, not the certificate.
+      verification: "none"
+  pairing:
+    mode: "token_query"
+    credential_name: "samsung_token"
+    issued_at: "data.token"
+    prompt_notes: >
+      No PIN and no shared secret: authorisation is the viewer pressing Allow
+      on the TV. A first connection under an unknown client name raises an
+      Allow/Deny dialog; Allow delivers ms.channel.connect carrying data.token,
+      which the client stores and sends as &token= on every later connection.
+      Deny or a timeout delivers ms.channel.unauthorized — say "approve the
+      connection on the TV", never "the network failed". The whole flow keys on
+      the client NAME in the URL, so a client that renames itself is a new
+      stranger and prompts again.
+  channels:
+    - name: "remote"
+      default: true
+      encoding: "json"
+      # Every command below is this one frame: the wire method and its params.
+      frame:
+        method: "{action}"
+        params: "{arguments}"
+      description: "The single control socket. Key presses, app launches and text entry all ride it."
+
 # One invocation per remote key, in the shape entities bind — the Roku
 # catalogue's one-command-per-option convention, applied to a different
 # envelope. EVERY key command here deliberately omits `transport`: it

@@ -1847,6 +1847,15 @@ def test_an_mqtt_command_declares_at_most_one_payload(specs):
         )
 
 
+# A renderer fills `{name}` where name is parameter-shaped and leaves every
+# other brace alone — that is what lets a JSON payload be written as a `body`
+# template. The guard below looks for the same shape, anywhere in the template
+# rather than only as the whole of it: `body: "KEY_{foo}"` with no `foo`
+# parameter would publish the brace literally, and a device ignores a key it
+# has never heard of without saying so.
+_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_]+)\}")
+
+
 def test_every_mqtt_payload_placeholder_is_a_declared_parameter(specs):
     for spec_name, command_name, command in _mqtt_commands(specs):
         declared = set((command.get("parameters") or {}).keys())
@@ -1857,10 +1866,10 @@ def test_every_mqtt_payload_placeholder_is_a_declared_parameter(specs):
             if isinstance(value, str)
         ]
         for template in templates:
-            for placeholder in re.findall(r"^\{([^{}]+)\}$", template):
-                assert placeholder in declared, (
+            for name in _PLACEHOLDER.findall(template):
+                assert name in declared, (
                     f"{spec_name}: mqtt command {command_name!r} sends "
-                    f"{{{placeholder}}} but does not declare it as a parameter"
+                    f"{{{name}}} but does not declare it as a parameter"
                 )
 
 
@@ -1881,4 +1890,107 @@ def test_an_mqtt_examples_body_agrees_with_what_the_command_renders(specs):
         assert str(example) == str(body), (
             f"{spec_name}: mqtt command {command_name!r} would send {body!r} "
             f"but its example says {example!r}"
+        )
+
+
+# ── The WebSocket access surface ────────────────────────────────────────────
+# A consumer opens `websocket.connect`, is authorised by `websocket.pairing`,
+# and turns each command into a frame with the channel the command names. Every
+# cross-reference between those three has to hold, because a renderer resolving
+# a name that is not there has nothing to fall back on.
+
+
+def _websocket_specs(specs: dict[str, dict]):
+    for name, spec in specs.items():
+        if "websocket" in spec:
+            yield name, spec, spec["websocket"]
+
+
+def test_exactly_one_websocket_channel_is_the_default(specs):
+    for spec_name, _, ws in _websocket_specs(specs):
+        defaults = [c for c in ws["channels"] if c.get("default")]
+        assert len(defaults) == 1, (
+            f"{spec_name}: {len(defaults)} channels claim `default` — a command "
+            "that names none has to have exactly one place to go"
+        )
+
+
+def test_every_command_channel_names_a_declared_channel(specs):
+    for spec_name, spec, ws in _websocket_specs(specs):
+        declared = {c["name"] for c in ws["channels"]}
+        for command_name, command in (spec.get("commands") or {}).items():
+            channel = command.get("channel")
+            if channel is None:
+                continue
+            assert channel in declared, (
+                f"{spec_name}: command {command_name!r} rides channel "
+                f"{channel!r}, which `websocket.channels` does not declare "
+                f"(has {sorted(declared)})"
+            )
+
+
+def test_a_runtime_channel_names_the_command_that_finds_it(specs):
+    # A second socket the device hands out at runtime is only reachable if the
+    # request that returns its address is itself a declared command.
+    for spec_name, spec, ws in _websocket_specs(specs):
+        commands = spec.get("commands") or {}
+        for channel in ws["channels"]:
+            obtained_by = channel.get("obtained_by")
+            if obtained_by is None:
+                continue
+            assert obtained_by in commands, (
+                f"{spec_name}: channel {channel['name']!r} is obtained by "
+                f"{obtained_by!r}, which is not a declared command"
+            )
+            assert channel.get("address_path"), (
+                f"{spec_name}: channel {channel['name']!r} says which command "
+                "returns its address but not where in the reply to look"
+            )
+
+
+def test_a_channel_carries_the_frame_its_encoding_needs(specs):
+    for spec_name, _, ws in _websocket_specs(specs):
+        for channel in ws["channels"]:
+            if channel["encoding"] == "json":
+                assert channel.get("frame"), (
+                    f"{spec_name}: json channel {channel['name']!r} declares no "
+                    "`frame`, so there is nothing to build"
+                )
+            else:
+                assert channel.get("frame_template"), (
+                    f"{spec_name}: text channel {channel['name']!r} declares no "
+                    "`frame_template`, so there is nothing to fill"
+                )
+
+
+def test_websocket_pairing_says_what_it_issues_and_where(specs):
+    # A pairing flow that does not name its credential cannot be stored, and
+    # one that does not say where the device puts it cannot be read back.
+    for spec_name, _, ws in _websocket_specs(specs):
+        pairing = ws.get("pairing")
+        if pairing is None:
+            continue
+        assert pairing.get("credential_name"), (
+            f"{spec_name}: websocket.pairing issues something but does not name "
+            "it, so a client has no key to store it under"
+        )
+        assert pairing.get("issued_at"), (
+            f"{spec_name}: websocket.pairing does not say where in the device's "
+            "reply the issued secret appears"
+        )
+        if pairing["mode"] == "register_frame":
+            assert pairing.get("register_frame"), (
+                f"{spec_name}: pairing mode is register_frame but no frame is "
+                "declared to send"
+            )
+
+
+def test_a_websocket_spec_declares_the_transport_its_commands_ride(specs):
+    # The block describes a surface; `device.transport` is what makes the
+    # commands route to it. A spec with one and not the other is half-migrated.
+    for spec_name, spec, _ in _websocket_specs(specs):
+        transport = spec["device"].get("transport")
+        assert transport == "websocket", (
+            f"{spec_name}: declares a `websocket` block but "
+            f"device.transport is {transport!r}"
         )
