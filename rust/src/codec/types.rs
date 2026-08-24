@@ -96,6 +96,14 @@ impl DecodedValues {
     }
 }
 
+/// `values["brightness"]` for the assertion-heavy tests, which want the panic
+/// on a missing field to BE the failure message.
+///
+/// Test-only on purpose: this is the one accessor here that panics, and a
+/// decode result is built from bytes a device sent — a production caller that
+/// indexed a field the device omitted would take the app down over a short
+/// notification. Those callers use `get`, which says "absent" instead.
+#[cfg(test)]
 impl std::ops::Index<&str> for DecodedValues {
     type Output = DecodedValue;
 
@@ -209,9 +217,11 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
             // decode symmetric with the encoder rather than erroring.
             let mut v: u64 = 0;
             let mut shift = 0u32;
+            let mut terminated = false;
             for &b in slice {
                 v |= u64::from(b & 0x7F) << shift;
                 if b & 0x80 == 0 {
+                    terminated = true;
                     break;
                 }
                 shift += 7;
@@ -219,8 +229,25 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
                 // overflow (a malformed over-long continuation must not panic
                 // the decode of an incoming notification).
                 if shift >= 64 {
-                    break;
+                    return Err(ProtocolError::MalformedReply(format!(
+                        "field '{}' is an over-long varint: no terminator within \
+                         the 10 bytes a u64 allows",
+                        field.name
+                    )));
                 }
+            }
+            // Every byte carried a continuation bit and the field ran out, so
+            // the value's high groups were never delivered. Returning the
+            // low bits would be a plausible wrong number — a truncated
+            // brightness reads as some other brightness, and nothing says the
+            // read was short.
+            if !terminated {
+                return Err(ProtocolError::MalformedReply(format!(
+                    "field '{}' is a truncated varint: its {}-byte field \
+                     carries no terminating byte",
+                    field.name,
+                    slice.len()
+                )));
             }
             Ok(DecodedValue::Uint(v))
         }
@@ -801,6 +828,52 @@ mod tests {
             decode_field(&[0], &field).unwrap(),
             DecodedValue::Bool(false)
         );
+    }
+
+    fn varint_field(length: usize) -> FormatField {
+        FormatField {
+            offset: 0,
+            length,
+            name: "count".into(),
+            field_type: ValueType::Varint,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn decode_varint_reads_one_and_two_byte_values() {
+        // 0x7F terminates immediately; 0xE5 0x8E 0x26 is protobuf's canonical
+        // 624485.
+        assert_eq!(
+            decode_field(&[0x7F], &varint_field(1)).unwrap(),
+            DecodedValue::Uint(127)
+        );
+        assert_eq!(
+            decode_field(&[0xE5, 0x8E, 0x26], &varint_field(3)).unwrap(),
+            DecodedValue::Uint(624_485)
+        );
+        // A field wider than the value: the terminator ends the read and the
+        // trailing bytes are simply not part of it.
+        assert_eq!(
+            decode_field(&[0x7F, 0xFF, 0xFF, 0xFF], &varint_field(4)).unwrap(),
+            DecodedValue::Uint(127)
+        );
+    }
+
+    /// A varint whose every byte sets the continuation bit never delivered
+    /// its high groups. Returning the low bits would be a plausible wrong
+    /// number — a truncated reading decodes as some other reading, with
+    /// nothing anywhere saying the read was short.
+    #[test]
+    fn a_truncated_varint_is_an_error_not_a_partial_value() {
+        let error = decode_field(&[0xE5, 0x8E], &varint_field(2)).unwrap_err();
+        match &error {
+            ProtocolError::MalformedReply(message) => {
+                assert!(message.contains("truncated varint"), "{message}");
+                assert!(message.contains("count"), "names the field: {message}");
+            }
+            other => panic!("expected MalformedReply, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1540,9 +1613,12 @@ mod tests {
         assert_ne!(crc & 0xFF, u16::from(additive) & 0xFF);
     }
 
+    /// 12 continuation bytes (all high-bit set) must not overflow the shift —
+    /// and must not come back as a number either. More than the ten bytes a
+    /// u64 allows is a malformed reply, and saying so beats handing the
+    /// caller whatever had accumulated before the guard tripped.
     #[test]
     fn varint_decode_does_not_panic_on_overlong_continuation() {
-        // 12 continuation bytes (all high-bit set) must not overflow the shift.
         let field = FormatField {
             offset: 0,
             length: 12,
@@ -1550,8 +1626,8 @@ mod tests {
             field_type: ValueType::Varint,
             ..Default::default()
         };
-        let decoded = decode_field(&[0x80; 12], &field);
-        assert!(decoded.is_ok());
+        let error = decode_field(&[0x80; 12], &field).unwrap_err();
+        assert!(error.to_string().contains("over-long varint"), "{error:?}");
     }
 
     fn assert_invalid(result: Result<Vec<u8>, ProtocolError>, want_reason: &str) {
