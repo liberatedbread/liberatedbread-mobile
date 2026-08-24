@@ -137,9 +137,12 @@ final rabbitAirProvisionServiceProvider =
       if (spec == null) return false;
       final scanner = ref.read(networkScanServiceProvider);
       final client = ref.read(rabbitAirControlClientProvider);
-      // Scan windows until the outer timeout (the service's verifyTimeout)
-      // cuts in: the purifier can take tens of seconds to join and announce.
-      while (true) {
+      // Scan windows until the purifier announces — bounded here, because
+      // the service's outer `.timeout` abandons this future without being
+      // able to cancel it: an unbounded loop on a purifier that never joins
+      // kept scanning (and holding the multicast lock) until process death.
+      // Six 10 s windows outlast the service's verifyTimeout.
+      for (var window = 0; window < 6; window++) {
         NetworkDevice? found;
         await for (final device
             in scanner.scan(timeout: const Duration(seconds: 10))) {
@@ -162,6 +165,7 @@ final rabbitAirProvisionServiceProvider =
         await client.send(found.host, port, request, userKey: userKey);
         return true;
       }
+      return false;
     },
   );
 });

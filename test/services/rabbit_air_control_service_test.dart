@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
@@ -62,6 +63,33 @@ void main() {
   }
 
   group('RabbitAirControlClient.send', () {
+    test(
+        'returns on the first matching reply instead of waiting out the window',
+        () async {
+      // The production exchange streams datagrams as they land: a purifier
+      // answers in milliseconds, and every exchange used to sit out the full
+      // 2 s window regardless — 4 s for the first read, 6 s on retries.
+      Stream<Uint8List> purifierStream(
+          String host, int port, Uint8List datagram, Duration timeout) async* {
+        final plaintext = await codec.rabbitAirDecryptDatagram(
+            userKey: key, datagram: datagram);
+        final id = (jsonDecode(plaintext) as Map)['id'];
+        yield Uint8List.fromList(await codec.rabbitAirEncryptDatagram(
+            userKey: key, plaintext: '{"id":$id,"data":{"power":true}}'));
+        // The window stays open (nothing closes this stream); the caller
+        // must not wait for it.
+        await Completer<void>().future;
+      }
+
+      final c = RabbitAirControlClient(codec,
+          replies: purifierStream, random: Random(7));
+      final req = await request(c);
+      final reply = await c
+          .send('10.0.0.3', 9009, req, userKey: key)
+          .timeout(const Duration(milliseconds: 500));
+      expect(reply, contains('"power":true'));
+    });
+
     test('encrypts the envelope, and returns the reply that echoes its id',
         () async {
       String? sawPlaintext;

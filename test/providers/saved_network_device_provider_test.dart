@@ -89,6 +89,28 @@ void main() {
       expect(saved.hostname, 'tv.local');
     });
 
+    test('a nameless sighting keeps the saved name', () async {
+      // A probe reply or a nameless SSDP answer carries no name, only a
+      // hostname-or-address fallback; the most visible field must follow
+      // the same rule as every other — only what the sighting carries.
+      final c = await container();
+      final notifier = c.read(savedNetworkDevicesProvider.notifier);
+
+      await notifier.touch(_sighting());
+      final named = c.read(savedNetworkDevicesProvider).single.name;
+      expect(named, isNotEmpty);
+
+      await notifier.touch(NetworkDevice(
+        host: '192.168.1.20',
+        name: '',
+        hostname: 'tv.local',
+        sources: const {NetworkDiscoverySource.mdns},
+        discoveredAt: DateTime(2026, 1, 3),
+      ));
+
+      expect(c.read(savedNetworkDevicesProvider).single.name, named);
+    });
+
     test('a TXT-less sighting rejoins its record instead of forking a second',
         () async {
       // The record is filed under `mac:` — read out of TXT. A sighting with no

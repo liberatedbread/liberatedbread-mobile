@@ -79,16 +79,24 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
 
     void listenTo(Stream<GroupRunEvent> events) {
       _liveStreams++;
+      // A stream settles exactly once: an error is followed by done, and
+      // decrementing on both drove the count negative and latched
+      // `_running` forever after a single stream error.
+      var settled = false;
+      void settle() {
+        if (settled) return;
+        settled = true;
+        setState(() {
+          if (--_liveStreams == 0) _running = false;
+        });
+      }
+
       _runSubs.add(events.listen(
         (event) => setState(() => _latest[event.deviceId] = event),
-        onDone: () => setState(() {
-          if (--_liveStreams == 0) _running = false;
-        }),
+        onDone: settle,
         // The runners report per-device failures as events; a stream error
         // would be a bug, but it must still release the buttons.
-        onError: (Object _) => setState(() {
-          if (--_liveStreams == 0) _running = false;
-        }),
+        onError: (Object _) => settle(),
       ));
     }
 

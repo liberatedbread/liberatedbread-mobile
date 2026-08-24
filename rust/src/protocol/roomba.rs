@@ -70,6 +70,10 @@ const PASSWORD_UNSUPPORTED: [u8; 7] = [0xf0, 0x05, 0xef, 0xcc, 0x3b, 0x29, 0x03]
 /// Bytes of framing before the disclosure reply's payload.
 const PASSWORD_HEADER_LEN: usize = 2;
 
+/// The probe's magic as the robot echoes it back at the head of the
+/// password payload, before a status byte and the credential.
+const PASSWORD_ECHOED_MAGIC: &[u8] = &[0xef, 0xcc, 0x3b, 0x29];
+
 /// Shorter than this and the robot was never in disclosure mode.
 const PASSWORD_MIN_LEN: usize = 8;
 
@@ -195,6 +199,17 @@ pub fn parse_password_reply(reply: &[u8]) -> Result<String, ProtocolError> {
     }
 
     let body = &reply[PASSWORD_HEADER_LEN..];
+    // Firmware echoes the probe's magic (`ef cc 3b 29`) plus a status byte
+    // ahead of the credential — roombapy's observed offset 7 is exactly
+    // header + magic + status. Two of those magic bytes are printable
+    // (`;)`), so a printable-run scan that started here returned the
+    // password with junk on the front, and the only symptom was CONNACK 4.
+    // Skip the echo when it is there; the scan still handles firmware that
+    // pads differently (dorita980's offsets 9 and 13).
+    let body = match body.strip_prefix(PASSWORD_ECHOED_MAGIC) {
+        Some(rest) => rest.get(1..).unwrap_or(&[]),
+        None => body,
+    };
     let start = body
         .iter()
         .position(|byte| byte.is_ascii_graphic() || *byte == b' ')
@@ -773,6 +788,24 @@ entities:
     /// The whole point of the rule: three published clients slice the same
     /// reply at three different offsets, and one extractor has to satisfy all
     /// of them.
+    #[test]
+    fn an_echoed_probe_magic_is_skipped_not_taken_for_password_bytes() {
+        // The gap before the credential is not always non-printable: a
+        // firmware that echoes the probe's magic puts `;)` (0x3b 0x29) there,
+        // and a scan that started at the first printable byte returned
+        // ";)\0<password>"-shaped junk. Header, echoed magic, status byte,
+        // then the real credential — roombapy's offset 7 exactly.
+        let password = ":1:1700000000:AbCdEfGhIjKlMnOp";
+        let mut reply = vec![0xf0, 0x00, 0xef, 0xcc, 0x3b, 0x29, 0x00];
+        reply.extend_from_slice(password.as_bytes());
+        reply[1] = (reply.len() - 2) as u8;
+        assert_eq!(parse_password_reply(&reply).unwrap(), password);
+
+        // A status byte that is itself printable must still be skipped.
+        reply[6] = b'!';
+        assert_eq!(parse_password_reply(&reply).unwrap(), password);
+    }
+
     #[test]
     fn the_rule_recovers_the_password_at_every_published_offset() {
         let password = ":1:1486937829:gktkDoYpWaDxCfGh";

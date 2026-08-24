@@ -22,6 +22,19 @@ typedef RabbitAirExchange = Future<List<Uint8List>> Function(
   Duration timeout,
 );
 
+/// The production exchange shape: every datagram the device sends back, AS
+/// IT ARRIVES, until the window closes or the listener cancels. Streaming
+/// rather than collecting is what lets [RabbitAirControlClient.send] return
+/// on the first matching reply — a purifier answers in tens of milliseconds,
+/// and waiting out the full window on every exchange cost four seconds on the
+/// first (time-sync then read) and up to six on retries, per toggle.
+typedef RabbitAirReplyStream = Stream<Uint8List> Function(
+  String host,
+  int port,
+  Uint8List datagram,
+  Duration timeout,
+);
+
 /// The transport half of Rabbit Air control: encrypted JSON envelopes over
 /// UDP datagrams on port 9009.
 ///
@@ -42,7 +55,11 @@ typedef RabbitAirExchange = Future<List<Uint8List>> Function(
 /// re-creates the socket — and an error is what re-creates it.
 class RabbitAirControlClient {
   final SpecCodec _codec;
-  final RabbitAirExchange _exchange;
+
+  /// A collecting exchange, when a test injected one; null in production,
+  /// where [_replies] streams instead.
+  final RabbitAirExchange? _exchange;
+  final RabbitAirReplyStream _replies;
   final Random _random;
 
   /// The one port every Rabbit Air purifier listens on for the LAN protocol.
@@ -58,8 +75,11 @@ class RabbitAirControlClient {
   static const attempts = 3;
 
   RabbitAirControlClient(this._codec,
-      {RabbitAirExchange? exchange, Random? random})
-      : _exchange = exchange ?? _socketExchange,
+      {RabbitAirExchange? exchange,
+      RabbitAirReplyStream? replies,
+      Random? random})
+      : _exchange = exchange,
+        _replies = replies ?? _socketReplies,
         _random = random ?? Random.secure();
 
   /// Learned device-clock offsets (device seconds minus local seconds), keyed
@@ -116,22 +136,37 @@ class RabbitAirControlClient {
   }) async {
     final datagram = Uint8List.fromList(await _codec.rabbitAirEncryptDatagram(
         userKey: userKey, plaintext: request.json));
+    // The decrypt-and-match rule, applied to each datagram as it arrives.
+    Future<String?> matching(Uint8List reply) async {
+      final String plaintext;
+      try {
+        plaintext = await _codec.rabbitAirDecryptDatagram(
+            userKey: userKey, datagram: reply);
+      } catch (_) {
+        // Not ours to read — a wrong key, a corrupt datagram, or another
+        // conversation's traffic. Unmatched datagrams are ignored.
+        return null;
+      }
+      return rabbitAirReplyId(plaintext) == request.requestId
+          ? plaintext
+          : null;
+    }
+
     try {
       for (var attempt = 0; attempt < attempts; attempt++) {
-        final replies = await _exchange(host, port, datagram, timeout);
-        for (final reply in replies) {
-          final String plaintext;
-          try {
-            plaintext = await _codec.rabbitAirDecryptDatagram(
-                userKey: userKey, datagram: reply);
-          } catch (_) {
-            // Not ours to read — a wrong key, a corrupt datagram, or another
-            // conversation's traffic. Unmatched datagrams are ignored.
-            continue;
+        final collecting = _exchange;
+        if (collecting != null) {
+          for (final reply in await collecting(host, port, datagram, timeout)) {
+            final plaintext = await matching(reply);
+            if (plaintext != null) return plaintext;
           }
-          if (rabbitAirReplyId(plaintext) == request.requestId) {
-            return plaintext;
-          }
+          continue;
+        }
+        // Returning from the loop cancels the subscription, which closes
+        // the socket: the window is a ceiling, never a wait.
+        await for (final reply in _replies(host, port, datagram, timeout)) {
+          final plaintext = await matching(reply);
+          if (plaintext != null) return plaintext;
         }
       }
     } on SocketException catch (e) {
@@ -146,30 +181,51 @@ class RabbitAirControlClient {
   }
 }
 
-/// The default socket exchange: one bound [RawDatagramSocket], send once,
-/// collect every datagram the device sends back until the window closes.
-Future<List<Uint8List>> _socketExchange(
+/// The default reply stream: one bound [RawDatagramSocket], send once, yield
+/// every datagram the device sends back as it lands, close when the window
+/// ends — or the moment the listener cancels, which is how a matched reply
+/// ends the exchange early.
+Stream<Uint8List> _socketReplies(
   String host,
   int port,
   Uint8List datagram,
   Duration timeout,
-) async {
-  final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-  final replies = <Uint8List>[];
-  final subscription = socket.listen((event) {
-    if (event != RawSocketEvent.read) return;
-    final received = socket.receive();
-    if (received == null || received.address.address != host) return;
-    replies.add(Uint8List.fromList(received.data));
-  });
-  try {
-    socket.send(datagram, InternetAddress(host), port);
-    await Future<void>.delayed(timeout);
-    return replies;
-  } finally {
-    await subscription.cancel();
-    socket.close();
+) {
+  late final StreamController<Uint8List> controller;
+  RawDatagramSocket? socket;
+  StreamSubscription<RawSocketEvent>? subscription;
+  Timer? window;
+
+  Future<void> close() async {
+    window?.cancel();
+    await subscription?.cancel();
+    socket?.close();
   }
+
+  controller = StreamController<Uint8List>(
+    onListen: () async {
+      try {
+        socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      } on SocketException catch (e, st) {
+        controller.addError(e, st);
+        await controller.close();
+        return;
+      }
+      subscription = socket!.listen((event) {
+        if (event != RawSocketEvent.read) return;
+        final received = socket!.receive();
+        if (received == null || received.address.address != host) return;
+        controller.add(Uint8List.fromList(received.data));
+      });
+      socket!.send(datagram, InternetAddress(host), port);
+      window = Timer(timeout, () async {
+        await close();
+        await controller.close();
+      });
+    },
+    onCancel: close,
+  );
+  return controller.stream;
 }
 
 /// The `id` a decrypted reply echoes, or null when the reply carries none —

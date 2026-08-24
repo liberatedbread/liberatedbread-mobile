@@ -9,6 +9,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:liberated_bread_mobile/core/group_actions.dart';
+import 'package:liberated_bread_mobile/providers/device_group_provider.dart';
+import 'package:liberated_bread_mobile/services/group_runner.dart';
+import 'package:liberated_bread_mobile/core/stop_signal.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
@@ -97,8 +101,30 @@ Map<String, Object> _twoBulbs() => {
       ]),
     };
 
-Widget _wrap(FakeBleService ble, FakeSpecCodec codec) => ProviderScope(
+/// A runner whose every run is a stream ERROR — the bug path the screen's
+/// stream accounting must survive (per-device failures are events, not
+/// errors, so only a runner defect produces this).
+class _ErroringRunner extends GroupRunner {
+  int runs = 0;
+  _ErroringRunner({required super.ble, required super.codec});
+
+  @override
+  Stream<GroupRunEvent> run(
+    GroupOp op,
+    List<GroupMember> members, {
+    double? brightnessPercent,
+    required StopSignal stop,
+  }) {
+    runs++;
+    return Stream<GroupRunEvent>.error(StateError('runner bug'));
+  }
+}
+
+Widget _wrap(FakeBleService ble, FakeSpecCodec codec,
+        {List<Override> overrides = const []}) =>
+    ProviderScope(
       overrides: [
+        ...overrides,
         sharedPreferencesProvider.overrideWithValue(_prefs),
         bleServiceProvider.overrideWithValue(ble),
         specCodecProvider.overrideWithValue(codec),
@@ -277,6 +303,27 @@ void main() {
     expect(ble.writes.first.value, const [9, 9]);
     expect(codec.encodeCalls.first.commandName, 'power_off');
     expect(find.text('1 command sent'), findsNWidgets(2));
+  });
+
+  testWidgets('a stream error releases the buttons for the next run',
+      (tester) async {
+    // An error is followed by done on the same stream; decrementing the
+    // live-stream count on both drove it negative and latched the screen
+    // in "running" forever — one runner bug, no way to try again.
+    final ble = writableBle();
+    final codec = FakeSpecCodec();
+    final runner = _ErroringRunner(ble: ble, codec: codec);
+    await tester.pumpWidget(_wrap(ble, codec,
+        overrides: [groupRunnerProvider.overrideWithValue(runner)]));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Turn all off'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Turn all off'));
+    await tester.pumpAndSettle();
+
+    // The second tap started a second run: the buttons came back.
+    expect(runner.runs, 2);
   });
 
   testWidgets('a device the run cannot reach reads as failed, not silent',

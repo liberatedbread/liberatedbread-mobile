@@ -56,7 +56,13 @@ class SavedNetworkDevicesNotifier
       // one device, the tapped one missing the credential. It would also
       // orphan the device's group memberships, which reference this id.
       id: existing?.id ?? SavedNetworkDevice.stableIdFor(device),
-      name: device.displayName,
+      // The name follows the merge rule every other field does: only what
+      // the sighting actually carries. A thin sighting (a probe reply, a
+      // nameless SSDP answer) has no name, only a hostname-or-IP fallback,
+      // and must not rename a saved "Dorita" to an address.
+      name: device.name.isNotEmpty
+          ? device.name
+          : (existing?.name ?? device.displayName),
       lastSeen: seenAt ?? DateTime.now(),
       // The address is the one field a fresh sighting always knows better:
       // it is where the device answered from just now.

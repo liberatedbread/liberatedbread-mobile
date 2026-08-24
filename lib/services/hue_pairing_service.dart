@@ -82,8 +82,23 @@ class HuePairingService {
       onAttempt?.call(attempt);
 
       // Sent raw rather than through the envelope check: 101 is this flow's
-      // keep-waiting signal, not an error to throw on.
-      final body = await _client.sendUnchecked(host, bridgeId, request);
+      // keep-waiting signal, not an error to throw on. A transport blip is
+      // not either: one dropped poll used to abort a pairing the button
+      // press would have completed, so it logs and keeps polling until the
+      // deadline. A TLS mismatch (HubTlsException) still propagates — that
+      // is a wrong bridge, not a bad moment.
+      final String body;
+      try {
+        body = await _client.sendUnchecked(host, bridgeId, request);
+      } on HubTransportException catch (e) {
+        Log.hub.info('pairing poll $attempt did not reach $bridgeId: $e');
+        await Future<void>.delayed(interval);
+        continue;
+      } on TimeoutException {
+        Log.hub.info('pairing poll $attempt timed out; retrying');
+        await Future<void>.delayed(interval);
+        continue;
+      }
       final outcomes = HubHttpClient.parseV1Envelope(body) ?? const [];
       for (final outcome in outcomes) {
         final success = outcome.success;

@@ -27,7 +27,11 @@ class _ScriptedHubClient extends HubHttpClient {
   final List<String> replies;
   final List<HttpRequestDto> sent = [];
 
-  _ScriptedHubClient(this.replies)
+  /// How many leading sends fail at the transport (a Wi-Fi blip) before the
+  /// scripted replies start.
+  int transportFailures;
+
+  _ScriptedHubClient(this.replies, {this.transportFailures = 0})
       : super(credentials: HubCredentialStore(InMemorySettingsStore()));
 
   @override
@@ -37,6 +41,10 @@ class _ScriptedHubClient extends HubHttpClient {
     HttpRequestDto request,
   ) async {
     sent.add(request);
+    if (transportFailures > 0) {
+      transportFailures--;
+      throw HubTransportException('bridge unreachable: simulated blip');
+    }
     return replies.length == 1 ? replies.first : replies.removeAt(0);
   }
 }
@@ -73,6 +81,25 @@ void main() {
     expect(client.sent, hasLength(3));
     expect(client.sent.first.body, contains(HuePairingService.deviceType));
     expect(client.sent.first.body, contains('generateclientkey'));
+  });
+
+  test('a transport blip keeps polling until the button press answers',
+      () async {
+    // One dropped poll used to escape the loop and abort a pairing the
+    // button press would have completed a second later.
+    final client =
+        _ScriptedHubClient([_keepWaiting, _success], transportFailures: 1);
+
+    final result = await service(client).pair(
+      specYaml: 'yaml',
+      host: '10.0.0.2',
+      bridgeId: 'BRIDGE',
+      interval: Duration.zero,
+    );
+
+    expect(result.username, 'nUP9k2sQ4vG7xB3f');
+    // The blip, the keep-waiting, then the success: three sends.
+    expect(client.sent, hasLength(3));
   });
 
   test('a window with no button press times out', () async {

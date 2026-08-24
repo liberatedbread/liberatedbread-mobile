@@ -62,8 +62,14 @@ class RabbitAirBleControl implements RabbitAirControlTransport {
   String? _syncedKey;
   bool _thingIdAdopted = false;
 
-  Future<void> _ensureAttached() =>
-      _attaching ??= client.attach(deviceId, services: services);
+  /// Attach once and share the in-flight future — but a FAILED attach is
+  /// forgotten, so the next call retries instead of re-awaiting the same
+  /// stale error until the screen rebuilds.
+  Future<void> _ensureAttached() => _attaching ??=
+          client.attach(deviceId, services: services).onError<Object>((e, st) {
+        _attaching = null;
+        throw e;
+      });
 
   static int _nowSecs() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
