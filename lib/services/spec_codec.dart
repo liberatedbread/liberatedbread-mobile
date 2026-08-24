@@ -60,6 +60,10 @@ export '../src/rust/api/device_api.dart'
         RabbitAirRequestDto,
         RoombaRequestDto,
         MqttRequestDto,
+        WebSocketSurfaceDto,
+        WebSocketFrameDto,
+        WebSocketChannelDto,
+        WebSocketHeaderDto,
         RoombaAnnouncementDto,
         MqttIncomingDto,
         MqttParsedDto,
@@ -466,6 +470,22 @@ abstract class SpecCodec {
   Future<List<int>> roombaConnectPacket({
     required String blid,
     required String password,
+  });
+
+  /// A spec's WebSocket control surface — where the socket is, how a client
+  /// is authorised on it, and which frame shapes it speaks — or null when the
+  /// spec declares none.
+  Future<WebSocketSurfaceDto?> websocketSurface(String specYaml);
+
+  /// Render one of a spec's `transport: websocket` commands into the frame to
+  /// send and the channel to send it on. [requestId] is the client's
+  /// correlation integer: a frame rendered with a fixed one would match every
+  /// reply to the same request.
+  Future<WebSocketFrameDto> renderNetworkWebsocketCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+    required int requestId,
   });
 
   /// MQTT CONNECT for a spec-declared broker. Username and password are each

@@ -868,6 +868,37 @@ class FakeSpecCodec implements SpecCodec {
   final mqttRenderCalls =
       <({String commandName, Map<String, String> values})>[];
 
+  /// Returned by [websocketSurface]; null means the spec declares none.
+  WebSocketSurfaceDto? websocketSurfaceResult;
+
+  /// Returned by [renderNetworkWebsocketCommand]. Either a fixed frame, or a
+  /// function of the command name so one fake can answer per command — which
+  /// is what a two-channel device needs.
+  WebSocketFrameDto Function(String commandName, int requestId)?
+      websocketFrameFor;
+
+  /// Every command [renderNetworkWebsocketCommand] was asked for, in order.
+  final websocketRenderCalls =
+      <({String commandName, Map<String, String> values, int requestId})>[];
+
+  @override
+  Future<WebSocketSurfaceDto?> websocketSurface(String specYaml) async =>
+      websocketSurfaceResult;
+
+  @override
+  Future<WebSocketFrameDto> renderNetworkWebsocketCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+    required int requestId,
+  }) async {
+    websocketRenderCalls
+        .add((commandName: commandName, values: values, requestId: requestId));
+    final build = websocketFrameFor;
+    if (build != null) return build(commandName, requestId);
+    return WebSocketFrameDto(channel: 'main', text: '{"cmd":"$commandName"}');
+  }
+
   @override
   Future<List<int>> mqttConnectPacket({
     required String clientId,

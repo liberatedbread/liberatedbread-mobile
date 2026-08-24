@@ -392,6 +392,24 @@ class RealSpecCodec implements SpecCodec {
       rust.roombaConnectPacket(blid: blid, password: password);
 
   @override
+  Future<WebSocketSurfaceDto?> websocketSurface(String specYaml) =>
+      rust.websocketSurface(specYaml: specYaml);
+
+  @override
+  Future<WebSocketFrameDto> renderNetworkWebsocketCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+    required int requestId,
+  }) =>
+      rust.renderNetworkWebsocketCommand(
+        specYaml: specYaml,
+        commandName: commandName,
+        values: values,
+        requestId: requestId,
+      );
+
+  @override
   Future<List<int>> mqttConnectPacket({
     required String clientId,
     String? username,
