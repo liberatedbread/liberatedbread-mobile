@@ -136,12 +136,12 @@ device:
         login (WebFig/Winbox/API) is entered by the user at the device's admin
         page, which we only deep-link to.
 
-  local_access:
-    status: native
-    summary: >
-      Fully locally controllable in principle (RouterOS API 8728/8729, WebFig,
-      Winbox) — this project deliberately scopes it to identify-only and links
-      to the device's own admin UI rather than managing it.
+local_access:
+  status: native
+  summary: >
+    Fully locally controllable in principle (RouterOS API 8728/8729, WebFig,
+    Winbox) — this project deliberately scopes it to identify-only and links
+    to the device's own admin UI rather than managing it.
 
 helpful_urls:
   - url: "https://help.mikrotik.com/docs/spaces/ROS/pages/24805517/Neighbor+discovery"

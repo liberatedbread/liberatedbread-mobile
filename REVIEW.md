@@ -3,6 +3,13 @@
 **Date**: 2026-07-28
 **Auditor**: qwen_local (automated gap scan)
 
+> **Historical record, not current status.** This is what one audit found on
+> one day, kept because the reasoning behind those nav and stub-doc fixes is
+> worth having. Every number below is from 2026-07-28 and the catalogue has
+> roughly tripled since; for what is true today, run the gates
+> (`python scripts/validate_specs.py`, `pytest -q`, `mkdocs build --strict`)
+> and read [GAPS.md](GAPS.md).
+
 ## What Was Checked
 
 1. **mkdocs.yml nav** — every entry verified to resolve to an existing file
@@ -51,8 +58,13 @@ See [GAPS.md](GAPS.md) for the full list. Key numbers:
 - **4 specs** have only stub docs (the ones created today)
 - **1 doc** (`frigidaire-ac.md`) has no single matching spec (split into two)
 
-## Verification
+## Verification (as run on 2026-07-28)
 
 - `python3 check_nav.py` — all mkdocs nav entries resolve to existing files ✓
 - `python3 check_links.py` — no broken internal links found ✓
 - CI scripts (`validate_specs.py`, `generate_index.py`, `build_index.py`) all present ✓
+
+The first two scripts no longer exist, and are not missing: `mkdocs build
+--strict` fails on an unresolved nav entry or a broken internal link, which
+is the same check enforced on every push rather than run by hand. The three
+CI scripts are still there and still run.

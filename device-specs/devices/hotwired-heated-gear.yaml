@@ -108,6 +108,20 @@ device:
         No credentials exist anywhere in this protocol. That is the security
         finding, not an omission — see the warnings in `device.notes`.
 
+  variants:
+    - model: "BT-912"
+      uuid_family: "ffb0"
+      progress_color: "blue"
+      notes: "Primary variant — blue UI progress bar"
+    - model: "BT-712"
+      uuid_family: "ffb0"
+      progress_color: "blue"
+      notes: "Secondary variant — same UUIDs, blue progress bar"
+    - model: "Unknown (fallback)"
+      uuid_family: "fee0"
+      progress_color: "yellow"
+      notes: "Older revision using fee1/fee2 characteristics — yellow progress bar"
+
 services:
   - uuid: "0000ffb0-0000-1000-8000-00805f9b34fb"
     name: "HOTWIRED Heated Gear Control Service"
@@ -194,109 +208,98 @@ services:
 # that block carried (the worked hex examples, the echo acknowledgment, the
 # 3-second retransmit) is stated in the command's description.
 
-notifications:
-  characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
-  fallback_characteristic: "0000fee1-0000-1000-8000-00805f9b34fb"
-  cccd: "00002902-0000-1000-8000-00805f9b34fb"
-  types:
-    - name: "command_echo"
-      prefix: "AA"
-      format: "AA <STATUS> <LEVEL> 00 00 00 00 55"
-      description: "Exact echo of last write command — serves as acknowledgment"
-    - name: "status_report"
-      prefix: "CC"
-      format: "CC <STATUS> <TEMPS> <BATTERY> <TEMP> <CONTROL>"
-      description: "Unsolicited periodic status report"
-      fields:
-        - offset: "2-4"
-          name: "status"
-          description: "00=OFF, 01=ON"
-        - offset: "4-6"
-          name: "temps"
-          description: "Current heat level (00-0A hex)"
-        - offset: "6-8"
-          name: "battery"
-          description: >
-            Battery status byte. Parsed as binary:
-            bits 0-3: charging flag (0=absent, non-zero=present)
-            bits 5-7: level 0-4 mapping to 0/25/50/75/100% — as
-            implemented (the app's control screen parses
-            hexString2binaryString(...).substring(5); likely intended
-            bits 4-7 — the app's off-by-one). Harmless either way:
-            observed values only reach 4.
-        - offset: "8-10"
-          name: "temp"
-          description: "Internal temperature (unused by stock app)"
-        - offset: "10-12"
-          name: "control"
-          description: "Control state (unused by stock app)"
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  notifications:
+    characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
+    fallback_characteristic: "0000fee1-0000-1000-8000-00805f9b34fb"
+    cccd: "00002902-0000-1000-8000-00805f9b34fb"
+    types:
+      - name: "command_echo"
+        prefix: "AA"
+        format: "AA <STATUS> <LEVEL> 00 00 00 00 55"
+        description: "Exact echo of last write command — serves as acknowledgment"
+      - name: "status_report"
+        prefix: "CC"
+        format: "CC <STATUS> <TEMPS> <BATTERY> <TEMP> <CONTROL>"
+        description: "Unsolicited periodic status report"
+        fields:
+          - offset: "2-4"
+            name: "status"
+            description: "00=OFF, 01=ON"
+          - offset: "4-6"
+            name: "temps"
+            description: "Current heat level (00-0A hex)"
+          - offset: "6-8"
+            name: "battery"
+            description: >
+              Battery status byte. Parsed as binary:
+              bits 0-3: charging flag (0=absent, non-zero=present)
+              bits 5-7: level 0-4 mapping to 0/25/50/75/100% — as
+              implemented (the app's control screen parses
+              hexString2binaryString(...).substring(5); likely intended
+              bits 4-7 — the app's off-by-one). Harmless either way:
+              observed values only reach 4.
+          - offset: "8-10"
+            name: "temp"
+            description: "Internal temperature (unused by stock app)"
+          - offset: "10-12"
+            name: "control"
+            description: "Control state (unused by stock app)"
 
-timing:
-  connect_delay_ms: 500
-  connect_timeout_ms: 10000
-  write_retry_ms: 3000
-  temp_change_debounce_ms: 500
-  glove_sync_debounce_ms: 1000
-  keep_alive: "none"
-  notes: "No periodic heartbeat — device echoes writes for ACK, sends unsolicited CC status reports"
+  timing:
+    connect_delay_ms: 500
+    connect_timeout_ms: 10000
+    write_retry_ms: 3000
+    temp_change_debounce_ms: 500
+    glove_sync_debounce_ms: 1000
+    keep_alive: "none"
+    notes: "No periodic heartbeat — device echoes writes for ACK, sends unsolicited CC status reports"
 
-security:
-  bonding: "none"
-  pairing: "none"
-  encryption: "none"
-  authentication: "none"
-  notes: >
-    Device uses connectGatt(autoConnect=false) with no bonding.
-    Frames are plaintext — no encryption, no challenge-response.
-    Cloud auth (mid/token headers) is for app features only, NOT BLE.
+  security:
+    bonding: "none"
+    pairing: "none"
+    encryption: "none"
+    authentication: "none"
+    notes: >
+      Device uses connectGatt(autoConnect=false) with no bonding.
+      Frames are plaintext — no encryption, no challenge-response.
+      Cloud auth (mid/token headers) is for app features only, NOT BLE.
 
-hardware_variants:
-  - name: "BT-912"
-    uuid_family: "ffb0"
-    progress_color: "blue"
-    notes: "Primary variant — blue UI progress bar"
-  - name: "BT-712"
-    uuid_family: "ffb0"
-    progress_color: "blue"
-    notes: "Secondary variant — same UUIDs, blue progress bar"
-  - name: "Unknown (fallback)"
-    uuid_family: "fee0"
-    progress_color: "yellow"
-    notes: "Older revision using fee1/fee2 characteristics — yellow progress bar"
+  product_types:
+    - id: "jacket"
+      resource: "R.string.top"
+      description: "Jacket liner — single zone control"
+    - id: "pants"
+      resource: "R.string.bottom"
+      description: "Pant liner — single zone control"
+    - id: "heating_pad"
+      resource: "R.string.heat_pad"
+      description: "Heating pad — single zone control"
+    - id: "gloves"
+      resource: "R.string.left / R.string.right"
+      description: >
+        Gloves — paired zone, always synced together. If the two modules drift
+        to different levels, the app syncs the LOWER one UP to match the higher
+        one (safety-relevant: re-sync never lowers heat without the user).
 
-product_types:
-  - id: "jacket"
-    resource: "R.string.top"
-    description: "Jacket liner — single zone control"
-  - id: "pants"
-    resource: "R.string.bottom"
-    description: "Pant liner — single zone control"
-  - id: "heating_pad"
-    resource: "R.string.heat_pad"
-    description: "Heating pad — single zone control"
-  - id: "gloves"
-    resource: "R.string.left / R.string.right"
-    description: >
-      Gloves — paired zone, always synced together. If the two modules drift
-      to different levels, the app syncs the LOWER one UP to match the higher
-      one (safety-relevant: re-sync never lowers heat without the user).
-
-safety:
-  max_level: 10
-  max_level_hex: "0x0A"
-  require_user_confirmation: true
-  link_loss_behavior: "device_controlled"
-  notes: >
-    The device firmware controls link-loss behavior — the app does not implement
-    a keep-alive. A replacement client MUST implement its own fail-safe:
-    - Loss of BLE link → command OFF or bounded timeout
-    - Never auto-apply last level on reconnect without explicit user confirmation
-    - "Off" must be reachable in one tap
-    - Current commanded level must be displayed unambiguously at all times
-    Stock-app behavior worth knowing: every ON toggle in the vendor app sends
-    level 10 (full power) — the app's control screen calls control("01", …, 10).
-    A replacement client should pick its own default-on level deliberately
-    rather than copying that.
+  safety:
+    max_level: 10
+    max_level_hex: "0x0A"
+    require_user_confirmation: true
+    link_loss_behavior: "device_controlled"
+    notes: >
+      The device firmware controls link-loss behavior — the app does not implement
+      a keep-alive. A replacement client MUST implement its own fail-safe:
+      - Loss of BLE link → command OFF or bounded timeout
+      - Never auto-apply last level on reconnect without explicit user confirmation
+      - "Off" must be reachable in one tap
+      - Current commanded level must be displayed unambiguously at all times
+      Stock-app behavior worth knowing: every ON toggle in the vendor app sends
+      level 10 (full power) — the app's control screen calls control("01", …, 10).
+      A replacement client should pick its own default-on level deliberately
+      rather than copying that.
 
 entities:
   - platform: "climate"
@@ -331,7 +334,7 @@ entities:
     name: "Internal Temperature"
     state_characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
     value_template: "{{ value[4:5] | int(base=16) }}"
-    unit: "°C"
+    unit: "C"
     notes: "Scale and offset unconfirmed — requires bench testing"
 
 helpful_urls:

@@ -444,338 +444,341 @@ cloud:
 
 protocol_handler: "rabbit_air_lan"
 
-rabbit_air_protocol:
-  # Bespoke block: the schema has no native raw-UDP endpoint type, so the
-  # full protocol is captured here, following the lifx-z precedent. All
-  # constants are read from rabbit-air/python-rabbitair 0.0.8 (vendor's own
-  # Apache-2.0 library) unless marked otherwise.
-  verification: "reported"
-  verification_notes: >
-    `reported`, leaning on an unusually strong source: the reference is the
-    vendor's own published library plus its Home Assistant integration,
-    cross-checked against the Rabbit Air 2 app binary. Field-name strings in
-    its Dart snapshot match the state model: particulate_sensor, filter_life,
-    filter_timer, filter_ctl, filter_cleaning, filter_replacement,
-    filter_type, timer_mode, all_light_off, lsens_ctl, moodlight,
-    light_sensor, pm_sensor, ionizer, buzzer, quality, schedule, plus the
-    user_key / thingName credential pair. The encryption block is likewise
-    corroborated: the app bundles package:encrypt (AES) and pointycastle
-    with CBC mode and PKCS7 padding — the same AES-CBC/PKCS7 construction
-    the vendor library implements. Not replayed against hardware in this
-    project — no Rabbit Air unit was available.
-  transport:
-    udp:
-      port: 9009
-      framing: "One JSON message per datagram; no length prefix or delimiter."
-      retry: "Vendor client: 3 attempts, 2.0 s timeout per attempt; responses matched by `id`, unrecognized datagrams ignored."
-      max_datagram_read: 2048
-    tcp:
-      port: 9009
-      framing: "2-byte little-endian uint16 length prefix, then the JSON message; same payload otherwise."
-      timeout: "5.0 s in the vendor client."
-  message_envelope:
-    format: "Minified JSON (json.dumps separators=(',',':')), UTF-8."
-    request_fields:
-      id: "uint32-ish random client nonce, incremented per request (vendor client seeds from SystemRandom 0..0xFFFFFF); response echoes it."
-      cmd: "Command ID (see commands)."
-      ts: "Device-clock timestamp in seconds; REQUIRED when a user key is set. Learned via cmd 9, then extrapolated from the local clock (see handshake)."
-      data: "Object; present with fields on state-set, absent on state-get."
-    response_fields:
-      id: "Echoes request id."
-      data: "Result object (cmd 4 / cmd 9 / cmd 255)."
-      error: "Present and truthy on failure — vendor client raises ProtocolError."
-  client_rendering:
-    # How a consumer turns one top-level `commands:` entry into a datagram.
-    description: >
-      A command's `body` carries only the STATIC envelope fields — `cmd`,
-      plus `data` when the command writes state. The renderer (dispatched on
-      protocol_handler "rabbit_air_lan") supplies the two runtime fields
-      itself: `id` (a fresh client nonce) and `ts` (the device-clock
-      timestamp, learned via the time_sync command and extrapolated from the
-      local clock — see handshake). It then serializes the envelope
-      {id, cmd, ts, data} as minified JSON in that field order (data last,
-      omitted when the body carries none), encrypts with AES-128-CBC under
-      the 16-byte user key using PKCS7 padding and a random 16-byte IV
-      APPENDED as the last 16 bytes (ciphertext || IV), and sends the result
-      as ONE datagram to UDP port 9009 on the device's IP. Responses arrive
-      as one datagram, decrypt the same way (IV = last 16 bytes), and are
-      matched to the request by `id`. `id` and `ts` must never appear in a
-      command body — they are per-send values, and a body that froze them
-      would replay one nonce and one stale timestamp forever.
-  encryption:
-    algorithm: "AES-128-CBC, PKCS7 padding"
-    key: "The 16-byte user key (access token), hex-decoded from the 32-character string shown in the app."
-    iv: "Random 16 bytes per message, APPENDED as the last 16 bytes of the datagram (ciphertext || IV). Decrypt: IV = msg[-16:], ciphertext = msg[:-16]."
-    applies_to: "Both directions, once a user key is set. During SETUP (before a user key exists) the app sends the same envelope in CLEARTEXT with no `ts` field — see setup_commands. The library's tokenless plaintext mode is the same code path."
-  setup_commands:
-    # Recovered by static analysis of the Rabbit Air 2 app's Dart snapshot
-    # (AirPurifierApi / AirPurifierBleInteractor / AirPurifierNetInteractor /
-    # SetupDeviceProgress), then REPLAYED AGAINST HARDWARE 2026-08-15
-    # (MinusA2 gen2, mcu 2.2.8) over BLE: cmds 0/1/2/4/5(type 4)/7/255 all
-    # behaved as written. These commands run BEFORE a user key exists:
-    # cleartext envelope {"id":n,"cmd":n,"data":{...}} — no `ts`, no AES —
-    # over BLE (framed per rabbit_air_ble) or UDP/TCP 9009 to the setup AP
-    # (192.168.10.1). cmd 4/9/255 are the same commands as post-setup, just
-    # plaintext; the rest exist for provisioning. Responses echo `id`;
-    # reads carry `data`; writes ack with a bare {"id":<echo>}. On hardware
-    # failures DID surface as an error field — re-sending cmd 1/2 after the
-    # unit had left setup mode returned {"id":<echo>,"error":true} over the
-    # encrypted channel (the app code suggested failures only surfaced as
-    # timeouts).
-    verification: "confirmed"
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  rabbit_air_protocol:
+    # Bespoke block: the schema has no native raw-UDP endpoint type, so the
+    # full protocol is captured here, following the lifx-z precedent. All
+    # constants are read from rabbit-air/python-rabbitair 0.0.8 (vendor's own
+    # Apache-2.0 library) unless marked otherwise.
+    verification: "reported"
+    verification_notes: >
+      `reported`, leaning on an unusually strong source: the reference is the
+      vendor's own published library plus its Home Assistant integration,
+      cross-checked against the Rabbit Air 2 app binary. Field-name strings in
+      its Dart snapshot match the state model: particulate_sensor, filter_life,
+      filter_timer, filter_ctl, filter_cleaning, filter_replacement,
+      filter_type, timer_mode, all_light_off, lsens_ctl, moodlight,
+      light_sensor, pm_sensor, ionizer, buzzer, quality, schedule, plus the
+      user_key / thingName credential pair. The encryption block is likewise
+      corroborated: the app bundles package:encrypt (AES) and pointycastle
+      with CBC mode and PKCS7 padding — the same AES-CBC/PKCS7 construction
+      the vendor library implements. Not replayed against hardware in this
+      project — no Rabbit Air unit was available.
+    transport:
+      udp:
+        port: 9009
+        framing: "One JSON message per datagram; no length prefix or delimiter."
+        retry: "Vendor client: 3 attempts, 2.0 s timeout per attempt; responses matched by `id`, unrecognized datagrams ignored."
+        max_datagram_read: 2048
+      tcp:
+        port: 9009
+        framing: "2-byte little-endian uint16 length prefix, then the JSON message; same payload otherwise."
+        timeout: "5.0 s in the vendor client."
+    message_envelope:
+      format: "Minified JSON (json.dumps separators=(',',':')), UTF-8."
+      request_fields:
+        id: "uint32-ish random client nonce, incremented per request (vendor client seeds from SystemRandom 0..0xFFFFFF); response echoes it."
+        cmd: "Command ID (see commands)."
+        ts: "Device-clock timestamp in seconds; REQUIRED when a user key is set. Learned via cmd 9, then extrapolated from the local clock (see handshake)."
+        data: "Object; present with fields on state-set, absent on state-get."
+      response_fields:
+        id: "Echoes request id."
+        data: "Result object (cmd 4 / cmd 9 / cmd 255)."
+        error: "Present and truthy on failure — vendor client raises ProtocolError."
+    client_rendering:
+      # How a consumer turns one top-level `commands:` entry into a datagram.
+      description: >
+        A command's `body` carries only the STATIC envelope fields — `cmd`,
+        plus `data` when the command writes state. The renderer (dispatched on
+        protocol_handler "rabbit_air_lan") supplies the two runtime fields
+        itself: `id` (a fresh client nonce) and `ts` (the device-clock
+        timestamp, learned via the time_sync command and extrapolated from the
+        local clock — see handshake). It then serializes the envelope
+        {id, cmd, ts, data} as minified JSON in that field order (data last,
+        omitted when the body carries none), encrypts with AES-128-CBC under
+        the 16-byte user key using PKCS7 padding and a random 16-byte IV
+        APPENDED as the last 16 bytes (ciphertext || IV), and sends the result
+        as ONE datagram to UDP port 9009 on the device's IP. Responses arrive
+        as one datagram, decrypt the same way (IV = last 16 bytes), and are
+        matched to the request by `id`. `id` and `ts` must never appear in a
+        command body — they are per-send values, and a body that froze them
+        would replay one nonce and one stale timestamp forever.
+    encryption:
+      algorithm: "AES-128-CBC, PKCS7 padding"
+      key: "The 16-byte user key (access token), hex-decoded from the 32-character string shown in the app."
+      iv: "Random 16 bytes per message, APPENDED as the last 16 bytes of the datagram (ciphertext || IV). Decrypt: IV = msg[-16:], ciphertext = msg[:-16]."
+      applies_to: "Both directions, once a user key is set. During SETUP (before a user key exists) the app sends the same envelope in CLEARTEXT with no `ts` field — see setup_commands. The library's tokenless plaintext mode is the same code path."
+    setup_commands:
+      # Recovered by static analysis of the Rabbit Air 2 app's Dart snapshot
+      # (AirPurifierApi / AirPurifierBleInteractor / AirPurifierNetInteractor /
+      # SetupDeviceProgress), then REPLAYED AGAINST HARDWARE 2026-08-15
+      # (MinusA2 gen2, mcu 2.2.8) over BLE: cmds 0/1/2/4/5(type 4)/7/255 all
+      # behaved as written. These commands run BEFORE a user key exists:
+      # cleartext envelope {"id":n,"cmd":n,"data":{...}} — no `ts`, no AES —
+      # over BLE (framed per rabbit_air_ble) or UDP/TCP 9009 to the setup AP
+      # (192.168.10.1). cmd 4/9/255 are the same commands as post-setup, just
+      # plaintext; the rest exist for provisioning. Responses echo `id`;
+      # reads carry `data`; writes ack with a bare {"id":<echo>}. On hardware
+      # failures DID surface as an error field — re-sending cmd 1/2 after the
+      # unit had left setup mode returned {"id":<echo>,"error":true} over the
+      # encrypted channel (the app code suggested failures only surfaced as
+      # timeouts).
+      verification: "confirmed"
+      commands:
+        - cmd: 0
+          name: "read_network_settings"
+          description: >
+            Response data is a RabbitairWireless object: current ssid, security
+            (int), dhcp, ip, mask, gateway, and `networks` — the device's own
+            Wi-Fi SCAN RESULTS, each {ssid, security(int)}. During setup the
+            app re-polls this (up to 15x) until networks is non-empty, then
+            presents the SSID picker. The `security` enum is partially mapped
+            by hardware observation: 3 = WPA2-PSK (every WPA2 network in the
+            verified unit's scan, and the value the successful join echoed).
+            The same reply doubles as join progress: after cmd 1/2, `ip`
+            stays "0.0.0.0" until the unit has associated AND taken a DHCP
+            lease — on the verified unit that took ~4 minutes. The same SSID
+            appears once per visible BSSID (the verified scan listed the
+            target network 3 times) — dedupe before presenting a picker.
+            Post-setup the reply omits `networks` and carries the live
+            ssid/security/dhcp/ip/mask/gateway/dns1/dns2 only.
+        - cmd: 1
+          name: "join_network"
+          description: >
+            Request data {"ssid": "...", "passphrase": "...", "security": <int>}
+            — security echoed from the cmd 0 networks[] entry (3 = WPA2-PSK
+            verified). The reply is a bare id ack; a wrong passphrase surfaces
+            later (ip stays 0.0.0.0 and the unit never appears on the LAN).
+            Setup-mode only: after the unit has left setup mode this command
+            returns {"id":<echo>,"error":true} (verified).
+        - cmd: 2
+          name: "leave_ap_mode"
+          description: "No data. Ends setup mode (closes the setup AP / BLE setup advertising); the unit joins the network given in cmd 1. Bare id ack. Setup-mode only like cmd 1 — error:true after setup (verified)."
+        - cmd: 3
+          name: "module_name"
+          description: "GET (no data): response data.name. SET: request data {\"name\": \"...\"}."
+        - cmd: 5
+          name: "set_certificate"
+          description: >
+            Request data {"type": <int>, "value": "<string>"}. Types:
+            0 = AWS IoT root CA, 1 = device certificate, 2 = device private
+            key, 3 = HTTPS root CA, 4 = USER KEY (32 uppercase hex chars,
+            generated client-side). Types 0-3 are cloud binding (skip for
+            local-only provisioning); type 4 is the one that matters locally —
+            it lands the shared AES key for all later encrypted traffic.
+            Firmware gate: type 4 needs mcu >= 24 (ESP32) / >= 2.2 (Inventek)
+            — an mcu 2.2.8 unit accepted it (verified); the key it was pushed
+            immediately drove encrypted LAN and BLE traffic.
+        - cmd: 7
+          name: "get_current_mode"
+          description: "Response data {mode (int 0-5), setup (bool)} — verified reply during setup mode: {\"mode\":5,\"setup\":true}."
+        - cmd: 255
+          name: "get_info (setup-mode notes)"
+          description: >
+            Same command as the post-setup get_info, plaintext during setup.
+            Hardware-verified reply shape: data carries name, mcu, build,
+            wifi (Wi-Fi stack version string), mac (the WI-FI MAC — on the
+            verified unit it differed from the BT MAC only in the last
+            octet), time, heap/hmin/stack/clk, uptime/mup/wup/iup/cup
+            counters, flc/ftc/errw. Without the vendor cloud flow, name is ""
+            (no Thing ID is ever assigned) — consumers must not require it
+            non-empty; the mDNS hostname then falls back to
+            "RabbitAir-<WIFI MAC>" (see discovery).
+    handshake:
+      description: >
+        No connection or session exists (UDP). The only required preamble when
+        a user key is set is clock sync: send cmd 9, read data.ts (device
+        time, seconds), compute the offset against the local monotonic clock,
+        and stamp every subsequent request with the extrapolated device time.
+        The vendor client re-syncs whenever the socket is re-created (any
+        error closes and re-opens it).
     commands:
-      - cmd: 0
-        name: "read_network_settings"
-        description: >
-          Response data is a RabbitairWireless object: current ssid, security
-          (int), dhcp, ip, mask, gateway, and `networks` — the device's own
-          Wi-Fi SCAN RESULTS, each {ssid, security(int)}. During setup the
-          app re-polls this (up to 15x) until networks is non-empty, then
-          presents the SSID picker. The `security` enum is partially mapped
-          by hardware observation: 3 = WPA2-PSK (every WPA2 network in the
-          verified unit's scan, and the value the successful join echoed).
-          The same reply doubles as join progress: after cmd 1/2, `ip`
-          stays "0.0.0.0" until the unit has associated AND taken a DHCP
-          lease — on the verified unit that took ~4 minutes. The same SSID
-          appears once per visible BSSID (the verified scan listed the
-          target network 3 times) — dedupe before presenting a picker.
-          Post-setup the reply omits `networks` and carries the live
-          ssid/security/dhcp/ip/mask/gateway/dns1/dns2 only.
-      - cmd: 1
-        name: "join_network"
-        description: >
-          Request data {"ssid": "...", "passphrase": "...", "security": <int>}
-          — security echoed from the cmd 0 networks[] entry (3 = WPA2-PSK
-          verified). The reply is a bare id ack; a wrong passphrase surfaces
-          later (ip stays 0.0.0.0 and the unit never appears on the LAN).
-          Setup-mode only: after the unit has left setup mode this command
-          returns {"id":<echo>,"error":true} (verified).
-      - cmd: 2
-        name: "leave_ap_mode"
-        description: "No data. Ends setup mode (closes the setup AP / BLE setup advertising); the unit joins the network given in cmd 1. Bare id ack. Setup-mode only like cmd 1 — error:true after setup (verified)."
-      - cmd: 3
-        name: "module_name"
-        description: "GET (no data): response data.name. SET: request data {\"name\": \"...\"}."
-      - cmd: 5
-        name: "set_certificate"
-        description: >
-          Request data {"type": <int>, "value": "<string>"}. Types:
-          0 = AWS IoT root CA, 1 = device certificate, 2 = device private
-          key, 3 = HTTPS root CA, 4 = USER KEY (32 uppercase hex chars,
-          generated client-side). Types 0-3 are cloud binding (skip for
-          local-only provisioning); type 4 is the one that matters locally —
-          it lands the shared AES key for all later encrypted traffic.
-          Firmware gate: type 4 needs mcu >= 24 (ESP32) / >= 2.2 (Inventek)
-          — an mcu 2.2.8 unit accepted it (verified); the key it was pushed
-          immediately drove encrypted LAN and BLE traffic.
-      - cmd: 7
-        name: "get_current_mode"
-        description: "Response data {mode (int 0-5), setup (bool)} — verified reply during setup mode: {\"mode\":5,\"setup\":true}."
+      - cmd: 9
+        name: "time_sync"
+        direction: "request/response"
+        description: "Returns the device clock: response data.ts (seconds). Must precede the first authenticated command."
+        writes: false
+        verification: "reported"
+      - cmd: 4
+        name: "state_get"
+        direction: "request/response"
+        description: "No `data` in the request. Response data carries the full state object (see state_fields)."
+        writes: false
+        verification: "reported"
+      - cmd: 4
+        name: "state_set"
+        direction: "request/response"
+        description: "Request includes `data` with only the fields to change (see writable_state_fields). Changing speed while in Auto/Pollen mode implicitly switches to Manual (mode 2) per vendor client semantics — actually the client exposes mode and speed independently; set mode=2 with speed for explicit manual control."
+        writes: true
+        verification: "reported"
       - cmd: 255
-        name: "get_info (setup-mode notes)"
-        description: >
-          Same command as the post-setup get_info, plaintext during setup.
-          Hardware-verified reply shape: data carries name, mcu, build,
-          wifi (Wi-Fi stack version string), mac (the WI-FI MAC — on the
-          verified unit it differed from the BT MAC only in the last
-          octet), time, heap/hmin/stack/clk, uptime/mup/wup/iup/cup
-          counters, flc/ftc/errw. Without the vendor cloud flow, name is ""
-          (no Thing ID is ever assigned) — consumers must not require it
-          non-empty; the mDNS hostname then falls back to
-          "RabbitAir-<WIFI MAC>" (see discovery).
-  handshake:
-    description: >
-      No connection or session exists (UDP). The only required preamble when
-      a user key is set is clock sync: send cmd 9, read data.ts (device
-      time, seconds), compute the offset against the local monotonic clock,
-      and stamp every subsequent request with the extrapolated device time.
-      The vendor client re-syncs whenever the socket is re-created (any
-      error closes and re-opens it).
-  commands:
-    - cmd: 9
-      name: "time_sync"
-      direction: "request/response"
-      description: "Returns the device clock: response data.ts (seconds). Must precede the first authenticated command."
-      writes: false
-      verification: "reported"
-    - cmd: 4
-      name: "state_get"
-      direction: "request/response"
-      description: "No `data` in the request. Response data carries the full state object (see state_fields)."
-      writes: false
-      verification: "reported"
-    - cmd: 4
-      name: "state_set"
-      direction: "request/response"
-      description: "Request includes `data` with only the fields to change (see writable_state_fields). Changing speed while in Auto/Pollen mode implicitly switches to Manual (mode 2) per vendor client semantics — actually the client exposes mode and speed independently; set mode=2 with speed for explicit manual control."
-      writes: true
-      verification: "reported"
-    - cmd: 255
-      name: "get_info"
-      direction: "request/response"
-      description: "Device info: name (Thing ID), mcu (Wi-Fi firmware version), build (firmware build date), mac, time, uptime / mup (motor runtime) / wup (Wi-Fi uptime) / iup (internet uptime) / cup (cloud uptime), fv (main-board firmware), rssi {cur,min,max,avg}."
-      writes: false
-      verification: "reported"
-  writable_state_fields:
-    power: "bool — purifier on/off"
-    mode: "0 Auto / 1 Pollen / 2 Manual"
-    speed: "0 SuperSilent (read-only, auto modes only) / 1 Silent / 2 Low / 3 Medium / 4 High / 5 Turbo"
-    sensitivity: "Sensor sensitivity: 0 High / 1 Medium / 2 Low"
-    ionizer: "bool — negative ion generator"
-    moodlight: "0 Off / 1 On / 2 Auto (alias Preset1) / 3 Preset2 / 4 Preset3 — MinusA2 mood light"
-    filter_cleaning: "bool — clear the filter-cleaning indicator (acknowledge)"
-    filter_replacement: "bool — clear the filter-replacement indicator (acknowledge)"
-    filter_life: "int minutes remaining, range guard 0-525600 in the vendor client"
-    filter_timer: "int nominal filter lifetime (minutes), same range guard"
-    all_light_off: "Panel/indicator lights: 0 Off / 1 On / 2 Auto"
-    color: "9-element int array 0-40 — mood-light color palette (MinusA2)"
-    lsens_ctl: "bool — enable/disable the light sensor (auto-dim)"
-    filter_ctl: "bool — enable/disable filter-replacement notifications"
-    buzzer: "bool — button beep"
-    lock: "bool — child lock"
-    timer_mode: "0 Off / 1 On (countdown) / 2 Schedule"
-    timer: "int minutes until off, 0-1440"
-    schedule: "24-char string, one per hour UTC, chars '1'-'5' (speed) or 'A' (auto); vendor client validation also admits '0'"
-  state_fields:
-    # Read side of cmd 4; every field optional in practice (total=False in
-    # the vendor TypedDict). Quirk: on BioGS (model 2) the library reports
-    # quality as value-1.
-    model: "1 MinusA2 / 2 BioGS / 3 A3"
-    firmware: "[major, minor, ...] main-board firmware, dotted-joined"
-    power: "bool"
-    mode: "see writable_state_fields.mode"
-    speed: "see writable_state_fields.speed"
-    quality: "Air quality 0-4 (Lowest/Low/Medium/High/Highest); BioGS units report 1-5 and the library subtracts 1"
-    sensitivity: "see writable_state_fields.sensitivity"
-    ionizer: "bool"
-    idle: "int/bool — device idle"
-    moodlight: "see writable_state_fields.moodlight"
-    sleep: "bool — sleep mode"
-    filter_cleaning: "bool — filter cleaning required"
-    filter_replacement: "bool — filter replacement required"
-    filter_life: "int — remaining filter lifetime (minutes)"
-    light_sensor: "bool — ambient light reading"
-    particulate_sensor: "int — particle sensor raw reading"
-    filter_timer: "int — nominal filter lifetime (minutes)"
-    all_light_off: "see writable_state_fields.all_light_off"
-    error: "0 none / 1 dust sensor / 2 gas sensor / 3 gas+dust / 4 fan low / 5 NFC (filter tag) / 8 hall sensor (panel)"
-    tag_state: "int/bool — NFC filter tag present/readable"
-    tag_uid: "[int] — NFC filter tag UID"
-    filter_type: "0 unknown / 1 ToxinAbsorber / 2 OdorRemover / 3 GermDefense / 4 PetAllergy (from NFC tag)"
-    pm_sensor: "[int] — extended particle sensor readings (A3 generation)"
-    color: "[int x9] — mood-light palette"
-    lsens_ctl: "bool"
-    filter_ctl: "bool"
-    buzzer: "bool"
-    gas: "0 preheat / 1-4 gas levels (odor/VOC sensor)"
-    lock: "bool — child lock"
-    open: "bool — front panel open/removed"
-    timer_mode: "see writable_state_fields.timer_mode"
-    timer: "int — minutes remaining"
-    schedule: "24-char string — see writable_state_fields.schedule"
-    rssi: "int — Wi-Fi RSSI averaged over an hour"
-    v: "str — Wi-Fi board firmware version"
-  example_exchange:
-    description: >
-      Reconstructed from the vendor client source; key/IV here are
-      documentation values, not a real device.
-    time_sync_request_plaintext: '{"id":1234567,"cmd":9,"ts":1700000000}'
-    time_sync_response_plaintext: '{"id":1234567,"data":{"ts":1700000123}}'
-    state_get_request_plaintext: '{"id":1234568,"cmd":4,"ts":1700000123}'
-    state_set_power_on_plaintext: '{"id":1234569,"cmd":4,"ts":1700000124,"data":{"power":true}}'
-    wire_note: "On the wire each of these is AES-128-CBC(user_key) with PKCS7 padding and a random 16-byte IV appended after the ciphertext."
+        name: "get_info"
+        direction: "request/response"
+        description: "Device info: name (Thing ID), mcu (Wi-Fi firmware version), build (firmware build date), mac, time, uptime / mup (motor runtime) / wup (Wi-Fi uptime) / iup (internet uptime) / cup (cloud uptime), fv (main-board firmware), rssi {cur,min,max,avg}."
+        writes: false
+        verification: "reported"
+    writable_state_fields:
+      power: "bool — purifier on/off"
+      mode: "0 Auto / 1 Pollen / 2 Manual"
+      speed: "0 SuperSilent (read-only, auto modes only) / 1 Silent / 2 Low / 3 Medium / 4 High / 5 Turbo"
+      sensitivity: "Sensor sensitivity: 0 High / 1 Medium / 2 Low"
+      ionizer: "bool — negative ion generator"
+      moodlight: "0 Off / 1 On / 2 Auto (alias Preset1) / 3 Preset2 / 4 Preset3 — MinusA2 mood light"
+      filter_cleaning: "bool — clear the filter-cleaning indicator (acknowledge)"
+      filter_replacement: "bool — clear the filter-replacement indicator (acknowledge)"
+      filter_life: "int minutes remaining, range guard 0-525600 in the vendor client"
+      filter_timer: "int nominal filter lifetime (minutes), same range guard"
+      all_light_off: "Panel/indicator lights: 0 Off / 1 On / 2 Auto"
+      color: "9-element int array 0-40 — mood-light color palette (MinusA2)"
+      lsens_ctl: "bool — enable/disable the light sensor (auto-dim)"
+      filter_ctl: "bool — enable/disable filter-replacement notifications"
+      buzzer: "bool — button beep"
+      lock: "bool — child lock"
+      timer_mode: "0 Off / 1 On (countdown) / 2 Schedule"
+      timer: "int minutes until off, 0-1440"
+      schedule: "24-char string, one per hour UTC, chars '1'-'5' (speed) or 'A' (auto); vendor client validation also admits '0'"
+    state_fields:
+      # Read side of cmd 4; every field optional in practice (total=False in
+      # the vendor TypedDict). Quirk: on BioGS (model 2) the library reports
+      # quality as value-1.
+      model: "1 MinusA2 / 2 BioGS / 3 A3"
+      firmware: "[major, minor, ...] main-board firmware, dotted-joined"
+      power: "bool"
+      mode: "see writable_state_fields.mode"
+      speed: "see writable_state_fields.speed"
+      quality: "Air quality 0-4 (Lowest/Low/Medium/High/Highest); BioGS units report 1-5 and the library subtracts 1"
+      sensitivity: "see writable_state_fields.sensitivity"
+      ionizer: "bool"
+      idle: "int/bool — device idle"
+      moodlight: "see writable_state_fields.moodlight"
+      sleep: "bool — sleep mode"
+      filter_cleaning: "bool — filter cleaning required"
+      filter_replacement: "bool — filter replacement required"
+      filter_life: "int — remaining filter lifetime (minutes)"
+      light_sensor: "bool — ambient light reading"
+      particulate_sensor: "int — particle sensor raw reading"
+      filter_timer: "int — nominal filter lifetime (minutes)"
+      all_light_off: "see writable_state_fields.all_light_off"
+      error: "0 none / 1 dust sensor / 2 gas sensor / 3 gas+dust / 4 fan low / 5 NFC (filter tag) / 8 hall sensor (panel)"
+      tag_state: "int/bool — NFC filter tag present/readable"
+      tag_uid: "[int] — NFC filter tag UID"
+      filter_type: "0 unknown / 1 ToxinAbsorber / 2 OdorRemover / 3 GermDefense / 4 PetAllergy (from NFC tag)"
+      pm_sensor: "[int] — extended particle sensor readings (A3 generation)"
+      color: "[int x9] — mood-light palette"
+      lsens_ctl: "bool"
+      filter_ctl: "bool"
+      buzzer: "bool"
+      gas: "0 preheat / 1-4 gas levels (odor/VOC sensor)"
+      lock: "bool — child lock"
+      open: "bool — front panel open/removed"
+      timer_mode: "see writable_state_fields.timer_mode"
+      timer: "int — minutes remaining"
+      schedule: "24-char string — see writable_state_fields.schedule"
+      rssi: "int — Wi-Fi RSSI averaged over an hour"
+      v: "str — Wi-Fi board firmware version"
+    example_exchange:
+      description: >
+        Reconstructed from the vendor client source; key/IV here are
+        documentation values, not a real device.
+      time_sync_request_plaintext: '{"id":1234567,"cmd":9,"ts":1700000000}'
+      time_sync_response_plaintext: '{"id":1234567,"data":{"ts":1700000123}}'
+      state_get_request_plaintext: '{"id":1234568,"cmd":4,"ts":1700000123}'
+      state_set_power_on_plaintext: '{"id":1234569,"cmd":4,"ts":1700000124,"data":{"power":true}}'
+      wire_note: "On the wire each of these is AES-128-CBC(user_key) with PKCS7 padding and a random 16-byte IV appended after the ciphertext."
 
-# BLE transport for the SAME command envelope — recovered by static analysis
-# of the Rabbit Air 2 app's BLE interactor.
-# BLE is both the provisioning channel (cleartext setup_commands against
-# the "RabbitAirSetup" peripheral) AND a full alternate control transport:
-# after setup the app reconnects to the "RabbitAir" peripheral and runs the
-# encrypted cmds 9/4/255 over GATT, byte-for-byte the LAN payloads.
-rabbit_air_ble:
-  verification: "confirmed"
-  verification_notes: >
-    2026-08-15, MinusA2 gen2 (Wi-Fi module mcu 2.2.8): full cleartext
-    provisioning conversation and the post-setup
-    ENCRYPTED command set (cmd 9 clock sync, 255 info, 0 network, 4 state)
-    both driven over this GATT channel as written. Hardware details the
-    app code could not show: the characteristic's properties byte is 0x28 —
-    write + INDICATE, so server→client messages are ATT Handle Value
-    Indications (the client must confirm them), not notifications; the
-    stack tolerates an unconfirmed-then-confirmed mix, and the CCCD reads
-    0x0002 on a fresh connection (indications on by default). GATT layout
-    observed: service at handle 0x28, declaration 0x29, VALUE handle 0x2A,
-    CCCD 0x2B. MTU 515 negotiates cleanly. A KEYED unit rejects cleartext
-    writes with ATT application error 0x87 (intermittent, load-dependent)
-    and never answers them.
-  gatt:
-    service_uuid: "366048ae-9f36-43cf-8004-010c0c9fa52e"
-    command_characteristic: "53ef7d7d-c244-42bd-9064-a1569a521ca9"
-    operations: "Single characteristic for both directions: the client WRITES requests (write-WITH-response) and subscribes to INDICATIONS (not notifications — properties 0x28, hardware-verified) for responses; the client must send ATT confirmations. No BLE pairing/bonding."
-    advertised_names:
-      setup: "RabbitAirSetup — unprovisioned / setup mode"
-      provisioned: "RabbitAir — after setup; the app matches this name plus the unit's BT MAC. Note (hardware-observed): a provisioned unit's ADVERTISING data carried no local name at all — only the service UUID; the name 'RabbitAir' came from the GAP Device Name characteristic (0x2A00) read after connect."
-  off_wifi_access:
-    # BLE works with NO Wi-Fi involvement at all — the channel is between
-    # phone and purifier. What you can read depends on provisioning state:
-    summary: >
-      The purifier's BLE radio is up whether or not it has joined a WLAN,
-      so state/info is reachable with the device entirely off Wi-Fi. A unit
-      in SETUP mode answers the cleartext command set with no credentials
-      at all — cmd 255 (name, MAC, firmware, uptimes), cmd 4 (full live
-      state: power, mode, speed, air quality, filter life, ...), cmd 0
-      (its own Wi-Fi scan list), cmd 7 — the vendor app's own setup flow
-      reads cmd 255 + cmd 4 exactly this way before any key exists. A
-      PROVISIONED unit keeps advertising ("RabbitAir") and accepts the full
-      command set over BLE encrypted under its user key — the vendor app's
-      CurrentDeviceProvider does bluetoothConnect + setEncrypted for local
-      control independent of the LAN — VERIFIED 2026-08-15: after a
-      local-only provisioning (no cloud), encrypted cmd 9/255/0/4 ran over
-      BLE under the pushed key with the unit reachable/unreachable on
-      Wi-Fi alike. The one
-      closed case: a keyed unit whose key you don't have — there is no BLE
-      pairing/bonding to fall back on and every command needs the AES key;
-      VERIFIED: such a unit answers no cleartext command and intermittently
-      rejects the writes with ATT application error 0x87.
-    security_note: >
-      Corollary: while a unit sits in setup mode it discloses state,
-      identity and its Wi-Fi scan results to ANY BLE client in range, and
-      accepts cmd 1 (join network) from anyone — the provisioning window is
-      unauthenticated by design. Keep setup mode short.
-  framing:
-    description: >
-      Every request/response payload (the plaintext-or-encrypted envelope
-      bytes — the same bytes one UDP datagram would carry) is prefixed with
-      a 2-byte LITTLE-ENDIAN uint16 length of the PAYLOAD ONLY (prefix not
-      counted), then split into consecutive chunks of (negotiated MTU - 5)
-      bytes. The app requests MTU 515, so chunks are 510 bytes; its
-      pre-negotiation default chunk is 512. Each chunk is one GATT write
-      (with response), sent sequentially.
-    reassembly: >
-      Indications arrive in the same chunking (hardware-verified: ATT
-      Handle Value Indications, which the client's ATT layer confirms).
-      The first indication of
-      a message starts with the 2-byte LE total-payload length; accumulate
-      chunk bodies (skipping the 2-byte prefix of the first chunk) until
-      that many payload bytes have arrived — that is the complete response,
-      which then goes through the normal decrypt/JSON path. Indications
-      shorter than 2 bytes are ignored. The app waits at most 7 s for a
-      complete response.
-  provisioning_over_ble:
-    summary: >
-      During setup the framed payloads are the CLEARTEXT
-      {"id","cmd","data"} envelopes of rabbit_air_protocol.setup_commands
-      (no ts, no AES). Order in the app: cmd 255 + cmd 4 (info/state,
-      5 retries 1 s apart) → cmd 0 (network list; re-poll up to 15x until
-      networks[] non-empty) → cmd 1 (join network) → cmd 5 type 4 (push
-      client-generated user key) → cmd 3 (set name) → cmd 2 (leave setup
-      mode). Cloud-only extras (cmd 5 types 0-3 certificates) can be
-      skipped. Afterwards the unit joins Wi-Fi; verify over LAN with an
-      encrypted cmd 9 + cmd 4 under the new key.
-  example_wire:
-    description: "cmd 255 get_info, cleartext, as framed on BLE. id is a per-client counter starting at 0."
-    payload: '{"id":0,"cmd":255}'
-    framed_hex: "0d00"  # 13 = len('{"id":0,"cmd":255}'), LE; then the 13 payload bytes
-    note: "13+2 = 15 bytes fit one chunk, so this example is a single write; a cmd 1 join message with a long passphrase crosses one chunk boundary at 510 bytes."
+  # BLE transport for the SAME command envelope — recovered by static analysis
+  # of the Rabbit Air 2 app's BLE interactor.
+  # BLE is both the provisioning channel (cleartext setup_commands against
+  # the "RabbitAirSetup" peripheral) AND a full alternate control transport:
+  # after setup the app reconnects to the "RabbitAir" peripheral and runs the
+  # encrypted cmds 9/4/255 over GATT, byte-for-byte the LAN payloads.
+  rabbit_air_ble:
+    verification: "confirmed"
+    verification_notes: >
+      2026-08-15, MinusA2 gen2 (Wi-Fi module mcu 2.2.8): full cleartext
+      provisioning conversation and the post-setup
+      ENCRYPTED command set (cmd 9 clock sync, 255 info, 0 network, 4 state)
+      both driven over this GATT channel as written. Hardware details the
+      app code could not show: the characteristic's properties byte is 0x28 —
+      write + INDICATE, so server→client messages are ATT Handle Value
+      Indications (the client must confirm them), not notifications; the
+      stack tolerates an unconfirmed-then-confirmed mix, and the CCCD reads
+      0x0002 on a fresh connection (indications on by default). GATT layout
+      observed: service at handle 0x28, declaration 0x29, VALUE handle 0x2A,
+      CCCD 0x2B. MTU 515 negotiates cleanly. A KEYED unit rejects cleartext
+      writes with ATT application error 0x87 (intermittent, load-dependent)
+      and never answers them.
+    gatt:
+      service_uuid: "366048ae-9f36-43cf-8004-010c0c9fa52e"
+      command_characteristic: "53ef7d7d-c244-42bd-9064-a1569a521ca9"
+      operations: "Single characteristic for both directions: the client WRITES requests (write-WITH-response) and subscribes to INDICATIONS (not notifications — properties 0x28, hardware-verified) for responses; the client must send ATT confirmations. No BLE pairing/bonding."
+      advertised_names:
+        setup: "RabbitAirSetup — unprovisioned / setup mode"
+        provisioned: "RabbitAir — after setup; the app matches this name plus the unit's BT MAC. Note (hardware-observed): a provisioned unit's ADVERTISING data carried no local name at all — only the service UUID; the name 'RabbitAir' came from the GAP Device Name characteristic (0x2A00) read after connect."
+    off_wifi_access:
+      # BLE works with NO Wi-Fi involvement at all — the channel is between
+      # phone and purifier. What you can read depends on provisioning state:
+      summary: >
+        The purifier's BLE radio is up whether or not it has joined a WLAN,
+        so state/info is reachable with the device entirely off Wi-Fi. A unit
+        in SETUP mode answers the cleartext command set with no credentials
+        at all — cmd 255 (name, MAC, firmware, uptimes), cmd 4 (full live
+        state: power, mode, speed, air quality, filter life, ...), cmd 0
+        (its own Wi-Fi scan list), cmd 7 — the vendor app's own setup flow
+        reads cmd 255 + cmd 4 exactly this way before any key exists. A
+        PROVISIONED unit keeps advertising ("RabbitAir") and accepts the full
+        command set over BLE encrypted under its user key — the vendor app's
+        CurrentDeviceProvider does bluetoothConnect + setEncrypted for local
+        control independent of the LAN — VERIFIED 2026-08-15: after a
+        local-only provisioning (no cloud), encrypted cmd 9/255/0/4 ran over
+        BLE under the pushed key with the unit reachable/unreachable on
+        Wi-Fi alike. The one
+        closed case: a keyed unit whose key you don't have — there is no BLE
+        pairing/bonding to fall back on and every command needs the AES key;
+        VERIFIED: such a unit answers no cleartext command and intermittently
+        rejects the writes with ATT application error 0x87.
+      security_note: >
+        Corollary: while a unit sits in setup mode it discloses state,
+        identity and its Wi-Fi scan results to ANY BLE client in range, and
+        accepts cmd 1 (join network) from anyone — the provisioning window is
+        unauthenticated by design. Keep setup mode short.
+    framing:
+      description: >
+        Every request/response payload (the plaintext-or-encrypted envelope
+        bytes — the same bytes one UDP datagram would carry) is prefixed with
+        a 2-byte LITTLE-ENDIAN uint16 length of the PAYLOAD ONLY (prefix not
+        counted), then split into consecutive chunks of (negotiated MTU - 5)
+        bytes. The app requests MTU 515, so chunks are 510 bytes; its
+        pre-negotiation default chunk is 512. Each chunk is one GATT write
+        (with response), sent sequentially.
+      reassembly: >
+        Indications arrive in the same chunking (hardware-verified: ATT
+        Handle Value Indications, which the client's ATT layer confirms).
+        The first indication of
+        a message starts with the 2-byte LE total-payload length; accumulate
+        chunk bodies (skipping the 2-byte prefix of the first chunk) until
+        that many payload bytes have arrived — that is the complete response,
+        which then goes through the normal decrypt/JSON path. Indications
+        shorter than 2 bytes are ignored. The app waits at most 7 s for a
+        complete response.
+    provisioning_over_ble:
+      summary: >
+        During setup the framed payloads are the CLEARTEXT
+        {"id","cmd","data"} envelopes of rabbit_air_protocol.setup_commands
+        (no ts, no AES). Order in the app: cmd 255 + cmd 4 (info/state,
+        5 retries 1 s apart) → cmd 0 (network list; re-poll up to 15x until
+        networks[] non-empty) → cmd 1 (join network) → cmd 5 type 4 (push
+        client-generated user key) → cmd 3 (set name) → cmd 2 (leave setup
+        mode). Cloud-only extras (cmd 5 types 0-3 certificates) can be
+        skipped. Afterwards the unit joins Wi-Fi; verify over LAN with an
+        encrypted cmd 9 + cmd 4 under the new key.
+    example_wire:
+      description: "cmd 255 get_info, cleartext, as framed on BLE. id is a per-client counter starting at 0."
+      payload: '{"id":0,"cmd":255}'
+      framed_hex: "0d00"  # 13 = len('{"id":0,"cmd":255}'), LE; then the 13 payload bytes
+      note: "13+2 = 15 bytes fit one chunk, so this example is a single write; a cmd 1 join message with a long passphrase crosses one chunk boundary at 510 bytes."
 
 # The invocations entities bind. Each is one Rabbit Air LAN message whose
 # `body` carries only the STATIC envelope fields (cmd, and `data` when the

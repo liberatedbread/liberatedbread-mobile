@@ -191,13 +191,13 @@ device:
       identification:
         local_name_prefix: "MXTP"
 
-  features:
-    - type: "image_upload"
-      max_width: 384
-      max_height: 65535
-      format: "1bit-bitmap"
+features:
+  - type: "image_upload"
+    max_width: 384
+    max_height: 65535
+    format: "1bit-bitmap"
 
-  protocol_handler: "cat_printer"
+protocol_handler: "cat_printer"
 
 services:
   - uuid: "0000ae30-0000-1000-8000-00805f9b34fb"

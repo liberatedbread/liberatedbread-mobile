@@ -190,79 +190,82 @@ features:
     max_height: 64
     resolution_source: "device_reported"
 
-# Wi-Fi (UDP) control surface as implemented by com.yj.led. The wire frame,
-# checksum rules and JSON vocabulary are the shared LOY SPACE protocol
-# documented in autobaba-led-backpack.yaml; this block captures only the
-# Wi-Fi-specific transport behavior plus the commands first seen in this app.
-popled_wifi_protocol:
-  transport:
-    udp:
-      port: 9090
-      discovery: >
-        TLV-serialized {"cmd":{"get":"dev_info"}} broadcast to
-        255.255.255.255:9090. The app learns the device address from the
-        reply sender (as the app does) rather than hardcoding 192.168.4.1.
-      framing: >
-        Each datagram chunk carries an outer u16-LE length prefix followed by
-        that many bytes of 0xAA55-framed TLV payload
-        (PacketDateUtils.toPacket). Large sends are split into 180-byte
-        chunks (writeFscNum; 120 on the writeNum path) at ~5 ms intervals.
-        Replies decode through the same TLV layer to JSON.
-      retry: "Vendor app: up to 10 resends at 8 s intervals until an ACK-shaped reply (matching sno) arrives; error replies are {\"cmd\":\"err\"} / {\"cmd\":\"failed\"}."
-      receive_buffer: 1024
-  sequence:
-    # Wire value carried in the u16-LE sno field of the first frame.
-    sno_base: 1
-    # App-level 32-bit counter seed; only its low 16 bits reach the wire.
-    app_counter_base: 4294901761
-    notes: >
-      The app keeps its sequence counter as the 32-bit value 4294901761
-      (0xFFFF0001) — stored as the string "4294901761" in Constant.sno and
-      passed to the native TLV serializer as (int)4294901761L
-      (Main2Activity.parseJson). Only the low 16 bits reach the wire: the
-      frame's sno (u16-LE) is app_counter & 0xFFFF, so the first frame carries
-      sno=1 (0xFFFF0001 & 0xFFFF = 1), matching the worked discovery frame
-      above. The counter advances by one per command
-      (Constant.getSnoLength = counter + 1) and the wire sno wraps every 65536.
-      The app tracks reply sno values and accepts the next sequential one.
-  response_envelope: '{"ack":{...},"sno":N}'
-  commands_seen_only_in_this_app:
-    set_wifi_params:
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # Wi-Fi (UDP) control surface as implemented by com.yj.led. The wire frame,
+  # checksum rules and JSON vocabulary are the shared LOY SPACE protocol
+  # documented in autobaba-led-backpack.yaml; this block captures only the
+  # Wi-Fi-specific transport behavior plus the commands first seen in this app.
+  popled_wifi_protocol:
+    transport:
+      udp:
+        port: 9090
+        discovery: >
+          TLV-serialized {"cmd":{"get":"dev_info"}} broadcast to
+          255.255.255.255:9090. The app learns the device address from the
+          reply sender (as the app does) rather than hardcoding 192.168.4.1.
+        framing: >
+          Each datagram chunk carries an outer u16-LE length prefix followed by
+          that many bytes of 0xAA55-framed TLV payload
+          (PacketDateUtils.toPacket). Large sends are split into 180-byte
+          chunks (writeFscNum; 120 on the writeNum path) at ~5 ms intervals.
+          Replies decode through the same TLV layer to JSON.
+        retry: "Vendor app: up to 10 resends at 8 s intervals until an ACK-shaped reply (matching sno) arrives; error replies are {\"cmd\":\"err\"} / {\"cmd\":\"failed\"}."
+        receive_buffer: 1024
+    sequence:
+      # Wire value carried in the u16-LE sno field of the first frame.
+      sno_base: 1
+      # App-level 32-bit counter seed; only its low 16 bits reach the wire.
+      app_counter_base: 4294901761
+      notes: >
+        The app keeps its sequence counter as the 32-bit value 4294901761
+        (0xFFFF0001) — stored as the string "4294901761" in Constant.sno and
+        passed to the native TLV serializer as (int)4294901761L
+        (Main2Activity.parseJson). Only the low 16 bits reach the wire: the
+        frame's sno (u16-LE) is app_counter & 0xFFFF, so the first frame carries
+        sno=1 (0xFFFF0001 & 0xFFFF = 1), matching the worked discovery frame
+        above. The counter advances by one per command
+        (Constant.getSnoLength = counter + 1) and the wire sno wraps every 65536.
+        The app tracks reply sno values and accepts the next sequential one.
+    response_envelope: '{"ack":{...},"sno":N}'
+    commands_seen_only_in_this_app:
+      set_wifi_params:
+        description: >
+          Station-mode provisioning: tells the panel to join a Wi-Fi network
+          and contact a server. JSON: {"cmd":{"param_wifi":{"type":0,"user":
+          "<ssid>","pwd":"<password>","ip_svr":"<server>","port_svr":"9090",
+          "sec_hb":30}},"ids_dev":"<id_dev>","sno":N}. Not needed for AP-mode
+          local control; behavior after provisioning not captured.
+      get_wifi_params:
+        description: 'Query Wi-Fi parameters. JSON: {"cmd":{"get":"param_wifi"}}'
+      get_screen_params:
+        description: 'Query screen geometry/model. JSON: {"cmd":{"get":"param_dev"},"ids_dev":"<id_dev>","sno":N}'
+      dispatch_program:
+        description: 'Play one program for a fixed time. JSON: {"cmd":{"dispatch":{"type":1,"id_pro":N,"play_fixed_time":32767}},"ids_dev":"<id_dev>","sno":N} (type 0 form carries a "value" key).'
+      show_dev:
+        description: 'Device show flag, get and set. JSON: {"cmd":{"get":"show_dev"}} / {"cmd":{"show_dev":N},"ids_dev":"<id_dev>","sno":N}'
+      program_flicker:
+        description: 'Flicker/cycle through programs. JSON: {"cmd":{"pgm_flicker":{"type":0,"count_pgm":N,"time":T}},"ids_dev":"<id_dev>","sno":N}'
+      bluetooth_control:
+        description: 'Bluetooth radio control. JSON: {"cmd":{"bluetooth":{"type":0,"val":N}},"ids_dev":"<id_dev>","sno":N}; {"cmd":{"get":"bluetooth"}} queries.'
+      set_time:
+        description: 'Set the device RTC. JSON: {"cmd":{"timing":"<timestamp>"}}'
+      delete_programs_by_id:
+        description: 'Delete specific programs. JSON: {"cmd":{"delete":{"del_ids":[...]}}}'
+    program_upload:
       description: >
-        Station-mode provisioning: tells the panel to join a Wi-Fi network
-        and contact a server. JSON: {"cmd":{"param_wifi":{"type":0,"user":
-        "<ssid>","pwd":"<password>","ip_svr":"<server>","port_svr":"9090",
-        "sec_hb":30}},"ids_dev":"<id_dev>","sno":N}. Not needed for AP-mode
-        local control; behavior after provisioning not captured.
-    get_wifi_params:
-      description: 'Query Wi-Fi parameters. JSON: {"cmd":{"get":"param_wifi"}}'
-    get_screen_params:
-      description: 'Query screen geometry/model. JSON: {"cmd":{"get":"param_dev"},"ids_dev":"<id_dev>","sno":N}'
-    dispatch_program:
-      description: 'Play one program for a fixed time. JSON: {"cmd":{"dispatch":{"type":1,"id_pro":N,"play_fixed_time":32767}},"ids_dev":"<id_dev>","sno":N} (type 0 form carries a "value" key).'
-    show_dev:
-      description: 'Device show flag, get and set. JSON: {"cmd":{"get":"show_dev"}} / {"cmd":{"show_dev":N},"ids_dev":"<id_dev>","sno":N}'
-    program_flicker:
-      description: 'Flicker/cycle through programs. JSON: {"cmd":{"pgm_flicker":{"type":0,"count_pgm":N,"time":T}},"ids_dev":"<id_dev>","sno":N}'
-    bluetooth_control:
-      description: 'Bluetooth radio control. JSON: {"cmd":{"bluetooth":{"type":0,"val":N}},"ids_dev":"<id_dev>","sno":N}; {"cmd":{"get":"bluetooth"}} queries.'
-    set_time:
-      description: 'Set the device RTC. JSON: {"cmd":{"timing":"<timestamp>"}}'
-    delete_programs_by_id:
-      description: 'Delete specific programs. JSON: {"cmd":{"delete":{"del_ids":[...]}}}'
-  program_upload:
-    description: >
-      Programs are built as a pkts_program JSON object — property_pro
-      (width, height, gray, type_color, type_pro, play_loop), list_region
-      with info_pos geometry, and list_item entries of type_item "text_pic"
-      (text, color, size, font, alignment) or "graphic" (zip_bmp payload).
-      App templates use id_pro 11-19; the platform supports 60 sparse
-      program slots. In this app pgm_play carries the full ids_pro array
-      (whole playlist); the sibling uni-app binding
-      (autobaba-led-backpack.yaml) sends pgm_play with a single "index", and
-      hardware-verified RE shows wire program-select is a single zero-based
-      slot index — see the play_program command notes.
-      zip_bmp is a zlib-compressed 24-bit BMP rendered app-side.
+        Programs are built as a pkts_program JSON object — property_pro
+        (width, height, gray, type_color, type_pro, play_loop), list_region
+        with info_pos geometry, and list_item entries of type_item "text_pic"
+        (text, color, size, font, alignment) or "graphic" (zip_bmp payload).
+        App templates use id_pro 11-19; the platform supports 60 sparse
+        program slots. In this app pgm_play carries the full ids_pro array
+        (whole playlist); the sibling uni-app binding
+        (autobaba-led-backpack.yaml) sends pgm_play with a single "index", and
+        hardware-verified RE shows wire program-select is a single zero-based
+        slot index — see the play_program command notes.
+        zip_bmp is a zlib-compressed 24-bit BMP rendered app-side.
 
 # BLE variant of the same hardware family — identical GATT surface to the
 # AUTOBABA LED Backpack (the app contains a full FastBLE client against these

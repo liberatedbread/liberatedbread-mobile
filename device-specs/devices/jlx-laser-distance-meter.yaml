@@ -405,7 +405,6 @@ entities:
   - platform: "sensor"
     name: "Display Unit"
     device_class: "none"
-    unit: ""
     notes: >
       Measurement frame byte 7, enumerated a-j (m / ft / in / ft'in" 1/32 /
       in 1/32 / in 1/16 / in 1/8 / in 1/4 / in 1/2 / Taiwanese foot).

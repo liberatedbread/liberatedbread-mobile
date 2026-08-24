@@ -48,6 +48,11 @@ device:
     own protocol.py emits a real length byte too. The write messages below
     therefore carry 0x18 (basic), 0x0B (pedal) and 0x06 (throttle).
 
+  discovery:
+    none: >
+      Nothing to discover: this is a serial link on the motor's own harness,
+      not a network. A consumer reaches it through a UART adapter wired to
+      the display connector, and knows it is there because it plugged it in.
   setup:
     required: false
     confidence: "medium"

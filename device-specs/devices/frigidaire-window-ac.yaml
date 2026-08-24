@@ -205,6 +205,7 @@ http_endpoints:
   - method: "POST"
     path: "/remote-control/api/v1/appliances/"
     name: "Remote Control"
+    status: "unverified"
     description: "String literal present only as a raw string in the analysed app builds; no call site references it, so the HTTP method (POST shown is a placeholder) and payload are uncorroborated."
     request_body:
       content_type: "application/json"
@@ -436,7 +437,7 @@ entities:
   - platform: "sensor"
     name: "Room Temperature"
     device_class: "temperature"
-    unit: "°F"
+    unit: "F"
     notes: "ambientTemperatureC is the wire name in the app's attribute enum, but the bundled daiane profile declares no ambient-temperature attribute; low confidence until a traffic capture confirms it."
     state_topic: "appliance/{device_id}/state"
     state_mapping:

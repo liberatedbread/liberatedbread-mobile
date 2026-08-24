@@ -1,10 +1,9 @@
 device:
   name: ThermoPro TempSpike / TP9xx BBQ Thermometer
   manufacturer: ThermoPro (Adsmart)
-  model: TP9012, TP920, TP940, TP960/962/968 (TempSpike), TP980, TP426 (plain BLE GATT series)
   category: sensor
   type: bbq-thermometer
-  transport: ble_gatt
+  transport: "ble-gatt"
   protocol: ble
   manufacturer_status: active
   testing:
@@ -103,6 +102,28 @@ device:
     ThermoPro is rebranding to "TempPro" (announced ~April 2026; temppro.com);
     the app already references both buythermopro.com and temppro.com.
 
+  identification:
+    # Moved out of a top-level `advertising:` block: this is matching data, and
+    # `device.identification` is the only place a scanner reads it from. The
+    # spec previously described its own advertisement in a key nothing looks at,
+    # so no scan result could ever be bound to this file.
+    local_name_prefixes:
+      - "Thermopro"
+      - "TP9"
+      - "TP2"
+      - "P9"
+      - "I61"
+      - "SmartBBQ"
+    manufacturer_data:
+      description: >
+        Advertised names from the vendor app's scan config, in the groups it
+        uses them: thermoproNames (Thermopro, TP901, TP902, TP922, TP939,
+        TP938, P900, TP903, TP904, TP25, TP910, TP920, TP930, TP923, TP924),
+        tempSpike (TP960R, TP962R, I61, TP970R, TP960W, I61W, TP971R/972R,
+        TP963, TP971S/972S, TP973R, TP965R, TP966R), tp940 (TP940R), tempWifi
+        (TP980R), infrared (P426, P925), plus the legacy SmartBBQ. "TempPro"
+        and "iBBQ" are NOT advertised names. The prefixes above cover that set
+        without enumerating every model; the app matches on the exact names.
   setup:
     required: false
     confidence: medium
@@ -186,6 +207,161 @@ device:
         WiFi passphrase IS involved for those families, and TP980W is sold as
         a Wi-Fi model. No TP980 cloud broker endpoint is identifiable from
         static code; the binding rides the device did.
+  variants:
+    - model: TP9012
+      description: Basic 2-probe BBQ thermometer (app code family — "TP9012" may be an internal/OEM designation; no retail page found)
+      probe_count: 2
+      temperature_encoding: nibbles
+      temperature_encoding_detail: "(byteHigh << 4) + byteLow °C — TP9012ChangeUtils.getProTemp, NO /10. Sentinels: 0xFF,0x9C → -999.0; 0xDD,0xDD → -100.0; 0xEE,0xEE → 666.0"
+      command_opcodes:
+        - code: 0xB0
+          name: DEVICE_CHECK
+          description: Device discovery/check write and reply (write is {-80})
+        - code: 0xB1
+          name: SETTING_TEMP
+          description: Write per-probe meat/target temp settings (TP9012Data.settingTemp, bArr[0] = 0xB1)
+        - code: 0xB2
+          name: TEMP_AND_BATTERY_UPLOAD
+          description: Temperature and battery status upload
+        - code: 0xB3
+          name: REMOVE_ALARM
+          description: Clear probe alarm (write {-77, 1})
+        - code: 0xB5
+          name: SETTING_TEMP_UNIT
+          description: Write temp unit C/F (TP9012Data.settingTempUnit, bArr[0] = 0xB5)
+      data_format:
+        temp_upload:
+          - byte_offset: 0
+            size: 1
+            name: frame_header
+            value: 0xAA
+          - byte_offset: 1
+            size: 1
+            name: opcode
+            value: 0xB2
+          - byte_offset: 2
+            size: 2
+            name: probe1_temp_raw
+            description: "(high << 4) + low °C"
+          - byte_offset: 4
+            size: 2
+            name: probe2_temp_raw
+            description: "(high << 4) + low °C"
+          - byte_offset: 6
+            size: 1
+            name: battery_raw
+            description: "battery percent = 100 - 33 * raw"
+          - byte_offset: 7
+            size: 1
+            name: alarm_flags
+
+    - model: TP940
+      description: 4-probe (+ambient slot) BBQ thermometer with meat temperature settings
+      probe_count: 4
+      temperature_encoding: bcd
+      temperature_encoding_detail: >
+        BCD: temp = (b1>>4)*100 + (b1&0x0F)*10 + (b2>>4) + (b2&0x0F)*0.1 °C;
+        negative when the high nibble of b1 is 0x9 (subtract 1000). Disconnect
+        sentinel 0xCC,0xCC → -999.0 (TP940ChangeUtils.getProTemp). The TP920/
+        TP25W family uses the same BCD digit layout but DIFFERENT sign/sentinel
+        handling — sign = bit 0x80 of b1, sentinels 0xFF,0xFF → -999.0 /
+        0xDD,0xDD → -100.0 / 0xEE,0xEE → 666.0 (TP920DataChangeUtils.
+        getProTemp:654-665) — which is also the scheme thermopro-cli's
+        decode_temperature implements, so the CLI is a valid reference for
+        TP920 but NOT for TP940's sign/sentinels. TempSpike TP96x does not
+        use BCD at all (u16 LE − 30, see the TP960 family below).
+      features:
+        - meat_temp_target_setting
+        - temp_unit_change (C/F)
+        - alarm_per_probe
+        - probe_disconnect_detection (-999.0°C sentinel)
+      protocol_notes: |
+        Per-probe push notifications (tempReturn opcodes 0x61/0x10, probe index
+        in byte 1) — there is NO polling state machine on this family; the
+        setTemp(0..3) sequential-probing flow belongs to TP980. Other opcodes:
+        0x02 unit, 0x04 alarm setting, 0x05 alarm close, 0x06 device close,
+        0x67 color. Battery: raw×33 for both probes and box
+        (per the app's TP940 parser) — note this is the INVERSE of the
+        TP9012 formula (100 − 33×raw).
+
+    - model: TP960 (TempSpike)
+      description: TempSpike wireless single-probe spike + base station — the current retail focus (scan names TP960R, TP960W, I61, I61W)
+      probe_count: 1
+      temperature_encoding: u16le_minus_30
+      temperature_encoding_detail: >
+        Connected mode: u16 LE minus 30 °C (temp = raw - 30) — the SAME
+        encoding as the TP96x
+        passive-advertisement layout, NOT the TP940 BCD scheme. Sentinels:
+        0xFF,0xFF → -999.9, and raw - 30 ≤ -30 → -999.9. Passive mode layout
+        per TEMPSPIKE PASSIVE MODE in device.notes.
+      features:
+        - passive_advertisement_decoding (preferred — no connection needed)
+        - temperature_history_upload
+        - temp_unit_change (C/F)
+        - per_probe_alarm
+        - probe_color_setting
+      protocol_notes: |
+        CONNECTED-MODE opcodes (spec previously had no TP96x GATT block despite
+        being named "tempspike"). Service 93bb7cab-…, write FF02 / notify FF01,
+        raw frames with NO checksum. Notifications (opcode at offset 0,
+        per the app's TP960 parser): 0x01 current temp, 0x02 history upload
+        first frame, 0x05 low battery upload, 0x06 box battery upload, 0x10
+        auto temp return, 0x11 low battery (alt), 0x12 probe connect upload,
+        0x13 temp alarm close, 0x14 ambient temp alarm close. Writes
+        (TP960Data): 0x01 read temp, 0x02 read temp history, 0x03 auto-
+        notification on/off, 0x04 set probe temp alarm (°C and °F variants),
+        0x05 read battery state, 0x06 read battery (TP962), 0x15 set ambient
+        temperature alarm, 0x19 set temp unit, 0x1A read probe color. Battery:
+        u16 LE millivolt bands <2311 → 0%, 2311-2450 → 33%, 2451-2600 → 66%,
+        ≥2601 → 100% (TP960ChangeUtils.getBattery:255-263); passive ads use the
+        fitted tanh curve instead (see device.notes).
+
+    - model: TP962 / TP968 (TempSpike variants)
+      description: TempSpike multi-probe variants (scan names TP962R, TP963, TP965R, TP966R)
+      probe_count: 2
+      temperature_encoding: u16le_minus_30
+      temperature_encoding_detail: "Same u16 LE − 30 °C encoding as TP960 (per the app's TP962/TP968 parsers); sentinel 0xFF,0xFF → -999.9."
+      features:
+        - passive_advertisement_decoding
+        - sequential_multi_probe_read
+      protocol_notes: |
+        Same service/framing as TP960 but a WIDER notification dispatch
+        (per the app's TP962/TP968 parsers) adding a
+        sequential setTemp-probing state machine: 0x81 readNextProTemp,
+        0x04/0x84 setTempReturn, 0x06/0x16 box battery, 0x09/0x89 setUnitReturn,
+        plus 0x10 auto temp, 0x12 probe connect, 0x13/0x14 alarm close, 0x17
+        charge state change, 0x18 device close, 0x19 temp unit change, 0x1A
+        probe color check.
+
+    - model: TP980
+      description: Pro-grade 4-probe thermometer with history upload and WiFi uplink (TP980/TP980W sold as Wi-Fi + Bluetooth models)
+      probe_count: 4
+      temperature_encoding: ieee754_float32
+      temperature_encoding_detail: >
+        IEEE 754 float32 read LITTLE-ENDIAN (Nordic Data.FORMAT_UINT32) at
+        offsets 5/9/13 (tp980TempReturn). The wire value is °F with a +54
+        offset: convert via fToC(raw - 54) — the same
+        fahrenheit_to_celsius(x - 54) the thermopro-ble parser applies for
+        TP97x.
+      features:
+        - temperature_history_upload
+        - temp_unit_change
+        - per_probe_target_temp
+        - sequential_multi_probe_read
+        - wifi_uplink_and_cloud_binding
+      protocol_notes: |
+        History upload: multi-chunk transfer with a first frame (opcode 0x02)
+        and continuation frames, 6 bytes/record. Probe reading uses the
+        setTemp(0..3) / readNextProTemp sequential state machine
+        (the app's TP980 parser — an earlier revision of this spec
+        misattributed it to TP940). Notification opcodes: 0x11 temp
+        return, 0x12 probe connect, 0x13 temp alarm close, 0x14 ambient temp
+        alarm close, 0x17 charge state change, 0x18 device close, 0x19 temp
+        unit change, 0x1A probe color check, 0x20 temp auto-return, and
+        decimal 80-84 = 0x50-0x54 for WiFi scan/connect/check plus cloud
+        binding (did, boundUser). Battery: u16 LE millivolt bands <2311 → 0%,
+        2311-2450 → 33%, 2451-2600 → 66%, ≥2601 → 100%
+        (TP980ChangeUtils.getBattery:477-484).
 
 services:
   # DEFAULT family config (TPBleConfig) — TP920/TP25W, TP980 and all
@@ -309,179 +485,7 @@ services:
         properties: ["write"]
         description: "Silicon Labs OTA data write."
 
-device_families:
-  - model: TP9012
-    description: Basic 2-probe BBQ thermometer (app code family — "TP9012" may be an internal/OEM designation; no retail page found)
-    probe_count: 2
-    temperature_encoding: nibbles
-    temperature_encoding_detail: "(byteHigh << 4) + byteLow °C — TP9012ChangeUtils.getProTemp, NO /10. Sentinels: 0xFF,0x9C → -999.0; 0xDD,0xDD → -100.0; 0xEE,0xEE → 666.0"
-    command_opcodes:
-      - code: 0xB0
-        name: DEVICE_CHECK
-        description: Device discovery/check write and reply (write is {-80})
-      - code: 0xB1
-        name: SETTING_TEMP
-        description: Write per-probe meat/target temp settings (TP9012Data.settingTemp, bArr[0] = 0xB1)
-      - code: 0xB2
-        name: TEMP_AND_BATTERY_UPLOAD
-        description: Temperature and battery status upload
-      - code: 0xB3
-        name: REMOVE_ALARM
-        description: Clear probe alarm (write {-77, 1})
-      - code: 0xB5
-        name: SETTING_TEMP_UNIT
-        description: Write temp unit C/F (TP9012Data.settingTempUnit, bArr[0] = 0xB5)
-    data_format:
-      temp_upload:
-        - byte_offset: 0
-          size: 1
-          name: frame_header
-          value: 0xAA
-        - byte_offset: 1
-          size: 1
-          name: opcode
-          value: 0xB2
-        - byte_offset: 2
-          size: 2
-          name: probe1_temp_raw
-          description: "(high << 4) + low °C"
-        - byte_offset: 4
-          size: 2
-          name: probe2_temp_raw
-          description: "(high << 4) + low °C"
-        - byte_offset: 6
-          size: 1
-          name: battery_raw
-          description: "battery percent = 100 - 33 * raw"
-        - byte_offset: 7
-          size: 1
-          name: alarm_flags
-
-  - model: TP940
-    description: 4-probe (+ambient slot) BBQ thermometer with meat temperature settings
-    probe_count: 4
-    temperature_encoding: bcd
-    temperature_encoding_detail: >
-      BCD: temp = (b1>>4)*100 + (b1&0x0F)*10 + (b2>>4) + (b2&0x0F)*0.1 °C;
-      negative when the high nibble of b1 is 0x9 (subtract 1000). Disconnect
-      sentinel 0xCC,0xCC → -999.0 (TP940ChangeUtils.getProTemp). The TP920/
-      TP25W family uses the same BCD digit layout but DIFFERENT sign/sentinel
-      handling — sign = bit 0x80 of b1, sentinels 0xFF,0xFF → -999.0 /
-      0xDD,0xDD → -100.0 / 0xEE,0xEE → 666.0 (TP920DataChangeUtils.
-      getProTemp:654-665) — which is also the scheme thermopro-cli's
-      decode_temperature implements, so the CLI is a valid reference for
-      TP920 but NOT for TP940's sign/sentinels. TempSpike TP96x does not
-      use BCD at all (u16 LE − 30, see the TP960 family below).
-    features:
-      - meat_temp_target_setting
-      - temp_unit_change (C/F)
-      - alarm_per_probe
-      - probe_disconnect_detection (-999.0°C sentinel)
-    protocol_notes: |
-      Per-probe push notifications (tempReturn opcodes 0x61/0x10, probe index
-      in byte 1) — there is NO polling state machine on this family; the
-      setTemp(0..3) sequential-probing flow belongs to TP980. Other opcodes:
-      0x02 unit, 0x04 alarm setting, 0x05 alarm close, 0x06 device close,
-      0x67 color. Battery: raw×33 for both probes and box
-      (per the app's TP940 parser) — note this is the INVERSE of the
-      TP9012 formula (100 − 33×raw).
-
-  - model: TP960 (TempSpike)
-    description: TempSpike wireless single-probe spike + base station — the current retail focus (scan names TP960R, TP960W, I61, I61W)
-    probe_count: 1
-    temperature_encoding: u16le_minus_30
-    temperature_encoding_detail: >
-      Connected mode: u16 LE minus 30 °C (temp = raw - 30) — the SAME
-      encoding as the TP96x
-      passive-advertisement layout, NOT the TP940 BCD scheme. Sentinels:
-      0xFF,0xFF → -999.9, and raw - 30 ≤ -30 → -999.9. Passive mode layout
-      per TEMPSPIKE PASSIVE MODE in device.notes.
-    features:
-      - passive_advertisement_decoding (preferred — no connection needed)
-      - temperature_history_upload
-      - temp_unit_change (C/F)
-      - per_probe_alarm
-      - probe_color_setting
-    protocol_notes: |
-      CONNECTED-MODE opcodes (spec previously had no TP96x GATT block despite
-      being named "tempspike"). Service 93bb7cab-…, write FF02 / notify FF01,
-      raw frames with NO checksum. Notifications (opcode at offset 0,
-      per the app's TP960 parser): 0x01 current temp, 0x02 history upload
-      first frame, 0x05 low battery upload, 0x06 box battery upload, 0x10
-      auto temp return, 0x11 low battery (alt), 0x12 probe connect upload,
-      0x13 temp alarm close, 0x14 ambient temp alarm close. Writes
-      (TP960Data): 0x01 read temp, 0x02 read temp history, 0x03 auto-
-      notification on/off, 0x04 set probe temp alarm (°C and °F variants),
-      0x05 read battery state, 0x06 read battery (TP962), 0x15 set ambient
-      temperature alarm, 0x19 set temp unit, 0x1A read probe color. Battery:
-      u16 LE millivolt bands <2311 → 0%, 2311-2450 → 33%, 2451-2600 → 66%,
-      ≥2601 → 100% (TP960ChangeUtils.getBattery:255-263); passive ads use the
-      fitted tanh curve instead (see device.notes).
-
-  - model: TP962 / TP968 (TempSpike variants)
-    description: TempSpike multi-probe variants (scan names TP962R, TP963, TP965R, TP966R)
-    probe_count: 2
-    temperature_encoding: u16le_minus_30
-    temperature_encoding_detail: "Same u16 LE − 30 °C encoding as TP960 (per the app's TP962/TP968 parsers); sentinel 0xFF,0xFF → -999.9."
-    features:
-      - passive_advertisement_decoding
-      - sequential_multi_probe_read
-    protocol_notes: |
-      Same service/framing as TP960 but a WIDER notification dispatch
-      (per the app's TP962/TP968 parsers) adding a
-      sequential setTemp-probing state machine: 0x81 readNextProTemp,
-      0x04/0x84 setTempReturn, 0x06/0x16 box battery, 0x09/0x89 setUnitReturn,
-      plus 0x10 auto temp, 0x12 probe connect, 0x13/0x14 alarm close, 0x17
-      charge state change, 0x18 device close, 0x19 temp unit change, 0x1A
-      probe color check.
-
-  - model: TP980
-    description: Pro-grade 4-probe thermometer with history upload and WiFi uplink (TP980/TP980W sold as Wi-Fi + Bluetooth models)
-    probe_count: 4
-    temperature_encoding: ieee754_float32
-    temperature_encoding_detail: >
-      IEEE 754 float32 read LITTLE-ENDIAN (Nordic Data.FORMAT_UINT32) at
-      offsets 5/9/13 (tp980TempReturn). The wire value is °F with a +54
-      offset: convert via fToC(raw - 54) — the same
-      fahrenheit_to_celsius(x - 54) the thermopro-ble parser applies for
-      TP97x.
-    features:
-      - temperature_history_upload
-      - temp_unit_change
-      - per_probe_target_temp
-      - sequential_multi_probe_read
-      - wifi_uplink_and_cloud_binding
-    protocol_notes: |
-      History upload: multi-chunk transfer with a first frame (opcode 0x02)
-      and continuation frames, 6 bytes/record. Probe reading uses the
-      setTemp(0..3) / readNextProTemp sequential state machine
-      (the app's TP980 parser — an earlier revision of this spec
-      misattributed it to TP940). Notification opcodes: 0x11 temp
-      return, 0x12 probe connect, 0x13 temp alarm close, 0x14 ambient temp
-      alarm close, 0x17 charge state change, 0x18 device close, 0x19 temp
-      unit change, 0x1A probe color check, 0x20 temp auto-return, and
-      decimal 80-84 = 0x50-0x54 for WiFi scan/connect/check plus cloud
-      binding (did, boundUser). Battery: u16 LE millivolt bands <2311 → 0%,
-      2311-2450 → 33%, 2451-2600 → 66%, ≥2601 → 100%
-      (TP980ChangeUtils.getBattery:477-484).
-
-advertising:
-  discovery_method: service_uuid_and_name
-  local_name_prefixes:
-    - "TP940R"
-    - "TP980R"
-    - "TP960R"
-    - "Thermopro"
-    - "SmartBBQ"
-  notes: >
-    Exact advertised names from the app's scan config, grouped as: thermoproNames
-    (Thermopro, TP901, TP902, TP922, TP939, TP938, P900, TP903, TP904, TP25,
-    TP910, TP920, TP930, TP923, TP924), tempSpike (TP960R, TP962R, I61,
-    TP970R, TP960W, I61W, TP971R/972R, TP963, TP971S/972S, TP973R, TP965R,
-    TP966R), tp940 (TP940R), tempWifi (TP980R), infrared (P426, P925), plus
-    legacy SmartBBQ. "TempPro" and "iBBQ" are NOT advertised names.
-
-source:
+evidence:
   static_analysis: >
     Static analysis of the official ThermoPro companion app. Its OEM BLE
     stack is where the five per-family configs (UUID sets, framing), the

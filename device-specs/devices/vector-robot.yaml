@@ -217,38 +217,120 @@ device:
         so confidentiality depends on the handshake having been completed with
         the on-screen PIN rather than on the field itself.
 
-protocols:
-  wifi_grpc:
-    service: "ExternalInterface"
-    port: 443
-    transport: "HTTP/2 over TLS"
-    serialization: "protobuf 3"
-    authentication:
-      tls: "robot self-signed certificate pinning"
-      bearer: "client_token_guid"
-    rpc_count: 69
-    key_state_rpcs:
-      - "BatteryState"
-      - "VersionState"
-  rest_gateway:
-    base_path: "/v1"
-    description: >
-      gRPC-gateway JSON endpoints for many unary RPCs (49 google.api.http
-      annotations in the proto). SetCubeLights and SetMasterVolume carry no
-      HTTP annotation and are gRPC-only, so they are absent from the list
-      below; the four annotated streaming endpoints
-      (/v1/assume_behavior_control, /v1/audio_feed, /v1/camera_feed,
-      /v1/nav_map_feed) also exist but are omitted here.
-  ble_onboarding:
-    name: "RTS"
-    serialization: "CLAD"
-    encryption: "libsodium crypto_kx (Curve25519) key exchange, PIN mixed into session keys via crypto_generichash, crypto_aead_xchacha20poly1305_ietf (XChaCha20-Poly1305) session cipher"
-    read_characteristic: "7d2a4bda-d29b-4152-b725-2491478c5cd7"
-    write_characteristic: "30619f2d-0f54-41bd-a65a-7588d8c85b45"
-  sdk:
-    name: "anki_vector Python"
-    license: "Apache-2.0"
-    url: "https://github.com/anki/vector-python-sdk"
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  protocols:
+    wifi_grpc:
+      service: "ExternalInterface"
+      port: 443
+      transport: "HTTP/2 over TLS"
+      serialization: "protobuf 3"
+      authentication:
+        tls: "robot self-signed certificate pinning"
+        bearer: "client_token_guid"
+      rpc_count: 69
+      key_state_rpcs:
+        - "BatteryState"
+        - "VersionState"
+    rest_gateway:
+      base_path: "/v1"
+      description: >
+        gRPC-gateway JSON endpoints for many unary RPCs (49 google.api.http
+        annotations in the proto). SetCubeLights and SetMasterVolume carry no
+        HTTP annotation and are gRPC-only, so they are absent from the list
+        below; the four annotated streaming endpoints
+        (/v1/assume_behavior_control, /v1/audio_feed, /v1/camera_feed,
+        /v1/nav_map_feed) also exist but are omitted here.
+    ble_onboarding:
+      name: "RTS"
+      serialization: "CLAD"
+      encryption: "libsodium crypto_kx (Curve25519) key exchange, PIN mixed into session keys via crypto_generichash, crypto_aead_xchacha20poly1305_ietf (XChaCha20-Poly1305) session cipher"
+      read_characteristic: "7d2a4bda-d29b-4152-b725-2491478c5cd7"
+      write_characteristic: "30619f2d-0f54-41bd-a65a-7588d8c85b45"
+    sdk:
+      name: "anki_vector Python"
+      license: "Apache-2.0"
+      url: "https://github.com/anki/vector-python-sdk"
+
+  grpc_rpcs:
+    - "ProtocolVersion"
+    - "SDKInitialization"
+    - "UserAuthentication"
+    - "DriveWheels"
+    - "MoveHead"
+    - "MoveLift"
+    - "StopAllMotors"
+    - "DriveStraight"
+    - "TurnInPlace"
+    - "SetHeadAngle"
+    - "SetLiftHeight"
+    - "PlayAnimation"
+    - "PlayAnimationTrigger"
+    - "ListAnimations"
+    - "ListAnimationTriggers"
+    - "DisplayFaceImageRGB"
+    - "SetEyeColor"
+    - "GoToPose"
+    - "DockWithCube"
+    - "DriveOffCharger"
+    - "DriveOnCharger"
+    - "FindFaces"
+    - "LookAroundInPlace"
+    - "EnableFaceDetection"
+    - "EnableMarkerDetection"
+    - "EnableMotionDetection"
+    - "CancelFaceEnrollment"
+    - "RequestEnrolledNames"
+    - "UpdateEnrolledFaceByID"
+    - "EraseEnrolledFaceByID"
+    - "EraseAllEnrolledFaces"
+    - "SetFaceToEnroll"
+    - "TurnTowardsFace"
+    - "GoToObject"
+    - "RollObject"
+    - "PopAWheelie"
+    - "PickupObject"
+    - "PlaceObjectOnGroundHere"
+    - "ConnectCube"
+    - "DisconnectCube"
+    - "CubesAvailable"
+    - "FlashCubeLights"
+    - "SetCubeLights"
+    - "ForgetPreferredCube"
+    - "SetPreferredCube"
+    - "DeleteCustomObjects"
+    - "CreateFixedCustomObject"
+    - "DefineCustomObject"
+    - "PhotosInfo"
+    - "Photo"
+    - "Thumbnail"
+    - "DeletePhoto"
+    - "SayText"
+    - "SetMasterVolume"
+    - "ExternalAudioStreamPlayback"
+    - "EventStream"
+    - "AssumeBehaviorControl"
+    - "BehaviorControl"
+    - "CameraFeed"
+    - "AudioFeed"
+    - "NavMapFeed"
+    - "BatteryState"
+    - "VersionState"
+    - "EnableMirrorMode"
+    - "EnableImageStreaming"
+    - "IsImageStreamingEnabled"
+    - "CancelActionByIdTag"
+    - "RollBlock"
+    - "CaptureSingleImage"
+
+  state_models:
+    - name: "BatteryState"
+      description: "Battery voltage, level, and charging state."
+    - name: "VersionState"
+      description: "Robot firmware, OS, engine, and serial identifiers."
+    - name: "RobotState"
+      description: "Position, pose, lift/head angles, motion, carrying, and status fields emitted on EventStream."
 
 helpful_urls:
   - title: "WireOS"
@@ -481,85 +563,6 @@ http_endpoints:
     path: "/v1/capture_single_image"
     name: "CaptureSingleImage"
     description: "Capture one camera image."
-
-grpc_rpcs:
-  - "ProtocolVersion"
-  - "SDKInitialization"
-  - "UserAuthentication"
-  - "DriveWheels"
-  - "MoveHead"
-  - "MoveLift"
-  - "StopAllMotors"
-  - "DriveStraight"
-  - "TurnInPlace"
-  - "SetHeadAngle"
-  - "SetLiftHeight"
-  - "PlayAnimation"
-  - "PlayAnimationTrigger"
-  - "ListAnimations"
-  - "ListAnimationTriggers"
-  - "DisplayFaceImageRGB"
-  - "SetEyeColor"
-  - "GoToPose"
-  - "DockWithCube"
-  - "DriveOffCharger"
-  - "DriveOnCharger"
-  - "FindFaces"
-  - "LookAroundInPlace"
-  - "EnableFaceDetection"
-  - "EnableMarkerDetection"
-  - "EnableMotionDetection"
-  - "CancelFaceEnrollment"
-  - "RequestEnrolledNames"
-  - "UpdateEnrolledFaceByID"
-  - "EraseEnrolledFaceByID"
-  - "EraseAllEnrolledFaces"
-  - "SetFaceToEnroll"
-  - "TurnTowardsFace"
-  - "GoToObject"
-  - "RollObject"
-  - "PopAWheelie"
-  - "PickupObject"
-  - "PlaceObjectOnGroundHere"
-  - "ConnectCube"
-  - "DisconnectCube"
-  - "CubesAvailable"
-  - "FlashCubeLights"
-  - "SetCubeLights"
-  - "ForgetPreferredCube"
-  - "SetPreferredCube"
-  - "DeleteCustomObjects"
-  - "CreateFixedCustomObject"
-  - "DefineCustomObject"
-  - "PhotosInfo"
-  - "Photo"
-  - "Thumbnail"
-  - "DeletePhoto"
-  - "SayText"
-  - "SetMasterVolume"
-  - "ExternalAudioStreamPlayback"
-  - "EventStream"
-  - "AssumeBehaviorControl"
-  - "BehaviorControl"
-  - "CameraFeed"
-  - "AudioFeed"
-  - "NavMapFeed"
-  - "BatteryState"
-  - "VersionState"
-  - "EnableMirrorMode"
-  - "EnableImageStreaming"
-  - "IsImageStreamingEnabled"
-  - "CancelActionByIdTag"
-  - "RollBlock"
-  - "CaptureSingleImage"
-
-state_models:
-  - name: "BatteryState"
-    description: "Battery voltage, level, and charging state."
-  - name: "VersionState"
-    description: "Robot firmware, OS, engine, and serial identifiers."
-  - name: "RobotState"
-    description: "Position, pose, lift/head angles, motion, carrying, and status fields emitted on EventStream."
 
 entities:
   - platform: "sensor"

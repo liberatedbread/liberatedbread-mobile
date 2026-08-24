@@ -35,7 +35,6 @@ device:
   protocol: "wifi"
   category: "printer"
   pictogram: "printer"
-  transport: "mdns"
   integration: "identify_only"
   admin_url: "http://{address}/"
   notes: >
@@ -170,13 +169,13 @@ device:
         password is entered by the user at the printer's own web UI, which we
         only deep-link to.
 
-  local_access:
-    status: native
-    summary: >
-      Printers are natively usable locally through the OS print system
-      (AirPrint / IPP Everywhere driverless printing) with no vendor cloud —
-      this project deliberately scopes the entry to identify-only and hands the
-      user to the printer's embedded web interface for management.
+local_access:
+  status: native
+  summary: >
+    Printers are natively usable locally through the OS print system
+    (AirPrint / IPP Everywhere driverless printing) with no vendor cloud —
+    this project deliberately scopes the entry to identify-only and hands the
+    user to the printer's embedded web interface for management.
 
 helpful_urls:
   - url: "https://developer.apple.com/bonjour/printing-specification/"

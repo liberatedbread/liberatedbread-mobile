@@ -250,16 +250,19 @@ device:
         Home Control Central Unit itself uses is the hub's own provisioning
         and is out of scope here.
 
-zwave:
-  manufacturer_id: "0x0175"
-  manufacturer_id_decimal: 373
-  manufacturer_name: "devolo Home Control"
-  region: "EU (868.4 MHz)"
-  certification: "Z-Wave Plus"
-  references:
-    - "OpenZWave manufacturer_specific.xml: id=\"0175\" name=\"devolo Home Control\""
-    - "openHAB Z-Wave device database (opensmarthouse.org), doc/devolo/ device set"
-    - "Homey community: devolo-badged Philio devices report manufacturer ID 373 (0x0175)"
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  zwave:
+    manufacturer_id: "0x0175"
+    manufacturer_id_decimal: 373
+    manufacturer_name: "devolo Home Control"
+    region: "EU (868.4 MHz)"
+    certification: "Z-Wave Plus"
+    references:
+      - "OpenZWave manufacturer_specific.xml: id=\"0175\" name=\"devolo Home Control\""
+      - "openHAB Z-Wave device database (opensmarthouse.org), doc/devolo/ device set"
+      - "Homey community: devolo-badged Philio devices report manufacturer ID 373 (0x0175)"
 
 cloud:
   required: true

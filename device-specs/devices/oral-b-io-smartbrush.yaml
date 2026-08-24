@@ -4,16 +4,26 @@ device:
   # iO3 dropped: no source (app SDK, firmware manifests, either RE project)
   # names an iO3 model byte — SonosMetadata.Model starts at M4. iO3 may reuse
   # another type or lack BLE; unverified either way.
-  model: iO Series (4/5/6/7/8/9/10)
+  # No per-model protocol difference has been established: the app drives
+  # the whole iO line through the same A0F0xxxx service. Listed as variants
+  # anyway so a scan result can be matched to one, and so a later finding
+  # has somewhere to attach.
+  variants:
+    - model: "iO Series 4"
+    - model: "iO Series 5"
+    - model: "iO Series 6"
+    - model: "iO Series 7"
+    - model: "iO Series 8"
+    - model: "iO Series 9"
+    - model: "iO Series 10"
   category: health
   type: electric-toothbrush
-  transport: ble
+  transport: "ble-gatt"
   # 'gatt' is not a schema protocol; GATT is the attribute protocol carried over
   # BLE, and the services/characteristics below already say the access is GATT.
   protocol: ble
   # The SIG-assigned company ID, decoded — not the `DC 00` byte pair as it
   # appears little-endian on the wire. 0xDC00 (56320) is unassigned.
-  manufacturer_id: "0x00DC"
   # P&G still ships the iO line; the protocol is simply closed. Per the schema's
   # own guidance that is 'active', not a bespoke 'production'.
   manufacturer_status: active
@@ -348,104 +358,107 @@ advertising:
       description: Total quadrant count
   minimum_length: 5
 
-brushing_modes:
-  - id: 0x00
-    name: OFF
-    protocol: V001-V005
-  - id: 0x01
-    name: DAILY_CLEAN
-    protocol: V001+
-  - id: 0x02
-    name: SENSITIVE
-    protocol: V001+
-  - id: 0x03
-    name: MASSAGE
-    protocol: V001+
-  - id: 0x04
-    name: WHITENING
-    protocol: V001+
-  - id: 0x05
-    name: DEEP_CLEAN
-    protocol: V001+
-  - id: 0x06
-    name: TONGUE_CLEAN
-    protocol: V001+
-  - id: 0x07
-    name: PRO_CLEAN
-    protocol: V001+
-  - id: 0x00
-    name: V006_CLEAN
-    protocol: V006+
-  - id: 0x01
-    name: V006_SOFT
-    protocol: V006+
-  - id: 0x02
-    name: V006_MASSAGE
-    protocol: V006+
-  - id: 0x03
-    name: V006_POLISH
-    protocol: V006+
-  - id: 0x04
-    name: V006_TURBO
-    protocol: V006+
-  - id: 0x05
-    name: V006_SOFT_PLUS
-    protocol: V006+
-  - id: 0x06
-    name: V006_TONGUE
-    protocol: V006+
-  - id: 0x07
-    name: V006_OFF
-    protocol: V006+
-  - id: 0x08
-    name: V006_SETTINGS
-    protocol: V006+
-  - id: 0x0B
-    name: SMART_ADAPT_MODE
-    protocol: V009+
-  - id: 0x0C
-    name: GENTLE_WHITE
-    protocol: V009+
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  brushing_modes:
+    - id: 0x00
+      name: OFF
+      protocol: V001-V005
+    - id: 0x01
+      name: DAILY_CLEAN
+      protocol: V001+
+    - id: 0x02
+      name: SENSITIVE
+      protocol: V001+
+    - id: 0x03
+      name: MASSAGE
+      protocol: V001+
+    - id: 0x04
+      name: WHITENING
+      protocol: V001+
+    - id: 0x05
+      name: DEEP_CLEAN
+      protocol: V001+
+    - id: 0x06
+      name: TONGUE_CLEAN
+      protocol: V001+
+    - id: 0x07
+      name: PRO_CLEAN
+      protocol: V001+
+    - id: 0x00
+      name: V006_CLEAN
+      protocol: V006+
+    - id: 0x01
+      name: V006_SOFT
+      protocol: V006+
+    - id: 0x02
+      name: V006_MASSAGE
+      protocol: V006+
+    - id: 0x03
+      name: V006_POLISH
+      protocol: V006+
+    - id: 0x04
+      name: V006_TURBO
+      protocol: V006+
+    - id: 0x05
+      name: V006_SOFT_PLUS
+      protocol: V006+
+    - id: 0x06
+      name: V006_TONGUE
+      protocol: V006+
+    - id: 0x07
+      name: V006_OFF
+      protocol: V006+
+    - id: 0x08
+      name: V006_SETTINGS
+      protocol: V006+
+    - id: 0x0B
+      name: SMART_ADAPT_MODE
+      protocol: V009+
+    - id: 0x0C
+      name: GENTLE_WHITE
+      protocol: V009+
 
-charger:
-  capabilities:
-    - wifi_configuration
-    - clock_display
-    - night_light
-    - ring_color
-    - demo_mode
-    - auto_update
-    - brush_passthrough
-    - touchpad
-    - iot_status
-    - server_mode
+  charger:
+    capabilities:
+      - wifi_configuration
+      - clock_display
+      - night_light
+      - ring_color
+      - demo_mode
+      - auto_update
+      - brush_passthrough
+      - touchpad
+      - iot_status
+      - server_mode
 
-protocol_versions:
-  - V001
-  - V002
-  - V003
-  - V004
-  - V005
-  - V006
-  - V007
-  - V008
-  - V009
+  protocol_versions:
+    - V001
+    - V002
+    - V003
+    - V004
+    - V005
+    - V006
+    - V007
+    - V008
+    - V009
 
-# Per-version deltas from the app's ProtocolVersion/Advertisement mappings.
-# Byte layouts change significantly across versions — read the protocol
-# version characteristic (or advertising byte 4) before parsing anything else.
-protocol_changelog:
-  V001: "Earliest known layout."
-  V002: "Extended sensor data."
-  V003: "Added pressure configuration."
-  V004: "Extended brushing modes."
-  V005: "Added charger passthrough."
-  V006: "New brushing-mode enum (CLEAN/SOFT/MASSAGE/POLISH/TURBO/...)."
-  V007: "Extended sonos metadata."
-  V008: "Extended metadata (14 to 30 bytes); advertising byte 13 becomes device sub-type."
-  V009: "Added SMART_ADAPT_MODE (0x0B) and GENTLE_WHITE (0x0C) modes."
+  # Per-version deltas from the app's ProtocolVersion/Advertisement mappings.
+  # Byte layouts change significantly across versions — read the protocol
+  # version characteristic (or advertising byte 4) before parsing anything else.
+  protocol_changelog:
+    V001: "Earliest known layout."
+    V002: "Extended sensor data."
+    V003: "Added pressure configuration."
+    V004: "Extended brushing modes."
+    V005: "Added charger passthrough."
+    V006: "New brushing-mode enum (CLEAN/SOFT/MASSAGE/POLISH/TURBO/...)."
+    V007: "Extended sonos metadata."
+    V008: "Extended metadata (14 to 30 bytes); advertising byte 13 becomes device sub-type."
+    V009: "Added SMART_ADAPT_MODE (0x0B) and GENTLE_WHITE (0x0C) modes."
 
-source:
+evidence:
   static_analysis: "Official Oral-B Android app"
   date_extracted: "2026-07-28"
 

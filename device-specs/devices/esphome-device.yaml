@@ -393,19 +393,19 @@ device:
         PSK as "ask the owner", not as a failure to work around: the web server
         is the path that needs no secret, when the build has one.
 
-  local_access:
-    status: native
-    summary: >
-      Local by construction, and note that this says something different from
-      `integration: identify_only` above: control is entirely possible here —
-      the web server is served from the board and the native API is a direct
-      socket, with no vendor account, no broker and nothing to shut down. What
-      is missing is a consumer that enumerates a node's entities at runtime,
-      not a way in.
-    covers:
-      - "Enumerate every entity the node exposes and its current state"
-      - "Drive any entity the firmware exposes as controllable"
-      - "Subscribe to live state changes without polling"
+local_access:
+  status: native
+  summary: >
+    Local by construction, and note that this says something different from
+    `integration: identify_only` above: control is entirely possible here —
+    the web server is served from the board and the native API is a direct
+    socket, with no vendor account, no broker and nothing to shut down. What
+    is missing is a consumer that enumerates a node's entities at runtime,
+    not a way in.
+  covers:
+    - "Enumerate every entity the node exposes and its current state"
+    - "Drive any entity the firmware exposes as controllable"
+    - "Subscribe to live state changes without polling"
 
 http_endpoints:
   # ESPHome web_server, port 80 by default, present only when the build

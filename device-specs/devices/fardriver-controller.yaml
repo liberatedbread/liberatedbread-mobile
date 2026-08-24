@@ -97,6 +97,17 @@ device:
   # a unique local-name prefix, manufacturer-specific advertisement data, or a
   # read-only framing probe (subscribe and confirm 16-byte 0xAA status frames).
   # Until then this device is documented for manual selection only.
+  discovery:
+    none: >
+      Deliberate, and the reasoning is in the comment above rather than in an
+      absence: no signal in the advertisement distinguishes a Fardriver
+      controller from anything else. The BLE bridge modules these controllers
+      ship with advertise service 0xFFE0 -- the generic HM-10/HM-19 BLE-UART
+      service, already claimed by motool-slacker and advertised by SP107E LED
+      controllers too -- and many advertise by name only, with no service UUID
+      at all. Matching on what is there would associate this spec's telemetry,
+      or one of its writes, with unrelated hardware. Manual selection only
+      until a discriminating signal exists.
 
   setup:
     required: false

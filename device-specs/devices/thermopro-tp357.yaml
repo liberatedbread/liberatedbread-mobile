@@ -270,7 +270,7 @@ entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
-    unit: "°C"
+    unit: "C"
   - platform: "sensor"
     name: "Humidity"
     device_class: "humidity"

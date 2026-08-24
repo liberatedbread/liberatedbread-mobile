@@ -235,116 +235,119 @@ helpful_urls:
     url: "https://www.lifewire.com/fix-vizio-tv-that-keeps-turning-on-and-off-5198526"
     description: "Secondary confirmation of the factory-reset path (default passcode 0000) and the Eco/Quickstart Power Mode setting location."
 
-# Everything needed to build a SmartCast request byte for byte, in the role
-# ecp_common plays for Roku — including the parts the reference app cannot
-# yet send (see transport_gap).
-smartcast_common:
-  transport: "HTTPS"
-  transport_gap: >
-    The reference app today implements HTTP GET/POST with an empty body
-    and no custom headers. This protocol needs FOUR things it does not
-    have: (1) HTTPS with certificate verification disabled (self-signed
-    TV certificate), (2) PUT requests with a JSON body and Content-Type:
-    application/json, (3) an AUTH header on every request after pairing,
-    (4) for settings writes, a read-modify-write carrying the current
-    HASHVAL back. Every `commands` entry below therefore states the real
-    method and arguments but is NOT sendable by the reference app as-is;
-    a consumer must implement the transport described here first. The
-    unauthenticated GETs (Device Info, Serial Number, Version, ESN) are
-    the exception — only the TLS step gates them.
-  tls:
-    description: >
-      HTTPS only, on both ports; plain HTTP gets no answer. The TV serves
-      a self-signed certificate (CN observed historically as
-      BG2.prod.vizio.com); clients must disable chain and hostname
-      verification, exactly as pyvizio does with ssl=False.
-  request_format:
-    description: >
-      Requests go to https://<ip>:<port><path> with <port> 7345 on
-      firmware 4.0+ and 9000 on older sets (try 7345 first, fall back).
-      Bodies are JSON; every PUT sets Content-Type: application/json.
-      Authenticated requests add one header, spelled AUTH by pyvizio
-      (HTTP header names are case-insensitive; exiva writes it Auth):
-      AUTH: <AUTH_TOKEN>. The pairing endpoints themselves are
-      unauthenticated, as are the identity reads.
-    http:
-      url: "https://<ip>:<port><path>"
-      headers: "Content-Type: application/json on PUTs; AUTH: <token> on authenticated calls."
-      body: "JSON object per endpoint; GETs send none."
-    escaping: >
-      JSON strings, nothing further. Setting values that are strings in
-      the UI ("On", "HDMI-1") are sent as JSON strings; sliders take
-      integers; the wire type to send is stated by the item's TYPE field
-      in the settings read.
-  response_format:
-    description: >
-      Every response is a JSON object with a STATUS envelope
-      {"RESULT": ..., "DETAIL": ...}, the requested URI, and a TIME
-      string. HTTP status codes are NOT meaningful — the API answers 200
-      for failures and the verdict lives in STATUS.RESULT ("success",
-      "failure", "uri_not_found", "requires_pairing", "invalid_parameter",
-      ...). A client that checks only the HTTP status will report failed
-      writes as delivered. Query endpoints answer ITEMS (a list of items
-      with CNAME/NAME/TYPE/VALUE/HASHVAL); pairing answers a single ITEM.
-  key_commands:
-    description: >
-      Remote keys are PUT /key_command/ with {"KEYLIST": [{"CODESET":
-      int, "CODE": int, "ACTION": "KEYPRESS"|"KEYDOWN"|"KEYUP"}]}.
-      KEYPRESS is press-and-release; KEYDOWN/KEYUP pair for a hold. The
-      KEYLIST array can string several key events into one request.
-      Codesets are families: 0 ASCII (channel digits 0-9 are codes
-      48-57), 2 transport, 3 D-pad, 4 navigation, 5 audio, 6 video, 7
-      input, 8 channel, 9 color/exit, 11 power. The full (codeset, code)
-      table this spec implements lives in the `commands` block below;
-      pyvizio const.py is the source of record. Home Assistant
-      additionally documents a `guide` command whose codeset/code pair
-      does not appear in pyvizio or the exiva tables — not catalogued
-      here for lack of a sourced value.
-  settings_tree:
-    description: >
-      All on-screen settings are a readable/writable tree under
-      /menu_native/dynamic/tv_settings/<cname> (audio_settings on sound
-      bars); /menu_native/static/tv_settings/<cname> enumerates the
-      allowed choices/ranges. Reads return ITEMS with TYPE telling the
-      value kind (T_VALUE_V1 on/off-style, T_VALUE_ABS_V1 slider,
-      T_LIST_V1 choice, T_MENU_V1 submenu, ...). WRITES ARE
-      READ-MODIFY-WRITE: PUT /menu_native/dynamic/tv_settings/<cname>/
-      <item_cname> with {"REQUEST": "MODIFY", "VALUE": ..., "HASHVAL":
-      <current hash from the read>} — the HASHVAL is optimistic
-      concurrency, and a stale one is rejected. exiva warns that writing
-      an out-of-range value can brick sets; honour the static options and
-      the TYPE. Top-level CNAME groups include picture, audio, timers,
-      network, channels, closed_captions, devices, system,
-      mobile_devices, cast. Inputs are the devices subtree:
-      devices/name_input lists inputs (ITEMS[x].NAME is the switchable
-      name), devices/current_input reads/switches the active one, and the
-      current input's own HASHVAL (not the list's) is what a switch sends
-      back.
-  apps:
-    description: >
-      PUT /app/launch with {"VALUE": {"APP_ID": str, "NAME_SPACE": int,
-      "MESSAGE": str|null}} launches an app; GET /app/current returns the
-      foreground one as ITEM.VALUE with the same three fields, or an
-      empty VALUE when none is running (pyvizio reports that as
-      _NO_APP_RUNNING, and an unrecognised (APP_ID, NAME_SPACE) pair as
-      _UNKNOWN_APP). NAME_SPACES 2 and 4 are treated as equivalent by
-      pyvizio, and NAME_SPACE 0 means a cast session. THE TV DOES NOT
-      LIST ITS APPS: the (APP_ID, NAME_SPACE, MESSAGE) catalogue comes
-      from Vizio's app-catalog service or a client's bundled copy
-      (pyvizio ships one in pyvizio/data/apps.json), so an app launcher
-      is a static-table select, not a device-backed one. SmartCast Home
-      itself is launchable as APP_ID "1", NAME_SPACE 4. While an app is
-      in the foreground the current_input reads "SMARTCAST" or "CAST".
-  power:
-    description: >
-      GET /state/device/power_mode answers ITEMS[0].VALUE as 1 (on) or 0
-      (standby). The API server itself is down while the set sleeps, so
-      a powered-off TV is unreachable rather than answering 0 forever;
-      waking it needs a Wake-on-LAN magic packet, which does not work
-      when the set's Settings > System > Power Mode is Eco Mode (the
-      "Quickstart"/moderate modes keep the network stack warm enough).
-      POW_ON (11,1) is therefore only reliable from the warm-standby
-      modes.
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # Everything needed to build a SmartCast request byte for byte, in the role
+  # ecp_common plays for Roku — including the parts the reference app cannot
+  # yet send (see transport_gap).
+  smartcast_common:
+    transport: "HTTPS"
+    transport_gap: >
+      The reference app today implements HTTP GET/POST with an empty body
+      and no custom headers. This protocol needs FOUR things it does not
+      have: (1) HTTPS with certificate verification disabled (self-signed
+      TV certificate), (2) PUT requests with a JSON body and Content-Type:
+      application/json, (3) an AUTH header on every request after pairing,
+      (4) for settings writes, a read-modify-write carrying the current
+      HASHVAL back. Every `commands` entry below therefore states the real
+      method and arguments but is NOT sendable by the reference app as-is;
+      a consumer must implement the transport described here first. The
+      unauthenticated GETs (Device Info, Serial Number, Version, ESN) are
+      the exception — only the TLS step gates them.
+    tls:
+      description: >
+        HTTPS only, on both ports; plain HTTP gets no answer. The TV serves
+        a self-signed certificate (CN observed historically as
+        BG2.prod.vizio.com); clients must disable chain and hostname
+        verification, exactly as pyvizio does with ssl=False.
+    request_format:
+      description: >
+        Requests go to https://<ip>:<port><path> with <port> 7345 on
+        firmware 4.0+ and 9000 on older sets (try 7345 first, fall back).
+        Bodies are JSON; every PUT sets Content-Type: application/json.
+        Authenticated requests add one header, spelled AUTH by pyvizio
+        (HTTP header names are case-insensitive; exiva writes it Auth):
+        AUTH: <AUTH_TOKEN>. The pairing endpoints themselves are
+        unauthenticated, as are the identity reads.
+      http:
+        url: "https://<ip>:<port><path>"
+        headers: "Content-Type: application/json on PUTs; AUTH: <token> on authenticated calls."
+        body: "JSON object per endpoint; GETs send none."
+      escaping: >
+        JSON strings, nothing further. Setting values that are strings in
+        the UI ("On", "HDMI-1") are sent as JSON strings; sliders take
+        integers; the wire type to send is stated by the item's TYPE field
+        in the settings read.
+    response_format:
+      description: >
+        Every response is a JSON object with a STATUS envelope
+        {"RESULT": ..., "DETAIL": ...}, the requested URI, and a TIME
+        string. HTTP status codes are NOT meaningful — the API answers 200
+        for failures and the verdict lives in STATUS.RESULT ("success",
+        "failure", "uri_not_found", "requires_pairing", "invalid_parameter",
+        ...). A client that checks only the HTTP status will report failed
+        writes as delivered. Query endpoints answer ITEMS (a list of items
+        with CNAME/NAME/TYPE/VALUE/HASHVAL); pairing answers a single ITEM.
+    key_commands:
+      description: >
+        Remote keys are PUT /key_command/ with {"KEYLIST": [{"CODESET":
+        int, "CODE": int, "ACTION": "KEYPRESS"|"KEYDOWN"|"KEYUP"}]}.
+        KEYPRESS is press-and-release; KEYDOWN/KEYUP pair for a hold. The
+        KEYLIST array can string several key events into one request.
+        Codesets are families: 0 ASCII (channel digits 0-9 are codes
+        48-57), 2 transport, 3 D-pad, 4 navigation, 5 audio, 6 video, 7
+        input, 8 channel, 9 color/exit, 11 power. The full (codeset, code)
+        table this spec implements lives in the `commands` block below;
+        pyvizio const.py is the source of record. Home Assistant
+        additionally documents a `guide` command whose codeset/code pair
+        does not appear in pyvizio or the exiva tables — not catalogued
+        here for lack of a sourced value.
+    settings_tree:
+      description: >
+        All on-screen settings are a readable/writable tree under
+        /menu_native/dynamic/tv_settings/<cname> (audio_settings on sound
+        bars); /menu_native/static/tv_settings/<cname> enumerates the
+        allowed choices/ranges. Reads return ITEMS with TYPE telling the
+        value kind (T_VALUE_V1 on/off-style, T_VALUE_ABS_V1 slider,
+        T_LIST_V1 choice, T_MENU_V1 submenu, ...). WRITES ARE
+        READ-MODIFY-WRITE: PUT /menu_native/dynamic/tv_settings/<cname>/
+        <item_cname> with {"REQUEST": "MODIFY", "VALUE": ..., "HASHVAL":
+        <current hash from the read>} — the HASHVAL is optimistic
+        concurrency, and a stale one is rejected. exiva warns that writing
+        an out-of-range value can brick sets; honour the static options and
+        the TYPE. Top-level CNAME groups include picture, audio, timers,
+        network, channels, closed_captions, devices, system,
+        mobile_devices, cast. Inputs are the devices subtree:
+        devices/name_input lists inputs (ITEMS[x].NAME is the switchable
+        name), devices/current_input reads/switches the active one, and the
+        current input's own HASHVAL (not the list's) is what a switch sends
+        back.
+    apps:
+      description: >
+        PUT /app/launch with {"VALUE": {"APP_ID": str, "NAME_SPACE": int,
+        "MESSAGE": str|null}} launches an app; GET /app/current returns the
+        foreground one as ITEM.VALUE with the same three fields, or an
+        empty VALUE when none is running (pyvizio reports that as
+        _NO_APP_RUNNING, and an unrecognised (APP_ID, NAME_SPACE) pair as
+        _UNKNOWN_APP). NAME_SPACES 2 and 4 are treated as equivalent by
+        pyvizio, and NAME_SPACE 0 means a cast session. THE TV DOES NOT
+        LIST ITS APPS: the (APP_ID, NAME_SPACE, MESSAGE) catalogue comes
+        from Vizio's app-catalog service or a client's bundled copy
+        (pyvizio ships one in pyvizio/data/apps.json), so an app launcher
+        is a static-table select, not a device-backed one. SmartCast Home
+        itself is launchable as APP_ID "1", NAME_SPACE 4. While an app is
+        in the foreground the current_input reads "SMARTCAST" or "CAST".
+    power:
+      description: >
+        GET /state/device/power_mode answers ITEMS[0].VALUE as 1 (on) or 0
+        (standby). The API server itself is down while the set sleeps, so
+        a powered-off TV is unreachable rather than answering 0 forever;
+        waking it needs a Wake-on-LAN magic packet, which does not work
+        when the set's Settings > System > Power Mode is Eco Mode (the
+        "Quickstart"/moderate modes keep the network stack warm enough).
+        POW_ON (11,1) is therefore only reliable from the warm-standby
+        modes.
 
 http_endpoints:
   - method: "PUT"

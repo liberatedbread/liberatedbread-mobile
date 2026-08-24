@@ -420,23 +420,24 @@ helpful_urls:
     url: "https://device.report/hyperice"
     description: "Device database listing carrying the Hypervolt Plus model number 54020 001-00 (the page bot-blocks plain HTTP clients; open in a browser)."
 
-sources:
-  - type: "static_analysis"
-    artifact: "com.hyperice.app v2.7.0 (versionCode 280020700), base APK from the XAPK bundle"
-    sha256: "708168663868e8580824619a04bd5bcd2fe345fac8b15b2b81259b515adc7204"
-    xapk_sha256: "14cff4e52bedaee45d7a4d9cf4e0cdf76f726eb8b4b8c749583512020fda77b2"
-    obtained_via: "third-party APK mirror (XAPK), 2026-08"
-    description: >
-      Static analysis of the vendor Android app (2026-08). Obfuscated, but
-      every relevant BLE class reads cleanly. Source of the two custom
-      characteristic UUIDs and the DIS UUIDs, the fixed 256-entry password
-      lookup table, the password-derivation routine, and the legacy Hypervolt
-      family device manager whose dispatch defines the command set.
-  - type: "live_probe"
-    url: "https://app.hyperice.com/v1/"
-    description: "Unauthenticated probe 2026-08-18 returned 401 INVALID_JWT — cloud alive, JWT-gated."
-    verification: "confirmed"
-  - type: "web_lookup"
-    url: "https://device.report/hyperice"
-    description: "Hypervolt Plus model number 54020 001-00."
-    verification: "reported"
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.hyperice.app v2.7.0 (versionCode 280020700), base APK from the XAPK bundle"
+      sha256: "708168663868e8580824619a04bd5bcd2fe345fac8b15b2b81259b515adc7204"
+      xapk_sha256: "14cff4e52bedaee45d7a4d9cf4e0cdf76f726eb8b4b8c749583512020fda77b2"
+      obtained_via: "third-party APK mirror (XAPK), 2026-08"
+      description: >
+        Static analysis of the vendor Android app (2026-08). Obfuscated, but
+        every relevant BLE class reads cleanly. Source of the two custom
+        characteristic UUIDs and the DIS UUIDs, the fixed 256-entry password
+        lookup table, the password-derivation routine, and the legacy Hypervolt
+        family device manager whose dispatch defines the command set.
+    - type: "live_probe"
+      url: "https://app.hyperice.com/v1/"
+      description: "Unauthenticated probe 2026-08-18 returned 401 INVALID_JWT — cloud alive, JWT-gated."
+      verification: "confirmed"
+    - type: "web_lookup"
+      url: "https://device.report/hyperice"
+      description: "Hypervolt Plus model number 54020 001-00."
+      verification: "reported"

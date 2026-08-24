@@ -47,6 +47,13 @@ device:
     with only the address byte changing, so scripts/obd_discover.py --bmw-scan finds the
     live ones by asking each address for the standard VIN DID.
 
+  discovery:
+    none: >
+      Nothing to discover: the vehicle is reached through its OBD-II
+      connector. What a phone scans for is the ADAPTER plugged into that
+      connector -- see obd2-bluetooth-adapter.yaml, which carries the
+      discovery axes. The vehicle behind it is identified by querying it, not
+      by finding it.
   setup:
     required: false
     confidence: "high"

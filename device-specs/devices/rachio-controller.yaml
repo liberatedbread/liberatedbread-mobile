@@ -197,7 +197,7 @@ evidence:
     date: "2026-07-16"
     address: "192.168.1.186"
     hostname: "WICED-hap-B68A9A.local"
-    mdns_service_type: "_hap._tcp"
+    mdns_service_type: "_hap._tcp.local."
     model_txt: "Rachio-AABBCC"
     port: 80
     hap_id: "0A:01:0A:AA:BB:CC"

@@ -159,15 +159,19 @@ device:
         a device secret; the per-device local key that would permit control is
         never obtained or stored.
 
-  local_access:
-    status: proprietary
-    summary: >
-      Locally controllable in principle (the 0x55aa protocol on TCP 6668) but
-      ONLY with the device's per-device local key, a secret issued through the
-      Tuya cloud to the vendor's app. This project does not hold that key and
-      deliberately scopes Tuya to identify-only, handing control to the device's
-      own app. Third-party local control (tinytuya, localtuya, ESPHome/
-      Tasmota reflashing) exists but is out of scope here.
+local_access:
+  # 'native' rather than 'none_known': the blocker is a credential, not the
+  # absence of a local interface. Stock firmware speaks 0x55aa on the LAN as
+  # shipped; what is missing is the key, which is a scope decision here (see
+  # device.integration) rather than a property of the hardware.
+  status: native
+  summary: >
+    Locally controllable in principle (the 0x55aa protocol on TCP 6668) but
+    ONLY with the device's per-device local key, a secret issued through the
+    Tuya cloud to the vendor's app. This project does not hold that key and
+    deliberately scopes Tuya to identify-only, handing control to the device's
+    own app. Third-party local control (tinytuya, localtuya, ESPHome/
+    Tasmota reflashing) exists but is out of scope here.
 
 helpful_urls:
   - url: "https://github.com/jasonacox/tinytuya"

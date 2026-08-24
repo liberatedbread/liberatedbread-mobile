@@ -557,35 +557,35 @@ helpful_urls:
     url: "https://ipixelcolor.net/"
     description: "Vendor site; credits Shenzhen Heaton Technology Co., Ltd."
 
-sources:
-  - type: "static_analysis"
-    artifact: "com.wifiled.ipixels 3.7.6 (versionCode 378)"
-    xapk_sha256: "e4e826e08b5fbe7c07478582304d9d2b9f0b1d76823eff34fdceaef23ba1540d"
-    sha256: "1fe5cd3a824f9290bc0d7d81c8ad84c38299f2afd0917d3f82da58431837c76a"
-    notes: "arm64 split APK sha256 7364dfe40c8c63e71700b8fb44e5e7dd4cf5d14c3f611602cbea16e7abfc63c9"
-    obtained_via: "third-party APK mirror (XAPK), 2026-08-19"
-    description: >
-      Static analysis of the "iPixel Color" Android companion app
-      (2026-08-19). Its BLE managers gave the LED_BLE scan filter, the 0x00FA
-      service and the FA02 write characteristic; its send core gave the
-      length-prefixed framing and the CRC32 over the payload; its options
-      defaults gave the vendor 128-bit notify UUID; and its OTA layer — a
-      wrapper around the JieLi OTA SDK — gave the 12 ledType-indexed OTA
-      project_no prefixes and the appid 137 used against the vendor firmware
-      API.
-  - type: "firmware_image"
-    sha256: "4d57639608f21597053344d70d892099c1e8d1fbdc58423a544df4c5ebeed85e"
-    description: "TR2104R003_02_47_ota_mi.bin — OTA image captured live from images.heaton.com.cn 2026-08-19 (Referer-gated). Chip-key scrambled, internals not analysed. One of eight captured; the other seven (sha256): TR2104R003_04_04 df999fea2595bb98d1b538c01229689154ce18bc01b2505fbc3640b6f67ba3db, TR2204R009_03_17 ee1646642bb4de971b03b014efc295bfc8b8e74e8f3ae78cf12ef6c535d156bf, TR2304R004_16_02 94b50062c5343cc61b9cd708a1932b74fa65233dfc4f9da96306b17e61029bd3, TR2304R009_10_05 f5b54285c86a84b213d3cff2cb698123c07c3bffbdd4d021b7ef23b550e5e93c, TR2305R017_07_02 aaec2375b86023ce334cb64b288992dec5d430303fdd9440e5f586709347bda1, TR2305R021_08_05 89b8dca9495d8498540977789e053654b69d42ea7549d1bb3bedd381e680c6c3, TR2310R004_13_03 f0132c7e468af2e10f3353da96a78ad294a784e0cca123697f496def1ee6a68f. A same-day systematic harvest (2026-08-19, ~280 queries against appids 137/140/141) archived 11 images total locally with checksums (referenced, not committed); 8 overlap this list, 3 are new: TR2304R004_05_10_ota_mi.bin (appid 137, TR2304R004-05 v510, scrambled like the others), TR2311R003_17_03_000106.ufw (appid 137, TR2311R003_2 v1703 — a JieLi JLUFW container whose plaintext section strings mark it AC695N / BR22 platform, internal project TR2311R003), and TR2411R014-02.ufw (appid 141 helmet family — see led-helmet-display.yaml). Which project code maps to which panel size is unknown — read the version via the device-info response on real hardware."
-  - type: "public_implementation"
-    url: "https://github.com/lucagoc/pypixelcolor"
-    description: "Python client; command frames, windowed PNG/GIF upload, and the device-type-to-geometry map cross-checked against this spec. Reported working on real panels."
-  - type: "public_implementation"
-    url: "https://github.com/cagcoach/ha-ipixel-color"
-    description: "Home Assistant integration + protocol documentation (itself derived from yyewolf/go-ipxl and sdolphin-JP/ipixel-ctrl). Source of the 0x8007 select-screen variant and the anchor-flag table (0x01 left, 0x02 right, 0x10 top, 0x20 bottom, 0x00 centre)."
-  - type: "public_implementation"
-    url: "https://github.com/DonKracho/ESPHome-component-iPixel-ble"
-    description: "ESPHome component; independent confirmation that the protocol needs no encryption or pairing."
-
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.wifiled.ipixels 3.7.6 (versionCode 378)"
+      xapk_sha256: "e4e826e08b5fbe7c07478582304d9d2b9f0b1d76823eff34fdceaef23ba1540d"
+      sha256: "1fe5cd3a824f9290bc0d7d81c8ad84c38299f2afd0917d3f82da58431837c76a"
+      notes: "arm64 split APK sha256 7364dfe40c8c63e71700b8fb44e5e7dd4cf5d14c3f611602cbea16e7abfc63c9"
+      obtained_via: "third-party APK mirror (XAPK), 2026-08-19"
+      description: >
+        Static analysis of the "iPixel Color" Android companion app
+        (2026-08-19). Its BLE managers gave the LED_BLE scan filter, the 0x00FA
+        service and the FA02 write characteristic; its send core gave the
+        length-prefixed framing and the CRC32 over the payload; its options
+        defaults gave the vendor 128-bit notify UUID; and its OTA layer — a
+        wrapper around the JieLi OTA SDK — gave the 12 ledType-indexed OTA
+        project_no prefixes and the appid 137 used against the vendor firmware
+        API.
+    - type: "firmware_image"
+      sha256: "4d57639608f21597053344d70d892099c1e8d1fbdc58423a544df4c5ebeed85e"
+      description: "TR2104R003_02_47_ota_mi.bin — OTA image captured live from images.heaton.com.cn 2026-08-19 (Referer-gated). Chip-key scrambled, internals not analysed. One of eight captured; the other seven (sha256): TR2104R003_04_04 df999fea2595bb98d1b538c01229689154ce18bc01b2505fbc3640b6f67ba3db, TR2204R009_03_17 ee1646642bb4de971b03b014efc295bfc8b8e74e8f3ae78cf12ef6c535d156bf, TR2304R004_16_02 94b50062c5343cc61b9cd708a1932b74fa65233dfc4f9da96306b17e61029bd3, TR2304R009_10_05 f5b54285c86a84b213d3cff2cb698123c07c3bffbdd4d021b7ef23b550e5e93c, TR2305R017_07_02 aaec2375b86023ce334cb64b288992dec5d430303fdd9440e5f586709347bda1, TR2305R021_08_05 89b8dca9495d8498540977789e053654b69d42ea7549d1bb3bedd381e680c6c3, TR2310R004_13_03 f0132c7e468af2e10f3353da96a78ad294a784e0cca123697f496def1ee6a68f. A same-day systematic harvest (2026-08-19, ~280 queries against appids 137/140/141) archived 11 images total locally with checksums (referenced, not committed); 8 overlap this list, 3 are new: TR2304R004_05_10_ota_mi.bin (appid 137, TR2304R004-05 v510, scrambled like the others), TR2311R003_17_03_000106.ufw (appid 137, TR2311R003_2 v1703 — a JieLi JLUFW container whose plaintext section strings mark it AC695N / BR22 platform, internal project TR2311R003), and TR2411R014-02.ufw (appid 141 helmet family — see led-helmet-display.yaml). Which project code maps to which panel size is unknown — read the version via the device-info response on real hardware."
+    - type: "public_implementation"
+      url: "https://github.com/lucagoc/pypixelcolor"
+      description: "Python client; command frames, windowed PNG/GIF upload, and the device-type-to-geometry map cross-checked against this spec. Reported working on real panels."
+    - type: "public_implementation"
+      url: "https://github.com/cagcoach/ha-ipixel-color"
+      description: "Home Assistant integration + protocol documentation (itself derived from yyewolf/go-ipxl and sdolphin-JP/ipixel-ctrl). Source of the 0x8007 select-screen variant and the anchor-flag table (0x01 left, 0x02 right, 0x10 top, 0x20 bottom, 0x00 centre)."
+    - type: "public_implementation"
+      url: "https://github.com/DonKracho/ESPHome-component-iPixel-ble"
+      description: "ESPHome component; independent confirmation that the protocol needs no encryption or pairing."
 remaining_unknowns:
   - "Notify characteristic: FA03 vs vendor 128-bit d44bc439-… is firmware-revision dependent; ACK payload format not fully documented"
   - "show_slot opcode discrepancy (0x8008 7-byte vs 0x8007 5-byte) — likely firmware-revision dependent, untested by us"

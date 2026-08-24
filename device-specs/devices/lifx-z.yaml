@@ -556,16 +556,16 @@ evidence:
     date: "2026-07-16"
     devices:
       - address: "192.168.1.149"
-        mdns_service_type: "_hap._tcp"
+        mdns_service_type: "_hap._tcp.local."
         hap_model: "LIFX Z"
         udp_port: 56700
       - address: "192.168.1.151"
-        mdns_service_type: "_hap._tcp"
+        mdns_service_type: "_hap._tcp.local."
         hap_model: "LIFX Z"
         udp_port: 56700
         http_port_open: 80
       - address: "192.168.1.168"
-        mdns_service_type: "_hap._tcp"
+        mdns_service_type: "_hap._tcp.local."
         hap_model: "LIFX Z"
         udp_port: 56700
 

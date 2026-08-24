@@ -211,12 +211,12 @@ evidence:
       - model: "F3H Pure Cool"
         serial: "F3H-US-XXXXXXXX"
         address: "192.168.1.164"
-        mdns_service_type: "_dyson_mqtt._tcp"
+        mdns_service_type: "_dyson_mqtt._tcp.local."
         port: 1883
       - model: "PE6 Humidify+Cool"
         serial: "PE6-US-XXXXXXXX"
         address: "192.168.1.165"
-        mdns_service_type: "_dyson_mqtt._tcp"
+        mdns_service_type: "_dyson_mqtt._tcp.local."
         port: 1883
   live_probe_2026_08_14:
     date: "2026-08-14"
@@ -236,7 +236,7 @@ evidence:
         2dd10010-1c37-452d-8979-d1b4a787d0a4 with their SERIAL NUMBER as the
         BLE local name — units "F6V-US-XXXXXXXX" (random addr, also emitting a
         Dyson iBeacon: proximity UUID 78F9140C-DCF8-4F5B-B49F-63AC9357C7C4,
-        major/minor 0) and "E5V/E5R-US-PKA0694A". No GATT session was driven.
+        major/minor 0) and "E5V/E5R-US-XXXXXXXX". No GATT session was driven.
         See the ble block for what the service is for.
 
 mqtt_topics:

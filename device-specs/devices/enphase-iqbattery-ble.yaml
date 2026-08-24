@@ -216,96 +216,99 @@ services:
           (0x2D) frames carrying Enphase responses. The standard CCCD
           (0x2902) is used to enable notifications.
 
-# The Enphase payload layers inside the relay frames. Neither is a GATT
-# characteristic surface, so they are documented as protocol blocks the
-# schema allows to travel alongside: a simple typed provisioning frame set,
-# and the protobuf object model.
-enphase_relay_protocol:
-  transport: >
-    Byte stream inside XBee User Data Relay Output (0xAD, outgoing) and
-    User Data Relay (0x2D, incoming) frames, destination interface SERIAL
-    (MICROPYTHON on the IQ Extender).
-  provisioning_frames:
-    description: >
-      Simple frame set used at commissioning, built by the app's XBee BLE
-      manager.
-      Request byte 0 is the frame type, byte 1 is a 0 placeholder; the
-      response echoes the type in byte 0, and the payload is everything
-      after the first two bytes (the app drops exactly two bytes before
-      parsing). Poll-style requests are sent as [type, 0x00].
-    frame_types:
-      "0": "NONE (placeholder)"
-      "1": "LINK_KEY — push the 16-byte 802.15.4 site link key; full frame is [0x01][0x10][16 key bytes] (18 bytes)"
-      "2": "RESET_DEV — device reset (effect unverified; treat as destructive)"
-      "3": "RELAY_STATES — read relay states (Enpower)"
-      "4": "ZB_PAIRING_STATUS — 802.15.4 pairing status"
-      "5": "ZB_COMMISSIONING_STATUS — commissioning status"
-      "6": "ZB_READ_LINK_KEY — read back the stored link key"
-      "7": "ZB_WRITE_ENVOY_SN — write the gateway (Envoy) serial number"
-      "8": "ZB_READ_ENVOY_SN — read back the gateway serial (used by the app to derive/verify the site PAN ID; mismatch is a first-class PAN_ID_MISMATCH error)"
-      "9": "READ_ENPOWER_TELEM — read Enpower telemetry"
-  object_model:
-    description: >
-      Rich request/response and pub/sub protocol (Square Wire classes,
-      proto2 syntax) used for live statistics, inventory, control and
-      blackstart recovery. Envelope message EnsObjMdlMessage:
-      field 1 = ProtocolVer protover (required; VERSION_1_0 in use),
-      field 2 = uint64 timestamp (required),
-      fields 3-63 = oneof payload, one message per exchange. The poll
-      request (tag 13) is {required string serial_num = 1, required int32
-      dm_group_id = 2}; its response (tag 14) carries the live statistics
-      the app's device-details screens render. The device can also publish
-      asynchronously (publish req/rsp tags 9/10 after subscribe 7/8).
-    device_type_enum:
-      "0": "ALL_DEVICES"
-      "13": "ENCHARGE_DEVICE"
-      "14": "ENCHARGE_MICRO (the battery's IQ8 microinverters)"
-      "15": "ENCHARGE_CTRL"
-      "16": "ENCHARGE_BMU (battery management unit)"
-      "17": "ENPOWER_DEVICE"
-      "18": "ENPOWER_CTRL"
-      "19": "ENBRIDGE_DEVICE"
-    payload_tags:
-      "3/4": "data-model meta req/rsp"
-      "5/6": "groups req/rsp"
-      "7/8": "subscribe req/rsp"
-      "9/10": "publish req/rsp (device-initiated live data)"
-      "13/14": "poll req/rsp (live statistics)"
-      "15/16": "secondary control req/rsp"
-      "17/18": "relay control req/rsp"
-      "19/20": "DMIR status req/rsp"
-      "21-26": "transactions: start/set/end req/rsp (21/22, 23/24, 25/26)"
-      "27/28": "grid status req/rsp"
-      "29": "event (device-initiated)"
-      "30/31": "relay status req/rsp"
-      "32/33": "Encharge SoC config req/rsp (also used to push battery phase assignment)"
-      "34/35": "MTT periodic secondary control req/rsp"
-      "36/37": "CLI debug req/rsp"
-      "38/39": "sleep mode req/rsp"
-      "40/41": "BMU stats req/rsp"
-      "42/43": "inventory req/rsp"
-      "44/45": "blackbox telemetry req/rsp"
-      "46/47": "error clear req/rsp"
-      "48/49": "sample tape req/rsp"
-      "50/51": "manufacturing mode req/rsp"
-      "52/53": "events / events ack"
-      "54/55": "loopback req/rsp"
-      "56/57": "dry-contact control req/rsp"
-      "58/59": "dry-contact status req/rsp"
-      "60/61": "manual override req/rsp"
-      "62/63": "memfault diagnostic data / ack"
-  live_statistics:
-    description: >
-      Poll/inventory responses decode (partly in the app's native
-      libble-data.so) into per-device live statistics. The Encharge unit
-      record carries: aggregated power, state of charge, number of active
-      and ready microinverters (PCUs), inventory-updated flag, device UID,
-      LED status, BMU state, available charge and discharge power, and
-      phase-line assignment; nested records carry per-BMU and per-PCU
-      statistics. Exact native byte layout not yet reversed — the protobuf
-      path above is the documented one.
-  related_specs:
-    - "enphase-envoy — the site gateway: LAN REST API, mDNS identity, and the gateway-side BLE services (connectivity ed453f0f-*, ensemble 5c498caa-*, validation 19f4de83-*, devices ba808b5a-*, OTA 57c44b4a-*) this site's units are commissioned to report to."
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # The Enphase payload layers inside the relay frames. Neither is a GATT
+  # characteristic surface, so they are documented as protocol blocks the
+  # schema allows to travel alongside: a simple typed provisioning frame set,
+  # and the protobuf object model.
+  enphase_relay_protocol:
+    transport: >
+      Byte stream inside XBee User Data Relay Output (0xAD, outgoing) and
+      User Data Relay (0x2D, incoming) frames, destination interface SERIAL
+      (MICROPYTHON on the IQ Extender).
+    provisioning_frames:
+      description: >
+        Simple frame set used at commissioning, built by the app's XBee BLE
+        manager.
+        Request byte 0 is the frame type, byte 1 is a 0 placeholder; the
+        response echoes the type in byte 0, and the payload is everything
+        after the first two bytes (the app drops exactly two bytes before
+        parsing). Poll-style requests are sent as [type, 0x00].
+      frame_types:
+        "0": "NONE (placeholder)"
+        "1": "LINK_KEY — push the 16-byte 802.15.4 site link key; full frame is [0x01][0x10][16 key bytes] (18 bytes)"
+        "2": "RESET_DEV — device reset (effect unverified; treat as destructive)"
+        "3": "RELAY_STATES — read relay states (Enpower)"
+        "4": "ZB_PAIRING_STATUS — 802.15.4 pairing status"
+        "5": "ZB_COMMISSIONING_STATUS — commissioning status"
+        "6": "ZB_READ_LINK_KEY — read back the stored link key"
+        "7": "ZB_WRITE_ENVOY_SN — write the gateway (Envoy) serial number"
+        "8": "ZB_READ_ENVOY_SN — read back the gateway serial (used by the app to derive/verify the site PAN ID; mismatch is a first-class PAN_ID_MISMATCH error)"
+        "9": "READ_ENPOWER_TELEM — read Enpower telemetry"
+    object_model:
+      description: >
+        Rich request/response and pub/sub protocol (Square Wire classes,
+        proto2 syntax) used for live statistics, inventory, control and
+        blackstart recovery. Envelope message EnsObjMdlMessage:
+        field 1 = ProtocolVer protover (required; VERSION_1_0 in use),
+        field 2 = uint64 timestamp (required),
+        fields 3-63 = oneof payload, one message per exchange. The poll
+        request (tag 13) is {required string serial_num = 1, required int32
+        dm_group_id = 2}; its response (tag 14) carries the live statistics
+        the app's device-details screens render. The device can also publish
+        asynchronously (publish req/rsp tags 9/10 after subscribe 7/8).
+      device_type_enum:
+        "0": "ALL_DEVICES"
+        "13": "ENCHARGE_DEVICE"
+        "14": "ENCHARGE_MICRO (the battery's IQ8 microinverters)"
+        "15": "ENCHARGE_CTRL"
+        "16": "ENCHARGE_BMU (battery management unit)"
+        "17": "ENPOWER_DEVICE"
+        "18": "ENPOWER_CTRL"
+        "19": "ENBRIDGE_DEVICE"
+      payload_tags:
+        "3/4": "data-model meta req/rsp"
+        "5/6": "groups req/rsp"
+        "7/8": "subscribe req/rsp"
+        "9/10": "publish req/rsp (device-initiated live data)"
+        "13/14": "poll req/rsp (live statistics)"
+        "15/16": "secondary control req/rsp"
+        "17/18": "relay control req/rsp"
+        "19/20": "DMIR status req/rsp"
+        "21-26": "transactions: start/set/end req/rsp (21/22, 23/24, 25/26)"
+        "27/28": "grid status req/rsp"
+        "29": "event (device-initiated)"
+        "30/31": "relay status req/rsp"
+        "32/33": "Encharge SoC config req/rsp (also used to push battery phase assignment)"
+        "34/35": "MTT periodic secondary control req/rsp"
+        "36/37": "CLI debug req/rsp"
+        "38/39": "sleep mode req/rsp"
+        "40/41": "BMU stats req/rsp"
+        "42/43": "inventory req/rsp"
+        "44/45": "blackbox telemetry req/rsp"
+        "46/47": "error clear req/rsp"
+        "48/49": "sample tape req/rsp"
+        "50/51": "manufacturing mode req/rsp"
+        "52/53": "events / events ack"
+        "54/55": "loopback req/rsp"
+        "56/57": "dry-contact control req/rsp"
+        "58/59": "dry-contact status req/rsp"
+        "60/61": "manual override req/rsp"
+        "62/63": "memfault diagnostic data / ack"
+    live_statistics:
+      description: >
+        Poll/inventory responses decode (partly in the app's native
+        libble-data.so) into per-device live statistics. The Encharge unit
+        record carries: aggregated power, state of charge, number of active
+        and ready microinverters (PCUs), inventory-updated flag, device UID,
+        LED status, BMU state, available charge and discharge power, and
+        phase-line assignment; nested records carry per-BMU and per-PCU
+        statistics. Exact native byte layout not yet reversed — the protobuf
+        path above is the documented one.
+    related_specs:
+      - "enphase-envoy — the site gateway: LAN REST API, mDNS identity, and the gateway-side BLE services (connectivity ed453f0f-*, ensemble 5c498caa-*, validation 19f4de83-*, devices ba808b5a-*, OTA 57c44b4a-*) this site's units are commissioned to report to."
 
 helpful_urls:
   - title: "Home Assistant Enphase Envoy integration"

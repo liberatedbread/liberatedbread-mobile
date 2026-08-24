@@ -218,6 +218,30 @@ device:
         readout itself is unencrypted on models listed as supported
         (HEM-7196T excepted — encrypted, unsupported).
 
+  variants:
+    - model: "HEM-7322T (M700 Intelli IT / BP786)"
+      status: "readout + pairing verified (omblepy, hass-omron)"
+      notes: "Worked EEPROM layout in this spec: users at 0x02AC/0x0824, 100x0x0E records, settings 0x0260/0x0286."
+    - model: "HEM-7155T / HEM-7361T / HEM-7600T / HEM-6232T / HEM-7150T / HEM-7342T / HEM-7530T"
+      status: "readout + pairing verified upstream"
+      notes: "Per-model EEPROM layouts live in omblepy deviceSpecific/*.py; HEM-7530T EKG records not decoded."
+    - model: "HEM-6161T / HEM-7142T2 / HEM-7146T2 / HEM-7151T / HEM-716BT2 / HEM-7320T / HEM-7343T"
+      status: "verified in hass-omron only"
+      notes: "Newer models; UUID set may differ from the legacy 4x4 channels (single-channel drivers)."
+    - model: "HEM-7380T1 / HEM-7377T1"
+      status: "readout verified; pairing flow not applicable"
+      notes: "Work without the key-programming flow."
+    - model: "HEM-7196T (M4/X4 Connect AFib)"
+      status: "UNSUPPORTED - encrypted traffic"
+      notes: "omblepy: pairing and readout both blocked by encryption not yet reverse engineered."
+    - model: "HEM-9601T / HEM-9700T / HEM-8732T / HEM-8733T (plus HBF body-composition, MC-652LC thermometer, HJA-405T activity families)"
+      status: "vendor-app memory-map configs only (not in omblepy/hass-omron)"
+      notes: >
+        The OMRON connect app ships EEPROM memory-map configs for these
+        (86 variants total) on the same sync stack; layouts not yet ported
+        to an open driver. Note vendor map bit offsets count from the end
+        of the byte-reversed record.
+
 services:
   - uuid: "ecbe3980-c9a2-11e1-b1bd-0002a5d5c51b"
     name: "Omron Sync Service (legacy 4-channel set)"
@@ -323,30 +347,6 @@ ble:
       (08 0f00 0000 00 00 07, expect 8f00 with status byte 0) ->
       disconnect. Failed transmissions are retried by omblepy up to
       5 times before aborting.
-
-model_variants:
-  - model: "HEM-7322T (M700 Intelli IT / BP786)"
-    status: "readout + pairing verified (omblepy, hass-omron)"
-    notes: "Worked EEPROM layout in this spec: users at 0x02AC/0x0824, 100x0x0E records, settings 0x0260/0x0286."
-  - model: "HEM-7155T / HEM-7361T / HEM-7600T / HEM-6232T / HEM-7150T / HEM-7342T / HEM-7530T"
-    status: "readout + pairing verified upstream"
-    notes: "Per-model EEPROM layouts live in omblepy deviceSpecific/*.py; HEM-7530T EKG records not decoded."
-  - model: "HEM-6161T / HEM-7142T2 / HEM-7146T2 / HEM-7151T / HEM-716BT2 / HEM-7320T / HEM-7343T"
-    status: "verified in hass-omron only"
-    notes: "Newer models; UUID set may differ from the legacy 4x4 channels (single-channel drivers)."
-  - model: "HEM-7380T1 / HEM-7377T1"
-    status: "readout verified; pairing flow not applicable"
-    notes: "Work without the key-programming flow."
-  - model: "HEM-7196T (M4/X4 Connect AFib)"
-    status: "UNSUPPORTED - encrypted traffic"
-    notes: "omblepy: pairing and readout both blocked by encryption not yet reverse engineered."
-  - model: "HEM-9601T / HEM-9700T / HEM-8732T / HEM-8733T (plus HBF body-composition, MC-652LC thermometer, HJA-405T activity families)"
-    status: "vendor-app memory-map configs only (not in omblepy/hass-omron)"
-    notes: >
-      The OMRON connect app ships EEPROM memory-map configs for these
-      (86 variants total) on the same sync stack; layouts not yet ported
-      to an open driver. Note vendor map bit offsets count from the end
-      of the byte-reversed record.
 
 entities:
   - platform: "sensor"

@@ -570,14 +570,17 @@ services:
           set_color:
             description: >
               Whole-device or masked-segment RGB (sub-mode 0x15).
-              Packet: [0x33, 0x05, 0x15, 0x01, <R>, <G>, <B>, 0x00*4,
-              <maskLo>, <maskHi>, 0x00*5, <xor>] — mask bit n selects
-              segment n; all-ones = whole device. Legacy 15-segment
+              Packet: [0x33, 0x05, 0x15, 0x01, <R>, <G>, <B>, 0x00*5,
+              <maskLo>, <maskHi>, 0x00*5, <xor>] — the mask sits at
+              frame[12..13], five pad bytes after B, exactly where the
+              protocol notes' sub-mode 0x15 layout and the kelvin form
+              (0x01, FF FF FF, K_hi K_lo, tR tG tB, mask) both place it;
+              mask bit n selects segment n; all-ones = whole device. Legacy 15-segment
               hardware uses sub-mode 0x0B: [0x33, 0x05, 0x0B, R, G, B,
               0x00, maskLo, maskHi, …]. Whole-device-only models accept
               sub-mode 0x02: [0x33, 0x05, 0x02, R, G, B, …].
             encoding: "bytes"
-            template: [0x33, 0x05, 0x15, 0x01, "{red}", "{green}", "{blue}", 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            template: [0x33, 0x05, 0x15, 0x01, "{red}", "{green}", "{blue}", 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
             parameters:
               red: { type: "uint8", min: 0, max: 255 }
               green: { type: "uint8", min: 0, max: 255 }

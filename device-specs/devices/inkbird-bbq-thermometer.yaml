@@ -179,6 +179,68 @@ device:
         WiFi provisioning on the IBBQ-4BW goes through the Tuya SDK, which this
         spec does not document.
 
+  variants:
+    - model: "IBT-2X / BG-BT1X"
+      probes: 1
+      wifi: false
+      handshake: "fixed (fea1b2c3e40000)"
+      ff01_bytes: 2
+      notes: "Basic BLE-only single-probe thermometer. Parses ff01 as UNSIGNED u16 (not the s16le of the multi-probe models); fault sentinels on this path are 7fff/8000 only."
+
+    - model: "IBT-2X (2-probe mode)"
+      probes: 2
+      wifi: false
+      handshake: "challenge-response (fb/fc)"
+      ff01_bytes: 6
+      notes: "Two-probe variant under IBT-2XB name. Uses the same fb000000000000 challenge-response handshake as the 4-probe models."
+
+    - model: "IBT-4XS"
+      probes: 4
+      wifi: false
+      handshake: "challenge-response"
+      ff01_bytes: 10
+      notes: "BLE-only 4-probe thermometer."
+
+    - model: "IBBQ-4BW / BBQ-4BW"
+      probes: 4
+      wifi: true
+      handshake: "challenge-response"
+      ff01_bytes: 10
+      notes: "Dual-mode BLE+WiFi (Tuya platform) 4-probe thermometer."
+
+    - model: "IBT-24S"
+      probes: 4
+      wifi: false
+      ff01_bytes: 10
+      notes: "4-probe variant."
+
+    - model: "IBT-26S"
+      probes: 6
+      wifi: false
+      handshake: "challenge-response"
+      ff01_bytes: 14
+      notes: "6-probe thermometer. ff01 extends as documented, but the ff04 status bitfield differs from the 4-probe layout: single combined fault bit per probe at bits 6-11, WiFi status at bits 36-41 — see the ff04 notes."
+
+    - model: "IBT-6X"
+      probes: 6
+      wifi: false
+      handshake: "challenge-response"
+      ff01_bytes: 14
+      notes: "6-probe thermometer. Same protocol family presumed; no model-specific code path in the app (protocol unverified)."
+
+    - model: "IBT-4WB"
+      probes: 4
+      wifi: true
+      handshake: "challenge-response, timestamp+CRC variant (fb on ff02, 16-char fc verify frame)"
+      ff01_bytes: 18
+      notes: "DIFFERENT DIALECT — matches this spec's discovery keys but is not wire-compatible: timestamp+CRC8 auth on ff02, status on ff03 with its own bitfield, 8-hex-char (s32 LE) per-probe ff01 temps with 32-bit sentinels. See the DIALECT WARNING in device.notes."
+
+    - model: "IBT-4RT"
+      probes: 4
+      wifi: false
+      ff01_bytes: 10
+      notes: "Listed in the app's model constants (TYPE_IBT_4RT); presumed compatible with this spec but undocumented — no model-specific parser was found."
+
 services:
   - uuid: "0000ff00-0000-1000-8000-00805f9b34fb"
     name: "Inkbird Primary Service"
@@ -499,7 +561,7 @@ services:
         description: "Standard BLE battery level (0-100%)."
         data_format:
           type: "uint8"
-          unit: "percent"
+          unit: "%"
           min: 0
           max: 100
 
@@ -532,88 +594,29 @@ advertising:
   service_uuids:
     - "0000ff00-0000-1000-8000-00805f9b34fb"
 
-data_format:
-  temperature:
-    encoding: "s16le"
-    # Formerly the improvised `unit: "device_setting"`; now the schema's
-    # number-semantics vocabulary. No out-of-box default unit is claimed
-    # because none has been established — query rather than assume.
-    unit_source: "device_setting"
-    unit_reference: "get_temp_unit (command 04 on 0000ff02, response prefix 03/04 on 0000ff03)"
-    unit_values:
-      0x46: "F"
-      default: "C"
-    fault_values: [0x7ffe, 0x7fff, 0x8000]
-    error_strings:
-      disconnected: "- -"
-      high: "-H-"
-      low: "-L-"
-  battery:
-    encoding: "uint8"
-    unit: "percent"
-    characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
-
-model_variants:
-  - model: "IBT-2X / BG-BT1X"
-    probes: 1
-    wifi: false
-    handshake: "fixed (fea1b2c3e40000)"
-    ff01_bytes: 2
-    notes: "Basic BLE-only single-probe thermometer. Parses ff01 as UNSIGNED u16 (not the s16le of the multi-probe models); fault sentinels on this path are 7fff/8000 only."
-
-  - model: "IBT-2X (2-probe mode)"
-    probes: 2
-    wifi: false
-    handshake: "challenge-response (fb/fc)"
-    ff01_bytes: 6
-    notes: "Two-probe variant under IBT-2XB name. Uses the same fb000000000000 challenge-response handshake as the 4-probe models."
-
-  - model: "IBT-4XS"
-    probes: 4
-    wifi: false
-    handshake: "challenge-response"
-    ff01_bytes: 10
-    notes: "BLE-only 4-probe thermometer."
-
-  - model: "IBBQ-4BW / BBQ-4BW"
-    probes: 4
-    wifi: true
-    handshake: "challenge-response"
-    ff01_bytes: 10
-    notes: "Dual-mode BLE+WiFi (Tuya platform) 4-probe thermometer."
-
-  - model: "IBT-24S"
-    probes: 4
-    wifi: false
-    ff01_bytes: 10
-    notes: "4-probe variant."
-
-  - model: "IBT-26S"
-    probes: 6
-    wifi: false
-    handshake: "challenge-response"
-    ff01_bytes: 14
-    notes: "6-probe thermometer. ff01 extends as documented, but the ff04 status bitfield differs from the 4-probe layout: single combined fault bit per probe at bits 6-11, WiFi status at bits 36-41 — see the ff04 notes."
-
-  - model: "IBT-6X"
-    probes: 6
-    wifi: false
-    handshake: "challenge-response"
-    ff01_bytes: 14
-    notes: "6-probe thermometer. Same protocol family presumed; no model-specific code path in the app (protocol unverified)."
-
-  - model: "IBT-4WB"
-    probes: 4
-    wifi: true
-    handshake: "challenge-response, timestamp+CRC variant (fb on ff02, 16-char fc verify frame)"
-    ff01_bytes: 18
-    notes: "DIFFERENT DIALECT — matches this spec's discovery keys but is not wire-compatible: timestamp+CRC8 auth on ff02, status on ff03 with its own bitfield, 8-hex-char (s32 LE) per-probe ff01 temps with 32-bit sentinels. See the DIALECT WARNING in device.notes."
-
-  - model: "IBT-4RT"
-    probes: 4
-    wifi: false
-    ff01_bytes: 10
-    notes: "Listed in the app's model constants (TYPE_IBT_4RT); presumed compatible with this spec but undocumented — no model-specific parser was found."
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  data_format:
+    temperature:
+      encoding: "s16le"
+      # Formerly the improvised `unit: "device_setting"`; now the schema's
+      # number-semantics vocabulary. No out-of-box default unit is claimed
+      # because none has been established — query rather than assume.
+      unit_source: "device_setting"
+      unit_reference: "get_temp_unit (command 04 on 0000ff02, response prefix 03/04 on 0000ff03)"
+      unit_values:
+        0x46: "F"
+        default: "C"
+      fault_values: [0x7ffe, 0x7fff, 0x8000]
+      error_strings:
+        disconnected: "- -"
+        high: "-H-"
+        low: "-L-"
+    battery:
+      encoding: "uint8"
+      unit: "%"
+      characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
 
 helpful_urls:
   - title: "8none1/pybq — Python client for the ff00 iBBQ/BBQ thermometer family"

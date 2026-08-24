@@ -2,9 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://opengreeniot.pigscanfly.ca/device-spec.schema.json",
   "title": "OpenGreenIoT Device Spec",
-  "description": "Schema for OpenGreenIoT device specification files (BLE and WiFi). Permissive by design: unknown keys are allowed so bespoke, device-specific metadata (e.g. protobuf/state_machine blocks) can travel alongside the standard fields. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
+  "description": "Schema for OpenGreenIoT device specification files (BLE and WiFi). CLOSED at the top level and at `device`: every key a spec writes there must be declared here, and bespoke per-device material goes under `protocol_details`. Deeper objects remain open for now, so a spec can still annotate a service or an endpoint freely. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
   "type": "object",
   "required": ["device"],
+  "$comment": "Closing the top level is the difference between a schema that validates and a schema that reviews. Open-world validation could not tell a bespoke block from a standard field spelled wrong or nested one level too deep, and both had happened at scale: roughly seventy undeclared top-level keys, plus `local_access`, `features`, `protocol_handler` and `payload_formats` written inside `device:` on seventeen specs, where the app never looked and so the image-upload capability of five printers simply did not exist. Neither class of mistake produced a single validation error. `additionalProperties: false` here converts both into one. The cost is that a genuinely new kind of block needs a schema change to be admitted -- which is the point: a new first-class key is a contract, and contracts should be reviewed.",
+  "additionalProperties": false,
   "allOf": [
     {
       "$comment": "A device spec must document at least one access surface, otherwise it says nothing a consumer can act on. Reference specs (device.type starting with 'reference-') are exempt: they document a published protocol — SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing — that other specs cite instead of restating, and so carry protocol tables rather than an access surface of their own. `camera` counts (a live feed is an access surface), and an `integration: identify_only` device counts when it carries a `discovery` block — for it the access surface IS 'find it and hand the user to its admin page', which is the whole point of an identify-only entry.",
@@ -211,7 +213,7 @@
       "properties": {
         "unit": {
           "type": "string",
-          "description": "Unit of the DECODED value, after `scale` and `value_offset` are applied: 'C', 'F', '%', 'km/h', 'rpm', 'ms'. This states what is ON THE WIRE, not what the device happens to display — the Ember Mug always encodes centi-degrees C even when its screen shows Fahrenheit, so its temperature fields say 'C' and the display preference is a separate characteristic. Omit for dimensionless values (a raw brightness step, an enumerated code)."
+          "description": "Unit of the DECODED value, after `scale` and `value_offset` are applied: 'C', 'F', '%', 'km/h', 'rpm', 'ms'. ONE SPELLING PER QUANTITY, and it is the bare symbol: 'C' not '°C', 'F' not '°F', '%' not 'percent' and not '%RH' (the field names the quantity; the unit is a percent either way), and 's' / 'min' / 'ms' rather than their spelled-out forms. Bare is not a style preference: `unit_values` maps a device setting onto these same strings ({0: 'C', 1: 'F'}), so a consumer comparing a field's unit against that table needs both sides spelled alike. One unit per field -- a reply carrying two quantities is described in prose, never as 'V, %' -- and omit the key entirely rather than writing an empty one. This states what is ON THE WIRE, not what the device happens to display — the Ember Mug always encodes centi-degrees C even when its screen shows Fahrenheit, so its temperature fields say 'C' and the display preference is a separate characteristic. Omit for dimensionless values (a raw brightness step, an enumerated code)."
         },
         "scale": {
           "type": "number",
@@ -442,6 +444,7 @@
   "properties": {
     "device": {
       "type": "object",
+      "additionalProperties": false,
       "$comment": "`category` is required rather than optional because an absent category is not a neutral omission at the consumer: the mobile app has nothing to draw beside the device but a generic radio icon, which is also what it draws for a device whose protocol nobody ever worked out. A spec author always knows what kind of thing they documented, so stating it costs one line and omitting it is paid for by every user of the app.",
       "required": [
         "name",
@@ -532,8 +535,8 @@
         },
         "protocol": {
           "type": "string",
-          "enum": ["ble", "wifi", "zigbee", "zwave", "obd2", "uart", "can"],
-          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); 'uart' and 'can' cover devices on a plain wired local bus with no radio at all (see the top-level `bus` block) -- an e-bike motor talking to its display, for example. The mobile Rust Protocol enum does NOT yet consume any of these three, so such specs are documentation/tooling targets rather than mobile-app targets today; reaching one from a phone needs a bridge."
+          "enum": ["ble", "wifi", "lan", "zigbee", "zwave", "obd2", "uart", "can"],
+          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'wifi' and 'lan' both mean IP on the local network and differ in how the device got there: 'lan' is a device that is wired Ethernet with no radio of its own -- a router, a switch, an NVR, a NAS -- and 'wifi' is one that joins a wireless network. The distinction is not pedantry at the consumer: 'wifi' is what tells an app to offer SoftAP provisioning, SSID prefixes and credential handling, none of which a box with an RJ45 and no radio can use. Four wired specs (mikrotik-routeros, ubiquiti-unifi-device, smartthings-hub-v2, synology-diskstation) still say 'wifi' and are retagged only once the mobile Protocol enum names 'lan'. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); 'uart' and 'can' cover devices on a plain wired local bus with no radio at all (see the top-level `bus` block) -- an e-bike motor talking to its display, for example. The mobile Rust Protocol enum does NOT yet consume any of these three, so such specs are documentation/tooling targets rather than mobile-app targets today; reaching one from a phone needs a bridge."
         },
         "type": {
           "type": "string",
@@ -591,7 +594,7 @@
           "type": "string",
           "enum": ["supported", "identify_only"],
           "default": "supported",
-          "description": "What THIS project's consumers actually DO with the device, as distinct from whether local control is theoretically possible (that is `local_access`). 'supported' (the default when omitted): the app implements a control and/or monitoring surface for it -- the normal case, implied by the presence of services/commands/http_endpoints/camera. 'identify_only': the app deliberately does not speak the device's control protocol; it discovers it, shows a pictogram, and links to its `admin_url`. Network infrastructure (routers, switches, access points) is the archetype -- fully controllable in principle (RouterOS/UniFi APIs) but out of scope here, so we recognise it and hand the user off to its own admin page rather than pretend to manage it. A device can be `identify_only` and still carry a rich `discovery` block: knowing what it is and where it lives is the whole point."
+          "description": "What THIS project's consumers actually DO with the device, as distinct from whether local control is theoretically possible (that is `local_access`). 'supported' (the default when omitted): the app implements a control and/or monitoring surface for it -- the normal case, and usually implied by the presence of services/commands/http_endpoints/camera. Usually, not always: a surface only implies 'supported' if a consumer can actually speak it. unifi-protect-camera's single surface is an RTSP stream and this project ships no video player, so it is 'identify_only' despite carrying a full, verified `camera` block. Where a spec declares a surface and still says 'identify_only', the notes should say what would earn 'supported' back. 'identify_only': the app deliberately does not speak the device's control protocol; it discovers it, shows a pictogram, and links to its `admin_url`. Network infrastructure (routers, switches, access points) is the archetype -- fully controllable in principle (RouterOS/UniFi APIs) but out of scope here, so we recognise it and hand the user off to its own admin page rather than pretend to manage it. A device can be `identify_only` and still carry a rich `discovery` block: knowing what it is and where it lives is the whole point."
         },
         "security_advisory": {
           "type": "object",
@@ -722,7 +725,8 @@
             },
             "mdns_service_type": {
               "type": "string",
-              "description": "mDNS/Bonjour service type for WiFi discovery (e.g. _http._tcp). A service type is often a FIRMWARE PLATFORM rather than a product -- `_esphomelib._tcp` is every ESPHome node ever flashed, `_hap._tcp` every HomeKit accessory, `_http._tcp` every web server on the link -- so a spec claiming one of those must also carry `mdns_txt_match`, or a matcher keying on the service type alone labels the whole platform as this one device."
+              "pattern": "^_[A-Za-z0-9_-]+\\._(tcp|udp)\\.local\\.$",
+              "description": "mDNS/Bonjour service type for WiFi discovery, written FULLY QUALIFIED and trailing-dotted: `_http._tcp.local.`, never the bare `_http._tcp`. Either names the same service and the catalogue used to carry both, which is a comparison that fails silently -- a matcher doing string equality against the wrong form simply never fires, and a discovery axis that never fires looks exactly like a device that is not on the network. One form, enforced by the pattern above. A service type is often a FIRMWARE PLATFORM rather than a product -- `_esphomelib._tcp` is every ESPHome node ever flashed, `_hap._tcp` every HomeKit accessory, `_http._tcp` every web server on the link -- so a spec claiming one of those must also carry `mdns_txt_match`, or a matcher keying on the service type alone labels the whole platform as this one device."
             },
             "mdns_txt_match": {
               "type": "array",
@@ -766,8 +770,18 @@
         },
         "discovery": {
           "type": "object",
-          "description": "How to automatically discover this device on a network. A consumer that parses the schema can implement discovery without per-device hardcoding.",
+          "description": "How to automatically discover this device on a network. A consumer that parses the schema can implement discovery without per-device hardcoding. Where there is nothing to discover, say so with `none` rather than omitting the block.",
+          "$comment": "`methods` and `none` are exclusive and one of them is required, so a discovery block always answers the question it is named after. The point of `none` is to separate two states that an ABSENT block runs together: 'this device cannot be found by scanning, and here is why' from 'nobody has worked out how to find it yet'. Twenty-nine specs had no block and both meanings were in there -- an OBD-II vehicle that is reached through a connector and a BLE sensor whose scan axis simply was not written. A reader cannot tell those apart, and only one of them is work someone should do.",
+          "oneOf": [
+            { "required": ["methods"] },
+            { "required": ["none"] }
+          ],
           "properties": {
+            "none": {
+              "type": "string",
+              "minLength": 30,
+              "description": "Why this device cannot be discovered, stated as a fact rather than left as a silence. Use it when the absence is a property of the device -- a wired bus with no radio, a vehicle reached through a diagnostic connector, a product whose only address comes from the vendor's cloud. Do NOT use it for a device that is discoverable in principle and simply has not been researched; leave the block off, which is what that state already means. The minimum length is deliberate: 'none' alone says nothing a reader could not already see."
+            },
             "methods": {
               "type": "array",
               "minItems": 1,
@@ -787,7 +801,13 @@
                             "description": "Match the advertised BLE local name. With `match: regex`, `value` is a regular expression tested against the full name (use anchors ^...$ to require a full match). local_name and service_uuids are an EITHER/OR within a ble_scan method: a device matches if its name matches OR it advertises one of the service_uuids — a consumer ORs whichever of the two are present. Give both when a family spans models that are cleanest to catch one way or the other.",
                             "properties": {
                               "match": { "type": "string", "enum": ["prefix", "exact", "contains", "regex"], "default": "prefix" },
-                              "value": { "type": "string" }
+                              "value": { "type": "string" },
+                              "values": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "minItems": 1,
+                                "description": "Alternative needles, ANY of which matching is a match — the plural of `value`, for a family sold under several names that one needle cannot cover (Inkbird's thermometer ships as IBT-*, BG-BT1X, IBBQ-4BW and Inkbird@*). Same `match` comparison applies to each. Give one form or the other; a matcher stating both is read as the union, which is almost certainly not what its author meant to say twice."
+                              }
                             }
                           },
                           "service_uuids": {
@@ -953,7 +973,7 @@
                         "type": "object",
                         "required": ["service_type", "identity_mapping"],
                         "properties": {
-                          "service_type": { "type": "string", "description": "DNS-SD service type, e.g. _ankivector._tcp.local." },
+                          "service_type": { "type": "string", "pattern": "^_[A-Za-z0-9_-]+\\._(tcp|udp)\\.local\\.$", "description": "DNS-SD service type, fully qualified and trailing-dotted: `_ankivector._tcp.local.`. Same form as `device.identification.mdns_service_type`, and for the same reason -- these two are compared against each other." },
                           "port": { "type": "integer" },
                           "txt_record_keys": {
                             "type": "array",
@@ -1473,6 +1493,37 @@
               }
             }
           }
+        },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "ble-gatt",
+            "http",
+            "https",
+            "tcp",
+            "tls",
+            "udp",
+            "websocket",
+            "mqtt",
+            "mqtts",
+            "soap",
+            "rtsp",
+            "homekit",
+            "obd2",
+            "can"
+          ],
+          "description": "The concrete wire protocol a consumer speaks to this device, one level below `protocol`. `protocol: wifi` says the device is on the LAN; `transport` answers the question an implementer actually has, which is what client they need to write: an HTTP client, a TLS socket, a packet builder, a GATT session. Name the transport, not the payload it carries -- Kasa and Yeelight both put JSON on a raw socket and are both `tcp`; the encoding is described by the spec's commands and payload_formats. Name the transport, not the DISCOVERY method either: mDNS, SSDP and UDP broadcast find a device, and a spec that documents only discovery omits this field rather than filling it with the way it was found.",
+          "$comment": "Fifty specs were writing this field with no enum behind it, and it had drifted to twenty-two spellings for fourteen things: `ble-gatt`, `ble_gatt` and `ble` for one GATT session; `tcp-json`, `tls-json` and `tls-protobuf` folding a payload encoding into a transport name; `tuya-ble` and `tuya-lan` naming a vendor rather than a wire; `upnp` where the spec's own block says SOAP; and `mdns` on three discovery-only entries that speak nothing at all. A field with no vocabulary is a field a consumer cannot branch on, which is the same as not having it."
+        },
+        "model": {
+          "type": "string",
+          "description": "The model identifier, for a spec that covers exactly ONE product. A spec covering several uses `device.variants` instead -- a list, each entry with its own `model`, which is the form `entities[].variants` can scope against and the form a consumer can match a scan result to. Do not use both: a `model` that repeats one of the variants reads as a claim that that one is somehow primary.",
+          "$comment": "The catalogue reached this one key by way of six: `models`, `model_variants`, `hardware_variants`, `firmware_variants`, `device_families` and a top-level `variants` all listed the products a spec covered, in five shapes, none declared. Nothing could ask a spec what it covers. They are all `device.variants` now, and the two of them left -- this and `variants` -- differ on a question with an answer: is it one product or several?"
+        },
+        "coverage": {
+          "type": "string",
+          "description": "For a reference spec (`device.type` starting with 'reference-'): which part of the published standard this document actually covers, e.g. 'Modes 01-0A (all legislated OBD-II services)'. A standard is not a product, so it has no `model` and no `variants`; what a reader needs instead is the scope, because a reference that silently covers half of a standard is worse than one that says which half.",
+          "$comment": "The three standards references were writing this into `model`, which made them look like devices with very strange model numbers and left the scope claim somewhere no consumer would think to read it."
         }
       }
     },
@@ -1489,7 +1540,7 @@
     },
     "references": {
       "description": "RESERVED, and always invalid. Reference links go in `helpful_urls`; video links go in `helpful_videos`.",
-      "$comment": "Alias trap, and the one place this schema closes a door on purpose. Unknown top-level keys are allowed everywhere else so bespoke per-device blocks can travel alongside the standard fields, and a consumer ignoring a key it does not know is the intended outcome. `references` is the exception because it is not a bespoke block, it is a misspelling of a field that already exists: eighteen specs collected their teardowns, protocol write-ups and working implementations under `references:` and every consumer dropped the lot -- the index generator reads `helpful_urls`, so the links were in the file, out of the artifact, and nothing anywhere said so. Permissiveness cannot distinguish 'a key we do not understand' from 'a key we do understand, spelled wrong'; naming the wrong spelling is what makes the difference legible. Scoped to the top level deliberately: a `references:` nested inside a bespoke block (devolo's `zwave:` cites OpenZWave and openHAB database entries there) is prose citation, not a link list, and stays legal.",
+      "$comment": "Alias trap. The top level is closed now, so an undeclared key is rejected on its own; this entry survives because the message matters. `references` is not a bespoke block, it is a misspelling of a field that already exists, and 'additional properties are not allowed' does not say so: eighteen specs collected their teardowns, protocol write-ups and working implementations under `references:` and every consumer dropped the lot -- the index generator reads `helpful_urls`, so the links were in the file, out of the artifact, and nothing anywhere said so. Permissiveness cannot distinguish 'a key we do not understand' from 'a key we do understand, spelled wrong'; naming the wrong spelling is what makes the difference legible. Scoped to the top level deliberately: a `references:` nested inside a bespoke block (devolo's `zwave:` cites OpenZWave and openHAB database entries there) is prose citation, not a link list, and stays legal.",
       "not": {
         "$comment": "the key `references` is not read by anything -- rename it to `helpful_urls` (or `helpful_videos` for video links) and give each entry a `title` and a `url`"
       }
@@ -1985,8 +2036,9 @@
           },
           "status": {
             "type": "string",
-            "enum": ["active", "sunset", "unverified"],
-            "description": "Whether the endpoint can be built against. 'sunset' records one the vendor removed (Roku dropped /search/browse in OS 12.0): kept for older firmware, but a consumer must not offer a control on it. 'unverified' records one whose existence rests on a probe or a capture rather than documentation or replay (SmartThings' port-8081 root). Absent means active and usable."
+            "enum": ["active", "sunset", "unverified", "placeholder"],
+            "description": "Whether the endpoint can be built against. 'sunset' records one the vendor removed (Roku dropped /search/browse in OS 12.0): kept for older firmware, but a consumer must not offer a control on it. 'unverified' records one whose existence rests on a probe or a capture rather than documentation or replay (SmartThings' port-8081 root). 'placeholder' records one that is not a control endpoint at all. It names a port so the spec has an access surface to point at, while the real control path is somewhere else entirely -- a WebSocket, a raw TCP socket, a TLS protobuf session, a raster stream on 9100 -- or the page actually served there is only the vendor's web admin UI. Six specs in this catalogue need one. A consumer must never build a control on a placeholder, and should usually not call it at all. Absent means active and usable.",
+            "$comment": "'placeholder' exists because both alternatives were wrong in a specific way. Two TV specs carried a `GET /` whose description said, in prose, that nothing on the port speaks HTTP -- and prose is not something a client reads. With no status the schema's own rule said 'absent means active and usable', the opposite of the truth; with 'unverified' it said the endpoint probably exists and merely has not been confirmed, also wrong. The right long-term answer is a first-class websocket/tcp surface block, after which these specs need no placeholder at all; until then it should at least be legible as one."
           },
           "request_body": {
             "type": "object",
@@ -2010,7 +2062,7 @@
                       "type": "array",
                       "items": {}
                     },
-                    "unit": { "type": "string", "description": "Unit of this field's value ('C', '%', 'seconds'). JSON payloads carry decoded numbers, so there is no scale to declare — but C-vs-F still needs stating, and `min`/`max` here are read in this unit." },
+                    "unit": { "type": "string", "description": "Unit of this field's value, spelled exactly as `number_semantics.unit` prescribes ('C', '%', 's'). JSON payloads carry decoded numbers, so there is no scale to declare — but C-vs-F still needs stating, and `min`/`max` here are read in this unit." },
                     "min": { "type": "number" },
                     "max": { "type": "number" }
                   }
@@ -2038,7 +2090,7 @@
                     "name": { "type": "string" },
                     "type": { "type": "string" },
                     "description": { "type": "string" },
-                    "unit": { "type": "string", "description": "Unit of this field's value ('C', '%', 'seconds'). JSON payloads carry decoded numbers, so unlike BLE/bus fields there is no scale to declare — but C-vs-F and W-vs-mW still need stating." }
+                    "unit": { "type": "string", "description": "Unit of this field's value, spelled exactly as `number_semantics.unit` prescribes ('C', '%', 's'). JSON payloads carry decoded numbers, so unlike BLE/bus fields there is no scale to declare — but C-vs-F and W-vs-mW still need stating." }
                   }
                 }
               },
@@ -2100,7 +2152,7 @@
                     "name": { "type": "string" },
                     "type": { "type": "string" },
                     "description": { "type": "string" },
-                    "unit": { "type": "string", "description": "Unit of this field's value ('C', '%', 'seconds'). JSON payloads carry decoded numbers, so unlike BLE/bus fields there is no scale to declare — but C-vs-F and W-vs-mW still need stating." }
+                    "unit": { "type": "string", "description": "Unit of this field's value, spelled exactly as `number_semantics.unit` prescribes ('C', '%', 's'). JSON payloads carry decoded numbers, so unlike BLE/bus fields there is no scale to declare — but C-vs-F and W-vs-mW still need stating." }
                   }
                 }
               }
@@ -3085,6 +3137,81 @@
           }
         }
       }
+    },
+    "protocol_details": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Namespace for protocol facts this schema deliberately does not model: the bespoke, single-spec blocks carrying a vendor's own framing, opcode tables, session dance or message catalogue. Roku's ECP2 WebSocket layer, WLED's realtime streaming channels, Tuya's DP catalogue and admore's protobuf schema all live here. Nothing inside is a declared contract -- read it as documentation for a human implementer, not as a field to bind to. Anything a consumer should actually execute belongs in a first-class block (`services`, `http_endpoints`, `commands`, `entities`, ...), and a shape that starts recurring across specs is the signal to promote it and give it a schema of its own.",
+      "$comment": "The escape hatch that lets the top level close. The bespoke material is often the whole reverse-engineering result and must keep its place in the file; namespacing it is what makes every UNnamespaced key mean something."
+    },
+    "evidence": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "How the facts in this spec were established -- what was read, what was captured, what was replayed against live hardware, and what remains inference. Distinct from `helpful_urls`, which points a reader at further reading: this says what THIS document rests on, so a later reader can tell a byte-accurate transcription from a plausible reconstruction, and knows which one to re-check when a device stops behaving. Free-form apart from `artifacts`: name each section for what it was (`live_lan_probe`, `app_static_analysis`, `documentation_review`, `open_questions`) and write prose under it.",
+      "$comment": "One key, after three. The catalogue had `sources` (19 specs, a list of artifacts), `evidence` (16, named prose sections) and `source` (6, named prose sections on the standards references) all meaning provenance and none of them declared -- so nothing could ask a spec where its facts came from without knowing which of three shapes that particular author had reached for. `source` was `evidence` under another name and was renamed; `sources` was the one genuinely different shape and became `evidence.artifacts`, which is why that one sub-key is declared and the rest of the object is not.",
+      "properties": {
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One entry per artifact examined: an app build, a firmware image, an FCC filing, a published implementation, a live capture. This is the itemised half of the evidence -- what was in front of the author -- while the prose sections say what was concluded from it.",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "What kind of artifact this is: `static_analysis`, `public_research`, `public_implementation`, `fcc_filing`, `live_probe`, `firmware_image`, `vendor_documentation`, `community_repo`, `community_thread`, and others as the work needs them. Not an enum yet -- the catalogue uses twenty-odd values and settling that vocabulary is its own exercise -- but reuse an existing spelling before inventing one."
+              },
+              "artifact": {
+                "type": "string",
+                "description": "The thing itself, identified precisely enough to fetch the same one again: a package name with its version and versionCode, a firmware filename, a filing ID."
+              },
+              "sha256": {
+                "type": "string",
+                "description": "Digest of the artifact, so a later reader can confirm they are looking at the same build. The digest, never the artifact -- see the clean-room rules."
+              },
+              "obtained_via": {
+                "type": "string",
+                "description": "Where it came from, in the loosest useful terms ('third-party APK mirror, 2026-08'). Provenance of the provenance: it says how reproducible this evidence is."
+              },
+              "url": {
+                "type": "string",
+                "description": "Where the artifact or write-up lives, for the ones that are public."
+              },
+              "description": {
+                "type": "string",
+                "description": "What this artifact actually established, including the negative findings -- 'no cube strings in this build' is evidence, and is the kind that stops the next person repeating the work."
+              },
+              "notes": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "soap_common": {
+      "type": "object",
+      "description": "The SOAP envelope and response shape shared by every command in this spec, for a device whose wire format is not the textbook one. `request_format.template` carries `{action}`, `{serviceType}` and `{arguments}` placeholders; `response_format.parse_rule` says how to read a reply.",
+      "$comment": "Vendor-named, and first-class rather than bespoke, because a consumer BINDS to it: the mobile SOAP client reads `soap_common.request_format.template` and falls back to a generic envelope when it is missing, so this block is a contract and not documentation. That is the line between a declared key and `protocol_details`. Generalising the name (a `soap:` transport block alongside `http_endpoints`) is worth doing the next time a second SOAP device arrives."
+    },
+    "lifx_lan_protocol": {
+      "type": "object",
+      "description": "The LIFX LAN protocol facts this spec needs beyond its commands: message-type numbers, the multizone message set, and `zone_count` for a strip.",
+      "$comment": "Vendor-named, and first-class rather than bespoke, for the same reason as `soap_common`: a consumer binds to it. The mobile LIFX path reads `zone_count` to size a strip's zone controls and silently falls back to a single zone without it, so burying this block in `protocol_details` would cost multizone control with no error anywhere."
+    },
+    "remaining_unknowns": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What this spec still does not know, stated plainly. A reverse-engineering document that lists its own gaps is worth more than one that reads complete, because the next person can pick up exactly where the last one stopped -- and because a silent gap is indistinguishable from a fact nobody thought to write down."
+    },
+    "ble": {
+      "type": "object",
+      "$comment": "Off-house-style BLE block: connection, bonding and GATT-layout prose written beside the `services:` block instead of into it. Seven specs left -- inkbird-bbq-thermometer, inkbird-ibs-th, jlx-laser-distance-meter, kwikset-kevo, nuki-smart-lock, omron-connect, thermopro-tp357. Where it has been retired, every fact in it turned out to have a house-style home already: bonding is `setup.methods[].ble.pairing_required`, write-without-response is a characteristic `properties` entry, and the GATT layout is `services:`. Declared so the remainder validates while they are worked through; do not adopt it for anything new."
+    },
+    "advertising": {
+      "type": "object",
+      "$comment": "Off-house-style advertisement description, the companion of the legacy top-level `ble:` block, and the more consequential of the two: what lives in it is MATCHING data -- company IDs, payload layouts, name patterns -- and `device.identification` is the only place a consumer looks for those. Seven specs left. Declared pending that migration; do not adopt it for anything new."
     }
   }
 }

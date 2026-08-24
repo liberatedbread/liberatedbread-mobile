@@ -45,7 +45,7 @@ def spec() -> dict:
 
 @pytest.fixture(scope="module")
 def protocol(spec) -> dict:
-    return spec["rabbit_air_protocol"]
+    return spec["protocol_details"]["rabbit_air_protocol"]
 
 
 @pytest.fixture(scope="module")

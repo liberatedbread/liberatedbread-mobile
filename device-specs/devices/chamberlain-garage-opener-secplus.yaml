@@ -18,7 +18,19 @@ device:
   category: "other"
   pictogram: "garage-door"
   type: "garage-door-opener"
-  integration: "supported"
+  # Not `supported`, and not really `identify_only` either -- the enum has
+  # no value for 'a phone cannot reach this at all'. What this spec
+  # documents is a 1200/9600-baud wire between an aftermarket board and an
+  # opener's wall-control terminals: no radio, no IP, nothing to discover
+  # and nothing to send. `identify_only` is the honest half of the choice
+  # (we do not speak this protocol) even though the identify half does not
+  # apply. The bridge's NETWORK side is a separate spec and IS supported --
+  # see ratgdo.yaml, which is what a phone actually talks to.
+  #
+  # What would earn `supported` back: nothing on the phone side. This
+  # becomes a mobile target only through a bridge that exposes it on the
+  # LAN, and that bridge gets its own spec.
+  integration: "identify_only"
   notes: >
     Chamberlain's MyQ CLOUD product has no local control (see the
     research-notes/myq-cloud-hub dud: the MyQ Wi-Fi hub is outbound-cloud-only,
@@ -84,6 +96,12 @@ device:
   # physically by learn-button color to pick the Security+ generation. No
   # `identification` block: there is no pre-connect signal of our own to match.
 
+  discovery:
+    none: >
+      Nothing to discover: the opener speaks Security+ over its low-voltage
+      wall-control terminals and has no radio a phone can hear. The
+      aftermarket bridge wired to those terminals is what appears on the
+      network, and it is discovered by its own spec (see ratgdo.yaml).
   setup:
     required: true
     confidence: medium
@@ -130,20 +148,20 @@ device:
         is the only authentication and it is seeded by the physical
         learn-button press.
 
-  local_access:
-    status: bridge_hardware
-    summary: >
-      No local interface on the stock opener/MyQ hub; local control requires an
-      aftermarket wired bridge (ratgdo/Konnected) speaking Security+ 1.0/2.0.
-      Blocked on Security+ 3.0 (encrypted BLE, uncracked). The sibling MyQ
-      Smart Garage Control hub MYQ-G0401 (verified live 2026-08-19) exposes
-      only a read-only identity endpoint (/jabout) and a Wi-Fi setup UI on
-      :80 — useful for identification, not control.
-    covers:
-      - "Open/close/stop the door"
-      - "Door position, obstruction, light and motion status (Security+ 2.0)"
-    not_covered:
-      - "Any local control via MyQ hubs — the MYQ-G0401's LAN surface is identity/setup only; door control stays cloud + BLE"
+local_access:
+  status: bridge_hardware
+  summary: >
+    No local interface on the stock opener/MyQ hub; local control requires an
+    aftermarket wired bridge (ratgdo/Konnected) speaking Security+ 1.0/2.0.
+    Blocked on Security+ 3.0 (encrypted BLE, uncracked). The sibling MyQ
+    Smart Garage Control hub MYQ-G0401 (verified live 2026-08-19) exposes
+    only a read-only identity endpoint (/jabout) and a Wi-Fi setup UI on
+    :80 — useful for identification, not control.
+  covers:
+    - "Open/close/stop the door"
+    - "Door position, obstruction, light and motion status (Security+ 2.0)"
+  not_covered:
+    - "Any local control via MyQ hubs — the MYQ-G0401's LAN surface is identity/setup only; door control stays cloud + BLE"
 
 bus:
   link:
@@ -199,21 +217,22 @@ helpful_urls:
     title: "Konnected GDO blaQ"
     description: "Commercial Security+ bridge board; local HA/Hubitat/HomeKit, no cloud."
 
-sources:
-  - type: "live_probe"
-    description: >
-      2026-08-19 credential-free LAN sweep: the MyQ Smart Garage Control
-      hub MYQ-G0401 (Gen3 BLE, firmware 1.10) at 192.168.1.104 answers
-      an unauthenticated GET /jabout with a full JSON identity (product
-      string "SMART GARAGE CONTROL,GEN3,BLE,CH", MyQ serial, AP name,
-      MAC, SSID, RSSI, uptime) and serves a Wi-Fi setup UI at GET /
-      (HEAD unimplemented; other /j* paths 404). No local door control
-      found. Captures (myq_jabout.json, myq_index.html, myq_brand.js,
-      with checksums) are archived in the maintainers' private research
-      workspace, not committed here.
-  - type: "public_implementation"
-    url: "https://github.com/argilo/secplus"
-    description: "Canonical Security+ 1.0/2.0 reverse-engineering; the wired-protocol facts above derive from it and the ratgdo firmware."
-  - type: "public_implementation"
-    url: "https://github.com/ratgdo/esphome-ratgdo"
-    description: "Wall-panel emulation reference: UART parameters, rolling-code persistence, local ESPHome/MQTT control."
+evidence:
+  artifacts:
+    - type: "live_probe"
+      description: >
+        2026-08-19 credential-free LAN sweep: the MyQ Smart Garage Control
+        hub MYQ-G0401 (Gen3 BLE, firmware 1.10) at 192.168.1.104 answers
+        an unauthenticated GET /jabout with a full JSON identity (product
+        string "SMART GARAGE CONTROL,GEN3,BLE,CH", MyQ serial, AP name,
+        MAC, SSID, RSSI, uptime) and serves a Wi-Fi setup UI at GET /
+        (HEAD unimplemented; other /j* paths 404). No local door control
+        found. Captures (myq_jabout.json, myq_index.html, myq_brand.js,
+        with checksums) are archived in the maintainers' private research
+        workspace, not committed here.
+    - type: "public_implementation"
+      url: "https://github.com/argilo/secplus"
+      description: "Canonical Security+ 1.0/2.0 reverse-engineering; the wired-protocol facts above derive from it and the ratgdo firmware."
+    - type: "public_implementation"
+      url: "https://github.com/ratgdo/esphome-ratgdo"
+      description: "Wall-panel emulation reference: UART parameters, rolling-code persistence, local ESPHome/MQTT control."

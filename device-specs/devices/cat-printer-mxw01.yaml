@@ -188,20 +188,17 @@ device:
         The only model known to speak this protocol. The vendor app's
         "HD" print option is believed to be the 4bpp grayscale mode.
 
-  features:
-    - type: "image_upload"
-      max_width: 384
-      max_height: 65535
-      format: "1bit-bitmap"
-      notes: >
-        48 bytes per row, LSB = leftmost pixel, no bit reversal (unlike
-        the legacy family). 4bpp grayscale (192 bytes/row, high nibble
-        first) via print mode 0x02.
-    - type: "sensor"
-      name: "Battery level"
-      notes: "Via get_battery_level (0xAB) or the 0xA1 status payload."
+features:
+  - type: "image_upload"
+    max_width: 384
+    max_height: 65535
+    format: "1bit-bitmap"
+    notes: >
+      48 bytes per row, LSB = leftmost pixel, no bit reversal (unlike
+      the legacy family). 4bpp grayscale (192 bytes/row, high nibble
+      first) via print mode 0x02.
 
-  protocol_handler: "cat_printer_mxw01"
+protocol_handler: "cat_printer_mxw01"
 
 services:
   - uuid: "0000ae30-0000-1000-8000-00805f9b34fb"

@@ -41,10 +41,10 @@ device:
   protocol: "ble"
   category: "fitness"
   type: "fitness-band"
-  models:
-    - "ID107"
-    - "ID107 HR"
-    - "ID111"
+  variants:
+    - model: "ID107"
+    - model: "ID107 HR"
+    - model: "ID111"
   notes: >
     The ID107/ID111-class fitness bands (~2016 generation, Nordic nRF51822
     SoC, Si1142 optical heart-rate sensor, Kionix kx022 accelerometer — per

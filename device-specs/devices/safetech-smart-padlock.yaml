@@ -11,7 +11,8 @@
 # Nothing here has been replayed against a lock: every protocol fact is read
 # out of that app. There is no over-the-air capture, no hardware, and no
 # obtainable firmware (the app contains no DFU/OTA path at all).
-# Open questions needing hardware are listed in protocol.remaining_unknowns.
+# Open questions needing hardware are listed in
+# protocol_details.command_protocol.remaining_unknowns.
 
 device:
   name: "SafeTech Products Bluetooth Smart Padlock (Quicklock)"
@@ -52,12 +53,12 @@ device:
   type: "ble_padlock"
   protocol: "ble"
   transport: "ble-gatt"
-  models:
-    - "Quicklock Padlock (BLE advert lock-type byte 0x31 = ASCII '1')"
-    - "Quicklock DoorLock (0x32 = '2')"
-    - "Quicklock Deadbolt (0x33 = '3')"
-    - "TheGunbox / Gunbox Echo / Gunbox SK-1 'Big Bertha' (0x34/0x35 = '4'/'5', adds fingerprint/SureSet service 0xFFC0)"
-    - "Medbox (mentioned in vendor marketing; not seen as a distinct lock type in the app code)"
+  variants:
+    - model: "Quicklock Padlock (BLE advert lock-type byte 0x31 = ASCII '1')"
+    - model: "Quicklock DoorLock (0x32 = '2')"
+    - model: "Quicklock Deadbolt (0x33 = '3')"
+    - model: "TheGunbox / Gunbox Echo / Gunbox SK-1 'Big Bertha' (0x34/0x35 = '4'/'5', adds fingerprint/SureSet service 0xFFC0)"
+    - model: "Medbox (mentioned in vendor marketing; not seen as a distinct lock type in the app code)"
   notes: >
     Zinc-alloy BLE padlock marketed from ~2015 as the "world's first
     Bluetooth + RF/NFC padlock"; Li-Po battery charged over USB. One SDK
@@ -157,7 +158,10 @@ device:
         ble:
           advertised_name: "PadLock (padlock variant; family names embed the type string — see identification)"
           pairing_required: false
-          pin_source: "None — no BLE bonding exists. The only secret is the 4-byte lock password."
+          pin_source: >
+            None — no BLE bonding exists, and no encryption either: any
+            central can connect to the lock's GATT server, and MTU is never
+            negotiated. The only secret is the 4-byte lock password.
         steps:
           - action: "Scan BLE; identify the device by the ',' (0x2C) + ASCII type-digit pattern in the scan record ('1' = padlock)."
             actor: client
@@ -204,16 +208,6 @@ device:
         demonstrated exactly this against this product family. Treat the
         password as publicly known the moment it is used in range of an
         attacker.
-
-ble:
-  connection:
-    transport: "le"
-    bonding_required: false
-    mtu_negotiation: false
-    roles: >
-      Normal roles: the lock is the peripheral/GATT server, the phone (or
-      local controller) is the central/GATT client. No pairing, no bonding,
-      no encryption — any central can connect.
 
 services:
   - uuid: "0000FFD0-0000-1000-8000-00805F9B34FB"
@@ -442,121 +436,126 @@ services:
         properties: ["write"]
         description: "Defined in the SDK; unused by the lock flows."
 
-protocol:
-  framing:
-    byte_order: "little-endian (multi-byte integers, e.g. the clock-sync uint32)"
-    notes: >
-      Values are single bytes or short fixed-length arrays; there is no
-      packet envelope, header, checksum or CRC anywhere — each
-      characteristic IS the message. History and RFID dumps are streams of
-      8-byte notification frames terminated by eight 0xE0 bytes.
+# The device's own command protocol: framing, checksum and opcode table.
+# Namespaced like every other bespoke block -- and NOT called `protocol`,
+# which at the top level used to collide with `device.protocol`, an enum
+# that means something else entirely.
+protocol_details:
+  command_protocol:
+    framing:
+      byte_order: "little-endian (multi-byte integers, e.g. the clock-sync uint32)"
+      notes: >
+        Values are single bytes or short fixed-length arrays; there is no
+        packet envelope, header, checksum or CRC anywhere — each
+        characteristic IS the message. History and RFID dumps are streams of
+        8-byte notification frames terminated by eight 0xE0 bytes.
 
-  crypto:
-    primitives: []
-    implementation: >
-      None. No encryption, no challenge-response, no key exchange, no BLE
-      pairing/bonding. The entire security model is a static 4-byte
-      password written in cleartext to 0xFFD6. Sniffing one authentication
-      yields permanent access until the password is changed. This is the
-      finding Rose & Ramsey demonstrated against this product family at
-      DEF CON 24 (2016).
+    crypto:
+      primitives: []
+      implementation: >
+        None. No encryption, no challenge-response, no key exchange, no BLE
+        pairing/bonding. The entire security model is a static 4-byte
+        password written in cleartext to 0xFFD6. Sniffing one authentication
+        yields permanent access until the password is changed. This is the
+        finding Rose & Ramsey demonstrated against this product family at
+        DEF CON 24 (2016).
 
-  session_flow:
-    description: >
-      Normal authenticate-and-operate session (from the app's lock activity
-      and home fragment):
-      1. Scan; identify the device by the 0x2C (',') + ASCII type-digit
-         pattern in the scan record.
-      2. Connect; discover services.
-      3. Enable notifications on 0xFFD7; write [0x00 + 4-byte password] to
-         0xFFD6.
-      4. On a positive verdict ([1] main / [1,1] share): enable
-         notifications on 0xFFDA, read lock state, sync the clock (uint32
-         LE seconds since 2000-01-01 local to 0x1805/0x2A2B), read battery
-         (0x180F/0x2A19) and firmware revision (0x180A/0x2A26).
-      5. Unlock: write 0x01 to 0xFFD9. Lock: write 0x00.
-      Three consecutive wrong passwords start a lockout timer that is
-      enforced by the APP only — the lock-side behaviour is unknown.
-    verification: "reported"
-    verification_note: "Read from the vendor app; never replayed against a lock."
+    session_flow:
+      description: >
+        Normal authenticate-and-operate session (from the app's lock activity
+        and home fragment):
+        1. Scan; identify the device by the 0x2C (',') + ASCII type-digit
+           pattern in the scan record.
+        2. Connect; discover services.
+        3. Enable notifications on 0xFFD7; write [0x00 + 4-byte password] to
+           0xFFD6.
+        4. On a positive verdict ([1] main / [1,1] share): enable
+           notifications on 0xFFDA, read lock state, sync the clock (uint32
+           LE seconds since 2000-01-01 local to 0x1805/0x2A2B), read battery
+           (0x180F/0x2A19) and firmware revision (0x180A/0x2A26).
+        5. Unlock: write 0x01 to 0xFFD9. Lock: write 0x00.
+        Three consecutive wrong passwords start a lockout timer that is
+        enforced by the APP only — the lock-side behaviour is unknown.
+      verification: "reported"
+      verification_note: "Read from the vendor app; never replayed against a lock."
 
-  commands:
-    unlock:
-      hex: "0x01"
-      target: "characteristic 0xFFD9"
-      direction: "client_to_device"
-      description: "Open the shackle / unlock (after successful password exchange)"
-      verification: "reported"
-    lock:
-      hex: "0x00"
-      target: "characteristic 0xFFD9"
-      direction: "client_to_device"
-      description: "Close / re-lock"
-      verification: "reported"
-    password_input:
-      hex: "0x00 + 4-byte password"
-      target: "characteristic 0xFFD6"
-      direction: "client_to_device"
-      description: "Authenticate; verdict notified on 0xFFD7 ([0] wrong, [1] main OK, [1,1] share OK)"
-      verification: "reported"
-    password_update:
-      hex: "0x01 + new 4-byte password"
-      target: "characteristic 0xFFD6"
-      direction: "client_to_device"
-      description: "Change the lock password (requires the current one first)"
-      verification: "reported"
-    history_dump:
-      hex: "0x01"
-      target: "characteristic 0xFFF1"
-      direction: "client_to_device"
-      description: "Start history dump; 8-byte frames on 0xFFF2, end marker 8x0xE0"
-      verification: "reported"
-    rfid_dump:
-      hex: "0x01"
-      target: "characteristic 0xFFE1"
-      direction: "client_to_device"
-      description: "Dump enrolled RFID tags; notification frames, end marker 8x0xE0"
-      verification: "reported"
-    rfid_add:
-      hex: "0x01"
-      target: "characteristic 0xFFE4"
-      direction: "client_to_device"
-      description: "Enter RFID learn mode; result 0=busy / 1=success / 0xFF=timeout"
-      verification: "reported"
-    rfid_delete:
-      hex: "<tag ID> + 0xE0"
-      target: "characteristic 0xFFE3"
-      direction: "client_to_device"
-      description: "Delete an enrolled RFID tag"
-      verification: "reported"
-    fingerprint_enroll:
-      hex: "0x01"
-      target: "characteristic 0xFFC3"
-      direction: "client_to_device"
-      description: "Start fingerprint enrolment (Gunbox biometric models only)"
-      verification: "reported"
-    fingerprint_delete_all:
-      hex: "0xFF"
-      target: "characteristic 0xFFC5"
-      direction: "client_to_device"
-      description: "Delete all enrolled fingerprints (Gunbox biometric models only)"
-      verification: "reported"
-      advanced: true
-      advanced_reason: "Irreversibly wipes every enrolled fingerprint from the device; on a gun safe this changes who can open it. No undo except re-enrolling each finger."
-    clock_sync:
-      hex: "uint32 LE seconds since 2000-01-01 local time"
-      target: "characteristic 0x1805/0x2A2B"
-      direction: "client_to_device"
-      description: "Set the lock clock; needed for time-windowed share codes and history timestamps"
-      verification: "reported"
+    commands:
+      unlock:
+        hex: "0x01"
+        target: "characteristic 0xFFD9"
+        direction: "client_to_device"
+        description: "Open the shackle / unlock (after successful password exchange)"
+        verification: "reported"
+      lock:
+        hex: "0x00"
+        target: "characteristic 0xFFD9"
+        direction: "client_to_device"
+        description: "Close / re-lock"
+        verification: "reported"
+      password_input:
+        hex: "0x00 + 4-byte password"
+        target: "characteristic 0xFFD6"
+        direction: "client_to_device"
+        description: "Authenticate; verdict notified on 0xFFD7 ([0] wrong, [1] main OK, [1,1] share OK)"
+        verification: "reported"
+      password_update:
+        hex: "0x01 + new 4-byte password"
+        target: "characteristic 0xFFD6"
+        direction: "client_to_device"
+        description: "Change the lock password (requires the current one first)"
+        verification: "reported"
+      history_dump:
+        hex: "0x01"
+        target: "characteristic 0xFFF1"
+        direction: "client_to_device"
+        description: "Start history dump; 8-byte frames on 0xFFF2, end marker 8x0xE0"
+        verification: "reported"
+      rfid_dump:
+        hex: "0x01"
+        target: "characteristic 0xFFE1"
+        direction: "client_to_device"
+        description: "Dump enrolled RFID tags; notification frames, end marker 8x0xE0"
+        verification: "reported"
+      rfid_add:
+        hex: "0x01"
+        target: "characteristic 0xFFE4"
+        direction: "client_to_device"
+        description: "Enter RFID learn mode; result 0=busy / 1=success / 0xFF=timeout"
+        verification: "reported"
+      rfid_delete:
+        hex: "<tag ID> + 0xE0"
+        target: "characteristic 0xFFE3"
+        direction: "client_to_device"
+        description: "Delete an enrolled RFID tag"
+        verification: "reported"
+      fingerprint_enroll:
+        hex: "0x01"
+        target: "characteristic 0xFFC3"
+        direction: "client_to_device"
+        description: "Start fingerprint enrolment (Gunbox biometric models only)"
+        verification: "reported"
+      fingerprint_delete_all:
+        hex: "0xFF"
+        target: "characteristic 0xFFC5"
+        direction: "client_to_device"
+        description: "Delete all enrolled fingerprints (Gunbox biometric models only)"
+        verification: "reported"
+        advanced: true
+        advanced_reason: "Irreversibly wipes every enrolled fingerprint from the device; on a gun safe this changes who can open it. No undo except re-enrolling each finger."
+      clock_sync:
+        hex: "uint32 LE seconds since 2000-01-01 local time"
+        target: "characteristic 0x1805/0x2A2B"
+        direction: "client_to_device"
+        description: "Set the lock clock; needed for time-windowed share codes and history timestamps"
+        verification: "reported"
 
-  remaining_unknowns:
-    - "Exact advertised local-name format and where the ',' + type byte sits in the scan record (app parsing is crude: first literal 0x2C byte wins)"
-    - "Password encoding at firmware level (raw hex bytes vs ASCII digits) and whether a factory default password exists"
-    - "History record 8-byte frame layout (type/ID/user/time per the UI format string; offsets not decoded in the app)"
-    - "RFID frame format on 0xFFE1 and tag-ID length"
-    - "Meaning of password-result codes 2 and 3 on 0xFFD7"
-    - "Whether later hardware revisions (post-2017 '2.0' Gunbox hardware) added encryption"
+    remaining_unknowns:
+      - "Exact advertised local-name format and where the ',' + type byte sits in the scan record (app parsing is crude: first literal 0x2C byte wins)"
+      - "Password encoding at firmware level (raw hex bytes vs ASCII digits) and whether a factory default password exists"
+      - "History record 8-byte frame layout (type/ID/user/time per the UI format string; offsets not decoded in the app)"
+      - "RFID frame format on 0xFFE1 and tag-ID length"
+      - "Meaning of password-result codes 2 and 3 on 0xFFD7"
+      - "Whether later hardware revisions (post-2017 '2.0' Gunbox hardware) added encryption"
 
 cloud:
   required: false
@@ -610,22 +609,23 @@ helpful_urls:
     url: "https://web.archive.org/web/2022/https://safetechproducts.com/"
     description: "Last real captures late 2022; site parked/offline from ~Feb 2023. Vendor/product documentation survives only here."
 
-sources:
-  - type: "static_analysis"
-    artifact: "com.itonsoft.safetech v2.0 (versionCode 26, ~2017-02; developer RPH Engineering)"
-    sha256: "23eeaf15ea2d10135556ce1505cd8b70c7b5d82539449560033ab82e59036f9d"
-    obtained_via: "third-party APK mirror, 2026-08 (the Play listing was removed)"
-    description: >
-      Static analysis of the vendor's Android app (2026-08) — a small,
-      unobfuscated ~2017-era build wrapping the OEM lock SDK. Source of the
-      session flow, the GATT plumbing and the service/characteristic UUID
-      constants.
-  - type: "public_research"
-    url: "https://defcon.org/html/defcon-24/dc-24-speakers.html"
-    description: "DEF CON 24 'Picking Bluetooth Low Energy Locks from a Quarter Mile Away' (Rose/Ramsey 2016) — Quicklock family tested; cleartext static-password weakness demonstrated"
-  - type: "vendor_archive"
-    url: "https://web.archive.org/web/2022/https://safetechproducts.com/"
-    description: "Vendor site, last real capture 2022-11; parked/offline since ~Feb 2023. thequicklock.com / thegunbox.com likewise dead."
-  - type: "assigned_numbers"
-    url: "https://www.bluetooth.com/specifications/assigned-numbers/"
-    description: "Bluetooth SIG company ID 0x04CD = Safetech Products LLC"
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.itonsoft.safetech v2.0 (versionCode 26, ~2017-02; developer RPH Engineering)"
+      sha256: "23eeaf15ea2d10135556ce1505cd8b70c7b5d82539449560033ab82e59036f9d"
+      obtained_via: "third-party APK mirror, 2026-08 (the Play listing was removed)"
+      description: >
+        Static analysis of the vendor's Android app (2026-08) — a small,
+        unobfuscated ~2017-era build wrapping the OEM lock SDK. Source of the
+        session flow, the GATT plumbing and the service/characteristic UUID
+        constants.
+    - type: "public_research"
+      url: "https://defcon.org/html/defcon-24/dc-24-speakers.html"
+      description: "DEF CON 24 'Picking Bluetooth Low Energy Locks from a Quarter Mile Away' (Rose/Ramsey 2016) — Quicklock family tested; cleartext static-password weakness demonstrated"
+    - type: "vendor_archive"
+      url: "https://web.archive.org/web/2022/https://safetechproducts.com/"
+      description: "Vendor site, last real capture 2022-11; parked/offline since ~Feb 2023. thequicklock.com / thegunbox.com likewise dead."
+    - type: "assigned_numbers"
+      url: "https://www.bluetooth.com/specifications/assigned-numbers/"
+      description: "Bluetooth SIG company ID 0x04CD = Safetech Products LLC"

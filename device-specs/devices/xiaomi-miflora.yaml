@@ -213,7 +213,7 @@ services:
             length: 2
             name: "temperature"
             type: "int16"
-            unit: "°C"
+            unit: "C"
             scale: 0.1
             endianness: "little"
           - offset: 3
@@ -338,14 +338,14 @@ services:
             length: 4
             name: "device_time_seconds"
             type: "uint32"
-            unit: "seconds"
+            unit: "s"
             endianness: "little"
 
 entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
-    unit: "°C"
+    unit: "C"
     state_characteristic: "00001a01-0000-1000-8000-00805f9b34fb"
     state_mapping:
       value: "temperature"

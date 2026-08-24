@@ -221,126 +221,145 @@ helpful_urls:
   - title: "pylgtv — the original Python client (archived 2019); where the open implementations converge"
     url: "https://github.com/TheRealLink/pylgtv"
 
-# Everything needed to build an SSAP session byte for byte, in the role
-# ecp_common plays for Roku and soap_common for Wemo.
-webos_common:
-  transport: "WebSocket"
-  connection:
-    description: >
-      One TCP port, two spellings: ws://<ip>:3000 is the original listener
-      and what older firmware expects; wss://<ip>:3001 is the TLS listener
-      late firmware demands. aiowebostv's rule — try plain ws on 3000, and
-      on connection refusal or a rejected upgrade fall back to wss on 3001 —
-      is the one to copy. The 3001 certificate is self-signed; clients
-      disable verification (aiowebostv passes ssl=False), so TLS here buys
-      obfuscation, not authentication — authentication is the client-key.
-      WebSocket-level ping/pong heartbeat (~5s) keeps the session up.
-    url_plain: "ws://<ip>:3000"
-    url_tls: "wss://<ip>:3001"
-  handshake:
-    description: >
-      The first frames on a fresh socket, in aiowebostv's order. (1) hello:
-      {"id":"hello","type":"hello","payload":{}} — the TV answers type
-      "hello" with protocol metadata (and a deviceUUID). (2) A pre-
-      registration ssap://system/getSystemInfo request, which newer webOS
-      versions require before registration and older ones simply tolerate.
-      (3) register: {"id":"register_0","type":"register","payload":{...}} —
-      the payload below, plus "client-key": <stored key> once paired (null
-      or absent before). With pairingType PROMPT and no valid key the TV
-      shows an on-screen accept prompt; the register first answers type
-      "response" echoing the pairingType, then — only if the user accepts —
-      a second message of type "registered" whose payload carries the
-      client-key. A declined or timed-out prompt answers type "error".
-    register_payload:
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # Everything needed to build an SSAP session byte for byte, in the role
+  # ecp_common plays for Roku and soap_common for Wemo.
+  webos_common:
+    transport: "WebSocket"
+    transport_gap: >
+      NOT SUPPORTED by the reference app today: its command transports are
+      "http" and "soap", and webOS control is two persistent WebSockets with a
+      user-consent handshake between them. A client must implement RFC 6455
+      (including TLS against the self-signed certificate on 3001, which late
+      firmware requires), the hello / getSystemInfo / register sequence,
+      capture and reuse of the client-key the TV returns only after the viewer
+      accepts an on-screen prompt, and then a SECOND socket obtained from
+      ssap://com.webos.service.networkinput/getPointerInputSocket carrying
+      plain-text key:value frames rather than JSON — which is where every
+      button in this catalogue is actually delivered.
+
+      Recorded here so the gap is a documented fact with a shape rather than
+      an absence a reader has to infer from commands that never fire. Samsung
+      records the same thing at samsung_remote_common.transport_gap; the two
+      TVs are waiting on one piece of consumer-side work.
+    connection:
       description: >
-        The exact registration payload every open client sends (aiowebostv
-        handshake.py, identical in ancestry to Connect SDK's). The `signed`
-        block is boilerplate — the same static appId and RSA signature in
-        every client since Connect SDK; the TV does not validate it against
-        any store. The permissions list is what the TV enforces later: an
-        SSAP call outside it answers "401 insufficient permissions".
-      example: |
-        {
-          "forcePairing": false,
-          "pairingType": "PROMPT",
-          "manifest": {
-            "manifestVersion": 1,
-            "appVersion": "1.1",
-            "permissions": [
-              "LAUNCH", "LAUNCH_WEBAPP", "APP_TO_APP", "CLOSE",
-              "TEST_OPEN", "TEST_PROTECTED", "CONTROL_AUDIO",
-              "CONTROL_DISPLAY", "CONTROL_INPUT_JOYSTICK",
-              "CONTROL_INPUT_MEDIA_RECORDING", "CONTROL_INPUT_MEDIA_PLAYBACK",
-              "CONTROL_INPUT_TV", "CONTROL_POWER", "CONTROL_TV_SCREEN",
-              "READ_APP_STATUS", "READ_CURRENT_CHANNEL",
-              "READ_INPUT_DEVICE_LIST", "READ_NETWORK_STATE",
-              "READ_RUNNING_APPS", "READ_TV_CHANNEL_LIST",
-              "WRITE_NOTIFICATION_TOAST", "READ_POWER_STATE",
-              "READ_COUNTRY_INFO", "CONTROL_INPUT_TEXT",
-              "CONTROL_MOUSE_AND_KEYBOARD", "READ_INSTALLED_APPS",
-              "READ_SETTINGS"
-            ],
-            "signed": {
-              "appId": "com.lge.test",
-              "created": "20140509",
-              "vendorId": "com.lge",
-              "localizedAppNames": {"": "LG Remote App"},
-              "localizedVendorNames": {"": "LG Electronics"},
-              "permissions": ["TEST_SECURE", "CONTROL_INPUT_TEXT", "..."],
-              "serial": "2f930e2d2cfe083771f68e4fe7bb07"
-            },
-            "signatures": [{"signatureVersion": 1, "signature": "<static Connect SDK signature; copy from aiowebostv handshake.py>"}]
+        One TCP port, two spellings: ws://<ip>:3000 is the original listener
+        and what older firmware expects; wss://<ip>:3001 is the TLS listener
+        late firmware demands. aiowebostv's rule — try plain ws on 3000, and
+        on connection refusal or a rejected upgrade fall back to wss on 3001 —
+        is the one to copy. The 3001 certificate is self-signed; clients
+        disable verification (aiowebostv passes ssl=False), so TLS here buys
+        obfuscation, not authentication — authentication is the client-key.
+        WebSocket-level ping/pong heartbeat (~5s) keeps the session up.
+      url_plain: "ws://<ip>:3000"
+      url_tls: "wss://<ip>:3001"
+    handshake:
+      description: >
+        The first frames on a fresh socket, in aiowebostv's order. (1) hello:
+        {"id":"hello","type":"hello","payload":{}} — the TV answers type
+        "hello" with protocol metadata (and a deviceUUID). (2) A pre-
+        registration ssap://system/getSystemInfo request, which newer webOS
+        versions require before registration and older ones simply tolerate.
+        (3) register: {"id":"register_0","type":"register","payload":{...}} —
+        the payload below, plus "client-key": <stored key> once paired (null
+        or absent before). With pairingType PROMPT and no valid key the TV
+        shows an on-screen accept prompt; the register first answers type
+        "response" echoing the pairingType, then — only if the user accepts —
+        a second message of type "registered" whose payload carries the
+        client-key. A declined or timed-out prompt answers type "error".
+      register_payload:
+        description: >
+          The exact registration payload every open client sends (aiowebostv
+          handshake.py, identical in ancestry to Connect SDK's). The `signed`
+          block is boilerplate — the same static appId and RSA signature in
+          every client since Connect SDK; the TV does not validate it against
+          any store. The permissions list is what the TV enforces later: an
+          SSAP call outside it answers "401 insufficient permissions".
+        example: |
+          {
+            "forcePairing": false,
+            "pairingType": "PROMPT",
+            "manifest": {
+              "manifestVersion": 1,
+              "appVersion": "1.1",
+              "permissions": [
+                "LAUNCH", "LAUNCH_WEBAPP", "APP_TO_APP", "CLOSE",
+                "TEST_OPEN", "TEST_PROTECTED", "CONTROL_AUDIO",
+                "CONTROL_DISPLAY", "CONTROL_INPUT_JOYSTICK",
+                "CONTROL_INPUT_MEDIA_RECORDING", "CONTROL_INPUT_MEDIA_PLAYBACK",
+                "CONTROL_INPUT_TV", "CONTROL_POWER", "CONTROL_TV_SCREEN",
+                "READ_APP_STATUS", "READ_CURRENT_CHANNEL",
+                "READ_INPUT_DEVICE_LIST", "READ_NETWORK_STATE",
+                "READ_RUNNING_APPS", "READ_TV_CHANNEL_LIST",
+                "WRITE_NOTIFICATION_TOAST", "READ_POWER_STATE",
+                "READ_COUNTRY_INFO", "CONTROL_INPUT_TEXT",
+                "CONTROL_MOUSE_AND_KEYBOARD", "READ_INSTALLED_APPS",
+                "READ_SETTINGS"
+              ],
+              "signed": {
+                "appId": "com.lge.test",
+                "created": "20140509",
+                "vendorId": "com.lge",
+                "localizedAppNames": {"": "LG Remote App"},
+                "localizedVendorNames": {"": "LG Electronics"},
+                "permissions": ["TEST_SECURE", "CONTROL_INPUT_TEXT", "..."],
+                "serial": "2f930e2d2cfe083771f68e4fe7bb07"
+              },
+              "signatures": [{"signatureVersion": 1, "signature": "<static Connect SDK signature; copy from aiowebostv handshake.py>"}]
+            }
           }
-        }
-  request_format:
-    description: >
-      After registration, every command is one JSON text frame:
-      {"id": <int>, "type": "request", "uri": "ssap://<service>/<method>",
-      "payload": {...}}. id is a client-chosen integer that matches request
-      to response; payload is {} when the URI takes no arguments. type is
-      "subscribe" instead of "request" for live state — the TV then keeps
-      pushing type "response" frames on the same id until "unsubscribe".
-      In `commands` below, `action` is the uri (minus the ssap:// prefix's
-      scheme — it is spelled in full anyway) and `arguments` is the payload.
-    example: '{"id": 12, "type": "request", "uri": "ssap://audio/volumeUp", "payload": {}}'
-  response_format:
-    description: >
-      Success: {"id": <same>, "type": "response", "payload": {"returnValue":
-      true, ...}} with the result fields beside returnValue (volumeUp has
-      none; listLaunchPoints adds "launchPoints": [{"id": "netflix",
-      "title": "Netflix", ...}]). Failure: type "error" with an error
-      string — "404 no such service or method" (URI absent on this
-      firmware), "401 insufficient permissions" (outside the manifest),
-      "500 Application error". Treat a missing URI as capability absent,
-      not as connection failure.
-  input_channel:
-    description: >
-      Remote-button presses do NOT go over SSAP. Request
-      ssap://com.webos.service.networkinput/getPointerInputSocket on the
-      main socket; the response payload's socketPath is a second WebSocket
-      URL on the same ports. Open it and send plain-text frames (not JSON),
-      key:value lines terminated by a blank line:
-      'type:button\nname:HOME\n\n' for a button,
-      'type:move\ndx:5\ndy:0\ndown:0\n\n' for pointer motion,
-      'type:click\n\n' and 'type:scroll\ndx:0\ndy:-120\n\n' for the Magic
-      Remote's pointer. Known button names (openHAB's list, compiled by
-      trial across models): LEFT RIGHT UP DOWN ENTER (the OK button) BACK
-      EXIT HOME INFO, the digits 0-9 spelled as themselves, RED GREEN
-      YELLOW BLUE, PLAY PAUSE STOP. The socket is accepted but inert on the
-      earliest webOS 1.x sets (2014-2015, UF series and earlier) — a
-      firmware limitation, not a client bug; on those models only the SSAP
-      commands work.
-    button_frame_template: 'type:button\nname:{button}\n\n'
-  power:
-    off: "ssap://system/turnOff — a normal request frame; the TV drops the socket as it shuts down, so do not wait for the response."
-    on: >
-      There is no network power-on: ssap://system/turnOn is listed by
-      bscpylgtv among the URIs firmware removed. Wake is Wake-on-LAN — a
-      magic packet to the subnet broadcast — and it is gated on the TV:
-      Settings > General > Mobile TV On > Turn On Via WiFi on 2017+
-      models, Settings > Support > IP control settings > Wake on LAN on
-      2025+ models; it works most reliably over Ethernet. Capture the MAC
-      from the SSDP description or the TV's network info while it is on.
+    request_format:
+      description: >
+        After registration, every command is one JSON text frame:
+        {"id": <int>, "type": "request", "uri": "ssap://<service>/<method>",
+        "payload": {...}}. id is a client-chosen integer that matches request
+        to response; payload is {} when the URI takes no arguments. type is
+        "subscribe" instead of "request" for live state — the TV then keeps
+        pushing type "response" frames on the same id until "unsubscribe".
+        In `commands` below, `action` is the uri (minus the ssap:// prefix's
+        scheme — it is spelled in full anyway) and `arguments` is the payload.
+      example: '{"id": 12, "type": "request", "uri": "ssap://audio/volumeUp", "payload": {}}'
+    response_format:
+      description: >
+        Success: {"id": <same>, "type": "response", "payload": {"returnValue":
+        true, ...}} with the result fields beside returnValue (volumeUp has
+        none; listLaunchPoints adds "launchPoints": [{"id": "netflix",
+        "title": "Netflix", ...}]). Failure: type "error" with an error
+        string — "404 no such service or method" (URI absent on this
+        firmware), "401 insufficient permissions" (outside the manifest),
+        "500 Application error". Treat a missing URI as capability absent,
+        not as connection failure.
+    input_channel:
+      description: >
+        Remote-button presses do NOT go over SSAP. Request
+        ssap://com.webos.service.networkinput/getPointerInputSocket on the
+        main socket; the response payload's socketPath is a second WebSocket
+        URL on the same ports. Open it and send plain-text frames (not JSON),
+        key:value lines terminated by a blank line:
+        'type:button\nname:HOME\n\n' for a button,
+        'type:move\ndx:5\ndy:0\ndown:0\n\n' for pointer motion,
+        'type:click\n\n' and 'type:scroll\ndx:0\ndy:-120\n\n' for the Magic
+        Remote's pointer. Known button names (openHAB's list, compiled by
+        trial across models): LEFT RIGHT UP DOWN ENTER (the OK button) BACK
+        EXIT HOME INFO, the digits 0-9 spelled as themselves, RED GREEN
+        YELLOW BLUE, PLAY PAUSE STOP. The socket is accepted but inert on the
+        earliest webOS 1.x sets (2014-2015, UF series and earlier) — a
+        firmware limitation, not a client bug; on those models only the SSAP
+        commands work.
+      button_frame_template: 'type:button\nname:{button}\n\n'
+    power:
+      off: "ssap://system/turnOff — a normal request frame; the TV drops the socket as it shuts down, so do not wait for the response."
+      on: >
+        There is no network power-on: ssap://system/turnOn is listed by
+        bscpylgtv among the URIs firmware removed. Wake is Wake-on-LAN — a
+        magic packet to the subnet broadcast — and it is gated on the TV:
+        Settings > General > Mobile TV On > Turn On Via WiFi on 2017+
+        models, Settings > Support > IP control settings > Wake on LAN on
+        2025+ models; it works most reliably over Ethernet. Capture the MAC
+        from the SSDP description or the TV's network info while it is on.
 
 # The port marker, in the role lutron-caseta-smart-bridge's "LEAP Service
 # Root" plays: the only HTTP this service speaks is the WebSocket upgrade
@@ -351,6 +370,7 @@ http_endpoints:
   - method: "GET"
     path: "/"
     name: "webOS Second Screen WebSocket"
+    status: "placeholder"
     description: >
       Placeholder for the SSAP service on ports 3000 (ws) and 3001 (wss).
       A plain GET here is only the WebSocket upgrade; every real exchange
@@ -361,6 +381,17 @@ http_endpoints:
 # command is verification "reported" — the URIs and button names are what
 # aiowebostv/bscpylgtv/openHAB ship against production TVs, but nothing here
 # was replayed by this project.
+#
+# NONE OF THESE IS SENDABLE BY THIS PROJECT'S REFERENCE APP TODAY, and that is
+# a separate statement from the verification grade above: "reported" says
+# nobody here confirmed the command works, while this says nobody here can
+# issue it at all. Every command omits `transport` and inherits
+# device.transport "websocket", which the app does not implement — see
+# webos_common.transport_gap for what a client has to build first. Until then
+# a consumer must render these as documentation, not as controls. The entities
+# block below states the same thing on its own side, Power included: nothing
+# here is reachable yet, and the Power switch's one-way off is one-way for a
+# firmware reason ON TOP of being unsendable for a transport reason.
 #
 # Two delivery channels, told apart by `action`:
 #   action: "ssap://..."  — a request frame on the main socket

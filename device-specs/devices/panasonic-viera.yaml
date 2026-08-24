@@ -247,196 +247,199 @@ helpful_urls:
   - title: "uc-intg-panasonicviera — Unfolded Circle integration (second open consumer of this protocol)"
     url: "https://github.com/mase1981/uc-intg-panasonicviera"
 
-# Everything needed to build a Viera NRC request byte for byte, in the role
-# soap_common plays for Wemo. The plain-SOAP shape is standard UPnP control;
-# the 2019+ encrypted session is where the work is, and it is documented
-# below in full because no consumer will find it anywhere but the library
-# source.
-nrc_common:
-  transport: "HTTP POST"
-  port: 55000
-  content_type: "text/xml; charset=utf-8"
-  soapaction_format: "\"urn:<serviceType>#<Action>\""
-  request_format:
-    description: >
-      Everything needed to build a plain (pre-2019) Viera SOAP request byte
-      for byte. All NRC actions go to one URL; the action is chosen by the
-      SOAPACTION header and the body's action element.
-    http:
-      method: "POST"
-      url: "http://<ip>:55000/nrc/control_0"
-      headers:
-        Host: "<ip>:55000"
-        Content-Type: "text/xml; charset=utf-8"
-        SOAPACTION: "\"urn:panasonic-com:service:p00NetworkControl:1#<Action>\"  (literal double quotes are part of the value)"
-    argument_qualification: >
-      Action arguments are UNQUALIFIED: send <X_KeyEvent>...</X_KeyEvent>,
-      with the xmlns:u declared ON THE ACTION ELEMENT. Same convention as
-      Wemo, and the same XML-library caveat applies.
-    template: |
-      <?xml version="1.0" encoding="utf-8"?>
-      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-      <s:Body>
-      <u:{action} xmlns:u="urn:{serviceType}">
-      {arguments}
-      </u:{action}>
-      </s:Body>
-      </s:Envelope>
-    example:
-      description: "X_SendKey pressing the Home key, as it goes on the wire."
-      body: |
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # Everything needed to build a Viera NRC request byte for byte, in the role
+  # soap_common plays for Wemo. The plain-SOAP shape is standard UPnP control;
+  # the 2019+ encrypted session is where the work is, and it is documented
+  # below in full because no consumer will find it anywhere but the library
+  # source.
+  nrc_common:
+    transport: "HTTP POST"
+    port: 55000
+    content_type: "text/xml; charset=utf-8"
+    soapaction_format: "\"urn:<serviceType>#<Action>\""
+    request_format:
+      description: >
+        Everything needed to build a plain (pre-2019) Viera SOAP request byte
+        for byte. All NRC actions go to one URL; the action is chosen by the
+        SOAPACTION header and the body's action element.
+      http:
+        method: "POST"
+        url: "http://<ip>:55000/nrc/control_0"
+        headers:
+          Host: "<ip>:55000"
+          Content-Type: "text/xml; charset=utf-8"
+          SOAPACTION: "\"urn:panasonic-com:service:p00NetworkControl:1#<Action>\"  (literal double quotes are part of the value)"
+      argument_qualification: >
+        Action arguments are UNQUALIFIED: send <X_KeyEvent>...</X_KeyEvent>,
+        with the xmlns:u declared ON THE ACTION ELEMENT. Same convention as
+        Wemo, and the same XML-library caveat applies.
+      template: |
         <?xml version="1.0" encoding="utf-8"?>
         <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
         <s:Body>
-        <u:X_SendKey xmlns:u="urn:panasonic-com:service:p00NetworkControl:1">
-        <X_KeyEvent>NRC_HOME-ONOFF</X_KeyEvent>
-        </u:X_SendKey>
+        <u:{action} xmlns:u="urn:{serviceType}">
+        {arguments}
+        </u:{action}>
         </s:Body>
         </s:Envelope>
-  response_format:
-    description: >
-      Standard UPnP SOAP: the Body's single child is <Action>Response, its
-      children the named return values (X_GetVectorInfo answers
-      X_NewVectorInfo, X_GetAppList answers X_AppList). A Body child named
-      Fault is an error; the TV answers HTTP 500 with an errorCode element
-      (600 = invalid PIN during pairing).
-    parse_rule: "envelope -> Body -> first child -> {child.tag: child.text}"
-    errors:
-      http_500_soap_fault: >
-        Error responses are HTTP 500 carrying a SOAP Fault with errorCode and
-        errorDescription elements — do not treat the HTTP status alone as a
-        transport failure.
-  services:
-    nrc:
-      service_type: "urn:panasonic-com:service:p00NetworkControl:1"
-      control_url: "/nrc/control_0"
-      scpd_url: "/nrc/sdd_0.xml"
-      device_description_url: "/nrc/ddd.xml"
-      actions:
-        - "X_SendKey"
-        - "X_RemoteControl"
-        - "X_GetVectorInfo"
-        - "X_GetAppList"
-        - "X_LaunchApp"
-        - "X_ConnectApp"
-        - "X_GetEncryptSessionId"
-        - "X_DisplayPinCode"
-        - "X_RequestAuth"
-        - "X_EncryptedCommand"
-      notes: >
-        X_SendKey and X_RemoteControl both take <X_KeyEvent>NRC_*-ONOFF</X_KeyEvent>
-        and press a key; different firmware generations expose one, the other,
-        or both — the panasonic-viera library sends X_SendKey, older community
-        write-ups use X_RemoteControl. Take the real action list from the
-        set's own SCPD at /nrc/sdd_0.xml rather than assuming either. The
-        X_GetEncryptSessionId/X_DisplayPinCode/X_RequestAuth/X_EncryptedCommand
-        quartet appears only on the 2019+ encrypted generation.
-    dmr:
-      service_type: "urn:schemas-upnp-org:service:RenderingControl:1"
-      control_url: "/dmr/control_0"
-      actions:
-        - "GetVolume"
-        - "SetVolume"
-        - "GetMute"
-        - "SetMute"
-      notes: >
-        A standard UPnP AV RenderingControl endpoint: absolute volume 0-100
-        and boolean mute on InstanceID 0, Channel Master. Useful alongside
-        the NRC step keys because it can READ the level back.
-  encrypted_session:
-    applies_to: >
-      Sets whose /nrc/sdd_0.xml actionList contains X_GetEncryptSessionId —
-      circa 2019 and later (FZ/GZ/HZ/JZ and onward). Detect at runtime exactly
-      this way; do not guess from the model string.
-    transport_gap: >
-      NOT SUPPORTED by the reference app's `soap` transport today: the
-      transport renders plain envelopes, while this generation needs AES-128-CBC
-      encryption, HMAC-SHA-256, base64, a persistent sequence counter and
-      stored credentials around every NRC command. A consumer must implement
-      the flow below as a wrapper around the same SOAP POST; the DMR volume
-      service stays plain and works on both generations.
-    payload_encoding: >
-      Every encrypted argument shares one encoding, used in both directions.
-      Plaintext: a 16-byte header (12 random bytes, then the 4-byte big-endian
-      length of the following XML fragment) followed by the XML fragment
-      itself, zero-padded to a multiple of 16 bytes. Encrypt with AES-128-CBC
-      (zero padding, i.e. none added beyond the zero pad). Append the
-      HMAC-SHA-256 of the ciphertext, keyed with the HMAC key. Base64 the
-      concatenation — that string is what rides inside the XML argument.
-      Decryption reverses it: base64-decode, split off the trailing 32-byte
-      HMAC, AES-decrypt, skip the 16-byte header, cut at the first NUL.
-    pairing:
+      example:
+        description: "X_SendKey pressing the Home key, as it goes on the wire."
+        body: |
+          <?xml version="1.0" encoding="utf-8"?>
+          <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+          <u:X_SendKey xmlns:u="urn:panasonic-com:service:p00NetworkControl:1">
+          <X_KeyEvent>NRC_HOME-ONOFF</X_KeyEvent>
+          </u:X_SendKey>
+          </s:Body>
+          </s:Envelope>
+    response_format:
       description: >
-        One-time. Yields the two credentials device.setup.credentials.issued_to_client
-        names; store both and never pair again unless they are lost.
-      steps:
-        - action: >
-            Send X_DisplayPinCode with argument <X_DeviceName>{client name}</X_DeviceName>.
-            The TV overlays a 4-digit PIN on its screen. Response carries
-            X_ChallengeKey, base64 of a 16-byte challenge — this challenge IS
-            the pairing IV.
-          actor: "client"
-        - action: "Read the 4-digit PIN off the TV screen and hand it to the client."
-          actor: "user"
-        - action: >
-            Derive the pairing keys from the challenge IV. AES key: process
-            the IV in 4-byte groups, emitting each group REVERSED and with
-            each byte bitwise-NOTed (key[4g..4g+3] = ~iv[4g+3], ~iv[4g+2],
-            ~iv[4g+1], ~iv[4g]). HMAC key (32 bytes): the constant mask
-            15 C9 5A C2 B0 8A A7 EB 4E 22 8F 81 1E 34 D0 4F A5 4B A7 DC AC
-            98 79 FA 8A CD A3 FC 24 4F 38 54 XORed against the IV with a
-            per-position rotation, exactly as panasonic-viera's
-            authorize_pin_code implements it: stepping i by 4, hmac[i] =
-            mask[i] XOR iv[(i+2)&0xF], hmac[i+1] = mask[i+1] XOR
-            iv[(i+3)&0xF], hmac[i+2] = mask[i+2] XOR iv[i&0xF], hmac[i+3] =
-            mask[i+3] XOR iv[(i+1)&0xF]. Encrypt
-            "<X_PinCode>{pin}</X_PinCode>" per payload_encoding and send it as
-            <X_AuthInfo>{encrypted}</X_AuthInfo> to X_RequestAuth.
-          actor: "client"
-          expect: "HTTP 500 / errorCode 600 means a wrong PIN."
-        - action: >
-            Decrypt the X_AuthResult return value with the same pairing keys;
-            inside is <X_ApplicationId> and <X_Keyword>. Store both. The
-            keyword is base64 of 16 bytes that anchor every later session.
-          actor: "client"
-    session:
-      description: >
-        Run once per client process start (credentials already stored).
-      steps:
-        - action: >
-            Derive the session keys from base64-decoded X_Keyword. IV: the
-            keyword bytes themselves. AES key: each 4-byte group SWAPPED in
-            pairs (key[4g..4g+3] = iv[4g+2], iv[4g+3], iv[4g], iv[4g+1]) — no
-            NOT this time; the pairing and session derivations differ and
-            mixing them up is the classic implementation bug. HMAC key: the IV
-            bytes concatenated twice (32 bytes).
-          actor: "client"
-        - action: >
-            Encrypt "<X_ApplicationId>{app_id}</X_ApplicationId>" with the
-            session keys and send X_GetEncryptSessionId with
-            <X_ApplicationId>{app_id}</X_ApplicationId><X_EncInfo>{encrypted}</X_EncInfo>.
-            Decrypt the X_EncResult reply; inside is <X_SessionId>.
-          actor: "client"
-        - action: >
-            Set a per-session sequence counter to 1. It increments on every
-            successful command and rolls nothing back on transport errors
-            (panasonic-viera decrements it again if the POST itself fails).
-          actor: "client"
-    command_envelope:
-      description: >
-        How every NRC command (X_SendKey, X_GetVectorInfo, X_LaunchApp, ...)
-        travels on an encrypted set. The three pairing/session actions above
-        are the only ones sent plain.
-      template: >
-        Build "<X_SessionId>{session_id}</X_SessionId>" +
-        "<X_SequenceNumber>{seq as 8-digit zero-padded decimal}</X_SequenceNumber>" +
-        "<X_OriginalCommand><u:{action} xmlns:u=\"urn:panasonic-com:service:p00NetworkControl:1\">{arguments}</u:{action}></X_OriginalCommand>",
-        encrypt it per payload_encoding with the session keys, then send the
-        plain action X_EncryptedCommand with arguments
-        <X_ApplicationId>{app_id}</X_ApplicationId><X_EncInfo>{encrypted}</X_EncInfo>.
-        The reply's X_EncResult decrypts the same way and contains the
-        command's real <Action>Response fragment.
-    evidence: "reported — panasonic-viera remote_control.py and the LogicMachine Lua port agree byte for byte; the mask constant comes from the official app's libtvconnect.so (panasonic-viera issue #9)."
+        Standard UPnP SOAP: the Body's single child is <Action>Response, its
+        children the named return values (X_GetVectorInfo answers
+        X_NewVectorInfo, X_GetAppList answers X_AppList). A Body child named
+        Fault is an error; the TV answers HTTP 500 with an errorCode element
+        (600 = invalid PIN during pairing).
+      parse_rule: "envelope -> Body -> first child -> {child.tag: child.text}"
+      errors:
+        http_500_soap_fault: >
+          Error responses are HTTP 500 carrying a SOAP Fault with errorCode and
+          errorDescription elements — do not treat the HTTP status alone as a
+          transport failure.
+    services:
+      nrc:
+        service_type: "urn:panasonic-com:service:p00NetworkControl:1"
+        control_url: "/nrc/control_0"
+        scpd_url: "/nrc/sdd_0.xml"
+        device_description_url: "/nrc/ddd.xml"
+        actions:
+          - "X_SendKey"
+          - "X_RemoteControl"
+          - "X_GetVectorInfo"
+          - "X_GetAppList"
+          - "X_LaunchApp"
+          - "X_ConnectApp"
+          - "X_GetEncryptSessionId"
+          - "X_DisplayPinCode"
+          - "X_RequestAuth"
+          - "X_EncryptedCommand"
+        notes: >
+          X_SendKey and X_RemoteControl both take <X_KeyEvent>NRC_*-ONOFF</X_KeyEvent>
+          and press a key; different firmware generations expose one, the other,
+          or both — the panasonic-viera library sends X_SendKey, older community
+          write-ups use X_RemoteControl. Take the real action list from the
+          set's own SCPD at /nrc/sdd_0.xml rather than assuming either. The
+          X_GetEncryptSessionId/X_DisplayPinCode/X_RequestAuth/X_EncryptedCommand
+          quartet appears only on the 2019+ encrypted generation.
+      dmr:
+        service_type: "urn:schemas-upnp-org:service:RenderingControl:1"
+        control_url: "/dmr/control_0"
+        actions:
+          - "GetVolume"
+          - "SetVolume"
+          - "GetMute"
+          - "SetMute"
+        notes: >
+          A standard UPnP AV RenderingControl endpoint: absolute volume 0-100
+          and boolean mute on InstanceID 0, Channel Master. Useful alongside
+          the NRC step keys because it can READ the level back.
+    encrypted_session:
+      applies_to: >
+        Sets whose /nrc/sdd_0.xml actionList contains X_GetEncryptSessionId —
+        circa 2019 and later (FZ/GZ/HZ/JZ and onward). Detect at runtime exactly
+        this way; do not guess from the model string.
+      transport_gap: >
+        NOT SUPPORTED by the reference app's `soap` transport today: the
+        transport renders plain envelopes, while this generation needs AES-128-CBC
+        encryption, HMAC-SHA-256, base64, a persistent sequence counter and
+        stored credentials around every NRC command. A consumer must implement
+        the flow below as a wrapper around the same SOAP POST; the DMR volume
+        service stays plain and works on both generations.
+      payload_encoding: >
+        Every encrypted argument shares one encoding, used in both directions.
+        Plaintext: a 16-byte header (12 random bytes, then the 4-byte big-endian
+        length of the following XML fragment) followed by the XML fragment
+        itself, zero-padded to a multiple of 16 bytes. Encrypt with AES-128-CBC
+        (zero padding, i.e. none added beyond the zero pad). Append the
+        HMAC-SHA-256 of the ciphertext, keyed with the HMAC key. Base64 the
+        concatenation — that string is what rides inside the XML argument.
+        Decryption reverses it: base64-decode, split off the trailing 32-byte
+        HMAC, AES-decrypt, skip the 16-byte header, cut at the first NUL.
+      pairing:
+        description: >
+          One-time. Yields the two credentials device.setup.credentials.issued_to_client
+          names; store both and never pair again unless they are lost.
+        steps:
+          - action: >
+              Send X_DisplayPinCode with argument <X_DeviceName>{client name}</X_DeviceName>.
+              The TV overlays a 4-digit PIN on its screen. Response carries
+              X_ChallengeKey, base64 of a 16-byte challenge — this challenge IS
+              the pairing IV.
+            actor: "client"
+          - action: "Read the 4-digit PIN off the TV screen and hand it to the client."
+            actor: "user"
+          - action: >
+              Derive the pairing keys from the challenge IV. AES key: process
+              the IV in 4-byte groups, emitting each group REVERSED and with
+              each byte bitwise-NOTed (key[4g..4g+3] = ~iv[4g+3], ~iv[4g+2],
+              ~iv[4g+1], ~iv[4g]). HMAC key (32 bytes): the constant mask
+              15 C9 5A C2 B0 8A A7 EB 4E 22 8F 81 1E 34 D0 4F A5 4B A7 DC AC
+              98 79 FA 8A CD A3 FC 24 4F 38 54 XORed against the IV with a
+              per-position rotation, exactly as panasonic-viera's
+              authorize_pin_code implements it: stepping i by 4, hmac[i] =
+              mask[i] XOR iv[(i+2)&0xF], hmac[i+1] = mask[i+1] XOR
+              iv[(i+3)&0xF], hmac[i+2] = mask[i+2] XOR iv[i&0xF], hmac[i+3] =
+              mask[i+3] XOR iv[(i+1)&0xF]. Encrypt
+              "<X_PinCode>{pin}</X_PinCode>" per payload_encoding and send it as
+              <X_AuthInfo>{encrypted}</X_AuthInfo> to X_RequestAuth.
+            actor: "client"
+            expect: "HTTP 500 / errorCode 600 means a wrong PIN."
+          - action: >
+              Decrypt the X_AuthResult return value with the same pairing keys;
+              inside is <X_ApplicationId> and <X_Keyword>. Store both. The
+              keyword is base64 of 16 bytes that anchor every later session.
+            actor: "client"
+      session:
+        description: >
+          Run once per client process start (credentials already stored).
+        steps:
+          - action: >
+              Derive the session keys from base64-decoded X_Keyword. IV: the
+              keyword bytes themselves. AES key: each 4-byte group SWAPPED in
+              pairs (key[4g..4g+3] = iv[4g+2], iv[4g+3], iv[4g], iv[4g+1]) — no
+              NOT this time; the pairing and session derivations differ and
+              mixing them up is the classic implementation bug. HMAC key: the IV
+              bytes concatenated twice (32 bytes).
+            actor: "client"
+          - action: >
+              Encrypt "<X_ApplicationId>{app_id}</X_ApplicationId>" with the
+              session keys and send X_GetEncryptSessionId with
+              <X_ApplicationId>{app_id}</X_ApplicationId><X_EncInfo>{encrypted}</X_EncInfo>.
+              Decrypt the X_EncResult reply; inside is <X_SessionId>.
+            actor: "client"
+          - action: >
+              Set a per-session sequence counter to 1. It increments on every
+              successful command and rolls nothing back on transport errors
+              (panasonic-viera decrements it again if the POST itself fails).
+            actor: "client"
+      command_envelope:
+        description: >
+          How every NRC command (X_SendKey, X_GetVectorInfo, X_LaunchApp, ...)
+          travels on an encrypted set. The three pairing/session actions above
+          are the only ones sent plain.
+        template: >
+          Build "<X_SessionId>{session_id}</X_SessionId>" +
+          "<X_SequenceNumber>{seq as 8-digit zero-padded decimal}</X_SequenceNumber>" +
+          "<X_OriginalCommand><u:{action} xmlns:u=\"urn:panasonic-com:service:p00NetworkControl:1\">{arguments}</u:{action}></X_OriginalCommand>",
+          encrypt it per payload_encoding with the session keys, then send the
+          plain action X_EncryptedCommand with arguments
+          <X_ApplicationId>{app_id}</X_ApplicationId><X_EncInfo>{encrypted}</X_EncInfo>.
+          The reply's X_EncResult decrypts the same way and contains the
+          command's real <Action>Response fragment.
+      evidence: "reported — panasonic-viera remote_control.py and the LogicMachine Lua port agree byte for byte; the mask constant comes from the official app's libtvconnect.so (panasonic-viera issue #9)."
 
 # The action catalogue: what exists on the TV, what each takes and returns.
 # All POSTs are SOAP to the control URL in `path` (envelope per

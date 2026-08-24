@@ -30,7 +30,6 @@ device:
   protocol: "wifi"
   category: "other"
   pictogram: "phone"
-  transport: "mdns"
   integration: "identify_only"
   notes: >
     Android 11 and later advertise their Wireless Debugging (wireless ADB)
@@ -134,12 +133,12 @@ device:
         (the 6-digit code or QR) is between the phone and whatever debugging
         host the user chooses — not this app.
 
-  local_access:
-    status: native
-    summary: >
-      The device is locally reachable over wireless ADB by any adb host on the
-      LAN once paired — deliberately out of scope here; this project only
-      identifies the device and does not open the debug channel.
+local_access:
+  status: native
+  summary: >
+    The device is locally reachable over wireless ADB by any adb host on the
+    LAN once paired — deliberately out of scope here; this project only
+    identifies the device and does not open the debug channel.
 
 helpful_urls:
   - url: "https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/main/docs/dev/adb_wifi.md"

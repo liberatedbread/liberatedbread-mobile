@@ -28,7 +28,7 @@ device:
     status: untested
   protocol: "wifi"
   category: "tv"
-  transport: "tls-protobuf"
+  transport: "tls"  # protobuf messages on a TLS socket
   notes: >
     The same protocol the Google TV mobile app speaks, served by the Android
     TV Remote Service system app preinstalled on Android TV OS devices. Two
@@ -248,196 +248,199 @@ evidence:
       - "https://www.home-assistant.io/integrations/androidtv/"
       - "https://developer.amazon.com/docs/fire-tv/connecting-adb-to-device.html"
 
-# Everything needed to build a session byte for byte, in the role ecp_common
-# plays for Roku. The consuming app implements none of this today — that is
-# the recorded transport gap — so this block is the deliverable: an accurate
-# statement of what a client must implement.
-androidtv_remote_v2:
-  transport: "TLS + protobuf over TCP"
-  transport_gap: >
-    Not HTTP and not SOAP. A client needs: TLS with peer verification
-    disabled (the server certificate is self-signed and per-device), a client
-    X.509 certificate presented on every connection, protobuf varint
-    length-prefix framing, and the two message vocabularies below. No
-    request/response path structure exists to hang an HTTP mapping on.
-  ports:
-    pairing: 6467
-    session: 6466
-  discovery: >
-    mDNS _androidtvremote2._tcp.local.; the advertisement's SRV target port
-    is the 6466 session port. Pairing uses the same host on 6467; there is no
-    separate advertisement for it.
-  framing: >
-    Every message on both ports is a protobuf varint length prefix followed
-    by that many bytes of serialized protobuf — the google.protobuf internal
-    varint (7 bits per byte, little-endian groups), NOT a fixed-width header
-    and NOT gRPC framing. Messages are not delimited any other way; a TCP
-    read may carry a partial message or several, so the varint is the only
-    reassembly rule (androidtvremote2 base.py).
-  tls:
-    server_certificate: >
-      Self-signed, per-device, presented on both ports. Clients disable peer
-      verification (verify_peer=false) and instead capture the server's
-      public key at pairing time — the pairing secret binds to it, which is
-      the real authentication of the server.
-    client_certificate: >
-      Required on both ports. The client generates an RSA-2048 self-signed
-      certificate once and reuses it forever: androidtvremote2 builds CN=
-      'atvremote', SHA-256 signature, basicConstraints CA:true, ~10-year
-      validity. The certificate IS the credential: after pairing, the TV
-      accepts sessions from certificates it paired with and closes
-      connections from ones it did not.
-  pairing:
-    description: >
-      Port 6467, Google's Polo pairing protocol (the one half of this file
-      with an upstream: AOSP external/google-tv-pairing-protocol). All
-      messages are polo.proto OuterMessage { protocol_version: 2, status:
-      STATUS_OK, ... }. Status is an enum on the wire: 200 STATUS_OK, 400
-      STATUS_ERROR, 401 STATUS_BAD_CONFIGURATION, 402 STATUS_BAD_SECRET.
-    flow:
-      - "Client -> PairingRequest { service_name: 'atvremote', client_name: <shown on the TV during pairing> }."
-      - "Server -> PairingRequestAck { server_name }."
-      - "Client -> Options { output_encodings: [{ type: ENCODING_TYPE_HEXADECIMAL, symbol_length: 6 }], preferred_role: ROLE_TYPE_INPUT }."
-      - "Server -> Options (its own encodings; hex/6 is what TVs answer for code-based pairing)."
-      - "Client -> Configuration { encoding: { type: HEXADECIMAL, symbol_length: 6 }, client_role: ROLE_TYPE_INPUT }."
-      - "Server -> ConfigurationAck. The TV now shows a 6-character hexadecimal code."
-      - "User reads the code off the screen; Client -> Secret { secret }; Server -> SecretAck { secret }. A STATUS_BAD_SECRET means the code was mistyped or expired — restart the exchange."
-    secret: >
-      The code is never sent; what goes on the wire is a SHA-256 digest
-      binding it to both endpoints. From androidtvremote2 pairing.py:
-      sha256( hex_decode(uppercase_hex(client_cert_rsa_modulus))
-              || hex_decode(uppercase_hex('0' + client_cert_rsa_exponent))
-              || hex_decode(uppercase_hex(server_cert_rsa_modulus))
-              || hex_decode(uppercase_hex('0' + server_cert_rsa_exponent))
-              || hex_decode(code[2:6]) ), with the self-check
-      digest[0] == int(code[0:2], 16) — the first byte of the hash must equal
-      the first two hex characters of the code, so the TV can reject a wrong
-      code without another round trip. Modulus/exponent are formatted as
-      uppercase hex WITHOUT leading zero padding before decoding. The
-      community write-up (Aymkdn wiki) states the same construction as
-      BigInteger byte arrays with leading null bytes stripped; the
-      androidtvremote2 form is the one running in production Home Assistant
-      installs.
-    after_pairing: >
-      Close 6467. All later control is a fresh TLS connection to 6466 with
-      the same client certificate, once per command batch or held open for a
-      remote session.
-  session:
-    description: >
-      Port 6466. All messages are remotemessage.proto RemoteMessage, a union
-      of the fields below. On connect the SERVER speaks first.
-    handshake:
-      - "Server -> remote_configure { code1: <feature bitmask>, device_info { model, vendor, package_name, app_version } }. code1 bits (androidtvremote2 Feature): 1 PING, 2 KEY, 4 IME, 8 VOICE, 32 POWER, 64 VOLUME, 512 APP_LINK. device_info is the first place model/vendor identity is available; mDNS does not carry it."
-      - "Client -> remote_configure { code1: <client features masked by the server's>, device_info { unknown1: 1, unknown2: '1', package_name: 'atvremote', app_version: '1.0.0' } }."
-      - "Server -> remote_set_active; Client -> remote_set_active { active: <same masked feature bits> }."
-      - "Server then pushes state, initially and on every change: remote_start { started } = power state; remote_ime_key_inject { app_info { app_package } } = foreground app (only with IME enabled); remote_set_volume_level { volume_level, volume_max, volume_muted }."
-    keepalive: >
-      When idle the server sends remote_ping_request { val1, val2 } roughly
-      every 5 seconds and closes the connection after 3 unanswered pings;
-      the client answers remote_ping_response { val1: <echo> }. androidtvremote2
-      additionally closes its own side after 16 seconds without any traffic,
-      so a command-only client may simply connect, send, and disconnect
-      instead of holding a session.
-    messages:
-      remote_key_inject: >
-        field 10. { key_code: RemoteKeyCode, direction: RemoteDirection } —
-        one injected remote key. Direction SHORT (3) is a complete
-        press+release in one message; a long press is START_LONG (1),
-        wait, END_LONG (2). The keycode enum is the Android KeyEvent table
-        (KEYCODE_HOME=3, BACK=4, DPAD_UP=19..DPAD_CENTER=23,
-        VOLUME_UP=24, VOLUME_DOWN=25, POWER=26, MENU=82, SEARCH=84,
-        MEDIA_PLAY_PAUSE=85, MEDIA_STOP=86, MEDIA_NEXT=87,
-        MEDIA_PREVIOUS=88, MEDIA_REWIND=89, MEDIA_FAST_FORWARD=90,
-        VOLUME_MUTE=164, INFO=165, CHANNEL_UP=166, CHANNEL_DOWN=167,
-        TV=170, GUIDE=172, SETTINGS=176, TV_POWER=177, TV_INPUT=178,
-        APP_SWITCH=187, ASSIST=219, SLEEP=223, WAKEUP=224,
-        TV_INPUT_HDMI_1=243..HDMI_4=246, TV_INPUT_COMPOSITE_1=247).
-        Whether a key DOES anything is up to the device, firmware and
-        foreground app — Netflix ignores injected keys even from Google's own
-        app, and TV-class codes mean nothing on a HDMI-less box.
-      remote_app_link_launch_request: >
-        field 90. { app_link: <string> } — launches whatever is registered
-        for the link: a deep link ('https://www.netflix.com/title',
-        'vnd.youtube://', 'plex://') or, on devices with the Play Store, a
-        bare package name ('com.netflix.ninja'). There is NO installed-app
-        enumeration anywhere in the protocol: clients keep user-configured
-        app lists (Home Assistant does exactly this), so a spec-level app
-        picker cannot be built from the device.
-      remote_ime_batch_edit: >
-        field 21. Keyboard text into the focused field: edit_info [{
-        insert: 1, text_field_status { start, end, value } }] with
-        start=end=len(text)-1 and ime_counter/field_counter echoed from the
-        server's last remote_ime_batch_edit push — the counters are what tie
-        the edit to the field the user is looking at, so text entry requires
-        a held session, not connect-send-disconnect. Some vendor keyboards
-        refuse concurrent virtual keyboards and show 'use the keyboard on
-        your mobile device' instead; disabling IME is the workaround.
-      voice: >
-        fields 30-32. Send key KEYCODE_SEARCH, the server answers
-        remote_voice_begin { session_id }; stream remote_voice_payload {
-        session_id, samples } — 16-bit PCM, 8 kHz, mono, chunks at most
-        20 KB and at least 8 KB (Shield rejects smaller; pad with zeros) —
-        then remote_voice_end { session_id }.
-      remote_set_volume_level: >
-        field 50. Server -> client volume state (level/max/muted). The
-        client->server direction with absolute levels exists in the proto but
-        no maintained client sends it — volume control in practice is
-        KEYCODE_VOLUME_UP/DOWN/MUTE injects. Treated as hypothesis below.
-      remote_error: "field 3. Server-side error wrapper carrying the offending message."
-    limits: >
-      No playback state (playing/paused is not reported — Home Assistant
-      marks it assumed and pairs with the Google Cast integration for
-      metadata), no app list (above), no wake for devices that leave the
-      network in standby (Xiaomi boxes; TCL without 'Screenless service';
-      Shield without the wake-buttons setting). Power-on reachability is a
-      hardware/standby property, not a protocol feature.
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # Everything needed to build a session byte for byte, in the role ecp_common
+  # plays for Roku. The consuming app implements none of this today — that is
+  # the recorded transport gap — so this block is the deliverable: an accurate
+  # statement of what a client must implement.
+  androidtv_remote_v2:
+    transport: "TLS + protobuf over TCP"
+    transport_gap: >
+      Not HTTP and not SOAP. A client needs: TLS with peer verification
+      disabled (the server certificate is self-signed and per-device), a client
+      X.509 certificate presented on every connection, protobuf varint
+      length-prefix framing, and the two message vocabularies below. No
+      request/response path structure exists to hang an HTTP mapping on.
+    ports:
+      pairing: 6467
+      session: 6466
+    discovery: >
+      mDNS _androidtvremote2._tcp.local.; the advertisement's SRV target port
+      is the 6466 session port. Pairing uses the same host on 6467; there is no
+      separate advertisement for it.
+    framing: >
+      Every message on both ports is a protobuf varint length prefix followed
+      by that many bytes of serialized protobuf — the google.protobuf internal
+      varint (7 bits per byte, little-endian groups), NOT a fixed-width header
+      and NOT gRPC framing. Messages are not delimited any other way; a TCP
+      read may carry a partial message or several, so the varint is the only
+      reassembly rule (androidtvremote2 base.py).
+    tls:
+      server_certificate: >
+        Self-signed, per-device, presented on both ports. Clients disable peer
+        verification (verify_peer=false) and instead capture the server's
+        public key at pairing time — the pairing secret binds to it, which is
+        the real authentication of the server.
+      client_certificate: >
+        Required on both ports. The client generates an RSA-2048 self-signed
+        certificate once and reuses it forever: androidtvremote2 builds CN=
+        'atvremote', SHA-256 signature, basicConstraints CA:true, ~10-year
+        validity. The certificate IS the credential: after pairing, the TV
+        accepts sessions from certificates it paired with and closes
+        connections from ones it did not.
+    pairing:
+      description: >
+        Port 6467, Google's Polo pairing protocol (the one half of this file
+        with an upstream: AOSP external/google-tv-pairing-protocol). All
+        messages are polo.proto OuterMessage { protocol_version: 2, status:
+        STATUS_OK, ... }. Status is an enum on the wire: 200 STATUS_OK, 400
+        STATUS_ERROR, 401 STATUS_BAD_CONFIGURATION, 402 STATUS_BAD_SECRET.
+      flow:
+        - "Client -> PairingRequest { service_name: 'atvremote', client_name: <shown on the TV during pairing> }."
+        - "Server -> PairingRequestAck { server_name }."
+        - "Client -> Options { output_encodings: [{ type: ENCODING_TYPE_HEXADECIMAL, symbol_length: 6 }], preferred_role: ROLE_TYPE_INPUT }."
+        - "Server -> Options (its own encodings; hex/6 is what TVs answer for code-based pairing)."
+        - "Client -> Configuration { encoding: { type: HEXADECIMAL, symbol_length: 6 }, client_role: ROLE_TYPE_INPUT }."
+        - "Server -> ConfigurationAck. The TV now shows a 6-character hexadecimal code."
+        - "User reads the code off the screen; Client -> Secret { secret }; Server -> SecretAck { secret }. A STATUS_BAD_SECRET means the code was mistyped or expired — restart the exchange."
+      secret: >
+        The code is never sent; what goes on the wire is a SHA-256 digest
+        binding it to both endpoints. From androidtvremote2 pairing.py:
+        sha256( hex_decode(uppercase_hex(client_cert_rsa_modulus))
+                || hex_decode(uppercase_hex('0' + client_cert_rsa_exponent))
+                || hex_decode(uppercase_hex(server_cert_rsa_modulus))
+                || hex_decode(uppercase_hex('0' + server_cert_rsa_exponent))
+                || hex_decode(code[2:6]) ), with the self-check
+        digest[0] == int(code[0:2], 16) — the first byte of the hash must equal
+        the first two hex characters of the code, so the TV can reject a wrong
+        code without another round trip. Modulus/exponent are formatted as
+        uppercase hex WITHOUT leading zero padding before decoding. The
+        community write-up (Aymkdn wiki) states the same construction as
+        BigInteger byte arrays with leading null bytes stripped; the
+        androidtvremote2 form is the one running in production Home Assistant
+        installs.
+      after_pairing: >
+        Close 6467. All later control is a fresh TLS connection to 6466 with
+        the same client certificate, once per command batch or held open for a
+        remote session.
+    session:
+      description: >
+        Port 6466. All messages are remotemessage.proto RemoteMessage, a union
+        of the fields below. On connect the SERVER speaks first.
+      handshake:
+        - "Server -> remote_configure { code1: <feature bitmask>, device_info { model, vendor, package_name, app_version } }. code1 bits (androidtvremote2 Feature): 1 PING, 2 KEY, 4 IME, 8 VOICE, 32 POWER, 64 VOLUME, 512 APP_LINK. device_info is the first place model/vendor identity is available; mDNS does not carry it."
+        - "Client -> remote_configure { code1: <client features masked by the server's>, device_info { unknown1: 1, unknown2: '1', package_name: 'atvremote', app_version: '1.0.0' } }."
+        - "Server -> remote_set_active; Client -> remote_set_active { active: <same masked feature bits> }."
+        - "Server then pushes state, initially and on every change: remote_start { started } = power state; remote_ime_key_inject { app_info { app_package } } = foreground app (only with IME enabled); remote_set_volume_level { volume_level, volume_max, volume_muted }."
+      keepalive: >
+        When idle the server sends remote_ping_request { val1, val2 } roughly
+        every 5 seconds and closes the connection after 3 unanswered pings;
+        the client answers remote_ping_response { val1: <echo> }. androidtvremote2
+        additionally closes its own side after 16 seconds without any traffic,
+        so a command-only client may simply connect, send, and disconnect
+        instead of holding a session.
+      messages:
+        remote_key_inject: >
+          field 10. { key_code: RemoteKeyCode, direction: RemoteDirection } —
+          one injected remote key. Direction SHORT (3) is a complete
+          press+release in one message; a long press is START_LONG (1),
+          wait, END_LONG (2). The keycode enum is the Android KeyEvent table
+          (KEYCODE_HOME=3, BACK=4, DPAD_UP=19..DPAD_CENTER=23,
+          VOLUME_UP=24, VOLUME_DOWN=25, POWER=26, MENU=82, SEARCH=84,
+          MEDIA_PLAY_PAUSE=85, MEDIA_STOP=86, MEDIA_NEXT=87,
+          MEDIA_PREVIOUS=88, MEDIA_REWIND=89, MEDIA_FAST_FORWARD=90,
+          VOLUME_MUTE=164, INFO=165, CHANNEL_UP=166, CHANNEL_DOWN=167,
+          TV=170, GUIDE=172, SETTINGS=176, TV_POWER=177, TV_INPUT=178,
+          APP_SWITCH=187, ASSIST=219, SLEEP=223, WAKEUP=224,
+          TV_INPUT_HDMI_1=243..HDMI_4=246, TV_INPUT_COMPOSITE_1=247).
+          Whether a key DOES anything is up to the device, firmware and
+          foreground app — Netflix ignores injected keys even from Google's own
+          app, and TV-class codes mean nothing on a HDMI-less box.
+        remote_app_link_launch_request: >
+          field 90. { app_link: <string> } — launches whatever is registered
+          for the link: a deep link ('https://www.netflix.com/title',
+          'vnd.youtube://', 'plex://') or, on devices with the Play Store, a
+          bare package name ('com.netflix.ninja'). There is NO installed-app
+          enumeration anywhere in the protocol: clients keep user-configured
+          app lists (Home Assistant does exactly this), so a spec-level app
+          picker cannot be built from the device.
+        remote_ime_batch_edit: >
+          field 21. Keyboard text into the focused field: edit_info [{
+          insert: 1, text_field_status { start, end, value } }] with
+          start=end=len(text)-1 and ime_counter/field_counter echoed from the
+          server's last remote_ime_batch_edit push — the counters are what tie
+          the edit to the field the user is looking at, so text entry requires
+          a held session, not connect-send-disconnect. Some vendor keyboards
+          refuse concurrent virtual keyboards and show 'use the keyboard on
+          your mobile device' instead; disabling IME is the workaround.
+        voice: >
+          fields 30-32. Send key KEYCODE_SEARCH, the server answers
+          remote_voice_begin { session_id }; stream remote_voice_payload {
+          session_id, samples } — 16-bit PCM, 8 kHz, mono, chunks at most
+          20 KB and at least 8 KB (Shield rejects smaller; pad with zeros) —
+          then remote_voice_end { session_id }.
+        remote_set_volume_level: >
+          field 50. Server -> client volume state (level/max/muted). The
+          client->server direction with absolute levels exists in the proto but
+          no maintained client sends it — volume control in practice is
+          KEYCODE_VOLUME_UP/DOWN/MUTE injects. Treated as hypothesis below.
+        remote_error: "field 3. Server-side error wrapper carrying the offending message."
+      limits: >
+        No playback state (playing/paused is not reported — Home Assistant
+        marks it assumed and pairs with the Google Cast integration for
+        metadata), no app list (above), no wake for devices that leave the
+        network in standby (Xiaomi boxes; TCL without 'Screenless service';
+        Shield without the wake-buttons setting). Power-on reachability is a
+        hardware/standby property, not a protocol feature.
 
-# The Fire TV variant's whole control channel. Not the protocol above and not
-# HTTP: the ADB wire protocol (CNXN/AUTH/OPEN/WRTE) over TCP 5555, spoken by
-# adb_shell (pure Python) or a platform-tools adb server.
-fire_tv_adb:
-  transport: "ADB over TCP"
-  transport_gap: >
-    Same class of gap as the main protocol: the consuming app's HTTP/SOAP
-    transports cannot open an ADB session. A client needs the ADB wire
-    protocol (adb_shell) or an external adb server.
-  port: 5555
-  enablement: >
-    Off by default. On the TV: Settings > My Fire TV > Developer Options >
-    ADB Debugging = ON. Developer Options itself is hidden on some devices
-    until Settings > My Fire TV > About is clicked seven times, and on Fire
-    TV Edition sets until an Amazon account is signed in. Amazon documents
-    5555-5585 as the acceptable port range; 5555 is what devices listen on.
-  authentication: >
-    ADB public-key auth: the client holds an RSA keypair (adbkey); the FIRST
-    connection pops 'Allow USB debugging?' on the TV screen, and the user
-    approves, optionally ticking 'Always allow from this computer' to persist
-    the client's public key. No code, no account; revocation is Settings >
-    My Fire TV > Developer Options > revoke debugging authorizations (menu
-    spelling varies by Fire OS version).
-  identification: >
-    After connect, identity is shell reads: getprop ro.product.model,
-    ro.product.manufacturer, ro.serialno. Nothing pre-connection identifies a
-    port-5555 listener as a Fire TV — treat an open 5555 as 'some Android
-    device with ADB on', which is also why a scanner must not auto-offer it
-    as supported hardware.
-  commands: >
-    Keys: adb shell input keyevent <KEYCODE_name|number> — the same Android
-    keycode table as remote_key_inject (HOME=3, BACK=4, DPAD_*=19-23,
-    VOLUME_UP=24, VOLUME_DOWN=25, POWER=26, MEDIA_PLAY_PAUSE=85,
-    VOLUME_MUTE=164, ...), so the commands block's per-key notes double as
-    the ADB invocation. Text: input text <escaped>. Launch:
-    monkey -p <package> -c android.intent.category.LAUNCHER 1 (or am start
-    with an explicit intent); stop: am force-stop <package>. State is not
-    pushed: the androidtv library polls dumpsys for audio_state,
-    media_session_state and wake_lock_size and applies per-app detection
-    rules — richer than the Remote Service's surface (real playback state,
-    running-app list) at the cost of polling.
-  notes: >
-    Only one ADB client session is reliably usable at a time; a second
-    client connecting can flap the first (Home Assistant troubleshooting
-    notes). Screenshot capture (screencap) is available over the same
-    channel, which is how the HA integration builds album art.
+  # The Fire TV variant's whole control channel. Not the protocol above and not
+  # HTTP: the ADB wire protocol (CNXN/AUTH/OPEN/WRTE) over TCP 5555, spoken by
+  # adb_shell (pure Python) or a platform-tools adb server.
+  fire_tv_adb:
+    transport: "ADB over TCP"
+    transport_gap: >
+      Same class of gap as the main protocol: the consuming app's HTTP/SOAP
+      transports cannot open an ADB session. A client needs the ADB wire
+      protocol (adb_shell) or an external adb server.
+    port: 5555
+    enablement: >
+      Off by default. On the TV: Settings > My Fire TV > Developer Options >
+      ADB Debugging = ON. Developer Options itself is hidden on some devices
+      until Settings > My Fire TV > About is clicked seven times, and on Fire
+      TV Edition sets until an Amazon account is signed in. Amazon documents
+      5555-5585 as the acceptable port range; 5555 is what devices listen on.
+    authentication: >
+      ADB public-key auth: the client holds an RSA keypair (adbkey); the FIRST
+      connection pops 'Allow USB debugging?' on the TV screen, and the user
+      approves, optionally ticking 'Always allow from this computer' to persist
+      the client's public key. No code, no account; revocation is Settings >
+      My Fire TV > Developer Options > revoke debugging authorizations (menu
+      spelling varies by Fire OS version).
+    identification: >
+      After connect, identity is shell reads: getprop ro.product.model,
+      ro.product.manufacturer, ro.serialno. Nothing pre-connection identifies a
+      port-5555 listener as a Fire TV — treat an open 5555 as 'some Android
+      device with ADB on', which is also why a scanner must not auto-offer it
+      as supported hardware.
+    commands: >
+      Keys: adb shell input keyevent <KEYCODE_name|number> — the same Android
+      keycode table as remote_key_inject (HOME=3, BACK=4, DPAD_*=19-23,
+      VOLUME_UP=24, VOLUME_DOWN=25, POWER=26, MEDIA_PLAY_PAUSE=85,
+      VOLUME_MUTE=164, ...), so the commands block's per-key notes double as
+      the ADB invocation. Text: input text <escaped>. Launch:
+      monkey -p <package> -c android.intent.category.LAUNCHER 1 (or am start
+      with an explicit intent); stop: am force-stop <package>. State is not
+      pushed: the androidtv library polls dumpsys for audio_state,
+      media_session_state and wake_lock_size and applies per-app detection
+      rules — richer than the Remote Service's surface (real playback state,
+      running-app list) at the cost of polling.
+    notes: >
+      Only one ADB client session is reliably usable at a time; a second
+      client connecting can flap the first (Home Assistant troubleshooting
+      notes). Screenshot capture (screencap) is available over the same
+      channel, which is how the HA integration builds album art.
 
 # Placeholder satisfying the schema's one-access-surface rule, in the shape
 # lutron-caseta-smart-bridge.yaml established for LEAP: there is no HTTP
@@ -446,7 +449,7 @@ http_endpoints:
   - method: "GET"
     path: "/"
     name: "Android TV Remote Service"
-    status: "unverified"
+    status: "placeholder"
     description: >
       Placeholder for the Android TV Remote Service, which speaks protobuf
       over TLS on TCP 6466 (session) and 6467 (pairing) — not HTTP. See

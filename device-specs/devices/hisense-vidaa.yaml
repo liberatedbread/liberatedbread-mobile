@@ -285,171 +285,174 @@ evidence:
     - "Whether the broker really isolates one client's topics from another is unconfirmed — the one isolation experiment predates the discovery that wildcard subscriptions work, and has not been repeated."
     - "changechannel exists but takes an opaque channel_param string read from livetv state; there is no documented way to tune to channel N without first learning that string from the TV."
 
-# Everything needed to build a session byte for byte, in the role ecp_common
-# plays for Roku. The whole control surface is MQTT publish/subscribe; for
-# `commands` entries below, `path` IS the topic (MQTT has no path; the
-# command schema's path key is the closest fit) and `example_body` is the
-# exact payload.
-remoteapp_common:
-  transport: "MQTT v3.1.1"
-  broker:
-    host: "<tv-ip>, from discovery"
-    port: 36669
-    server_software: "mosquitto 1.4.2 reported on 2019-era firmware (Krazy998)"
-    keepalive_seconds: 20
-    keepalive_notes: >
-      These TVs vanish from the network in standby without closing the
-      session, so keepalive is what bounds how long a dead session looks
-      alive: paho gives up at roughly 1.5x. The old 60s default meant ~90s
-      before a powered-off TV was noticed.
-    port_36668_note: >
-      No source documents a listener on 36668. Older models run the SAME
-      broker on 36669 with no TLS and the static login (newAM's --no-ssl
-      flag exists for exactly those sets). If a scan shows 36668 open on
-      some set, its role is unestablished — capture it before writing it
-      down.
-  tls:
-    generations:
-      - name: "plain"
-        description: "No TLS at all. Oldest sets (e.g. H43A6250UK)."
-      - name: "tls_selfsigned"
-        description: "TLS with a self-signed server certificate; clients must disable verification (encryption on, validate off)."
-      - name: "mtls"
-        description: "Mutual TLS: the client must present the app-bundled certificate CN=VidaaAppAndroidV01 (issuer CN=RemoteCA) or the RemoteNow-era rcm pair — see device.setup.credentials.notes for the provisioning gap. Server certificate issued by the same private RemoteCA root; CN is 'RemoteCA', so hostname checks always fail and verification stays off even in careful clients."
-  authentication:
-    generations:
-      - name: "static"
-        applies: "Pre-dynamic firmware (pyvidaa: transport_protocol below 3000)"
-        client_id: "Arbitrary; convention is the client's own MAC with $normal appended (newAM), or a plain name like 'HomeAssistant'. Reusing a client id drops the older session, so do not share ids between integrations."
-        username: "hisenseservice"
-        password: "multimqttservice"
-      - name: "legacy_dynamic"
-        applies: "VIDAA-app-era firmware before the modern tweak (pyvidaa: 3000 <= transport_protocol < 3290; e.g. the 2023 A6K/55U8KQ captures)"
-        algorithm: >
-          All MD5 hex digests uppercase. Let PATTERN =
-          "38D65DC30F45109A369A86FCE866A85B", uuid = the client's chosen
-          MAC-shaped identifier (colon-separated, any case as minted), ts =
-          current unix time in seconds, and crosssum(ts) = sum of the
-          decimal digits of ts. Then:
-          client_id = uuid + "$his$" + md5(PATTERN + "$" + uuid)[:6] +
-          "_vidaacommon_001"; username = "his$" + ts; password =
-          md5(ts + "$" + md5("his" + (crosssum(ts) % 10) +
-          "h*i&s%e!r^v0i1c9")[:6]).
-        validity: >
-          The TV checks the timestamp in the username, so a generated
-          login works only for roughly +/-4 hours. Passwords carry no
-          TV-specific material — one capture worked on a second TV
-          (issue #14), which is a security note as much as an
-          implementation one.
-      - name: "modern_dynamic"
-        applies: "Current VIDAA firmware (pyvidaa: transport_protocol >= 3290); requires the mtls generation above"
-        algorithm: >
-          Identical to legacy_dynamic with two changes: the password suffix
-          is "h!i@s#$v%i^d&a*a" instead of "h*i&s%e!r^v0i1c9", and the
-          username's timestamp is obfuscated — username = "his$" + (ts XOR
-          0x569814772b03a968). pyvidaa reproduces all three values
-          byte-for-byte against the app on a live set (2026-08-04); its
-          worked example: uuid 56:b8:88:4e:f7:19, ts 1766974704 →
-          client_id 56:b8:88:4e:f7:19$his$256DBF_vidaacommon_001,
-          username his$6239759786168176024, password
-          C3BA44782E18ABF4892AC44D79A622D2.
-        notes: >
-          The uuid is minted by the CLIENT, not read from hardware — the
-          app generates a fresh MAC-shaped value on every reinstall, and
-          the client id carries both the uuid and md5(PATTERN$uuid)[:6],
-          so the check is self-consistent. Any stable, self-consistent
-          identifier is believed acceptable (pyvidaa: inferred, not
-          verified). The app opens a second connection with operation
-          "vidaavoice" instead of "vidaacommon"; one connection suffices
-          for control. A _002 client-id suffix exists in the binary but
-          only _001 has been observed on the wire.
-    after_pairing: >
-      Once paired, modern firmware issues tokens: the accesstoken becomes
-      the MQTT password (same client_id and username) until it expires
-      (accesstoken_duration_day, observed 2-30 days), after which the
-      client reconnects once with the OLD credential algorithm to publish
-      {"refreshtoken": "<saved>"} to
-      /remoteapp/tv/platform_service/{client_id}/data/gettoken and reads a
-      fresh pair from
-      /remoteapp/mobile/{client_id}/platform_service/data/tokenissuance.
-      The refresh token itself lasts refreshtoken_duration_day (observed
-      30-365) — miss that window and the client must re-pair with a PIN.
-  pairing:
-    static_generation:
-      - "Connect with the static login; subscribe to /remoteapp/mobile/{client_id}/ui_service/data/authenticationcode."
-      - "Publish anything to /remoteapp/tv/ui_service/{client_id}/actions/gettvstate — the request doubles as the pairing trigger; the TV shows a 4-digit PIN."
-      - "User reads the PIN; client publishes {\"authNum\": \"XXXX\"} to /remoteapp/tv/ui_service/{client_id}/actions/authenticationcode."
-      - "Reply {\"result\": 1} on the authenticationcode data topic means the client id (its uuid) is now authorized. Any other result is a refusal; the PIN dialog times out in about 60 seconds."
-    modern_generation:
-      - "Connect over mTLS with dynamic credentials; subscribe to the client's data topics (or /remoteapp/# — see topic_format.wildcards)."
-      - "Publish {\"app_version\": 2, \"connect_result\": 0, \"device_type\": \"Mobile App\"} to /remoteapp/tv/ui_service/{client_id}/actions/vidaa_app_connect."
-      - "TV either pushes an empty message on /remoteapp/mobile/{client_id}/ui_service/data/authentication (PIN now on screen) or answers vidaa_app_connect with {\"connect_result\": 1} — already authorized, no PIN needed."
-      - "User reads the 4-digit PIN; client publishes {\"authNum\": \"XXXX\"} to actions/authenticationcode; {\"result\": 1, \"info\": \"\"} confirms."
-      - "Publish {\"refreshtoken\": \"\"} to /remoteapp/tv/platform_service/{client_id}/data/gettoken and read accesstoken/refreshtoken (+ durations and issue times) from platform_service/data/tokenissuance. Store them — they replace the password from now on (see authentication.after_pairing)."
-      - "Publish anything to actions/authenticationcodeclose to dismiss the dialog."
-    user_visible: >
-      The PIN appears as an on-screen dialog without the user touching the
-      TV; the user's only job is reading four digits into the client
-      within the ~60s timeout. TVs may cap the number of paired clients —
-      old pairings are removable in the TV's settings.
-  topic_format:
-    publish: "/remoteapp/tv/{service}/{client_id}/actions/{action} (token refresh uses .../platform_service/{client_id}/data/gettoken instead of actions/)"
-    subscribe_client: "/remoteapp/mobile/{client_id}/{service}/data/{datatype} — replies addressed to this client"
-    subscribe_broadcast: "/remoteapp/mobile/broadcast/{service}/... — state all clients share; /remoteapp/mobile/broadcast/ui_service/state is RETAINED, so a fresh subscriber learns the current statetype immediately"
-    wildcards: >
-      Long believed denied by the broker; a 2026-08-04 live probe found
-      /remoteapp/# granted and delivering (the earlier SUBACK-0x80 claim
-      was a broken calibration). Treat specific subscriptions as the
-      contract and wildcards as a debugging convenience — the belief has
-      flipped once already.
-    payloads: >
-      Payloads are plain JSON, or a bare string where the vocabulary says
-      so: sendkey takes the key name itself ("KEY_POWER"), changevolume
-      takes the bare decimal level ("50"), and several query actions take
-      an empty payload (publish a zero-length message or a single "0" —
-      both are in circulation).
-  state_vocabulary:
-    statetype:
-      fake_sleep_0: "standby (match this exactly — fake_sleep_1 is WAKING, followed by remote_launcher)"
-      fake_sleep_1: "waking"
-      remote_launcher: "home screen"
-      remote_setting: "a settings menu is open"
-      sourceswitch: "external input; carries sourceid, sourcename, displayname, is_signal"
-      livetv: "watching a tuner channel; carries channel_name, channel_num, channel_param, sourceid — and EPG fields (progname, starttime, endtime) on older firmware; NO sourcename/displayname"
-    notes: >
-      On the pyvidaa-probed firmware gettvstate is never answered — state
-      arrives only as unsolicited broadcast on
-      /remoteapp/mobile/broadcast/ui_service/state — while the 2019
-      documentation shows gettvstate producing exactly that state object.
-      A client must therefore treat the broadcast topic as the state
-      channel and gettvstate as, at best, a poke. Volume changes broadcast
-      on /remoteapp/mobile/broadcast/platform_service/actions/volumechange.
-  key_vocabulary:
-    power: ["KEY_POWER"]
-    navigation: ["KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_OK", "KEY_OK_LONG_PRESS", "KEY_RETURNS", "KEY_MENU", "KEY_HOME", "KEY_EXIT"]
-    volume: ["KEY_VOLUMEUP", "KEY_VOLUMEDOWN", "KEY_MUTE", "KEY_MUTE_LONG_PRESS", "KEY_VOICEUP", "KEY_VOICEDOWN"]
-    playback: ["KEY_PLAY", "KEY_PAUSE", "KEY_STOP", "KEY_FORWARDS", "KEY_BACK"]
-    digits: ["KEY_0", "KEY_1", "KEY_2", "KEY_3", "KEY_4", "KEY_5", "KEY_6", "KEY_7", "KEY_8", "KEY_9", "KEY_CHANNELDOT"]
-    channel: ["KEY_CHANNELUP", "KEY_CHANNELDOWN"]
-    color: ["KEY_RED", "KEY_GREEN", "KEY_YELLOW", "KEY_BLUE"]
-    pointer: ["KEY_LEFTMOUSEKEYS", "KEY_UDDLEFTMOUSEKEYS", "KEY_UDULEFTMOUSEKEYS", "KEY_ZOOMIN", "KEY_ZOOMOUT"]
-    misc: ["KEY_SUBTITLE", "KEY_INFO"]
-    notes: >
-      Wire spellings are the VIDAA APK's: back is KEY_RETURNS and rewind is
-      KEY_BACK, the two most surprising names in the table. KEY_POWER is a
-      toggle — there is no separate power-on key, and no network power-on
-      at all (broker is down in standby): power-on is Wake-on-LAN to the
-      TV's MAC, Ethernet far more reliably than WiFi.
-  transport_gap: >
-    The reference app speaks HTTP (GET/POST, empty body) and SOAP today.
-    This device needs an MQTT client with: TLS and client-certificate
-    support, per-connection dynamic credential generation (the MD5/XOR
-    algorithm above), the pairing flow with user-supplied PIN, token
-    storage and scheduled refresh, and JSON-over-MQTT command payloads.
-    None of that maps onto either supported transport, so the `commands`
-    below declare transport: "mqtt" — schema-legal but not yet executable
-    by the reference app. They are written as invocations so that an MQTT
-    transport, once added, can run them unchanged.
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # Everything needed to build a session byte for byte, in the role ecp_common
+  # plays for Roku. The whole control surface is MQTT publish/subscribe; for
+  # `commands` entries below, `path` IS the topic (MQTT has no path; the
+  # command schema's path key is the closest fit) and `example_body` is the
+  # exact payload.
+  remoteapp_common:
+    transport: "MQTT v3.1.1"
+    broker:
+      host: "<tv-ip>, from discovery"
+      port: 36669
+      server_software: "mosquitto 1.4.2 reported on 2019-era firmware (Krazy998)"
+      keepalive_seconds: 20
+      keepalive_notes: >
+        These TVs vanish from the network in standby without closing the
+        session, so keepalive is what bounds how long a dead session looks
+        alive: paho gives up at roughly 1.5x. The old 60s default meant ~90s
+        before a powered-off TV was noticed.
+      port_36668_note: >
+        No source documents a listener on 36668. Older models run the SAME
+        broker on 36669 with no TLS and the static login (newAM's --no-ssl
+        flag exists for exactly those sets). If a scan shows 36668 open on
+        some set, its role is unestablished — capture it before writing it
+        down.
+    tls:
+      generations:
+        - name: "plain"
+          description: "No TLS at all. Oldest sets (e.g. H43A6250UK)."
+        - name: "tls_selfsigned"
+          description: "TLS with a self-signed server certificate; clients must disable verification (encryption on, validate off)."
+        - name: "mtls"
+          description: "Mutual TLS: the client must present the app-bundled certificate CN=VidaaAppAndroidV01 (issuer CN=RemoteCA) or the RemoteNow-era rcm pair — see device.setup.credentials.notes for the provisioning gap. Server certificate issued by the same private RemoteCA root; CN is 'RemoteCA', so hostname checks always fail and verification stays off even in careful clients."
+    authentication:
+      generations:
+        - name: "static"
+          applies: "Pre-dynamic firmware (pyvidaa: transport_protocol below 3000)"
+          client_id: "Arbitrary; convention is the client's own MAC with $normal appended (newAM), or a plain name like 'HomeAssistant'. Reusing a client id drops the older session, so do not share ids between integrations."
+          username: "hisenseservice"
+          password: "multimqttservice"
+        - name: "legacy_dynamic"
+          applies: "VIDAA-app-era firmware before the modern tweak (pyvidaa: 3000 <= transport_protocol < 3290; e.g. the 2023 A6K/55U8KQ captures)"
+          algorithm: >
+            All MD5 hex digests uppercase. Let PATTERN =
+            "38D65DC30F45109A369A86FCE866A85B", uuid = the client's chosen
+            MAC-shaped identifier (colon-separated, any case as minted), ts =
+            current unix time in seconds, and crosssum(ts) = sum of the
+            decimal digits of ts. Then:
+            client_id = uuid + "$his$" + md5(PATTERN + "$" + uuid)[:6] +
+            "_vidaacommon_001"; username = "his$" + ts; password =
+            md5(ts + "$" + md5("his" + (crosssum(ts) % 10) +
+            "h*i&s%e!r^v0i1c9")[:6]).
+          validity: >
+            The TV checks the timestamp in the username, so a generated
+            login works only for roughly +/-4 hours. Passwords carry no
+            TV-specific material — one capture worked on a second TV
+            (issue #14), which is a security note as much as an
+            implementation one.
+        - name: "modern_dynamic"
+          applies: "Current VIDAA firmware (pyvidaa: transport_protocol >= 3290); requires the mtls generation above"
+          algorithm: >
+            Identical to legacy_dynamic with two changes: the password suffix
+            is "h!i@s#$v%i^d&a*a" instead of "h*i&s%e!r^v0i1c9", and the
+            username's timestamp is obfuscated — username = "his$" + (ts XOR
+            0x569814772b03a968). pyvidaa reproduces all three values
+            byte-for-byte against the app on a live set (2026-08-04); its
+            worked example: uuid 56:b8:88:4e:f7:19, ts 1766974704 →
+            client_id 56:b8:88:4e:f7:19$his$256DBF_vidaacommon_001,
+            username his$6239759786168176024, password
+            C3BA44782E18ABF4892AC44D79A622D2.
+          notes: >
+            The uuid is minted by the CLIENT, not read from hardware — the
+            app generates a fresh MAC-shaped value on every reinstall, and
+            the client id carries both the uuid and md5(PATTERN$uuid)[:6],
+            so the check is self-consistent. Any stable, self-consistent
+            identifier is believed acceptable (pyvidaa: inferred, not
+            verified). The app opens a second connection with operation
+            "vidaavoice" instead of "vidaacommon"; one connection suffices
+            for control. A _002 client-id suffix exists in the binary but
+            only _001 has been observed on the wire.
+      after_pairing: >
+        Once paired, modern firmware issues tokens: the accesstoken becomes
+        the MQTT password (same client_id and username) until it expires
+        (accesstoken_duration_day, observed 2-30 days), after which the
+        client reconnects once with the OLD credential algorithm to publish
+        {"refreshtoken": "<saved>"} to
+        /remoteapp/tv/platform_service/{client_id}/data/gettoken and reads a
+        fresh pair from
+        /remoteapp/mobile/{client_id}/platform_service/data/tokenissuance.
+        The refresh token itself lasts refreshtoken_duration_day (observed
+        30-365) — miss that window and the client must re-pair with a PIN.
+    pairing:
+      static_generation:
+        - "Connect with the static login; subscribe to /remoteapp/mobile/{client_id}/ui_service/data/authenticationcode."
+        - "Publish anything to /remoteapp/tv/ui_service/{client_id}/actions/gettvstate — the request doubles as the pairing trigger; the TV shows a 4-digit PIN."
+        - "User reads the PIN; client publishes {\"authNum\": \"XXXX\"} to /remoteapp/tv/ui_service/{client_id}/actions/authenticationcode."
+        - "Reply {\"result\": 1} on the authenticationcode data topic means the client id (its uuid) is now authorized. Any other result is a refusal; the PIN dialog times out in about 60 seconds."
+      modern_generation:
+        - "Connect over mTLS with dynamic credentials; subscribe to the client's data topics (or /remoteapp/# — see topic_format.wildcards)."
+        - "Publish {\"app_version\": 2, \"connect_result\": 0, \"device_type\": \"Mobile App\"} to /remoteapp/tv/ui_service/{client_id}/actions/vidaa_app_connect."
+        - "TV either pushes an empty message on /remoteapp/mobile/{client_id}/ui_service/data/authentication (PIN now on screen) or answers vidaa_app_connect with {\"connect_result\": 1} — already authorized, no PIN needed."
+        - "User reads the 4-digit PIN; client publishes {\"authNum\": \"XXXX\"} to actions/authenticationcode; {\"result\": 1, \"info\": \"\"} confirms."
+        - "Publish {\"refreshtoken\": \"\"} to /remoteapp/tv/platform_service/{client_id}/data/gettoken and read accesstoken/refreshtoken (+ durations and issue times) from platform_service/data/tokenissuance. Store them — they replace the password from now on (see authentication.after_pairing)."
+        - "Publish anything to actions/authenticationcodeclose to dismiss the dialog."
+      user_visible: >
+        The PIN appears as an on-screen dialog without the user touching the
+        TV; the user's only job is reading four digits into the client
+        within the ~60s timeout. TVs may cap the number of paired clients —
+        old pairings are removable in the TV's settings.
+    topic_format:
+      publish: "/remoteapp/tv/{service}/{client_id}/actions/{action} (token refresh uses .../platform_service/{client_id}/data/gettoken instead of actions/)"
+      subscribe_client: "/remoteapp/mobile/{client_id}/{service}/data/{datatype} — replies addressed to this client"
+      subscribe_broadcast: "/remoteapp/mobile/broadcast/{service}/... — state all clients share; /remoteapp/mobile/broadcast/ui_service/state is RETAINED, so a fresh subscriber learns the current statetype immediately"
+      wildcards: >
+        Long believed denied by the broker; a 2026-08-04 live probe found
+        /remoteapp/# granted and delivering (the earlier SUBACK-0x80 claim
+        was a broken calibration). Treat specific subscriptions as the
+        contract and wildcards as a debugging convenience — the belief has
+        flipped once already.
+      payloads: >
+        Payloads are plain JSON, or a bare string where the vocabulary says
+        so: sendkey takes the key name itself ("KEY_POWER"), changevolume
+        takes the bare decimal level ("50"), and several query actions take
+        an empty payload (publish a zero-length message or a single "0" —
+        both are in circulation).
+    state_vocabulary:
+      statetype:
+        fake_sleep_0: "standby (match this exactly — fake_sleep_1 is WAKING, followed by remote_launcher)"
+        fake_sleep_1: "waking"
+        remote_launcher: "home screen"
+        remote_setting: "a settings menu is open"
+        sourceswitch: "external input; carries sourceid, sourcename, displayname, is_signal"
+        livetv: "watching a tuner channel; carries channel_name, channel_num, channel_param, sourceid — and EPG fields (progname, starttime, endtime) on older firmware; NO sourcename/displayname"
+      notes: >
+        On the pyvidaa-probed firmware gettvstate is never answered — state
+        arrives only as unsolicited broadcast on
+        /remoteapp/mobile/broadcast/ui_service/state — while the 2019
+        documentation shows gettvstate producing exactly that state object.
+        A client must therefore treat the broadcast topic as the state
+        channel and gettvstate as, at best, a poke. Volume changes broadcast
+        on /remoteapp/mobile/broadcast/platform_service/actions/volumechange.
+    key_vocabulary:
+      power: ["KEY_POWER"]
+      navigation: ["KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_OK", "KEY_OK_LONG_PRESS", "KEY_RETURNS", "KEY_MENU", "KEY_HOME", "KEY_EXIT"]
+      volume: ["KEY_VOLUMEUP", "KEY_VOLUMEDOWN", "KEY_MUTE", "KEY_MUTE_LONG_PRESS", "KEY_VOICEUP", "KEY_VOICEDOWN"]
+      playback: ["KEY_PLAY", "KEY_PAUSE", "KEY_STOP", "KEY_FORWARDS", "KEY_BACK"]
+      digits: ["KEY_0", "KEY_1", "KEY_2", "KEY_3", "KEY_4", "KEY_5", "KEY_6", "KEY_7", "KEY_8", "KEY_9", "KEY_CHANNELDOT"]
+      channel: ["KEY_CHANNELUP", "KEY_CHANNELDOWN"]
+      color: ["KEY_RED", "KEY_GREEN", "KEY_YELLOW", "KEY_BLUE"]
+      pointer: ["KEY_LEFTMOUSEKEYS", "KEY_UDDLEFTMOUSEKEYS", "KEY_UDULEFTMOUSEKEYS", "KEY_ZOOMIN", "KEY_ZOOMOUT"]
+      misc: ["KEY_SUBTITLE", "KEY_INFO"]
+      notes: >
+        Wire spellings are the VIDAA APK's: back is KEY_RETURNS and rewind is
+        KEY_BACK, the two most surprising names in the table. KEY_POWER is a
+        toggle — there is no separate power-on key, and no network power-on
+        at all (broker is down in standby): power-on is Wake-on-LAN to the
+        TV's MAC, Ethernet far more reliably than WiFi.
+    transport_gap: >
+      The reference app speaks HTTP (GET/POST, empty body) and SOAP today.
+      This device needs an MQTT client with: TLS and client-certificate
+      support, per-connection dynamic credential generation (the MD5/XOR
+      algorithm above), the pairing flow with user-supplied PIN, token
+      storage and scheduled refresh, and JSON-over-MQTT command payloads.
+      None of that maps onto either supported transport, so the `commands`
+      below declare transport: "mqtt" — schema-legal but not yet executable
+      by the reference app. They are written as invocations so that an MQTT
+      transport, once added, can run them unchanged.
 
 http_endpoints:
   - method: "GET"

@@ -419,7 +419,7 @@ entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
-    unit: "°C"
+    unit: "C"
     notes: "Raw u16 x 0.05 °C; bit14 = invalid."
   - platform: "sensor"
     name: "Humidity"

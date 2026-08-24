@@ -246,16 +246,16 @@ device:
         required, `api_encryption_supported` means the build can do Noise but
         has no key yet and still accepts plaintext.
 
-  local_access:
-    status: native
-    summary: >
-      Fully local control (ESPHome web server REST/SSE on :80 and native
-      protobuf API on :6053) with no cloud and no broker. This is the
-      network-facing counterpart to the Security+ wired protocol.
-    covers:
-      - "Open / close / stop / toggle the door"
-      - "Garage light on/off; remote lock-out"
-      - "Door position/state, obstruction, motion, motor, wall-button status"
+local_access:
+  status: native
+  summary: >
+    Fully local control (ESPHome web server REST/SSE on :80 and native
+    protobuf API on :6053) with no cloud and no broker. This is the
+    network-facing counterpart to the Security+ wired protocol.
+  covers:
+    - "Open / close / stop / toggle the door"
+    - "Garage light on/off; remote lock-out"
+    - "Door position/state, obstruction, motion, motor, wall-button status"
 
 http_endpoints:
   # ESPHome web_server (port 80), enabled by default on ratgdo. Unauthenticated

@@ -264,7 +264,7 @@ entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
-    unit: "°F"
+    unit: "F"
     state_topic: "/json"
     state_mapping:
       value: "current_temp_f"

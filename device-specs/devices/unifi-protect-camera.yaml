@@ -20,7 +20,7 @@ device:
       UVC G4 Dome ("garage inside"), UVC G6 Bullet, UVC G4 PTZ, UVC G3 Instant
       and a UVC G4 Doorbell ("G4 Doorbell") — each via platform (0x0c) and
       hostname (0x0b) TLVs. The feed transport was confirmed on the UNVR
-      ("UNVR-holden"): RTSP port 7447 and RTSPS 7441 are open, and an RTSP
+      ("UNVR-home"): RTSP port 7447 and RTSPS 7441 are open, and an RTSP
       OPTIONS to 7447 answered "RTSP/1.0 200 OK ... Server: Media Server
       (www.ui.com)" advertising DESCRIBE/PLAY/SETUP — i.e. the Protect stream
       server is live and serving. NOT exercised (no local Protect credentials
@@ -31,7 +31,19 @@ device:
   category: "camera"
   pictogram: "ip-camera"
   transport: "rtsp"
-  integration: "supported"
+  # The `camera` block below is this spec's ONLY access surface -- there are
+  # no commands and no http_endpoints -- and it is an RTSP stream. This
+  # project's app has no video player of any kind, so what it actually does
+  # with a Protect camera is discover it over UDP 10001, draw an IP-camera
+  # pictogram and hand the user to the NVR's own UI. That is the definition
+  # of `identify_only`, and calling it `supported` promised a live feed the
+  # user was never going to get.
+  #
+  # What would earn `supported` back: an RTSP player in the app (TCP
+  # transport, plaintext 7447 -- the notes below say why rtsps is the harder
+  # target). The stream facts here are verified and stay as they are; the
+  # missing piece is entirely on the consumer side.
+  integration: "identify_only"
   admin_url: "https://{address}/"
   notes: >
     UniFi Protect cameras (UVC G3/G4/G5/G6 family, AI series, and the G4/G5
@@ -145,14 +157,14 @@ device:
         it programmatically the app authenticates to the NVR with a LOCAL UniFi
         OS account (session cookie + CSRF), which the user supplies — no cloud.
 
-  local_access:
-    status: native
-    summary: >
-      Live feed is fully local via the NVR's RTSP server (no Ubiquiti cloud),
-      once RTSP is enabled per-camera in Protect. Camera settings/PTZ are out
-      of scope.
-    covers:
-      - "Live video feed (RTSP via the NVR)"
+local_access:
+  status: native
+  summary: >
+    Live feed is fully local via the NVR's RTSP server (no Ubiquiti cloud),
+    once RTSP is enabled per-camera in Protect. Camera settings/PTZ are out
+    of scope.
+  covers:
+    - "Live video feed (RTSP via the NVR)"
 
 camera:
   enable_required: true

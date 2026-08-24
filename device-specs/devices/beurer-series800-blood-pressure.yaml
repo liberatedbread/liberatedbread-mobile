@@ -675,40 +675,41 @@ helpful_urls:
       0x1810/0x2A35/0x2A49 structure, subject to the Beurer quirks this spec
       documents on top.
 
-sources:
-  - type: "static_analysis"
-    artifact: "com.beurer.healthmanager v1.17.2 (versionCode 2025072508)"
-    sha256: "d88e3c34c0baae79f4e4c96b2ca193195211175d3f77cae1156cb14541699126"
-    obtained_via: "third-party APK mirror, 2026-08"
-    description: >
-      Static analysis of the beurer HealthManager Pro app (2026-08) — the
-      companion the BM92 pairs with. Package-flattened, obfuscated Kotlin
-      (RxAndroidBle + coroutines). Contributed the advertised name
-      PREMIUM800, the 0x1810 scan filter, the 0x2A35 indication enable, the
-      measurement-sync flow and the CTS 0x1805/0x2A2B time sync. A few key
-      methods (its own 0x2A35 response parser and the user-selection write
-      path) could not be read cleanly, which is why the classic app is the
-      record-format source.
-  - type: "static_analysis"
-    artifact: "com.beurer.connect.healthmanager v2.17 (versionCode 2025091701)"
-    sha256: "ea3ec53ef9f9a6bc2eaf56237d7383af90f4e99b778036b4a2034d0ea4468a51"
-    obtained_via: "third-party APK mirror, 2026-08"
-    description: >
-      Static analysis of the classic beurer HealthManager app (2026-08) —
-      essentially unobfuscated, and aimed at the older EU device generation
-      (BM77/BM85/BM96 family) rather than the BM92. Its blood-pressure
-      parser is the reference for the record format; it also supplied the
-      CCCD indication-enable path and the family UUID map, and its
-      device-entity tree is where the absence of any BM92 OTA path was
-      confirmed (only the BF8x0 scales carry firmware paths).
-  - type: "community_implementation"
-    url: "https://github.com/smurfix/ble-stuff"
-    description: >-
-      Working third-party local reader for the sister BM85 over
-      0x1810/0x2A35; corroborates the big-endian-SFLOAT quirk.
-  - type: "live_probe"
-    description: >-
-      HTTPS probes 2026-08-18: hmpro.connect.beurer.com /api/v1.1/version
-      returned 200 with Health Manager Pro API 1.14.2 (build 20260218);
-      sync.connect-beurer.com responding; firmware paths for the BF8x0
-      scales 404 on both CDN and API hosts.
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.beurer.healthmanager v1.17.2 (versionCode 2025072508)"
+      sha256: "d88e3c34c0baae79f4e4c96b2ca193195211175d3f77cae1156cb14541699126"
+      obtained_via: "third-party APK mirror, 2026-08"
+      description: >
+        Static analysis of the beurer HealthManager Pro app (2026-08) — the
+        companion the BM92 pairs with. Package-flattened, obfuscated Kotlin
+        (RxAndroidBle + coroutines). Contributed the advertised name
+        PREMIUM800, the 0x1810 scan filter, the 0x2A35 indication enable, the
+        measurement-sync flow and the CTS 0x1805/0x2A2B time sync. A few key
+        methods (its own 0x2A35 response parser and the user-selection write
+        path) could not be read cleanly, which is why the classic app is the
+        record-format source.
+    - type: "static_analysis"
+      artifact: "com.beurer.connect.healthmanager v2.17 (versionCode 2025091701)"
+      sha256: "ea3ec53ef9f9a6bc2eaf56237d7383af90f4e99b778036b4a2034d0ea4468a51"
+      obtained_via: "third-party APK mirror, 2026-08"
+      description: >
+        Static analysis of the classic beurer HealthManager app (2026-08) —
+        essentially unobfuscated, and aimed at the older EU device generation
+        (BM77/BM85/BM96 family) rather than the BM92. Its blood-pressure
+        parser is the reference for the record format; it also supplied the
+        CCCD indication-enable path and the family UUID map, and its
+        device-entity tree is where the absence of any BM92 OTA path was
+        confirmed (only the BF8x0 scales carry firmware paths).
+    - type: "community_implementation"
+      url: "https://github.com/smurfix/ble-stuff"
+      description: >-
+        Working third-party local reader for the sister BM85 over
+        0x1810/0x2A35; corroborates the big-endian-SFLOAT quirk.
+    - type: "live_probe"
+      description: >-
+        HTTPS probes 2026-08-18: hmpro.connect.beurer.com /api/v1.1/version
+        returned 200 with Health Manager Pro API 1.14.2 (build 20260218);
+        sync.connect-beurer.com responding; firmware paths for the BF8x0
+        scales 404 on both CDN and API hosts.

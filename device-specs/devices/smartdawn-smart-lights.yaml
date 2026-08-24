@@ -6,6 +6,26 @@ device:
   name: "SmartDawn Smart Lights"
   manufacturer: "Hangzhou Daniao Technology Co., Ltd (SmartDawn/Minetom store brand)"
   manufacturer_status: "active"
+  testing:
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Driven live over BlueZ against a JY25CUT curtain controller (unit
+      "DN0B88", "DNX:S104-JY" per its own DeviceInfo push) on 2026-08-08:
+      connect and subscribe with no pairing, fragment-framed
+      M_SET_POWERON/M_SET_POWEROFF acknowledged by M_POWER_STATUS_NOTIFY
+      and visibly pausing playback, M_SET_BRIGHTNESS echoed back in the
+      next M_DEVICE_INFO_NOTIFY, and the live pixel-push path (M_DEV_START
+      then full-canvas TUTU_RESTORE chunks on the BIN channel) rendering
+      on the panel at roughly 5 fps. The same session established the
+      negative result the framing section rests on: identical bytes
+      written WITHOUT the 4-byte fragment header are silently ignored.
+
+      'minimally-verified' rather than more because that is one SKU of
+      several. The RGBIC string lights, the meteor tubes and any Wi-Fi SKU
+      have never been on the wire; the AMX stored-animation container was
+      found dormant on this unit (2026-08-12) rather than exercised; and
+      M_GET_RUNNING_STATUS produced no observable reply, framed or not.
   protocol: "ble"
   category: "light"
   notes: >
