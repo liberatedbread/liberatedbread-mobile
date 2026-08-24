@@ -236,6 +236,53 @@ pub fn parse_password_reply(reply: &[u8]) -> Result<String, ProtocolError> {
 
 // ── Command rendering ────────────────────────────────────────────────────────
 
+/// The spec's top-level `mqtt_topics:` entries, if it declares any.
+///
+/// Read out of `extensions` rather than off a typed field: the block is
+/// catalogued documentation for a whole family of MQTT devices (three
+/// directions, payload formats, QoS) and only this one rule reads it, so
+/// promoting it to the shared `DeviceSpec` would model a great deal for one
+/// consumer.
+fn mqtt_topics(spec: &DeviceSpec) -> &[serde_yaml::Value] {
+    spec.extensions
+        .get("mqtt_topics")
+        .and_then(serde_yaml::Value::as_sequence)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+/// Topics the spec says a client may publish on — `direction: publish` or
+/// `both`. A `subscribe` topic is deliberately not among them: the robot's
+/// `delta` is a reading, and a command aimed at it is as wrong as one aimed
+/// at a topic that does not exist.
+fn publishable_topics(spec: &DeviceSpec) -> Vec<&str> {
+    mqtt_topics(spec)
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.get("direction").and_then(serde_yaml::Value::as_str),
+                Some("publish") | Some("both")
+            )
+        })
+        .filter_map(|entry| entry.get("topic").and_then(serde_yaml::Value::as_str))
+        .collect()
+}
+
+/// What the spec's `mqtt_topics` offers, for the error message — so the
+/// author sees the vocabulary they missed rather than only that they missed
+/// it. Names the empty case explicitly: "declares none" is a different spec
+/// bug from "declares three, none of them this one".
+fn describe_topics(spec: &DeviceSpec) -> String {
+    let publishable = publishable_topics(spec);
+    if publishable.is_empty() {
+        if mqtt_topics(spec).is_empty() {
+            return "the spec declares no mqtt_topics at all".to_string();
+        }
+        return "the spec declares mqtt_topics, none of them publishable".to_string();
+    }
+    format!("publishable: {}", publishable.join(", "))
+}
+
 /// A rendered command: the topic to publish on and the JSON to publish.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoombaRequest {
@@ -257,18 +304,13 @@ pub fn render_request(
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<RoombaRequest, ProtocolError> {
-    let command =
-        spec.commands
-            .get(command_name)
-            .ok_or_else(|| ProtocolError::CommandNotFound {
-                uuid: "commands".to_string(),
-                command: command_name.to_string(),
-            })?;
-    render_command(command_name, command, values)
+    let command = super::top_level_command(spec, command_name)?;
+    render_command(spec, command_name, command, values)
 }
 
 /// Render a command already in hand.
 pub fn render_command(
+    spec: &DeviceSpec,
     command_name: &str,
     command: &SpecCommand,
     values: &BTreeMap<String, String>,
@@ -281,6 +323,19 @@ pub fn render_command(
     let Some(topic) = command.path.as_deref() else {
         return Err(ProtocolError::EmptyCommand);
     };
+    // A topic the spec's own catalogue does not offer for publishing is a
+    // typo, and MQTT will not say so: a publish to an unsubscribed topic is
+    // accepted by the broker and reaches nothing, so the only symptom is a
+    // button that does nothing at all. Every other transport's admission
+    // gate checks that the address exists (SOAP its service, HTTP its path);
+    // this is that check for MQTT.
+    if !publishable_topics(spec).contains(&topic) {
+        return Err(ProtocolError::TopicNotPublishable {
+            command: command_name.to_string(),
+            topic: topic.to_string(),
+            declared: describe_topics(spec),
+        });
+    }
     // The argument renderer is the HTTP transport's, unchanged: both build a
     // compact JSON object from `arguments` in declared order, with each value
     // taking the JSON type its parameter declares. `time` renders as the
@@ -360,10 +415,16 @@ pub struct RoombaEntity {
     /// Topic this entity's reading arrives on, for a stateful entity.
     pub state_topic: Option<String>,
     /// Dotted path into that topic's payload — `state_mapping.value`.
+    ///
+    /// Deliberately the LAST thing this resolver says about a reading. How to
+    /// interpret what arrives at that path — `on_when: nonzero`, an `options`
+    /// table, a `payload_formats` entry — is not re-derived here: the client
+    /// hands the flattened payload back to `read_network_entity`, which
+    /// re-resolves the entity from the same spec and reads it through
+    /// [`crate::protocol::soap::read_entity`], the decoder every transport
+    /// shares. A second copy of those rules on this struct would be a second
+    /// place for them to disagree.
     pub value_path: Option<String>,
-    /// True when the entity is on whenever its value is nonzero
-    /// (`state_mapping.on_when`). Only meaningful for a binary_sensor.
-    pub on_when_nonzero: bool,
     /// Role → command name, for the buttons.
     pub actions: Vec<RoombaAction>,
 }
@@ -394,6 +455,7 @@ pub fn network_entities(spec: &DeviceSpec) -> Vec<RoombaEntity> {
 }
 
 fn resolve_entity(spec: &DeviceSpec, entity: &Entity) -> Option<RoombaEntity> {
+    let publishable = publishable_topics(spec);
     let actions: Vec<RoombaAction> = entity
         .commands
         .iter()
@@ -404,6 +466,14 @@ fn resolve_entity(spec: &DeviceSpec, entity: &Entity) -> Option<RoombaEntity> {
             // become a button.
             let command = spec.commands.get(name)?;
             if command.transport.as_deref() != Some(TRANSPORT) {
+                return None;
+            }
+            // And require the topic to be one the spec offers for publishing,
+            // which is the same admission rule the other transports apply to
+            // their addresses. `render_command` refuses such a command, so
+            // without this the button would be drawn and then fail on press —
+            // and on MQTT the failure has no wire symptom to debug from.
+            if !publishable.contains(&command.path.as_deref()?) {
                 return None;
             }
             Some(RoombaAction {
@@ -432,11 +502,6 @@ fn resolve_entity(spec: &DeviceSpec, entity: &Entity) -> Option<RoombaEntity> {
         unit: entity.unit.clone(),
         state_topic,
         value_path,
-        on_when_nonzero: entity
-            .state_mapping
-            .get("on_when")
-            .and_then(serde_yaml::Value::as_str)
-            == Some("nonzero"),
         actions,
     })
 }
@@ -903,6 +968,74 @@ entities:
         );
     }
 
+    /// One mistyped character in a `path` used to render a perfectly
+    /// well-formed publish onto a topic nothing listens to. MQTT gives that
+    /// no wire symptom at all — the broker accepts it — so the bug looks
+    /// like a dead button and debugs like a network fault.
+    #[test]
+    fn a_topic_the_spec_never_declared_is_refused_rather_than_published() {
+        let typo = SPEC.replace("    path: \"cmd\"", "    path: \"cnd\"");
+        let spec = parse_device_spec(&typo).expect("test spec parses");
+        let error = render_request(&spec, "clean", &values(1)).unwrap_err();
+        match &error {
+            ProtocolError::TopicNotPublishable {
+                command,
+                topic,
+                declared,
+            } => {
+                assert_eq!(command, "clean");
+                assert_eq!(topic, "cnd");
+                assert!(declared.contains("cmd"), "the message names the fix");
+            }
+            other => panic!("expected TopicNotPublishable, got {other:?}"),
+        }
+        // And the button is not drawn in the first place: a press that can
+        // only fail is worse than a control that is honestly absent.
+        assert!(!network_entities(&spec).iter().any(|e| e.name == "Clean"));
+    }
+
+    /// A reading topic is not a command address. Publishing to the robot's
+    /// own `delta` would be as wrong as publishing to a topic that does not
+    /// exist, and just as silent.
+    #[test]
+    fn a_subscribe_only_topic_is_not_a_publish_target() {
+        let subscribed = SPEC.replace("direction: \"publish\"", "direction: \"subscribe\"");
+        let spec = parse_device_spec(&subscribed).expect("test spec parses");
+        let error = render_request(&spec, "clean", &values(1)).unwrap_err();
+        assert!(
+            matches!(error, ProtocolError::TopicNotPublishable { .. }),
+            "{error}"
+        );
+    }
+
+    /// A spec with no topic catalogue at all gets a message that says so,
+    /// because "declares none" and "declares three, none of them this one"
+    /// are different spec bugs with different fixes.
+    #[test]
+    fn a_spec_with_no_topic_catalogue_says_so() {
+        let bare = SPEC.replace(
+            "mqtt_topics:\n  - topic: \"cmd\"\n    name: \"Command\"\n    direction: \"publish\"\n",
+            "",
+        );
+        let spec = parse_device_spec(&bare).expect("test spec parses");
+        let error = render_request(&spec, "clean", &values(1)).unwrap_err();
+        assert!(
+            error.to_string().contains("no mqtt_topics at all"),
+            "{error}"
+        );
+    }
+
+    /// `direction: both` is the schema's third value and publishes fine.
+    #[test]
+    fn a_bidirectional_topic_is_publishable() {
+        let both = SPEC.replace("direction: \"publish\"", "direction: \"both\"");
+        let spec = parse_device_spec(&both).expect("test spec parses");
+        assert_eq!(
+            render_request(&spec, "clean", &values(1)).unwrap().topic,
+            "cmd"
+        );
+    }
+
     // ── State ───────────────────────────────────────────────────────────────
 
     #[test]
@@ -958,7 +1091,12 @@ entities:
         assert_eq!(battery.value_path.as_deref(), Some("state.reported.batPct"));
         assert_eq!(battery.unit.as_deref(), Some("%"));
 
-        assert!(entities[2].on_when_nonzero);
+        let bin = &entities[2];
+        assert_eq!(bin.platform, "binary_sensor");
+        assert_eq!(bin.value_path.as_deref(), Some("state.reported.bin.full"));
+        // How that path's value becomes on/off is `read_network_entity`'s
+        // job, not this resolver's — see `value_path`'s note, and
+        // `roomba_control.rs` for the test that drives it.
     }
 
     /// "Broken" binds an http command this module cannot send. Drawing it

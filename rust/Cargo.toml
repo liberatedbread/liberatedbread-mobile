@@ -6,8 +6,11 @@
 name = "liberated_bread_core"
 version = "0.1.0"
 edition = "2021"
-# setup.sh and the README document 1.82 as the supported floor; declaring it
-# here makes cargo enforce that claim instead of leaving it as prose.
+# setup.sh installs 1.85 as the supported floor (RUST_MIN_VERSION); declaring
+# it here makes cargo enforce that claim instead of leaving it as prose. The
+# comment said 1.82 for as long as the field said 1.85 — a stale floor in a
+# comment is how someone talks themselves into shipping a 1.82-compatible
+# workaround that nothing needed.
 rust-version = "1.85"
 description = "Shared Rust core for the Liberated Bread BLE companion app"
 license = "Apache-2.0"

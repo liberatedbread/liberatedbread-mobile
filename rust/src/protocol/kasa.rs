@@ -54,13 +54,7 @@ pub fn render_request(
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<KasaRequest, ProtocolError> {
-    let command =
-        spec.commands
-            .get(command_name)
-            .ok_or_else(|| ProtocolError::CommandNotFound {
-                uuid: "commands".to_string(),
-                command: command_name.to_string(),
-            })?;
+    let command = super::top_level_command(spec, command_name)?;
     render_command(command_name, command, values)
 }
 
@@ -110,10 +104,20 @@ pub fn render_state_request(
 ///
 /// Resolution order per parameter matches the SOAP and HTTP renderers: the
 /// caller's value first, then the parameter's declared `default`, then a
-/// visible failure. Not percent-encoded — the value lands inside a JSON
-/// document, not a URL — so a spec interpolating a device-supplied value must
-/// keep it JSON-safe. No Phase-1 command carries a placeholder; the machinery
+/// visible failure. No Phase-1 command carries a placeholder; the machinery
 /// is here for the per-outlet `child_id` a power strip will thread through.
+///
+/// Values are JSON-escaped on the way in, and that matters because the ones
+/// that fill these placeholders are not the author's: a strip's `child_id`
+/// is whatever the device's own `get_sysinfo` reply said. A reply carrying a
+/// quote or a backslash — corrupt, truncated mid-string, or hostile on a
+/// LAN where the plug is not the only thing answering — would otherwise
+/// close the string it landed in and turn the rest of the template into
+/// syntax. The plug would refuse the malformed document, so the visible
+/// failure is a control that stops working, but the shape of the bug is
+/// injection and it is fixed the way injection is fixed: escape at the
+/// boundary. Placeholders in numeric position (`"brightness":{brightness}`)
+/// are unaffected — escaping only touches characters no number contains.
 ///
 /// `pub(crate)` because Rabbit Air's envelope bodies carry the same `{name}`
 /// placeholders with the same semantics — one substitution rule, one home.
@@ -128,10 +132,22 @@ pub(crate) fn substitute(
         let placeholder = format!("{{{name}}}");
         if out.contains(&placeholder) {
             let value = resolve_param(command, command_name, name, values)?;
-            out = out.replace(&placeholder, &value);
+            out = out.replace(&placeholder, &json_escape(&value));
         }
     }
     Ok(out)
+}
+
+/// One value as it may appear INSIDE a JSON string — the escaping serde_json
+/// would apply, minus the surrounding quotes, which the template already
+/// wrote. Serializing and trimming rather than hand-rolling the escape table:
+/// the corner cases are the control characters (a raw newline or NUL in a
+/// device reply), and a hand-rolled table that forgets one is exactly how
+/// this bug comes back.
+fn json_escape(value: &str) -> String {
+    let quoted = serde_json::Value::String(value.to_string()).to_string();
+    // `to_string` on a JSON string always yields at least the two quotes.
+    quoted[1..quoted.len() - 1].to_string()
 }
 
 fn resolve_param(
@@ -246,6 +262,14 @@ commands:
       child_id:
         type: "string"
         required: true
+  set_brightness:
+    description: "A placeholder in NUMERIC position, not inside a string."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"brightness":{brightness}}}}'
+    parameters:
+      brightness:
+        type: "integer"
+        required: true
   over_soap:
     description: "A transport this module does not speak."
     transport: "soap"
@@ -295,6 +319,57 @@ entities:
         assert_eq!(
             request.json,
             r#"{"context":{"child_ids":["8006ABC00"]},"system":{"set_relay_state":{"state":1}}}"#
+        );
+    }
+
+    /// The value filling `{child_id}` comes from the device's own reply, not
+    /// from the spec. One carrying a quote — a corrupt read, a truncated
+    /// string, something else answering on 9999 — must not close the string
+    /// it lands in and turn the rest of the template into syntax.
+    #[test]
+    fn a_device_value_carrying_json_syntax_is_escaped_not_pasted() {
+        let hostile = r#"a","system":{"reboot":{"delay":1}},"x":"b"#;
+        let request =
+            render_request(&spec(), "set_child", &values(&[("child_id", hostile)])).unwrap();
+
+        // The document still parses, and it still says exactly what the
+        // template said: one system member, still set_relay_state.
+        let parsed: serde_json::Value =
+            serde_json::from_str(&request.json).expect("the rendered body is still valid JSON");
+        let system = parsed["system"].as_object().expect("one system member");
+        assert_eq!(system.len(), 1);
+        assert!(system.contains_key("set_relay_state"));
+        assert!(!system.contains_key("reboot"), "{}", request.json);
+
+        // And the id round-trips intact: escaping preserves the value, it
+        // does not mangle it.
+        assert_eq!(parsed["context"]["child_ids"][0], hostile);
+    }
+
+    /// A backslash is the other half of the escape problem, and a raw control
+    /// character is the half a hand-rolled escape table forgets.
+    #[test]
+    fn backslashes_and_control_characters_survive_as_escapes() {
+        for raw in ["back\\slash", "line\nbreak", "nul\0byte"] {
+            let request =
+                render_request(&spec(), "set_child", &values(&[("child_id", raw)])).unwrap();
+            let parsed: serde_json::Value =
+                serde_json::from_str(&request.json).unwrap_or_else(|e| panic!("{raw:?}: {e}"));
+            assert_eq!(parsed["context"]["child_ids"][0], raw);
+        }
+    }
+
+    /// A placeholder in numeric position must stay a number: escaping touches
+    /// only characters no number contains, so the brightness body renders as
+    /// it always did.
+    #[test]
+    fn a_numeric_placeholder_is_untouched_by_escaping() {
+        let request = render_request(&spec(), "set_brightness", &values(&[("brightness", "50")]))
+            .expect("renders");
+        assert!(
+            request.json.contains(r#""brightness":50"#),
+            "{}",
+            request.json
         );
     }
 

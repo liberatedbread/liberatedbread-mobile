@@ -3,7 +3,7 @@
 //
 //! Parse device spec YAML into Rust types.
 
-use super::types::{Command, DeviceSpec, FormatField, Parameter, TemplateElement};
+use super::types::{AutoRole, Command, DeviceSpec, FormatField, Parameter, TemplateElement};
 use crate::error::SpecError;
 
 /// Maximum byte position (`offset + length`) a format field may extend to.
@@ -41,6 +41,9 @@ const MAX_FIELD_EXTENT: usize = 65_536;
 /// - Every `{param}` reference in a command template must be declared in
 ///   that command's `parameters` map, so a typo'd reference fails here
 ///   instead of at write time.
+/// - An `auto` role must fit the parameter's declared `type` — a two-byte
+///   `crc16_modbus` on a `uint8` would compute fine and then fail encoding
+///   on every send, complaining about a value the author never wrote.
 pub fn parse_device_spec(yaml: &str) -> Result<DeviceSpec, SpecError> {
     let mut spec: DeviceSpec = serde_yaml::from_str(yaml)?;
     hoist_device_nested_capabilities(&mut spec);
@@ -210,7 +213,65 @@ fn validate_template_references(command_name: &str, command: &Command) -> Result
     Ok(())
 }
 
+/// An `auto` role must fit the type the parameter declares.
+///
+/// The encoder fills these in itself and then pushes the result through the
+/// ordinary numeric path, so the declared `type` is what places the bytes. A
+/// mismatch is invisible in the YAML and fatal on the wire: `auto:
+/// crc16_modbus` on a `uint8` computes a two-byte CRC and then fails
+/// `coerce_param` with an out-of-range complaint about a value the spec
+/// author never wrote — at send time, in front of the device, with nothing
+/// in the message pointing at the type declaration that caused it.
+///
+/// The whole catalogue already complies (`checksum`/`xor_checksum` on
+/// `uint8`, `crc16_modbus` on `uint16`, `sequence` on `uint16`), so this
+/// pins today's specs and catches tomorrow's typo at load.
+fn validate_auto_role(name: &str, param: &Parameter) -> Result<(), SpecError> {
+    let Some(role) = param.auto else {
+        return Ok(());
+    };
+    if role == AutoRole::PacketLength {
+        // The length is patched in after the packet is built, into a slot
+        // reserved by width — so a variable-width type has nothing to
+        // reserve. The encoder says the same thing; saying it here names the
+        // spec instead of the send.
+        if param.value_type.fixed_byte_size().is_none() {
+            return Err(SpecError::AutoLengthOnVariableWidthType {
+                parameter_name: name.to_string(),
+                value_type: param.value_type.clone(),
+            });
+        }
+        return Ok(());
+    }
+    let Some((_, holds)) = param.value_type.integer_range() else {
+        return Err(SpecError::AutoRoleOnNonNumericType {
+            parameter_name: name.to_string(),
+            role: role.to_string(),
+            value_type: param.value_type.clone(),
+        });
+    };
+    // The widest value each role can produce. `sequence` is the caller's
+    // counter rather than a computed value, so it has no ceiling of its own —
+    // being numeric at all is the whole requirement.
+    let emits = match role {
+        AutoRole::Checksum | AutoRole::XorChecksum => u8::MAX as i64,
+        AutoRole::Crc16Modbus => u16::MAX as i64,
+        AutoRole::Sequence | AutoRole::PacketLength => return Ok(()),
+    };
+    if emits > holds {
+        return Err(SpecError::AutoRoleTooWideForType {
+            parameter_name: name.to_string(),
+            role: role.to_string(),
+            value_type: param.value_type.clone(),
+            emits,
+            holds,
+        });
+    }
+    Ok(())
+}
+
 fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
+    validate_auto_role(name, param)?;
     let Some((lo, hi)) = param.value_type.integer_range() else {
         // No numeric range (string/bytes): min/max are meaningless here.
         // Reject rather than silently ignore an author's bound. `allowed`
@@ -1039,6 +1100,80 @@ services:
                 max: 7"#,
         );
         parse_device_spec(&yaml).expect("min == max should parse");
+    }
+
+    /// Build a one-command spec whose single parameter carries `auto: role`
+    /// on the declared `ty`.
+    fn spec_with_auto(ty: &str, role: &str) -> String {
+        make_minimal_spec(&format!(
+            r#"        properties: ["write"]
+        commands:
+          send:
+            description: x
+            template: [0x01, "{{tail}}"]
+            parameters:
+              tail:
+                type: {ty}
+                auto: {role}"#
+        ))
+    }
+
+    /// A two-byte CRC declared as a one-byte field is a spec bug that used to
+    /// surface at SEND time, as an out-of-range complaint about a value the
+    /// author never wrote — with nothing in the message pointing at the type
+    /// declaration that caused it.
+    #[test]
+    fn rejects_a_crc16_that_does_not_fit_its_declared_type() {
+        let err = parse_device_spec(&spec_with_auto("uint8", "crc16_modbus"))
+            .expect_err("a 16-bit crc does not fit a uint8");
+        let msg = err.to_string();
+        assert!(msg.contains("crc16_modbus"), "{msg}");
+        assert!(msg.contains("65535"), "the message says how wide: {msg}");
+        assert!(msg.contains("255"), "and what the type holds: {msg}");
+    }
+
+    /// A one-byte checksum on `int8` holds only 127 — the same failure, one
+    /// signedness away, and just as invisible in the YAML.
+    #[test]
+    fn rejects_a_checksum_on_a_type_that_cannot_hold_255() {
+        for role in ["checksum", "xor_checksum"] {
+            parse_device_spec(&spec_with_auto("int8", role))
+                .expect_err("a byte checksum does not fit an int8");
+        }
+    }
+
+    /// The catalogue's own pairings must keep parsing: this rule pins today's
+    /// specs as much as it catches tomorrow's typo.
+    #[test]
+    fn accepts_the_auto_role_and_type_pairings_the_catalogue_uses() {
+        for (ty, role) in [
+            ("uint8", "checksum"),
+            ("uint8", "xor_checksum"),
+            ("uint16", "crc16_modbus"),
+            ("uint16", "sequence"),
+            ("uint32", "packet_length"),
+        ] {
+            parse_device_spec(&spec_with_auto(ty, role))
+                .unwrap_or_else(|e| panic!("{ty} + {role} should parse: {e}"));
+        }
+    }
+
+    /// `packet_length` is patched into a slot reserved by width, so a
+    /// variable-width type has nothing to reserve. The encoder already said
+    /// so; saying it at load names the spec instead of the send.
+    #[test]
+    fn rejects_a_packet_length_on_a_variable_width_type() {
+        let err = parse_device_spec(&spec_with_auto("varint", "packet_length"))
+            .expect_err("a varint reserves no fixed slot");
+        assert!(err.to_string().contains("fixed width"), "{err}");
+    }
+
+    /// An `auto` role on a `bytes` parameter has no number to fill in at all.
+    #[test]
+    fn rejects_an_auto_role_on_a_non_numeric_type() {
+        let err = parse_device_spec(&spec_with_auto("bytes", "sequence"))
+            .expect_err("a bytes parameter carries no number");
+        assert!(err.to_string().contains("no number"), "{err}");
     }
 
     #[test]

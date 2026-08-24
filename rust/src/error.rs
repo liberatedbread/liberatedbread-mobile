@@ -75,6 +75,14 @@ pub enum ProtocolError {
     #[error("invalid image frame: {reason}")]
     ImageDimensionsInvalid { reason: String },
 
+    #[error("command '{command}' publishes to topic '{topic}', which the spec's mqtt_topics does not offer for publishing ({declared})")]
+    TopicNotPublishable {
+        command: String,
+        topic: String,
+        /// What the spec DOES declare, so the message names the fix.
+        declared: String,
+    },
+
     #[error("failed to parse device spec: {0}")]
     SpecParse(#[from] SpecError),
 }
@@ -164,5 +172,33 @@ pub enum SpecError {
         value: i64,
         min: i64,
         max: i64,
+    },
+
+    #[error(
+        "parameter '{parameter_name}' declares auto: {role}, which emits values up to {emits}, but type {value_type} holds at most {holds}; every send would fail encoding"
+    )]
+    AutoRoleTooWideForType {
+        parameter_name: String,
+        role: String,
+        value_type: crate::spec::types::ValueType,
+        emits: i64,
+        holds: i64,
+    },
+
+    #[error(
+        "parameter '{parameter_name}' declares auto: {role}, which the encoder fills with a number, but type {value_type} carries no number"
+    )]
+    AutoRoleOnNonNumericType {
+        parameter_name: String,
+        role: String,
+        value_type: crate::spec::types::ValueType,
+    },
+
+    #[error(
+        "parameter '{parameter_name}' declares auto: packet_length, which is patched into a reserved slot, but type {value_type} has no fixed width to reserve"
+    )]
+    AutoLengthOnVariableWidthType {
+        parameter_name: String,
+        value_type: crate::spec::types::ValueType,
     },
 }

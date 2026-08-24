@@ -872,6 +872,23 @@ const SETPOINT_ALIASES: &[&str] = &["set_value", "set_temperature", "set_target"
 /// Returns nothing for an entity that binds no `state_command` — that is a
 /// BLE entity, or an entity that reaches nothing at all, and either way this
 /// is not its path.
+///
+/// A `toggle` is withheld from an entity with no state binding, which is the
+/// same rule [`is_assumed_state_switch`] applies when deciding whether such
+/// an entity belongs on the surface at all. Admission and resolution have to
+/// agree: a spec writing `{turn_on: a, toggle: b}` with no `state_command`
+/// is admitted on `turn_on` alone, and without this filter it then listed
+/// the toggle too — a control the client must refuse to operate, because the
+/// toggle contract is "read the state, send the opposite" and there is no
+/// state to read. A dead button on screen is exactly what the assumed-state
+/// carve-out was narrowed to avoid.
+///
+/// `set_cover_position` — the other role admission holds back — is NOT
+/// filtered here, and the difference is whether the control can be sent at
+/// all without a reading. A position slider missing its thumb is still
+/// operable: the user picks an absolute value and it goes out. A toggle with
+/// no reading has nothing to send, because what it sends is defined as the
+/// opposite of a state nobody has.
 pub fn resolve_network_actions<'a>(
     spec: &'a DeviceSpec,
     entity: &'a Entity,
@@ -883,7 +900,19 @@ pub fn resolve_network_actions<'a>(
         return Vec::new();
     };
 
-    resolve_network_roles(spec, roles, entity)
+    let mut actions = resolve_network_roles(spec, roles, entity);
+    if !has_state_binding(entity) {
+        actions.retain(|action| action.role != TOGGLE.role);
+    }
+    actions
+}
+
+/// Whether an entity says where a reading of its own comes from — the poll
+/// (`state_command`) or the push (`state_topic`) a client would establish
+/// state with. Both spellings count: which one a spec uses is the device's
+/// transport speaking, not a statement about whether the state exists.
+fn has_state_binding(entity: &Entity) -> bool {
+    entity.state_command.is_some() || entity.state_topic.is_some()
 }
 
 /// The role-map half of [`resolve_network_actions`], with no admission
@@ -2318,6 +2347,45 @@ entities:
         let actions = resolve_network_actions(&spec, entities[0]);
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].role, "toggle");
+    }
+
+    /// Admission and resolution have to agree about the toggle. A switch
+    /// binding BOTH a discrete role and a toggle, with no state binding, is
+    /// admitted on the discrete role — and must then list only that one. The
+    /// toggle it also binds is unsendable by policy (there is no reading to
+    /// take the opposite of), so listing it hands the client a control it can
+    /// only refuse.
+    #[test]
+    fn a_stateless_switch_does_not_list_the_toggle_it_also_binds() {
+        let yaml = ROKUISH_SWITCH.replace(
+            "      turn_on: press_me",
+            "      turn_on: press_me\n      toggle: press_me",
+        );
+        let spec = parse_device_spec(&yaml).expect("test spec should parse");
+        let entities = network_entities(&spec);
+        assert_eq!(entities.len(), 1, "the discrete role still admits it");
+        let roles: Vec<&str> = resolve_network_actions(&spec, entities[0])
+            .iter()
+            .map(|a| a.role)
+            .collect();
+        assert_eq!(
+            roles,
+            vec!["turn_on"],
+            "a toggle with no state to read must not be offered"
+        );
+
+        // The same spec with a state binding lists both: the client can now
+        // read before sending, which is the whole toggle contract.
+        let stateful = yaml.replace(
+            "    platform: switch\n",
+            "    platform: switch\n    state_command: press_me\n",
+        );
+        let spec = parse_device_spec(&stateful).expect("test spec should parse");
+        let roles: Vec<&str> = resolve_network_actions(&spec, &spec.entities[0])
+            .iter()
+            .map(|a| a.role)
+            .collect();
+        assert_eq!(roles, vec!["turn_on", "toggle"]);
     }
 
     /// Statelessness still excuses nothing else: a sensor-shaped entity with

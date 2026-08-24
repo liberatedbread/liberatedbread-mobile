@@ -13,6 +13,35 @@ use liberated_bread_core::api::device_api::{
     rabbit_air_decrypt_datagram, rabbit_air_encrypt_datagram, rabbit_air_generate_user_key,
     render_rabbit_air_setup_envelope,
 };
+use liberated_bread_core::protocol::rabbit_air_ble::{
+    CHUNK_OVERHEAD, DEFAULT_CHUNK_SIZE, NEGOTIATED_CHUNK_SIZE,
+};
+
+/// The vendored spec, read the way `roomba_control.rs` reads its own: the
+/// numbers below are the spec's, not this file's, so a spec correction shows
+/// up here as a failure instead of drifting silently past a literal.
+const SPEC: &str = include_str!("specs/rabbit-air-purifier.yaml");
+
+/// The `ble_provisioning` setup method's block — where the spec records the
+/// GATT identity and timings this transport is built from.
+fn ble_provisioning() -> serde_yaml::Value {
+    let spec: serde_yaml::Value = serde_yaml::from_str(SPEC).expect("the fixture parses");
+    spec["device"]["setup"]["methods"]
+        .as_sequence()
+        .expect("the spec declares setup methods")
+        .iter()
+        .find(|m| m["type"].as_str() == Some("ble_provisioning"))
+        .expect("the spec declares the BLE provisioning method")
+        .clone()
+}
+
+/// The chunk size the spec's own timing block prescribes, used everywhere
+/// below in place of a bare 510.
+fn spec_chunk_size() -> u32 {
+    ble_provisioning()["timing"]["chunk_size"]
+        .as_u64()
+        .expect("the spec states a chunk size") as u32
+}
 
 /// The example key from the spec's exchange documentation (a documentation
 /// value, not a real device credential).
@@ -31,23 +60,59 @@ fn reassemble(chunks: &[Vec<u8>]) -> Vec<u8> {
     buffered
 }
 
+/// The transport's constants are the SPEC's, and this is what says so.
+///
+/// Asserting the literals here proved nothing — the same two strings written
+/// twice, so a spec correction (a mistranscribed UUID, an MTU the next
+/// firmware moves) would land upstream and leave the crate quietly speaking
+/// the old protocol with a green suite. Read them out of the fixture instead,
+/// the way `roomba_control.rs` reads its example bodies.
 #[test]
-fn the_gatt_constants_are_the_vendor_apps() {
+fn the_gatt_constants_are_the_ones_the_spec_declares() {
+    let method = ble_provisioning();
+    let ble = &method["ble"];
     assert_eq!(
         rabbit_air_ble_service_uuid(),
-        "366048ae-9f36-43cf-8004-010c0c9fa52e"
+        ble["service_uuid"].as_str().expect("a service uuid")
+    );
+    // One characteristic serves both legs — write requests out, indications
+    // back — which is why the crate keeps a single constant for it.
+    let write = ble["write_characteristic"].as_str().expect("a write char");
+    let read = ble["read_characteristic"].as_str().expect("a read char");
+    assert_eq!(write, read, "the spec's single command characteristic");
+    assert_eq!(rabbit_air_ble_command_characteristic_uuid(), write);
+
+    let timing = &method["timing"];
+    assert_eq!(
+        u64::from(rabbit_air_ble_mtu()),
+        timing["mtu"].as_u64().expect("a negotiated MTU")
+    );
+    // The chunk size is not an independent number: the spec states both the
+    // answer and the rule that produces it, so pinning the answer against the
+    // spec and the rule against the answer pins `CHUNK_OVERHEAD` too — 515 -
+    // 510 leaves it no room to be anything but 5.
+    assert_eq!(
+        NEGOTIATED_CHUNK_SIZE as u64,
+        timing["chunk_size"].as_u64().expect("a chunk size")
     );
     assert_eq!(
-        rabbit_air_ble_command_characteristic_uuid(),
-        "53ef7d7d-c244-42bd-9064-a1569a521ca9"
+        NEGOTIATED_CHUNK_SIZE,
+        rabbit_air_ble_mtu() as usize - CHUNK_OVERHEAD
     );
-    assert_eq!(rabbit_air_ble_mtu(), 515);
+    // The pre-negotiation default lives only in the rule's prose.
+    let rule = timing["chunk_size_rule"]
+        .as_str()
+        .expect("the rule in prose");
+    assert!(
+        rule.contains(&DEFAULT_CHUNK_SIZE.to_string()),
+        "the pre-negotiation default must be the spec's: {rule}"
+    );
 }
 
 #[test]
 fn a_short_message_is_a_single_prefixed_chunk() {
     let payload = b"{\"id\":0,\"cmd\":0}";
-    let chunks = rabbit_air_ble_frame(payload.to_vec(), 510).expect("frames");
+    let chunks = rabbit_air_ble_frame(payload.to_vec(), spec_chunk_size()).expect("frames");
     assert_eq!(chunks.len(), 1);
     assert_eq!(chunks[0][0], payload.len() as u8, "little-endian LSB");
     assert_eq!(chunks[0][1], 0, "little-endian MSB");
@@ -61,12 +126,21 @@ fn a_short_message_is_a_single_prefixed_chunk() {
 
 #[test]
 fn a_multi_chunk_message_crossing_the_negotiated_boundary_round_trips() {
-    let payload: Vec<u8> = (0..1200u32).map(|i| (i % 251) as u8).collect();
-    let chunks = rabbit_air_ble_frame(payload.clone(), 510).expect("frames");
-    assert_eq!(chunks.len(), 3, "1202 framed bytes at 510-byte chunks");
-    assert_eq!(chunks[0].len(), 510);
-    assert_eq!(chunks[1].len(), 510);
-    assert_eq!(chunks[2].len(), 1202 - 2 * 510);
+    let chunk = spec_chunk_size() as usize;
+    // Long enough to need three chunks at the spec's size, whatever it is.
+    let payload: Vec<u8> = (0..(2 * chunk + 1) as u32)
+        .map(|i| (i % 251) as u8)
+        .collect();
+    let framed = payload.len() + 2;
+    let chunks = rabbit_air_ble_frame(payload.clone(), chunk as u32).expect("frames");
+    assert_eq!(
+        chunks.len(),
+        3,
+        "{framed} framed bytes at {chunk}-byte chunks"
+    );
+    assert_eq!(chunks[0].len(), chunk);
+    assert_eq!(chunks[1].len(), chunk);
+    assert_eq!(chunks[2].len(), framed - 2 * chunk);
     assert_eq!(reassemble(&chunks), payload);
 }
 
@@ -142,7 +216,7 @@ fn a_generated_user_key_feeds_the_datagram_crypto() {
     for key in [key, KEY_HEX.to_string()] {
         let datagram = rabbit_air_encrypt_datagram(key.clone(), plaintext.to_string())
             .expect("encrypts under the key");
-        let chunks = rabbit_air_ble_frame(datagram, 510).expect("frames");
+        let chunks = rabbit_air_ble_frame(datagram, spec_chunk_size()).expect("frames");
         let reassembled = reassemble(&chunks);
         assert_eq!(
             rabbit_air_decrypt_datagram(key, reassembled).expect("decrypts"),
