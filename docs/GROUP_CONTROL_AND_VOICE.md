@@ -4,8 +4,10 @@
 # Group control across both transports, and a voice surface
 
 Design note for "turn all the TVs off" — one gesture in the app, one sentence to
-an assistant. Nothing here is implemented yet; this is the shape of the work and
-the reasoning behind the order it should land in.
+an assistant. Phases 2, 3 and F have since landed: `NetworkCommandSender`, the
+saved-device store, `NetworkGroupRunner`, the `toggle` role and mixed-transport
+group runs are all in the app. The voice surface is not. What follows is the
+shape of the work and the reasoning behind the order it should land in.
 
 ## Where we actually are
 

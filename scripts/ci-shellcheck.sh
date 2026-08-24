@@ -42,10 +42,20 @@ fi
 # Explicit list of roots rather than a repo-wide find: vendor/ carries a
 # subtree of somebody else's shell, and third-party lint failures are not
 # this project's to fix or to be blocked by.
+#
+# `.claude/worktrees/` is pruned for the same reason one level down. Agent
+# worktrees are whole checkouts of this repo, so a repo-wide walk finds every
+# script twice — and finds cargokit's vendored `build_pod.sh` under
+# `rust_builder/`, which `build/` normally hides. That turned a green local
+# run red for third-party style warnings nobody here can fix: the same
+# somebody-else's-code trap the `vendor/` exclusion exists for, and the same
+# one `dart format .` fell into with `build/`.
 targets=()
 while IFS= read -r f; do
   targets+=("$f")
-done < <(find scripts .claude -name '*.sh' -type f | sort)
+done < <(find scripts .claude \
+  -path '.claude/worktrees' -prune -o \
+  -name '*.sh' -type f -print | sort)
 
 if [ "${#targets[@]}" -eq 0 ]; then
   echo "::error::Found no shell scripts to lint — the layout moved and this check is silently passing." >&2

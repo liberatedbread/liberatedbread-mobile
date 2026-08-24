@@ -75,8 +75,14 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)" || exit 1
 # aggregate collapses them into one. See docs/BUILD_AND_TEST.md.
 TARGET="integration_test/ci_all_test.dart"
 TEST_TIMEOUT="${LB_TEST_TIMEOUT:-1200s}"
-LOG="ios-simulator-log.txt"
-CRASH_DIR="ios-crash-reports"
+# Diagnostics go under one gitignored directory rather than into the repo
+# root. Root-level output is one `git commit -a` away from the history — and
+# was, twice — and a directory is also what lets a CI job upload the whole set
+# as a single artifact.
+DIAG_DIR="${LB_IOS_DIAG_DIR:-.ios-diagnostics}"
+mkdir -p "$DIAG_DIR"
+LOG="$DIAG_DIR/ios-simulator-log.txt"
+CRASH_DIR="$DIAG_DIR/ios-crash-reports"
 
 # Both on stderr, deliberately: `--boot` prints the chosen UDID on stdout and
 # `--all` reads it back with $(...), so a chatty stdout would hand the run mode
@@ -389,7 +395,7 @@ run_mode() {
 
     # Keep this attempt's device log under its own name; the next attempt would
     # otherwise write over the only record of what went wrong.
-    mv "$LOG" "ios-simulator-log-attempt${attempt}.txt" 2>/dev/null || true
+    mv "$LOG" "$DIAG_DIR/ios-simulator-log-attempt${attempt}.txt" 2>/dev/null || true
 
     reset_device "$udid"
     attempt=$((attempt + 1))

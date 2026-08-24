@@ -1,3 +1,13 @@
+# NOTE: there is deliberately no top-level `exclude_tags: netdisco` here, even
+# though it would make a bare `flutter test` safe. `exclude_tags` in this file
+# also beats an explicit `--tags=netdisco` on the command line (exclusion wins
+# in package:test), and the escape hatch for that — a preset, `-P netdisco` —
+# is not forwarded by `flutter test`, which accepts only `--tags` and
+# `--exclude-tags`. Setting it would therefore leave
+# `scripts/ci-netdisco-tests.sh` with no way to run the suites it exists to
+# run. The exclusion lives in `./scripts/test.sh` and CI instead; CONTRIBUTING
+# says so where it tells you which command to use.
+
 tags:
   e2e: {}
   # Local-network discovery against emulated devices on the real multicast

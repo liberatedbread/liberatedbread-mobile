@@ -1217,16 +1217,17 @@ jobs:
         run: ./scripts/ci-ios-tests.sh --run
       # if: always() — the whole point is the failing run. On a retry there is
       # one log per attempt: ios-simulator-log.txt is the attempt that decided
-      # the step, ios-simulator-log-attemptN.txt each earlier one.
+      # the step, ios-simulator-log-attemptN.txt each earlier one. They live
+      # under .ios-diagnostics/ so the repo root cannot collect them (see
+      # ci-ios-tests.sh); ios-rust-artifacts.txt is still written by the step
+      # below, which tees from the workspace root.
       - name: Upload simulator log and crash reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ios-simulator-diagnostics
           path: |
-            ios-simulator-log.txt
-            ios-simulator-log-attempt*.txt
-            ios-crash-reports/
+            .ios-diagnostics/
             ios-rust-artifacts.txt
           if-no-files-found: warn
           retention-days: 7

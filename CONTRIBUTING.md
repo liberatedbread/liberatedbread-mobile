@@ -8,9 +8,15 @@ By participating you agree to our [Code of Conduct](CODE_OF_CONDUCT.md).
 1. **Fork** the repository
 2. **Create a branch** for your feature or fix: `git checkout -b feature/my-feature`
 3. **Write tests** for your changes
-4. **Run tests** to make sure everything passes: `flutter test` and `cd rust && cargo test`
-5. **Run the linter**: `flutter analyze --fatal-infos` (CI treats infos as fatal) and `cd rust && cargo clippy --all-targets --all-features -- -D warnings`
-6. **Format your code**: `dart format .` and `cd rust && cargo fmt --all`
+4. **Run the checks**: `./scripts/test.sh` — the local CI mirror. It runs the
+   formatter, the analyzer, the FRB binding-freshness check, `flutter test` and
+   the Rust suite in the same order and with the same flags CI does, so a green
+   run here is a green run there. Running `flutter test` on its own, pass
+   `--exclude-tags=netdisco` (see below).
+5. **Format your code**: `./scripts/ci-format.sh --write`. Plain `dart format .`
+   walks `build/`, where it reformats cargokit's vendored Dart and then fails
+   because it changed something — CI never notices because its analyze job runs
+   before anything is built, and yours does not.
 7. **Commit** your changes with a clear message
 8. **Push** to your fork and **open a Pull Request**
 
@@ -117,11 +123,21 @@ python3 scripts/net_virtual_device.py --verbose &
 ./scripts/ci-netdisco-tests.sh
 ```
 
-These suites are tagged `@Tags(['netdisco'])` and are **excluded from
-`flutter test`**, with a CI job of their own. Two reasons, both in
-`scripts/ci-netdisco-tests.sh`: they bind ports 5353 and 1900, which a machine
-running `avahi-daemon` or `systemd-resolved` cannot spare, and a scan window is
-seconds of waiting for real datagrams rather than frames of a fake clock.
+These suites are tagged `@Tags(['netdisco'])` and have a CI job of their own.
+Two reasons, both in `scripts/ci-netdisco-tests.sh`: they bind ports 5353 and
+1900, which a machine running `avahi-daemon` or `systemd-resolved` cannot
+spare, and a scan window is seconds of waiting for real datagrams rather than
+frames of a fake clock.
+
+**They are not excluded by default** — `dart_test.yaml` only *declares* the tag
+so the runner does not warn about it. What excludes them is the
+`--exclude-tags=netdisco` that `./scripts/test.sh` and CI both pass, so a bare
+`flutter test` on your machine runs them and binds those ports. Use
+`./scripts/test.sh`, or pass the flag yourself. (`exclude_tags` in
+`dart_test.yaml` would make the bare command safe, but it also wins over an
+explicit `--tags=netdisco`, and `flutter test` has no preset passthrough to
+opt back in — so the deliberate run would have no way to happen. See the note
+in `dart_test.yaml`.)
 
 ## Device specs live in another repository
 

@@ -1,6 +1,9 @@
 # June Oven support — app-side execution plan
 
-Status: **plan, not yet executed**. Written 2026-08-07.
+Status: **plan, not yet executed**. Written 2026-08-07; the survey in §1 was
+re-checked 2026-08-23 and two of its premises had already expired when this
+landed — see the notes inline. Moved out of the repo root at the same time:
+a plan is a document, and `docs/` is where the others live.
 
 Companion document: `liberatedbread-protocol-specs/JUNE_OVEN_PLAN.md` (scope,
 sequencing, guardrails) and `.../targets/june-oven.md` (evidence, protocol
@@ -34,14 +37,21 @@ idea and it is a good one.
    carries the sourcing. The one thing worth doing is a five-minute BLE scan
    next to a powered oven with this app — nobody has published that result for
    any generation — and then moving on regardless of the answer.
-2. **No transport.** `BleService` is the only device transport in the app.
-   June needs HTTPS + a long-lived authenticated WebSocket. The `http` package
-   is present but wired only to Home Assistant.
-3. **No crypto, anywhere.** The Rust core's entire dependency list is
+2. **No transport.** ~~`BleService` is the only device transport in the app.~~
+   *Stale as written, and already stale on 2026-08-07:* the app drives SOAP,
+   plain HTTP (now with TLS), Kasa's TCP-JSON, LIFX and Rabbit Air UDP, and a
+   Roomba's MQTT over TLS. What June actually needs that none of those give it
+   is a long-lived AUTHENTICATED WebSocket session — the same gap the Samsung
+   and LG TVs sit behind, which makes June the third customer for that work
+   rather than the only one.
+3. **No crypto, anywhere.** ~~The Rust core's entire dependency list is
    `flutter_rust_bridge`, `serde`, `indexmap`, `serde_yaml`, `thiserror`,
-   `anyhow`. June needs Ed25519, BLAKE2b with a non-default digest length,
-   XSalsa20-Poly1305 secretbox, SHA-1, and 8192-bit modular exponentiation for
-   SRP-6a. None of that exists in the tree today.
+   `anyhow`.~~ *Also stale:* the tree carries AES-128-CBC (Rabbit Air), SHA-1
+   (the ECP2 session's challenge response) and TLS via Dart's `SecureSocket`.
+   The point survives the correction, though, and it is the load-bearing one:
+   June needs Ed25519, BLAKE2b at a non-default digest length,
+   XSalsa20-Poly1305 secretbox and 8192-bit modular exponentiation for SRP-6a,
+   and none of THAT exists here.
 
 So this is a new subsystem sitting *beside* the spec pipeline, not inside it.
 Say so in the design rather than trying to bend the spec loader into a shape it

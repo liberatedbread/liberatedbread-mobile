@@ -12,11 +12,11 @@
 
 <!-- How did you test these changes? -->
 
-- [ ] Unit tests pass (`flutter test`)
-- [ ] Lint passes (`flutter analyze --fatal-infos`)
-- [ ] Code is formatted (`dart format .`)
-- [ ] Rust tests pass (`cd rust && cargo test`)
-- [ ] Rust lint passes (`cd rust && cargo clippy --all-targets --all-features -- -D warnings`)
+- [ ] The CI mirror passes (`./scripts/test.sh`) — format, analyze, FRB
+      binding freshness, `flutter test`, and the Rust suite, in CI's own order
+- [ ] Local-network discovery suites, if you touched the Wi-Fi path
+      (`./scripts/ci-netdisco-tests.sh` — they bind 5353/1900, so they are
+      opt-in)
 - [ ] Tested on Android
 - [ ] Tested on iOS
 

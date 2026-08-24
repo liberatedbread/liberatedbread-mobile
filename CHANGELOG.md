@@ -407,6 +407,22 @@ heading.
 
 ### Added
 
+- **Local Roomba control, with no iRobot cloud in the loop.** A robot found on
+  the LAN is adopted (hold HOME until the tones, the app reads its password
+  off the documented probe), remembered, and driven over its own MQTT broker:
+  a hand-rolled MQTT 3.1.1 codec in Rust renders every packet from the spec,
+  Dart owns only the TLS socket and the session lifecycle. Clean / Pause /
+  Stop / Dock / Locate, live battery, bin and mission state pushed on the
+  robot's own topic rather than polled. Two adapters ride the same controller
+  for people who already have one: a `rest980` server, and Home Assistant's
+  vacuum entity.
+- **Saved network devices, and group control across both transports.** A Wi-Fi
+  device you have opened is remembered with its identity (not just its
+  address, which DHCP moves), so it opens from Saved Devices without a scan;
+  automatic by-category groups and hand-made ones then run one gesture across
+  BLE and network members together — "turn all the lights off" reaching a
+  Kasa plug, a LIFX strip and a BLE bulb in one pass, reporting per-device
+  outcomes rather than a single pass/fail.
 - **Setup-mode Rabbit Air purifiers get a real device view.** A purifier
   advertising as "RabbitAirSetup" answers the cleartext command envelope —
   no key, no `ts` — so the BLE device screen now shows it instead of the raw

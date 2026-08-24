@@ -99,7 +99,7 @@ addresses and points you there.
 | Tool | Version | Notes |
 |------|---------|-------|
 | Flutter | 3.44+ | Stable channel |
-| Rust | stable (1.82+) | Via rustup |
+| Rust | stable (1.85+) | Via rustup; the workspace's `rust-version` floor |
 | Android SDK | API 36 | The pinned Flutter's `flutter.compileSdkVersion`; NDK matches its `flutter.ndkVersion` |
 | Xcode | 15+ | macOS only, for iOS builds |
 | CocoaPods | latest | macOS only |
@@ -171,6 +171,26 @@ export PATH="$HOME/.flutter-sdk/bin:$PATH"
 > Or use Flutter's built-in: `flutter config --jdk-dir /path/to/jdk-17`.
 
 ### About platform scaffolds
+
+**What is actually supported.** `android/`, `ios/` and `linux/` are the three
+targets this app builds and CI covers (see the `android-build`, `ios-build`
+and `linux-desktop` jobs). `macos/` and `web/` are also committed, and neither
+is: they are `flutter create` output nobody has finished.
+
+- `macos/` has no `Podfile` — `ios/` does — and no CI job, which is exactly
+  the pairing that let the iOS BLE outage ship: the `ios-build` job's Podfile
+  check exists because a missing pod spec fails silently until somebody
+  installs the app. Building macOS locally will generate a Podfile for you;
+  until one is committed and a build smoke is added, treat a macOS build as
+  untested rather than as supported.
+- `web/` cannot work as more than a blank page and is not a matter of effort:
+  the app is BLE and LAN multicast over a Rust core loaded through
+  `dart:ffi`, and a browser gives you none of the three. It is committed
+  because `flutter create` wrote it.
+
+Both are kept rather than deleted so a `flutter create` regeneration does not
+silently drop platform entries from `.metadata` (see the warning below), and
+both are listed here so nobody mistakes their presence for a promise.
 
 `android/`, `ios/` and `linux/` are committed. To regenerate them (for example when
 upgrading Flutter), back up the customized `android/app/src/main/AndroidManifest.xml`
@@ -365,8 +385,11 @@ instead, so building is the whole requirement.
 │       │   ├── soap.rs         # SOAP/UPnP transport (Wemo, older bridges)
 │       │   └── profiles/       # Standard BLE profiles (battery, device_info)
 │       └── spec/               # YAML parser and type definitions
-├── assets/
-│   └── device_specs/           # Bundled fallback YAML device specs
+├── assets/                     # App assets (no device specs — see vendor/)
+├── vendor/
+│   └── protocol-specs/         # Device specs + registries, a git subtree
+│                               #   vendored from liberatedbread-protocol-specs
+│                               #   and bundled straight out of here
 ├── integration_test/           # End-to-end flow tests (emulator, simulator,
 │                               #   or Linux desktop via Xvfb)
 ├── test/                       # Dart unit + widget tests
