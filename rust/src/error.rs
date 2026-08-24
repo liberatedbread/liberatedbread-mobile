@@ -75,6 +75,14 @@ pub enum ProtocolError {
     #[error("invalid image frame: {reason}")]
     ImageDimensionsInvalid { reason: String },
 
+    #[error("command '{command}' publishes to topic '{topic}', which the spec's mqtt_topics does not offer for publishing ({declared})")]
+    TopicNotPublishable {
+        command: String,
+        topic: String,
+        /// What the spec DOES declare, so the message names the fix.
+        declared: String,
+    },
+
     #[error("failed to parse device spec: {0}")]
     SpecParse(#[from] SpecError),
 }
