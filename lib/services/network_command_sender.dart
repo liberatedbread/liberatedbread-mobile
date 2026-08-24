@@ -7,12 +7,13 @@ import 'ecp2_control_service.dart';
 import 'http_control_service.dart';
 import 'kasa_control_service.dart';
 import 'mqtt_session.dart';
+import 'ws_control_service.dart';
 import 'rabbit_air_control_service.dart';
 import 'soap_control_service.dart';
 import 'spec_codec.dart';
 
 /// Sends spec-resolved actions to one network device, over whichever of the
-/// five transports each action declares — the send half of what
+/// six transports each action declares — the send half of what
 /// NetworkDeviceScreen used to do inline, extracted so anything headless (a
 /// group run, a voice intent) can drive a device without building a widget.
 ///
@@ -65,6 +66,19 @@ class NetworkCommandSender {
   /// TLS connector.
   final MqttConnect? _mqttConnect;
 
+  /// The credential a WebSocket device's pairing issued, when one is stored.
+  /// Null means unpaired: the session then runs the spec's pairing flow, which
+  /// on both televisions raises a prompt the viewer must accept.
+  final String? wsCredential;
+
+  /// Called with the credential a pairing issues, so the caller can store it
+  /// and skip the prompt next time. Absent means "do not persist", which is
+  /// the honest default for a sender that does not own a store.
+  final void Function(String credential)? onWsCredential;
+
+  /// Opens the WebSocket. Injected so a test answers from canned frames.
+  final WsConnect? _wsConnect;
+
   /// Values for the `credential:`-sourced parameters a spec's MQTT commands
   /// declare — the client id the session connects under, and whatever login
   /// the broker wants. Empty when the device has not been paired: the render
@@ -87,7 +101,11 @@ class NetworkCommandSender {
     required Ecp2ControlService ecp2,
     MqttConnect? mqttConnect,
     this.mqttCredentials = const {},
-  })  : _mqttConnect = mqttConnect,
+    this.wsCredential,
+    this.onWsCredential,
+    WsConnect? wsConnect,
+  })  : _wsConnect = wsConnect,
+        _mqttConnect = mqttConnect,
         _codec = codec,
         _http = http,
         _soap = soap,
@@ -102,6 +120,10 @@ class NetworkCommandSender {
   /// The TP-Link Smart Home port, the fallback when discovery did not carry
   /// one (a manually added device, a mock). Real discovery reports 9999.
   static const kasaPort = 9999;
+
+  /// The WebSocket transport constant. A persistent socket a television's
+  /// whole control surface rides.
+  static const websocketTransport = 'websocket';
 
   /// The MQTT transport constant. A device's own broker, addressed by topic —
   /// a Hisense set's remote, a Dyson purifier's state.
@@ -141,6 +163,11 @@ class NetworkCommandSender {
   MqttSession? _mqtt;
   Future<MqttSession>? _mqttOpening;
 
+  /// The WebSocket session, and the open in flight every concurrent send
+  /// waits on — the same guard, for the same reason.
+  WsSession? _ws;
+  Future<WsSession>? _wsOpening;
+
   /// Set by [close], so a connect still in flight closes its socket rather
   /// than handing it to nobody.
   bool _closed = false;
@@ -154,10 +181,16 @@ class NetworkCommandSender {
     final mqtt = _mqtt;
     _mqtt = null;
     _mqttOpening = null;
+    final ws = _ws;
+    _ws = null;
+    _wsOpening = null;
     await (session?.close() ?? Future<void>.value());
     // DISCONNECT rather than a dropped socket: a broker that serves one local
     // client leaves the owner's own app locked out until it notices.
     await (mqtt?.dispose() ?? Future<void>.value());
+    // And every socket the WebSocket session opened, including the runtime
+    // one a television handed out.
+    await (ws?.dispose() ?? Future<void>.value());
   }
 
   /// Whether [action] rides a transport with no read-back coupling. HTTP,
@@ -168,6 +201,7 @@ class NetworkCommandSender {
       action.transport == 'http' ||
       action.transport == kasaTransport ||
       action.transport == mqttTransport ||
+      action.transport == websocketTransport ||
       action.transport == rabbitAirTransport;
 
   /// Send one resolved action with [values] as its user-owned parameters,
@@ -190,6 +224,8 @@ class NetworkCommandSender {
         await _sendKasa(action, values);
       case mqttTransport:
         await _sendMqtt(action, values);
+      case websocketTransport:
+        await _sendWebsocket(action, values);
       case rabbitAirTransport:
         await _sendRabbitAir(action, values, rabbitAirKey);
       default:
@@ -294,6 +330,64 @@ class NetworkCommandSender {
       throw const MqttConnectionException('This device screen has closed.');
     }
     return _mqtt = session;
+  }
+
+  /// The WebSocket send: render the frame from the spec, then write it to
+  /// whichever socket the frame's channel names.
+  ///
+  /// The session is the device's rather than the request's, exactly as the
+  /// MQTT one is: a television authorises a client once, per socket, and
+  /// re-pairing per keypress would raise its consent prompt every time.
+  Future<void> _sendWebsocket(
+      NetworkActionDto action, Map<String, String> values) async {
+    final session = await _openWs();
+    await session.send(action.commandName, values);
+  }
+
+  Future<WsSession> _openWs() {
+    final existing = _ws;
+    if (existing != null && existing.isConnected) return Future.value(existing);
+    return _wsOpening ??= _connectWs().whenComplete(() {
+      _wsOpening = null;
+    });
+  }
+
+  Future<WsSession> _connectWs() async {
+    if (_closed) {
+      throw const WsConnectionException('This device screen has closed.');
+    }
+    final surface = await _codec.websocketSurface(specYaml);
+    if (surface == null) {
+      // The resolver admits a websocket command only when the spec declares a
+      // surface, so reaching here means the two disagree.
+      throw const WsConnectionException(
+          'This device declares no WebSocket control surface.');
+    }
+    final stale = _ws;
+    _ws = null;
+    await (stale?.dispose() ?? Future<void>.value());
+
+    final session = WsSession(
+      codec: _codec,
+      specYaml: specYaml,
+      host: host,
+      surface: surface,
+      credential: wsCredential,
+      connect: _wsConnect,
+    );
+    await session.open();
+    if (_closed) {
+      await session.dispose();
+      throw const WsConnectionException('This device screen has closed.');
+    }
+    // Reported after the session is authorised and only when it CHANGED: a
+    // pairing that reissued the same key is not news, and a store write per
+    // connect is a write per screen open.
+    final issued = session.credential;
+    if (issued != null && issued != wsCredential) {
+      onWsCredential?.call(issued);
+    }
+    return _ws = session;
   }
 
   /// Send one control request. A Roku is driven over the app's

@@ -18,6 +18,7 @@ import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
 import 'package:liberated_bread_mobile/services/mqtt_session.dart';
+import 'package:liberated_bread_mobile/services/ws_control_service.dart';
 import 'package:liberated_bread_mobile/services/network_command_sender.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_control_service.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
@@ -55,11 +56,17 @@ void main() {
     int? devicePort,
     MqttConnect? mqttConnect,
     Map<String, String> mqttCredentials = const {},
+    WsConnect? wsConnect,
+    String? wsCredential,
+    void Function(String)? onWsCredential,
     SpecCodec? withCodec,
   }) =>
       NetworkCommandSender(
         mqttConnect: mqttConnect,
         mqttCredentials: mqttCredentials,
+        wsConnect: wsConnect,
+        wsCredential: wsCredential,
+        onWsCredential: onWsCredential,
         host: '192.0.2.9',
         discoveredControlPort: discoveredControlPort,
         devicePort: devicePort,
@@ -353,6 +360,123 @@ void main() {
       expect(broker.closed, isTrue);
     });
   });
+
+  // ── WebSocket ─────────────────────────────────────────────────────────────
+  // A television's whole control surface is one socket, authorised once. The
+  // session is the device's, not the request's: re-pairing per keypress would
+  // raise the set's consent prompt every time.
+
+  group('the websocket transport', () {
+    late FakeSpecCodec wsCodec;
+    late _ScriptedTv tv;
+
+    const surface = WebSocketSurfaceDto(
+      port: 8002,
+      scheme: 'wss',
+      path: '/api/v2/channels/samsung.remote.control?token={samsung_token}',
+      headers: [],
+      tlsSelfSigned: true,
+      pairingMode: 'token_query',
+      credentialName: 'samsung_token',
+      issuedAt: 'data.token',
+      channels: [
+        WebSocketChannelDto(name: 'remote', isDefault: true, encoding: 'json'),
+      ],
+    );
+
+    setUp(() {
+      tv = _ScriptedTv();
+      wsCodec = FakeSpecCodec()
+        ..websocketSurfaceResult = surface
+        ..websocketFrameFor = (command, id) => WebSocketFrameDto(
+            channel: 'remote', text: '{"method":"$command","id":$id}');
+    });
+
+    NetworkCommandSender wsSender({
+      String? credential = 'stored',
+      void Function(String)? onIssued,
+    }) =>
+        sender(
+          withCodec: wsCodec,
+          wsCredential: credential,
+          onWsCredential: onIssued,
+          wsConnect: (url, headers) async {
+            tv.urls.add(url);
+            scheduleMicrotask(() => tv.send('{"data":{"token":"issued-1"}}'));
+            return tv;
+          },
+        );
+
+    test('renders the frame and writes it to the socket', () async {
+      final s = wsSender();
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+
+      expect(wsCodec.websocketRenderCalls.single.commandName, 'press_power');
+      expect(tv.written.single, contains('"method":"press_power"'));
+    });
+
+    test('the session is opened once and reused across sends', () async {
+      final s = wsSender();
+      addTearDown(s.close);
+
+      await s
+          .sendAction(action('press', 'press_up', transport: 'websocket'), {});
+      await s.sendAction(
+          action('press', 'press_down', transport: 'websocket'), {});
+
+      expect(tv.urls, hasLength(1), reason: 'one socket, not one per press');
+      expect(tv.written, hasLength(2));
+    });
+
+    /// Two buttons pressed together arrive together, and websocket is an
+    /// independent transport — without one shared open each would pair
+    /// separately, and a set that prompts would prompt twice.
+    test('two sends racing open one session, not two', () async {
+      final s = wsSender();
+      addTearDown(s.close);
+
+      await Future.wait([
+        s.sendAction(action('press', 'press_up', transport: 'websocket'), {}),
+        s.sendAction(action('press', 'press_down', transport: 'websocket'), {}),
+      ]);
+
+      expect(tv.urls, hasLength(1));
+    });
+
+    test('a newly issued credential is handed back to be stored', () async {
+      final issued = <String>[];
+      final s = wsSender(credential: null, onIssued: issued.add);
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+      expect(issued, ['issued-1']);
+    });
+
+    /// A pairing that reissued the same key is not news, and a store write per
+    /// connect is a write per screen open.
+    test('an unchanged credential is not reported again', () async {
+      final issued = <String>[];
+      final s = wsSender(credential: 'issued-1', onIssued: issued.add);
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+      expect(issued, isEmpty);
+    });
+
+    test('closing the sender closes the socket', () async {
+      final s = wsSender();
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+
+      await s.close();
+      expect(tv.closed, isTrue);
+    });
+  });
 }
 
 /// A scripted broker behind the sender's MQTT socket seam.
@@ -378,4 +502,26 @@ class _ScriptedBroker implements MqttSocket {
   }
 
   void send(List<int> bytes) => _out.add(Uint8List.fromList(bytes));
+}
+
+/// A scripted television behind the sender's WebSocket seam.
+class _ScriptedTv implements WsSocket {
+  final _out = StreamController<dynamic>();
+  final List<String> written = [];
+  final List<String> urls = [];
+  var closed = false;
+
+  @override
+  Stream<dynamic> get stream => _out.stream;
+
+  @override
+  void add(String frame) => written.add(frame);
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    if (!_out.isClosed) unawaited(_out.close());
+  }
+
+  void send(String frame) => _out.add(frame);
 }
