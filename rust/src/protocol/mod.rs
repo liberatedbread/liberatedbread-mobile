@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod cat_printer;
+pub mod cdbwsoft_ecb;
 pub mod daniao;
 pub mod daniao_store;
 pub mod daniao_upload;
@@ -119,6 +120,10 @@ const IMAGE_UPLOAD_HANDLERS: &[ImageUploadHandler] = &[
     ImageUploadHandler {
         name: fichero_d11::HANDLER_NAME,
         encode: fichero_d11::encode_print_job,
+    },
+    ImageUploadHandler {
+        name: cdbwsoft_ecb::HANDLER_NAME,
+        encode: cdbwsoft_ecb::encode_bitmap_transfer,
     },
 ];
 

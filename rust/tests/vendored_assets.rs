@@ -1152,6 +1152,93 @@ fn vendored_fichero_d11_spec_is_encodable_with_its_declared_bounds() {
     );
 }
 
+/// The vendored Magic Display spec now reports its image uploads encodable.
+///
+/// Same gate as the handlers above, with one extra thing worth pinning from
+/// the REAL spec: this transfer is encrypted, so a regression that lost the
+/// cipher would still produce a plausible-looking plan. The assertions below
+/// decrypt the plan with the key the spec itself records, which fails both
+/// ways — plaintext on the wire, or the wrong key.
+#[test]
+fn vendored_magic_display_spec_is_encodable_with_its_declared_bounds() {
+    use aes::cipher::{BlockDecrypt, KeyInit};
+    use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("magic-display.yaml"))
+        .expect("magic display spec should be readable");
+    let dto = load_device_spec(yaml.clone()).expect("magic display spec loads");
+    let img = dto
+        .image_upload
+        .expect("Magic Display declares an image_upload feature");
+    assert_eq!(img.handler.as_deref(), Some("cdbwsoft_ecb"));
+    assert!(img.encodable, "cdbwsoft_ecb is implemented now");
+    assert_eq!((img.max_width, img.max_height), (Some(64), Some(16)));
+    assert_eq!(img.format.as_deref(), Some("1bit-bitmap"));
+
+    // A full 64x16 panel frame: DATS on WRITE1, nine bitmap blocks on
+    // WRITE2, DATCP back on WRITE1 — every packet one 16-byte cipher block.
+    let plan = encode_image_frame(yaml, 64, 16, vec![0xFF; 64 * 16 * 3], 0, 509)
+        .expect("the vendored Magic Display spec must encode a bitmap transfer");
+    assert_eq!(plan.service_uuid, "0000fee9-0000-1000-8000-00805f9b34fb");
+    assert_eq!(plan.writes.len(), 11);
+    assert!(plan.writes.iter().all(|w| w.bytes.len() == 16));
+    let channels: Vec<&str> = plan
+        .writes
+        .iter()
+        .map(|w| w.characteristic_uuid.as_str())
+        .collect();
+    assert_eq!(channels[0], "d44bc439-abfd-45a2-b575-925416129600");
+    assert_eq!(*channels.last().unwrap(), channels[0]);
+    assert!(channels[1..10]
+        .iter()
+        .all(|u| *u == "d44bc439-abfd-45a2-b575-92541612960a"));
+
+    // The spec's own static key, decrypting the spec's own framing commands.
+    let key: [u8; 16] = [
+        0x34, 0x52, 0x2A, 0x5B, 0x7A, 0x6E, 0x49, 0x2C, 0x08, 0x09, 0x0A, 0x9D, 0x8D, 0x2A, 0x23,
+        0xF8,
+    ];
+    let decrypt = |bytes: &[u8]| {
+        let mut block = [0u8; 16];
+        block.copy_from_slice(bytes);
+        aes::Aes128::new(&key.into()).decrypt_block((&mut block).into());
+        block
+    };
+    // DATS states 128 bytes big-endian: 64 columns x 2 bytes, the byte count
+    // the vendored doc's display-type table gives for STYPE16X64.
+    assert_eq!(
+        decrypt(&plan.writes[0].bytes)[..9],
+        [0x08, b'D', b'A', b'T', b'S', 0x00, 0x80, 0x00, 0x00]
+    );
+    assert_eq!(
+        decrypt(&plan.writes[10].bytes)[..6],
+        [0x05, b'D', b'A', b'T', b'C', b'P']
+    );
+    assert_eq!(plan.next_frame_index, 11);
+}
+
+/// The sibling on the same handler stays out of the editor.
+///
+/// `shining-glasses.yaml` declares `protocol_handler: cdbwsoft_ecb` but no
+/// `image_upload` feature — and its DATS is a different shape (a 9-byte
+/// frame with a second length pair and a type byte, then UNENCRYPTED indexed
+/// frames with REOK per frame). Registering the handler must not hand the
+/// glasses the Magic Display's bytes: with no feature declared there is no
+/// pixel surface at all, and that is the state this pins.
+#[test]
+fn the_shining_glasses_sibling_declares_no_pixel_surface_to_encode() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    let yaml = fs::read_to_string(spec_path("shining-glasses.yaml"))
+        .expect("shining glasses spec should be readable");
+    let dto = load_device_spec(yaml).expect("shining glasses spec loads");
+    assert!(
+        dto.image_upload.is_none(),
+        "the glasses declare no image_upload feature; their transfer framing \
+         differs from the Magic Display's and is not implemented"
+    );
+}
+
 /// The discovery matchers, against the real catalogue: a platform's service
 /// type belongs to whichever spec the device's TXT records name, and to the
 /// catch-all only when none of them does.

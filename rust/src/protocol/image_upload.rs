@@ -223,6 +223,70 @@ pub(crate) fn declared_max_chunk_size(c: &Characteristic) -> Option<usize> {
         .filter(|n| *n > 0)
 }
 
+/// The `encryption` block of a characteristic, read on demand — the same
+/// deal as [`Framing`]: the shared `Characteristic` type keeps it untyped
+/// because most devices declare none.
+#[derive(Debug, Deserialize)]
+struct Encryption {
+    algorithm: Option<String>,
+    key_derivation: Option<String>,
+    static_key: Option<String>,
+}
+
+/// The 16-byte key a characteristic declares for `algorithm`, hex-decoded.
+///
+/// Every part of the answer is the spec's: which cipher this channel speaks,
+/// that its key is a fixed one rather than derived per device, and the key
+/// bytes themselves. A handler that hardcoded any of it could not follow a
+/// key upstream changed, and — worse — would keep encrypting under the old
+/// one while reporting success.
+pub(crate) fn declared_static_key(
+    c: &Characteristic,
+    algorithm: &str,
+) -> Result<[u8; 16], ProtocolError> {
+    let unsupported = |reason: String| ProtocolError::ImageUploadUnsupported { reason };
+    let raw = c
+        .encryption
+        .as_ref()
+        .ok_or_else(|| unsupported(format!("characteristic {} declares no encryption", c.uuid)))?;
+    let declared: Encryption = serde_yaml::from_value(raw.clone())
+        .map_err(|e| unsupported(format!("{}'s encryption block is malformed: {e}", c.uuid)))?;
+    if declared.algorithm.as_deref() != Some(algorithm) {
+        return Err(unsupported(format!(
+            "characteristic {} declares algorithm {:?}, not '{algorithm}'",
+            c.uuid, declared.algorithm
+        )));
+    }
+    if declared.key_derivation.as_deref() != Some("static") {
+        return Err(unsupported(format!(
+            "characteristic {} derives its key by {:?}, which this build cannot do",
+            c.uuid, declared.key_derivation
+        )));
+    }
+    let hex = declared
+        .static_key
+        .ok_or_else(|| unsupported(format!("characteristic {} declares no static_key", c.uuid)))?;
+    let hex = hex.trim();
+    if hex.len() != 32 {
+        return Err(unsupported(format!(
+            "characteristic {}'s static_key is {} characters; a 128-bit key is 32 hex \
+             characters",
+            c.uuid,
+            hex.len()
+        )));
+    }
+    let mut key = [0u8; 16];
+    for (i, byte) in key.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).map_err(|_| {
+            unsupported(format!(
+                "characteristic {}'s static_key is not hexadecimal (0-9, a-f)",
+                c.uuid
+            ))
+        })?;
+    }
+    Ok(key)
+}
+
 /// Shared canvas validation for handlers that do not run [`encode_frame`]'s
 /// pipeline: the RGB buffer must match `width * height`, and every canvas
 /// bound the spec's `image_upload` feature declares is enforced — each axis
