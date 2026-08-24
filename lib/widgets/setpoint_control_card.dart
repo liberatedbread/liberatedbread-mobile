@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
+import '../core/unit_display.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
@@ -119,6 +120,10 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
     }
   }
 
+  /// The entity's unit, spelled for a reader (see [displayUnit]) — the
+  /// catalogue's `C` is a comparison key, not something to print.
+  String? get _unit => displayUnit(widget.entity.unit);
+
   @override
   Widget build(BuildContext context) {
     final stateService = widget.stateServiceUuid;
@@ -214,7 +219,7 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
               padding: const EdgeInsets.only(top: 8),
               child: Text(
                 'Accepts ${_fmt(range.min)}–${_fmt(range.max)}'
-                '${widget.entity.unit == null ? '' : ' ${widget.entity.unit}'}, '
+                '${_unit == null ? '' : ' $_unit'}, '
                 'but this spec does not describe how to set it yet.',
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
@@ -353,7 +358,7 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
             Text('Set to', style: text.bodySmall),
             const SizedBox(width: 6),
             Text(
-              '${_fmt(clamped)}${widget.entity.unit == null ? '' : ' ${widget.entity.unit}'}',
+              '${_fmt(clamped)}${_unit == null ? '' : ' $_unit'}',
               style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
             const Spacer(),

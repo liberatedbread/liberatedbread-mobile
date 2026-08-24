@@ -90,21 +90,65 @@ device:
       display: "robotname"
 
   discovery:
-    # The reliable method is the UDP broadcast documented in the top-level
-    # irobot_lan_protocol block: the schema's structured discovery.methods
-    # vocabulary has no udp_broadcast type, so it cannot be expressed here.
-    # mDNS is listed because robots are also seen on 5353, but it is the weaker
-    # signal of the two and should not be the only thing a client tries.
     methods:
-      - type: "mdns"
-        mdns:
-          service_type: "_amzn-wplay._tcp.local."
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 5678
+          broadcast_address: "255.255.255.255"
+          # The nine ASCII bytes "irobotmcs". Byte-for-byte detail, and the
+          # reply's full field list, are in irobot_lan_protocol below; this
+          # block is the discovery contract a scanner executes.
+          probe_hex: "69726f626f746d6373"
+          # An AWAKE robot answers the probe. A robot never beacons on its own
+          # (a listen-only scanner finds nothing), AND a docked, idle robot
+          # sleeps its Wi-Fi and answers neither this probe nor its own 8883
+          # broker until it is woken. See `notes` below and the dated field test
+          # in irobot_lan_protocol.discovery.notes — that is why passive_ok is
+          # false but active probing is still not a guarantee.
+          passive_ok: false
+          response_format: "json"
+          notes: >
+            Discovery only reaches a robot whose Wi-Fi is awake. A robot that
+            has been docked and idle powers its radio down and goes silent on
+            the LAN: it will not answer this UDP probe, an mDNS query, or a TCP
+            connection to 8883. Wake it first — press a button, or reboot it by
+            holding CLEAN for ~20 seconds (Home Assistant's own docs tell you to
+            reboot the robot for auto-discovery) — then probe within the wake
+            window. This is the single most common reason a scan of a segment
+            that provably has robots on it comes back empty.
           identity_mapping:
             stable_keys:
-              - source: "hostname"
-                key: "blid"
+              # `Roomba-<blid>` / `iRobot-<blid>` — the BLID is the substring
+              # after the first hyphen, and is the MQTT username. `robotname`
+              # is display only: the owner can change it.
+              - source: "json:hostname"
             display:
-              source: "name"
+              source: "json:robotname"
+    # PORT 5678 IS SHARED. MikroTik's MNDP (see mikrotik-routeros.yaml) uses the
+    # same port, so one broadcast draws replies from both, and a consumer
+    # scanning for either will see the other's datagrams. They are told apart by
+    # shape rather than by port: MNDP answers with big-endian TLV records, a
+    # Roomba with a JSON object whose hostname carries one of the two prefixes
+    # above. A parser that assumes everything on 5678 is its own protocol will
+    # mis-report the other vendor's hardware.
+    #
+    # mDNS is NOT listed. Robots are reported to be visible on 5353, but no
+    # source this spec draws on names the service type they advertise, and an
+    # `mdns` method cannot be written without one. An earlier revision of this
+    # file guessed `_amzn-wplay._tcp` — that is Amazon's Whisperplay (Fire TV),
+    # not iRobot, and it appeared in no other spec in the catalogue. A wrong
+    # service type is worse than a missing one: it sends a client hunting on
+    # somebody else's protocol and reports their hardware as robots. If someone
+    # captures the real type, add the method then.
+    #
+    # A 2026-08-14 field test did not settle it either way: a 60-second mDNS
+    # enumeration on a segment with three (docked, idle) robots surfaced no
+    # iRobot service at all — consistent with the robots being asleep, not with
+    # any claim about the type. One trap that test exposed: a scanner that
+    # queries `_roomba._tcp` / `_irobot._tcp` will see those exact names come
+    # back via multicast loopback — its OWN queries echoed by the kernel, not a
+    # robot's answer. Always confirm a candidate service type against the
+    # responder's source IP (it must NOT be your own) before believing it.
     identity:
       stable_keys: ["blid"]
       display: "robotname"
@@ -164,6 +208,32 @@ device:
           j-series firmware is reported to reset the TLS connection on the
           first attempt or two before answering, so a client should retry
           within the window rather than treat one reset as a refusal.
+        # What this flow yields, machine-readably: the MQTT username/password
+        # pair. Neither value comes out of a named JSON-replying command —
+        # the disclosure exchange is raw binary (see
+        # irobot_lan_protocol.password_disclosure) and the BLID's easier read
+        # is the discovery datagram — so the entries lean on `notes` for the
+        # part a dotted path cannot say.
+        issues_credentials:
+          blid:
+            reply_path: "hostname"
+            notes: >
+              The MQTT username. The stated reply_path is a field of the
+              UDP-5678 DISCOVERY reply, not of this exchange's binary reply
+              (which also carries the BLID, less conveniently): `hostname` is
+              'Roomba-<blid>' or 'iRobot-<blid>', and the BLID is the
+              substring after the first hyphen.
+          password:
+            reply_path: "."
+            notes: >
+              The MQTT password, and the whole point of this method. The
+              disclosure exchange is a raw binary TLS exchange with no JSON
+              reply, so reply_path '.' means the reply itself: apply
+              irobot_lan_protocol.password_disclosure.password_extraction
+              (drop the 2-byte header and any leading non-printable bytes,
+              decode UTF-8, strip trailing NULs — the WHOLE remaining string
+              is the password). Store it keyed by BLID; it survives a
+              network rejoin and changes only on factory reset.
         steps:
           - action: "Put the robot on its dock, powered on, and close the iRobot app on every phone — the robot serves one client at a time."
             actor: "user"
@@ -343,133 +413,155 @@ device:
 # document, which is why everything below is still stated in full.
 protocol_handler: "roomba_mqtt"
 
-# The discovery exchange, documented here because the schema's structured
-# `discovery.methods` vocabulary has no udp_broadcast type — the same reason
-# tplink-kasa-smart-plug.yaml carries a tplink_smarthome_protocol block.
-irobot_lan_protocol:
-  discovery:
-    transport: "udp"
-    destination: "255.255.255.255:5678"
-    request:
-      encoding: "string"
-      payload: "irobotmcs"
-      description: >
-        A single datagram containing the nine ASCII bytes `irobotmcs`,
-        broadcast to port 5678. Every iRobot robot on the segment answers to
-        the sender's ephemeral port with a JSON datagram. Send it more than
-        once: UDP is lossy and a dropped probe is a robot never found.
-    response:
-      encoding: "json"
-      description: >
-        One JSON object per robot. `hostname` is the identity carrier: it is
-        `Roomba-<blid>` (or `iRobot-<blid>` on Braava), so the BLID is the
-        substring after the first '-'. A datagram whose hostname starts with
-        neither prefix is not a robot and must be ignored — the probe reaches
-        every host on the segment.
-      example: '{"ver":"3","hostname":"Roomba-3193C60472324700","robotname":"Dorita","ip":"192.168.1.103","mac":"12:12:12:12:12:12","sw":"v2.4.16-126","sku":"R980020","nc":0,"proto":"mqtt"}'
-      fields:
-        - name: "ver"
-          type: "string"
-          description: "Announcement format version."
-        - name: "hostname"
-          type: "string"
-          description: "'Roomba-<blid>' or 'iRobot-<blid>'. The BLID is the part after the first hyphen, and is the MQTT username."
-        - name: "robotname"
-          type: "string"
-          description: "User-assigned name, for display only — it changes."
-        - name: "ip"
-          type: "string"
-          description: "The robot's current address. A DHCP lease; never key stored credentials on it."
-        - name: "mac"
-          type: "string"
-          description: "Wi-Fi MAC address."
-        - name: "sw"
-          type: "string"
-          description: "Firmware version, e.g. v2.4.16-126. Determines which of the two firmware lineages the robot is on."
-        - name: "sku"
-          type: "string"
-          description: "Model code, e.g. R980020."
-        - name: "proto"
-          type: "string"
-          description: "'mqtt' on every robot this spec covers. A robot reporting anything else is outside it."
-    verification: "reported"
-    notes: >
-      Requires UDP broadcast to reach the robot: a client-isolated guest SSID
-      or a VLAN without broadcast forwarding will find nothing even though the
-      robot is up and its broker is answering. Falling back to a known IP is
-      always valid — discovery is a convenience, not a dependency.
-  password_disclosure:
-    transport: "tls"
-    destination: "<robot-ip>:8883"
-    request:
-      encoding: "binary"
-      payload_hex: "f005efcc3b2900"
-      description: >
-        Seven bytes: 0xf0 (an MQTT reserved packet type), 0x05 (payload
-        length), then ef cc 3b 29 00. Written on a TLS connection to the
-        robot's own broker port while the robot is in password-disclosure
-        mode.
-    response:
-      encoding: "binary"
-      header_length: 2
-      length_byte_index: 1
-      minimum_length: 8
-      unsupported_reply_hex: "f005efcc3b2903"
-      password_extraction: >
-        Drop the 2-byte header, then drop any remaining leading bytes that are
-        not printable ASCII, then decode the rest as UTF-8 and strip trailing
-        NULs. What is left is the password, and it is the WHOLE remaining
-        string — Roomba passwords begin with a ':' and contain ':' separators,
-        so nothing may be split off the front.
-      password_extraction_verification: "hypothesis"
-      password_extraction_notes: >
-        This rule is THIS PROJECT'S SYNTHESIS, not a transcription: no
-        published client states it, and none of the three has been run against
-        a robot here. It was derived by asking what single rule satisfies all
-        the offsets in `observed_offsets`, and it rests on one assumption
-        nobody has verified — that every byte between the header and the
-        credential is non-printable. If a firmware puts a printable byte in
-        that gap the rule returns a credential with junk on the front, and the
-        only symptom is the broker refusing the login.
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  # The wire detail behind the two exchanges. `device.discovery.methods` above
+  # carries the discovery CONTRACT a scanner executes (port, probe, how identity
+  # is read); this block carries the bytes, the full reply field list and the
+  # password handshake, which the structured vocabulary has no place for.
+  irobot_lan_protocol:
+    discovery:
+      transport: "udp"
+      destination: "255.255.255.255:5678"
+      request:
+        encoding: "string"
+        payload: "irobotmcs"
+        description: >
+          A single datagram containing the nine ASCII bytes `irobotmcs`,
+          broadcast to port 5678. An AWAKE iRobot robot on the segment answers
+          with a JSON datagram sent back to the probe's UDP source port — dorita980
+          binds and sends from 5678, so its replies land on 5678; roombapy sends
+          from an ephemeral port and reads the reply there. Either works; the robot
+          just answers whoever asked. Send it more than once: UDP is lossy and a
+          dropped probe is a robot never found. A docked, idle robot answers
+          nothing until it is woken — see notes.
+      response:
+        encoding: "json"
+        description: >
+          One JSON object per robot. `hostname` is the identity carrier: it is
+          `Roomba-<blid>` (or `iRobot-<blid>` on Braava), so the BLID is the
+          substring after the first '-'. A datagram whose hostname starts with
+          neither prefix is not a robot and must be ignored — the probe reaches
+          every host on the segment.
+        example: '{"ver":"3","hostname":"Roomba-3193C60472324700","robotname":"Dorita","ip":"192.168.1.103","mac":"12:12:12:12:12:12","sw":"v2.4.16-126","sku":"R980020","nc":0,"proto":"mqtt"}'
+        fields:
+          - name: "ver"
+            type: "string"
+            description: "Announcement format version."
+          - name: "hostname"
+            type: "string"
+            description: "'Roomba-<blid>' or 'iRobot-<blid>'. The BLID is the part after the first hyphen, and is the MQTT username."
+          - name: "robotname"
+            type: "string"
+            description: "User-assigned name, for display only — it changes."
+          - name: "ip"
+            type: "string"
+            description: "The robot's current address. A DHCP lease; never key stored credentials on it."
+          - name: "mac"
+            type: "string"
+            description: "Wi-Fi MAC address."
+          - name: "sw"
+            type: "string"
+            description: "Firmware version, e.g. v2.4.16-126. Determines which of the two firmware lineages the robot is on."
+          - name: "sku"
+            type: "string"
+            description: "Model code, e.g. R980020."
+          - name: "proto"
+            type: "string"
+            description: "'mqtt' on every robot this spec covers. A robot reporting anything else is outside it."
+      verification: "reported"
+      notes: >
+        Requires UDP broadcast to reach the robot: a client-isolated guest SSID
+        or a VLAN without broadcast forwarding will find nothing even though the
+        robot is up and its broker is answering. Falling back to a known IP is
+        always valid — discovery is a convenience, not a dependency.
 
-        A client that wants to be conservative should implement this rule AND
-        compare it against a fixed slice at each observed offset, and warn when
-        they disagree. A client that hits a robot where they do disagree should
-        report it upstream to dorita980 and roombapy, who own this protocol.
-      description: >
-        The reply is [0xf0][length][payload]; `length` is the payload size, so
-        a client reads until it has header_length + length bytes. A reply
-        shorter than `minimum_length` (8) bytes means disclosure mode was not
-        active. A reply equal to `unsupported_reply_hex` means this model does
-        not support direct extraction at all — use the account route.
+        And it requires the robot to be AWAKE. Field test, 2026-08-14, on a
+        Wi-Fi segment with three known robots: a dorita980-exact probe (bind UDP
+        5678, broadcast `irobotmcs` to 255.255.255.255) drew ZERO robot replies
+        across repeated windows up to 60 s; a full-segment TCP scan found NO host with
+        8883 open; and a 60 s mDNS enumeration surfaced no iRobot service. The
+        same probe drew MNDP replies from two MikroTik devices, and mDNS surfaced
+        a Mac, an Apple TV and Sengled bulbs — so the broadcast-and-reply path
+        itself was working; the robots simply weren't answering. All three were
+        docked and idle. This is the documented behaviour, not a fault: Home
+        Assistant's integration tells you to reboot the robot (hold CLEAN ~20 s)
+        for auto-discovery and notes some models "answer queries only while
+        actively running". Treat an empty discovery result as "nothing awake right
+        now", not "no robots here", and wake a robot before probing for it.
+    password_disclosure:
+      transport: "tls"
+      destination: "<robot-ip>:8883"
+      request:
+        encoding: "binary"
+        payload_hex: "f005efcc3b2900"
+        description: >
+          Seven bytes: 0xf0 (an MQTT reserved packet type), 0x05 (payload
+          length), then ef cc 3b 29 00. Written on a TLS connection to the
+          robot's own broker port while the robot is in password-disclosure
+          mode.
+      response:
+        encoding: "binary"
+        header_length: 2
+        length_byte_index: 1
+        minimum_length: 8
+        unsupported_reply_hex: "f005efcc3b2903"
+        password_extraction: >
+          Drop the 2-byte header, then drop any remaining leading bytes that are
+          not printable ASCII, then decode the rest as UTF-8 and strip trailing
+          NULs. What is left is the password, and it is the WHOLE remaining
+          string — Roomba passwords begin with a ':' and contain ':' separators,
+          so nothing may be split off the front.
+        password_extraction_verification: "hypothesis"
+        password_extraction_notes: >
+          This rule is THIS PROJECT'S SYNTHESIS, not a transcription: no
+          published client states it, and none of the three has been run against
+          a robot here. It was derived by asking what single rule satisfies all
+          the offsets in `observed_offsets`, and it rests on one assumption
+          nobody has verified — that every byte between the header and the
+          credential is non-printable. If a firmware puts a printable byte in
+          that gap the rule returns a credential with junk on the front, and the
+          only symptom is the broker refusing the login.
 
-        Published implementations disagree about where in the reply the
-        password starts, which is why `password_extraction` above is stated as
-        a rule rather than a number: the fixed offsets each client uses are
-        recorded in `observed_offsets` as evidence, not as the contract. A new
-        client that scans for the printable run is correct under all of them.
-      observed_offsets:
-        - implementation: "pschmitt/roombapy"
-          offset: 7
-          basis: "Whole reply including the 2-byte header, then trailing NULs stripped."
-        - implementation: "koalazak/dorita980"
-          offset: 13
-          basis: "Whole reply, when the socket delivers it in a single read."
-        - implementation: "koalazak/dorita980"
-          offset: 9
-          basis: "The payload read, when the 2-byte header arrived in a separate read."
-    tls:
-      certificate: "self-signed; validate by pinning on first sight, not against a CA"
-      cipher_note: >
-        Older firmware negotiates only AES128-SHA256 (TLS_RSA_WITH_AES_128_
-        CBC_SHA256) and expects legacy renegotiation. Runtimes whose TLS stack
-        has retired that suite — anything on BoringSSL, which includes Dart and
-        Chromium — cannot complete the handshake at all and will fail before
-        the probe is written. dorita980 works around it with the ROBOT_CIPHERS
-        and ROBOT_TLS_LEGACY environment variables; a client that cannot select
-        ciphers should say so plainly rather than reporting the robot as
-        unreachable.
-    verification: "reported"
+          A client that wants to be conservative should implement this rule AND
+          compare it against a fixed slice at each observed offset, and warn when
+          they disagree. A client that hits a robot where they do disagree should
+          report it upstream to dorita980 and roombapy, who own this protocol.
+        description: >
+          The reply is [0xf0][length][payload]; `length` is the payload size, so
+          a client reads until it has header_length + length bytes. A reply
+          shorter than `minimum_length` (8) bytes means disclosure mode was not
+          active. A reply equal to `unsupported_reply_hex` means this model does
+          not support direct extraction at all — use the account route.
+
+          Published implementations disagree about where in the reply the
+          password starts, which is why `password_extraction` above is stated as
+          a rule rather than a number: the fixed offsets each client uses are
+          recorded in `observed_offsets` as evidence, not as the contract. A new
+          client that scans for the printable run is correct under all of them.
+        observed_offsets:
+          - implementation: "pschmitt/roombapy"
+            offset: 7
+            basis: "Whole reply including the 2-byte header, then trailing NULs stripped."
+          - implementation: "koalazak/dorita980"
+            offset: 13
+            basis: "Whole reply, when the socket delivers it in a single read."
+          - implementation: "koalazak/dorita980"
+            offset: 9
+            basis: "The payload read, when the 2-byte header arrived in a separate read."
+      tls:
+        certificate: "self-signed; validate by pinning on first sight, not against a CA"
+        cipher_note: >
+          Older firmware negotiates only AES128-SHA256 (TLS_RSA_WITH_AES_128_
+          CBC_SHA256) and expects legacy renegotiation. Runtimes whose TLS stack
+          has retired that suite — anything on BoringSSL, which includes Dart and
+          Chromium — cannot complete the handshake at all and will fail before
+          the probe is written. dorita980 works around it with the ROBOT_CIPHERS
+          and ROBOT_TLS_LEGACY environment variables; a client that cannot select
+          ciphers should say so plainly rather than reporting the robot as
+          unreachable.
+      verification: "reported"
 
 mqtt_topics:
   - topic: "cmd"
@@ -495,7 +587,7 @@ mqtt_topics:
           description: "One of clean, start, pause, stop, resume, dock, find."
         - name: "time"
           type: "integer"
-          unit: "seconds"
+          unit: "s"
           description: >
             Unix epoch seconds, taken from the SENDER's clock at the moment of
             sending — every published client fills it that way. What the robot
@@ -824,3 +916,19 @@ helpful_urls:
       HomeKit bridge over the same protocol. Its issue tracker is the best
       public record of j7-era firmware resetting the TLS connection during the
       password handshake, and of the retry timings that get past it.
+  - title: "MikroTik — Neighbor Discovery (MNDP), the other protocol on UDP 5678"
+    url: "https://help.mikrotik.com/docs/spaces/ROS/pages/24805517/Neighbor+discovery"
+    description: >
+      MNDP broadcasts on UDP 5678, the same port as the Roomba discovery probe,
+      so a single `irobotmcs` broadcast also draws MNDP replies from any MikroTik
+      gear on the segment. This spec's 2026-08-14 field test saw exactly that:
+      two MikroTik devices answered the probe with big-endian TLV records (not
+      JSON). The vendor reference for telling that traffic apart from a robot's.
+  - title: "packetmischief.ca — 'Roomba Stuck at Verify password' (discovery and ports across subnets)"
+    url: "https://www.packetmischief.ca/2023/01/15/roomba-stuck-at-verify-password/"
+    description: >
+      A real-world debugging write-up: the vendor app hangs at 'Verify password'
+      when UDP 5678 discovery and TCP 8883 cannot reach the robot across a subnet
+      boundary. The clearest public confirmation that both ports must reach the
+      robot and that discovery is broadcast-scoped — useful for telling a robot
+      that is asleep apart from one the scanner cannot route to.

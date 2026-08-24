@@ -230,7 +230,8 @@ fn an_undeclared_command_is_refused_rather_than_improvised() {
 #[test]
 fn the_specs_own_discovery_example_parses_to_its_blid() {
     let spec: serde_yaml::Value = serde_yaml::from_str(ROOMBA).expect("the fixture parses");
-    let example = spec["irobot_lan_protocol"]["discovery"]["response"]["example"]
+    let example = spec["protocol_details"]["irobot_lan_protocol"]["discovery"]["response"]
+        ["example"]
         .as_str()
         .expect("the spec publishes a discovery example");
 
@@ -257,7 +258,8 @@ fn a_non_robot_reply_is_ignored_not_an_error() {
 #[test]
 fn the_password_probe_matches_the_specs_published_bytes() {
     let spec: serde_yaml::Value = serde_yaml::from_str(ROOMBA).expect("the fixture parses");
-    let published = spec["irobot_lan_protocol"]["password_disclosure"]["request"]["payload_hex"]
+    let published = spec["protocol_details"]["irobot_lan_protocol"]["password_disclosure"]
+        ["request"]["payload_hex"]
         .as_str()
         .expect("the spec publishes the probe");
 
@@ -273,8 +275,8 @@ fn the_password_probe_matches_the_specs_published_bytes() {
 #[test]
 fn the_extraction_rule_holds_at_every_offset_the_spec_records() {
     let spec: serde_yaml::Value = serde_yaml::from_str(ROOMBA).expect("the fixture parses");
-    let observed = spec["irobot_lan_protocol"]["password_disclosure"]["response"]
-        ["observed_offsets"]
+    let observed = spec["protocol_details"]["irobot_lan_protocol"]["password_disclosure"]
+        ["response"]["observed_offsets"]
         .as_sequence()
         .expect("the spec records the offsets it is reconciling");
     assert!(!observed.is_empty());
@@ -307,8 +309,8 @@ fn the_two_handshake_failures_say_different_things() {
     );
 
     let spec: serde_yaml::Value = serde_yaml::from_str(ROOMBA).expect("the fixture parses");
-    let unsupported_hex = spec["irobot_lan_protocol"]["password_disclosure"]["response"]
-        ["unsupported_reply_hex"]
+    let unsupported_hex = spec["protocol_details"]["irobot_lan_protocol"]["password_disclosure"]
+        ["response"]["unsupported_reply_hex"]
         .as_str()
         .expect("the spec publishes the unsupported reply");
     let unsupported: Vec<u8> = (0..unsupported_hex.len())

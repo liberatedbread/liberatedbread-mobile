@@ -2001,9 +2001,14 @@ pub fn network_capabilities(spec_yaml: String) -> anyhow::Result<NetworkCapabili
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let ident = spec.device.identification.as_ref();
     Ok(NetworkCapabilitiesDto {
+        // Under `protocol_details:`, where the schema now gathers every
+        // named wire-protocol block — the top level is closed, so this is
+        // the only place an `ecp2:` can legally be written.
         signed_session: spec
             .extensions
-            .contains_key("ecp2")
+            .get("protocol_details")
+            .and_then(|d| d.get("ecp2"))
+            .is_some()
             .then(|| "ecp2".to_string()),
         default_port: ident.and_then(|i| i.default_port),
         default_scheme: ident.and_then(|i| i.default_scheme.clone()),

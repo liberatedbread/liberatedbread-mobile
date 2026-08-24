@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import '../core/unit_display.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -481,7 +482,7 @@ class RabbitAirControlsPanelState
     final reading = _readings[entity.name];
     final action = _actionFor(entity, 'set_value');
     final busy = _sending.contains(entity.name);
-    final unit = entity.unit;
+    final unit = displayUnit(entity.unit);
 
     return _card(
       child: Row(
@@ -535,7 +536,7 @@ class RabbitAirControlsPanelState
           keyboardType: TextInputType.number,
           autofocus: true,
           decoration: InputDecoration(
-            suffixText: entity.unit,
+            suffixText: displayUnit(entity.unit),
             helperText: switch ((min, max)) {
               (final double lo, final double hi) =>
                 'Between ${lo.toStringAsFixed(0)} and ${hi.toStringAsFixed(0)}',
@@ -589,7 +590,7 @@ class RabbitAirReadingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final unit = entity.unit;
+    final unit = displayUnit(entity.unit);
     final value = switch (reading?.kind) {
       null => 'Unknown',
       NetworkReadingKind.option => reading!.label ?? reading!.raw,

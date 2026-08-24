@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import '../core/unit_display.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -525,7 +526,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   }
 
   String _fmtSpeed(_ResolvedSpeed speed, double value) {
-    final unit = speed.parameter.unit;
+    final unit = displayUnit(speed.parameter.unit);
     final suffix = unit == null ? '' : ' $unit';
     return '${value.toStringAsFixed(_speedDecimals(speed))}$suffix';
   }

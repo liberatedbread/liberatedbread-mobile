@@ -26,9 +26,17 @@ device:
   name: "Belkin Wemo Smart Devices"
   manufacturer: "Belkin"
   manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    detail: capture-verified
+    notes: >-
+      Key facts checked against first-party captures of real hardware
+      (research store: wemo-devices/captures/, ten models incl. Insight,
+      Maker, Dimmer, Crock-Pot setup). No flow has been driven end-to-end from
+      this spec by this project.
   protocol: "wifi"
   category: "switch"
-  transport: "upnp"
+  transport: "soap"  # SOAP actions over HTTP, discovered by SSDP
   notes: >
     ALL Wemo devices are discovered via SSDP (Simple Service Discovery
     Protocol). NO static IP configuration is needed. Send an M-SEARCH to
@@ -1171,57 +1179,60 @@ device:
           event_sub_url: "/upnp/event/deviceevent1"
           actions: ["GetAttributes", "SetAttributes", "GetAttributeList"]
 
-discovery_catalog:
-  sources:
-    pywemo:
-      url: "https://github.com/pywemo/pywemo"
-      device_classes:
-        - "Switch"
-        - "Insight"
-        - "LightSwitch"
-        - "Dimmer"
-        - "DimmerV2"
-        - "Maker"
-        - "OutdoorPlug"
-        - "Motion"
-        - "Bridge"
-        - "CoffeeMaker"
-        - "CrockPot"
-        - "Humidifier"
-    home_assistant:
-      url: "https://www.home-assistant.io/integrations/wemo/"
-      supported_platforms:
-        - "Binary sensor: Wemo Motion Sensor"
-        - "Fan: Wemo/Holmes Smart Humidifier"
-        - "Light: Wemo LED lights and Smart Dimmer Switch"
-        - "Switch: Wemo switches and Mr. Coffee smart coffee makers"
-      discovery_default: true
-    ouimeaux:
-      url: "https://github.com/iancmcc/ouimeaux"
-      role: "Legacy Python Wemo implementation and pywemo lineage."
-    apk:
-      path: "wemo-apk/decoded/assets/www/widgets/"
-      first_level_widget_dirs_observed: 45
-      relevant_device_widgets:
-        - "wemo_mini"
-        - "wemo_socket"
-        - "wemo_smart_plug"
-        - "wemo_insight"
-        - "wemo_outdoorplug"
-        - "wemo_lightswitch"
-        - "wemo_lightswitch_2gen"
-        - "wemo_lightswitch3way"
-        - "wemo_dimmer"
-        - "wemo_dimmer_v2"
-        - "wemo_lighting"
-        - "wemo_maker"
-        - "wemo_sensor"
-        - "wemo_coffeemaker"
-        - "wemo_crockpot"
-        - "wemo_heatera"
-        - "wemo_airpurifier"
-        - "wemo_humidifier"
-        - "wemo_humidifierb"
+# Vendor-specific protocol detail this schema does not model. Namespaced so the
+# top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  discovery_catalog:
+    sources:
+      pywemo:
+        url: "https://github.com/pywemo/pywemo"
+        device_classes:
+          - "Switch"
+          - "Insight"
+          - "LightSwitch"
+          - "Dimmer"
+          - "DimmerV2"
+          - "Maker"
+          - "OutdoorPlug"
+          - "Motion"
+          - "Bridge"
+          - "CoffeeMaker"
+          - "CrockPot"
+          - "Humidifier"
+      home_assistant:
+        url: "https://www.home-assistant.io/integrations/wemo/"
+        supported_platforms:
+          - "Binary sensor: Wemo Motion Sensor"
+          - "Fan: Wemo/Holmes Smart Humidifier"
+          - "Light: Wemo LED lights and Smart Dimmer Switch"
+          - "Switch: Wemo switches and Mr. Coffee smart coffee makers"
+        discovery_default: true
+      ouimeaux:
+        url: "https://github.com/iancmcc/ouimeaux"
+        role: "Legacy Python Wemo implementation and pywemo lineage."
+      apk:
+        location: "The app's bundled WebView widget tree (one directory per device type); the decoded APK itself is not committed."
+        first_level_widget_dirs_observed: 45
+        relevant_device_widgets:
+          - "wemo_mini"
+          - "wemo_socket"
+          - "wemo_smart_plug"
+          - "wemo_insight"
+          - "wemo_outdoorplug"
+          - "wemo_lightswitch"
+          - "wemo_lightswitch_2gen"
+          - "wemo_lightswitch3way"
+          - "wemo_dimmer"
+          - "wemo_dimmer_v2"
+          - "wemo_lighting"
+          - "wemo_maker"
+          - "wemo_sensor"
+          - "wemo_coffeemaker"
+          - "wemo_crockpot"
+          - "wemo_heatera"
+          - "wemo_airpurifier"
+          - "wemo_humidifier"
+          - "wemo_humidifierb"
 
 helpful_urls:
   - title: "open-wemo"
@@ -1365,12 +1376,60 @@ soap_common:
     smartsetup:
       service_type: "urn:Belkin:service:smartsetup:1"
       control_url: "/upnp/control/smartsetup1"
+      actions: ["PairAndRegister", "GetRegistrationData", "GetRegistrationStatus"]
+      action_details:
+        PairAndRegister:
+          args_in: ["PairingData", "RegistrationData"]
+          args_out: ["PairingStatus"]
+          description: >
+            One-shot provisioning + cloud registration: the in-args carry the
+            WiFi credentials as PairingData XML
+            (<PairingData><ssid><![CDATA[...]]></ssid><auth>..</auth><password>..</password><encrypt>..</encrypt><channel>..</channel></PairingData>,
+            password encrypted exactly as for ConnectHomeNetwork) and the
+            account binding as RegistrationData XML
+            (<RegistrationData><DeviceId>..</DeviceId><DeviceName><![CDATA[...]]></DeviceName><SetupToken>..</SetupToken><GroupId>..</GroupId></RegistrationData>;
+            a second layout swaps in <smartprivateKey> and <ReUnionKey>). The
+            account half needs the defunct Belkin cloud, so post-shutdown
+            provisioning uses WiFiSetup#ConnectHomeNetwork instead.
+        GetRegistrationData:
+          args_in: ["SmartDeviceData"]
+          args_out: ["RegistrationData"]
+          description: >
+            Reads the device's cloud registration blob (returns
+            pluginprivateKey, smartprivateKey, homeId and a statusCode).
+        GetRegistrationStatus:
+          args_out: ["RegistrationStatus", "StatusCode"]
+          description: >
+            Poll after PairAndRegister. The app retries while
+            RegistrationStatus is 'F' and StatusCode is 'RETRY', every 10 s
+            for up to 60 s, before giving up on registration (the LAN join
+            itself has already succeeded or failed by then).
       availability: >
-        Undocumented service seen in real-hardware captures (pywemo VCR
-        cassettes) alongside WiFiSetup:1 on the light switch, Maker, outdoor
-        plug and humidifier. Its action surface is not yet mapped; it is
-        suspected to be the newer-generation provisioning surface. Resolve the
-        controlURL from setup.xml like any other service.
+        Seen in real-hardware captures (pywemo VCR cassettes) alongside
+        WiFiSetup:1 on the light switch, Maker, outdoor plug and humidifier.
+        Action list and arguments above come from the Crock-Pot's own
+        /smartsetup.xml SCPD (research store: wemo-devices/captures/
+        crockpot_setup_capture.yaml) and the Wemo app v1.30.2, whose setup
+        flow drives exactly these three actions. Resolve the controlURL from
+        setup.xml like any other service.
+    remoteaccess:
+      service_type: "urn:Belkin:service:remoteaccess:1"
+      control_url: "/upnp/control/remoteaccess1"
+      actions: ["RemoteAccess"]
+      action_details:
+        RemoteAccess:
+          args_in: ["DeviceId", "dst", "HomeId", "DeviceName", "MacAddr", "pluginprivateKey", "smartprivateKey", "smartUniqueId", "numSmartDev"]
+          args_in_app_variant: ["DeviceId", "dst", "HomeId", "DeviceName", "pluginprivateKey", "smartprivateKey", "smartUniqueId", "DeviceAuthHeader"]
+          args_out: ["ArpMac"]
+          description: >
+            Enables cloud remote access and returns the key material for it
+            (statusCode 'S'/'F' plus homeId and per-phone private keys in the
+            response blob). Dead end post-shutdown — documented so the service
+            is recognisable in a serviceList, not because it still works.
+      availability: >
+        Present in the Crock-Pot and Bridge SCPDs with SCPDURL
+        /remoteaccess.xml. The app's in-argument list differs slightly by
+        firmware generation (both orders recorded above).
   eventing:
     description: >
       Wemo devices push state changes over standard UPnP eventing, to the
@@ -1450,11 +1509,11 @@ soap_common:
           notes: "Crock-Pot only. The device's own state, whether it changed by SOAP or by the front-panel button."
         time:
           service: "basicevent"
-          unit: "minutes"
+          unit: "min"
           notes: "Crock-Pot only. Cook time remaining."
         cookedTime:
           service: "basicevent"
-          unit: "minutes"
+          unit: "min"
           notes: "Crock-Pot only. Minutes cooked so far in this run."
         InsightParams:
           service: "insight"
@@ -1541,19 +1600,19 @@ payload_formats:
         description: "Unix timestamp of the last state change."
       - index: 2
         name: "onfor_seconds"
-        unit: "seconds"
+        unit: "s"
         description: "Seconds the load has been on during the current run."
       - index: 3
         name: "ontoday_seconds"
-        unit: "seconds"
+        unit: "s"
         description: "Seconds on today."
       - index: 4
         name: "ontotal_seconds"
-        unit: "seconds"
+        unit: "s"
         description: "Seconds on over the measurement period."
       - index: 5
         name: "timeperiod"
-        unit: "seconds"
+        unit: "s"
         description: "Length of the measurement period in seconds (commonly 1209600 = 14 days)."
       - index: 6
         name: "wifipower"
@@ -1676,7 +1735,7 @@ commands:
         description: "Target mode; see payload_formats.CrockpotMode."
       time:
         type: "integer"
-        unit: "minutes"
+        unit: "min"
         min: 0
         source: "state:GetCrockpotState.time"
         description: >
@@ -1722,7 +1781,7 @@ commands:
     parameters:
       time:
         type: "integer"
-        unit: "minutes"
+        unit: "min"
         min: 0
         required: true
         description: "New cook time in minutes."
@@ -1756,7 +1815,7 @@ commands:
     parameters:
       time:
         type: "integer"
-        unit: "minutes"
+        unit: "min"
         min: 0
         source: "state:GetCrockpotState.time"
         description: >
@@ -1780,6 +1839,88 @@ commands:
     notes: >
       The one Crock-Pot write with no read-back: off takes no cook time with
       it, so this is sendable from a cold start.
+
+  # The two setup writes, declared here so a consumer that already renders
+  # commands can drive provisioning through the same machinery. Bound by no
+  # entity on purpose: these are not controls to draw on a device screen, they
+  # are steps of the device.setup conversation, and that block is where the
+  # sequencing, the timing rules and the passphrase encryption live. The
+  # argument-less setup reads (GetApList, GetNetworkStatus, CloseSetup,
+  # SetSetupDoneStatus) are catalogued in http_endpoints, same split as
+  # control.
+  setup_connect_home_network:
+    description: >
+      Hand the device its home network credentials, over its setup AP. One
+      step of the device.setup flow — which is also where the rule lives that
+      this is sent TWICE, about 100ms apart, and that the outcome comes from
+      polling GetNetworkStatus rather than from this reply.
+    transport: "soap"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    action: "ConnectHomeNetwork"
+    arguments:
+      ssid: "{ssid}"
+      auth: "{auth}"
+      password: "{password}"
+      encrypt: "{encrypt}"
+      channel: "{channel}"
+    parameters:
+      ssid:
+        type: "string"
+        required: true
+        description: "Target network SSID, exactly as GetApList reported it."
+      auth:
+        type: "string"
+        required: true
+        description: >
+          Auth mode from the chosen ApList entry, verbatim — the device
+          rejects vocabulary that is not its own. OPEN for an open network.
+      password:
+        type: "string"
+        required: true
+        description: >
+          The ENCRYPTED passphrase blob built per
+          device.setup.methods[].softap.credential_encryption — never the
+          plaintext. The empty string for an open network.
+      encrypt:
+        type: "string"
+        required: true
+        description: "Cipher from the ApList entry (AES, TKIPAES); NONE for open."
+      channel:
+        type: "integer"
+        required: true
+        description: "Channel from the ApList entry."
+    returns:
+      - name: "PairingStatus"
+        description: >
+          Acknowledgement that the request was accepted, not the join result.
+    verification: "reported"
+
+  setup_resetup:
+    description: >
+      Push a provisioned device back into setup mode over the LAN, without a
+      physical factory reset. See device.setup.rejoin for when this is the
+      right move and what state it leaves the device in on failure.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "ReSetup"
+    arguments:
+      Reset: "{reset}"
+    parameters:
+      reset:
+        type: "integer"
+        required: true
+        values:
+          "1": "clear personalized info (name, icon, rules)"
+          "2": "factory restore (everything, WiFi included)"
+          "5": "clear WiFi credentials only"
+        description: >
+          Scope of the reset. No default, deliberately: every value is
+          destructive to something, so a renderer reaching this parameter
+          without a value must fail rather than pick a scope.
+    returns:
+      - name: "Reset"
+        description: "'success', or 'reset_remote' on at least one device — both mean it worked."
+    verification: "reported"
 
 http_endpoints:
   - method: "GET"
@@ -1879,14 +2020,14 @@ http_endpoints:
           description: "Cooking mode; see payload_formats.CrockpotMode. The device's on/off state lives here."
         - name: "time"
           type: "integer"
-          unit: "minutes"
+          unit: "min"
           description: >
             Cook time remaining, in minutes. Also the value SetCrockpotState
             wants handed back to it on any write that is not turning the
             cooker off.
         - name: "cookedTime"
           type: "integer"
-          unit: "minutes"
+          unit: "min"
           description: "Minutes cooked so far in the current run."
       example: |
         <?xml version="1.0" encoding="utf-8"?>
@@ -1922,7 +2063,7 @@ http_endpoints:
         - name: "time"
           type: "integer"
           required: true
-          unit: "minutes"
+          unit: "min"
           description: >
             Cook time in minutes. Sent on every call, including calls that
             only mean to change the mode.
@@ -1940,6 +2081,136 @@ http_endpoints:
         - name: "MetaInfo"
           type: "string"
           description: "Pipe-delimited; see the top-level payload_formats.MetaInfo."
+
+  # The argument-less setup reads. Only listed on the setup AP's serviceList
+  # (except SetSetupDoneStatus, which rides basicevent): resolve the real
+  # controlURL from setup.xml as always — the WiFiSetup path below is the
+  # conventional spelling and /upnp/control/wifi1 is also in the wild.
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "GetApList"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Ask the device for its own WiFi scan results. Required SOAPACTION
+      header: "urn:Belkin:service:WiFiSetup:1#GetApList". Takes no arguments.
+      Setup-mode only; see device.setup for the conversation this opens.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "ApList"
+          type: "string"
+          description: >
+            Newline-separated scan results; the parse rules live in
+            device.setup.methods[].payload_formats.ApList (skip the first
+            line, split on '|', last column is AUTHMODE/CIPHER).
+
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "ConnectHomeNetwork"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Hand the device its home network credentials. Required SOAPACTION
+      header: "urn:Belkin:service:WiFiSetup:1#ConnectHomeNetwork". Invoked by
+      the setup_connect_home_network command; argument semantics, the
+      send-twice rule and the passphrase encryption live in device.setup.
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "ssid"
+          type: "string"
+          required: true
+          description: "Target network SSID, exactly as GetApList reported it."
+        - name: "auth"
+          type: "string"
+          required: true
+          description: "Auth mode from the ApList entry, e.g. WPA2PSK."
+        - name: "password"
+          type: "string"
+          required: true
+          description: "Encrypted passphrase blob; empty for an open network."
+        - name: "encrypt"
+          type: "string"
+          required: true
+          description: "Cipher from the ApList entry, e.g. AES."
+        - name: "channel"
+          type: "integer"
+          required: true
+          description: "Channel from the ApList entry."
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "PairingStatus"
+          type: "string"
+          description: "Acknowledgement only; poll GetNetworkStatus for the join result."
+
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "GetNetworkStatus"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Poll the join result after ConnectHomeNetwork. Required SOAPACTION
+      header: "urn:Belkin:service:WiFiSetup:1#GetNetworkStatus". Takes no
+      arguments.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "NetworkStatus"
+          type: "string"
+          description: >
+            0 = still connecting, 1 = connected, 2 = rejected (passphrase
+            under 8 characters; terminal), 3 = handshaking (usually becomes 1
+            within seconds).
+
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "CloseSetup"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Close setup mode so the device leaves its AP and joins the home
+      network. Required SOAPACTION header:
+      "urn:Belkin:service:WiFiSetup:1#CloseSetup". Takes no arguments.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "status"
+          type: "string"
+          description: "'success' on a clean close."
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "SetSetupDoneStatus"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Mark provisioning finished, after a successful CloseSetup. Required
+      SOAPACTION header:
+      "urn:Belkin:service:basicevent:1#SetSetupDoneStatus". Takes no
+      arguments. Absent on some firmware — treat a fault or a missing action
+      as non-fatal.
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "ReSetup"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Push a provisioned device back into setup mode over the LAN. Required
+      SOAPACTION header: "urn:Belkin:service:basicevent:1#ReSetup". Invoked
+      by the setup_resetup command; see device.setup.rejoin for the flow.
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "Reset"
+          type: "integer"
+          required: true
+          enum: [1, 2, 5]
+          description: >
+            Scope: 1 clears name/icon/rules, 2 factory restores, 5 clears
+            WiFi credentials only.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "Reset"
+          type: "string"
+          description: "'success', or 'reset_remote' on at least one device."
 
   - method: "POST"
     path: "/upnp/control/timesync1"

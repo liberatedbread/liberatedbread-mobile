@@ -9,6 +9,7 @@
 // surfaces.
 
 import '../services/spec_codec.dart';
+import 'unit_display.dart';
 import 'decoded_number.dart';
 
 /// How far an entity's live state has gotten.
@@ -103,10 +104,15 @@ class EntityLiveValue {
   /// The unit to render beside [display]: the entity's own, or the format
   /// field's when the entity does not name one — and neither when the spec
   /// says the unit follows a device setting (see [unitOf]).
+  ///
+  /// Spelled for a reader, not for a comparison: the catalogue writes `C` so
+  /// the string matches a device's own `unit_values` table, and this puts the
+  /// degree sign back (see [displayUnit]). Anything that needs the spec's own
+  /// spelling must read [EntityDto.unit] instead of this.
   String? get unit {
     final value = primary;
-    if (value == null) return entity.unit;
-    return unitOf(value, entityUnit: entity.unit);
+    if (value == null) return displayUnit(entity.unit);
+    return displayUnit(unitOf(value, entityUnit: entity.unit));
   }
 
   /// Whether the bound field's unit is a device setting rather than a

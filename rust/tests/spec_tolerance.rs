@@ -51,7 +51,10 @@ fn all_real_specs_parse_ok() {
 
 #[test]
 fn wifi_spec_parses_with_no_ble_services() {
-    // Frigidaire specs are WiFi: they carry `mqtt_topics` and no `services`.
+    // Frigidaire specs are WiFi: an `http_endpoints:` block and no `services`.
+    // (It carried `mqtt_topics` when this test was written; upstream dropped
+    // the block. What is under test is the tolerance, not the block's name —
+    // any top-level key the parser does not type must survive into the bag.)
     let spec = parse_device_spec(include_str!("specs/frigidaire-window-ac.yaml"))
         .expect("wifi spec should parse");
     assert!(
@@ -59,8 +62,8 @@ fn wifi_spec_parses_with_no_ble_services() {
         "wifi spec should have no BLE services"
     );
     assert!(
-        spec.extensions.contains_key("mqtt_topics"),
-        "mqtt_topics should be preserved in the extensions bag"
+        spec.extensions.contains_key("http_endpoints"),
+        "an untyped top-level block should be preserved in the extensions bag"
     );
     // `entities` is no longer swept into the extensions bag: it is now a typed
     // field, because it is what lets the app render named readings instead of a
@@ -289,12 +292,25 @@ fn admore_int32_and_bespoke_blocks_parse() {
     // admore uses `manufacturer_status: active`, `type: int32` parameters with
     // `allowed`/`labels`, service- and characteristic-level `notes`,
     // command-level `setting_id`, and bespoke `protobuf`/`state_machine`/
-    // `version_fields` blocks nested under `device:`. None may break parsing.
+    // `version_fields` blocks. None may break parsing.
+    //
+    // Those three used to sit under `device:`; upstream gathered every
+    // bespoke block under a top-level `protocol_details:` when it closed the
+    // schema's open world. They are documentation for a human, not a contract
+    // to bind to, so what matters here is only that they survive the parse —
+    // which now means surviving into the extensions bag.
     let spec = parse_device_spec(include_str!("specs/admore-light-bar.yaml"))
         .expect("admore spec should parse");
-    assert!(spec.device.protobuf.is_some());
-    assert!(spec.device.state_machine.is_some());
-    assert!(spec.device.version_fields.is_some());
+    let details = spec
+        .extensions
+        .get("protocol_details")
+        .expect("admore's bespoke blocks are namespaced under protocol_details");
+    for block in ["protobuf", "state_machine", "version_fields"] {
+        assert!(
+            details.get(block).is_some(),
+            "protocol_details.{block} should survive parsing"
+        );
+    }
     // An int32 parameter with an `allowed`/`labels` enumeration must parse.
     let (_svc, ch) = spec
         .find_characteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
@@ -506,36 +522,91 @@ fn vendored_airthings_declares_format_scale() {
     assert_eq!(field.scale, Some(0.01));
 }
 
+/// A characteristic declared twice — once bare, once with the byte layout —
+/// must resolve to the one that can actually decode.
+///
+/// This was airthings-wave-family's shape when the rule was written; upstream
+/// has since de-duplicated that spec, so the rule is exercised against a
+/// fixture that still has the collision. Keeping it: the rule is about the
+/// resolver, not about one catalogue entry, and the next spec to declare a
+/// stub before the real thing must not silently lose its readings.
+const DUPLICATE_CHARACTERISTIC_SPEC: &str = r#"
+device:
+  name: "Duplicate Declarer"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "sensor"
+services:
+  - uuid: "0000181a-0000-1000-8000-00805f9b34fb"
+    name: "Environmental Sensing (stub)"
+    characteristics:
+      - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
+        name: "Temperature"
+        properties: ["read"]
+  - uuid: "b42e1c08-ade7-11e4-89d3-123b93f75cba"
+    name: "Vendor Service"
+    characteristics:
+      - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
+        name: "Temperature"
+        properties: ["read", "notify"]
+        format:
+          - name: "temperature"
+            type: "int16"
+            offset: 0
+            length: 2
+            scale: 0.01
+            unit: "C"
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "00002a6e-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "temperature"
+"#;
+
 #[test]
 fn duplicate_characteristic_resolves_to_the_one_with_a_format() {
-    // airthings-wave-family declares 0x2A6E and 0x2A6F twice: once as a bare
-    // stub under an earlier service, and once with the byte layout. Whichever
-    // the app picks decides whether the reading works at all, so pick the one
-    // that can actually decode.
+    let spec = parse_device_spec(DUPLICATE_CHARACTERISTIC_SPEC).expect("fixture parses");
+    let uuid = "00002a6e-0000-1000-8000-00805f9b34fb";
+
+    let (_, first) = spec.find_characteristic(uuid).expect("declared");
+    assert!(
+        first.format.is_none(),
+        "fixture assumption: the first declaration is the stub"
+    );
+
+    let (_, decodable) = spec.find_decodable_characteristic(uuid).expect("declared");
+    assert!(
+        decodable.format.is_some(),
+        "a duplicate declaration must not hide the one carrying `format:`"
+    );
+
+    // And the entity that names it resolves to the decodable one, which is
+    // what makes the reading render rather than read as unsupported.
+    let resolved = spec.resolved_entities();
+    assert_eq!(resolved.len(), 1);
+    assert!(resolved.iter().all(|(_, c)| c.format.is_some()));
+}
+
+/// The real spec the rule came from: however upstream declares those
+/// characteristics now, every entity it ships must still bind to one that can
+/// decode. This is the half that would catch a regression in the catalogue.
+#[test]
+fn every_airthings_entity_binds_to_a_decodable_characteristic() {
     let spec = parse_device_spec(include_str!("specs/airthings-wave-family.yaml"))
         .expect("airthings spec should parse");
-
-    for uuid in [
-        "00002a6e-0000-1000-8000-00805f9b34fb",
-        "00002a6f-0000-1000-8000-00805f9b34fb",
-    ] {
-        let (_, first) = spec.find_characteristic(uuid).expect("declared");
-        assert!(
-            first.format.is_none(),
-            "fixture assumption: the first declaration of {uuid} is the stub"
-        );
-
-        let (_, decodable) = spec.find_decodable_characteristic(uuid).expect("declared");
-        assert!(
-            decodable.format.is_some(),
-            "a duplicate declaration must not hide the one carrying `format:`"
-        );
-    }
-
-    // Every entity that names a duplicated characteristic must now resolve to a
-    // decodable one, which is what makes the reading render.
     let resolved = spec.resolved_entities();
-    assert_eq!(resolved.len(), 6, "airthings declares six sensor entities");
+    // A floor, not an exact count: the spec covers a family and grows sensors
+    // upstream. Zero would mean the bindings silently stopped resolving, which
+    // is the regression worth catching.
+    assert!(
+        resolved.len() >= 6,
+        "airthings should resolve at least its six original sensors, got {}",
+        resolved.len()
+    );
     assert!(
         resolved.iter().all(|(_, c)| c.format.is_some()),
         "every resolved entity should bind to a characteristic with a format block"

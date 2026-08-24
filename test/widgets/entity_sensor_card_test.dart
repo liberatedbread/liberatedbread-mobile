@@ -81,7 +81,9 @@ void main() {
     // spec.
     expect(find.text('53.20'), findsOneWidget);
     expect(find.text('5320'), findsNothing);
-    expect(find.text('C'), findsOneWidget);
+    // The spec writes the unit as bare `C` — a comparison key against the
+    // device's own unit_values table — and the card spells it for a reader.
+    expect(find.text('°C'), findsOneWidget);
   });
 
   testWidgets('shows the decoder display string when no scale is declared',

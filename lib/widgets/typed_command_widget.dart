@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
+import '../core/unit_display.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/value_format.dart';
@@ -387,7 +388,8 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       // space — that is the finest stop the control can honestly offer.
       final step = (p.scale ?? 1).abs();
       final decimals = decimalsForStep(step);
-      final unitSuffix = p.unit == null ? '' : ' ${p.unit}';
+      final unit = displayUnit(p.unit);
+      final unitSuffix = unit == null ? '' : ' $unit';
       final displayValue = displayValueFor(value, p.scale, p.valueOffset)
           .clamp(displayMin, displayMax)
           .toDouble();
