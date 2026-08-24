@@ -40,12 +40,35 @@ static SPEC_CACHE: LazyLock<Mutex<HashMap<String, Arc<DeviceSpec>>>> =
 /// miss is one re-parse.
 const SPEC_CACHE_MAX_ENTRIES: usize = 32;
 
+/// Parse `yaml`, or hand back the [`SPEC_CACHE`] entry for it.
+///
+/// The lock is taken TWICE and held across neither parse: once to look the
+/// text up, then — only on a miss — again to file the result. Holding it
+/// across `parse_device_spec` would serialize every caller behind whichever
+/// one happened to miss, and a multi-KB spec's parse is milliseconds against
+/// the microseconds a lookup costs. That mattered little while only the BLE
+/// paths used the cache; the network entry points poll state per entity per
+/// tick, so the contended case is now the normal one.
+///
+/// Two threads missing on the same text both parse it, which is the price of
+/// not holding the lock. The waste is one duplicate parse and the result is
+/// still canonical: the second writer finds the first one's entry and returns
+/// THAT `Arc`, so every caller of a given text shares one allocation and
+/// `Arc::ptr_eq` stays meaningful.
 pub(crate) fn parse_or_cached(yaml: &str) -> Result<Arc<DeviceSpec>, ProtocolError> {
-    let mut cache = SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(spec) = cache.get(yaml) {
-        return Ok(spec.clone());
+    {
+        let cache = SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(spec) = cache.get(yaml) {
+            return Ok(spec.clone());
+        }
     }
     let spec = Arc::new(parse_device_spec(yaml)?);
+    let mut cache = SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    // Someone else may have filed this text while we were parsing. Their
+    // entry wins so the cache never serves two allocations for one spec.
+    if let Some(existing) = cache.get(yaml) {
+        return Ok(existing.clone());
+    }
     if cache.len() >= SPEC_CACHE_MAX_ENTRIES {
         cache.clear();
     }
@@ -266,6 +289,34 @@ services: []
             "base entry should have been evicted by the capacity clear; \
              an identity hit here would mean the cache grew past its bound"
         );
+    }
+
+    /// The lock is released across the parse, so two threads can miss on the
+    /// same text at once. Whichever files first wins: every racer must come
+    /// back holding the SAME allocation, or the cache would be serving two
+    /// `DeviceSpec`s for one spec and `Arc::ptr_eq` would stop meaning
+    /// anything.
+    #[test]
+    fn concurrent_misses_on_one_yaml_converge_on_one_allocation() {
+        let _guard = CACHE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let yaml = "
+device:
+  name: \"race-test\"
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services: []
+";
+        let handles: Vec<_> = (0..8)
+            .map(|_| std::thread::spawn(move || parse_or_cached(yaml).unwrap()))
+            .collect();
+        let specs: Vec<Arc<DeviceSpec>> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        for spec in &specs[1..] {
+            assert!(
+                Arc::ptr_eq(&specs[0], spec),
+                "racing callers must share the cached allocation"
+            );
+        }
     }
 
     #[test]
