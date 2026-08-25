@@ -7,6 +7,9 @@
 // responses parse as envelope → Body → first child → name/text pairs, and a
 // namespace-less description must parse because some firmware serves one.
 
+import 'dart:async';
+
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -231,6 +234,63 @@ void main() {
         client.send('10.0.0.5', 49153, '/p', _request),
         throwsA(isA<SoapTransportException>()),
       );
+    });
+
+    test('a timed-out exchange says which one it was and where it went', () {
+      // The motivating log line: "TimeoutException after 0:00:10.000000:
+      // Future not completed". Every exchange in a Wemo adoption times out
+      // identically, so a caller that logs the caught object — all of them,
+      // eventually — prints something no reader can act on. The deadline
+      // names itself instead.
+      fakeAsync((async) {
+        final client = SoapControlClient(
+          // A device that accepted the connection and then went quiet, which
+          // is what a Wemo does while its radio hops away.
+          httpClient:
+              MockClient((request) => Completer<http.Response>().future),
+        );
+        Object? thrown;
+        unawaited(client
+            .send('10.22.22.1', 49153, '/upnp/control/metainfo1', _request)
+            .catchError((Object e) {
+          thrown = e;
+          return <String, String>{};
+        }));
+
+        async.elapse(SoapControlClient.timeout + const Duration(seconds: 1));
+        expect(thrown, isA<SoapTransportException>());
+        expect(
+          thrown.toString(),
+          allOf(
+            contains('GetCrockpotState'),
+            contains('timed out after 10s'),
+            contains('http://10.22.22.1:49153/upnp/control/metainfo1'),
+          ),
+        );
+      });
+    });
+
+    test('a timed-out description fetch names the port it was probing', () {
+      fakeAsync((async) {
+        final client = SoapControlClient(
+          httpClient:
+              MockClient((request) => Completer<http.Response>().future),
+        );
+        Object? thrown;
+        unawaited(client.fetchDescription('10.22.22.1', 49153).then<void>(
+              (_) {},
+              onError: (Object e) => thrown = e,
+            ));
+
+        async.elapse(SoapControlClient.timeout + const Duration(seconds: 1));
+        expect(
+          thrown.toString(),
+          allOf(
+            contains('description fetch timed out'),
+            contains('10.22.22.1:49153/setup.xml'),
+          ),
+        );
+      });
     });
   });
 }

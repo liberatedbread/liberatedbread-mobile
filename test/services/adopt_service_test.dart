@@ -16,6 +16,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/services/adopt_service.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
@@ -76,10 +77,33 @@ $inner
 </s:Body>
 </s:Envelope>''';
 
+const _faultResponse = '''
+<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+<s:Body>
+<s:Fault><faultcode>s:Client</faultcode><detail>UPnPError 401</detail></s:Fault>
+</s:Body>
+</s:Envelope>''';
+
 /// A stateful Wemo AP: answers setup.xml and each setup action, recording the
 /// ConnectHomeNetwork bodies the test inspects.
 class _WemoAp {
   final List<String> connectBodies = [];
+
+  /// Every action asked of this AP, in order — how the spec's step sequence is
+  /// pinned (metadata before the AP list) and how a retry is counted.
+  final List<String> actions = [];
+
+  /// GetApList / GetMetaInfo error this many times before answering, standing
+  /// in for the firmware that simply does not answer the first ask.
+  int apListFailuresBeforeOk = 0;
+  int metaFailuresBeforeOk = 0;
+  int _apListCalls = 0;
+  int _metaCalls = 0;
+
+  /// When true, GetApList answers with a SOAP Fault: the device understood and
+  /// refused, which is not a flaky answer and must not be retried.
+  bool faultOnApList = false;
   String apList = '3\n'
       'HomeNet|6|WPA2PSK|blah|WPA2PSK/AES,\n'
       'OpenGuest|1|OPEN|blah|OPEN/NONE,\n'
@@ -108,16 +132,30 @@ class _WemoAp {
           return http.Response('wrong port', 500);
         }
         if (request.url.path == '/setup.xml') {
+          actions.add('setup.xml');
           return http.Response(setupXml, 200);
         }
-        final action = (request.headers['soapaction'] ?? '').toLowerCase();
+        final rawAction = request.headers['soapaction'] ?? '';
+        final action = rawAction.toLowerCase();
+        // Recorded from the header as the device sees it, so an assertion on
+        // the sequence reads like the spec's step list.
+        actions.add(rawAction.split('#').last.replaceAll('"', ''));
         if (action.contains('getmetainfo')) {
+          if (_metaCalls++ < metaFailuresBeforeOk) {
+            return http.Response('busy', 500);
+          }
           return http.Response(
               _soapResponse('GetMetaInfo',
                   '<MetaInfo>00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket</MetaInfo>'),
               200);
         }
         if (action.contains('getaplist')) {
+          if (faultOnApList) {
+            return http.Response(_faultResponse, 500);
+          }
+          if (_apListCalls++ < apListFailuresBeforeOk) {
+            return http.Response('busy', 500);
+          }
           return http.Response(
               _soapResponse('GetApList', '<ApList>$apList</ApList>'), 200);
         }
@@ -153,6 +191,18 @@ void main() {
   late final bool rustReady;
   late final String wemoYaml;
 
+  // Adoption is the flow people debug from a console, so every step logs.
+  // Capturing keeps that out of the test output AND makes the transcript
+  // assertable — the diagnostics below are as much a deliverable as the
+  // conversation itself.
+  late List<LogRecord> logs;
+  setUp(() => logs = Log.captureRecords());
+  tearDown(Log.reset);
+
+  Iterable<String> linesAt(LogLevel level) => logs
+      .where((r) => r.level == level && r.category == 'adopt')
+      .map((r) => r.message);
+
   setUpAll(() async {
     rustReady = await initHostRustLib();
     wemoYaml = await rootBundle.loadString(
@@ -182,6 +232,207 @@ void main() {
           await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
       expect(session, isNull,
           reason: 'no WiFiSetup service means this is not a setup AP');
+
+      // A host answered — so "couldn't reach the device", the message this
+      // outcome shows, is the wrong diagnosis and the log must not repeat it.
+      // The device's own name and service list are what say why.
+      expect(
+        linesAt(LogLevel.warning).join('\n'),
+        allOf(
+          contains('lists no WiFiSetup service'),
+          contains('Already Provisioned'),
+          contains('basicevent:1'),
+        ),
+      );
+    });
+
+    test('the confirmed setup AP is logged with what selects the encryption',
+        () async {
+      if (skipUnlessRust()) return;
+      final ap = _WemoAp();
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+      );
+      await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+
+      final info = linesAt(LogLevel.info).join('\n');
+      // The probe plan first — it is the flow's longest silence, and a reader
+      // needs to know whether 10 seconds of nothing is normal.
+      expect(info, contains('wemo connect: probing 10.22.22.1'));
+      // Then what answered: the port (it moves across firmware), the service
+      // list, and the rtos/iot markers that pick which password layout is
+      // tried first. Chasing a failed join without those is guesswork.
+      expect(
+        info,
+        allOf(
+          contains('setup AP confirmed at 10.22.22.1:49153'),
+          contains('WiFiSetup:1'),
+          contains('rtos='),
+          contains('iot='),
+        ),
+      );
+    });
+
+    test('connect reads the metadata first, in the spec\'s step order',
+        () async {
+      if (skipUnlessRust()) return;
+      final ap = _WemoAp();
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+      );
+      final session =
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+      await service.listNetworks(session!);
+
+      // The spec's steps: fetch the description, read the metadata that keys
+      // the passphrase encryption, THEN ask for a radio scan. Reading the
+      // metadata after the scan (and after the user has typed a password) is
+      // how a device that never answers metainfo used to cost a whole flow.
+      expect(ap.actions, ['setup.xml', 'GetMetaInfo', 'GetApList']);
+      expect(session.metaInfo, startsWith('00005E00530A|'),
+          reason: 'the session carries it so provision need not ask again');
+    });
+
+    test('provision reuses the metadata the connect step already read',
+        () async {
+      if (skipUnlessRust()) return;
+      final ap = _WemoAp();
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+      );
+      final session =
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+      final networks = await service.listNetworks(session!);
+      await service.provision(session,
+          networks.firstWhere((n) => n.ssid == 'HomeNet'), 'a good passphrase');
+
+      expect(ap.actions.where((a) => a == 'GetMetaInfo'), hasLength(1),
+          reason: 'the metadata is hardware identity — it does not change '
+              'between connecting and provisioning');
+    });
+
+    test('a setup read that fails once is retried, not abandoned', () async {
+      if (skipUnlessRust()) return;
+      final ap = _WemoAp()..apListFailuresBeforeOk = 2;
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+        setupRetryGap: Duration.zero,
+      );
+      final session =
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+      final networks = await service.listNetworks(session!);
+
+      // The spec's catch-all troubleshooting entry is "genuinely try again":
+      // Wemo devices fail an exchange and then answer the identical one.
+      expect(networks, isNotEmpty,
+          reason: 'the third ask answered, so the user gets a picker rather '
+              'than a typed-SSID fallback');
+      expect(ap.actions.where((a) => a == 'GetApList'), hasLength(3));
+      expect(
+        linesAt(LogLevel.warning).join('\n'),
+        contains('GetApList failed on attempt 1 of 3'),
+      );
+    });
+
+    test('a single miss while connecting is retried, not warned about',
+        () async {
+      if (skipUnlessRust()) return;
+      // The client can ask before it has properly settled on the setup AP.
+      // That first miss is the transient the spec's "genuinely try again"
+      // describes — absorbing it here is the difference between a clean picker
+      // and a warning about a device that is answering perfectly well.
+      final ap = _WemoAp()..metaFailuresBeforeOk = 1;
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+        setupRetryGap: Duration.zero,
+      );
+      final session =
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+
+      expect(session!.metaInfo, startsWith('00005E00530A|'));
+      expect(ap.actions.where((a) => a == 'GetMetaInfo'), hasLength(2));
+      expect(
+        linesAt(LogLevel.warning).join('\n'),
+        allOf(
+          contains('GetMetaInfo failed on attempt 1 of 2'),
+          isNot(contains('failed on all')),
+        ),
+      );
+    });
+
+    test('a refusal is not retried — the device understood and said no',
+        () async {
+      if (skipUnlessRust()) return;
+      final ap = _WemoAp()..faultOnApList = true;
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+        setupRetryGap: Duration.zero,
+      );
+      final session =
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+      await expectLater(
+          service.listNetworks(session!), throwsA(isA<SoapFaultException>()));
+      expect(ap.actions.where((a) => a == 'GetApList'), hasLength(1),
+          reason: 'a fault is an answer; asking again just wastes the '
+              'device\'s few worker threads');
+    });
+
+    test('a device that never answers GetMetaInfo says so before the password',
+        () async {
+      if (skipUnlessRust()) return;
+      // The reported failure shape: setup.xml and the AP list answer, metainfo
+      // times out. It used to surface as a bare TimeoutException after the
+      // user had typed a password and picked a network.
+      final ap = _WemoAp()..metaFailuresBeforeOk = 99;
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+        setupRetryGap: Duration.zero,
+      );
+      final session =
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+      expect(session, isNotNull,
+          reason: 'an open network still works without key material');
+      expect(session!.metaInfo, isNull);
+      expect(
+        linesAt(LogLevel.warning).join('\n'),
+        allOf(
+          contains('GetMetaInfo failed on all 2 attempt(s)'),
+          contains('wemo connect: no metadata'),
+        ),
+      );
+
+      // And provisioning a secured network spends the retry budget before
+      // giving up with text that names the remedy.
+      final networks = await service.listNetworks(session);
+      await expectLater(
+        service.provision(session,
+            networks.firstWhere((n) => n.ssid == 'HomeNet'), 'a good pass'),
+        throwsA(isA<AdoptException>()),
+      );
+      expect(ap.actions.where((a) => a == 'GetMetaInfo'), hasLength(5),
+          reason: 'a retried best-effort read while connecting (2), then the '
+              'full retry budget when the answer is actually required (3)');
     });
 
     test('lists the networks the device reports, flagging the WPA3 one',
@@ -234,6 +485,28 @@ void main() {
       expect(body, contains('<channel>6</channel>'));
       expect(body, isNot(contains('correct horse battery staple')));
       expect(body, contains('<password>'));
+
+      // Which of the six encryption variants the hardware actually took. The
+      // device never says — it either joins or does not — so this line is the
+      // only place that fact exists, and it is the first thing a Wemo bug
+      // report needs.
+      expect(
+        linesAt(LogLevel.info).join('\n'),
+        allOf(
+          contains('credential variant(s) to try'),
+          contains('joined with variant 1/6 (method 1, with length suffix)'),
+        ),
+      );
+
+      // And what must never be in the transcript: the passphrase, and the
+      // serial number — which is half the encryption key and the device's
+      // identity. A console log gets screen-shared and pasted into issues.
+      final everything = logs.map((r) => r.format()).join('\n');
+      expect(everything, isNot(contains('correct horse battery staple')));
+      expect(everything, isNot(contains('229999K9999999')));
+      expect(everything, contains('serial=<14 chars>'),
+          reason: 'the shape is what diagnoses a swapped MetaInfo field, '
+              'not the value');
     });
 
     test('an open network is provisioned with no encryption', () async {

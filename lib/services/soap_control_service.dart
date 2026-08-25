@@ -44,7 +44,14 @@ class SoapControlClient {
   /// `Future.timeout` around the whole exchange, exactly the shape the old
   /// `get(...).timeout(...)` had — deliberately not `Stream.timeout` on the
   /// body, which never delivers events under flutter_test's fake async.
-  Future<http.Response> _bounded(http.Request request) {
+  ///
+  /// [what] names the exchange for the timeout message. A bare
+  /// `TimeoutException` says only "after 0:00:10" — not which action, not which
+  /// host, not which port — and a caller that logs `'$e'` (every one of them,
+  /// eventually) then prints a line no one can act on. During adoption a dozen
+  /// different exchanges can time out identically, so the deadline names
+  /// itself.
+  Future<http.Response> _bounded(http.Request request, String what) {
     return () async {
       final streamed = await _http.send(request);
       final bytes = BytesBuilder(copy: false);
@@ -64,7 +71,12 @@ class SoapControlClient {
         reasonPhrase: streamed.reasonPhrase,
       );
     }()
-        .timeout(timeout);
+        .timeout(
+      timeout,
+      onTimeout: () => throw SoapTransportException(
+          '$what timed out after ${timeout.inSeconds}s '
+          '(${request.url})'),
+    );
   }
 
   /// Fetch and parse the device's UPnP description.
@@ -78,7 +90,8 @@ class SoapControlClient {
   Future<SoapDeviceDescription> fetchDescription(String host, int port,
       {String path = '/setup.xml'}) async {
     final uri = Uri(scheme: 'http', host: host, port: port, path: path);
-    final response = await _bounded(http.Request('GET', uri));
+    final response =
+        await _bounded(http.Request('GET', uri), 'description fetch');
     if (response.statusCode != 200) {
       throw SoapTransportException(
           'description fetch failed: HTTP ${response.statusCode} from $uri');
@@ -106,7 +119,7 @@ class SoapControlClient {
         'SOAPACTION': request.soapAction,
       })
       ..body = request.body;
-    final response = await _bounded(httpRequest);
+    final response = await _bounded(httpRequest, request.action);
     if (response.statusCode != 200) {
       // UPnP delivers action-level errors as HTTP 500 with a Fault body,
       // and that fault detail is the only diagnostics the device offers —

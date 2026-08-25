@@ -188,6 +188,17 @@ class Log {
   /// Local-network discovery: mDNS, SSDP, and the multicast lock.
   static const Logger net = Logger._('net');
 
+  /// Putting a factory-reset device onto the home network: the setup-AP probe,
+  /// the credential sweep and the join poll. Its own category (not `net`)
+  /// because adoption is the one flow whose diagnosis needs the whole
+  /// conversation in order — probe, GetApList, each ConnectHomeNetwork variant,
+  /// each status poll — and `net` is where the ambient discovery chatter lives,
+  /// which is exactly what a reader has to filter out. NOTE: the Wi-Fi
+  /// passphrase being handed over is a secret; these lines carry its length and
+  /// never its value, and never a rendered request body (which embeds the
+  /// encrypted blob).
+  static const Logger adopt = Logger._('adopt');
+
   /// Hub pairing, TLS trust decisions, and control transport. Its own
   /// category (not `net`) because its lines are the audit trail of trust:
   /// "pinned", "pin mismatch", "fell back to http" are the ones a security
@@ -213,6 +224,7 @@ class Log {
     spec,
     ha,
     net,
+    adopt,
     hub,
     packs,
     ads,

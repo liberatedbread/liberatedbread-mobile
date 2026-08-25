@@ -4833,6 +4833,26 @@ pub fn setup_instructions(spec_yaml: String) -> Option<SetupInstructionsDto> {
     crate::spec::setup::setup_instructions(&spec).map(SetupInstructionsDto::from)
 }
 
+/// One credential attempt: the request to POST, and which encryption variant
+/// built it.
+///
+/// The label travels with the request because the device never says which
+/// variant it liked — it simply fails to join — so the only way a log (or a
+/// bug report) can name the one that finally worked is for the renderer to
+/// say which one it is handing over. `method` is `None` for the open-network
+/// attempt, which carries no encrypted passphrase at all.
+#[derive(Debug, Clone)]
+pub struct WemoConnectAttemptDto {
+    /// The keydata layout that encrypted the passphrase: 1, 2 or 3. `None` on
+    /// an open network, where the spec's rule is to send an empty password.
+    pub method: Option<u8>,
+    /// Whether the four-hex-digit length suffix was appended (the variant's
+    /// other half — the same method with and without it are different sends).
+    pub add_lengths: bool,
+    /// The rendered `ConnectHomeNetwork`, ready to POST.
+    pub request: SoapRequestDto,
+}
+
 /// Every `ConnectHomeNetwork` request worth sending to join `ssid`, rendered
 /// and ready to POST — the Wemo counterpart of `render_lifx_set_access_point`.
 ///
@@ -4865,7 +4885,7 @@ pub fn render_wemo_connect_requests(
     // unparsed description) leaves the ordinary method-1-first order.
     rtos: Option<i64>,
     iot: Option<i64>,
-) -> anyhow::Result<Vec<SoapRequestDto>> {
+) -> anyhow::Result<Vec<WemoConnectAttemptDto>> {
     use std::collections::BTreeMap;
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let is_open = encrypt.eq_ignore_ascii_case("NONE") || auth.eq_ignore_ascii_case("OPEN");
@@ -4890,11 +4910,21 @@ pub fn render_wemo_connect_requests(
 
     if is_open {
         // The spec's open-network rule: auth OPEN, encrypt NONE, empty password.
-        return Ok(vec![render("", "OPEN", "NONE")?]);
+        return Ok(vec![WemoConnectAttemptDto {
+            method: None,
+            add_lengths: false,
+            request: render("", "OPEN", "NONE")?,
+        }]);
     }
     crate::protocol::wemo_setup::password_candidates(&meta_info, &passphrase, rtos, iot)?
         .into_iter()
-        .map(|c| render(&c.password, &auth, &encrypt))
+        .map(|c| {
+            Ok(WemoConnectAttemptDto {
+                method: Some(c.method),
+                add_lengths: c.add_lengths,
+                request: render(&c.password, &auth, &encrypt)?,
+            })
+        })
         .collect()
 }
 

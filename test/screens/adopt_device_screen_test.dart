@@ -13,10 +13,54 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/providers/adopt_provider.dart';
 import 'package:liberated_bread_mobile/screens/adopt_device_screen.dart';
 import 'package:liberated_bread_mobile/services/adopt_service.dart';
+import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/src/rust/api/device_api.dart';
+
+import '../fakes/fake_lifx_control_client.dart';
+import '../fakes/fake_spec_codec.dart';
+
+/// A setup AP that answers `/setup.xml` with a WiFiSetup service and an AP
+/// list, but never answers GetMetaInfo — the reported failure shape.
+http.Client _apWithNoMetaInfo() => MockClient((request) async {
+      if (request.url.path == '/setup.xml') {
+        return http.Response('''
+<?xml version="1.0"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <device>
+    <friendlyName>WeMo Setup</friendlyName>
+    <serviceList>
+      <service>
+        <serviceType>urn:Belkin:service:WiFiSetup:1</serviceType>
+        <controlURL>/upnp/control/WiFiSetup1</controlURL>
+      </service>
+      <service>
+        <serviceType>urn:Belkin:service:metainfo:1</serviceType>
+        <controlURL>/upnp/control/metainfo1</controlURL>
+      </service>
+    </serviceList>
+  </device>
+</root>
+''', 200);
+      }
+      final action = (request.headers['soapaction'] ?? '').toLowerCase();
+      if (action.contains('getmetainfo')) {
+        return http.Response('busy', 500);
+      }
+      return http.Response('''
+<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+<s:Body><u:GetApListResponse xmlns:u="urn:Belkin:service:x:1">
+<ApList>1
+HomeNet|6|WPA2PSK/AES,
+</ApList>
+</u:GetApListResponse></s:Body></s:Envelope>''', 200);
+    });
 
 AdoptableDevice _device(String name, String prefix, String category,
         AdoptFamily family, String method) =>
@@ -68,12 +112,15 @@ Widget _wrap({
   List<AdoptableDevice> devices = const [],
   AdoptableDevice? nearby,
   List<BleAdoptableDevice> bleDevices = const [],
+  AdoptService? service,
 }) =>
     ProviderScope(
       overrides: [
         adoptableDevicesProvider.overrideWith((ref) async => devices),
         nearbySetupNetworkProvider.overrideWith((ref) => Stream.value(nearby)),
         bleAdoptableDevicesProvider.overrideWith((ref) async => bleDevices),
+        if (service != null)
+          adoptServiceProvider.overrideWith((ref) => service),
       ],
       child: const MaterialApp(home: AdoptDeviceScreen()),
     );
@@ -121,6 +168,48 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('No adoptable device types'), findsOneWidget);
+  });
+
+  testWidgets('warns at the picker when the device withheld its metadata',
+      (tester) async {
+    // The failure this screen used to report only after a password was typed
+    // and a two-minute credential sweep had run. Connecting now reads the
+    // metadata in the spec's order, so by the time the network picker draws
+    // the answer is already known — and saying so here is the difference
+    // between a user retrying now and a user retrying in three minutes.
+    Log.captureRecords();
+    addTearDown(Log.reset);
+    final codec = FakeSpecCodec()
+      ..wemoApList = const [
+        WemoAccessPointDto(
+          ssid: 'HomeNet',
+          channel: '6',
+          auth: 'WPA2PSK',
+          encrypt: 'AES',
+          joinable: true,
+          isOpen: false,
+        ),
+      ];
+    final service = AdoptService(
+      codec: codec,
+      soap: SoapControlClient(httpClient: _apWithNoMetaInfo()),
+      lifx: FakeLifxControlClient(),
+      wemoPorts: const [49153],
+      setupRetryGap: Duration.zero,
+    );
+
+    await tester.pumpWidget(_wrap(devices: [_wemo], service: service));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Belkin Wemo Smart Devices'));
+    await tester.pumpAndSettle();
+
+    // The picker was still reached — an open network needs no key material,
+    // so this is a warning, not a dead end.
+    expect(find.text('HomeNet'), findsOneWidget);
+    expect(
+      find.textContaining('needed to encrypt a Wi-Fi password'),
+      findsOneWidget,
+    );
   });
 
   // ── The Bluetooth-provisioned families ──────────────────────────────────

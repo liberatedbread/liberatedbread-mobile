@@ -110,6 +110,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
+  int dco_decode_box_autoadd_u_8(dynamic raw);
+
+  @protected
   WebSocketSurfaceDto dco_decode_box_autoadd_web_socket_surface_dto(
       dynamic raw);
 
@@ -319,9 +322,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<SetupStepDto> dco_decode_list_setup_step_dto(dynamic raw);
 
   @protected
-  List<SoapRequestDto> dco_decode_list_soap_request_dto(dynamic raw);
-
-  @protected
   List<SoftApProfileDto> dco_decode_list_soft_ap_profile_dto(dynamic raw);
 
   @protected
@@ -344,6 +344,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<WemoAccessPointDto> dco_decode_list_wemo_access_point_dto(dynamic raw);
+
+  @protected
+  List<WemoConnectAttemptDto> dco_decode_list_wemo_connect_attempt_dto(
+      dynamic raw);
 
   @protected
   MacPrefixConfidence dco_decode_mac_prefix_confidence(dynamic raw);
@@ -470,6 +474,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_8(dynamic raw);
 
   @protected
   WebSocketSurfaceDto? dco_decode_opt_box_autoadd_web_socket_surface_dto(
@@ -612,6 +619,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   WemoAccessPointDto dco_decode_wemo_access_point_dto(dynamic raw);
 
   @protected
+  WemoConnectAttemptDto dco_decode_wemo_connect_attempt_dto(dynamic raw);
+
+  @protected
   WemoJoinStatus dco_decode_wemo_join_status(dynamic raw);
 
   @protected
@@ -717,6 +727,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_box_autoadd_u_8(SseDeserializer deserializer);
 
   @protected
   WebSocketSurfaceDto sse_decode_box_autoadd_web_socket_surface_dto(
@@ -955,10 +968,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
-  List<SoapRequestDto> sse_decode_list_soap_request_dto(
-      SseDeserializer deserializer);
-
-  @protected
   List<SoftApProfileDto> sse_decode_list_soft_ap_profile_dto(
       SseDeserializer deserializer);
 
@@ -987,6 +996,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<WemoAccessPointDto> sse_decode_list_wemo_access_point_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<WemoConnectAttemptDto> sse_decode_list_wemo_connect_attempt_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -1131,6 +1144,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_8(SseDeserializer deserializer);
 
   @protected
   WebSocketSurfaceDto? sse_decode_opt_box_autoadd_web_socket_surface_dto(
@@ -1291,6 +1307,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  WemoConnectAttemptDto sse_decode_wemo_connect_attempt_dto(
+      SseDeserializer deserializer);
+
+  @protected
   WemoJoinStatus sse_decode_wemo_join_status(SseDeserializer deserializer);
 
   @protected
@@ -1398,6 +1418,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_u_8(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_web_socket_surface_dto(
@@ -1657,10 +1680,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<SetupStepDto> self, SseSerializer serializer);
 
   @protected
-  void sse_encode_list_soap_request_dto(
-      List<SoapRequestDto> self, SseSerializer serializer);
-
-  @protected
   void sse_encode_list_soft_ap_profile_dto(
       List<SoftApProfileDto> self, SseSerializer serializer);
 
@@ -1691,6 +1710,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_wemo_access_point_dto(
       List<WemoAccessPointDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_wemo_connect_attempt_dto(
+      List<WemoConnectAttemptDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_mac_prefix_confidence(
@@ -1842,6 +1865,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_8(int? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_web_socket_surface_dto(
@@ -2013,6 +2039,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_wemo_access_point_dto(
       WemoAccessPointDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_wemo_connect_attempt_dto(
+      WemoConnectAttemptDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_wemo_join_status(

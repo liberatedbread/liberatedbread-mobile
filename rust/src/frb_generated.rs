@@ -4757,20 +4757,6 @@ impl SseDecode for Vec<crate::api::device_api::SetupStepDto> {
     }
 }
 
-impl SseDecode for Vec<crate::api::device_api::SoapRequestDto> {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut len_ = <i32>::sse_decode(deserializer);
-        let mut ans_ = vec![];
-        for idx_ in 0..len_ {
-            ans_.push(<crate::api::device_api::SoapRequestDto>::sse_decode(
-                deserializer,
-            ));
-        }
-        return ans_;
-    }
-}
-
 impl SseDecode for Vec<crate::api::device_api::SoftApProfileDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4876,6 +4862,20 @@ impl SseDecode for Vec<crate::api::device_api::WemoAccessPointDto> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<crate::api::device_api::WemoAccessPointDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::WemoConnectAttemptDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::WemoConnectAttemptDto>::sse_decode(
                 deserializer,
             ));
         }
@@ -5457,6 +5457,17 @@ impl SseDecode for Option<u32> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<u32>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<u8> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u8>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -6196,6 +6207,20 @@ impl SseDecode for crate::api::device_api::WemoAccessPointDto {
             encrypt: var_encrypt,
             joinable: var_joinable,
             is_open: var_isOpen,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::WemoConnectAttemptDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_method = <Option<u8>>::sse_decode(deserializer);
+        let mut var_addLengths = <bool>::sse_decode(deserializer);
+        let mut var_request = <crate::api::device_api::SoapRequestDto>::sse_decode(deserializer);
+        return crate::api::device_api::WemoConnectAttemptDto {
+            method: var_method,
+            add_lengths: var_addLengths,
+            request: var_request,
         };
     }
 }
@@ -8577,6 +8602,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::WemoAccessPointDt
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::WemoConnectAttemptDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.method.into_into_dart().into_dart(),
+            self.add_lengths.into_into_dart().into_dart(),
+            self.request.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::WemoConnectAttemptDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::WemoConnectAttemptDto>
+    for crate::api::device_api::WemoConnectAttemptDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::WemoConnectAttemptDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::WemoJoinStatus {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         match self {
@@ -9367,16 +9414,6 @@ impl SseEncode for Vec<crate::api::device_api::SetupStepDto> {
     }
 }
 
-impl SseEncode for Vec<crate::api::device_api::SoapRequestDto> {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <i32>::sse_encode(self.len() as _, serializer);
-        for item in self {
-            <crate::api::device_api::SoapRequestDto>::sse_encode(item, serializer);
-        }
-    }
-}
-
 impl SseEncode for Vec<crate::api::device_api::SoftApProfileDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -9453,6 +9490,16 @@ impl SseEncode for Vec<crate::api::device_api::WemoAccessPointDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::device_api::WemoAccessPointDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::WemoConnectAttemptDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::WemoConnectAttemptDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -9889,6 +9936,16 @@ impl SseEncode for Option<u32> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <u32>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<u8> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u8>::sse_encode(value, serializer);
         }
     }
 }
@@ -10394,6 +10451,15 @@ impl SseEncode for crate::api::device_api::WemoAccessPointDto {
         <Option<String>>::sse_encode(self.encrypt, serializer);
         <bool>::sse_encode(self.joinable, serializer);
         <bool>::sse_encode(self.is_open, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::WemoConnectAttemptDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<u8>>::sse_encode(self.method, serializer);
+        <bool>::sse_encode(self.add_lengths, serializer);
+        <crate::api::device_api::SoapRequestDto>::sse_encode(self.request, serializer);
     }
 }
 

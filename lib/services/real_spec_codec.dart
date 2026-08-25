@@ -667,7 +667,7 @@ class RealSpecCodec implements SpecCodec {
       rust.matchSoftApSsid(profiles: profiles, ssid: ssid);
 
   @override
-  Future<List<SoapRequestDto>> renderWemoConnectRequests({
+  Future<List<WemoConnectAttemptDto>> renderWemoConnectRequests({
     required String specYaml,
     required String metaInfo,
     required String ssid,

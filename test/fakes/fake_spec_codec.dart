@@ -1342,13 +1342,17 @@ class FakeSpecCodec implements SpecCodec {
 
   /// Returned by [renderWemoConnectRequests]; if [wemoConnectError] is set, the
   /// call throws it instead (the short-passphrase path).
-  List<SoapRequestDto> wemoConnectRequests = const [
-    SoapRequestDto(
-      service: 'urn:Belkin:service:WiFiSetup:1',
-      action: 'ConnectHomeNetwork',
-      soapAction: '"urn:Belkin:service:WiFiSetup:1#ConnectHomeNetwork"',
-      path: '/upnp/control/WiFiSetup1',
-      body: '<connect/>',
+  List<WemoConnectAttemptDto> wemoConnectRequests = const [
+    WemoConnectAttemptDto(
+      method: 1,
+      addLengths: true,
+      request: SoapRequestDto(
+        service: 'urn:Belkin:service:WiFiSetup:1',
+        action: 'ConnectHomeNetwork',
+        soapAction: '"urn:Belkin:service:WiFiSetup:1#ConnectHomeNetwork"',
+        path: '/upnp/control/WiFiSetup1',
+        body: '<connect/>',
+      ),
     ),
   ];
   Object? wemoConnectError;
@@ -1407,7 +1411,7 @@ class FakeSpecCodec implements SpecCodec {
       matchSoftApSsidFor?.call(ssid);
 
   @override
-  Future<List<SoapRequestDto>> renderWemoConnectRequests({
+  Future<List<WemoConnectAttemptDto>> renderWemoConnectRequests({
     required String specYaml,
     required String metaInfo,
     required String ssid,

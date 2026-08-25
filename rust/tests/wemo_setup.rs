@@ -188,7 +188,8 @@ fn render_connect_requests_assembles_the_whole_credential_send_in_rust() {
     .unwrap();
     // One rendered request per encryption variant of the sweep.
     assert_eq!(requests.len(), 6);
-    for request in &requests {
+    for attempt in &requests {
+        let request = &attempt.request;
         assert_eq!(request.action, "ConnectHomeNetwork");
         assert!(request.body.contains("<ssid>HomeNet</ssid>"));
         assert!(request.body.contains("<channel>6</channel>"));
@@ -197,11 +198,27 @@ fn render_connect_requests_assembles_the_whole_credential_send_in_rust() {
             "the passphrase must ride encrypted, never in the clear"
         );
     }
+    // Each attempt says which variant built it, so the caller's log can name
+    // the one that worked — the device never will.
+    let labels: Vec<(Option<u8>, bool)> =
+        requests.iter().map(|a| (a.method, a.add_lengths)).collect();
+    assert_eq!(
+        labels,
+        [
+            (Some(1), true),
+            (Some(2), false),
+            (Some(3), true),
+            (Some(1), false),
+            (Some(2), true),
+            (Some(3), false),
+        ],
+        "the labels must follow the spec's documented sweep order"
+    );
     // The first request carries the spec's first published vector, encrypted.
     let first_vector = enc["test_vectors"]["vectors"][0]["password_argument"]
         .as_str()
         .unwrap();
-    assert!(requests[0].body.contains(first_vector));
+    assert!(requests[0].request.body.contains(first_vector));
 
     // An open network is one request: OPEN / NONE / empty password, no metadata.
     let open = render_wemo_connect_requests(
@@ -217,9 +234,12 @@ fn render_connect_requests_assembles_the_whole_credential_send_in_rust() {
     )
     .unwrap();
     assert_eq!(open.len(), 1);
-    assert!(open[0].body.contains("<auth>OPEN</auth>"));
-    assert!(open[0].body.contains("<encrypt>NONE</encrypt>"));
-    assert!(open[0].body.contains("<password></password>"));
+    assert!(open[0].request.body.contains("<auth>OPEN</auth>"));
+    assert!(open[0].request.body.contains("<encrypt>NONE</encrypt>"));
+    assert!(open[0].request.body.contains("<password></password>"));
+    // No encryption happened, and the attempt says so rather than claiming a
+    // method it did not use.
+    assert_eq!(open[0].method, None);
 }
 
 #[test]
@@ -251,11 +271,18 @@ fn the_setup_xml_rtos_selector_reaches_the_rendered_requests() {
     let default_order = render(None, None);
     let method2_first = render(Some(1), Some(0));
     assert_ne!(
-        default_order[0].body, method2_first[0].body,
+        default_order[0].request.body, method2_first[0].request.body,
         "rtos=1/iot=0 must lead with a different (method-2) password"
     );
+    assert_eq!(
+        (method2_first[0].method, method2_first[0].add_lengths),
+        (Some(2), false)
+    );
     // iot=1 cancels the method-2 selection — back to the default leader.
-    assert_eq!(render(Some(1), Some(1))[0].body, default_order[0].body);
+    assert_eq!(
+        render(Some(1), Some(1))[0].request.body,
+        default_order[0].request.body
+    );
 }
 
 #[test]

@@ -84,6 +84,7 @@ export '../src/rust/api/device_api.dart'
         FactoryResetProcedureDto,
         RejoinDto,
         WemoAccessPointDto,
+        WemoConnectAttemptDto,
         WemoJoinStatus;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
@@ -760,7 +761,11 @@ abstract class SpecCodec {
   /// one joins. [metaInfo] is the raw `GetMetaInfo` reply (unused for an open
   /// network). Throws when the passphrase is too short — terminal, worth saying
   /// before any network I/O.
-  Future<List<SoapRequestDto>> renderWemoConnectRequests({
+  ///
+  /// Each attempt carries the variant that built it, because the device never
+  /// says which one it accepted — it just joins or does not — so naming the
+  /// one that worked in a log is only possible if the renderer labels them.
+  Future<List<WemoConnectAttemptDto>> renderWemoConnectRequests({
     required String specYaml,
     required String metaInfo,
     required String ssid,

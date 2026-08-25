@@ -81,6 +81,13 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       _error = null;
     });
     final service = ref.read(adoptServiceProvider);
+    // The head of every adoption transcript: which family, and the spec-derived
+    // address the probe below is about to use. Without it the first line in the
+    // log is a probe against an IP with no stated origin.
+    Log.adopt.info('adopt: connecting to a ${device.profile.specName} '
+        '(${device.family.name}) — ssid prefix "${device.profile.ssidPrefix}", '
+        'gateway ${device.profile.gatewayIp ?? '<spec says none>'}, '
+        'ports ${device.profile.ports.isEmpty ? '<spec says none>' : device.profile.ports.join(', ')}');
     try {
       final session = await service.connect(
         family: device.family,
@@ -92,6 +99,11 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       );
       if (!mounted) return;
       if (session == null) {
+        // The service has already logged which of the two causes it was; this
+        // line is what closes the stage, so a reader can see the flow returned
+        // to the picker rather than hung.
+        Log.adopt.info('adopt: no device answered on the setup network; back '
+            'to the device picker');
         setState(() {
           _stage = _Stage.pickDevice;
           _error = "Couldn't reach the device. Make sure you joined its "
@@ -108,6 +120,7 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         _stage = _Stage.pickDevice;
         _error = friendlyErrorText(e,
             context: 'adopt connect',
+            log: Log.adopt,
             fallback: 'Something went wrong reaching the device. Try again.');
       });
     }
@@ -125,6 +138,7 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       setState(() {
         _networks = networks;
         _stage = _Stage.pickNetwork;
+        _error = _missingMetaInfoWarning();
       });
     } catch (e) {
       if (!mounted) return;
@@ -133,12 +147,39 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       setState(() {
         _networks = const [];
         _stage = _Stage.pickNetwork;
+        // Logged, not just shown: this is the one recoverable failure in the
+        // flow, and recovering from it (typing an SSID) means the rest of the
+        // transcript is a Wemo join with guessed auth/cipher/channel — which
+        // is worth knowing when that join then does not happen.
         _error = friendlyErrorText(e,
             context: 'adopt list networks',
+            log: Log.adopt,
             fallback: "The device didn't return a network list. You can type "
                 'your Wi-Fi name below instead.');
       });
     }
+  }
+
+  /// The warning to show at the picker when connecting could not read the
+  /// device metadata a secured join needs.
+  ///
+  /// Said here rather than after a password is typed and a two-minute
+  /// credential sweep has run: this is the one setup exchange with no
+  /// workaround, and its answer is already known by the time this screen
+  /// draws. Hedged, because provisioning asks again with a retry budget and
+  /// the second ask often lands — the point is that the user is not surprised
+  /// by it later.
+  String? _missingMetaInfoWarning() {
+    final session = _session;
+    if (session == null ||
+        session.family != AdoptFamily.wemo ||
+        session.metaInfo != null) {
+      return null;
+    }
+    return "The device didn't answer when asked for the details needed to "
+        'encrypt a Wi-Fi password. An open network will still work, and we '
+        'will ask again when you pick a network — if that fails too, factory '
+        'reset the device and start over.';
   }
 
   void _chooseNetwork(SetupNetwork network) {
@@ -161,6 +202,9 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     // A typed network carries no auth/cipher/channel. For Wemo that is a real
     // gap — its ConnectHomeNetwork needs them — so a typed SSID is offered only
     // as a fallback and defaults are filled: WPA2 is what home networks run.
+    Log.adopt.info('adopt: using a typed SSID "$ssid" with assumed '
+        'WPA2PSK/AES and no channel — the device did not supply these, so a '
+        'failed join here may simply mean the assumption is wrong');
     _chooseNetwork(SetupNetwork(
       ssid: ssid,
       joinable: true,
@@ -183,17 +227,18 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     try {
       final outcome = await service.provision(_session!, network, password);
       if (!mounted) return;
+      Log.adopt.info('adopt: provisioning finished as ${outcome.status.name}');
       setState(() {
         _outcome = outcome;
         _stage = _Stage.done;
       });
     } catch (e) {
       if (!mounted) return;
-      Log.net.warning('adopt provision failed', error: e);
       setState(() {
         _stage = _Stage.credentials;
         _error = friendlyErrorText(e,
-            context: 'adopt provision',
+            context: 'adopt provision failed',
+            log: Log.adopt,
             fallback: 'Sending the settings failed. Try again.');
       });
     }

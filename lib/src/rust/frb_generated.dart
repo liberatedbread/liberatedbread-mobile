@@ -403,16 +403,17 @@ abstract class RustLibApi extends BaseApi {
   Future<String> crateApiDeviceApiRenderRabbitAirSetupEnvelope(
       {required int id, required int cmd, String? dataJson});
 
-  Future<List<SoapRequestDto>> crateApiDeviceApiRenderWemoConnectRequests(
-      {required String specYaml,
-      required String metaInfo,
-      required String ssid,
-      required String auth,
-      required String encrypt,
-      required String channel,
-      required String passphrase,
-      PlatformInt64? rtos,
-      PlatformInt64? iot});
+  Future<List<WemoConnectAttemptDto>>
+      crateApiDeviceApiRenderWemoConnectRequests(
+          {required String specYaml,
+          required String metaInfo,
+          required String ssid,
+          required String auth,
+          required String encrypt,
+          required String channel,
+          required String passphrase,
+          PlatformInt64? rtos,
+          PlatformInt64? iot});
 
   Future<Uint8List> crateApiDeviceApiRoombaConnectPacket(
       {required String blid, required String password});
@@ -2839,16 +2840,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<List<SoapRequestDto>> crateApiDeviceApiRenderWemoConnectRequests(
-      {required String specYaml,
-      required String metaInfo,
-      required String ssid,
-      required String auth,
-      required String encrypt,
-      required String channel,
-      required String passphrase,
-      PlatformInt64? rtos,
-      PlatformInt64? iot}) {
+  Future<List<WemoConnectAttemptDto>>
+      crateApiDeviceApiRenderWemoConnectRequests(
+          {required String specYaml,
+          required String metaInfo,
+          required String ssid,
+          required String auth,
+          required String encrypt,
+          required String channel,
+          required String passphrase,
+          PlatformInt64? rtos,
+          PlatformInt64? iot}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
@@ -2865,7 +2867,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             funcId: 82, port: port_);
       },
       codec: SseCodec(
-        decodeSuccessData: sse_decode_list_soap_request_dto,
+        decodeSuccessData: sse_decode_list_wemo_connect_attempt_dto,
         decodeErrorData: sse_decode_AnyhowException,
       ),
       constMeta: kCrateApiDeviceApiRenderWemoConnectRequestsConstMeta,
@@ -3369,6 +3371,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   int dco_decode_box_autoadd_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  int dco_decode_box_autoadd_u_8(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
   }
@@ -4033,12 +4041,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  List<SoapRequestDto> dco_decode_list_soap_request_dto(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return (raw as List<dynamic>).map(dco_decode_soap_request_dto).toList();
-  }
-
-  @protected
   List<SoftApProfileDto> dco_decode_list_soft_ap_profile_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_soft_ap_profile_dto).toList();
@@ -4090,6 +4092,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>)
         .map(dco_decode_wemo_access_point_dto)
+        .toList();
+  }
+
+  @protected
+  List<WemoConnectAttemptDto> dco_decode_list_wemo_connect_attempt_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_wemo_connect_attempt_dto)
         .toList();
   }
 
@@ -4487,6 +4498,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_u_32(raw);
+  }
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_8(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_8(raw);
   }
 
   @protected
@@ -5100,6 +5117,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  WemoConnectAttemptDto dco_decode_wemo_connect_attempt_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return WemoConnectAttemptDto(
+      method: dco_decode_opt_box_autoadd_u_8(arr[0]),
+      addLengths: dco_decode_bool(arr[1]),
+      request: dco_decode_soap_request_dto(arr[2]),
+    );
+  }
+
+  @protected
   WemoJoinStatus dco_decode_wemo_join_status(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return WemoJoinStatus.values[raw as int];
@@ -5313,6 +5343,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_u_32(deserializer));
+  }
+
+  @protected
+  int sse_decode_box_autoadd_u_8(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_8(deserializer));
   }
 
   @protected
@@ -6265,19 +6301,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  List<SoapRequestDto> sse_decode_list_soap_request_dto(
-      SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    var len_ = sse_decode_i_32(deserializer);
-    var ans_ = <SoapRequestDto>[];
-    for (var idx_ = 0; idx_ < len_; ++idx_) {
-      ans_.add(sse_decode_soap_request_dto(deserializer));
-    }
-    return ans_;
-  }
-
-  @protected
   List<SoftApProfileDto> sse_decode_list_soft_ap_profile_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -6377,6 +6400,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <WemoAccessPointDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_wemo_access_point_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<WemoConnectAttemptDto> sse_decode_list_wemo_connect_attempt_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <WemoConnectAttemptDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_wemo_connect_attempt_dto(deserializer));
     }
     return ans_;
   }
@@ -6868,6 +6904,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_u_32(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_8(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_8(deserializer));
     } else {
       return null;
     }
@@ -7514,6 +7561,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  WemoConnectAttemptDto sse_decode_wemo_connect_attempt_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_method = sse_decode_opt_box_autoadd_u_8(deserializer);
+    var var_addLengths = sse_decode_bool(deserializer);
+    var var_request = sse_decode_soap_request_dto(deserializer);
+    return WemoConnectAttemptDto(
+        method: var_method, addLengths: var_addLengths, request: var_request);
+  }
+
+  @protected
   WemoJoinStatus sse_decode_wemo_join_status(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
@@ -7718,6 +7776,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_32(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_u_8(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_8(self, serializer);
   }
 
   @protected
@@ -8426,16 +8490,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_list_soap_request_dto(
-      List<SoapRequestDto> self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_32(self.length, serializer);
-    for (final item in self) {
-      sse_encode_soap_request_dto(item, serializer);
-    }
-  }
-
-  @protected
   void sse_encode_list_soft_ap_profile_dto(
       List<SoftApProfileDto> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -8512,6 +8566,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_wemo_access_point_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_wemo_connect_attempt_dto(
+      List<WemoConnectAttemptDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_wemo_connect_attempt_dto(item, serializer);
     }
   }
 
@@ -8919,6 +8983,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_u_32(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_8(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_8(self, serializer);
     }
   }
 
@@ -9385,6 +9459,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.encrypt, serializer);
     sse_encode_bool(self.joinable, serializer);
     sse_encode_bool(self.isOpen, serializer);
+  }
+
+  @protected
+  void sse_encode_wemo_connect_attempt_dto(
+      WemoConnectAttemptDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_u_8(self.method, serializer);
+    sse_encode_bool(self.addLengths, serializer);
+    sse_encode_soap_request_dto(self.request, serializer);
   }
 
   @protected

@@ -26,6 +26,21 @@ heading.
 
 ### Changed
 
+- **Wi-Fi adoption logs the whole conversation, under a new `[adopt]`
+  category.** A failed Wemo setup used to leave three lines behind, two of them
+  the same bare `TimeoutException after 0:00:10.000000` — which never said
+  which exchange timed out, on which port, or how far the flow had got. Now
+  every step is on the record: the probe plan and its worst case (nine ports at
+  ten seconds each is a minute and a half of silence), which port answered and
+  what its `setup.xml` published (including the `rtos`/`iot` markers that pick
+  the credential layout), the AP list with the unjoinable entries called out,
+  each credential variant as it is tried, and — the fact the device itself
+  never reports — **which variant the hardware finally accepted**. Every SOAP
+  deadline now names its own action and URL instead of throwing an anonymous
+  `TimeoutException`. The passphrase and the device serial stay out of it: the
+  transcript carries their lengths and the MAC's manufacturer half, which is
+  what diagnoses a swapped `MetaInfo` field without printing a device's
+  identity into a screen share.
 - **`./scripts/update-specs.sh` builds the spec index when the source cannot
   have a current one.** Upstream generates `device-specs/index.json` in CI and
   commits it after a spec merges, so a spec *branch* — or a local checkout with
@@ -324,6 +339,33 @@ heading.
   ABI assertions no longer name it.
 
 ### Fixed
+
+- **Wemo adoption read the device metadata too late, and gave up on it too
+  easily.** `GetMetaInfo` — the read whose two fields key the passphrase
+  encryption — happened at provision time, after the AP list, after the user
+  had picked a network and typed a password. The spec's step order puts it
+  *before* the scan, and for good reason: it is the one setup exchange with no
+  workaround, and it was being asked of a device that had just been made to run
+  a radio scan. A unit that answered `setup.xml` and `GetApList` but not
+  `metainfo` therefore burned the whole flow and surfaced as
+  `TimeoutException after 0:00:10.000000` behind generic "sending the settings
+  failed" text. Connecting now reads it in the documented order and caches it
+  on the session, the network picker warns when it came back empty, and the
+  provision-time failure names the step and the remedy.
+- **Idempotent Wemo setup reads are retried.** `GetMetaInfo` and `GetApList`
+  are now attempted up to three times, two seconds apart — the spec's own
+  catch-all troubleshooting entry is "genuinely try again … Wemo devices
+  sometimes fail to connect and the identical sequence subsequently works".
+  The metadata read that happens while connecting gets one retry rather than
+  the full budget: the first ask can land before the client has settled on the
+  setup AP, which is worth absorbing, but a device that is simply not answering
+  should not hold the network picker for half a minute over a read that
+  provisioning repeats anyway. Deliberately narrow otherwise: a SOAP Fault is a
+  refusal and is never retried, and
+  `ConnectHomeNetwork` (six variants, each sent twice), `GetNetworkStatus`
+  (a twenty-second poll) and `CloseSetup` (best effort) already carry their
+  own repetition. The gap is not zero because Wemo firmware answers a
+  hammering by getting slower.
 
 - **`MockNetworkScanService.stopScan()` did not stop the scan.** The same bug
   that was fixed in `RealNetworkScanService`, still present in the mock: the
