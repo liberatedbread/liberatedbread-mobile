@@ -16,6 +16,8 @@
     "category": "sensor",
     "manufacturer": "Airthings ASA",
     "manufacturer_status": "active",
+    "testing_status": "untested",
+    "testing_detail": "capture-verified",
     "schema_version": "2020-12"
   },
   {
@@ -187,6 +189,75 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Astral Hoops Atomic V (AF Series)",
+    "path": "device-specs/devices/astral-hoops.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Astral Hoops",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Astral Hoops",
+        "url": "https://astralhoops.com/",
+        "description": "Vendor site; sells the Atomic V AF-series hoops/wands/fans and hosts the firmware and pattern gallery endpoints below."
+      },
+      {
+        "title": "Firmware version check (release)",
+        "url": "https://astralhoops.com/images/a5.ver",
+        "description": "Plain-text dotted version of the current release firmware (returned \"5.2.5\" when fetched). Beta: https://astralhoops.com/images/a5beta.ver"
+      },
+      {
+        "title": "Firmware image (release)",
+        "url": "https://astralhoops.com/images/af5.bin",
+        "description": "Raw SAM D21 flash image loaded at offset 0x2000 (~72 KB), unauthenticated HTTPS download. Beta: https://astralhoops.com/images/af5beta.bin"
+      },
+      {
+        "title": "Pattern gallery",
+        "url": "https://extras.astralhoops.com/patterns/",
+        "description": "Free POV pattern packs: folders.php lists packs, <pack>/folders.php lists folders, <pack>/patterns.php?folder=<f> lists patterns, files download as raw bytes."
+      },
+      {
+        "title": "AF-series instructions",
+        "url": "https://shop.astralhoops.com/pages/instructions-af",
+        "description": "Vendor's official instructions page for the Atomic AF series."
+      },
+      {
+        "title": "Astral app on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.astral.astral",
+        "description": "Vendor Android app (com.astral.astral, v2.0.16 analyzed). Local-only: no account, no analytics; network use limited to firmware and pattern downloads."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Aurora LED Shoes",
+    "path": "device-specs/devices/aurora-led-shoes.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "jtkj (app developer; shoe hardware OEM unknown)",
+    "manufacturer_status": "unsupported",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Aurora LED Shoes on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.jtkj.auroraled",
+        "description": "Vendor app (com.jtkj.auroraled, v1.0.1 analyzed). BLE-only, no account, no backend — the app is a pure BLE remote for the shoes."
+      },
+      {
+        "title": "FastBle (open-source BLE wrapper used by the vendor app)",
+        "url": "https://github.com/Jasonchenlijian/FastBle",
+        "description": "The Android BLE library the app's BLE layer is built on; explains the write-without-response + auto-split-at-MTU write behavior and the CCC notify-enable flow seen in this profile."
+      },
+      {
+        "title": "CoolLED1248 (sibling jtkj app — different profile)",
+        "url": "https://play.google.com/store/apps/details?id=com.jtkj.led1248",
+        "description": "Same developer, same BLE wrapper, but a DIFFERENT GATT profile (0xFFE5/0xFFE9) and opcode set. Not interchangeable with this device."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "AUTOBABA LED Backpack",
     "path": "device-specs/devices/autobaba-led-backpack.yaml",
     "protocol": "ble",
@@ -266,6 +337,43 @@
         "title": "Doridian/OpenBambuAPI — FTP",
         "url": "https://github.com/Doridian/OpenBambuAPI/blob/main/ftp.md",
         "description": "The FTPS (990) file access (gcode/3mf, timelapse, logs)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Sperll SP6xxE LED Controller (BanlanX)",
+    "path": "device-specs/devices/banlanx-sp6xxe.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "SPLED (BanlanX) / Shenzhen Sperll Optoelectronic",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "monty68/uniled — UniLED (HACS)",
+        "url": "https://github.com/monty68/uniled",
+        "description": "Primary protocol citation: maintained Home Assistant integration whose five BanlanX modules (custom_components/uniled/lib/ble/banlanx_601.py, banlanx_60x.py, banlanx2.py, banlanx3.py, banlanx_6xx.py) decode every frame family this spec summarizes, including the full per-mode effect tables and status layouts not re-transcribed here."
+      },
+      {
+        "title": "uniled banlanx_6xx.py — SP630E/SP6xxE implementation",
+        "url": "https://github.com/monty68/uniled/blob/master/custom_components/uniled/lib/ble/banlanx_6xx.py",
+        "description": "Canonical source for the 0x53 frame, the model_id advertisement table (0x1F-0x35), the 14 light-type configs and the ~53-byte status layout."
+      },
+      {
+        "title": "SceneX on Google Play (com.spled.scenex)",
+        "url": "https://play.google.com/store/apps/details?id=com.spled.scenex",
+        "description": "Vendor app analyzed at v3.3.2 for this spec (BLE UUIDs, ELS channel, OTA and SoftAP endpoints)."
+      },
+      {
+        "title": "BanlanX vendor FAQ/documentation",
+        "url": "https://document.ledhue.com/banlanx/faq/version/8/default",
+        "description": "Vendor-hosted user documentation for the SP6xxE line (Wi-Fi config troubleshooting, manuals); linked from the app."
+      },
+      {
+        "title": "Vendor cloud base (firmware check / ELS endpoints)",
+        "url": "https://app.ledhue.com/spiot",
+        "description": "Base URL of the vendor cloud: /device/check-update returns OTA firmware info (the .bin URL pattern is unrecovered), /els/v1 backs the new authenticated channel. Reference only — local BLE control needs none of it; no firmware files are mirrored here."
       }
     ],
     "schema_version": "2020-12"
@@ -672,6 +780,7 @@
     "category": "printer",
     "manufacturer": "Unbranded / various OEMs",
     "manufacturer_status": "unsupported",
+    "protocol_handler": "cat_printer_mxw01",
     "testing_status": "untested",
     "helpful_urls": [
       {
@@ -714,6 +823,7 @@
     "category": "printer",
     "manufacturer": "Unbranded / Yu Tian (YT01) / various OEMs",
     "manufacturer_status": "unsupported",
+    "protocol_handler": "cat_printer",
     "testing_status": "untested",
     "helpful_urls": [
       {
@@ -804,6 +914,33 @@
         "title": "FCC ID 2A2YP-CQ60QPROBE filings (fcc.report)",
         "url": "https://fcc.report/FCC-ID/2A2YP-CQ60QPROBE",
         "description": "Probe grant (CHEF PROBE-V2, granted 2023-07-28) with user manual, internal photos and BLE test report; includes the 2024-12-18 C2PC adding probe models CQ60-PRC-01/02/03/04 (ISED IC 27740-CQ60QPROBE).\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "CHEMION LED Glasses (CHEMION Original / CHEMION HAT)",
+    "path": "device-specs/devices/chemion-glasses.yaml",
+    "protocol": "ble",
+    "category": "wearable",
+    "manufacturer": "CHEMION (CoolLED OEM hardware; companion app by Neofect)",
+    "manufacturer_status": "unsupported",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "gsuberland/ChemionHacking — public reverse engineering of the 2015-era CHEMION glasses",
+        "url": "https://github.com/gsuberland/ChemionHacking",
+        "description": "Open-source prior art: 2015-era app v1.x teardown covering the same frame header/trailer and command-type map, the nRF51 chip identification, and the legacy DFU images. Its one open question — the packet checksum — is answered in this spec: a plain XOR over the payload bytes."
+      },
+      {
+        "title": "CHEMION app on Google Play (com.neofect.chemion)",
+        "url": "https://play.google.com/store/apps/details?id=com.neofect.chemion",
+        "description": "The vendor companion app this protocol was recovered from (analyzed version 3.0.5). Content packs it downloads are not needed for control."
+      },
+      {
+        "title": "CHEMION official site",
+        "url": "https://www.chemionglasses.com/",
+        "description": "Vendor product site for the glasses and HAT."
       }
     ],
     "schema_version": "2020-12"
@@ -1037,6 +1174,33 @@
         "title": "dave-code-ruiz/elkbledom (HACS)",
         "url": "https://github.com/dave-code-ruiz/elkbledom",
         "description": "Home Assistant (HACS) custom component controlling ELK-BLEDOM/MELK/LEDBLE strips over BLE; a production consumer of the command set documented here."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "EmazingLights Spectra Smart Hub",
+    "path": "device-specs/devices/emazinglights-spectra.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "EmazingLights",
+    "manufacturer_status": "abandoned",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "OTA firmware manifest (DEAD — orphan evidence)",
+        "url": "http://www.facemeltcrew.com/ios/testmanifest.json",
+        "description": "Endpoint the app POSTed to check hub firmware versions; firmware binaries were served from the same root. Domain no longer resolves (verified 2026-08-25) — recorded as evidence that this hardware is orphaned and no vendor firmware remains obtainable."
+      },
+      {
+        "title": "Sivakumaran et al., ACM TOSN 2023 — BLE OTA protocol survey",
+        "url": "https://dl.acm.org/doi/fullHtml/10.1145/3579856.3595806",
+        "description": "Documents the Qualcomm CSR (uEnergy / CSR101x) OTA firmware-update service whose UUID family (…-8506-11E3-BAA7-0800200C9A66) this hub implements — the evidence for the hub's chip family."
+      },
+      {
+        "title": "EmazingLights (vendor site)",
+        "url": "https://www.emazinglights.com/",
+        "description": "Vendor storefront; the Spectra app is delisted from Google Play and the Spectra firmware backend (facemeltcrew.com) is gone."
       }
     ],
     "schema_version": "2020-12"
@@ -1349,6 +1513,7 @@
     "category": "printer",
     "manufacturer": "Xiamen Print Future Technology Co., Ltd",
     "manufacturer_status": "unsupported",
+    "protocol_handler": "fichero_d11",
     "testing_status": "untested",
     "schema_version": "2020-12"
   },
@@ -1700,6 +1865,28 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Hello Fairy Fairy/Curtain/Tree Lights",
+    "path": "device-specs/devices/hello-fairy.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Avatar Controls (Lenze-based firmware; app com.lenzetech.hellofairy)",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Hello Fairy public OTA manifest",
+        "url": "https://hellofairyota.s3.amazonaws.com/hello_fairy_ota_pro.json",
+        "description": "Vendor's public firmware manifest: JSON list of {model, version, OTAModel, url, content} keyed by the GetDeviceInfo model string. The firmware images it points to (Intel HEX .hex16/.hexe16 for ST17H66, .bin for ESP32, .fot for Bluetrum, .dcf) are public and are the reference material for the OTA flows this spec documents."
+      },
+      {
+        "title": "Hello Fairy on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.lenzetech.hellofairy",
+        "description": "Vendor app (v3.3.3 analyzed for this spec). BLE-only; also fetches scene/UI resources and self-updates from vendor cloud buckets, none of which are needed for local control."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Hikvision IP Camera / NVR (ISAPI)",
     "path": "device-specs/devices/hikvision-isapi-camera.yaml",
     "protocol": "wifi",
@@ -1868,6 +2055,44 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "iDeal LED Pixel Strings & Trees",
+    "path": "device-specs/devices/ideal-led.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Heaton OEM (Shenzhen; app com.tech.idealled)",
+    "manufacturer_status": "active",
+    "protocol_handler": "cdbwsoft_ecb",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "8none1/idealLED — open-source iDeal LED integration + protocol notes",
+        "url": "https://github.com/8none1/idealLED",
+        "description": "Published the AES-128-ECB family key recorded on the characteristics above; ships btsnoop HCI captures, an aes_decrypt.py test tool and att_protocol.md protocol notes, plus a working Home Assistant (HACS) integration. Primary corroboration for this spec."
+      },
+      {
+        "title": "koying/ha_ideal_led_ble — second Home Assistant integration",
+        "url": "https://github.com/koying/ha_ideal_led_ble",
+        "description": "Independent Home Assistant BLE integration for iDeal LED lights; second open-source consumer of this protocol."
+      },
+      {
+        "title": "Bricked xmas lights writeup (8none1)",
+        "url": "https://www.whizzy.org/2023-12-14-bricked-xmas/",
+        "description": "The 8none1 author bricked a light set by sending out-of-family bytes during development — the reason this spec warns against guessing undecoded opcode payloads."
+      },
+      {
+        "title": "iDeal LED on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.tech.idealled",
+        "description": "Vendor app (com.tech.idealled)."
+      },
+      {
+        "title": "Firmware info endpoint (OTA check)",
+        "url": "https://api.e-toys.cn/api/getFirmwareInfo",
+        "description": "Public vendor endpoint (POST) the app queries for .ufw firmware updates; referenced so firmware need not be harvested into this repo."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "iDotMatrix",
     "path": "device-specs/devices/idotmatrix.yaml",
     "protocol": "ble",
@@ -1881,6 +2106,49 @@
         "title": "adriantukendorf/iDotMatrix-HomeAssistant (HACS)",
         "url": "https://github.com/adriantukendorf/iDotMatrix-HomeAssistant",
         "description": "HACS integration driving iDotMatrix BLE pixel boards locally (native adapter or Bluetooth proxy)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Ignis Pixel LED Flow-Arts Props",
+    "path": "device-specs/devices/ignis-pixel.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Ignis Pixel",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Ignis Pixel firmware catalog (Update.xml)",
+        "url": "https://software-upload.ignispixel.com/Update/Update.xml",
+        "description": "Public firmware manifest: every device Type (hex, matching the FW_DevType reported by MSG_HW_INFO), current Ver/MinVer, .fw file path and per-release notes. Verified live. Firmware binaries sit under /Update/Firmware/V3/Release/ (test builds under V3/Test/, legacy V1/V2 images as .cr)."
+      },
+      {
+        "title": "Ignis Pixel file manifest (hash.md5)",
+        "url": "https://software-upload.ignispixel.com/Update/hash.md5",
+        "description": "md5 manifest of every file on the update server (~1600 entries) — use it to verify downloaded firmware and to enumerate the catalog without scraping."
+      },
+      {
+        "title": "Ignis Pixel Utility (desktop updater, Windows)",
+        "url": "https://software-upload.ignispixel.com/Update/Software/IgnisPixelUtility_Win.exe",
+        "description": "Vendor's public Qt desktop updater (a Mac zip sits beside it). Flashes firmware over USB and is the documented recovery path for a prop whose OTA was interrupted; also a second, independent implementation of the bootloader protocol documented here."
+      },
+      {
+        "title": "Ignis Pixel FAQ / support",
+        "url": "https://ignispixel.com/faq/support",
+        "description": "Vendor documentation of the Wireless Sync feature (13 radio channels x 32 groups, system-menu configuration, UP+DOWN button combos) and of the desktop-utility recovery flow for V2 props."
+      },
+      {
+        "title": "Ignis Pixel downloads page",
+        "url": "https://ignispixel.com/downloads",
+        "description": "Vendor's official bundle of user guides, manuals, software and picture sets — the manual documents the on-device system menu that configures radio sync independently of the app."
+      },
+      {
+        "title": "Ignis Pixel on Google Play (com.ignispixel)",
+        "url": "https://play.google.com/store/apps/details?id=com.ignispixel",
+        "description": "The companion app this spec was recovered from (v2.29.9 analyzed). Qt6/QML shell; all protocol logic is in one symbol-rich native library, which is why the framing and header layouts here carry HIGH confidence."
       }
     ],
     "schema_version": "2020-12"
@@ -2379,6 +2647,44 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "SP108E WiFi Pixel Controller (LED Shop)",
+    "path": "device-specs/devices/led-shop-sp108e.yaml",
+    "protocol": "wifi",
+    "category": "light",
+    "manufacturer": "SPLED-family (sold as SP108E by many resellers)",
+    "manufacturer_status": "unsupported",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "blacklizard/LED-Shop-SP108E",
+        "url": "https://github.com/blacklizard/LED-Shop-SP108E",
+        "description": "Open-source macOS clone of the LED Shop app; independent Wireshark-based reverse engineering of the same 0x38/0x83 protocol (over UDP 8189). The corroborating implementation for this spec."
+      },
+      {
+        "title": "psxde/sp108e-led-controller",
+        "url": "https://github.com/psxde/sp108e-led-controller",
+        "description": "Another open SP108E controller client."
+      },
+      {
+        "title": "BlitzKraig/SP108E-control",
+        "url": "https://github.com/BlitzKraig/SP108E-control",
+        "description": "Desktop SP108E control prototyped from Wireshark captures."
+      },
+      {
+        "title": "Tasmota — SP108E LED strip controller",
+        "url": "https://tasmota.github.io/docs/devices/SP108E-LED-strip-controller/",
+        "description": "Hardware teardown: an STM32F0 drives the LED CLK/data lines; flashing alternative firmware requires a hardware modification."
+      },
+      {
+        "title": "LED Shop on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.cdc.ledshop",
+        "description": "The vendor app (com.cdc.ledshop) this spec replaces."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "LED space Wi-Fi LED Screen (YSP-001 family)",
     "path": "device-specs/devices/led-space.yaml",
     "protocol": "wifi",
@@ -2504,6 +2810,33 @@
         "title": "Home Assistant — local API removal and restoration (2018)",
         "url": "https://www.home-assistant.io/blog/2018/12/17/logitech-harmony-removes-local-api/",
         "description": "Context on the firmware 4.15.206 local-API removal and its restoration in 4.15.250."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "LotusLamp X BLE LED Controller",
+    "path": "device-specs/devices/lotuslamp-x.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Shenzhen ELK",
+    "manufacturer_status": "unsupported",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "lotus-lamp (PyPI)",
+        "url": "https://pypi.org/project/lotus-lamp/",
+        "description": "Independently reverse-engineered Python library for this exact app family (com.szelk.ledlamppro), live-tested on a MELK-OA10; corroborates the FFF0/ FFF3/FFF4 UUIDs and the 9-byte E1 color/brightness/speed/mode/power frames, and publishes the full 213-mode animation table."
+      },
+      {
+        "title": "wporter82/lotus-lamp-python (GitHub)",
+        "url": "https://github.com/wporter82/lotus-lamp-python",
+        "description": "Source repo of the lotus-lamp library; docs/PROTOCOL.md documents the BLE protocol (UUIDs, E1 frame layout) from APK analysis plus systematic testing."
+      },
+      {
+        "title": "LotusLamp X on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.szelk.ledlamppro",
+        "description": "Vendor app this spec was derived from (Shenzhen ELK). Note the app's telemetry endpoint lotus.elkled.com:8082 — unnecessary for local control."
       }
     ],
     "schema_version": "2020-12"
@@ -3823,6 +4156,8 @@
     "manufacturer": "Hangzhou Daniao Technology Co., Ltd (SmartDawn/Minetom store brand)",
     "manufacturer_status": "active",
     "protocol_handler": "daniao_ddp",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "SmartDawn store — smart lights collection",
@@ -3950,6 +4285,33 @@
       {
         "title": "Community IRCC code table incl. consumer-only keys (PowerOff, Exit, Rewind, Forward)",
         "url": "https://github.com/cmos486/Bravia-REST-API/blob/main/COMMANDS.md"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "SP105E Magic LED Pixel Controller",
+    "path": "device-specs/devices/sp105e-magic-led.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Sperll-era pixel controller, sold under BTF-LIGHTING, ALITOVE, Super Bright LEDs and other brands",
+    "manufacturer_status": "unsupported",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "BTF-LIGHTING — SP105E Bluetooth SPI LED Controller",
+        "url": "https://www.btf-lighting.com/products/sp105e-spi-led-controller",
+        "description": "Representative retail listing for the controller this spec documents: DC5-24V SPI pixel controller for WS2811/WS2812B/SK6812/APA102-class strips, controlled by the Magic-LED app over Bluetooth."
+      },
+      {
+        "title": "Super Bright LEDs — Magic-LED Bluetooth Controller (SP105E)",
+        "url": "https://www.superbrightleds.com/magic-led-bluetooth-controller-for-digital-rgb-led-strip-lights-sp105e",
+        "description": "Another retailer selling the identical SP105E unit under the Magic-LED name — evidence of how widely this one firmware is rebranded, and of the strip types it is paired with."
+      },
+      {
+        "title": "Magic-LED on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.vengean.magicled",
+        "description": "The vendor app (com.vengean.magicled) whose v2.2.1 build this protocol was recovered from. Fully local — no account, no cloud — so it remains usable as a fallback while it stays installable."
       }
     ],
     "schema_version": "2020-12"
@@ -4801,6 +5163,43 @@
         "title": "UselessMnemonic/OpenWiz",
         "url": "https://github.com/UselessMnemonic/OpenWiz",
         "description": "MIT — documents the UDP 38899/38900 ports and the JSON method set."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "wl.smartled Addressable Pixel LED Strip (duoCo StripX / Lotus Lantern / Magic Lantern)",
+    "path": "device-specs/devices/wl-smartled-pixel-strips.yaml",
+    "protocol": "ble",
+    "category": "light",
+    "manufacturer": "Unbranded / various OEMs (fstart 'easylink' platform; duoCo StripX OEM customer: Shenzhen Shuanghongyuan)",
+    "manufacturer_status": "unsupported",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "duoCo StripX on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=wl.smartled.duoco.rgb",
+        "description": "One of the three vendor apps for this platform (channel skin of the shared fstart/easylink codebase); protocol source for the MELK- name gating and the 241-entry mode table."
+      },
+      {
+        "title": "Lotus Lantern on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=wl.smartled",
+        "description": "The wl.smartled channel build; adds the ELK-/XSL-/LED LIGHT STRIP name filters, countdown and laser commands, and the ELK-* encrypted-device layer."
+      },
+      {
+        "title": "Magic Lantern on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=wl.smartled.rgb",
+        "description": "Third channel build of the same codebase; MELK- filter only. A spec written for Lotus Lantern's BLE protocol applies with the advertised-name prefix changed."
+      },
+      {
+        "title": "dave-code-ruiz/elkbledom (HACS)",
+        "url": "https://github.com/dave-code-ruiz/elkbledom",
+        "description": "Actively maintained Home Assistant component for the SIBLING PWM (ELK-BLEDOM) protocol — same 0xFFF0/0xFFF3 service and 7E…EF envelope but sequence-number framing and 0xFFF4 notify. Useful family context; its command set is NOT the pixel protocol documented here."
+      },
+      {
+        "title": "FergusInLondon/ELK-BLEDOM",
+        "url": "https://github.com/FergusInLondon/ELK-BLEDOM",
+        "description": "Clean-room reverse engineering of the ELK-BLEDOM PWM app; background on the wider ELK/duoCo controller family this pixel platform belongs to."
       }
     ],
     "schema_version": "2020-12"
