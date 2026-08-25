@@ -128,13 +128,15 @@ device:
         passphrase protection during provisioning is unknown. Post-setup UDP
         control is unauthenticated on the LAN.
 
-wiz_lan_protocol:
-  transport: "UDP; light listens on 38899, client receives pushes on 38900"
-  envelope: '{ "method": "", "params": {}, "result": {}, "error": {} }'
-  discovery: "UDP-broadcast a 'registration' message; every WiZ light replies with its state and MAC."
+protocol_details:
+  wiz_lan_protocol:
+    transport: "UDP; light listens on 38899, client receives pushes on 38900"
+    envelope: '{ "method": "", "params": {}, "result": {}, "error": {} }'
+    discovery: "UDP-broadcast a 'registration' message; every WiZ light replies with its state and MAC."
 
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >

@@ -164,19 +164,20 @@ camera:
       auth: "user"
       notes: "Lower-resolution sub stream for previews / low bandwidth."
 
-reolink_baichuan_protocol:
-  transport: "TCP 9000 (proprietary; the only surface on some models)"
-  framing: >
-    4-byte LE magic 0x0abcdef0 @0; messageId (int32 LE @4); messageLen (@8);
-    channel_id (@12); streamID (@13); messageHandle (@15); messageClass
-    (int16 LE @18). Header 20 B (legacy) or 24 B (modern: encrypt_xml @16,
-    binOffset @20). XML payloads XOR-obfuscated with an offset-dependent 8-byte
-    key.
-  message_ids:
-    "1": "login"
-    "3": "Preview (video)"
-    "23": "Reboot"
-    "80": "VersionInfo"
+protocol_details:
+  reolink_baichuan_protocol:
+    transport: "TCP 9000 (proprietary; the only surface on some models)"
+    framing: >
+      4-byte LE magic 0x0abcdef0 @0; messageId (int32 LE @4); messageLen (@8);
+      channel_id (@12); streamID (@13); messageHandle (@15); messageClass
+      (int16 LE @18). Header 20 B (legacy) or 24 B (modern: encrypt_xml @16,
+      binOffset @20). XML payloads XOR-obfuscated with an offset-dependent 8-byte
+      key.
+    message_ids:
+      "1": "login"
+      "3": "Preview (video)"
+      "23": "Reboot"
+      "80": "VersionInfo"
 
 http_endpoints:
   - method: "POST"

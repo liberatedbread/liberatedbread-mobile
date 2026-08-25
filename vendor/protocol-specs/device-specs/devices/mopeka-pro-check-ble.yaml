@@ -137,7 +137,7 @@ entities:
   - platform: "sensor"
     name: "Sensor Temperature"
     device_class: "temperature"
-    unit: "°C"
+    unit: "C"
     notes: "Sensor temperature (not ambient-calibrated)."
 
 helpful_urls:

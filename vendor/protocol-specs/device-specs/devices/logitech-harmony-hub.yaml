@@ -175,18 +175,24 @@ http_endpoints:
           type: "string"
           description: "Session id required to open the control WebSocket."
 
-websocket:
-  path: "/?domain=svcs.myharmony.com&hubId=<remoteId> (port 8088)"
-  description: >
-    Local control channel. After retrieving the remoteId, open a WebSocket on
-    port 8088 and issue JSON requests, each with a unique message id echoed in
-    the reply. Operations: get config (activities + devices, each label + id),
-    get current activity, start/stop activity by id, send device command, hold
-    command for a duration, change channel. Idle connections are closed after
-    ~60s unless pinged. The exact request envelope should be confirmed against
-    aioharmony source.
-  message_format: "json"
-  verification: "reported"
+protocol_details:
+  # Narrative, not a contract: this socket carries push notifications
+  # (and, on the Harmony, an envelope still to be confirmed), while the
+  # commands above ride HTTP. It is documented here rather than in the
+  # first-class `websocket:` block, which describes a socket a client
+  # EXECUTES against — connect plus channels — and this is not one.
+  websocket:
+    path: "/?domain=svcs.myharmony.com&hubId=<remoteId> (port 8088)"
+    description: >
+      Local control channel. After retrieving the remoteId, open a WebSocket on
+      port 8088 and issue JSON requests, each with a unique message id echoed in
+      the reply. Operations: get config (activities + devices, each label + id),
+      get current activity, start/stop activity by id, send device command, hold
+      command for a duration, change channel. Idle connections are closed after
+      ~60s unless pinged. The exact request envelope should be confirmed against
+      aioharmony source.
+    message_format: "json"
+    verification: "reported"
 
 # Local control is the WebSocket above; these name the invocations a client
 # sends over it (payloads modelled on aioharmony).

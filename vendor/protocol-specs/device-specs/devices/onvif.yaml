@@ -13,7 +13,7 @@ device:
   name: "ONVIF (Open Network Video Interface Forum)"
   manufacturer: "ONVIF (industry consortium)"
   manufacturer_status: "active"
-  model: "Profiles S / T (streaming), G (recording), A / C (access control)"
+  coverage: "Profiles S / T (streaming), G (recording), A / C (access control)"
   protocol: "wifi"
   category: "reference"
   type: "reference-camera-protocol"

@@ -134,22 +134,24 @@ device:
         the setup AP; no encryption is documented. Post-setup control is
         unauthenticated on the LAN.
 
-smarter_protocol:
-  transport: "port 2081, UDP or TCP, binary"
-  framing: "<id> <args> <terminator 0x7e>"
-  commands:
-    "21": "turn on / boil (optional target-temperature argument)"
-    "22": "turn off"
-    "0x40 (64)": "get device info (UDP-broadcast discovery after setup)"
-    "109": "firmware-update mode (creates an 'iKettle Update' AP)"
-  responses:
-    "3": "command acknowledged"
-    "20": "kettle status (flag, temperature, water level)"
-    "0x65 (101)": "device info reply, e.g. 65 01 13 7e = kettle, firmware 19"
-  water_level_quirk: "level byte reads 7 off the base, 8 on the base"
+protocol_details:
+  smarter_protocol:
+    transport: "port 2081, UDP or TCP, binary"
+    framing: "<id> <args> <terminator 0x7e>"
+    commands:
+      "21": "turn on / boil (optional target-temperature argument)"
+      "22": "turn off"
+      "0x40 (64)": "get device info (UDP-broadcast discovery after setup)"
+      "109": "firmware-update mode (creates an 'iKettle Update' AP)"
+    responses:
+      "3": "command acknowledged"
+      "20": "kettle status (flag, temperature, water level)"
+      "0x65 (101)": "device info reply, e.g. 65 01 13 7e = kettle, firmware 19"
+    water_level_quirk: "level byte reads 7 off the base, 8 on the base"
 
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >

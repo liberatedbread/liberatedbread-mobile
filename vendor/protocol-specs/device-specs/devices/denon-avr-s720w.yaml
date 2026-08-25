@@ -583,297 +583,298 @@ evidence:
 # `ecp_common` plays for Roku. The receiver's two command routes and its two
 # response shapes are all here; `http_endpoints` below catalogues what exists
 # and `commands` binds the invocations.
-denon_common:
-  transport: "HTTP"
-  port: 80
-  request_format:
-    description: >
-      Requests go to `http://<ip>/goform/<form>` with no headers of any kind
-      required — no authentication, no Content-Type on the GET routes, no
-      cookies, no session. Control GETs carry their whole instruction in the
-      query string and answer with an empty or trivial body; state is read by
-      GETting a status document and parsing the XML.
+protocol_details:
+  denon_common:
+    transport: "HTTP"
+    port: 80
+    request_format:
+      description: >
+        Requests go to `http://<ip>/goform/<form>` with no headers of any kind
+        required — no authentication, no Content-Type on the GET routes, no
+        cookies, no session. Control GETs carry their whole instruction in the
+        query string and answer with an empty or trivial body; state is read by
+        GETting a status document and parsing the XML.
 
-      Two families of control GET exist and they overlap:
+        Two families of control GET exist and they overlap:
 
-        * The DIRECT route, `/goform/formiPhoneAppDirect.xml?<CMD>`, where
-          <CMD> is one ASCII command from the vocabulary in
-          `command_vocabulary` below — exactly what port 23 takes. Anything
-          the protocol can express goes through here.
-        * The FORM route, `/goform/formiPhoneAppPower.xml`,
-          `formiPhoneAppVolume.xml`, `formiPhoneAppMute.xml`, whose argument
-          is `<zone>+<value>` — zone 1 is the main zone. Narrower, but it is
-          the route the vendor's own web UI uses and it takes volume as a
-          signed dB decimal rather than the offset integer the ASCII MV
-          command wants.
+          * The DIRECT route, `/goform/formiPhoneAppDirect.xml?<CMD>`, where
+            <CMD> is one ASCII command from the vocabulary in
+            `command_vocabulary` below — exactly what port 23 takes. Anything
+            the protocol can express goes through here.
+          * The FORM route, `/goform/formiPhoneAppPower.xml`,
+            `formiPhoneAppVolume.xml`, `formiPhoneAppMute.xml`, whose argument
+            is `<zone>+<value>` — zone 1 is the main zone. Narrower, but it is
+            the route the vendor's own web UI uses and it takes volume as a
+            signed dB decimal rather than the offset integer the ASCII MV
+            command wants.
 
-      Prefer the DIRECT route for anything the FORM route does not cover, and
-      note that the `+` in a FORM-route query string is a literal plus in the
-      bytes that go out, not a percent-encoded space.
-    http:
-      url: "http://<ip>/goform/<form>"
-      headers: >
-        None required. The receiver's HTTP server is minimal and old: it
-        serialises requests, so a client that fires several at once can see
-        timeouts or resets that look like the device being offline. Send
-        sequentially, allow a generous timeout (several seconds), and retry
-        once before declaring the unit unreachable.
-      body: "Empty for every GET route; an XML document for the AppCommand POST route."
-    escaping: >
-      The vocabulary is upper-case letters, digits, `/` and space. A space
-      DOES appear in several commands (`MSMCH STEREO`, `MSPURE DIRECT`,
-      `MSDOLBY DIGITAL`); on the DIRECT route it must be percent-encoded as
-      `%20`, and the `/` in `SISAT/CBL` may be sent literally or as `%2F`.
+        Prefer the DIRECT route for anything the FORM route does not cover, and
+        note that the `+` in a FORM-route query string is a literal plus in the
+        bytes that go out, not a percent-encoded space.
+      http:
+        url: "http://<ip>/goform/<form>"
+        headers: >
+          None required. The receiver's HTTP server is minimal and old: it
+          serialises requests, so a client that fires several at once can see
+          timeouts or resets that look like the device being offline. Send
+          sequentially, allow a generous timeout (several seconds), and retry
+          once before declaring the unit unreachable.
+        body: "Empty for every GET route; an XML document for the AppCommand POST route."
+      escaping: >
+        The vocabulary is upper-case letters, digits, `/` and space. A space
+        DOES appear in several commands (`MSMCH STEREO`, `MSPURE DIRECT`,
+        `MSDOLBY DIGITAL`); on the DIRECT route it must be percent-encoded as
+        `%20`, and the `/` in `SISAT/CBL` may be sent literally or as `%2F`.
 
-      This spec keeps command `parameters` in their RAW form — `MCH STEREO`,
-      not `MCH%20STEREO` — because percent-encoding is the URL builder's job,
-      not the value's, and because the raw token is also what the status
-      documents report back, so one spelling serves both the send and the
-      state match. A renderer substitutes the raw value into `path` and
-      encodes as it builds the request line.
+        This spec keeps command `parameters` in their RAW form — `MCH STEREO`,
+        not `MCH%20STEREO` — because percent-encoding is the URL builder's job,
+        not the value's, and because the raw token is also what the status
+        documents report back, so one spelling serves both the send and the
+        state match. A renderer substitutes the raw value into `path` and
+        encodes as it builds the request line.
 
-      Commands are case-sensitive: `PWON` works, `pwon` does not.
-  response_format:
-    description: >
-      Control GETs answer 200 with an empty body or a stub XML document; the
-      body is an acknowledgement that the request was accepted, NOT the
-      resulting state. A client that needs to show the new state must re-read
-      a status document — and should allow a beat before doing so, because the
-      receiver applies input and surround changes asynchronously and will
-      briefly report the old value.
+        Commands are case-sensitive: `PWON` works, `pwon` does not.
+    response_format:
+      description: >
+        Control GETs answer 200 with an empty body or a stub XML document; the
+        body is an acknowledgement that the request was accepted, NOT the
+        resulting state. A client that needs to show the new state must re-read
+        a status document — and should allow a beat before doing so, because the
+        receiver applies input and surround changes asynchronously and will
+        briefly report the old value.
 
-      Status documents are XML with no namespace, rooted at `<item>`, and
-      almost every reading is wrapped one level deeper in a `<value>` child:
+        Status documents are XML with no namespace, rooted at `<item>`, and
+        almost every reading is wrapped one level deeper in a `<value>` child:
 
-        <?xml version="1.0" encoding="utf-8"?>
-        <item>
-          <Power><value>ON</value></Power>
-          <InputFuncSelect><value>MPLAY</value></InputFuncSelect>
-          <VolumeDisplay><value>Relative</value></VolumeDisplay>
-          <MasterVolume><value>-40.0</value></MasterVolume>
-          <Mute><value>off</value></Mute>
-        </item>
+          <?xml version="1.0" encoding="utf-8"?>
+          <item>
+            <Power><value>ON</value></Power>
+            <InputFuncSelect><value>MPLAY</value></InputFuncSelect>
+            <VolumeDisplay><value>Relative</value></VolumeDisplay>
+            <MasterVolume><value>-40.0</value></MasterVolume>
+            <Mute><value>off</value></Mute>
+          </item>
 
-      The dotted paths this spec uses in `entities[].state_mapping` are
-      resolved FROM THAT ROOT, not including it: `MasterVolume.value` names
-      the text of the `<value>` element inside `<MasterVolume>`, exactly as
-      wemo's `BinaryState` names an element inside its SOAP reply rather than
-      the envelope path down to it. They are element paths, not JSON paths —
-      the same dotted notation the rest of the catalogue uses for JSON
-      replies, applied to XML because this device's replies are XML.
-    value_conventions:
-      power: >
-        `ON` or `STANDBY`, upper case. Note that `Power` and `ZonePower` are
-        different questions: `Power` (ASCII `PW`) is the whole unit, and
-        `STANDBY` there means the LAN surface is only answering at all because
-        Network Control is "Always On". `ZonePower` (ASCII `ZM`) is the main
-        zone, which on a multi-zone receiver can be off while the unit is on.
-        On the single-zone AVR-S720W the two move together.
-      mute: >
-        `on` or `off`, LOWER case in the status documents, while the ASCII
-        command spelling is upper case (`MUON`/`MUOFF`). Compare
-        case-insensitively; the mismatch is a real source of "mute never reads
-        as engaged" bugs.
-      master_volume: >
-        A signed decimal in dB relative to reference, e.g. `-40.0`, spanning
-        roughly -80.0 (minimum) to +18.0 (maximum). Two traps. First, at the
-        very bottom the receiver reports the literal string `--` instead of a
-        number; treat that as the minimum, not as a parse failure. Second,
-        `VolumeDisplay` (`Relative` or `Absolute`) changes only what the
-        FRONT PANEL prints — `MasterVolume` is reported in relative dB either
-        way, so a client must not add 80 to it just because the panel is set
-        to Absolute.
-      input: >
-        A short upper-case token (`MPLAY`, `SAT/CBL`, `BD`, `TUNER`, `NET`,
-        `BT`, ...). It is the wire value, not a label: the user-facing name
-        may have been renamed on the receiver, and the renamed labels are in
-        `<RenameSource>` in the non-Lite status document. Render the rename
-        when you have it, but send the wire value.
-  command_vocabulary:
-    description: >
-      The ASCII command set, shared verbatim by port 23 and by the DIRECT
-      HTTP route. Each command is the two-letter (occasionally three-letter)
-      group followed by its argument, and appending `?` asks for the current
-      value instead of setting one. On port 23 every command is terminated
-      with a single CR (0x0D, no LF); on the DIRECT route the terminator is
-      supplied by the receiver and must not be sent.
+        The dotted paths this spec uses in `entities[].state_mapping` are
+        resolved FROM THAT ROOT, not including it: `MasterVolume.value` names
+        the text of the `<value>` element inside `<MasterVolume>`, exactly as
+        wemo's `BinaryState` names an element inside its SOAP reply rather than
+        the envelope path down to it. They are element paths, not JSON paths —
+        the same dotted notation the rest of the catalogue uses for JSON
+        replies, applied to XML because this device's replies are XML.
+      value_conventions:
+        power: >
+          `ON` or `STANDBY`, upper case. Note that `Power` and `ZonePower` are
+          different questions: `Power` (ASCII `PW`) is the whole unit, and
+          `STANDBY` there means the LAN surface is only answering at all because
+          Network Control is "Always On". `ZonePower` (ASCII `ZM`) is the main
+          zone, which on a multi-zone receiver can be off while the unit is on.
+          On the single-zone AVR-S720W the two move together.
+        mute: >
+          `on` or `off`, LOWER case in the status documents, while the ASCII
+          command spelling is upper case (`MUON`/`MUOFF`). Compare
+          case-insensitively; the mismatch is a real source of "mute never reads
+          as engaged" bugs.
+        master_volume: >
+          A signed decimal in dB relative to reference, e.g. `-40.0`, spanning
+          roughly -80.0 (minimum) to +18.0 (maximum). Two traps. First, at the
+          very bottom the receiver reports the literal string `--` instead of a
+          number; treat that as the minimum, not as a parse failure. Second,
+          `VolumeDisplay` (`Relative` or `Absolute`) changes only what the
+          FRONT PANEL prints — `MasterVolume` is reported in relative dB either
+          way, so a client must not add 80 to it just because the panel is set
+          to Absolute.
+        input: >
+          A short upper-case token (`MPLAY`, `SAT/CBL`, `BD`, `TUNER`, `NET`,
+          `BT`, ...). It is the wire value, not a label: the user-facing name
+          may have been renamed on the receiver, and the renamed labels are in
+          `<RenameSource>` in the non-Lite status document. Render the rename
+          when you have it, but send the wire value.
+    command_vocabulary:
+      description: >
+        The ASCII command set, shared verbatim by port 23 and by the DIRECT
+        HTTP route. Each command is the two-letter (occasionally three-letter)
+        group followed by its argument, and appending `?` asks for the current
+        value instead of setting one. On port 23 every command is terminated
+        with a single CR (0x0D, no LF); on the DIRECT route the terminator is
+        supplied by the receiver and must not be sent.
 
-      THE QUERY FORMS ARE A PORT 23 FEATURE. A `?` command sent over the
-      DIRECT HTTP route is accepted, but its answer arrives on the ASCII
-      channel, which that route does not expose — the HTTP response is the
-      same empty stub every other DIRECT command gets, so the reading is
-      simply lost. Over HTTP, read state from the status documents in
-      `http_endpoints` instead. The `?` forms are documented because they are
-      how a port 23 client reads state, and because a few facts (`MVMAX`) are
-      reachable no other way.
-    verification: "reported"
-    groups:
-      - prefix: "PW"
-        meaning: "Whole-unit power"
-        values: ["PWON", "PWSTANDBY", "PW?"]
-      - prefix: "ZM"
-        meaning: "Main zone power"
-        values: ["ZMON", "ZMOFF", "ZM?"]
-      - prefix: "MV"
-        meaning: >
-          Master volume as an OFFSET INTEGER, not dB: dB = MV - 80, so 00 is
-          minimum, 80 is the 0 dB reference and `MV50` is -30 dB. A third
-          digit is a half step — `MV505` is -29.5 dB. `MVUP`/`MVDOWN` step by
-          the receiver's own increment. `MV?` answers TWICE: the current level
-          as `MVxx`, then the configured ceiling as `MVMAX xx`. Both lines
-          start `MV`, so a client that matches on the prefix and keeps the
-          last match reads the ceiling as the level. Take the first reply and
-          treat `MVMAX` as a separate fact.
-        values: ["MVUP", "MVDOWN", "MV00 through MV98", "MV?"]
-      - prefix: "MU"
-        meaning: "Mute"
-        values: ["MUON", "MUOFF", "MU?"]
-      - prefix: "SI"
-        meaning: "Input source select"
-        values:
-          - "SISAT/CBL"
-          - "SIDVD"
-          - "SIBD"
-          - "SIGAME"
-          - "SIMPLAY"
-          - "SITV"
-          - "SIAUX1"
-          - "SITUNER"
-          - "SINET"
-          - "SIBT"
-          - "SI?"
+        THE QUERY FORMS ARE A PORT 23 FEATURE. A `?` command sent over the
+        DIRECT HTTP route is accepted, but its answer arrives on the ASCII
+        channel, which that route does not expose — the HTTP response is the
+        same empty stub every other DIRECT command gets, so the reading is
+        simply lost. Over HTTP, read state from the status documents in
+        `http_endpoints` instead. The `?` forms are documented because they are
+        how a port 23 client reads state, and because a few facts (`MVMAX`) are
+        reachable no other way.
+      verification: "reported"
+      groups:
+        - prefix: "PW"
+          meaning: "Whole-unit power"
+          values: ["PWON", "PWSTANDBY", "PW?"]
+        - prefix: "ZM"
+          meaning: "Main zone power"
+          values: ["ZMON", "ZMOFF", "ZM?"]
+        - prefix: "MV"
+          meaning: >
+            Master volume as an OFFSET INTEGER, not dB: dB = MV - 80, so 00 is
+            minimum, 80 is the 0 dB reference and `MV50` is -30 dB. A third
+            digit is a half step — `MV505` is -29.5 dB. `MVUP`/`MVDOWN` step by
+            the receiver's own increment. `MV?` answers TWICE: the current level
+            as `MVxx`, then the configured ceiling as `MVMAX xx`. Both lines
+            start `MV`, so a client that matches on the prefix and keeps the
+            last match reads the ceiling as the level. Take the first reply and
+            treat `MVMAX` as a separate fact.
+          values: ["MVUP", "MVDOWN", "MV00 through MV98", "MV?"]
+        - prefix: "MU"
+          meaning: "Mute"
+          values: ["MUON", "MUOFF", "MU?"]
+        - prefix: "SI"
+          meaning: "Input source select"
+          values:
+            - "SISAT/CBL"
+            - "SIDVD"
+            - "SIBD"
+            - "SIGAME"
+            - "SIMPLAY"
+            - "SITV"
+            - "SIAUX1"
+            - "SITUNER"
+            - "SINET"
+            - "SIBT"
+            - "SI?"
+          notes: >
+            This is the family vocabulary, not a per-unit list: the sources an
+            individual receiver accepts depend on its model and on which inputs
+            the owner hid in the setup menu. The authoritative list for the unit
+            in front of you is `<InputFuncList>` in
+            `/goform/formMainZone_MainZoneXml.xml`; read it and offer that,
+            rather than offering all of these and letting some silently do
+            nothing.
+        - prefix: "MS"
+          meaning: "Surround mode"
+          values:
+            - "MSMOVIE"
+            - "MSMUSIC"
+            - "MSGAME"
+            - "MSDIRECT"
+            - "MSPURE DIRECT"
+            - "MSSTEREO"
+            - "MSAUTO"
+            - "MSMCH STEREO"
+            - "MSVIRTUAL"
+            - "MS?"
+          notes: >
+            Surround modes are gated by the incoming stream: asking for a
+            multichannel mode on a two-channel source is accepted and ignored,
+            and the receiver reports back whatever it actually selected. Always
+            re-read `SurrMode` rather than assuming the request took.
+        - prefix: "SLP"
+          meaning: "Sleep timer, in minutes"
+          values: ["SLPOFF", "SLP010 through SLP120", "SLP?"]
+        - prefix: "PS"
+          meaning: >
+            Parameter settings — tone controls, dynamic EQ, dialogue level and
+            the rest of the audio-parameter menu (`PSBAS UP`, `PSTRE DOWN`,
+            `PSDYNEQ ON`, ...). Catalogued here as a group rather than
+            enumerated: the set is large, model-dependent, and this project has
+            no evidence for which members the AVR-S720W accepts.
+          values: ["PS<parameter> <value>", "PS<parameter> ?"]
+    telnet:
+      description: >
+        Port 23, raw ASCII, CR-terminated. It is not a login shell — there is no
+        banner, no prompt and no authentication; the socket opens and the
+        receiver starts talking. It carries exactly the vocabulary above, and it
+        is the ONLY surface that reports state changes without being asked: turn
+        the volume knob on the front panel and a connected client sees `MV45`
+        arrive unsolicited.
+      port: 23
+      line_ending: "CR (0x0D) only — no LF. A client that sends CRLF may see the LF treated as a second, empty command."
+      single_session: >
+        The receiver accepts ONE connection on port 23 at a time. A second
+        client is refused or silently starved, and holding the socket locks out
+        the vendor's own app and every other integration on the network. A
+        consumer that opens it must close it promptly, must not hold it open as
+        an idle keep-alive across a whole session, and should treat a connection
+        refusal as "somebody else has it" rather than as the device being down.
+      pacing: >
+        Commands need a gap between them — the widely used figure in open-source
+        implementations is on the order of 100 ms. Sending a burst back to back
+        gets some of them dropped with no error anywhere.
+      why_http_instead: >
+        Because the vocabulary is identical, every entity in this spec binds to
+        the HTTP route: a consumer loses nothing but the push, and gains the
+        ability to coexist with whatever else on the network wants the single
+        telnet session. Reach for port 23 only when unsolicited state updates
+        are genuinely needed.
+      verification: "reported"
+    upnp:
+      description: >
+        A standard UPnP MediaRenderer, advertised as
+        `urn:schemas-upnp-org:device:MediaRenderer:1` with RenderingControl,
+        ConnectionManager and AVTransport. Do NOT route power, volume, input or
+        surround through it — goform is simpler, covers all four, and does not
+        require resolving a control URL first. What UPnP gives you that goform
+        cannot is the opposite direction: `AVTransport::SetAVTransportURI`
+        followed by `Play` hands the receiver a media URL to fetch and play by
+        itself, which is the one thing the control API has no verb for.
+      services:
+        - "urn:schemas-upnp-org:service:AVTransport:1"
+        - "urn:schemas-upnp-org:service:RenderingControl:1"
+        - "urn:schemas-upnp-org:service:ConnectionManager:1"
+      control_urls: >
+        Resolve them from `<serviceList>` in the description document the SSDP
+        LOCATION header points at. They are not fixed across firmware
+        generations and must not be hardcoded.
+      server_header: "KnOS/3.2 UPnP/1.0 DMP/3.5 — observed live; `KnOS/` is the D&M firmware platform."
+      verification: "reported"
+    streaming_sinks:
+      description: >
+        Two streaming receivers share the same address, and both are somebody
+        else's protocol rather than Denon's. They are documented here for
+        identification and for knowing what a user can already do, not as
+        control surfaces.
+      airplay:
+        generation: "AirPlay 1 (RAOP). srcvers/vs 190.9.p6 on the observed unit."
+        port: "From the `_raop._tcp` SRV record — do not assume 5000/7000."
         notes: >
-          This is the family vocabulary, not a per-unit list: the sources an
-          individual receiver accepts depend on its model and on which inputs
-          the owner hid in the setup menu. The authoritative list for the unit
-          in front of you is `<InputFuncList>` in
-          `/goform/formMainZone_MainZoneXml.xml`; read it and offer that,
-          rather than offering all of these and letting some silently do
-          nothing.
-      - prefix: "MS"
-        meaning: "Surround mode"
-        values:
-          - "MSMOVIE"
-          - "MSMUSIC"
-          - "MSGAME"
-          - "MSDIRECT"
-          - "MSPURE DIRECT"
-          - "MSSTEREO"
-          - "MSAUTO"
-          - "MSMCH STEREO"
-          - "MSVIRTUAL"
-          - "MS?"
+          No `pk` (public key) TXT record is advertised, which is the marker an
+          AirPlay 2 receiver carries; senders that speak only AirPlay 2 will not
+          see this receiver as a target at all. `et: 0,4` says it accepts both
+          unencrypted and FairPlay-encrypted sessions, and `cn: 0,1` says PCM
+          and ALAC, so an open-source sender has a workable path.
+      spotify_connect:
+        zeroconf_path: "/goform/spotifyConfig — from the `cpath` TXT record; served by the same port 80 web server as the control API."
         notes: >
-          Surround modes are gated by the incoming stream: asking for a
-          multichannel mode on a two-channel source is accepted and ignored,
-          and the receiver reports back whatever it actually selected. Always
-          re-read `SurrMode` rather than assuming the request took.
-      - prefix: "SLP"
-        meaning: "Sleep timer, in minutes"
-        values: ["SLPOFF", "SLP010 through SLP120", "SLP?"]
-      - prefix: "PS"
-        meaning: >
-          Parameter settings — tone controls, dynamic EQ, dialogue level and
-          the rest of the audio-parameter menu (`PSBAS UP`, `PSTRE DOWN`,
-          `PSDYNEQ ON`, ...). Catalogued here as a group rather than
-          enumerated: the set is large, model-dependent, and this project has
-          no evidence for which members the AVR-S720W accepts.
-        values: ["PS<parameter> <value>", "PS<parameter> ?"]
-  telnet:
-    description: >
-      Port 23, raw ASCII, CR-terminated. It is not a login shell — there is no
-      banner, no prompt and no authentication; the socket opens and the
-      receiver starts talking. It carries exactly the vocabulary above, and it
-      is the ONLY surface that reports state changes without being asked: turn
-      the volume knob on the front panel and a connected client sees `MV45`
-      arrive unsolicited.
-    port: 23
-    line_ending: "CR (0x0D) only — no LF. A client that sends CRLF may see the LF treated as a second, empty command."
-    single_session: >
-      The receiver accepts ONE connection on port 23 at a time. A second
-      client is refused or silently starved, and holding the socket locks out
-      the vendor's own app and every other integration on the network. A
-      consumer that opens it must close it promptly, must not hold it open as
-      an idle keep-alive across a whole session, and should treat a connection
-      refusal as "somebody else has it" rather than as the device being down.
-    pacing: >
-      Commands need a gap between them — the widely used figure in open-source
-      implementations is on the order of 100 ms. Sending a burst back to back
-      gets some of them dropped with no error anywhere.
-    why_http_instead: >
-      Because the vocabulary is identical, every entity in this spec binds to
-      the HTTP route: a consumer loses nothing but the push, and gains the
-      ability to coexist with whatever else on the network wants the single
-      telnet session. Reach for port 23 only when unsolicited state updates
-      are genuinely needed.
-    verification: "reported"
-  upnp:
-    description: >
-      A standard UPnP MediaRenderer, advertised as
-      `urn:schemas-upnp-org:device:MediaRenderer:1` with RenderingControl,
-      ConnectionManager and AVTransport. Do NOT route power, volume, input or
-      surround through it — goform is simpler, covers all four, and does not
-      require resolving a control URL first. What UPnP gives you that goform
-      cannot is the opposite direction: `AVTransport::SetAVTransportURI`
-      followed by `Play` hands the receiver a media URL to fetch and play by
-      itself, which is the one thing the control API has no verb for.
-    services:
-      - "urn:schemas-upnp-org:service:AVTransport:1"
-      - "urn:schemas-upnp-org:service:RenderingControl:1"
-      - "urn:schemas-upnp-org:service:ConnectionManager:1"
-    control_urls: >
-      Resolve them from `<serviceList>` in the description document the SSDP
-      LOCATION header points at. They are not fixed across firmware
-      generations and must not be hardcoded.
-    server_header: "KnOS/3.2 UPnP/1.0 DMP/3.5 — observed live; `KnOS/` is the D&M firmware platform."
-    verification: "reported"
-  streaming_sinks:
-    description: >
-      Two streaming receivers share the same address, and both are somebody
-      else's protocol rather than Denon's. They are documented here for
-      identification and for knowing what a user can already do, not as
-      control surfaces.
-    airplay:
-      generation: "AirPlay 1 (RAOP). srcvers/vs 190.9.p6 on the observed unit."
-      port: "From the `_raop._tcp` SRV record — do not assume 5000/7000."
-      notes: >
-        No `pk` (public key) TXT record is advertised, which is the marker an
-        AirPlay 2 receiver carries; senders that speak only AirPlay 2 will not
-        see this receiver as a target at all. `et: 0,4` says it accepts both
-        unencrypted and FairPlay-encrypted sessions, and `cn: 0,1` says PCM
-        and ALAC, so an open-source sender has a workable path.
-    spotify_connect:
-      zeroconf_path: "/goform/spotifyConfig — from the `cpath` TXT record; served by the same port 80 web server as the control API."
-      notes: >
-        The standard Spotify zeroconf handshake: `GET <cpath>?action=getInfo`
-        returns the device's JSON identity and public key, and a `POST` with
-        `action=addUser` plus an encrypted credential blob hands the receiver
-        a Spotify account to stream with. This is Spotify's protocol, needs a
-        Premium account, and can be withdrawn by Spotify independently of
-        anything Denon does — treat it as out of scope for local control and
-        useful mainly as the identification signal it is.
-  absent_surfaces:
-    description: >
-      What this generation does NOT have, recorded because a consumer that
-      probes for it and finds nothing should not conclude the device is
-      broken or unsupported.
-    heos_cli: >
-      No HEOS Built-in, so no HEOS CLI on TCP 1255. That interface arrived
-      with the 2018 AVR-S750H and the X-series H models. On an AVR-S720W port
-      1255 is closed, and a closed 1255 is the expected result, not a fault.
-      Network audio on this generation is driven through the goform surface
-      and `/goform/formNetAudio_StatusXml.xml` instead.
-    airplay_2: "AirPlay 1 only — see `streaming_sinks.airplay`."
-    zones: >
-      The AVR-S720W is single-zone. The `Zone2`/`Zone3` status documents and
-      the `Z2`/`Z3` command prefixes belong to the family, not to this model;
-      probing `/goform/formZone2_Zone2XmlStatusLite.xml` is how a consumer
-      finds out for a given unit, and a 404 or an empty document is the
-      answer.
-    websocket_or_push_over_http: >
-      None. HTTP state is polled, full stop; the only push is the port 23
-      session. A poll every 5-10 seconds while a UI is on screen, and rather
-      less often otherwise, is what open-source implementations settle on.
+          The standard Spotify zeroconf handshake: `GET <cpath>?action=getInfo`
+          returns the device's JSON identity and public key, and a `POST` with
+          `action=addUser` plus an encrypted credential blob hands the receiver
+          a Spotify account to stream with. This is Spotify's protocol, needs a
+          Premium account, and can be withdrawn by Spotify independently of
+          anything Denon does — treat it as out of scope for local control and
+          useful mainly as the identification signal it is.
+    absent_surfaces:
+      description: >
+        What this generation does NOT have, recorded because a consumer that
+        probes for it and finds nothing should not conclude the device is
+        broken or unsupported.
+      heos_cli: >
+        No HEOS Built-in, so no HEOS CLI on TCP 1255. That interface arrived
+        with the 2018 AVR-S750H and the X-series H models. On an AVR-S720W port
+        1255 is closed, and a closed 1255 is the expected result, not a fault.
+        Network audio on this generation is driven through the goform surface
+        and `/goform/formNetAudio_StatusXml.xml` instead.
+      airplay_2: "AirPlay 1 only — see `streaming_sinks.airplay`."
+      zones: >
+        The AVR-S720W is single-zone. The `Zone2`/`Zone3` status documents and
+        the `Z2`/`Z3` command prefixes belong to the family, not to this model;
+        probing `/goform/formZone2_Zone2XmlStatusLite.xml` is how a consumer
+        finds out for a given unit, and a 404 or an empty document is the
+        answer.
+      websocket_or_push_over_http: >
+        None. HTTP state is polled, full stop; the only push is the port 23
+        session. A poll every 5-10 seconds while a UI is on screen, and rather
+        less often otherwise, is what open-source implementations settle on.
 
 http_endpoints:
   - method: "GET"

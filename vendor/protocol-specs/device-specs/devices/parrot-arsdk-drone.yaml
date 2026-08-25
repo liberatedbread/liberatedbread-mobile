@@ -121,17 +121,19 @@ device:
         all controls as advanced.
 
 # The two Parrot control generations.
-parrot_protocol:
-  ar_drone:
-    ap_ip: "192.168.1.1"
-    commands: "AT commands over UDP 5556, e.g. AT*REF=1,512\\r (takeoff/land), sequence-numbered; TCP video stream."
-  arsdk3:
-    discovery: "TCP 44444: controller sends {\"controller_type\":\"computer\",\"controller_name\":\"<name>\",\"d2c_port\":\"43210\"}; drone replies {\"c2d_port\":54321,\"arstream_fragment_size\":1000}."
-    ap_ip: "192.168.42.1 (Bebop family)"
-    commands: "UDP 54321 = commands (c2d); UDP 43210 = navdata (d2c). Commands are (projectId u8, classId u8, commandId u16) triples on channel 10; PCMD ~40 Hz."
+protocol_details:
+  parrot_protocol:
+    ar_drone:
+      ap_ip: "192.168.1.1"
+      commands: "AT commands over UDP 5556, e.g. AT*REF=1,512\\r (takeoff/land), sequence-numbered; TCP video stream."
+    arsdk3:
+      discovery: "TCP 44444: controller sends {\"controller_type\":\"computer\",\"controller_name\":\"<name>\",\"d2c_port\":\"43210\"}; drone replies {\"c2d_port\":54321,\"arstream_fragment_size\":1000}."
+      ap_ip: "192.168.42.1 (Bebop family)"
+      commands: "UDP 54321 = commands (c2d); UDP 43210 = navdata (d2c). Commands are (projectId u8, classId u8, commandId u16) triples on channel 10; PCMD ~40 Hz."
 
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >

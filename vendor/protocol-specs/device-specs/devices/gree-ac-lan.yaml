@@ -127,22 +127,24 @@ device:
         AES-encrypted, but the generic key used for scan/bind is shared across
         all Gree devices, so binding is possible by anyone on the LAN.
 
-gree_lan_protocol:
-  transport: "UDP unicast + broadcast, port 7000"
-  crypto: "pack field = AES-128-ECB (PKCS-7), Base64-encoded; newer firmware uses AES-GCM (encryption_version 2)"
-  envelope_fields: ["t", "i", "uid", "cid", "tcid", "pack"]
-  keys: "generic key (shared, used for scan/bind) + per-device key (returned at bind)"
-  parameters:
-    Pow: "power 0/1"
-    Mod: "mode 0 auto / 1 cool / 2 dry / 3 fan / 4 heat"
-    SetTem: "target temperature"
-    TemUn: "temperature unit 0 C / 1 F"
-    WdSpd: "fan speed"
-    Lig: "display light"
-    SwhSlp: "sleep mode"
+protocol_details:
+  gree_lan_protocol:
+    transport: "UDP unicast + broadcast, port 7000"
+    crypto: "pack field = AES-128-ECB (PKCS-7), Base64-encoded; newer firmware uses AES-GCM (encryption_version 2)"
+    envelope_fields: ["t", "i", "uid", "cid", "tcid", "pack"]
+    keys: "generic key (shared, used for scan/bind) + per-device key (returned at bind)"
+    parameters:
+      Pow: "power 0/1"
+      Mod: "mode 0 auto / 1 cool / 2 dry / 3 fan / 4 heat"
+      SetTem: "target temperature"
+      TemUn: "temperature unit 0 C / 1 F"
+      WdSpd: "fan speed"
+      Lig: "display light"
+      SwhSlp: "sleep mode"
 
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >

@@ -158,14 +158,16 @@ device:
         is unauthenticated on the LAN, gated only by the LAN Control toggle.
 
 # The Yeelight LAN protocol.
-yeelight_lan_protocol:
-  transport: "TCP, port 55443, JSON messages terminated by CRLF"
-  authentication: "none (LAN Control toggle must be enabled in the app)"
-  limits: "up to 4 concurrent connections; ~60 commands/min per connection, 144/min total (music mode lifts this)"
-  message: '{"id":<int>,"method":<str>,"params":[...]}CRLF ; result echoes the id'
+protocol_details:
+  yeelight_lan_protocol:
+    transport: "TCP, port 55443, JSON messages terminated by CRLF"
+    authentication: "none (LAN Control toggle must be enabled in the app)"
+    limits: "up to 4 concurrent connections; ~60 commands/min per connection, 144/min total (music mode lifts this)"
+    message: '{"id":<int>,"method":<str>,"params":[...]}CRLF ; result echoes the id'
 
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >

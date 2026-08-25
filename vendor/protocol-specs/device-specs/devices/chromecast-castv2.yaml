@@ -161,31 +161,33 @@ device:
 
 # The CASTv2 wire protocol. TLS 8009 protobuf, so http_endpoints below is a
 # placeholder — control is this, not REST.
-castv2_protocol:
-  transport: "TLS over TCP, port 8009"
-  framing: >
-    32-bit big-endian length prefix, then a protobuf CastMessage with fields
-    protocol_version, source_id, destination_id, namespace, payload_type
-    (STRING|BINARY) and payload_utf8/payload_binary.
-  endpoints:
-    platform: "sender-0 (sender) / receiver-0 (receiver)"
-    session: "dynamic ids such as client-<n> once an app session is open"
-  heartbeat: "Sender PINGs on the heartbeat namespace ~every 5s; a missing PONG means the link is dead."
-  namespaces:
-    connection: "urn:x-cast:com.google.cast.tp.connection — CONNECT/CLOSE a virtual connection"
-    heartbeat: "urn:x-cast:com.google.cast.tp.heartbeat — PING/PONG"
-    receiver: "urn:x-cast:com.google.cast.receiver — LAUNCH/STOP/GET_STATUS an app by appId"
-    deviceauth: "urn:x-cast:com.google.cast.tp.deviceauth — device authentication"
-    media: "urn:x-cast:com.google.cast.media — LOAD/PLAY/PAUSE/SEEK/STOP media"
-  app_ids:
-    default_media_receiver: "CC1AD845"
-    backdrop: "E8C28D3C"
-    youtube: "233637DE"
-    dashcast: "84912283"
-    bubbleupnp: "3927FA74"
+protocol_details:
+  castv2_protocol:
+    transport: "TLS over TCP, port 8009"
+    framing: >
+      32-bit big-endian length prefix, then a protobuf CastMessage with fields
+      protocol_version, source_id, destination_id, namespace, payload_type
+      (STRING|BINARY) and payload_utf8/payload_binary.
+    endpoints:
+      platform: "sender-0 (sender) / receiver-0 (receiver)"
+      session: "dynamic ids such as client-<n> once an app session is open"
+    heartbeat: "Sender PINGs on the heartbeat namespace ~every 5s; a missing PONG means the link is dead."
+    namespaces:
+      connection: "urn:x-cast:com.google.cast.tp.connection — CONNECT/CLOSE a virtual connection"
+      heartbeat: "urn:x-cast:com.google.cast.tp.heartbeat — PING/PONG"
+      receiver: "urn:x-cast:com.google.cast.receiver — LAUNCH/STOP/GET_STATUS an app by appId"
+      deviceauth: "urn:x-cast:com.google.cast.tp.deviceauth — device authentication"
+      media: "urn:x-cast:com.google.cast.media — LOAD/PLAY/PAUSE/SEEK/STOP media"
+    app_ids:
+      default_media_receiver: "CC1AD845"
+      backdrop: "E8C28D3C"
+      youtube: "233637DE"
+      dashcast: "84912283"
+      bubbleupnp: "3927FA74"
 
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >

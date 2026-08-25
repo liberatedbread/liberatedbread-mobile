@@ -70,14 +70,17 @@ device:
   identification: {}
 
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble: {}
-        notes: >
-          WheelLog connects to the wheel's BLE serial characteristic and
-          identifies the brand from the first packets (King Song header AA 55,
-          Gotway 55 AA + 5A5A5A5A footer, Veteran DC 5A 5C), rather than from a
-          fixed advertised service UUID.
+    none: >
+      Deliberate. Nothing in the advertisement names a EUC: the BLE serial
+      module each brand fits is generic and its transport characteristic UUID is
+      module-specific (WheelLog reads it from the connected wheel rather than
+      restating one), and the brand itself is only learned from the first
+      notification packets — King Song's AA 55 header, Gotway's 55 AA with the
+      5A5A5A5A footer, Veteran's DC 5A 5C. That evidence arrives after a
+      connection, which is a scan's output, not its input, so an advertisement
+      axis written from it would claim wheels this spec cannot decode and miss
+      the ones it can. Manual selection until a discriminating advertisement
+      turns up.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -138,18 +141,19 @@ services:
         properties: ["read"]
         notes: "Standard device-name characteristic."
 
-euc_frame_formats:
-  king_song:
-    frame: "20 bytes, header AA 55, trailer 14 5A 5A; packet-type selector at byte 16."
-    live_type_0xA9: "voltage @2-3 LE, speed @4-5, total distance @6-9 (32-bit), current @10-11, temperature @12-13."
-    commands: "beep 0x88, request name 0x9B, request serial 0x63, power-off 0x40 (written at byte 16)."
-  gotway_begode:
-    frame: "24 bytes, header 55 AA, footer 5A 5A 5A 5A (@20-23); type byte @18."
-    frame_a_0x00: "big-endian: voltage @2-3 (1/100 V), speed @4-5 (km/h=x3.6), distance @8-9 (m), phase current @10-11 (1/100 A signed), temperature @12-13 (v/340+36.53 C), PWM @14-15."
-    voltage_multiplier: "base 67.2 V x {0:1.0, 1:1.25, 2:1.5, 3:1.738, 4:2.0, 5:2.5, 6:2.25} (config-selected) for 84/100.8 V packs."
-    commands: "ASCII: beep 'b', calibration 'c', lights E/Q/T, max-speed 'W', miles/km 'm'/'g'."
-  veteran_leaperkim:
-    frame: "header DC 5A 5C + length byte; big-endian: voltage @4, speed @6 (x10 signed), distance @8 (word-reversed), total @12, phase current @16 (x10), temperature @18; CRC32 on longer frames."
+protocol_details:
+  euc_frame_formats:
+    king_song:
+      frame: "20 bytes, header AA 55, trailer 14 5A 5A; packet-type selector at byte 16."
+      live_type_0xA9: "voltage @2-3 LE, speed @4-5, total distance @6-9 (32-bit), current @10-11, temperature @12-13."
+      commands: "beep 0x88, request name 0x9B, request serial 0x63, power-off 0x40 (written at byte 16)."
+    gotway_begode:
+      frame: "24 bytes, header 55 AA, footer 5A 5A 5A 5A (@20-23); type byte @18."
+      frame_a_0x00: "big-endian: voltage @2-3 (1/100 V), speed @4-5 (km/h=x3.6), distance @8-9 (m), phase current @10-11 (1/100 A signed), temperature @12-13 (v/340+36.53 C), PWM @14-15."
+      voltage_multiplier: "base 67.2 V x {0:1.0, 1:1.25, 2:1.5, 3:1.738, 4:2.0, 5:2.5, 6:2.25} (config-selected) for 84/100.8 V packs."
+      commands: "ASCII: beep 'b', calibration 'c', lights E/Q/T, max-speed 'W', miles/km 'm'/'g'."
+    veteran_leaperkim:
+      frame: "header DC 5A 5C + length byte; big-endian: voltage @4, speed @6 (x10 signed), distance @8 (word-reversed), total @12, phase current @16 (x10), temperature @18; CRC32 on longer frames."
 
 entities:
   - platform: "sensor"

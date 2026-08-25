@@ -139,24 +139,26 @@ device:
         unauthenticated: anything on the LAN can drive the controller.
 
 # The Zengge/Magic Home LAN protocol.
-zengge_lan_protocol:
-  control:
-    transport: "TCP, port 5577"
-    authentication: "none"
-    checksum: "last byte = (sum of all preceding bytes) & 0xFF"
-    variants: >
-      original (no checksum), 8-byte color, 9-byte color (adds cool white), and
-      addressable A1/A2/A3 strip protocols. The newest (A3/CCT/Christmas) wrap
-      the inner command in an outer frame beginning B0 B1 B2 B3 00 01.
-  discovery:
-    transport: "UDP, port 48899"
-    handshake: "Broadcast ASCII 'HF-A11ASSISTHREAD'; module answers '+ok', then reports IP/MAC/model. Same channel configures the home SSID/passphrase."
-  cloud_note: >
-    Cloud path (not needed locally): bulbs tunnel to wifi.magichue.net:8805,
-    AES256 with a shared secret. Local TCP 5577 is wholly independent of it.
+protocol_details:
+  zengge_lan_protocol:
+    control:
+      transport: "TCP, port 5577"
+      authentication: "none"
+      checksum: "last byte = (sum of all preceding bytes) & 0xFF"
+      variants: >
+        original (no checksum), 8-byte color, 9-byte color (adds cool white), and
+        addressable A1/A2/A3 strip protocols. The newest (A3/CCT/Christmas) wrap
+        the inner command in an outer frame beginning B0 B1 B2 B3 00 01.
+    discovery:
+      transport: "UDP, port 48899"
+      handshake: "Broadcast ASCII 'HF-A11ASSISTHREAD'; module answers '+ok', then reports IP/MAC/model. Same channel configures the home SSID/passphrase."
+    cloud_note: >
+      Cloud path (not needed locally): bulbs tunnel to wifi.magichue.net:8805,
+      AES256 with a shared secret. Local TCP 5577 is wholly independent of it.
 
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >

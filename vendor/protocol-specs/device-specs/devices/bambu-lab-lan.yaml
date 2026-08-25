@@ -120,6 +120,7 @@ device:
         - "LAN Access Code (dev_access_code)"
       issued_to_client:
         - "LAN Access Code (read from the touchscreen; password for MQTT/FTPS/RTSPS)"
+        - "Device serial (read from the touchscreen; the MQTT topics are keyed by it, so `credential:serial` fills every command's address)"
       notes: >
         The LAN Access Code is the shared credential for all three local
         transports. Onboarding is via the touchscreen; the passphrase is entered
@@ -165,21 +166,57 @@ commands:
   pause:
     description: "Pause the current print."
     transport: "mqtt"
+    path: "device/{serial}/request"
+    parameters:
+      serial:
+        type: "string"
+        source: "credential:serial"
+        description: >
+          The printer serial, read off the touchscreen beside the Access
+          Code during setup. The topic IS the address here, so a client
+          without it has nowhere to publish.
     body: '{"print":{"sequence_id":"0","command":"pause"}}'
     verification: "reported"
   resume:
     description: "Resume the current print."
     transport: "mqtt"
+    path: "device/{serial}/request"
+    parameters:
+      serial:
+        type: "string"
+        source: "credential:serial"
+        description: >
+          The printer serial, read off the touchscreen beside the Access
+          Code during setup. The topic IS the address here, so a client
+          without it has nowhere to publish.
     body: '{"print":{"sequence_id":"0","command":"resume"}}'
     verification: "reported"
   stop:
     description: "Stop the current print."
     transport: "mqtt"
+    path: "device/{serial}/request"
+    parameters:
+      serial:
+        type: "string"
+        source: "credential:serial"
+        description: >
+          The printer serial, read off the touchscreen beside the Access
+          Code during setup. The topic IS the address here, so a client
+          without it has nowhere to publish.
     body: '{"print":{"sequence_id":"0","command":"stop"}}'
     verification: "reported"
   pushall:
     description: "Request a full state snapshot (needed on P1P, which otherwise sends deltas)."
     transport: "mqtt"
+    path: "device/{serial}/request"
+    parameters:
+      serial:
+        type: "string"
+        source: "credential:serial"
+        description: >
+          The printer serial, read off the touchscreen beside the Access
+          Code during setup. The topic IS the address here, so a client
+          without it has nowhere to publish.
     body: '{"pushing":{"sequence_id":"0","command":"pushall","version":1,"push_target":1}}'
     verification: "reported"
 

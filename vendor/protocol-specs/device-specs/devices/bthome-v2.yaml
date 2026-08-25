@@ -13,7 +13,7 @@ device:
   name: "BTHome v2 (BLE sensor broadcast format)"
   manufacturer: "BTHome (open standard)"
   manufacturer_status: "active"
-  model: "BTHome v2 — service data UUID 0xFCD2"
+  coverage: "BTHome v2 — service data UUID 0xFCD2"
   protocol: "ble"
   category: "reference"
   type: "reference-ble-broadcast-format"
