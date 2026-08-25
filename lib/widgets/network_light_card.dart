@@ -485,9 +485,16 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                 actions: resolved,
                 claimed: _claimedRoles,
                 // The card's own sender, so an unclaimed role rides the same
-                // codec, the same assumed-position rules and the same error
-                // text as a swatch or a slider does.
-                onSend: (role) => _send(role, const {}),
+                // codec, the same error text and the same busy state as a
+                // swatch or a slider does — but NOT the same assumed position.
+                // An unclaimed role says nothing about where it leaves the
+                // light: `toggle` inverts whatever the device holds, and an
+                // assumption left by an earlier On tap would keep the card
+                // reading "On (sent)" for a light this send just turned off.
+                onSend: (role) {
+                  setState(() => _assumedOn = null);
+                  return _send(role, const {});
+                },
                 sendingRole: _sendingRole,
                 enabled: !_sending,
               ),

@@ -208,6 +208,8 @@ final networkCommandSenderFactoryProvider =
   }) =>
       NetworkCommandSender(
         host: device.host,
+        // The one handle that survives a DHCP lease, for the certificate pin.
+        deviceMac: device.advertisedMac,
         discoveredControlPort: device.controlPort,
         devicePort: device.port,
         ssdpTargets: device.ssdpTargets,

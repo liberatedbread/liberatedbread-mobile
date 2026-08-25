@@ -9,6 +9,7 @@ import '../services/device_group_store.dart';
 import '../services/group_runner.dart';
 import '../services/saved_device_store.dart';
 import '../services/saved_network_device_store.dart';
+import '../services/tls_trust.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
 import 'network_control_provider.dart';
@@ -114,9 +115,24 @@ Future<void> forgetNetworkDevice({
   required SavedNetworkDevicesNotifier savedDevices,
   required DeviceGroupsNotifier groups,
   required String deviceId,
+  TlsTrust? trust,
+  String? deviceMac,
+  String? host,
 }) async {
   await groups.pruneDevice(networkMemberId(deviceId));
   await savedDevices.remove(deviceId);
+  // And the certificate pin, which is the half that has no other way out.
+  //
+  // A pin is deliberately never replaced silently: a changed certificate on a
+  // device that already showed us one is either a reset, new firmware, or
+  // somebody in the middle, and the app cannot tell which. That rule is right
+  // and it made forgetting the device the ONLY recovery — so it has to
+  // actually be one. Without this, a user who factory-resets an Envoy has a
+  // device that refuses every connection with a generic "did not accept that",
+  // no re-pair anywhere, and nothing short of wiping app data to fix it.
+  if (trust != null) {
+    await trust.forget(identityFor(mac: deviceMac, host: host));
+  }
 }
 
 /// How a network device's id is spelled inside [DeviceGroup.deviceIds].
@@ -363,6 +379,7 @@ final groupMembersProvider = FutureProvider.autoDispose
       category: device.category,
       record: device,
       specYaml: controls?.specYaml,
+      capabilities: controls?.capabilities,
       entities: controls?.entities ?? const [],
     ));
   }

@@ -79,13 +79,16 @@ void main() {
         soap: SoapControlClient(
             httpClient: MockClient(
                 (request) async => fail('no SOAP exchange in this test'))),
-        senderFor: ({required device, required specYaml}) =>
+        senderFor: ({required device, required specYaml, capabilities}) =>
             NetworkCommandSender(
           host: device.host,
           discoveredControlPort: device.controlPort,
           devicePort: device.port,
           ssdpTargets: device.ssdpTargets,
           specYaml: specYaml,
+          // Forwarded, so this fake cannot quietly diverge from the real
+          // factory the way the runner's own field type once did.
+          capabilities: capabilities,
           codec: codec,
           http: HttpControlClient(httpClient: httpClient),
           soap: SoapControlClient(

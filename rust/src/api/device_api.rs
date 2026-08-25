@@ -2096,6 +2096,10 @@ pub struct NetworkCapabilitiesDto {
     /// against a public chain, so refusing it outright is not an option and
     /// the client owes the user a real policy instead.
     pub tls_self_signed: bool,
+    /// `identification.advertised_port_unreliable` — use [`Self::default_port`]
+    /// rather than the port discovery captured, because this device's
+    /// announcement does not describe where its API is.
+    pub advertised_port_unreliable: bool,
     /// The spec's `protocol_handler`, when it names one — `roomba_mqtt`,
     /// `rabbit_air_lan`, `lifx_lan`.
     ///
@@ -2129,6 +2133,7 @@ pub fn network_capabilities(spec_yaml: String) -> anyhow::Result<NetworkCapabili
         tls_self_signed: ident
             .and_then(|i| i.tls.as_ref())
             .is_some_and(|t| t.self_signed),
+        advertised_port_unreliable: ident.is_some_and(|i| i.advertised_port_unreliable),
         protocol_handler: spec.protocol_handler.clone(),
     })
 }

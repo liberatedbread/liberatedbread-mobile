@@ -240,6 +240,12 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
   Future<void> _sendRole(String role) async {
     final action = _action(role);
     if (action == null) return;
+    // An unclaimed role promises nothing about the resulting position —
+    // `toggle` inverts whatever the device holds — so an assumption left by an
+    // earlier On/Off tap would keep the card reading "On (sent)" for a light
+    // this send may have just turned off. A write-only light never produces
+    // the live decode that would clear it. Same clearing the switch card does.
+    setState(() => _assumedOn = null);
     await _send(action);
   }
 

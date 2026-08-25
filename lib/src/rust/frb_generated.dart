@@ -4215,15 +4215,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkCapabilitiesDto dco_decode_network_capabilities_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return NetworkCapabilitiesDto(
       signedSession: dco_decode_opt_String(arr[0]),
       defaultPort: dco_decode_opt_box_autoadd_u_16(arr[1]),
       defaultScheme: dco_decode_opt_String(arr[2]),
       tlsVerification: dco_decode_opt_String(arr[3]),
       tlsSelfSigned: dco_decode_bool(arr[4]),
-      protocolHandler: dco_decode_opt_String(arr[5]),
+      advertisedPortUnreliable: dco_decode_bool(arr[5]),
+      protocolHandler: dco_decode_opt_String(arr[6]),
     );
   }
 
@@ -6530,6 +6531,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_defaultScheme = sse_decode_opt_String(deserializer);
     var var_tlsVerification = sse_decode_opt_String(deserializer);
     var var_tlsSelfSigned = sse_decode_bool(deserializer);
+    var var_advertisedPortUnreliable = sse_decode_bool(deserializer);
     var var_protocolHandler = sse_decode_opt_String(deserializer);
     return NetworkCapabilitiesDto(
         signedSession: var_signedSession,
@@ -6537,6 +6539,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         defaultScheme: var_defaultScheme,
         tlsVerification: var_tlsVerification,
         tlsSelfSigned: var_tlsSelfSigned,
+        advertisedPortUnreliable: var_advertisedPortUnreliable,
         protocolHandler: var_protocolHandler);
   }
 
@@ -8684,6 +8687,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.defaultScheme, serializer);
     sse_encode_opt_String(self.tlsVerification, serializer);
     sse_encode_bool(self.tlsSelfSigned, serializer);
+    sse_encode_bool(self.advertisedPortUnreliable, serializer);
     sse_encode_opt_String(self.protocolHandler, serializer);
   }
 

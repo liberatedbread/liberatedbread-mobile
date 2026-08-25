@@ -45,7 +45,13 @@ void main() {
   // The ecp2 capability as the resolver hands it over for a real Roku:
   // the spec's own block plus its declared 8060.
   const rokuCapabilities = NetworkCapabilitiesDto(
-      signedSession: 'ecp2', defaultPort: 8060, tlsSelfSigned: false);
+    signedSession: 'ecp2',
+    defaultPort: 8060,
+    tlsSelfSigned: false,
+    // As roku-ecp.yaml declares: a Roku serves its control paths only on 8060
+    // whatever its SSDP LOCATION carried.
+    advertisedPortUnreliable: true,
+  );
 
   NetworkCommandSender sender({
     MockClient? httpClient,
@@ -141,8 +147,32 @@ void main() {
     await s.close();
   });
 
-  test('a roku pins control to 8060 whatever LOCATION advertised', () {
+  test('a spec that says its announcement lies is pinned to the declared port',
+      () {
+    // A Roku advertised 7250 in the field and serves control only on 8060.
     expect(sender(discoveredControlPort: 7250).controlPort, 8060);
+
+    // The Envoy is the same fact without the Roku: its mDNS answer still says
+    // 80 while firmware 8.x serves the API only over 443 and refuses 80
+    // outright. Expressing this as "is this a Roku" is what left the one
+    // HTTPS device in the catalogue connecting to a closed port.
+    expect(
+      sender(
+        discoveredControlPort: 80,
+        ssdpTargets: const [],
+        capabilities: const NetworkCapabilitiesDto(
+          defaultPort: 443,
+          defaultScheme: 'https',
+          advertisedPortUnreliable: true,
+          tlsSelfSigned: true,
+          tlsVerification: 'trust_on_first_use',
+        ),
+      ).controlPort,
+      443,
+    );
+
+    // And a device whose announcement is trustworthy — the normal case — is
+    // still reached where it said it is.
     expect(
       sender(
               discoveredControlPort: 7250,
@@ -150,7 +180,6 @@ void main() {
               capabilities: null)
           .controlPort,
       7250,
-      reason: 'only a Roku is pinned',
     );
   });
 
@@ -210,8 +239,10 @@ void main() {
       }),
       discoveredControlPort: null,
       ssdpTargets: const [],
-      capabilities:
-          const NetworkCapabilitiesDto(defaultPort: 8081, tlsSelfSigned: false),
+      capabilities: const NetworkCapabilitiesDto(
+          defaultPort: 8081,
+          tlsSelfSigned: false,
+          advertisedPortUnreliable: false),
     );
     await s.sendAction(action('turn_off', 'press_power_off'), {});
     expect(sent?.port, 8081);
@@ -222,8 +253,10 @@ void main() {
       sender(
         discoveredControlPort: 7250,
         ssdpTargets: const [],
-        capabilities:
-            const NetworkCapabilitiesDto(defaultPort: 80, tlsSelfSigned: false),
+        capabilities: const NetworkCapabilitiesDto(
+            defaultPort: 80,
+            tlsSelfSigned: false,
+            advertisedPortUnreliable: false),
       ).controlPort,
       7250,
     );

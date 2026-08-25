@@ -184,6 +184,41 @@ void main() {
         reason: 'the other device\'s certificate is still an impostor here');
   });
 
+  test('forgetting a device is a real way back', () async {
+    // A pin is never replaced silently — a changed certificate is a reset, new
+    // firmware, or somebody in the middle, and this app cannot tell which — so
+    // the refusal points at forgetting the device. If that did not actually
+    // clear the pin, the device would be permanently unreachable and the
+    // instruction a lie: only wiping app data would recover it.
+    final evaluate = evaluatorFor(TlsPolicy.trustOnFirstUse);
+    expect(evaluate(_FakeCert('old-leaf'), '192.0.2.4', 443), isTrue);
+    expect(evaluate(_FakeCert('new-leaf'), '192.0.2.4', 443), isFalse);
+    await Future<void>.delayed(Duration.zero);
+
+    await trust.forget('envoy@192.0.2.4');
+
+    // The reset device's new certificate is now a first contact.
+    expect(evaluate(_FakeCert('new-leaf'), '192.0.2.4', 443), isTrue);
+    // And it stays forgotten across a restart, not just in memory: `_known`
+    // lives on a Provider that outlives any screen.
+    final next = TlsTrust(CertificatePinStore(store));
+    await next.prepare('envoy@192.0.2.4');
+    expect(await CertificatePinStore(store).pin('envoy@192.0.2.4'), isNotNull,
+        reason: 'the new certificate was pinned in its place');
+  });
+
+  test('the pin key survives a DHCP lease when the device published a MAC', () {
+    // The sender writes the pin and the forget flow erases it, and they have
+    // to compute the same key or the pin is one nothing can clear. Keying by
+    // IP also re-pins on every lease — the same as not pinning — and hands the
+    // next tenant of that address the previous device's fingerprint.
+    expect(identityFor(mac: 'AA:BB:CC:11:22:33', host: '192.0.2.4'),
+        identityFor(mac: 'aa:bb:cc:11:22:33', host: '192.0.2.99'));
+    expect(identityFor(mac: null, host: '192.0.2.4'), 'host:192.0.2.4');
+    expect(identityFor(mac: '', host: '192.0.2.4'), 'host:192.0.2.4',
+        reason: 'an empty address is no address');
+  });
+
   test('two devices do not share a pin', () async {
     final envoy = evaluatorFor(TlsPolicy.trustOnFirstUse);
     expect(envoy(_FakeCert('envoy-leaf'), '192.0.2.4', 443), isTrue);

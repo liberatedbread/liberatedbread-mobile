@@ -53,7 +53,12 @@ regen_bonjour_services() {
   command -v python3 >/dev/null 2>&1 || return 0
 
   log "Rebuilding the iOS Bonjour service list from the vendored specs..."
-  python3 - "$devices" "$plist" << 'PY'
+  # `|| return 1` because neither caller runs under `set -e`: without it a
+  # traceback from the heredoc scrolls past inside a `git subtree pull`, the
+  # success trailer prints, the run exits 0 — and the plist is silently behind
+  # the catalogue, which is the exact iOS invisibility this whole mechanism
+  # exists to prevent.
+  python3 - "$devices" "$plist" << 'PY' || return 1
 import glob, os, re, sys
 
 devices, plist_path = sys.argv[1], sys.argv[2]
@@ -101,6 +106,15 @@ for path in sorted(glob.glob(os.path.join(devices, '*.yaml'))):
 
 text = open(plist_path, encoding='utf-8').read()
 anchor = '<key>NSBonjourServices</key>'
+# Raise something a reader can act on. `str.index` raises a bare
+# `ValueError: substring not found`, which says nothing about which file or
+# which key — and this runs inside a subtree pull, where it has to compete
+# with a screen of git output to be noticed at all.
+if anchor not in text:
+    raise SystemExit(
+        f'{plist_path} has no {anchor} array. It is the iOS allow-list this '
+        'script generates; if it was renamed or removed, this script and '
+        'test/platform/ios_bonjour_catalogue_test.dart both need to follow.')
 start = text.index(anchor)
 open_at = text.index('<array>', start)
 close_at = text.index('</array>', open_at)
@@ -114,7 +128,14 @@ updated = f'{text[:open_at]}<array>\n{body}{indent}{text[close_at:]}'
 if updated == text:
     print(f'  {len(wanted)} service types (unchanged)')
 else:
-    open(plist_path, 'w', encoding='utf-8').write(updated)
+    # Written whole, then moved into place. `open(path, 'w')` truncates first,
+    # so an interrupt mid-write leaves a half-written Info.plist — and a
+    # truncated bundle plist is an app that does not launch, which is a long
+    # way to fall for a convenience script.
+    temporary = plist_path + '.tmp'
+    with open(temporary, 'w', encoding='utf-8') as handle:
+        handle.write(updated)
+    os.replace(temporary, plist_path)
     print(f'  {len(wanted)} service types (updated)')
 PY
 }

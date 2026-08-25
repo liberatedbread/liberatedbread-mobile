@@ -2553,6 +2553,11 @@ class NetworkCapabilitiesDto {
   /// the client owes the user a real policy instead.
   final bool tlsSelfSigned;
 
+  /// `identification.advertised_port_unreliable` — use [`Self::default_port`]
+  /// rather than the port discovery captured, because this device's
+  /// announcement does not describe where its API is.
+  final bool advertisedPortUnreliable;
+
   /// The spec's `protocol_handler`, when it names one — `roomba_mqtt`,
   /// `rabbit_air_lan`, `lifx_lan`.
   ///
@@ -2569,6 +2574,7 @@ class NetworkCapabilitiesDto {
     this.defaultScheme,
     this.tlsVerification,
     required this.tlsSelfSigned,
+    required this.advertisedPortUnreliable,
     this.protocolHandler,
   });
 
@@ -2579,6 +2585,7 @@ class NetworkCapabilitiesDto {
       defaultScheme.hashCode ^
       tlsVerification.hashCode ^
       tlsSelfSigned.hashCode ^
+      advertisedPortUnreliable.hashCode ^
       protocolHandler.hashCode;
 
   @override
@@ -2591,6 +2598,7 @@ class NetworkCapabilitiesDto {
           defaultScheme == other.defaultScheme &&
           tlsVerification == other.tlsVerification &&
           tlsSelfSigned == other.tlsSelfSigned &&
+          advertisedPortUnreliable == other.advertisedPortUnreliable &&
           protocolHandler == other.protocolHandler;
 }
 

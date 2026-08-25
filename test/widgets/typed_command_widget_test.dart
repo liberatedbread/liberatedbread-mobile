@@ -506,6 +506,29 @@ void main() {
     expect(call.params['mode'], 400.0);
   });
 
+  testWidgets('collapsing the defaults takes their values off the wire too',
+      (tester) async {
+    // Otherwise the label lies: it says the spec fills these in while an
+    // edited value rides along with no control anywhere to see or undo it.
+    // Collapsed, the encoder resolves each default itself, which puts exactly
+    // the bytes on the wire the label promises.
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _defaultedChar));
+
+    await tester.tap(find.text('2 values the spec fills in'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Hide the spec\'s defaults'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+    final call =
+        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_mode');
+    expect(call.params, isEmpty);
+  });
+
   testWidgets('selecting an allowed entry sends its value, not label or index',
       (tester) async {
     final ble = FakeBleService();

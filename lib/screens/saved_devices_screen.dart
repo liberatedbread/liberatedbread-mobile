@@ -103,6 +103,12 @@ class SavedDevicesScreen extends ConsumerWidget {
       savedDevices: savedDevices,
       groups: groups,
       deviceId: saved.id,
+      // Forgetting the device forgets its certificate too. A refused
+      // certificate says "re-pair it if the device was reset", and this is
+      // the only thing that is.
+      trust: ref.read(tlsTrustProvider),
+      deviceMac: saved.toNetworkDevice().advertisedMac,
+      host: saved.host,
     );
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }

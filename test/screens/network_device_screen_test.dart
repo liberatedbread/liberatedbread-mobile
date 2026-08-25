@@ -459,7 +459,8 @@ void main() {
                   capabilities: const NetworkCapabilitiesDto(
                       signedSession: 'ecp2',
                       defaultPort: 8060,
-                      tlsSelfSigned: false))),
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -517,8 +518,10 @@ void main() {
       expect(find.textContaining('answered discovery'), findsOneWidget);
     });
 
-    NetworkEntityDto button(String name, [String? icon]) => NetworkEntityDto(
+    NetworkEntityDto button(String name, [String? icon, String? key]) =>
+        NetworkEntityDto(
           name: name,
+          key: key,
           platform: 'button',
           icon: icon,
           isInstanced: false,
@@ -596,6 +599,39 @@ void main() {
       expect(downPos.dx, closeTo(okPos.dx, 1));
       expect(upPos.dy, lessThan(okPos.dy));
       expect(okPos.dy, lessThan(downPos.dy));
+    });
+
+    testWidgets('a keyed remote fits a phone', (tester) async {
+      // The rows the layout fills from the spec hold whatever the spec keyed,
+      // and a keyed button is an icon AND a label AND padding — so the width
+      // is the spec's to decide. Six TV specs key back+home+exit, and viera
+      // keys menu+options+info too; as bare Rows those overflowed a 360dp
+      // phone by 131px inside the Card's padding chain and clipped the last
+      // key into something untappable. Every other test here runs at 800x600,
+      // which is why this one names its width.
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await pumpRemote(tester, received: [], entities: [
+        button('Back', 'mdi:arrow-u-left-top', 'back'),
+        button('Home', 'mdi:home', 'home'),
+        button('Exit', 'mdi:exit-to-app', 'exit'),
+        button('Menu', 'mdi:menu', 'menu'),
+        button('Options', 'mdi:asterisk', 'options'),
+        button('Info', 'mdi:information', 'info'),
+      ]);
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'a keyed remote must not overflow a phone',
+      );
+      // And every key is still reachable, not clipped off the edge.
+      for (final label in ['Back', 'Home', 'Exit', 'Menu', 'Options', 'Info']) {
+        expect(find.widgetWithText(FilledButton, label), findsOneWidget);
+      }
     });
 
     testWidgets('renders the channel picker below the button pad',
@@ -728,7 +764,8 @@ void main() {
               capabilities: NetworkCapabilitiesDto(
                   signedSession: 'ecp2',
                   defaultPort: 8060,
-                  tlsSelfSigned: false),
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false),
             ),
           ),
         ),
@@ -929,7 +966,8 @@ void main() {
                   capabilities: NetworkCapabilitiesDto(
                       signedSession: 'ecp2',
                       defaultPort: 8060,
-                      tlsSelfSigned: false))),
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1089,7 +1127,8 @@ void main() {
                   capabilities: NetworkCapabilitiesDto(
                       signedSession: 'ecp2',
                       defaultPort: 8060,
-                      tlsSelfSigned: false))),
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       // Let the load drop the spinner and the ECP2 textedit poll resolve — a
@@ -1144,7 +1183,8 @@ void main() {
                   capabilities: NetworkCapabilitiesDto(
                       signedSession: 'ecp2',
                       defaultPort: 8060,
-                      tlsSelfSigned: false))),
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       for (var i = 0; i < 6; i++) {
@@ -1226,7 +1266,8 @@ void main() {
                     capabilities: NetworkCapabilitiesDto(
                         signedSession: 'ecp2',
                         defaultPort: 8060,
-                        tlsSelfSigned: false))),
+                        tlsSelfSigned: false,
+                        advertisedPortUnreliable: false))),
           ),
         ));
         for (var i = 0; i < 8; i++) {
@@ -1330,7 +1371,8 @@ void main() {
                   capabilities: NetworkCapabilitiesDto(
                       signedSession: 'ecp2',
                       defaultPort: 8060,
-                      tlsSelfSigned: false))),
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1520,7 +1562,8 @@ void main() {
                   capabilities: const NetworkCapabilitiesDto(
                       signedSession: 'ecp2',
                       defaultPort: 8060,
-                      tlsSelfSigned: false))),
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1815,7 +1858,8 @@ void main() {
                   capabilities: const NetworkCapabilitiesDto(
                       signedSession: 'ecp2',
                       defaultPort: 8060,
-                      tlsSelfSigned: false))),
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -2837,7 +2881,9 @@ void main() {
     ];
 
     const roombaCapabilities = NetworkCapabilitiesDto(
-        protocolHandler: roombaProtocolHandler, tlsSelfSigned: false);
+        protocolHandler: roombaProtocolHandler,
+        tlsSelfSigned: false,
+        advertisedPortUnreliable: false);
 
     final robot = NetworkDevice(
       host: '10.0.0.7',
@@ -2937,7 +2983,8 @@ void main() {
               specYaml: 'yaml',
               entities: roombaEntities,
               // Same transport, no robot handler.
-              capabilities: NetworkCapabilitiesDto(tlsSelfSigned: false),
+              capabilities: NetworkCapabilitiesDto(
+                  tlsSelfSigned: false, advertisedPortUnreliable: false),
             ),
           ),
         ),
@@ -2987,7 +3034,8 @@ void main() {
             controls: const NetworkControls(
               specYaml: 'yaml',
               entities: roombaEntities,
-              capabilities: NetworkCapabilitiesDto(tlsSelfSigned: false),
+              capabilities: NetworkCapabilitiesDto(
+                  tlsSelfSigned: false, advertisedPortUnreliable: false),
             ),
           ),
         ),

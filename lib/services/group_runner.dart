@@ -57,6 +57,13 @@ class NetworkGroupMember {
   final SavedNetworkDevice record;
   final String? specYaml;
   final List<NetworkEntityDto> entities;
+
+  /// What the spec says about the control path — the declared port, the URL
+  /// scheme, the TLS policy, the protocol handler. Carried because the sender
+  /// needs it to reach the device the same way the device screen does; a group
+  /// run that leaves it out is not the same exchange, whatever the wiring
+  /// comment says.
+  final NetworkCapabilitiesDto? capabilities;
   final Set<GroupOp> ops;
 
   NetworkGroupMember({
@@ -65,6 +72,7 @@ class NetworkGroupMember {
     required this.record,
     this.category,
     this.specYaml,
+    this.capabilities,
     this.entities = const [],
   }) : ops = supportedNetworkGroupOps(entities);
 }
@@ -389,9 +397,24 @@ class GroupRunner {
 class NetworkGroupRunner {
   final SpecCodec _codec;
   final SoapControlClient _soap;
+
+  /// The same factory the device screen uses — INCLUDING `capabilities`,
+  /// which this type used to omit.
+  ///
+  /// Dropping an optional argument from a function type is silent: the call
+  /// compiled, and every sender a group built came out with
+  /// `capabilities == null`. Three things followed. The spec's `default_port`
+  /// stopped being the fallback, so the fix that made a hand-added device
+  /// sendable was a no-op here. A Roku in a group sent to whatever port its
+  /// SSDP LOCATION advertised instead of the 8060 its spec pins, and opened no
+  /// signed session. And the TLS policy registered on the app-wide HTTP client
+  /// as `policy: null`, overwriting the device screen's pinned registration
+  /// and downgrading the Envoy and the SmartCast to blanket trust for the rest
+  /// of the session.
   final NetworkCommandSender Function({
     required NetworkDevice device,
     required String specYaml,
+    NetworkCapabilitiesDto? capabilities,
   }) _senderFor;
 
   /// A ceiling over one member's whole turn — resolve, state read, sends —
@@ -410,6 +433,7 @@ class NetworkGroupRunner {
     required NetworkCommandSender Function({
       required NetworkDevice device,
       required String specYaml,
+      NetworkCapabilitiesDto? capabilities,
     }) senderFor,
   })  : _codec = codec,
         _soap = soap,
@@ -525,6 +549,7 @@ class NetworkGroupRunner {
     final sender = _senderFor(
       device: member.record.toNetworkDevice(),
       specYaml: specYaml,
+      capabilities: member.capabilities,
     );
     try {
       // The description, only if something in the plan rides SOAP — the
@@ -605,8 +630,15 @@ class NetworkGroupRunner {
   }
 
   bool _needsDescription(GroupNetworkPlan plan) {
+    // Asked of the sender, which owns the list. This was a fourth copy of it
+    // and the stalest: it treated websocket, mqtt, udp and lifx as SOAP, so a
+    // television or a Bambu in a group sent the runner off to fetch a
+    // /setup.xml the device does not serve, burning the whole 10s HTTP timeout
+    // before any send happened. Two other copies were retired to this same
+    // call in the change that introduced it; this one is two lines above the
+    // hunk that did it.
     bool soap(NetworkActionDto action) =>
-        action.transport != 'http' && action.transport != 'tcp-json';
+        !NetworkCommandSender.isIndependentTransport(action);
     return plan.direct.any((send) => soap(send.action)) ||
         plan.gated.any((toggle) =>
             soap(toggle.action) ||

@@ -210,8 +210,17 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     // speed — unit km/h when the spec says so, else the first caller-owned
     // numeric parameter. Encoder-filled parameters (auto: checksum, ...) are
     // never candidates: they carry no user intent.
+    // `userSettable`, not `auto == null`: the spec fills an `auto`, a
+    // `default` AND a `source`, and the whole reason that predicate lives in
+    // one place is that it was written at each call site and they disagreed.
+    // This was the site that got left behind. urevo's
+    // `ur_set_speed_and_slope` declares speed, a defaulted slope and an auto
+    // checksum, so the old test left slope in the running for "which parameter
+    // is the speed" — right only because `firstOrNull` happens to pick the
+    // first-declared one, and wrong the moment a spec declares its filler
+    // first.
     final candidates = speedEntry.command.parameters.where(
-      (p) => p.auto == null && isNumericValueType(p.valueType),
+      (p) => p.userSettable && isNumericValueType(p.valueType),
     );
     final parameter = (entitySpeedEntry != null
             ? candidates.where((p) => p.name == entitySpeedParam).firstOrNull

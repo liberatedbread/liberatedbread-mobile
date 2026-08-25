@@ -5029,6 +5029,7 @@ impl SseDecode for crate::api::device_api::NetworkCapabilitiesDto {
         let mut var_defaultScheme = <Option<String>>::sse_decode(deserializer);
         let mut var_tlsVerification = <Option<String>>::sse_decode(deserializer);
         let mut var_tlsSelfSigned = <bool>::sse_decode(deserializer);
+        let mut var_advertisedPortUnreliable = <bool>::sse_decode(deserializer);
         let mut var_protocolHandler = <Option<String>>::sse_decode(deserializer);
         return crate::api::device_api::NetworkCapabilitiesDto {
             signed_session: var_signedSession,
@@ -5036,6 +5037,7 @@ impl SseDecode for crate::api::device_api::NetworkCapabilitiesDto {
             default_scheme: var_defaultScheme,
             tls_verification: var_tlsVerification,
             tls_self_signed: var_tlsSelfSigned,
+            advertised_port_unreliable: var_advertisedPortUnreliable,
             protocol_handler: var_protocolHandler,
         };
     }
@@ -7543,6 +7545,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkCapabiliti
             self.default_scheme.into_into_dart().into_dart(),
             self.tls_verification.into_into_dart().into_dart(),
             self.tls_self_signed.into_into_dart().into_dart(),
+            self.advertised_port_unreliable.into_into_dart().into_dart(),
             self.protocol_handler.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -9640,6 +9643,7 @@ impl SseEncode for crate::api::device_api::NetworkCapabilitiesDto {
         <Option<String>>::sse_encode(self.default_scheme, serializer);
         <Option<String>>::sse_encode(self.tls_verification, serializer);
         <bool>::sse_encode(self.tls_self_signed, serializer);
+        <bool>::sse_encode(self.advertised_port_unreliable, serializer);
         <Option<String>>::sse_encode(self.protocol_handler, serializer);
     }
 }

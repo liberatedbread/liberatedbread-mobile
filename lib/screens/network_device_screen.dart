@@ -1576,19 +1576,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
+    // A Wrap, not a Row. These rows hold whatever the spec keyed, and a keyed
+    // button is a `FilledButton.tonalIcon` — icon, label and padding — so the
+    // width is the spec's to decide, not this layout's. Three of them
+    // (back/home/exit, which six TV specs bind) overflow a 360dp phone by
+    // 131px inside the Card's padding chain and clip the last key into
+    // something untappable; widget tests run at 800x600 and never see it. The
+    // input row and the leftover pile already wrap for exactly this reason.
     Widget labeledRow(List<NetworkEntityDto> entities,
-            {MainAxisAlignment alignment = MainAxisAlignment.center}) =>
+            {WrapAlignment alignment = WrapAlignment.center}) =>
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            mainAxisAlignment: alignment,
-            children: [
-              for (final entity in entities)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: _remoteButton(entity),
-                ),
-            ],
+          child: Wrap(
+            alignment: alignment,
+            spacing: 8,
+            runSpacing: 8,
+            children: [for (final entity in entities) _remoteButton(entity)],
           ),
         );
 
@@ -1605,8 +1608,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           Text('Remote',
               style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          if (power.isNotEmpty)
-            labeledRow(power, alignment: MainAxisAlignment.end),
+          if (power.isNotEmpty) labeledRow(power, alignment: WrapAlignment.end),
           if (nav.isNotEmpty) labeledRow(nav),
           if (up != null ||
               left != null ||
@@ -1811,6 +1813,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final kasaState = _isKasa ? _stateByCommand[entity.stateCommand] : null;
     final alias = kasaState?['alias'];
     final title = (alias != null && alias.isNotEmpty) ? alias : entity.name;
+    // A Switch needs both directions to be honest: one that can only turn off
+    // is a control whose on side is broken, which is worse than no Switch.
+    final drawsSwitch = turnOn != null && turnOff != null;
 
     return _card(
       child: Column(
@@ -1838,22 +1843,28 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                     width: 24,
                     height: 24,
                     child: CircularProgressIndicator(strokeWidth: 2))
-              else
+              else if (drawsSwitch)
                 Switch(
                   value: isOn ?? false,
-                  onChanged: (turnOn == null ||
-                          turnOff == null ||
-                          _lockedFor(turnOn) ||
-                          _lockedFor(turnOff))
+                  onChanged: (_lockedFor(turnOn) || _lockedFor(turnOff))
                       ? null
                       : (wantOn) =>
                           unawaited(_send(entity, wantOn ? turnOn : turnOff)),
                 ),
             ],
           ),
-          // A set whose power channel is a toggle resolves neither of the two
-          // roles the switch above draws, and drew nothing before this.
-          _unclaimedActions(entity, const {'turn_on', 'turn_off'}),
+          // Claimed = what this build actually DREW, not what the card knows
+          // how to draw. A one-way power entity — LG and Samsung both declare
+          // `commands: {turn_off: ...}` with a note saying to render it as a
+          // one-way off — resolves only `turn_off`, so the Switch above cannot
+          // be honest and is not drawn at all. Listing `turn_off` as claimed
+          // anyway filtered the entity's ONLY sendable action out of the row
+          // below, leaving a title, a state line and a dead toggle: the exact
+          // shape UnclaimedActions exists to end.
+          _unclaimedActions(
+            entity,
+            drawsSwitch ? const {'turn_on', 'turn_off'} : const {},
+          ),
         ],
       ),
     );

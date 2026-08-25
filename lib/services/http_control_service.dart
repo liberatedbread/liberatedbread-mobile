@@ -74,8 +74,28 @@ class HttpControlClient {
     required String identity,
     required TlsPolicy? policy,
   }) async {
-    _policies[host] = (identity: identity, policy: policy);
+    // The pin is loaded BEFORE the policy is published, and that order is the
+    // whole invariant. Published first, a handshake landing in the gap sees a
+    // registered trust-on-first-use policy with no pin in hand, takes the
+    // first-contact branch — accept anything, and overwrite the stored
+    // fingerprint with whatever just answered. Every caller awaiting this
+    // before connecting would also close the gap, but that is a discipline
+    // rather than a property, and there has already been one caller that got
+    // these arguments wrong.
     if (policy != null) await _trust?.prepare(identity);
+    _policies[host] = (identity: identity, policy: policy);
+  }
+
+  /// Forget everything remembered about [host].
+  ///
+  /// Called when a device screen goes away. Without it `_policies` and
+  /// `_trustedHosts` grow for the life of the process on a client every
+  /// surface shares — and `_trustedHosts` is the more pointed of the two,
+  /// because a host in it is one whose certificate the fallback rule accepts
+  /// without looking, forever, on the strength of one https request made once.
+  void forgetHost(String host) {
+    _policies.remove(host);
+    _trustedHosts.remove(host);
   }
 
   /// The TLS client, built on first https use so a plain-http app never pays

@@ -35,6 +35,13 @@ import 'tls_trust.dart';
 class NetworkCommandSender {
   final String host;
 
+  /// The device's hardware address, when discovery recovered one.
+  ///
+  /// Used for one thing: keying the certificate pin to something that is not
+  /// a DHCP lease. Null for a device that published none, which falls back to
+  /// the host and says so in the key.
+  final String? deviceMac;
+
   /// The SOAP/HTTP control port discovery established. Null for a device
   /// that advertised none — Kasa and Rabbit Air sends still work (their
   /// ports are their own), and an HTTP send throws the same transport
@@ -89,6 +96,7 @@ class NetworkCommandSender {
 
   NetworkCommandSender({
     required this.host,
+    this.deviceMac,
     required this.discoveredControlPort,
     required this.devicePort,
     required this.ssdpTargets,
@@ -140,19 +148,25 @@ class NetworkCommandSender {
 
   /// The port a control request goes to.
   ///
-  /// Roku is pinned to what its spec declares: it serves /keypress, /query,
-  /// /launch and /ecp-session only on 8060, whatever port the SSDP LOCATION
-  /// carried (a field TV advertised 7250). For everything else discovery wins,
-  /// because a device that told us where it is knows better than a catalogue
-  /// default — but the spec is the fallback rather than nothing.
+  /// Discovery wins, because a device that told us where it is knows better
+  /// than a catalogue default — unless the SPEC says its announcement lies.
+  /// `identification.advertised_port_unreliable` is that statement, and two
+  /// devices make it: a Roku serves /keypress, /query, /launch and
+  /// /ecp-session only on 8060 whatever its SSDP LOCATION carried (a field TV
+  /// advertised 7250), and the Envoy's mDNS answer still says 80 while
+  /// firmware 8.x serves the API only over HTTPS on 443 and refuses 80
+  /// outright.
   ///
-  /// That fallback was missing, and `identification.default_port` is declared
-  /// by 67 specs. A device reached WITHOUT a discovered port — added by hand,
-  /// or found by a transport that carries an address and no port — had
-  /// `controlPort` come back null and every send fail with "the device did not
-  /// advertise a control port", while the spec sitting right there said which
-  /// port to use.
-  int? get controlPort => isRoku
+  /// This used to read `isRoku ? spec : discovered`, which got the Roku right
+  /// and left the Envoy connecting to a port that refuses connections — the
+  /// one HTTPS device the TLS work above exists for. The difference between
+  /// them was never "is this a Roku"; it is a fact about the announcement,
+  /// and it belongs to the spec.
+  ///
+  /// Either way the spec's port is the fallback when discovery captured none:
+  /// 67 specs declare one, and a device added by hand used to fail every send
+  /// with "did not advertise a control port" while its spec said which.
+  int? get controlPort => (capabilities?.advertisedPortUnreliable ?? false)
       ? (capabilities?.defaultPort ?? discoveredControlPort)
       : (discoveredControlPort ?? capabilities?.defaultPort);
 
@@ -188,6 +202,13 @@ class NetworkCommandSender {
   /// Release the signed session, if one was opened. Safe to call twice.
   Future<void> close() async {
     _closed = true;
+    // The HTTP client outlives this sender — it is a Provider, shared by every
+    // surface — so what this sender taught it about this host has to go back
+    // with the sender. Otherwise both its maps grow for the life of the
+    // process, and a host stays on the blanket-trust fallback list forever on
+    // the strength of one request made once.
+    _http.forgetHost(host);
+    _tlsReady = null;
     final session = _ecp2;
     _ecp2 = null;
     _ecp2Opening = null;
@@ -429,17 +450,30 @@ class NetworkCommandSender {
     // sender: the pin has to be in the client's hand synchronously when
     // `badCertificateCallback` fires, and reading the store on every send
     // would be work for an answer that cannot change.
-    _tlsReady ??= _http.useTlsPolicy(
+    // Keyed through the shared rule, because the forget-device flow has to
+    // compute the same string to erase what this writes. Neither spec that
+    // asks to be pinned declares a `protocol_handler`, so the earlier
+    // expression resolved to a bare `device@<ip>` for both of them — the
+    // DHCP-lease keying its own comment said it was avoiding.
+    final identity = identityFor(mac: deviceMac, host: host);
+    // Memoized so the pin is read once, but NOT latched on failure: the read
+    // goes to the platform keychain, and one PlatformException (a locked
+    // keystore on a backgrounded app, a missing keyring on desktop) would
+    // otherwise complete this future with an error that every later send on
+    // this sender awaits and rethrows — every button on the screen dead over a
+    // storage blip. `_policies[host]` is written before the read anyway, so
+    // the send can proceed. Same shape as `_ecp2Opening` below, which clears
+    // itself in both arms.
+    _tlsReady ??= _http
+        .useTlsPolicy(
       host: host,
-      // The spec's identity, not the IP: a pin keyed by a DHCP lease is
-      // re-pinned every time the lease moves, which is the same as not
-      // pinning. `specYaml` names the product and `host` the unit, and until
-      // the network path carries a stable per-device id this pair is the best
-      // handle there is — stated here rather than implied, because it is the
-      // limit of what this pin is worth.
-      identity: '${capabilities?.protocolHandler ?? 'device'}@$host',
+      identity: identity,
       policy: TlsPolicy.parse(capabilities?.tlsVerification),
-    );
+    )
+        .catchError((Object e) {
+      Log.net.warning('could not load the certificate pin for $host', error: e);
+      _tlsReady = null;
+    });
     await _tlsReady;
 
     final port = controlPort;

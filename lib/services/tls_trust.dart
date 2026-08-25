@@ -85,6 +85,23 @@ class CertificatePinStore {
   Future<void> clear(String identity) => _store.delete(_key(identity));
 }
 
+/// How a device is keyed in the pin store.
+///
+/// The hardware address when it published one, because that is the only handle
+/// here that does not move: keying by IP re-pins on every DHCP lease — the
+/// same as not pinning — and hands the next tenant of that address the
+/// previous device's fingerprint to fail against. The host is the fallback,
+/// and the prefix says which kind of handle it is so the two can never
+/// collide.
+///
+/// One function because two callers have to agree exactly: the sender that
+/// writes the pin, and the forget-device flow that clears it. A key computed
+/// two ways is a pin nothing can erase.
+String identityFor({String? mac, String? host}) =>
+    (mac != null && mac.isNotEmpty)
+        ? 'mac:${mac.toLowerCase()}'
+        : 'host:${host ?? ''}';
+
 /// The sha256 of a certificate's DER encoding, lowercase hex — what gets
 /// pinned. The DER is the certificate's own bytes, so this changes when and
 /// only when the certificate does.
@@ -93,11 +110,18 @@ String certificateFingerprint(X509Certificate certificate) =>
 
 /// Builds the `badCertificateCallback` a policy implies.
 ///
-/// One place, three callers. `HttpControlClient`, `WsSession` and
-/// `MqttSession` each had their own answer to "should I accept this
-/// certificate", and the answers were `_trustedHosts.contains(host)`,
-/// `(_, __, ___) => true` and `(_) => true` — a host check and two blanket
-/// yeses, none of which had read what the spec asked for.
+/// Written for three callers and wired into one so far.
+///
+/// `HttpControlClient` reads it, and both specs that ask to be pinned ride
+/// plain HTTP, so the policy reaches every device that currently declares one.
+/// `WsSession` and `MqttSession` still answer this question themselves with an
+/// unconditional yes — honest today, because the specs on those transports
+/// declare `verification: none` and mean it (a television's certificate is
+/// self-signed with no chain, and the Roomba regenerates its own), but it is
+/// their answer rather than the spec's. Rust already parses
+/// `websocket.connect.tls.verification` and carries it across the FFI, where
+/// no Dart reads it; the day a spec pairs `trust_on_first_use` with a socket,
+/// that is the wiring to do, and this class is what it wires into.
 class TlsTrust {
   final CertificatePinStore _pins;
 
@@ -114,6 +138,20 @@ class TlsTrust {
   Future<void> prepare(String identity) async {
     final stored = await _pins.pin(identity);
     if (stored != null && stored.isNotEmpty) _known[identity] = stored;
+  }
+
+  /// Forget [identity]'s pin, in the store and in memory.
+  ///
+  /// The recovery a refused certificate points at. A pin is never replaced
+  /// silently — a changed certificate is a reset, new firmware, or somebody in
+  /// the middle, and this app cannot tell which — so forgetting the device has
+  /// to be a real way out rather than a sentence in a log line. Clearing the
+  /// in-memory copy matters as much as the stored one: `_known` lives on a
+  /// Provider that outlives any screen, so a store-only clear would leave the
+  /// old fingerprint deciding until the process ended.
+  Future<void> forget(String identity) async {
+    _known.remove(identity);
+    await _pins.clear(identity);
   }
 
   /// The callback for one device.

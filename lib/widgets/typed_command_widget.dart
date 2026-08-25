@@ -204,6 +204,19 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
     }
   }
 
+  /// Whether [name]'s value crosses the FFI on a send.
+  ///
+  /// A user-owned parameter always does. A defaulted one does only while its
+  /// section is open: the encoder resolves supplied value, then the spec's
+  /// `default`, so omitting it puts exactly the bytes on the wire that the
+  /// collapsed label promises.
+  bool _isSendable(String name) {
+    if (_showDefaulted) return true;
+    return widget.command.parameters
+        .where((p) => p.name == name)
+        .every((p) => p.userSettable);
+  }
+
   /// Parameters the spec DEFAULTS but does not compute — a value the device
   /// will accept from the caller, with an answer already supplied.
   ///
@@ -250,8 +263,16 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         specYaml: widget.specYaml,
         charUuid: widget.charUuid,
         commandName: widget.command.name,
+        // Only what is on screen. A defaulted parameter is sent when the
+        // user has opened the section and can see it; collapsed, it goes back
+        // to being the encoder's to fill — which is what the collapsed label
+        // says it is. Without this, expanding SmartDawn's `power_on`, dragging
+        // its DDP connection-id slider and collapsing again put the edited
+        // filler on the wire under a label promising the spec filled it in,
+        // with no control anywhere to see or undo it.
         params: {
-          for (final e in _values.entries) e.key: e.value.roundToDouble(),
+          for (final e in _values.entries)
+            if (_isSendable(e.key)) e.key: e.value.roundToDouble(),
         },
       );
       await ble.writeCharacteristic(

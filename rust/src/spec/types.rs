@@ -1320,6 +1320,18 @@ pub struct Identification {
     /// What to do about that certificate. See [`TlsPolicy`].
     #[serde(default)]
     pub tls: Option<TlsPolicy>,
+    /// The port the device ADVERTISES is not the port its API answers on, so
+    /// a consumer uses [`Self::default_port`] instead of what discovery
+    /// captured.
+    ///
+    /// Two devices are like this and both were reached at the wrong port by
+    /// anything that trusted the announcement: the Envoy's mDNS answer still
+    /// says 80 while firmware 8.x serves the API only over HTTPS on 443, and a
+    /// Roku serves its control paths only on 8060 whatever its SSDP LOCATION
+    /// carried. The Roku half used to be a consumer-side branch on "is this a
+    /// Roku", which is a fact about the device living in code.
+    #[serde(default)]
+    pub advertised_port_unreliable: bool,
     /// Other discovery hints (e.g. admore's `local_name_dfu`,
     /// `local_name_armband*`), parsed and preserved but not yet interpreted.
     #[serde(flatten)]
