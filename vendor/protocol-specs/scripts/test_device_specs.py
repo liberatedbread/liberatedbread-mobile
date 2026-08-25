@@ -701,6 +701,94 @@ def test_entity_roles_come_from_the_documented_vocabulary(specs):
                 )
 
 
+# Specs that describe a control surface no entity binds. Each is a spec whose
+# commands or endpoints a consumer can read but cannot draw, because the entity
+# layer is what every renderer consumes; naming them here is the difference
+# between a backlog and an oversight.
+#
+# A camera spec is NOT in this state and is exempted below: its surface is the
+# `camera:` block, which a viewer consumes directly.
+ENTITYLESS_CONTROL_SURFACES = {
+    "chromecast-castv2": "CASTV2 is a TLS protobuf session, not a request per "
+                         "command; the five commands are the vocabulary, and "
+                         "what binds them is a session a renderer cannot open "
+                         "yet.",
+    "logitech-harmony-hub": "The local WebSocket envelope is unconfirmed "
+                            "(the spec says so), so binding entities to it "
+                            "would promise a control nobody has driven.",
+    "parrot-arsdk-drone": "ARSDK is a binary UDP protocol after a TCP "
+                          "handshake; the commands document it, and no "
+                          "generic renderer reaches it.",
+    "pebble-smartwatch": "Pebble Protocol over a BT Classic serial link — "
+                         "outside both transports this catalogue's consumers "
+                         "speak.",
+    "squeezebox-slimproto": "SlimProto is a persistent binary TCP session; "
+                            "the four commands name CLI verbs that ride it.",
+    "vevor-vt256-thermal-imager": "Its fifteen commands ride the vendor's own "
+                                  "TCP session beside the MJPEG stream; the "
+                                  "stream is bindable through `camera:`, the "
+                                  "commands are not bindable at all yet.",
+    "xiaomi-miio": "miIO is an encrypted UDP protocol keyed by a token the "
+                   "spec cannot carry; the commands document the method "
+                   "names, not a surface a renderer can drive.",
+}
+
+
+def test_a_control_surface_is_bound_to_an_entity_or_named_as_a_backlog(specs):
+    """A spec with commands and no entities draws nothing, and says nothing.
+
+    `entities` is what every consumer renders from: a command nothing binds is
+    documentation, however complete. That is a legitimate state — several
+    protocols here are documented long before anything can speak them — but it
+    is indistinguishable from an entity layer nobody got round to writing, and
+    the reader who could tell them apart is the author who moved on.
+
+    So the state is allowed and named. A new spec in it fails until somebody
+    decides which of the two it is.
+    """
+    unbound = []
+    for device_id, spec in specs.items():
+        if spec.get("entities"):
+            continue
+        device = spec["device"]
+        # Nothing to bind: a standards reference, a device the catalogue only
+        # recognises, or one whose surface is a camera stream.
+        if is_reference(spec) or device.get("integration") == "identify_only":
+            continue
+        # A camera's surface IS the `camera:` block, which a viewer consumes
+        # directly. Only when that is the WHOLE surface, though: the Vevor
+        # imager declares a camera and fifteen commands, and those fifteen
+        # reach nothing, which is precisely the state being named here.
+        if spec.get("camera") and not spec.get("commands"):
+            continue
+        if not (spec.get("commands") or spec.get("http_endpoints")):
+            continue
+        if device_id in ENTITYLESS_CONTROL_SURFACES:
+            continue
+        unbound.append(device_id)
+
+    assert not unbound, (
+        f"these specs declare commands or endpoints and no entities, so a "
+        f"consumer has nothing to draw: {sorted(unbound)}. Give each an "
+        f"`entities` block binding its roles, or add it to "
+        f"ENTITYLESS_CONTROL_SURFACES with the reason no entity can bind it."
+    )
+
+
+def test_the_entityless_backlog_names_only_real_specs(specs):
+    """An exemption for a spec that gained entities is an exemption nobody
+    notices has stopped applying — and the list is how the backlog is read."""
+    stale = sorted(
+        device_id
+        for device_id in ENTITYLESS_CONTROL_SURFACES
+        if device_id not in specs or specs[device_id].get("entities")
+    )
+    assert not stale, (
+        f"ENTITYLESS_CONTROL_SURFACES names {stale}, which no longer need the "
+        f"exemption (gained entities, or left the catalogue). Remove them."
+    )
+
+
 def test_entity_names_are_unique_per_variant(specs):
     """Two controls with one name are indistinguishable on screen and in a
     consumer's send-in-flight bookkeeping, which keys on the name.

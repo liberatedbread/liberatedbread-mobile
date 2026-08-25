@@ -6,7 +6,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The catalogue validates against its own schema again — 188/188.** `main`
+  had been red: nineteen specs failed `validate_specs.py` and seventeen pytest
+  guards failed. The fifty-spec expansion wave was written against the schema as
+  it stood when its branch opened, and the spec-driven-controls work tightened
+  three things underneath it, so the merge produced a catalogue that no longer
+  satisfied its own rules with nothing re-running to say so. Sixteen specs
+  carried a bespoke block at a top level that had since closed — their protocol
+  facts were somewhere no reader would look for them — and three declared a
+  `websocket:` block in the shape the first-class one replaced, so nothing could
+  execute it. Each moved to where it belongs, verified by round-tripping every
+  file: the content is byte-identical as data.
+
+- **Thirteen `GET /` endpoints hedged "placeholder" in prose while leaving
+  `status` off**, which by the schema's own rule reads as active and usable —
+  the opposite of what the prose said.
+
+- **bambu-lab-lan's four MQTT commands named no topic.** On MQTT the topic IS
+  the address, so they had nowhere to publish. They address
+  `device/{serial}/request`, with the serial declared `credential:serial` — it
+  is read off the touchscreen beside the Access Code, which the credentials
+  block now records.
+
+- **euc-wheellog-ble carried a `ble_scan` method with an empty matcher.** The
+  spec already explained why nothing can match: the BLE module is generic and
+  the brand is only known from the first notification packets, which is a scan's
+  output and not its input. That is `discovery.none`, and it says so now.
+
+- Five sensors spelled degrees `°C`/`°F` where the unit vocabulary is `C`/`F`;
+  four reference specs claimed a `model` where a standard states `coverage`.
+
 ### Added
+
+- **A documented vocabulary for `entities[].commands` role names**, per
+  platform, pytest-enforced — the same shape as `entities[].key` and
+  `category`, and for the same reason: a list rather than a schema enum keeps
+  growth additive and never hard-fails a strict parser.
+
+  The key was declared as a bare `{"type": "object"}`, so any key validated,
+  while every consumer matches a closed set of role names and passes over the
+  rest without a word. A binding outside that set therefore reads as wired,
+  resolves nothing, and produces no error, no warning and no missing-control
+  note — the entity resolved its OTHER roles, so nothing reports it. Eighteen
+  bindings across seven specs had drifted out that way, found by a consumer
+  holding its resolver's table against this catalogue; the catalogue could not
+  have found them itself.
+
+  Four specs were wrong and are fixed: openevse's amp setpoint bound `turn_on`
+  (a fixed role, on a `number`); yeelight-cube-lamp spelled its colour roles
+  after the commands they name rather than after the vocabulary, so the lamp
+  offered power and brightness and nothing else; a name badge bound `set_text`
+  to the chunk write of a bitmap upload; and ember-mug's two selects have one
+  parameterless command per option, a shape no role describes — those bindings
+  moved into notes that state the gap, since it is a schema question and not a
+  per-device one. Two role groups the catalogue was already using are declared
+  rather than removed: `set_color_temperature` on a light, and power plus
+  `set_hvac_mode`/`set_fan_mode` on climate.
+
+- **govee-h5075's `request_history` states its nine pad bytes and its trailing
+  checksum in the template**, rather than leaving them to `fixed_length`. A
+  consumer that pads a short frame pads at the END, which would bury the
+  checksum at byte 10 and leave byte 19 zero; `packet_layout` has always said
+  where they go, and the template now says it in the form an encoder reads.
 
 - **Denon AVR-S720W** (`denon-avr-s720w`) — a 2016 KnOS-generation Denon
   receiver, and the registry's first AV receiver. Four surfaces on one
