@@ -4,6 +4,8 @@
 // The curated-layout resolver: spec `key` beats the historical name table,
 // nothing resolves twice, and what no slot claims stays renderable.
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/entity_keys.dart';
 
@@ -61,5 +63,75 @@ void main() {
     ]);
     final row = index.takeAll(const ['volume_up', 'mute', 'volume_down']);
     expect(row.map((e) => e.name), ['Volume Up', 'Volume Down']);
+  });
+
+  /// Every semantic key the catalogue can emit reaches a curated layout.
+  ///
+  /// The two vocabularies are written down in two repositories: upstream's
+  /// `ENTITY_KEY_VOCABULARY` (pytest-owned, in `scripts/test_device_specs.py`)
+  /// says what a spec may emit, and this app's layouts say what it can place.
+  /// Nothing bound them, and four tokens had already drifted apart — `exit`,
+  /// `menu`, `info` and `keyboard` were in the vocabulary with no slot in the
+  /// remote and no row in the fallback table, so eight TV specs' keyed Exit
+  /// landed in the wrap at the foot beside the colour keys.
+  ///
+  /// Nothing is DROPPED by that — leftovers always render, which is the
+  /// design — so the drift has no symptom a test could otherwise catch. This
+  /// is the catalogue-vs-code guard in the shape `ios_bonjour_catalogue_test`
+  /// established: read the vocabulary out of the vendored subtree, and fail
+  /// when this side does not know a token.
+  ///
+  /// A token may be exempted, but only by name and with a reason. That is the
+  /// difference between deciding not to place a key and forgetting it exists.
+  test('every upstream entity key has a layout slot or a stated exemption', () {
+    // Upstream owns the vocabulary in its pytest, as a Python set literal.
+    final source = File(
+      '${Directory.current.path}/vendor/protocol-specs/scripts/'
+      'test_device_specs.py',
+    );
+    expect(
+      source.existsSync(),
+      isTrue,
+      reason: '${source.path} is the vendored home of ENTITY_KEY_VOCABULARY. '
+          'If upstream moved it, this test must follow rather than quietly '
+          'stop checking.',
+    );
+    final block = RegExp(
+      r'ENTITY_KEY_VOCABULARY\s*=\s*frozenset\(\s*\{(.*?)\}\s*\)',
+      dotAll: true,
+    ).firstMatch(source.readAsStringSync());
+    expect(
+      block,
+      isNotNull,
+      reason: 'ENTITY_KEY_VOCABULARY is no longer a frozenset literal in '
+          '${source.path}; this test cannot read it and is silently passing.',
+    );
+    final upstream = RegExp('"([a-z0-9_]+)"')
+        .allMatches(block!.group(1)!)
+        .map((m) => m.group(1)!)
+        .toSet();
+    expect(upstream.length, greaterThan(20),
+        reason: 'read ${upstream.length} tokens, which is not a vocabulary — '
+            'the pattern above has stopped matching');
+
+    // Placed by a layout, or claimed by a surface that does not go through
+    // the index at all — each named, so removing one is a decision.
+    const exempt = <String, String>{
+      'keyboard': 'the text-entry field is found by its `text` platform, not '
+          'by key: it is a TextField beside the remote, not a key in it.',
+    };
+
+    final unplaced = [
+      for (final key in upstream)
+        if (!EntityKeyIndex.knowsKey(key) && !exempt.containsKey(key)) key,
+    ]..sort();
+    expect(
+      unplaced,
+      isEmpty,
+      reason: 'These keys are in upstream\'s vocabulary and no layout here '
+          'places them: $unplaced. A spec that emits one gets a control in '
+          'the leftover wrap rather than where a hand would look. Give each '
+          'a slot, or add it to `exempt` above with the reason.',
+    );
   });
 }

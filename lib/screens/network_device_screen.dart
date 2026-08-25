@@ -1553,27 +1553,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       keyOf: (entity) => entity.key,
       nameOf: (entity) => entity.name,
     );
-    final power = index.takeAll(const ['power', 'power_on', 'power_off']);
-    final nav = index.takeAll(const ['back', 'home']);
+    final power = index.takeAll(EntityKeyIndex.powerSlots);
+    final nav = index.takeAll(EntityKeyIndex.navSlots);
     final up = index.take('up');
     final left = index.take('left');
     final ok = index.take('ok');
     final right = index.take('right');
     final down = index.take('down');
-    final underPad = index.takeAll(const ['replay', 'options']);
-    final transport =
-        index.takeAll(const ['rewind', 'play_pause', 'fast_forward']);
-    final volume = index.takeAll(const ['volume_up', 'mute', 'volume_down']);
-    final channel = index.takeAll(const ['channel_up', 'channel_down']);
-    final misc = index.takeAll(const ['search', 'find_remote']);
-    final inputs = index.takeAll(const [
-      'input_hdmi1',
-      'input_hdmi2',
-      'input_hdmi3',
-      'input_hdmi4',
-      'input_av',
-      'input_tuner',
-    ]);
+    final underPad = index.takeAll(EntityKeyIndex.underPadSlots);
+    final transport = index.takeAll(EntityKeyIndex.transportSlots);
+    final volume = index.takeAll(EntityKeyIndex.volumeSlots);
+    final channel = index.takeAll(EntityKeyIndex.channelSlots);
+    final misc = index.takeAll(EntityKeyIndex.miscSlots);
+    final inputs = index.takeAll(EntityKeyIndex.inputSlots);
     final leftover = index.leftovers;
 
     final text = Theme.of(context).textTheme;
