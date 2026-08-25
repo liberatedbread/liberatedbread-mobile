@@ -1239,6 +1239,96 @@ fn the_shining_glasses_sibling_declares_no_pixel_surface_to_encode() {
     );
 }
 
+/// The two places the schema puts an mDNS service type, held together.
+///
+/// `device.identification.mdns_service_type` and every
+/// `device.discovery.methods[].mdns.service_type` state the same kind of fact,
+/// and the matcher used to read only the first. Most of the catalogue writes
+/// only the second: the scan's DNS-SD meta-query found those devices on the
+/// wire, nothing matched them to a spec, and they listed as unrecognised hosts
+/// with no controls — a Xiaomi on `_miio._udp`, a Parrot drone on
+/// `_arsdk._udp`, a Caséta bridge on `_lutron._tcp`, sixteen more whose only
+/// type is `_http._tcp`. A spec that follows the schema and writes its type
+/// where the schema puts it got nothing for it.
+///
+/// This walks the raw YAML rather than the parsed spec deliberately. It is the
+/// only assertion that can catch the two blocks drifting apart again, because
+/// it re-derives what the FILES say and holds the DTO to exactly that — no
+/// more (a type nobody declared would be a query on the wire for nothing) and
+/// no less.
+#[test]
+fn every_vendored_spec_reports_the_mdns_types_from_both_blocks() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+    use liberated_bread_core::spec::types::normalize_service_type;
+
+    let stems = |types: Vec<&str>| -> BTreeSet<String> {
+        types
+            .into_iter()
+            .map(normalize_service_type)
+            .filter(|stem| !stem.is_empty())
+            .collect()
+    };
+
+    let mut gained: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let name = path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let Some(device) = doc.get("device") else {
+            continue;
+        };
+
+        let from_identification: Vec<&str> = device
+            .get("identification")
+            .and_then(|i| i.get("mdns_service_type"))
+            .and_then(|t| t.as_str())
+            .into_iter()
+            .collect();
+        let from_discovery: Vec<&str> = device
+            .get("discovery")
+            .and_then(|d| d.get("methods"))
+            .and_then(|m| m.as_sequence())
+            .into_iter()
+            .flatten()
+            .filter(|method| method.get("type").and_then(|t| t.as_str()) == Some("mdns"))
+            .filter_map(|method| method.get("mdns")?.get("service_type")?.as_str())
+            .collect();
+
+        let declared = stems(
+            from_identification
+                .iter()
+                .chain(from_discovery.iter())
+                .copied()
+                .collect(),
+        );
+        let dto = load_device_spec(text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let reported = stems(dto.mdns_service_types.iter().map(String::as_str).collect());
+        assert_eq!(
+            reported, declared,
+            "{name} must report every mDNS type it declares, from either block"
+        );
+
+        if declared.len() > stems(from_identification).len() {
+            gained.push(name);
+        }
+    }
+
+    // A floor, not an exact list — the catalogue arrives by subtree pull and
+    // grows. It is here so the assertion above cannot pass vacuously: an
+    // implementation that read the identification block alone would still
+    // satisfy `reported == declared` on every spec that names its type there,
+    // and only this count notices that a third of the catalogue went missing.
+    assert!(
+        gained.len() >= 30,
+        "the discovery block should be carrying the type for ~34 specs, got {}: {gained:?}",
+        gained.len()
+    );
+}
+
 /// The discovery matchers, against the real catalogue: a platform's service
 /// type belongs to whichever spec the device's TXT records name, and to the
 /// catch-all only when none of them does.

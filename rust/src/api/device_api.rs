@@ -15,8 +15,9 @@ use crate::protocol::traits::DeviceProtocol;
 use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
-    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField,
-    Identification, MacPrefix, MacPrefixConfidence, Parameter, SecurityAdvisory, Service,
+    normalize_service_type, Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity,
+    FormatField, Identification, MacPrefix, MacPrefixConfidence, Parameter, SecurityAdvisory,
+    Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
@@ -95,9 +96,13 @@ pub struct DeviceSpecDto {
     /// only ever rank a device rather than identify one, and
     /// [`MacPrefixConfidence`] for how much any one of them is worth.
     pub mac_prefixes: Vec<MacPrefixDto>,
-    /// mDNS/DNS-SD service type this device announces itself under, e.g.
+    /// Every mDNS/DNS-SD service type this device announces itself under, e.g.
     /// `_hue._tcp`. The network counterpart of a vendor service UUID.
-    pub mdns_service_type: Option<String>,
+    ///
+    /// Plural because the schema states a type in two places and most of the
+    /// catalogue uses only the second; `DeviceInfo::mdns_service_types` unions
+    /// them and states why. Empty on a spec that names none.
+    pub mdns_service_types: Vec<String>,
     /// SSDP/UPnP search targets this device answers to.
     pub ssdp_search_targets: Vec<String>,
     /// Vendor LAN protocols this device is identified by answering (Kasa's
@@ -110,11 +115,12 @@ pub struct DeviceSpecDto {
     /// substring comparisons `local_name_prefixes`/`local_names` cannot
     /// express. See [`NameMatchDto`].
     pub name_matchers: Vec<NameMatchDto>,
-    /// TXT-record conditions narrowing this spec's mDNS service type from a
-    /// platform to this device. See [`TxtMatchGroupDto`].
+    /// TXT-record conditions narrowing one of this spec's mDNS service types
+    /// from a platform to this device. See [`TxtMatchGroupDto`].
     pub txt_match_groups: Vec<TxtMatchGroupDto>,
-    /// Whether this spec is its service type's catch-all.
-    pub platform_fallback: bool,
+    /// The service types this spec is the catch-all for, as
+    /// `normalize_service_type` stems. See [`SpecIdentityDto`].
+    pub platform_fallback_types: Vec<String>,
     pub services: Vec<ServiceDto>,
     /// Named consumer-side protocol handler (`daniao_ddp`, `rabbit_air`,
     /// `roomba_mqtt`, …), when the spec declares one. Surfaced so Dart can
@@ -702,8 +708,12 @@ pub struct SpecIdentityDto {
     pub service_uuids: Vec<String>,
     pub company_ids: Vec<u16>,
     pub mac_prefixes: Vec<MacPrefixDto>,
-    /// mDNS service type, for the Wi-Fi scan path. Absent on a BLE-only spec.
-    pub mdns_service_type: Option<String>,
+    /// Every mDNS service type this spec claims, for the Wi-Fi scan path.
+    /// Empty on a BLE-only spec. Plural because the schema states a type in
+    /// two blocks and 34 vendored specs use only the discovery one; a consumer
+    /// also seeds its DNS-SD queries from this, so a type missing here is a
+    /// device the scan never even asks for.
+    pub mdns_service_types: Vec<String>,
     /// SSDP search targets, for the Wi-Fi scan path.
     pub ssdp_search_targets: Vec<String>,
     /// Vendor LAN protocols this device is identified by answering (Kasa). A
@@ -718,15 +728,22 @@ pub struct SpecIdentityDto {
     /// regex a security advisory hangs on, the substring an OBD adapter is
     /// known by. Matched alongside those two, into the same name axis.
     pub name_matchers: Vec<NameMatchDto>,
-    /// TXT-record conditions that narrow this spec's mDNS service type from a
-    /// PLATFORM to this device. Any group holding admits the service type;
+    /// TXT-record conditions that narrow an mDNS service type from a PLATFORM
+    /// to this device. Any group governing that type and holding admits it;
     /// declaring groups that all fail withholds it — which is what stops
     /// ratgdo claiming every ESPHome node on the LAN.
     pub txt_match_groups: Vec<TxtMatchGroupDto>,
-    /// This spec is its service type's catch-all: it claims the type only
-    /// when no narrowed spec did (esphome-device). See
+    /// The service types this spec is the catch-all for, as
+    /// `normalize_service_type` stems: it claims one of these only when no
+    /// narrowed spec did (esphome-device on `_esphomelib._tcp`). See
     /// [`match_network_device`].
-    pub platform_fallback: bool,
+    ///
+    /// A list rather than a flag because a spec can hold both roles at once:
+    /// esphome-device is the catch-all for `_esphomelib._tcp` and, on the very
+    /// same spec, a NARROWED claimant of `_http._tcp` (a `config_hash` record
+    /// is what separates an API-less node from every other web server). One
+    /// flag would have made it stand aside from a claim it had earned.
+    pub platform_fallback_types: Vec<String>,
 }
 
 /// One spec that a scanned device might be, and why we think so.
@@ -919,13 +936,13 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
             service_uuids: spec.service_uuids.clone(),
             company_ids: spec.company_ids.clone(),
             mac_prefixes: spec.mac_prefixes.clone(),
-            mdns_service_type: spec.mdns_service_type.clone(),
+            mdns_service_types: spec.mdns_service_types.clone(),
             ssdp_search_targets: spec.ssdp_search_targets.clone(),
             lan_protocols: spec.lan_protocols.clone(),
             default_port: spec.default_port,
             name_matchers: spec.name_matchers.clone(),
             txt_match_groups: spec.txt_match_groups.clone(),
-            platform_fallback: spec.platform_fallback,
+            platform_fallback_types: spec.platform_fallback_types.clone(),
         }
     }
 }
@@ -952,6 +969,33 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 None => hidden_entity_names.push(entity.name.clone()),
             }
         }
+
+        // Both narrowing rules — a TXT group and the catch-all flag — are
+        // stated per service type, and the schema lets one name no type at
+        // all. Resolved here, once, into the concrete stems the matcher
+        // compares against, so no consumer has to re-derive the association:
+        // a rule that names a type governs that type, and a rule that names
+        // none is about the identification block's own — falling back to
+        // every type the spec declares when it has no identification type
+        // either, which is the reading a `None` used to get.
+        let mdns_service_types = spec.device.mdns_service_types();
+        let declared_stems: Vec<String> = mdns_service_types
+            .iter()
+            .map(|t| normalize_service_type(t))
+            .collect();
+        let own_stem = ident
+            .and_then(|i| i.mdns_service_type.as_deref())
+            .map(normalize_service_type);
+        let governed = |named: Option<String>| -> Vec<String> {
+            match named
+                .map(|t| normalize_service_type(&t))
+                .or_else(|| own_stem.clone())
+            {
+                Some(one) => vec![one],
+                None => declared_stems.clone(),
+            }
+        };
+
         Self {
             image_upload: image_upload_dto(spec),
             stored_upload: stored_upload_dto(spec),
@@ -981,7 +1025,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .and_then(|i| i.mac_prefixes.as_ref())
                 .map(|prefixes| prefixes.iter().map(MacPrefixDto::from).collect())
                 .unwrap_or_default(),
-            mdns_service_type: ident.and_then(|i| i.mdns_service_type.clone()),
+            mdns_service_types,
             ssdp_search_targets: ident
                 .and_then(|i| i.ssdp_search_targets.clone())
                 .unwrap_or_default(),
@@ -1009,18 +1053,21 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                         .collect::<Vec<_>>()
                 })
                 .collect(),
-            // Both narrowing rules are per service type, and the only one
-            // this identity can match on is its own — so they are resolved
-            // against it here rather than carried across the FFI and
-            // re-associated by every caller. A group or a catch-all flag
-            // that names a DIFFERENT service type governs a match this
-            // build does not make, and is dropped rather than misapplied.
+            // Every group crosses the boundary now, each carrying the types it
+            // governs. Groups naming a type other than the identification
+            // block's used to be DROPPED here, on the reasoning that this
+            // build matched no other type — which was true only while a spec
+            // had one type. It cost esphome-device its `_http._tcp` condition
+            // and Denon its `_airplay._tcp`/`_raop._tcp` ones, so those types
+            // would have come back unnarrowed the moment the union admitted
+            // them: every web server on the link an ESPHome node, every
+            // AirPlay speaker a Denon receiver.
             txt_match_groups: spec
                 .device
                 .mdns_txt_groups()
                 .into_iter()
-                .filter(|(service_type, _)| governs_own_type(service_type.as_deref(), ident))
-                .map(|(_, conditions)| TxtMatchGroupDto {
+                .map(|(service_type, conditions)| TxtMatchGroupDto {
+                    service_types: governed(service_type),
                     conditions: conditions
                         .into_iter()
                         .map(|c| TxtMatchDto {
@@ -1031,11 +1078,12 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                         .collect(),
                 })
                 .collect(),
-            platform_fallback: spec
+            platform_fallback_types: spec
                 .device
                 .mdns_fallback_types()
-                .iter()
-                .any(|service_type| governs_own_type(service_type.as_deref(), ident)),
+                .into_iter()
+                .flat_map(governed)
+                .collect(),
             services: spec.services.iter().map(ServiceDto::from).collect(),
             protocol_handler: spec.protocol_handler.clone(),
             entities,
@@ -3433,10 +3481,27 @@ pub struct TxtMatchDto {
     pub value: Option<String>,
 }
 
-/// One AND-group of TXT conditions. A spec is satisfied when ANY group holds;
-/// a struct rather than a bare `Vec<Vec<_>>` because the FFI has no nesting.
+/// One AND-group of TXT conditions, and the mDNS service types it narrows. A
+/// spec is satisfied for a type when ANY group governing that type holds; a
+/// struct rather than a bare `Vec<Vec<_>>` because the FFI has no nesting.
 #[derive(Debug, Clone)]
 pub struct TxtMatchGroupDto {
+    /// The service types these conditions govern, as `normalize_service_type`
+    /// stems.
+    ///
+    /// Narrowing is PER SERVICE TYPE and pooling it is a real bug, not a
+    /// simplification: esphome-device conditions `_http._tcp` on a
+    /// `config_hash` record while claiming `_esphomelib._tcp` outright, so a
+    /// pooled group would apply the web server's condition to the native API's
+    /// service and drop every ESPHome node that publishes `config_hash` on the
+    /// other one. Denon is the same shape three ways over — a `deviceid` OUI
+    /// on `_airplay._tcp`, an `am` model prefix on `_raop._tcp`, a `cpath` on
+    /// `_spotify-connect._tcp`.
+    ///
+    /// Empty means the group governs nothing, which only happens on a spec
+    /// that declares no service types at all — there is nothing for it to
+    /// narrow either way.
+    pub service_types: Vec<String>,
     pub conditions: Vec<TxtMatchDto>,
 }
 
@@ -3509,32 +3574,46 @@ fn txt_group_holds(
         })
 }
 
-/// Whether the device's TXT records satisfy a spec's mDNS narrowing — any
-/// group holding is enough. A spec that declares none is unnarrowed and
-/// claims its service type outright, which is the historical behaviour.
+/// The groups that narrow ONE service type — the ones whose `service_types`
+/// name it.
+///
+/// The filter is the whole point: a spec's groups are not interchangeable.
+/// esphome-device's `config_hash` condition is about `_http._tcp` alone, and
+/// letting it speak for `_esphomelib._tcp` would drop every ESPHome node that
+/// publishes that record on the native API's service instead — which, per the
+/// spec's own notes, is every node that has an API at all.
+fn groups_governing<'a>(
+    groups: &'a [TxtMatchGroupDto],
+    wanted: &'a str,
+) -> impl Iterator<Item = &'a TxtMatchGroupDto> {
+    groups
+        .iter()
+        .filter(move |group| group.service_types.iter().any(|t| t == wanted))
+}
+
+/// Whether this spec narrows `wanted` at all, rather than claiming it
+/// outright. A spec is only a candidate to displace a catch-all when it does.
+fn is_narrowed(groups: &[TxtMatchGroupDto], wanted: &str) -> bool {
+    groups_governing(groups, wanted).next().is_some()
+}
+
+/// Whether the device's TXT records satisfy a spec's narrowing OF ONE SERVICE
+/// TYPE — any group governing that type and holding is enough. A spec that
+/// declares no group for it is unnarrowed there and claims it outright, which
+/// is the historical behaviour.
 fn txt_conditions_hold(
     groups: &[TxtMatchGroupDto],
     txt: &std::collections::HashMap<String, String>,
+    wanted: &str,
 ) -> bool {
-    groups.is_empty() || groups.iter().any(|group| txt_group_holds(group, txt))
-}
-
-/// Whether a discovery method's service type is the one the identification
-/// block declares — the only service type this build matches on.
-///
-/// `None` means the method named none, which the schema reads as the
-/// identification block's own. Compared on the [`normalize_service_type`]
-/// stem, so a trailing dot is not a missed rule.
-fn governs_own_type(
-    method_type: Option<&str>,
-    ident: Option<&crate::spec::types::Identification>,
-) -> bool {
-    let Some(method_type) = method_type else {
-        return true;
-    };
-    ident
-        .and_then(|i| i.mdns_service_type.as_deref())
-        .is_some_and(|own| normalize_service_type(own) == normalize_service_type(method_type))
+    let mut narrowed = false;
+    for group in groups_governing(groups, wanted) {
+        narrowed = true;
+        if txt_group_holds(group, txt) {
+            return true;
+        }
+    }
+    !narrowed
 }
 
 /// Compare one spec identity against one observation. The single place the
@@ -3693,10 +3772,7 @@ fn match_network_axes(
     // mDNS instance name would surface on the Wi-Fi tab -- the network analogue
     // of treating an empty prefix as a wildcard. The name prefix is a
     // corroborating signal here, never an admitting one.
-    let declares_mdns = identity
-        .mdns_service_type
-        .as_ref()
-        .is_some_and(|t| !t.is_empty());
+    let declares_mdns = identity.mdns_service_types.iter().any(|t| !t.is_empty());
     if !declares_mdns
         && identity.ssdp_search_targets.is_empty()
         && identity.lan_protocols.is_empty()
@@ -3717,22 +3793,23 @@ fn match_network_axes(
         }
     };
 
-    if let Some(declared) = identity
-        .mdns_service_type
-        .as_ref()
-        .filter(|t| !t.is_empty())
-    {
+    // Every type the spec names, not just the identification block's. A spec
+    // can legitimately be found under several — a Denon answers to AirPlay,
+    // RAOP and Spotify Connect — and each is judged on its own rules below.
+    for declared in identity.mdns_service_types.iter().filter(|t| !t.is_empty()) {
         // Specs write `_hue._tcp.local.`, `_hue._tcp.local` and `_hue._tcp`
         // interchangeably, and so do devices. Compare on the trimmed stem so a
         // trailing-dot difference is not a missed device.
         let wanted = normalize_service_type(declared);
         // A service type can be a PLATFORM's rather than a product's:
-        // `_esphomelib._tcp` is every ESPHome node ever flashed. Two rules
-        // keep one board's spec from claiming all of them — the spec's own
-        // TXT conditions must hold, and a catch-all spec stands aside for
-        // any narrowed spec whose conditions did.
-        let narrowed_ok = txt_conditions_hold(&identity.txt_match_groups, &device.txt);
-        let fallback_ok = !identity.platform_fallback || !narrowed_types.contains(&wanted);
+        // `_esphomelib._tcp` is every ESPHome node ever flashed, `_http._tcp`
+        // every web server on the link. Two rules keep one board's spec from
+        // claiming all of them — the spec's TXT conditions FOR THIS TYPE must
+        // hold, and a spec that is this type's catch-all stands aside for any
+        // narrowed spec whose conditions did.
+        let narrowed_ok = txt_conditions_hold(&identity.txt_match_groups, &device.txt, &wanted);
+        let fallback_ok = !identity.platform_fallback_types.contains(&wanted)
+            || !narrowed_types.contains(&wanted);
         if device_types.contains(&wanted) && narrowed_ok && fallback_ok {
             record(declared, &wanted);
         }
@@ -3824,16 +3901,6 @@ fn is_shared_service_type(normalized: &str) -> bool {
     )
 }
 
-/// Reduce a DNS-SD service type to a comparable stem: lowercase, no trailing
-/// dot, no `.local` suffix.
-fn normalize_service_type(raw: &str) -> String {
-    let lower = raw.trim().trim_end_matches('.').to_ascii_lowercase();
-    lower
-        .strip_suffix(".local")
-        .map(str::to_owned)
-        .unwrap_or(lower)
-}
-
 /// Find every spec matching a device we are already talking to, with the
 /// reasons it matched.
 ///
@@ -3895,21 +3962,30 @@ pub fn match_network_device(
         .map(|t| normalize_service_type(t))
         .collect();
     // Which advertised service types a NARROWED spec claims for this device:
-    // one that declares TXT conditions and whose conditions hold. The
-    // catch-all spec for such a type stands aside — that is what
-    // `platform_fallback` buys, and it is a cross-spec question, so it is
+    // one that declares TXT conditions on that type and whose conditions hold.
+    // The catch-all spec for such a type stands aside — that is what
+    // `platform_fallback_types` buys, and it is a cross-spec question, so it is
     // answered here rather than inside the per-identity axes.
+    //
+    // Asked per type rather than per spec, because a spec can be the catch-all
+    // for one of its types and a narrowed claimant of another (esphome-device
+    // is exactly that). Judging the spec as a whole would either let its
+    // catch-all role suppress a claim it had earned elsewhere, or let a
+    // narrowing on one type displace catch-alls on a type it says nothing
+    // about.
     let narrowed_types: Vec<String> = identities
         .iter()
-        .filter(|identity| {
-            !identity.platform_fallback
-                && !identity.txt_match_groups.is_empty()
-                && txt_conditions_hold(&identity.txt_match_groups, &device.txt)
-        })
-        .filter_map(|identity| {
-            let declared = identity.mdns_service_type.as_ref()?;
-            let wanted = normalize_service_type(declared);
-            device_types.contains(&wanted).then_some(wanted)
+        .flat_map(|identity| {
+            identity
+                .mdns_service_types
+                .iter()
+                .map(|declared| normalize_service_type(declared))
+                .filter(|wanted| {
+                    !identity.platform_fallback_types.contains(wanted)
+                        && device_types.contains(wanted)
+                        && is_narrowed(&identity.txt_match_groups, wanted)
+                        && txt_conditions_hold(&identity.txt_match_groups, &device.txt, wanted)
+                })
         })
         .collect();
     rank_matches(&identities, |identity| {
@@ -6262,7 +6338,7 @@ http_endpoints:
     fn lan_protocol_identity() -> SpecIdentityDto {
         let mut identity = network_identity();
         identity.local_name_prefix_clear();
-        identity.mdns_service_type = None;
+        identity.mdns_service_types.clear();
         identity.ssdp_search_targets.clear();
         identity.lan_protocols = vec!["tplink-smarthome".into()];
         identity
@@ -6416,10 +6492,7 @@ device:
     #[test]
     fn network_identity_axes_reach_the_dto() {
         let dto = load_device_spec(NETWORK_YAML.into()).unwrap();
-        assert_eq!(
-            dto.mdns_service_type.as_deref(),
-            Some("_testbridge._tcp.local.")
-        );
+        assert_eq!(dto.mdns_service_types, vec!["_testbridge._tcp.local."]);
         assert_eq!(dto.ssdp_search_targets, vec!["urn:test:device:bridge:1"]);
         assert_eq!(dto.default_port, Some(8081));
     }
@@ -6481,7 +6554,7 @@ device:
         // port was admitting they claimed every host answering on it: any
         // router admin page came back "Possibly Rachio".
         let mut identity = network_identity();
-        identity.mdns_service_type = None;
+        identity.mdns_service_types.clear();
         identity.ssdp_search_targets = vec![];
         identity.local_name_prefixes = vec![];
 
@@ -6532,7 +6605,7 @@ device:
         // the router, the printer and the NAS were each reported Strong and
         // badged "Philips Hue Bridge".
         let mut identity = network_identity();
-        identity.mdns_service_type = None;
+        identity.mdns_service_types.clear();
         identity.ssdp_search_targets = vec!["upnp:rootdevice".into()];
         identity.local_name_prefix_clear();
 
@@ -6557,7 +6630,7 @@ device:
         // sprinkler controller.
         for shared in ["_airplay._tcp.local.", "_hap._tcp.local."] {
             let mut identity = network_identity();
-            identity.mdns_service_type = Some(shared.into());
+            identity.mdns_service_types = vec![shared.into()];
             identity.ssdp_search_targets = vec![];
             identity.local_name_prefix_clear();
 
@@ -6613,7 +6686,7 @@ device:
         // comment states — so it must not be half of a "two signals agree"
         // promotion, for the same reason a shared block is not.
         let mut identity = network_identity();
-        identity.mdns_service_type = None;
+        identity.mdns_service_types.clear();
         identity.ssdp_search_targets = vec![];
 
         let device = NetworkDeviceDto {
@@ -6631,7 +6704,7 @@ device:
         // promotes; the full identity matches on its own mDNS type.
         let mut weak = network_identity();
         weak.device_name = "Weak".into();
-        weak.mdns_service_type = None;
+        weak.mdns_service_types.clear();
         weak.ssdp_search_targets = vec!["upnp:rootdevice".into()];
         weak.local_name_prefixes = vec![];
 

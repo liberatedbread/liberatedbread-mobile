@@ -61,7 +61,7 @@ const Set<String> _appOwned = {
 
 /// Reduce a DNS-SD type to the form NSBonjourServices wants: lowercase, no
 /// trailing dot, no `.local` suffix. Mirrors `normalize_service_type` in
-/// rust/src/api/device_api.rs, because a mismatch in either direction is a
+/// rust/src/spec/types.rs, because a mismatch in either direction is a
 /// device that does not appear.
 String _normalize(String raw) {
   final lower = raw.trim().replaceAll(RegExp(r'\.+$'), '').toLowerCase();

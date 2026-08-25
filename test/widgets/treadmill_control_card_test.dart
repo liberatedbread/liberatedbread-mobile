@@ -24,7 +24,7 @@ const _char = '0000fe02-0000-1000-8000-00805f9b34fb';
 // Stop (1) from Pause (2).
 final _treadmillSpec = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Test Walking Pad',
@@ -37,7 +37,7 @@ final _treadmillSpec = DeviceSpecDto(
   serviceUuids: const [_svc],
   companyIds: Uint16List(0),
   macPrefixes: const [],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: const [],
   lanProtocols: const [],
   defaultPort: null,
@@ -306,7 +306,7 @@ void main() {
     // widgets below remain the control surface.
     final spec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Odd Treadmill',
@@ -319,7 +319,7 @@ void main() {
       serviceUuids: const [_svc],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -503,7 +503,7 @@ void main() {
     // historical name list would pick. The entity binding must win.
     final spec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Keyed Pad',
@@ -516,7 +516,7 @@ void main() {
       serviceUuids: const [_svc],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -591,7 +591,7 @@ void main() {
 /// — the shape most of these tests need with a different command set each.
 DeviceSpecDto _spedSpec(List<CommandDto> commands) => DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Treadmill',
@@ -604,7 +604,7 @@ DeviceSpecDto _spedSpec(List<CommandDto> commands) => DeviceSpecDto(
       serviceUuids: const [_svc],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,

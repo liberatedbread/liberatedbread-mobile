@@ -15,7 +15,7 @@ import '../fakes/fake_spec_codec.dart';
 
 final _spec = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Ember Mug',
@@ -28,7 +28,7 @@ final _spec = DeviceSpecDto(
   serviceUuids: const [],
   companyIds: Uint16List.fromList(const [961]),
   macPrefixes: const [],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: const [],
   lanProtocols: const [],
   defaultPort: null,

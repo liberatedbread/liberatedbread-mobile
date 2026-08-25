@@ -3826,7 +3826,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
         let mut var_companyIds = <Vec<u16>>::sse_decode(deserializer);
         let mut var_macPrefixes =
             <Vec<crate::api::device_api::MacPrefixDto>>::sse_decode(deserializer);
-        let mut var_mdnsServiceType = <Option<String>>::sse_decode(deserializer);
+        let mut var_mdnsServiceTypes = <Vec<String>>::sse_decode(deserializer);
         let mut var_ssdpSearchTargets = <Vec<String>>::sse_decode(deserializer);
         let mut var_lanProtocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_defaultPort = <Option<u16>>::sse_decode(deserializer);
@@ -3834,7 +3834,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             <Vec<crate::api::device_api::NameMatchDto>>::sse_decode(deserializer);
         let mut var_txtMatchGroups =
             <Vec<crate::api::device_api::TxtMatchGroupDto>>::sse_decode(deserializer);
-        let mut var_platformFallback = <bool>::sse_decode(deserializer);
+        let mut var_platformFallbackTypes = <Vec<String>>::sse_decode(deserializer);
         let mut var_services = <Vec<crate::api::device_api::ServiceDto>>::sse_decode(deserializer);
         let mut var_protocolHandler = <Option<String>>::sse_decode(deserializer);
         let mut var_entities = <Vec<crate::api::device_api::EntityDto>>::sse_decode(deserializer);
@@ -3859,13 +3859,13 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             service_uuids: var_serviceUuids,
             company_ids: var_companyIds,
             mac_prefixes: var_macPrefixes,
-            mdns_service_type: var_mdnsServiceType,
+            mdns_service_types: var_mdnsServiceTypes,
             ssdp_search_targets: var_ssdpSearchTargets,
             lan_protocols: var_lanProtocols,
             default_port: var_defaultPort,
             name_matchers: var_nameMatchers,
             txt_match_groups: var_txtMatchGroups,
-            platform_fallback: var_platformFallback,
+            platform_fallback_types: var_platformFallbackTypes,
             services: var_services,
             protocol_handler: var_protocolHandler,
             entities: var_entities,
@@ -5914,7 +5914,7 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
         let mut var_companyIds = <Vec<u16>>::sse_decode(deserializer);
         let mut var_macPrefixes =
             <Vec<crate::api::device_api::MacPrefixDto>>::sse_decode(deserializer);
-        let mut var_mdnsServiceType = <Option<String>>::sse_decode(deserializer);
+        let mut var_mdnsServiceTypes = <Vec<String>>::sse_decode(deserializer);
         let mut var_ssdpSearchTargets = <Vec<String>>::sse_decode(deserializer);
         let mut var_lanProtocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_defaultPort = <Option<u16>>::sse_decode(deserializer);
@@ -5922,7 +5922,7 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
             <Vec<crate::api::device_api::NameMatchDto>>::sse_decode(deserializer);
         let mut var_txtMatchGroups =
             <Vec<crate::api::device_api::TxtMatchGroupDto>>::sse_decode(deserializer);
-        let mut var_platformFallback = <bool>::sse_decode(deserializer);
+        let mut var_platformFallbackTypes = <Vec<String>>::sse_decode(deserializer);
         return crate::api::device_api::SpecIdentityDto {
             device_name: var_deviceName,
             manufacturer: var_manufacturer,
@@ -5936,13 +5936,13 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
             service_uuids: var_serviceUuids,
             company_ids: var_companyIds,
             mac_prefixes: var_macPrefixes,
-            mdns_service_type: var_mdnsServiceType,
+            mdns_service_types: var_mdnsServiceTypes,
             ssdp_search_targets: var_ssdpSearchTargets,
             lan_protocols: var_lanProtocols,
             default_port: var_defaultPort,
             name_matchers: var_nameMatchers,
             txt_match_groups: var_txtMatchGroups,
-            platform_fallback: var_platformFallback,
+            platform_fallback_types: var_platformFallbackTypes,
         };
     }
 }
@@ -6070,9 +6070,11 @@ impl SseDecode for crate::api::device_api::TxtMatchDto {
 impl SseDecode for crate::api::device_api::TxtMatchGroupDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_serviceTypes = <Vec<String>>::sse_decode(deserializer);
         let mut var_conditions =
             <Vec<crate::api::device_api::TxtMatchDto>>::sse_decode(deserializer);
         return crate::api::device_api::TxtMatchGroupDto {
+            service_types: var_serviceTypes,
             conditions: var_conditions,
         };
     }
@@ -6884,13 +6886,13 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DeviceSpecDto {
             self.service_uuids.into_into_dart().into_dart(),
             self.company_ids.into_into_dart().into_dart(),
             self.mac_prefixes.into_into_dart().into_dart(),
-            self.mdns_service_type.into_into_dart().into_dart(),
+            self.mdns_service_types.into_into_dart().into_dart(),
             self.ssdp_search_targets.into_into_dart().into_dart(),
             self.lan_protocols.into_into_dart().into_dart(),
             self.default_port.into_into_dart().into_dart(),
             self.name_matchers.into_into_dart().into_dart(),
             self.txt_match_groups.into_into_dart().into_dart(),
-            self.platform_fallback.into_into_dart().into_dart(),
+            self.platform_fallback_types.into_into_dart().into_dart(),
             self.services.into_into_dart().into_dart(),
             self.protocol_handler.into_into_dart().into_dart(),
             self.entities.into_into_dart().into_dart(),
@@ -8260,13 +8262,13 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::SpecIdentityDto {
             self.service_uuids.into_into_dart().into_dart(),
             self.company_ids.into_into_dart().into_dart(),
             self.mac_prefixes.into_into_dart().into_dart(),
-            self.mdns_service_type.into_into_dart().into_dart(),
+            self.mdns_service_types.into_into_dart().into_dart(),
             self.ssdp_search_targets.into_into_dart().into_dart(),
             self.lan_protocols.into_into_dart().into_dart(),
             self.default_port.into_into_dart().into_dart(),
             self.name_matchers.into_into_dart().into_dart(),
             self.txt_match_groups.into_into_dart().into_dart(),
-            self.platform_fallback.into_into_dart().into_dart(),
+            self.platform_fallback_types.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -8467,7 +8469,11 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::TxtMatchDto>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::TxtMatchGroupDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [self.conditions.into_into_dart().into_dart()].into_dart()
+        [
+            self.service_types.into_into_dart().into_dart(),
+            self.conditions.into_into_dart().into_dart(),
+        ]
+        .into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
@@ -8780,7 +8786,7 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
         <Vec<u16>>::sse_encode(self.company_ids, serializer);
         <Vec<crate::api::device_api::MacPrefixDto>>::sse_encode(self.mac_prefixes, serializer);
-        <Option<String>>::sse_encode(self.mdns_service_type, serializer);
+        <Vec<String>>::sse_encode(self.mdns_service_types, serializer);
         <Vec<String>>::sse_encode(self.ssdp_search_targets, serializer);
         <Vec<String>>::sse_encode(self.lan_protocols, serializer);
         <Option<u16>>::sse_encode(self.default_port, serializer);
@@ -8789,7 +8795,7 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
             self.txt_match_groups,
             serializer,
         );
-        <bool>::sse_encode(self.platform_fallback, serializer);
+        <Vec<String>>::sse_encode(self.platform_fallback_types, serializer);
         <Vec<crate::api::device_api::ServiceDto>>::sse_encode(self.services, serializer);
         <Option<String>>::sse_encode(self.protocol_handler, serializer);
         <Vec<crate::api::device_api::EntityDto>>::sse_encode(self.entities, serializer);
@@ -10264,7 +10270,7 @@ impl SseEncode for crate::api::device_api::SpecIdentityDto {
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
         <Vec<u16>>::sse_encode(self.company_ids, serializer);
         <Vec<crate::api::device_api::MacPrefixDto>>::sse_encode(self.mac_prefixes, serializer);
-        <Option<String>>::sse_encode(self.mdns_service_type, serializer);
+        <Vec<String>>::sse_encode(self.mdns_service_types, serializer);
         <Vec<String>>::sse_encode(self.ssdp_search_targets, serializer);
         <Vec<String>>::sse_encode(self.lan_protocols, serializer);
         <Option<u16>>::sse_encode(self.default_port, serializer);
@@ -10273,7 +10279,7 @@ impl SseEncode for crate::api::device_api::SpecIdentityDto {
             self.txt_match_groups,
             serializer,
         );
-        <bool>::sse_encode(self.platform_fallback, serializer);
+        <Vec<String>>::sse_encode(self.platform_fallback_types, serializer);
     }
 }
 
@@ -10364,6 +10370,7 @@ impl SseEncode for crate::api::device_api::TxtMatchDto {
 impl SseEncode for crate::api::device_api::TxtMatchGroupDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<String>>::sse_encode(self.service_types, serializer);
         <Vec<crate::api::device_api::TxtMatchDto>>::sse_encode(self.conditions, serializer);
     }
 }

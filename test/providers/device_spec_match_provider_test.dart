@@ -25,7 +25,7 @@ final _noCompanyIds = Uint16List(0);
 // list cannot be a constant. Same reason for every other spec DTO below.
 final _spec = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Bulb',
@@ -37,7 +37,7 @@ final _spec = DeviceSpecDto(
   serviceUuids: const [_svcUuid],
   companyIds: _noCompanyIds,
   macPrefixes: const [],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: const [],
   lanProtocols: const [],
   defaultPort: null,
@@ -145,7 +145,7 @@ void main() {
       // degrading to the raw browser.
       final advOnly = DeviceSpecDto(
         nameMatchers: const [],
-        platformFallback: false,
+        platformFallbackTypes: const [],
         txtMatchGroups: const [],
         hiddenEntityNames: const [],
         deviceName: 'Thermo',
@@ -154,7 +154,7 @@ void main() {
         protocol: 'ble',
         companyIds: _noCompanyIds,
         macPrefixes: [],
-        mdnsServiceType: null,
+        mdnsServiceTypes: const [],
         ssdpSearchTargets: [],
         lanProtocols: const [],
         defaultPort: null,
@@ -187,7 +187,7 @@ void main() {
     test('a name-only match survives when the spec declares no services', () {
       final nameIsOnlyAxis = DeviceSpecDto(
         nameMatchers: const [],
-        platformFallback: false,
+        platformFallbackTypes: const [],
         txtMatchGroups: const [],
         hiddenEntityNames: const [],
         deviceName: 'NameOnly',
@@ -196,7 +196,7 @@ void main() {
         protocol: 'ble',
         companyIds: _noCompanyIds,
         macPrefixes: [],
-        mdnsServiceType: null,
+        mdnsServiceTypes: const [],
         ssdpSearchTargets: [],
         lanProtocols: const [],
         defaultPort: null,
@@ -266,7 +266,7 @@ void main() {
       () async {
     final other = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Other',
@@ -278,7 +278,7 @@ void main() {
       serviceUuids: const [_svcUuid],
       companyIds: _noCompanyIds,
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -314,7 +314,7 @@ void main() {
     // be claimed by spec B on the strength of a short name prefix alone.
     final byUuid = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'RightOne',
@@ -325,7 +325,7 @@ void main() {
       localNames: const [],
       companyIds: _noCompanyIds,
       macPrefixes: [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: [],
       lanProtocols: const [],
       defaultPort: null,
@@ -337,7 +337,7 @@ void main() {
     // must rank below hard GATT evidence.
     final byName = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'NameGrabber',
@@ -346,7 +346,7 @@ void main() {
       protocol: 'ble',
       companyIds: _noCompanyIds,
       macPrefixes: [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: [],
       lanProtocols: const [],
       defaultPort: null,
@@ -410,7 +410,7 @@ void main() {
       () async {
     final brandA = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Brand A Lights',
@@ -421,7 +421,7 @@ void main() {
       localNames: const [],
       companyIds: _noCompanyIds,
       macPrefixes: [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: [],
       lanProtocols: const [],
       defaultPort: null,
@@ -431,7 +431,7 @@ void main() {
     );
     final brandB = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Brand B Lights',
@@ -442,7 +442,7 @@ void main() {
       localNames: const [],
       companyIds: _noCompanyIds,
       macPrefixes: [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: [],
       lanProtocols: const [],
       defaultPort: null,
@@ -487,7 +487,7 @@ void main() {
   test('a saved user choice resolves a tie and is marked as such', () async {
     final brandA = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Brand A Lights',
@@ -498,7 +498,7 @@ void main() {
       localNames: const [],
       companyIds: _noCompanyIds,
       macPrefixes: [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: [],
       lanProtocols: const [],
       defaultPort: null,
@@ -508,7 +508,7 @@ void main() {
     );
     final brandB = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Brand B Lights',
@@ -519,7 +519,7 @@ void main() {
       localNames: const [],
       companyIds: _noCompanyIds,
       macPrefixes: [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: [],
       lanProtocols: const [],
       defaultPort: null,
@@ -615,7 +615,7 @@ void main() {
     const svcB = '0000bbb0-0000-1000-8000-00805f9b34fb';
     final specA = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Alpha',
@@ -627,7 +627,7 @@ void main() {
       serviceUuids: const [svcA],
       companyIds: _noCompanyIds,
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -636,7 +636,7 @@ void main() {
     );
     final specB = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Beta',
@@ -648,7 +648,7 @@ void main() {
       serviceUuids: const [svcB],
       companyIds: _noCompanyIds,
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -661,7 +661,7 @@ void main() {
     // the runtime List.of keeps it a distinct instance.
     final specBRoundTrip = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Beta',
@@ -673,7 +673,7 @@ void main() {
       serviceUuids: List<String>.of(const [svcB]),
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,

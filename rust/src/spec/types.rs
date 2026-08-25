@@ -1072,6 +1072,68 @@ impl DeviceInfo {
             })
             .collect()
     }
+
+    /// Every mDNS/DNS-SD service type this spec names, identification block
+    /// first and then the discovery methods in declaration order.
+    ///
+    /// The schema puts a service type in TWO places — `identification
+    /// .mdns_service_type` and each `discovery.methods[].mdns.service_type` —
+    /// and reading only the first lost every spec that uses only the second.
+    /// That is 34 of the vendored 187, including every `_miio._udp` Xiaomi,
+    /// every `_arsdk._udp` Parrot, and the sixteen whose only type is
+    /// `_http._tcp`: the scan's DNS-SD meta-query found them on the wire, no
+    /// spec claimed them, and they listed as unrecognised hosts with no
+    /// controls. A spec that writes its type where the schema puts it has to
+    /// be findable there.
+    ///
+    /// Deduplicated on the [`normalize_service_type`] stem, because the two
+    /// blocks usually restate the same type and `_hue._tcp.local.` and
+    /// `_hue._tcp` are one type spelled two ways. What comes back is the
+    /// DECLARED spelling of the first occurrence: consumers echo these into an
+    /// mDNS query and into "what matched", where the fully qualified form the
+    /// catalogue writes is the useful one.
+    pub fn mdns_service_types(&self) -> Vec<String> {
+        let declared = self
+            .identification
+            .as_ref()
+            .and_then(|i| i.mdns_service_type.as_deref())
+            .into_iter()
+            .chain(
+                self.discovery_methods()
+                    .filter(|m| m.get("type").and_then(|t| t.as_str()) == Some("mdns"))
+                    .filter_map(|m| m.get("mdns")?.get("service_type")?.as_str()),
+            );
+        let mut types: Vec<String> = Vec::new();
+        let mut stems: Vec<String> = Vec::new();
+        for service_type in declared {
+            let stem = normalize_service_type(service_type);
+            // An empty type would be a claim on nothing, and carrying it would
+            // put a meaningless query on the wire when a consumer seeds its
+            // scan from this list.
+            if stem.is_empty() || stems.contains(&stem) {
+                continue;
+            }
+            stems.push(stem);
+            types.push(service_type.to_string());
+        }
+        types
+    }
+}
+
+/// Reduce a DNS-SD service type to a comparable stem: lowercase, no trailing
+/// dot, no `.local` suffix.
+///
+/// Specs write `_hue._tcp.local.`, `_hue._tcp.local` and `_hue._tcp`
+/// interchangeably, and so do devices. Every comparison of two service types
+/// goes through this — here, in the scan matcher, and mirrored in
+/// `scripts/regen-bonjour-services.sh` — because a mismatch in either
+/// direction is a device that never appears.
+pub fn normalize_service_type(raw: &str) -> String {
+    let lower = raw.trim().trim_end_matches('.').to_ascii_lowercase();
+    lower
+        .strip_suffix(".local")
+        .map(str::to_owned)
+        .unwrap_or(lower)
 }
 
 /// A named security problem with a device, for the app to warn about rather
@@ -1217,6 +1279,11 @@ pub struct Identification {
     #[serde(default)]
     pub mac_prefixes: Option<Vec<MacPrefix>>,
     /// mDNS/Bonjour service type for WiFi discovery (e.g. `_http._tcp`).
+    ///
+    /// One of the two places the schema puts a service type, and never read on
+    /// its own: [`DeviceInfo::mdns_service_types`] unions it with the ones the
+    /// discovery methods name, because most of the catalogue states its type
+    /// only there.
     #[serde(default)]
     pub mdns_service_type: Option<String>,
     /// SSDP/UPnP search targets the device answers to, e.g.

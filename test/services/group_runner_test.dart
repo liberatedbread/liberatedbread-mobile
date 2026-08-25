@@ -17,7 +17,7 @@ const _cmdChar = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 DeviceSpecDto _bulbSpec() => DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Bulb',
@@ -29,6 +29,7 @@ DeviceSpecDto _bulbSpec() => DeviceSpecDto(
       serviceUuids: const [_svc],
       companyIds: Uint16List(0),
       macPrefixes: const [],
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       services: const [],
@@ -57,7 +58,7 @@ DeviceSpecDto _bulbSpec() => DeviceSpecDto(
 /// pre-connect skip.
 DeviceSpecDto _onOnlySpec() => DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'OnOnly',
@@ -69,6 +70,7 @@ DeviceSpecDto _onOnlySpec() => DeviceSpecDto(
       serviceUuids: const [_svc],
       companyIds: Uint16List(0),
       macPrefixes: const [],
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       services: const [],

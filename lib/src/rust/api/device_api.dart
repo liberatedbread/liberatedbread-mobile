@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `governs_own_type`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
@@ -1292,9 +1292,13 @@ class DeviceSpecDto {
   /// [`MacPrefixConfidence`] for how much any one of them is worth.
   final List<MacPrefixDto> macPrefixes;
 
-  /// mDNS/DNS-SD service type this device announces itself under, e.g.
+  /// Every mDNS/DNS-SD service type this device announces itself under, e.g.
   /// `_hue._tcp`. The network counterpart of a vendor service UUID.
-  final String? mdnsServiceType;
+  ///
+  /// Plural because the schema states a type in two places and most of the
+  /// catalogue uses only the second; `DeviceInfo::mdns_service_types` unions
+  /// them and states why. Empty on a spec that names none.
+  final List<String> mdnsServiceTypes;
 
   /// SSDP/UPnP search targets this device answers to.
   final List<String> ssdpSearchTargets;
@@ -1312,12 +1316,13 @@ class DeviceSpecDto {
   /// express. See [`NameMatchDto`].
   final List<NameMatchDto> nameMatchers;
 
-  /// TXT-record conditions narrowing this spec's mDNS service type from a
-  /// platform to this device. See [`TxtMatchGroupDto`].
+  /// TXT-record conditions narrowing one of this spec's mDNS service types
+  /// from a platform to this device. See [`TxtMatchGroupDto`].
   final List<TxtMatchGroupDto> txtMatchGroups;
 
-  /// Whether this spec is its service type's catch-all.
-  final bool platformFallback;
+  /// The service types this spec is the catch-all for, as
+  /// `normalize_service_type` stems. See [`SpecIdentityDto`].
+  final List<String> platformFallbackTypes;
   final List<ServiceDto> services;
 
   /// Named consumer-side protocol handler (`daniao_ddp`, `rabbit_air`,
@@ -1366,13 +1371,13 @@ class DeviceSpecDto {
     required this.serviceUuids,
     required this.companyIds,
     required this.macPrefixes,
-    this.mdnsServiceType,
+    required this.mdnsServiceTypes,
     required this.ssdpSearchTargets,
     required this.lanProtocols,
     this.defaultPort,
     required this.nameMatchers,
     required this.txtMatchGroups,
-    required this.platformFallback,
+    required this.platformFallbackTypes,
     required this.services,
     this.protocolHandler,
     required this.entities,
@@ -1398,13 +1403,13 @@ class DeviceSpecDto {
       serviceUuids.hashCode ^
       companyIds.hashCode ^
       macPrefixes.hashCode ^
-      mdnsServiceType.hashCode ^
+      mdnsServiceTypes.hashCode ^
       ssdpSearchTargets.hashCode ^
       lanProtocols.hashCode ^
       defaultPort.hashCode ^
       nameMatchers.hashCode ^
       txtMatchGroups.hashCode ^
-      platformFallback.hashCode ^
+      platformFallbackTypes.hashCode ^
       services.hashCode ^
       protocolHandler.hashCode ^
       entities.hashCode ^
@@ -1432,13 +1437,13 @@ class DeviceSpecDto {
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
           macPrefixes == other.macPrefixes &&
-          mdnsServiceType == other.mdnsServiceType &&
+          mdnsServiceTypes == other.mdnsServiceTypes &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
           lanProtocols == other.lanProtocols &&
           defaultPort == other.defaultPort &&
           nameMatchers == other.nameMatchers &&
           txtMatchGroups == other.txtMatchGroups &&
-          platformFallback == other.platformFallback &&
+          platformFallbackTypes == other.platformFallbackTypes &&
           services == other.services &&
           protocolHandler == other.protocolHandler &&
           entities == other.entities &&
@@ -3828,8 +3833,12 @@ class SpecIdentityDto {
   final Uint16List companyIds;
   final List<MacPrefixDto> macPrefixes;
 
-  /// mDNS service type, for the Wi-Fi scan path. Absent on a BLE-only spec.
-  final String? mdnsServiceType;
+  /// Every mDNS service type this spec claims, for the Wi-Fi scan path.
+  /// Empty on a BLE-only spec. Plural because the schema states a type in
+  /// two blocks and 34 vendored specs use only the discovery one; a consumer
+  /// also seeds its DNS-SD queries from this, so a type missing here is a
+  /// device the scan never even asks for.
+  final List<String> mdnsServiceTypes;
 
   /// SSDP search targets, for the Wi-Fi scan path.
   final List<String> ssdpSearchTargets;
@@ -3849,16 +3858,23 @@ class SpecIdentityDto {
   /// known by. Matched alongside those two, into the same name axis.
   final List<NameMatchDto> nameMatchers;
 
-  /// TXT-record conditions that narrow this spec's mDNS service type from a
-  /// PLATFORM to this device. Any group holding admits the service type;
+  /// TXT-record conditions that narrow an mDNS service type from a PLATFORM
+  /// to this device. Any group governing that type and holding admits it;
   /// declaring groups that all fail withholds it — which is what stops
   /// ratgdo claiming every ESPHome node on the LAN.
   final List<TxtMatchGroupDto> txtMatchGroups;
 
-  /// This spec is its service type's catch-all: it claims the type only
-  /// when no narrowed spec did (esphome-device). See
+  /// The service types this spec is the catch-all for, as
+  /// `normalize_service_type` stems: it claims one of these only when no
+  /// narrowed spec did (esphome-device on `_esphomelib._tcp`). See
   /// [`match_network_device`].
-  final bool platformFallback;
+  ///
+  /// A list rather than a flag because a spec can hold both roles at once:
+  /// esphome-device is the catch-all for `_esphomelib._tcp` and, on the very
+  /// same spec, a NARROWED claimant of `_http._tcp` (a `config_hash` record
+  /// is what separates an API-less node from every other web server). One
+  /// flag would have made it stand aside from a claim it had earned.
+  final List<String> platformFallbackTypes;
 
   const SpecIdentityDto({
     required this.deviceName,
@@ -3873,13 +3889,13 @@ class SpecIdentityDto {
     required this.serviceUuids,
     required this.companyIds,
     required this.macPrefixes,
-    this.mdnsServiceType,
+    required this.mdnsServiceTypes,
     required this.ssdpSearchTargets,
     required this.lanProtocols,
     this.defaultPort,
     required this.nameMatchers,
     required this.txtMatchGroups,
-    required this.platformFallback,
+    required this.platformFallbackTypes,
   });
 
   @override
@@ -3896,13 +3912,13 @@ class SpecIdentityDto {
       serviceUuids.hashCode ^
       companyIds.hashCode ^
       macPrefixes.hashCode ^
-      mdnsServiceType.hashCode ^
+      mdnsServiceTypes.hashCode ^
       ssdpSearchTargets.hashCode ^
       lanProtocols.hashCode ^
       defaultPort.hashCode ^
       nameMatchers.hashCode ^
       txtMatchGroups.hashCode ^
-      platformFallback.hashCode;
+      platformFallbackTypes.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -3921,13 +3937,13 @@ class SpecIdentityDto {
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
           macPrefixes == other.macPrefixes &&
-          mdnsServiceType == other.mdnsServiceType &&
+          mdnsServiceTypes == other.mdnsServiceTypes &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
           lanProtocols == other.lanProtocols &&
           defaultPort == other.defaultPort &&
           nameMatchers == other.nameMatchers &&
           txtMatchGroups == other.txtMatchGroups &&
-          platformFallback == other.platformFallback;
+          platformFallbackTypes == other.platformFallbackTypes;
 }
 
 /// The single play-by-cid write for RE-triggering an already stored item.
@@ -4183,23 +4199,42 @@ class TxtMatchDto {
           value == other.value;
 }
 
-/// One AND-group of TXT conditions. A spec is satisfied when ANY group holds;
-/// a struct rather than a bare `Vec<Vec<_>>` because the FFI has no nesting.
+/// One AND-group of TXT conditions, and the mDNS service types it narrows. A
+/// spec is satisfied for a type when ANY group governing that type holds; a
+/// struct rather than a bare `Vec<Vec<_>>` because the FFI has no nesting.
 class TxtMatchGroupDto {
+  /// The service types these conditions govern, as `normalize_service_type`
+  /// stems.
+  ///
+  /// Narrowing is PER SERVICE TYPE and pooling it is a real bug, not a
+  /// simplification: esphome-device conditions `_http._tcp` on a
+  /// `config_hash` record while claiming `_esphomelib._tcp` outright, so a
+  /// pooled group would apply the web server's condition to the native API's
+  /// service and drop every ESPHome node that publishes `config_hash` on the
+  /// other one. Denon is the same shape three ways over — a `deviceid` OUI
+  /// on `_airplay._tcp`, an `am` model prefix on `_raop._tcp`, a `cpath` on
+  /// `_spotify-connect._tcp`.
+  ///
+  /// Empty means the group governs nothing, which only happens on a spec
+  /// that declares no service types at all — there is nothing for it to
+  /// narrow either way.
+  final List<String> serviceTypes;
   final List<TxtMatchDto> conditions;
 
   const TxtMatchGroupDto({
+    required this.serviceTypes,
     required this.conditions,
   });
 
   @override
-  int get hashCode => conditions.hashCode;
+  int get hashCode => serviceTypes.hashCode ^ conditions.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is TxtMatchGroupDto &&
           runtimeType == other.runtimeType &&
+          serviceTypes == other.serviceTypes &&
           conditions == other.conditions;
 }
 

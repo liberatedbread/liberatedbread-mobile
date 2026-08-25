@@ -54,7 +54,7 @@ class _FakeNetworkScanService implements NetworkScanService {
 
 final _spec = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Hue Bridge',
@@ -67,7 +67,7 @@ final _spec = DeviceSpecDto(
   serviceUuids: const [],
   companyIds: Uint16List(0),
   macPrefixes: const [],
-  mdnsServiceType: '_hue._tcp.local.',
+  mdnsServiceTypes: const ['_hue._tcp.local.'],
   ssdpSearchTargets: const [],
   lanProtocols: const [],
   defaultPort: 80,
@@ -327,7 +327,7 @@ void main() {
       service,
       spec: DeviceSpecDto(
         nameMatchers: const [],
-        platformFallback: false,
+        platformFallbackTypes: const [],
         txtMatchGroups: const [],
         hiddenEntityNames: const [],
         deviceName: 'Roku External Control Protocol',
@@ -340,6 +340,7 @@ void main() {
         serviceUuids: const [],
         companyIds: Uint16List(0),
         macPrefixes: const [],
+        mdnsServiceTypes: const [],
         ssdpSearchTargets: const ['roku:ecp'],
         lanProtocols: const [],
         defaultPort: 8060,

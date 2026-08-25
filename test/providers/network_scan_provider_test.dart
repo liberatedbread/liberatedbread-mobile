@@ -15,7 +15,7 @@ import '../fakes/fake_spec_codec.dart';
 
 final _spec = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Hue Bridge',
@@ -27,7 +27,7 @@ final _spec = DeviceSpecDto(
   serviceUuids: const [],
   companyIds: Uint16List(0),
   macPrefixes: const [],
-  mdnsServiceType: '_hue._tcp.local.',
+  mdnsServiceTypes: const ['_hue._tcp.local.'],
   ssdpSearchTargets: const ['urn:schemas-upnp-org:device:Basic:1'],
   lanProtocols: const [],
   defaultPort: 80,
@@ -80,7 +80,7 @@ void main() {
     test('mdns, ssdp and port reach the matcher', () async {
       final c = _container(FakeSpecCodec(spec: _spec));
       final identities = await c.read(specIdentitiesProvider.future);
-      expect(identities.single.mdnsServiceType, '_hue._tcp.local.');
+      expect(identities.single.mdnsServiceTypes, const ['_hue._tcp.local.']);
       expect(identities.single.ssdpSearchTargets,
           const ['urn:schemas-upnp-org:device:Basic:1']);
       expect(identities.single.defaultPort, 80);

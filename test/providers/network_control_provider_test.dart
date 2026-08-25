@@ -18,7 +18,7 @@ import '../fakes/fake_spec_codec.dart';
 
 DeviceSpecDto _spec(String name, String manufacturer) => DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: name,
@@ -30,7 +30,7 @@ DeviceSpecDto _spec(String name, String manufacturer) => DeviceSpecDto(
       serviceUuids: const [],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const ['urn:Belkin:service:basicevent:1'],
       lanProtocols: const [],
       defaultPort: null,

@@ -185,7 +185,7 @@ void main() {
     // no const form.
     final spec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Example Smart Bulb',
@@ -198,7 +198,7 @@ void main() {
       serviceUuids: const [svcUuid],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -398,7 +398,7 @@ void main() {
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Example Smart Bulb',
@@ -411,7 +411,7 @@ void main() {
       serviceUuids: const [svcUuid],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -455,7 +455,7 @@ void main() {
     const charUuid = '0000fe02-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Test Walking Pad',
@@ -468,7 +468,7 @@ void main() {
       serviceUuids: const [svcUuid],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -577,7 +577,7 @@ void main() {
 
     DeviceSpecDto airSpec({String category = 'sensor'}) => DeviceSpecDto(
           nameMatchers: const [],
-          platformFallback: false,
+          platformFallbackTypes: const [],
           txtMatchGroups: const [],
           hiddenEntityNames: const [],
           deviceName: 'Acme Air Monitor',
@@ -590,7 +590,7 @@ void main() {
           serviceUuids: const [svcUuid],
           companyIds: Uint16List(0),
           macPrefixes: const [],
-          mdnsServiceType: null,
+          mdnsServiceTypes: const [],
           ssdpSearchTargets: const [],
           lanProtocols: const [],
           defaultPort: null,
@@ -809,7 +809,7 @@ void main() {
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Legacy Device',
@@ -821,7 +821,7 @@ void main() {
       serviceUuids: const [svcUuid],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -864,7 +864,7 @@ const _tieCharUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 final _brandA = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Brand A Lights',
@@ -875,7 +875,7 @@ final _brandA = DeviceSpecDto(
   localNames: const [],
   companyIds: Uint16List(0),
   macPrefixes: [],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: [],
   lanProtocols: const [],
   defaultPort: null,
@@ -908,7 +908,7 @@ final _brandA = DeviceSpecDto(
 
 final _brandB = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Brand B Lights',
@@ -919,7 +919,7 @@ final _brandB = DeviceSpecDto(
   localNames: const [],
   companyIds: Uint16List(0),
   macPrefixes: [],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: [],
   lanProtocols: const [],
   defaultPort: null,

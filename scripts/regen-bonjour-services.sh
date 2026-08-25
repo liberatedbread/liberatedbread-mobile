@@ -72,7 +72,7 @@ APP_OWNED = {
 def normalize(raw):
     """The form NSBonjourServices wants, and the form the matcher folds to.
 
-    Mirrors `normalize_service_type` in rust/src/api/device_api.rs: a mismatch
+    Mirrors `normalize_service_type` in rust/src/spec/types.rs: a mismatch
     in either direction is a device that never appears.
     """
     lower = raw.strip().rstrip('.').lower()

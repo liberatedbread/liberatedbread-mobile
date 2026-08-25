@@ -3469,13 +3469,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       serviceUuids: dco_decode_list_String(arr[12]),
       companyIds: dco_decode_list_prim_u_16_strict(arr[13]),
       macPrefixes: dco_decode_list_mac_prefix_dto(arr[14]),
-      mdnsServiceType: dco_decode_opt_String(arr[15]),
+      mdnsServiceTypes: dco_decode_list_String(arr[15]),
       ssdpSearchTargets: dco_decode_list_String(arr[16]),
       lanProtocols: dco_decode_list_String(arr[17]),
       defaultPort: dco_decode_opt_box_autoadd_u_16(arr[18]),
       nameMatchers: dco_decode_list_name_match_dto(arr[19]),
       txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[20]),
-      platformFallback: dco_decode_bool(arr[21]),
+      platformFallbackTypes: dco_decode_list_String(arr[21]),
       services: dco_decode_list_service_dto(arr[22]),
       protocolHandler: dco_decode_opt_String(arr[23]),
       entities: dco_decode_list_entity_dto(arr[24]),
@@ -4887,13 +4887,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       serviceUuids: dco_decode_list_String(arr[9]),
       companyIds: dco_decode_list_prim_u_16_strict(arr[10]),
       macPrefixes: dco_decode_list_mac_prefix_dto(arr[11]),
-      mdnsServiceType: dco_decode_opt_String(arr[12]),
+      mdnsServiceTypes: dco_decode_list_String(arr[12]),
       ssdpSearchTargets: dco_decode_list_String(arr[13]),
       lanProtocols: dco_decode_list_String(arr[14]),
       defaultPort: dco_decode_opt_box_autoadd_u_16(arr[15]),
       nameMatchers: dco_decode_list_name_match_dto(arr[16]),
       txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[17]),
-      platformFallback: dco_decode_bool(arr[18]),
+      platformFallbackTypes: dco_decode_list_String(arr[18]),
     );
   }
 
@@ -5000,10 +5000,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TxtMatchGroupDto dco_decode_txt_match_group_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 1)
-      throw Exception('unexpected arr length: expect 1 but see ${arr.length}');
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
     return TxtMatchGroupDto(
-      conditions: dco_decode_list_txt_match_dto(arr[0]),
+      serviceTypes: dco_decode_list_String(arr[0]),
+      conditions: dco_decode_list_txt_match_dto(arr[1]),
     );
   }
 
@@ -5454,13 +5455,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_serviceUuids = sse_decode_list_String(deserializer);
     var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
     var var_macPrefixes = sse_decode_list_mac_prefix_dto(deserializer);
-    var var_mdnsServiceType = sse_decode_opt_String(deserializer);
+    var var_mdnsServiceTypes = sse_decode_list_String(deserializer);
     var var_ssdpSearchTargets = sse_decode_list_String(deserializer);
     var var_lanProtocols = sse_decode_list_String(deserializer);
     var var_defaultPort = sse_decode_opt_box_autoadd_u_16(deserializer);
     var var_nameMatchers = sse_decode_list_name_match_dto(deserializer);
     var var_txtMatchGroups = sse_decode_list_txt_match_group_dto(deserializer);
-    var var_platformFallback = sse_decode_bool(deserializer);
+    var var_platformFallbackTypes = sse_decode_list_String(deserializer);
     var var_services = sse_decode_list_service_dto(deserializer);
     var var_protocolHandler = sse_decode_opt_String(deserializer);
     var var_entities = sse_decode_list_entity_dto(deserializer);
@@ -5485,13 +5486,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         serviceUuids: var_serviceUuids,
         companyIds: var_companyIds,
         macPrefixes: var_macPrefixes,
-        mdnsServiceType: var_mdnsServiceType,
+        mdnsServiceTypes: var_mdnsServiceTypes,
         ssdpSearchTargets: var_ssdpSearchTargets,
         lanProtocols: var_lanProtocols,
         defaultPort: var_defaultPort,
         nameMatchers: var_nameMatchers,
         txtMatchGroups: var_txtMatchGroups,
-        platformFallback: var_platformFallback,
+        platformFallbackTypes: var_platformFallbackTypes,
         services: var_services,
         protocolHandler: var_protocolHandler,
         entities: var_entities,
@@ -7315,13 +7316,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_serviceUuids = sse_decode_list_String(deserializer);
     var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
     var var_macPrefixes = sse_decode_list_mac_prefix_dto(deserializer);
-    var var_mdnsServiceType = sse_decode_opt_String(deserializer);
+    var var_mdnsServiceTypes = sse_decode_list_String(deserializer);
     var var_ssdpSearchTargets = sse_decode_list_String(deserializer);
     var var_lanProtocols = sse_decode_list_String(deserializer);
     var var_defaultPort = sse_decode_opt_box_autoadd_u_16(deserializer);
     var var_nameMatchers = sse_decode_list_name_match_dto(deserializer);
     var var_txtMatchGroups = sse_decode_list_txt_match_group_dto(deserializer);
-    var var_platformFallback = sse_decode_bool(deserializer);
+    var var_platformFallbackTypes = sse_decode_list_String(deserializer);
     return SpecIdentityDto(
         deviceName: var_deviceName,
         manufacturer: var_manufacturer,
@@ -7335,13 +7336,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         serviceUuids: var_serviceUuids,
         companyIds: var_companyIds,
         macPrefixes: var_macPrefixes,
-        mdnsServiceType: var_mdnsServiceType,
+        mdnsServiceTypes: var_mdnsServiceTypes,
         ssdpSearchTargets: var_ssdpSearchTargets,
         lanProtocols: var_lanProtocols,
         defaultPort: var_defaultPort,
         nameMatchers: var_nameMatchers,
         txtMatchGroups: var_txtMatchGroups,
-        platformFallback: var_platformFallback);
+        platformFallbackTypes: var_platformFallbackTypes);
   }
 
   @protected
@@ -7440,8 +7441,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TxtMatchGroupDto sse_decode_txt_match_group_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_serviceTypes = sse_decode_list_String(deserializer);
     var var_conditions = sse_decode_list_txt_match_dto(deserializer);
-    return TxtMatchGroupDto(conditions: var_conditions);
+    return TxtMatchGroupDto(
+        serviceTypes: var_serviceTypes, conditions: var_conditions);
   }
 
   @protected
@@ -7862,13 +7865,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.serviceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
     sse_encode_list_mac_prefix_dto(self.macPrefixes, serializer);
-    sse_encode_opt_String(self.mdnsServiceType, serializer);
+    sse_encode_list_String(self.mdnsServiceTypes, serializer);
     sse_encode_list_String(self.ssdpSearchTargets, serializer);
     sse_encode_list_String(self.lanProtocols, serializer);
     sse_encode_opt_box_autoadd_u_16(self.defaultPort, serializer);
     sse_encode_list_name_match_dto(self.nameMatchers, serializer);
     sse_encode_list_txt_match_group_dto(self.txtMatchGroups, serializer);
-    sse_encode_bool(self.platformFallback, serializer);
+    sse_encode_list_String(self.platformFallbackTypes, serializer);
     sse_encode_list_service_dto(self.services, serializer);
     sse_encode_opt_String(self.protocolHandler, serializer);
     sse_encode_list_entity_dto(self.entities, serializer);
@@ -9292,13 +9295,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.serviceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
     sse_encode_list_mac_prefix_dto(self.macPrefixes, serializer);
-    sse_encode_opt_String(self.mdnsServiceType, serializer);
+    sse_encode_list_String(self.mdnsServiceTypes, serializer);
     sse_encode_list_String(self.ssdpSearchTargets, serializer);
     sse_encode_list_String(self.lanProtocols, serializer);
     sse_encode_opt_box_autoadd_u_16(self.defaultPort, serializer);
     sse_encode_list_name_match_dto(self.nameMatchers, serializer);
     sse_encode_list_txt_match_group_dto(self.txtMatchGroups, serializer);
-    sse_encode_bool(self.platformFallback, serializer);
+    sse_encode_list_String(self.platformFallbackTypes, serializer);
   }
 
   @protected
@@ -9376,6 +9379,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_txt_match_group_dto(
       TxtMatchGroupDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_String(self.serviceTypes, serializer);
     sse_encode_list_txt_match_dto(self.conditions, serializer);
   }
 

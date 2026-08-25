@@ -444,7 +444,7 @@ void main() {
       (tester) async {
     final matched = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Example Smart Bulb',
@@ -457,6 +457,7 @@ void main() {
       serviceUuids: const [],
       companyIds: Uint16List(0),
       macPrefixes: const [],
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       services: const [],
@@ -492,7 +493,7 @@ void main() {
       'device, and it opens the setup screen', (tester) async {
     final specSpec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Ember Mug',
@@ -505,6 +506,7 @@ void main() {
       serviceUuids: const [],
       companyIds: Uint16List(0),
       macPrefixes: const [],
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       services: const [],
@@ -572,7 +574,7 @@ void main() {
     final codec = FakeSpecCodec(
       spec: DeviceSpecDto(
         nameMatchers: const [],
-        platformFallback: false,
+        platformFallbackTypes: const [],
         txtMatchGroups: const [],
         hiddenEntityNames: const [],
         deviceName: 'Unknown',
@@ -584,6 +586,7 @@ void main() {
         serviceUuids: const [],
         companyIds: Uint16List(0),
         macPrefixes: const [],
+        mdnsServiceTypes: const [],
         ssdpSearchTargets: const [],
         lanProtocols: const [],
         services: const [],
@@ -713,7 +716,7 @@ void main() {
 /// Rabbit Air provisioning handler, so the profile above joins to it.
 final _rabbitAirSpec = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Rabbit Air Purifier',
@@ -727,7 +730,7 @@ final _rabbitAirSpec = DeviceSpecDto(
   serviceUuids: const [],
   companyIds: Uint16List(0),
   macPrefixes: const [],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: const [],
   lanProtocols: const [],
   defaultPort: null,
