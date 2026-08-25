@@ -199,5 +199,14 @@ entities:
   - platform: "light"
     name: "Badge Display"
     features: ["brightness"]
-    commands:
-      set_text: "write_badge_data"
+    notes: >
+      No role bindings, deliberately. The badge has exactly one write —
+      `write_badge_data`, the 16-byte chunk stream — and it is not a control a
+      role can name: the whole display, brightness included, arrives as the
+      64-byte header of a bitmap upload, which is what `protocol_handler:
+      ledbadge_bitmap` and the `image_upload` feature above describe. This
+      entity was bound `set_text: write_badge_data`, a role name no consumer's
+      vocabulary contains, pointing at a parameterless chunk write; it resolved
+      nothing and drew nothing, while reading as though a text control existed.
+      Brightness stays in `features` because the header does carry it — the
+      uploader sets it, not a slider on this entity.

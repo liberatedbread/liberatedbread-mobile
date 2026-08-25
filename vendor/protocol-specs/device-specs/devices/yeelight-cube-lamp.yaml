@@ -614,8 +614,15 @@ entities:
       turn_off: "turn_off"
       toggle: "toggle"
       set_brightness: "set_brightness"
-      set_rgb: "set_rgb"
-      set_color_temp: "set_color_temp"
+      # Canonical role spellings. These were `set_rgb:` and `set_color_temp:`,
+      # after the commands they name rather than after the vocabulary, so
+      # neither reached a consumer's colour picker or its white slider — the
+      # lamp offered power and brightness and nothing else. The commands keep
+      # their own names; only the roles change. `set_color` here takes one
+      # packed 0xRRGGBB integer rather than three channels, which the command's
+      # `rgb` parameter states.
+      set_color: "set_rgb"
+      set_color_temperature: "set_color_temp"
     notes: >
       get_prop replies are POSITIONAL — the result array lines up with the
       requested property order — so a consumer must either request properties

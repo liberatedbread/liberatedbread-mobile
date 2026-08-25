@@ -623,6 +623,84 @@ def test_entity_keys_are_declared_in_the_schema(specs):
             )
 
 
+# The role vocabulary `entities[].commands` draws from, per platform. Same
+# shape and same reasoning as ENTITY_KEY_VOCABULARY below: a pytest-owned list
+# rather than a schema enum, so growth stays additive and a typo is caught.
+#
+# Why per platform and not one flat set: a role is a promise about what the
+# control DOES, and the platform is what makes it meaningful. `set_brightness`
+# on a cover, or `open_cover` on a light, is exactly as wrong as a misspelling
+# and just as silent — a consumer looks up the roles its light card knows and
+# never asks the question the spec answered.
+#
+# Spellings a consumer accepts as synonyms are listed beside their canonical
+# form rather than collapsed, because the catalogue uses both and this file's
+# job is to say what is legal, not to prefer.
+ENTITY_ROLE_VOCABULARY = {
+    "switch": {"turn_on", "power_on", "turn_off", "power_off",
+               "toggle", "power_toggle", "press"},
+    "light": {"turn_on", "power_on", "turn_off", "power_off",
+              "toggle", "power_toggle", "set_brightness", "set_color",
+              "set_color_temperature", "set_effect"},
+    "button": {"press"},
+    "select": {"select_option", "set_option"},
+    "text": {"submit", "type", "press"},
+    "number": {"set_value", "set_temperature", "set_target"},
+    # A climate entity is a setpoint AND a machine: it turns on and off, and
+    # its mode pickers are as much part of the control as the temperature.
+    "climate": {"set_value", "set_temperature", "set_target",
+                "turn_on", "power_on", "turn_off", "power_off",
+                "toggle", "power_toggle", "set_hvac_mode", "set_fan_mode"},
+    "fan": {"turn_on", "power_on", "turn_off", "power_off",
+            "toggle", "power_toggle", "set_percentage", "set_speed",
+            "set_value", "set_oscillating"},
+    "cover": {"open_cover", "close_cover", "stop_cover",
+              "set_cover_position", "set_position"},
+}
+
+
+def test_entity_roles_come_from_the_documented_vocabulary(specs):
+    """Every key in an `entities[].commands` map is a role a consumer matches.
+
+    The failure this catches has no other symptom. `commands` was declared as a
+    bare `{"type": "object"}`, so any key validated; consumers match a closed
+    set of role names and pass over the rest without a word. A binding outside
+    the set therefore reads as wired, resolves nothing, and produces no error,
+    no warning and no missing-control note — the entity resolved its OTHER
+    roles, so nothing reports it.
+
+    Eighteen bindings across seven specs had drifted out that way before this
+    test existed: openevse's amp setpoint bound `turn_on`, the Yeelight cube
+    spelled its colour roles `set_rgb` and `set_color_temp`, a name badge bound
+    `set_text` to a bitmap chunk write, and both Frigidaire units bound modes
+    and power on a platform whose vocabulary had only the setpoint.
+    """
+    for device_id, spec in specs.items():
+        for entity in spec.get("entities") or []:
+            platform = entity.get("platform")
+            allowed = ENTITY_ROLE_VOCABULARY.get(platform)
+            # Reading platforms (sensor, binary_sensor) have no roles, and an
+            # entity with no platform is a sensor by every consumer's default.
+            if allowed is None:
+                assert not (entity.get("commands") or {}), (
+                    f"{device_id}: entity {entity.get('name')!r} has platform "
+                    f"{platform!r}, which has no controls, but binds "
+                    f"{sorted(entity['commands'])}. Nothing will send them."
+                )
+                continue
+            for role in entity.get("commands") or {}:
+                assert role in allowed, (
+                    f"{device_id}: entity {entity.get('name')!r} ({platform}) "
+                    f"binds the role {role!r}, which is not in the documented "
+                    f"vocabulary for that platform. A consumer matches these "
+                    f"names, so this binding reaches nothing and says nothing. "
+                    f"Use one of {sorted(allowed)}, move the binding into "
+                    f"`notes` if no role describes it, or add the role to "
+                    f"ENTITY_ROLE_VOCABULARY (and the schema description) in "
+                    f"the same change that teaches a consumer to draw it."
+                )
+
+
 def test_entity_names_are_unique_per_variant(specs):
     """Two controls with one name are indistinguishable on screen and in a
     consumer's send-in-flight bookkeeping, which keys on the name.

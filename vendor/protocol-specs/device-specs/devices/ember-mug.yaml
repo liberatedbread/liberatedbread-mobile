@@ -1498,9 +1498,16 @@ entities:
       options:
         0: "Celsius"
         1: "Fahrenheit"
-    commands:
-      set_celsius: "set_celsius"
-      set_fahrenheit: "set_fahrenheit"
+    notes: >
+      No role binding, and the shape is why. `select_option` names ONE command
+      that takes the chosen value; this mug has one parameterless command per
+      option — `set_celsius` writes 0x00 to fc540004 and `set_fahrenheit`
+      writes 0x01 — which no role in the vocabulary describes. It was bound as
+      `set_celsius:`/`set_fahrenheit:`, role names invented here, so it read as
+      wired and resolved nothing. Both commands are declared above and a client
+      can send them by name; what is missing is the vocabulary for
+      "this option is that command", which is a schema question, not a
+      per-device one. Same shape as Travel Mug Volume below.
 
   - platform: "sensor"
     name: "Battery"
@@ -1606,10 +1613,11 @@ entities:
         0: "low"
         1: "medium"
         2: "high"
-    commands:
-      set_low: "set_volume_low"
-      set_medium: "set_volume_medium"
-      set_high: "set_volume_high"
+    notes: >
+      No role binding, for the reason spelled out on Temperature Unit above:
+      three parameterless commands, one per option (`set_volume_low`,
+      `set_volume_medium`, `set_volume_high`), and no role that says "this
+      option is that command". The commands stay declared and sendable by name.
 
 helpful_urls:
   - title: "Ember app on Google Play"
