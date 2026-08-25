@@ -347,6 +347,15 @@ jobs:
       # And the subtree is vendored *unmodified*: an edit made here instead of
       # upstream survives review looking like an ordinary spec change, then
       # gets reverted by the next refresh. No network, no pull; see the script.
+      # The schema check inside --check needs upstream's own validator, which
+      # needs these two. It skips with a warning when they are missing so the
+      # script still works on a laptop that has neither — so if this step is
+      # ever dropped, the gate goes quiet rather than red.
+      # Not upstream's requirements.txt: that file also pins mkdocs and the
+      # material theme for building their docs site, which this job has no use
+      # for. These are the two the validator imports.
+      - name: Install the spec validator's dependencies
+        run: python3 -m pip install --disable-pip-version-check jsonschema pyyaml
       - name: Check the vendored protocol-specs subtree
         run: ./scripts/update-specs.sh --check
 
