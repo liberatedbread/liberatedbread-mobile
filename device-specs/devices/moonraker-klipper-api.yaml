@@ -13,7 +13,7 @@ device:
   name: "Moonraker API (Klipper web API server)"
   manufacturer: "Klipper / Moonraker project (Arksine, Kevin O'Connor & community)"
   manufacturer_status: "active"
-  model: "Moonraker API — HTTP REST + JSON-RPC/WebSocket"
+  coverage: "Moonraker API — HTTP REST + JSON-RPC/WebSocket"
   protocol: "wifi"
   category: "reference"
   type: "reference-control-protocol"
@@ -110,14 +110,20 @@ http_endpoints:
     name: "Resume print"
     description: "Resume the current print (printer.print.resume)."
 
-websocket:
-  path: "/websocket"
-  description: >
-    JSON-RPC 2.0 over WebSocket (ws://host:7125/websocket). The same methods as
-    the HTTP endpoints, plus server-pushed notifications (notify_status_update,
-    notify_gcode_response) for live state.
-  message_format: "json"
-  verification: "reported"
+protocol_details:
+  # Narrative, not a contract: this socket carries push notifications
+  # (and, on the Harmony, an envelope still to be confirmed), while the
+  # commands above ride HTTP. It is documented here rather than in the
+  # first-class `websocket:` block, which describes a socket a client
+  # EXECUTES against — connect plus channels — and this is not one.
+  websocket:
+    path: "/websocket"
+    description: >
+      JSON-RPC 2.0 over WebSocket (ws://host:7125/websocket). The same methods as
+      the HTTP endpoints, plus server-pushed notifications (notify_status_update,
+      notify_gcode_response) for live state.
+    message_format: "json"
+    verification: "reported"
 
 helpful_urls:
   - title: "Moonraker — External API introduction"

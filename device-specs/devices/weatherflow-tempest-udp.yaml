@@ -117,6 +117,7 @@ device:
 # surface (there is no HTTP and no request/response — the client only listens).
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >
@@ -161,7 +162,7 @@ entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
-    unit: "°C"
+    unit: "C"
   - platform: "sensor"
     name: "Wind Speed"
     unit: "m/s"

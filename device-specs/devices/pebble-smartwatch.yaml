@@ -121,20 +121,22 @@ device:
       notes: "Standard Bluetooth pairing; no application-layer credential. No Wi-Fi on the watch itself."
 
 # The Pebble Protocol application layer + libpebble2 transports.
-pebble_protocol:
-  framing: "Endpoint-addressed packets: length + numeric endpoint prefix, then a body. Big-endian by default."
-  field_types: "Uint8/16/32/64, Int*, Boolean, UUID; strings PascalString/NullTerminated/Fixed/BinaryArray; Union/FixedList/PascalList/Embed/Padding/Optional."
-  transports:
-    bluetooth_serial: "Direct to a paired watch over the OS Bluetooth stack."
-    websocket: "Via the phone app's Developer Connection, TCP port 9000 (MessageTargetPhone)."
-    qemu: "The Pebble emulator (MessageTargetQemu)."
-  concurrency: "One connection at a time — disconnect the phone before connecting a computer over serial."
+protocol_details:
+  pebble_protocol:
+    framing: "Endpoint-addressed packets: length + numeric endpoint prefix, then a body. Big-endian by default."
+    field_types: "Uint8/16/32/64, Int*, Boolean, UUID; strings PascalString/NullTerminated/Fixed/BinaryArray; Union/FixedList/PascalList/Embed/Padding/Optional."
+    transports:
+      bluetooth_serial: "Direct to a paired watch over the OS Bluetooth stack."
+      websocket: "Via the phone app's Developer Connection, TCP port 9000 (MessageTargetPhone)."
+      qemu: "The Pebble emulator (MessageTargetQemu)."
+    concurrency: "One connection at a time — disconnect the phone before connecting a computer over serial."
 
 # The libpebble2 WebSocket developer connection (port 9000) is the concrete
 # local IP surface; http_endpoints is a placeholder for the access surface —
 # control is the Pebble Protocol packets above, not REST.
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >

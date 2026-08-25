@@ -13,7 +13,7 @@ device:
   name: "BLE Fitness Machine Service (FTMS)"
   manufacturer: "Bluetooth SIG"
   manufacturer_status: "active"
-  model: "Fitness Machine Service v1.0 (service 0x1826)"
+  coverage: "Fitness Machine Service v1.0 (service 0x1826)"
   protocol: "ble"
   category: "reference"
   type: "reference-ble-profile"

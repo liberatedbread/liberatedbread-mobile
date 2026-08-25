@@ -121,7 +121,7 @@ entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
-    unit: "°C"
+    unit: "C"
     notes: "BTHome temperature object (0x02)."
   - platform: "sensor"
     name: "Humidity"

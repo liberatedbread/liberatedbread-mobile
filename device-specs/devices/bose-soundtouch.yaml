@@ -224,15 +224,21 @@ http_endpoints:
       Body <zone master="MASTER_MAC" senderIPAddress=...><member ipaddress=...>
       MEMBER_MAC</member></zone> to play the master's audio on the members.
 
-websocket:
-  path: "/ (port 8080)"
-  description: >
-    Push channel. Connect ws://<ip>:8080 with subprotocol "gabbo"; the speaker
-    emits <updates deviceID=...> wrappers on change (nowPlayingUpdated,
-    volumeUpdated, presetsUpdated, zoneUpdated, sourcesUpdated, bassUpdated,
-    connectionStateUpdated, infoUpdated).
-  message_format: "xml"
-  verification: "reported"
+protocol_details:
+  # Narrative, not a contract: this socket carries push notifications
+  # (and, on the Harmony, an envelope still to be confirmed), while the
+  # commands above ride HTTP. It is documented here rather than in the
+  # first-class `websocket:` block, which describes a socket a client
+  # EXECUTES against — connect plus channels — and this is not one.
+  websocket:
+    path: "/ (port 8080)"
+    description: >
+      Push channel. Connect ws://<ip>:8080 with subprotocol "gabbo"; the speaker
+      emits <updates deviceID=...> wrappers on change (nowPlayingUpdated,
+      volumeUpdated, presetsUpdated, zoneUpdated, sourcesUpdated, bassUpdated,
+      connectionStateUpdated, infoUpdated).
+    message_format: "xml"
+    verification: "reported"
 
 commands:
   play:

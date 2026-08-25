@@ -137,17 +137,19 @@ device:
         can control the device. A token of all 0s or all fs is a placeholder; a
         token with other characters is likely valid.
 
-miio_protocol:
-  transport: "UDP, port 54321, AES-128-CBC (PKCS#7) payloads"
-  header: >
-    32 bytes: magic 0x2131 (16b), length incl. header (16b), Unknown1 (32b),
-    Device ID (32b), Stamp (32b), then 128-bit MD5-checksum-or-token.
-  handshake: "Client Hello = fixed 32 bytes (magic 0x2131, length 0x0020, rest 0xFF); device replies with its token in the checksum field."
-  key_derivation: "Key = MD5(Token); IV = MD5(Key + Token)."
-  payload: "JSON-RPC, e.g. {\"id\":1,\"method\":\"get_prop\",\"params\":[...]} (per-device method set)."
+protocol_details:
+  miio_protocol:
+    transport: "UDP, port 54321, AES-128-CBC (PKCS#7) payloads"
+    header: >
+      32 bytes: magic 0x2131 (16b), length incl. header (16b), Unknown1 (32b),
+      Device ID (32b), Stamp (32b), then 128-bit MD5-checksum-or-token.
+    handshake: "Client Hello = fixed 32 bytes (magic 0x2131, length 0x0020, rest 0xFF); device replies with its token in the checksum field."
+    key_derivation: "Key = MD5(Token); IV = MD5(Key + Token)."
+    payload: "JSON-RPC, e.g. {\"id\":1,\"method\":\"get_prop\",\"params\":[...]} (per-device method set)."
 
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >

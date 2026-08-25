@@ -1765,6 +1765,12 @@ def test_every_ble_spec_can_be_matched_by_something(specs):
         device_id
         for device_id, spec in specs.items()
         if spec["device"].get("protocol") == "ble"
+        # A reference spec documents a published profile other specs cite --
+        # FTMS is service 0x1826, not a product -- so there is no scan result
+        # to bind it to, the same reason references carry no `testing` block.
+        # Worse than pointless: giving it the profile's own service UUID as an
+        # axis would enter it in the matcher against every real FTMS treadmill.
+        and not is_reference(spec)
         and not any(
             (spec["device"].get("identification") or {}).get(axis) for axis in axes
         )

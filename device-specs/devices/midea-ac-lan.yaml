@@ -130,17 +130,19 @@ device:
         gates the encrypted TCP 6444 session; it is obtained from the cloud once
         and then used entirely locally.
 
-midea_lan_protocol:
-  transport: "TCP 6444 (control, encrypted) / UDP 6445 (discovery)"
-  generations:
-    V1: "limited support"
-    V2: "local, no token needed"
-    V3: "local, requires a TOKEN + KEY (K1) fetched once from the Midea cloud"
-  appliance_types: "0xAC air conditioner, 0xCC portable AC, dehumidifiers (via midea-beautiful-air)"
-  framing_note: "0x5A5A / 8370 byte framing — see msmart-ng source."
+protocol_details:
+  midea_lan_protocol:
+    transport: "TCP 6444 (control, encrypted) / UDP 6445 (discovery)"
+    generations:
+      V1: "limited support"
+      V2: "local, no token needed"
+      V3: "local, requires a TOKEN + KEY (K1) fetched once from the Midea cloud"
+    appliance_types: "0xAC air conditioner, 0xCC portable AC, dehumidifiers (via midea-beautiful-air)"
+    framing_note: "0x5A5A / 8370 byte framing — see msmart-ng source."
 
 http_endpoints:
   - method: "GET"
+    status: "placeholder"
     path: "/"
     name: "Local API Placeholder"
     description: >

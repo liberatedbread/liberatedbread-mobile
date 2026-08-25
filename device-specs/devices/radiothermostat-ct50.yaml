@@ -261,7 +261,7 @@ entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
-    unit: "°F"
+    unit: "F"
     state_endpoint: "/tstat"
     state_mapping:
       value: "temp"

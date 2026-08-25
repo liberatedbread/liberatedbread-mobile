@@ -158,51 +158,52 @@ device:
 
 # The player<->server wire protocol. This is the half that keeps the hardware
 # alive; the JSON-RPC control surface below is how an app drives it.
-slimproto_protocol:
-  transport: "TCP, server listens on 3483; player connects out"
-  discovery:
-    method: "udp_broadcast"
-    port: 3483
-    description: >
-      A player broadcasts a discovery datagram on UDP 3483; the server answers
-      unicast to UDP 3483 on the player, which then opens the TCP 3483 control
-      connection. (The exact discovery datagram byte layout is not restated
-      here — the port and direction are the load-bearing facts.)
-  framing:
-    server_to_client: >
-      2-byte length (network byte order, excludes itself) + 4-byte command tag
-      + data.
-    client_to_server: >
-      4-byte operation + 4-byte length + data.
-  client_messages:
-    HELO: >
-      Player registration: a DeviceID byte ('2'=Squeezebox, '4'=Squeezebox2,
-      '5'=Transporter, '10'=Boom), firmware revision, 6-byte MAC, a 16-byte
-      UUID on newer firmware, WLAN channel bitfield, a bytes-received counter,
-      and an optional comma-separated capability string (codecs wma/flc/pcm/
-      aac/mp3/ogg in preference order, plus MaxSampleRate, Model, HasDigitalOut,
-      SyncgroupID).
-    STAT: >
-      Heartbeat / event: status codes such as STMc (connected), STMd (decoder
-      ready), STMu (underrun), STMn (unsupported format), plus buffer fullness,
-      elapsed time and Wi-Fi signal.
-    IR: "Raw infrared remote codes from the player's remote."
-    BYE!: "Player is disconnecting."
-  server_messages:
-    strm: >
-      Stream control (24+ bytes). Subcommand: 's' start, 'p' pause, 'u' unpause,
-      'q' stop, 't' status, 'f' flush, 'a' skip. Carries a format byte ('p' PCM,
-      'm' MP3, 'f' FLAC, 'w' WMA, 'a' AAC), sample size/rate/channels/endianness,
-      a buffer threshold, a 16.16 fixed-point replay-gain, the server IP+port,
-      and then a literal embedded HTTP request (e.g.
-      `GET /stream.mp3?player=<mac> HTTP/1.0`) that the player issues to fetch
-      the audio (with a Basic-auth header if the server is password-protected).
-    audg: "Volume: 16.16 fixed-point left/right gains plus preamp."
-    aude: "Enable/disable the SPDIF and DAC outputs."
-    grfe: "Display bitmap (e.g. 320x32 on Squeezebox3), optional LZF compression."
-    grfb: "Display brightness."
-    serv: "Switch the player to another server (IP + optional SyncgroupID)."
-    vers: "Server version."
+protocol_details:
+  slimproto_protocol:
+    transport: "TCP, server listens on 3483; player connects out"
+    discovery:
+      method: "udp_broadcast"
+      port: 3483
+      description: >
+        A player broadcasts a discovery datagram on UDP 3483; the server answers
+        unicast to UDP 3483 on the player, which then opens the TCP 3483 control
+        connection. (The exact discovery datagram byte layout is not restated
+        here — the port and direction are the load-bearing facts.)
+    framing:
+      server_to_client: >
+        2-byte length (network byte order, excludes itself) + 4-byte command tag
+        + data.
+      client_to_server: >
+        4-byte operation + 4-byte length + data.
+    client_messages:
+      HELO: >
+        Player registration: a DeviceID byte ('2'=Squeezebox, '4'=Squeezebox2,
+        '5'=Transporter, '10'=Boom), firmware revision, 6-byte MAC, a 16-byte
+        UUID on newer firmware, WLAN channel bitfield, a bytes-received counter,
+        and an optional comma-separated capability string (codecs wma/flc/pcm/
+        aac/mp3/ogg in preference order, plus MaxSampleRate, Model, HasDigitalOut,
+        SyncgroupID).
+      STAT: >
+        Heartbeat / event: status codes such as STMc (connected), STMd (decoder
+        ready), STMu (underrun), STMn (unsupported format), plus buffer fullness,
+        elapsed time and Wi-Fi signal.
+      IR: "Raw infrared remote codes from the player's remote."
+      BYE!: "Player is disconnecting."
+    server_messages:
+      strm: >
+        Stream control (24+ bytes). Subcommand: 's' start, 'p' pause, 'u' unpause,
+        'q' stop, 't' status, 'f' flush, 'a' skip. Carries a format byte ('p' PCM,
+        'm' MP3, 'f' FLAC, 'w' WMA, 'a' AAC), sample size/rate/channels/endianness,
+        a buffer threshold, a 16.16 fixed-point replay-gain, the server IP+port,
+        and then a literal embedded HTTP request (e.g.
+        `GET /stream.mp3?player=<mac> HTTP/1.0`) that the player issues to fetch
+        the audio (with a Basic-auth header if the server is password-protected).
+      audg: "Volume: 16.16 fixed-point left/right gains plus preamp."
+      aude: "Enable/disable the SPDIF and DAC outputs."
+      grfe: "Display bitmap (e.g. 320x32 on Squeezebox3), optional LZF compression."
+      grfb: "Display brightness."
+      serv: "Switch the player to another server (IP + optional SyncgroupID)."
+      vers: "Server version."
 
 # The control API a third-party app actually calls. The JSON-RPC endpoint is a
 # genuine HTTP access surface; the line CLI on TCP 9090 is the same command
