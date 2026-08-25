@@ -62,7 +62,7 @@ device:
       - type: "mdns"
         mdns:
           # Gree does not advertise mDNS; discovery is the UDP 7000 {"t":"scan"}
-          # broadcast. Placeholder block; see gree_lan_protocol.
+          # broadcast. Placeholder block; see protocol_details.gree_lan_protocol.
           service_type: "_http._tcp.local."
           port: 7000
           identity_mapping:
@@ -74,7 +74,7 @@ device:
         notes: >
           Real discovery: broadcast plaintext {"t":"scan"} to UDP 7000; each AC
           answers with its MAC and an encrypted metadata pack. See
-          gree_lan_protocol.
+          protocol_details.gree_lan_protocol.
     identity:
       stable_keys: ["mac"]
       display: "name"
@@ -127,6 +127,8 @@ device:
         AES-encrypted, but the generic key used for scan/bind is shared across
         all Gree devices, so binding is possible by anyone on the LAN.
 
+# The Gree LAN wire protocol. Lives under `protocol_details`, the schema's
+# namespace for single-spec protocol blocks (the top level is closed).
 protocol_details:
   gree_lan_protocol:
     transport: "UDP unicast + broadcast, port 7000"
@@ -144,12 +146,12 @@ protocol_details:
 
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. Control is AES-encrypted JSON over UDP port 7000 (see
-      gree_lan_protocol), not HTTP.
+      protocol_details.gree_lan_protocol), not HTTP.
 
 commands:
   power_on:
@@ -200,7 +202,7 @@ entities:
     min_temp: 16
     max_temp: 30
     temp_step: 1
-    notes: "Mode/setpoint/fan via the gree_lan_protocol parameters (Pow, Mod, SetTem, WdSpd)."
+    notes: "Mode/setpoint/fan via the protocol_details.gree_lan_protocol parameters (Pow, Mod, SetTem, WdSpd)."
 
 helpful_urls:
   - title: "tomikaa87/gree-remote"

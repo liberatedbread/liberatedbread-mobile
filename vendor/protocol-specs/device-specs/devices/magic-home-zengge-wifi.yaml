@@ -68,7 +68,7 @@ device:
         mdns:
           # Zengge controllers do NOT advertise a dedicated mDNS service; they
           # are found by the UDP 48899 "HF-A11ASSISTHREAD" config handshake
-          # documented in zengge_lan_protocol below. This block is a formal
+          # documented in protocol_details.zengge_lan_protocol below. This block is a formal
           # placeholder — treat the UDP probe as the real discriminator.
           service_type: "_http._tcp.local."
           port: 5577
@@ -81,7 +81,7 @@ device:
         notes: >
           Discovery in practice is the Hi-Flying module's UDP 48899 config
           channel: broadcast the ASCII "HF-A11ASSISTHREAD", to which modules
-          answer "+ok" and then report IP/MAC/model. See zengge_lan_protocol.
+          answer "+ok" and then report IP/MAC/model. See protocol_details.zengge_lan_protocol.
     identity:
       stable_keys: ["mac"]
       display: "model"
@@ -138,7 +138,8 @@ device:
         config channel — no encryption. Post-setup TCP 5577 control is
         unauthenticated: anything on the LAN can drive the controller.
 
-# The Zengge/Magic Home LAN protocol.
+# The Zengge/Magic Home LAN protocol. Lives under `protocol_details`, the
+# schema's namespace for single-spec protocol blocks (the top level is closed).
 protocol_details:
   zengge_lan_protocol:
     control:
@@ -158,12 +159,12 @@ protocol_details:
 
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. Control is binary over a raw TCP socket on port 5577
-      (see zengge_lan_protocol); discovery is over UDP 48899. There is no HTTP
+      (see protocol_details.zengge_lan_protocol); discovery is over UDP 48899. There is no HTTP
       control surface on most modules (some expose a status page on port 80).
 
 commands:

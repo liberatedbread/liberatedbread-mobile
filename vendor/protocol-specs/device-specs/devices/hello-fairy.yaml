@@ -1,0 +1,676 @@
+# Hello Fairy (Avatar Controls) fairy / curtain / tree lights device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Hello Fairy Fairy/Curtain/Tree Lights"
+  manufacturer: "Avatar Controls (Lenze-based firmware; app com.lenzetech.hellofairy)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "light"
+  notes: >
+    App-controlled addressable RGB(W) light strings (fairy/string, curtain and
+    Christmas-tree products) sold under the Hello Fairy brand by Avatar Controls.
+    The vendor app (com.lenzetech.hellofairy v3.3.3 analyzed) is BLE-only: no
+    UDP/TCP/SSDP/mDNS/SoftAP code and no Wi-Fi provisioning exists in it, so the
+    BLE link documented here is the WHOLE control surface and local-only control
+    viability is high.
+
+    TRANSPORT. One GATT service in ISSC/transparent-UART style (UUID base
+    49535343-...., reused by the Lenze firmware): write commands to
+    49535343-8841-..., responses arrive as notifications on
+    49535343-1e4d-... (enable notify on it FIRST — the app does this before
+    sending anything). No bonding, no pairing PIN, no link crypto; integrity is
+    a sum-8 frame checksum only.
+
+    FRAMING. Two frame variants, selected per command by head byte:
+      * 0xAA (all control commands):
+        [0xAA][cmdType u8][payloadLen u8][payload...][sum8]
+        sum8 = sum of ALL preceding bytes (head included) mod 256. Responses
+        on the notify characteristic use the same frame and the same checksum;
+        the app logs and drops frames whose sum8 fails.
+      * 0xBB (bulk file transfer only): [0xBB][cmdType][payloadLen u32 BE]
+        [payload...][0xBB]; cmdType 0x01 is a special case carrying
+        [0xBB][payload...] with no length or trailer.
+    Multi-byte integers in payloads are BIG-ENDIAN throughout (verified against
+    the app's payload serializers: uint16 and uint32 helpers both emit
+    most-significant byte first).
+
+    CONNECT SEQUENCE (what the app does, and what a replacement client should
+    do): enable notify on ...1e4d, then get_device_info (0x00) to learn the
+    model string, LED count and capabilities, get_device_status (0x01) for
+    current state, and set_time (0x05) so device-side timers/countdowns run on
+    the right clock. The model string returned by 0x00 doubles as the key into
+    the vendor's public OTA manifest.
+
+    OPCODE MAP (request opcodes 0x00-0x33; ~70 classes exist in the app, the
+    ones below are the mapped control surface):
+      0x00 get_device_info    0x01 get_device_status   0x02 set power on/off
+      0x03 set light mode (warm-white / HSV / scene / music, sub-mode byte)
+      0x04 set countdown      0x05 set time (epoch + timezone)
+      0x06 timers 1-4 (get/set, 4-byte records)  0x07 timers 5-8 (get)
+      0x09 battery level      0x0A devices-in-series / LED segments
+      0x0B power mode (SAVING/POWER)             0x0C scene-mode speed
+      0x0D-0x0F paired getters/setters (payloads not yet transcribed)
+      0x14 current limiting value (get/set, u16 BE)
+      0x15 get DIY program id 0x16/0x17 solar-charge state get/set (solar SKUs)
+      0x18 wall-painting lamp op
+      0x30 file information (query/read/modify/add/delete/add-DIY, sub-cmd byte)
+      0x31 file data chunk (0xAA frame)          0x32 DIY save (sub-cmd byte)
+      0x33 file data chunk, 0xBB framing variant
+    Device->app events/responses also arrive with opcodes in the 0xA0-0xE0
+    range (about two dozen registered parsers; 0xB0/0xA5/0xA6 cover tree-top
+    star control state on tree SKUs). These mirror the low request opcodes;
+    exact event mapping needs a live capture.
+
+    GET_DEVICE_INFO (0x00) RESPONSE PAYLOAD (offsets within payload):
+      0-4    firmware version string, e.g. "1.0.0"
+      5..    NUL-terminated model string, e.g. "BMSL64" (OTA manifest key)
+      20-21  total LED count (u16 BE)
+      22     hardware serial number
+      23     serial MAX
+      24     one-serial number
+      25     Device_Type
+      26     DIY_Type
+      27     count of optional TLV fields starting at 28; tags seen:
+             1 = CMD_01 device type (2B), 2 = supports loop (1B), 3 = (2B),
+             4 = (3B), 7 = flag (1B), 8 = (2B), 9 = DIY scene info (7B),
+             10 = FW_NUM 13-char string.
+      Quirk: model "BMSL64" fw "1.0.0" reporting LED count 50 really has 25;
+      the app special-cases it.
+
+    GET_DEVICE_STATUS (0x01) RESPONSE PAYLOAD:
+      0-2  countdown seconds remaining (24-bit BE)
+      3    power on/off (1/0)
+      4    active mode: 0 = warm white, 1 = HSV, 2 = scene, 3 = music
+      5..  mode state, same layout as the set_light (0x03) payload minus the
+           sub-mode byte: mode 0 -> brightness u16, colorTemperature u16,
+           warmWhiteMode u8, speed u8; mode 1 -> hue u16, saturation u16,
+           value u16; mode 2 -> sceneNumber u8, brightness u16 (x10 decode);
+           mode 3 -> mode/auto nibble byte, sensitivity u8, brightness u16,
+           hue u16, saturation u16.
+
+    CHIPS / OTA. Three firmware families exist across SKUs, distinguished by
+    the OTA path (control protocol above is the same):
+      * Lenze ST17H66 (most common; .hex16 Intel HEX images): dedicated OTA
+        GATT service 5833ff01-... documented below, including the MAC+1
+        re-advertise trick. Flash addresses seen in code: 0x11000000-0x1107FFFF.
+        Per-partition integrity is CRC16/MODBUS (reflected poly 0xA001, init 0).
+      * ESP32 (raw .bin images, path prefix "ESP32/" on the OTA bucket):
+        Nordic-buttonless-DFU-style service 1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0,
+        write f7bf3564-fb6d-4e53-88a4-5e37e0326063 (app writes 0x03 then 0x00
+        then raw image chunks), characteristic 984227f3-34fc-4045-a5d0-2c581f81a153.
+      * Bluetrum (.fot images, the majority of files in the public manifest):
+        OTA mechanism not present in the analyzed app code paths read so far;
+        unmapped.
+    Firmware images for all three are PUBLIC: the version manifest at
+    https://hellofairyota.s3.amazonaws.com/hello_fairy_ota_pro.json is a plain
+    JSON list keyed by the GetDeviceInfo model string with fields
+    model/version/OTAModel/url/content per entry; version compare is
+    "x.y.z" -> xyz int. OTAModel 1 = ST17H66, 2 = ESP32. Images are Intel HEX
+    (record types 00/01/04; the ".hexe16" variant carries an 8-hex-digit
+    checksum field in the last block), raw .bin, .fot or .dcf depending on
+    family.
+
+    PRIVACY FLAGS (vendor app, not the device): the app POSTs device telemetry
+    (MAC, model, firmware version, GATT UUID list) to an Alibaba-Cloud-hosted
+    vendor backend at 121.40.220.76:20003, and fetches cloud storage
+    credentials from a vendor endpoint at runtime. Neither is needed for local
+    control; a replacement client has no reason to contact either.
+
+    CONFIDENCE: service/characteristic UUIDs, frame formats, checksum rule,
+    endianness, the connect sequence, and every opcode layout transcribed in
+    the commands below are HIGH — read directly out of the app's payload
+    serializers/parsers. NOT yet verified against hardware (no live capture
+    exists in this research): treat actual wire behavior as MEDIUM until an HCI
+    snoop confirms it. Scene-number ranges, the 0x0A segment semantics (two
+    different response parsers share the opcode), the 0x0B powerPattern setter,
+    opcodes 0x0D-0x0F/0x11-0x13/0x19/0x20, the 0xA0-0xE0 event mapping and the
+    Bluetrum OTA path are MEDIUM-to-LOW. The app also contains a device-lock
+    ("password") UI module whose wire mechanism was not traced — if a unit
+    stops answering commands after a password was set in the vendor app, that
+    feature is the prime suspect.
+  identification:
+    local_name_prefix: "Hello Fairy"
+    service_uuids:
+      - "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "contains"
+            value: "Hello Fairy"
+          service_uuids:
+            - "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+    notes: >
+      The vendor app's scanner keeps a device only when the advertised name
+      contains "Hello Fairy"; devices currently in OTA mode are exempted and
+      matched by MAC instead (ST17H66 OTA mode re-advertises at MAC+1, so a
+      scanner that also accepts address = known MAC +/- 1 can spot a device
+      stuck mid-OTA).
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. The device advertises as soon as it is powered and
+      accepts a connection from any central; all configuration happens over
+      GATT commands after connecting.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No account, no network credentials, no pairing PIN: scan for the
+          "Hello Fairy" advertisement, connect, enable notifications on the
+          response characteristic, then send get_device_info / get_device_status
+          / set_time.
+        ble:
+          advertised_name: "Hello Fairy"
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for an advertisement whose name contains 'Hello Fairy'."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect, enable notify on 49535343-1e4d-4bd9-ba61-23c647249616, then run the documented initialization sequence (get_device_info, get_device_status, set_time)."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential or network state to clear — nothing binds the device to
+        a phone or account. Power-cycling drops the current BLE connection,
+        which is the actual remedy for the common failure mode: the device
+        already being connected to another central. Whether any hardware
+        button combo clears on-device timers/DIY content is unknown.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to an owner, so switching controllers is
+        just connecting from the new one. Only one central can hold the link
+        at a time: if the old phone reconnects automatically, remove the
+        device from the vendor app (and from the OS Bluetooth list if a bond
+        was cached) first.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands; physical
+        proximity is the only access control. The vendor app's device-lock
+        ("password") feature exists but its wire mechanism is untraced.
+  variants:
+    - model: "ST17H66-based (Lenze)"
+      identification:
+        local_name_prefix: "Hello Fairy"
+        service_uuids:
+          - "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+      notes: >
+        Most common. OTA via service 5833ff01-... with the MAC+1 re-advertise
+        trick; firmware images are Intel HEX (.hex16/.hexe16) keyed by model
+        string in the public OTA manifest (OTAModel 1).
+    - model: "ESP32-based"
+      identification:
+        local_name_prefix: "Hello Fairy"
+        service_uuids:
+          - "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+          - "1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0"
+      notes: >
+        Same control protocol; OTA uses Nordic-buttonless-DFU-style UUIDs and
+        raw .bin images (OTAModel 2).
+    - model: "Bluetrum-based"
+      identification:
+        local_name_prefix: "Hello Fairy"
+      notes: >
+        Control protocol assumed identical (same app opcodes); OTA images are
+        .fot files from the public manifest but the OTA transport is unmapped.
+
+services:
+  # Normal operation — ISSC/transparent-UART-style control service.
+  - uuid: "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+    name: "Hello Fairy Control Service (ISSC transparent UART)"
+    characteristics:
+      - uuid: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+        name: "Command Write"
+        properties: ["write"]
+        notes: >
+          All commands are written here as COMPLETE frames — every value and
+          template below already includes the [0xAA head][cmdType][payloadLen]
+          leader, so no characteristic-level `framing` is declared ON PURPOSE
+          (declaring length_prefix/checksum would double-wrap). The trailing
+          sum template slot is `auto: checksum` with `checksum_start: 0`:
+          sum of all preceding frame bytes, head included, mod 256.
+
+          Fixed commands carry their payloadLen inline; for the two
+          variable-length commands (file_data_chunk, and any client extending
+          the set) payloadLen = number of payload bytes and must be computed
+          from the data length.
+
+          Bulk DIY/GIF file transfer additionally uses the 0xBB framing on
+          this same characteristic: [0xBB][cmdType][payloadLen u32 BE]
+          [payload][0xBB] (cmdType 0x33 data chunks; cmdType 0x01 is the
+          special headerless [0xBB][payload] form). The 0x30 "file
+          information" command multiplexes sub-commands on its first payload
+          byte: 1 = query file count/capacity ([sub=1][fileType u8][? u16]),
+          2 = read file ([sub=2][fileNum u16][... 5 bytes]), 3 = add file
+          ([sub=3][? u8][? u32 BE][...]), 4 = delete file ([sub=4][fileNum
+          u16]), 5 = add DIY mode file ([sub=5][fileType u8][sizes u32 BE x2]),
+          6 = add assign file with name ([sub=6][type u8][len+UTF-8 name or
+          u32 size][...]). 0x32 "DIY save" similarly multiplexes on payload
+          byte 0 (sub-commands 1-13; e.g. 4 = play file [sub=4][slot u8]
+          [fileNum u16 or u32 BE], 5/8/9 = GIF/file number as u32 BE).
+          Sub-command layouts beyond the shapes above are MEDIUM confidence —
+          transcribed but not wire-verified.
+        commands:
+          get_device_info:
+            description: >
+              Probe/handshake: firmware version, model string (OTA manifest
+              key), LED count, serial fields, device/DIY type, optional TLV
+              capabilities. Send first after enabling notify. Response layout
+              in device notes.
+            value: [0xAA, 0x00, 0x00, 0xAA]
+          get_device_status:
+            description: >
+              Current countdown, power state, active mode and mode state
+              (layout in device notes; payload offsets 0-2 countdown 24-bit BE,
+              3 power, 4 mode, 5.. mode state).
+            value: [0xAA, 0x01, 0x00, 0xAB]
+          power_on:
+            description: "Turn the lights on (cmd 0x02, payload 0x01)."
+            value: [0xAA, 0x02, 0x01, 0x01, 0xAE]
+          power_off:
+            description: "Turn the lights off (cmd 0x02, payload 0x00)."
+            value: [0xAA, 0x02, 0x01, 0x00, 0xAD]
+          set_light_hsv:
+            description: >
+              Set HSV color mode (cmd 0x03, sub-mode 1). Hue 0-360;
+              saturation and value are per-mille (0-1000 = 0.0-1.0), so full
+              white-bright red is h=0 s=1000 v=1000. All three u16 BIG-endian.
+            template: [0xAA, 0x03, 0x07, 0x01, "{hue}", "{saturation}", "{value}", "{sum}"]
+            parameters:
+              hue:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 360
+              saturation:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 1000
+                notes: "Per-mille saturation (1000 = 100%)."
+              value:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 1000
+                notes: "Per-mille brightness (1000 = 100%)."
+              sum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+          set_light_scene:
+            description: >
+              Set built-in scene mode (cmd 0x03, sub-mode 2). Valid scene
+              numbers depend on firmware (query capability TLVs in
+              get_device_info; app ships a large built-in scene catalog).
+              Brightness raw 0-100 percent — the status parser decodes this
+              field as raw*10 per-mille. Scene-number range MEDIUM confidence.
+            template: [0xAA, 0x03, 0x04, 0x02, "{scene}", "{brightness}", "{sum}"]
+            parameters:
+              scene:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "Scene catalog index; valid range is firmware-dependent."
+              brightness:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 100
+                notes: "Percent; decoded by the app as raw*10 per-mille."
+              sum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+          set_light_music:
+            description: >
+              Set music-reactive mode (cmd 0x03, sub-mode 3). The first
+              payload byte packs the music mode index in the high nibble and
+              an auto flag (0/1) in the low nibble; then sensitivity u8,
+              brightness u16 per-mille, hue u16 (0-360), saturation u16
+              per-mille — all multi-byte fields BIG-endian.
+            template: [0xAA, 0x03, 0x09, 0x03, "{mode_auto}", "{sensitivity}", "{brightness}", "{hue}", "{saturation}", "{sum}"]
+            parameters:
+              mode_auto:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "High nibble = music mode index, low nibble = auto flag (0 or 1)."
+              sensitivity:
+                type: "uint8"
+                min: 0
+                max: 255
+              brightness:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 1000
+              hue:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 360
+              saturation:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 1000
+              sum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+          set_light_warm_white:
+            description: >
+              Set warm-white mode (cmd 0x03, sub-mode 0) on RGBW SKUs:
+              brightness and color temperature as u16 BE, then warm-white
+              effect (0 static / 1 gradient / 2 strobe) and effect speed.
+            template: [0xAA, 0x03, 0x06, 0x00, "{brightness}", "{color_temperature}", "{ww_mode}", "{speed}", "{sum}"]
+            parameters:
+              brightness:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 1000
+                notes: "Per-mille (1000 = 100%); exact scale MEDIUM confidence."
+              color_temperature:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 1000
+                notes: "Raw value; Kelvin mapping MEDIUM confidence."
+              ww_mode:
+                type: "uint8"
+                allowed: [0, 1, 2]
+                labels: ["static", "gradient", "strobe"]
+              speed:
+                type: "uint8"
+                min: 0
+                max: 6
+                notes: "Encoded as 6 minus the UI speed step (0-6); only meaningful for gradient/strobe."
+              sum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+          set_countdown:
+            description: >
+              Set/cancel the sleep countdown (cmd 0x04): seconds as u32 BE plus
+              an enable byte. Response echoes the seconds as u32 BE.
+            template: [0xAA, 0x04, 0x05, "{seconds}", "{on}", "{sum}"]
+            parameters:
+              seconds:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+              "on":
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["cancel", "start"]
+              sum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+          set_time:
+            description: >
+              Sync the device clock (cmd 0x05): epoch seconds u32 BE, timezone
+              sign (0 = west/negative, 1 = east/positive), timezone offset in
+              minutes u16 BE. Required for device-side timers and countdowns
+              to fire correctly; the app sends it right after connecting.
+            template: [0xAA, 0x05, 0x07, "{epoch}", "{tz_sign}", "{tz_offset_minutes}", "{sum}"]
+            parameters:
+              epoch:
+                type: "uint32"
+                endianness: "big"
+                min: 0
+                max: 4294967295
+              tz_sign:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["negative (west of UTC)", "positive (east of UTC)"]
+              tz_offset_minutes:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 840
+              sum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+          get_timers_1_4:
+            description: >
+              Read schedule timers 1-4 (cmd 0x06, empty payload). Response is
+              16 bytes = four 4-byte timer records: [flags][hour][minute]
+              [flags2]. flags: bit0 repeat, bits1-7 weekday mask (bit N = app
+              weekday N). flags2: bit0 light-on action, bit1 enabled,
+              bit3 (set by default in new timers), bits4-6 timer index,
+              bit7 executed.
+            value: [0xAA, 0x06, 0x00, 0xB0]
+          set_timer_1_4:
+            description: >
+              Write one schedule timer in slots 1-4 (cmd 0x06, one 4-byte
+              record; same record layout as get_timers_1_4 — see its notes).
+              To edit, read all four, modify one record, write it back.
+            template: [0xAA, 0x06, 0x04, "{timer}", "{sum}"]
+            parameters:
+              timer:
+                type: "bytes"
+                min_length: 4
+                max_length: 4
+                notes: "[flags][hour][minute][flags2] — bit layout in get_timers_1_4."
+              sum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+          get_timers_5_8:
+            description: >
+              Read schedule timers 5-8 (cmd 0x07). Response is 16 bytes, same
+              4-byte record layout as timers 1-4. Setting slots 5-8 is marked
+              deprecated in the app.
+            value: [0xAA, 0x07, 0x00, 0xB1]
+          get_battery:
+            description: >
+              Battery level (cmd 0x09) on battery SKUs. Response payload:
+              bytes 0-1 = battery hardware version "major.minor", byte 2 =
+              level.
+            value: [0xAA, 0x09, 0x00, 0xB3]
+          get_devices_in_series:
+            description: >
+              Daisy-chain / segment info (cmd 0x0A, empty payload). Two
+              different response parsers share this opcode in the app: one
+              reads two u8 counters (device position, count), the other reads
+              two string-form values (LED segment count get/set). MEDIUM
+              confidence — disambiguate with a live capture.
+            value: [0xAA, 0x0A, 0x00, 0xB4]
+          get_power_mode:
+            description: >
+              Read power mode (cmd 0x0B, payload [0x00]). Response byte 1:
+              0 = SAVING, 1 = POWER. A powerPattern setter on the same opcode
+              writes payload [0x00, 0x00] and parses a [0,0/1] reply — MEDIUM
+              confidence, not yet mapped cleanly.
+            value: [0xAA, 0x0B, 0x01, 0x00, 0xB6]
+          get_scene_mode_speed:
+            description: "Read global scene playback speed (cmd 0x0C). Response is one byte, 0-100."
+            value: [0xAA, 0x0C, 0x00, 0xB6]
+          set_scene_mode_speed:
+            description: "Set global scene playback speed (cmd 0x0C), 0-100."
+            template: [0xAA, 0x0C, 0x01, "{speed}", "{sum}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 100
+              sum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+          get_limiting_value:
+            description: "Read the current limiting value (cmd 0x14, empty payload). Response: u16 BE."
+            value: [0xAA, 0x14, 0x00, 0xBE]
+          set_limiting_value:
+            description: "Set the current limiting value (cmd 0x14), u16 BE."
+            advanced: true
+            advanced_reason: >
+              Changes the driver's current limit. Setting it above what the
+              LED string wiring is rated for can overheat the string or the
+              controller. Read the current value with get_limiting_value
+              first so you can restore it.
+            template: [0xAA, 0x14, 0x02, "{limit}", "{sum}"]
+            parameters:
+              limit:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 65535
+                notes: "Units MEDIUM confidence (milliamps assumed)."
+              sum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+          file_data_chunk:
+            description: >
+              One chunk of DIY/GIF file data (cmd 0x31) during a file transfer
+              opened with the 0x30 file-information command. payloadLen equals
+              the chunk size, so the length parameter must be set to the data
+              byte count. Response is a one-byte status. The 0xBB-framed
+              sibling (cmd 0x33) is documented in the characteristic notes.
+            template: [0xAA, 0x31, "{length}", "{data}", "{sum}"]
+            parameters:
+              length:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "Payload byte count — compute from the data parameter. ATT-MTU-bound chunks."
+              data:
+                type: "bytes"
+                min_length: 1
+                max_length: 255
+              sum:
+                type: "uint8"
+                auto: "checksum"
+                checksum_start: 0
+
+      - uuid: "49535343-1e4d-4bd9-ba61-23c647249616"
+        name: "Response Notify"
+        properties: ["notify"]
+        notes: >
+          Enable notifications (CCC 0x2902) on this characteristic FIRST — the
+          vendor app does it before sending any command. Every response/event
+          arrives here in the same [0xAA][cmdType][len][payload][sum8]
+          framing as requests (drop frames whose sum8 fails), dispatched by
+          cmdType. Responses to the queries above reuse the request opcode;
+          unsolicited device->app events use opcodes in the 0xA0-0xE0 range
+          (about two dozen registered parsers in the app; e.g. 0xB0, 0xA5/0xA6
+          tree-top star state on tree SKUs, 0xE0 a boolean status toggle).
+          The exact event-opcode mapping is MEDIUM confidence — the app's
+          dispatch table was only partially recoverable statically.
+
+  # ST17H66 OTA mode — the device reboots into a dedicated OTA identity.
+  - uuid: "5833ff01-9b8b-5191-6142-22a4536ef123"
+    name: "Lenze ST17H66 OTA Service"
+    notes: >
+      Firmware update channel for ST17H66-based units (the common case).
+      Firmware images are PUBLIC Intel HEX (.hex16/.hexe16) files listed in
+      the manifest at
+      https://hellofairyota.s3.amazonaws.com/hello_fairy_ota_pro.json keyed by
+      the GetDeviceInfo model string; download over HTTPS.
+
+      Update flow (from the app's OTA state machine):
+      1. On the NORMAL device, write [0x01, 0x02] to ...ff02 = enter OTA.
+         The device reboots and re-advertises at MAC+1 (reverse: MAC-1).
+      2. Reconnect to the OTA MAC, enable indications on ...ff03.
+      3. Write [0x01, totalSize, 0x00] (partition count header).
+      4. Per partition: [0x02][idx u8][flashAddr u32][partAddr u32]
+         [partLen u32][crc16 u16] — CRC16/MODBUS (reflected poly 0xA001,
+         init 0) over the partition data; exact field byte order MEDIUM
+         confidence (assembled via a hex-string helper, verify before use).
+      5. Stream data blocks to ...ff04; per-stage timeouts 3-5 s.
+      6. Write [0x04] = reboot into the new firmware.
+      Flash addresses observed in code: 0x11000000-0x1107FFFF. ESP32-based
+      SKUs use a different OTA path (service 1d14d6ee-..., see device notes);
+      Bluetrum .fot SKUs are unmapped.
+    characteristics:
+      - uuid: "5833ff02-9b8b-5191-6142-22a4536ef123"
+        name: "OTA Control"
+        properties: ["write"]
+        commands:
+          ota_enter:
+            description: "Enter OTA mode; device reboots and re-advertises at MAC+1."
+            advanced: true
+            advanced_reason: >
+              Reboots the device into OTA mode, where it no longer answers
+              normal control commands, and is the first step of a firmware
+              flash. Interrupting the subsequent transfer can leave the device
+              needing a reflash (the vendor app resumes via its MAC+1 OTA
+              identity). Have the matching public firmware image ready first.
+            value: [0x01, 0x02]
+          ota_reboot:
+            description: "Final OTA step: reboot into the newly flashed firmware."
+            advanced: true
+            advanced_reason: >
+              Reboots the device after an OTA image transfer; issued before a
+              complete, CRC-verified transfer it can leave the device in OTA
+              mode.
+            value: [0x04]
+      - uuid: "5833ff03-9b8b-5191-6142-22a4536ef123"
+        name: "OTA Status"
+        properties: ["indicate"]
+        notes: "Enable indications after reconnecting to the OTA-mode identity (MAC+1); stage results arrive here."
+      - uuid: "5833ff04-9b8b-5191-6142-22a4536ef123"
+        name: "OTA Data"
+        properties: ["write"]
+        notes: "Firmware data blocks. Per-partition integrity is CRC16/MODBUS announced in the partition header on ...ff02."
+
+entities:
+  - platform: "light"
+    name: "Fairy Lights"
+    features: ["brightness", "color"]
+    state_characteristic: "49535343-1e4d-4bd9-ba61-23c647249616"
+    notes: >
+      Power is cmd 0x02; color is the HSV sub-mode of cmd 0x03; brightness is
+      the value channel of set_light_hsv (or the scene/warm-white brightness
+      fields in those modes). Device state is pulled with get_device_status —
+      the notify characteristic carries framed responses for every opcode, not
+      a single state blob.
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+      set_color: "set_light_hsv"
+
+helpful_urls:
+  - title: "Hello Fairy public OTA manifest"
+    url: "https://hellofairyota.s3.amazonaws.com/hello_fairy_ota_pro.json"
+    description: >-
+      Vendor's public firmware manifest: JSON list of {model, version, OTAModel,
+      url, content} keyed by the GetDeviceInfo model string. The firmware images
+      it points to (Intel HEX .hex16/.hexe16 for ST17H66, .bin for ESP32, .fot
+      for Bluetrum, .dcf) are public and are the reference material for the OTA
+      flows this spec documents.
+  - title: "Hello Fairy on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.lenzetech.hellofairy"
+    description: >-
+      Vendor app (v3.3.3 analyzed for this spec). BLE-only; also fetches
+      scene/UI resources and self-updates from vendor cloud buckets, none of
+      which are needed for local control.

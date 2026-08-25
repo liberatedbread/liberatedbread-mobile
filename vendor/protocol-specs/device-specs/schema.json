@@ -3312,6 +3312,13 @@
                 "type": "boolean",
                 "description": "The channel a command that names none uses. Exactly one channel may claim it."
               },
+              "direction": {
+                "enum": [
+                  "send",
+                  "receive"
+                ],
+                "description": "Which way frames travel on this channel. `send` (the default) is a control channel: the client writes frames built from `frame` or `frame_template`. `receive` is a channel the DEVICE pushes on and the client only subscribes to -- Bose's SoundTouch emits <updates> wrappers on a socket whose control surface is the port-8090 HTTP API. A receive channel carries no frame because the client sends none, and a spec whose channels are all `receive` is not driving its commands over the socket, so its `device.transport` is whatever those commands actually ride."
+              },
               "encoding": {
                 "enum": [
                   "json",

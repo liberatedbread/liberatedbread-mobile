@@ -1,0 +1,361 @@
+# LotusLamp X (Shenzhen ELK) BLE LED strip/lamp controller spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "LotusLamp X BLE LED Controller"
+  manufacturer: "Shenzhen ELK"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "light"
+  notes: >
+    Addressable RGB LED strip/lamp controllers designed against the
+    LotusLamp X app (com.szelk.ledlamppro, analyzed v5.19.08), sold under
+    the ELK-/MELK-/ELBU- advertised-name families and many OEM rebrands.
+    BLE-only: the app declares no Wi-Fi/UDP usage anywhere. Same 9-byte
+    7E..EF E1 frame family as elk-bledom-led-strip.yaml and
+    wl-smartled-pixel-strips.yaml (keep the three in sync), but a wider
+    opcode set and two extra control paths (advertising broadcast + mesh).
+
+    TRANSPORTS (all BLE, no classic pairing, no bonding, no auth):
+      1. GATT connection (primary): service 0xFFF0, write 0xFFF3
+         (write-without-response), notify 0xFFF4. On connect the app also
+         reads standard Device Information characteristics (2A24/2A25/
+         2A26/2A27/2A29) and Battery Level (2A19).
+      2. Connectionless broadcast: the PHONE advertises manufacturer data
+         the lamp listens for — company ID 0xE190 (57744) for E1-family
+         devices, 0xE290 (58000) for E2-family. Payload:
+         <seq> 13 01 BE <9-byte E1 command frame> <sum16 of all preceding
+         bytes, little-endian>.
+      3. Mesh broadcast: company ID 0xBE99 (48793), 22-byte packet:
+         [0]=protoVer(2) [1]=1 [2]=deviceType [3:4]=phone-uuid BE
+         [5]=familyId [6]=roomId [7]=groupId [8]=0x40 [9]=cmd
+         [10:14]=params (pad 0xFF) [15:18]=0 [19]=packetNo
+         [20:21]=CRC16 LE. The CRC is a BLE CRC-24 core (poly 0x100065B,
+         init 0x555555, fully reflected) seeded with the LE manufacturer
+         ID bytes, truncated to 16 bits. Group provisioning (familyId /
+         roomId / groupId assignment) is only partially traced — MEDIUM.
+
+    E1 FRAME (classic, 9 bytes): 7E <len> <cmd> <p0> <p1> <p2> <p3> <p4>
+    EF. <len> is 4 for BRIGHTNESS, 6 for DATA_TIME, else 7 in the app —
+    but the firmware appears NOT to validate it strictly (the published
+    lotus-lamp library used 7 for brightness and 4 for speed against a
+    live MELK-OA10 with success). Treat <len> as informational; emit the
+    app-canonical values from the commands below. Unused params pad 0xFF;
+    the byte before EF defaults 0x00 (0x10 in the app's color frame).
+
+    E2 FRAME: 8E <len+1> <cmd> <params...> — variable length, no trailer.
+    E3 FRAME: 2E <cmd> <params pad 0xFF> 2F — 16 bytes when cmd < 0x10,
+    else 128 bytes. E2/E3 are used by other device families sharing this
+    app (pixel strips, curtain/TV backlight devices); the E1 commands
+    below are what an ELK-/MELK- lamp needs. A niche third family uses
+    55 A5 05 03 R G B FF FF FF-style frames (ignore unless met in the
+    field).
+
+    ENCRYPTED VARIANT (ELK-*): devices whose advertised name has '*' as
+    the 4th character instead of '-' (e.g. "ELK*...") run firmware that
+    requires an obfuscated E1 frame for ON_OFF / MODE / BRIGHTNESS only.
+    The plaintext frame is wrapped in an 0xAA..0x55 envelope and expanded
+    to a 21-byte blob: bytes 0-8 are the plaintext XOR a keystream where
+    keystream[i] = ((rnd[i]*27) ^ (rnd[(i+3)%12]+55) ^ (rnd[(i+7)%12]>>2)
+    ^ (i*85)) & 0xFF over 12 random bytes rnd[]; bytes 9-20 are the 12
+    random bytes each XOR a repeating 16-byte preset key hardcoded in the
+    app. This is toy XOR obfuscation, not AES (no AES/DES exists in the
+    app's BLE path); the preset key is recoverable from the app by anyone.
+    Existence noted per clean-room rules — key bytes intentionally not
+    reproduced here.
+
+    DISCOVERY: service UUID 0xFFF0 is the reliable signal. Advertised
+    name prefixes accepted by the app: ELK-, MELK-, ELBU- plus OEM
+    variants HX6-, HCW-, BYC-, SHY-, MHRS-, THUNDEROBOT, "LED LIGHT
+    STRIP", "LED Constellation Lights" and more. The app's BLE scanner
+    DROPS devices whose name starts with "ELKP" and reads company-ID
+    0xBE99 manufacturer data: if data[1]==0x40, data[2] is a device-type
+    ID it maps to a synthesized display name.
+
+    OPCODE MAP (cmd byte, hex): BRIGHTNESS 01, SPEED 02, MODE 03,
+    ON_OFF 04, COLOR 05, MIC 06, MIC_ON_OFF 07, PHONE_MAI_RHYTHM 08,
+    CUSTOM 0A, SET_SERIAL_PORT_BAUD_RATE 0B, TIMER 0D, HUMAN_SENSOR 12,
+    LIGHT_SENSOR/BIND 13, SET_GROUP 14, FAVORITE 15, AUTO_CAROUSEL 16,
+    SPILED_PARAM 21, SYMPHONY_COLLAPSE_MODE 22, SET_COPPER_WIRE_MODE 23,
+    GET_PROTECT_CODE 24, SET_SCENE 31, START/SET/END_SCENE_DIY 32/33/34,
+    GET_SCENE_DIY 36, GET_SET_SCENE_DIY_FOR_LIGHT_STRIP 37,
+    SET_ENHANCED_SCENE_DIY 39, FIRES_* 40/41/42, READY_UPDATE 43,
+    SET_EFFECT 50, SET_ANIMATION_EFFECT 51, SET_SEND_STATIC_IMAGE 52,
+    SET_DYNAMIC_IMAGE 53, SET_DYNAMIC_IMAGE_DIY 54,
+    SET_DYNAMIC_IMAGE_TEXT 55, SET_RHYTHM_STYLE 56, SET_RHYTHM_DATA 57,
+    SET_POINT_COLOR 58, SET_BACKGROUND_IMAGE 59, SET_TEXT_COLOR 5A,
+    SET_TEXT_GRADIENT_IMAGE 5B, SET_BACKGROUND_COLOR 5C,
+    SET_BACKGROUND_SWITCH 5D, SET_TEXT_COLOR_SWITCH 5E, SET_DIY_IMAGE 60,
+    SET_RHYTHM_DIRECTION 61, SET_RHYTHM_FOLD 62, SET_MIRROR_IMAGE 63,
+    SET_CURTAIN_DIY_DATA_MORE/SET_TV_OPEN 64, SET_MODE_STYLE/
+    SET_SURROUND 65, READ_TV_POINT 66, SET_SYNC_CODE 72, SET_OFF_TIME 76,
+    MONO_STROBE 77, MONO_FLOW 78, STOP_PLAY 80, SEQ 81, TIMER_SWITCH 82,
+    DATA_TIME 83, INFO 84, SET_RESTORE_FACTORY 87, PAIRED_HOST 88,
+    MULTI_TIMER_SETTING 89, MULTI_TIMER_READ 8A, LOCK_HOST 8C,
+    TWO_CH_CAR_LIGHT_LAMP_SELECT 8E, TWO_CH_CAR_LIGHT_ANIMATION C0,
+    MESH_CONTROL_SINGLE C1, MESH_CHANGE_GROUP C2, MESH_ADD_GROUP C3,
+    SET_CLEAR_PAIR C4, SET_DEVICE_CLEAR_PAIR C5, SET_FLOWING_SWITCH D6,
+    SET_BLE_SETTING D7, SET_MOTOR_SETTING D8, SET_DEVICE E1,
+    SET_APP_TYPE EA, DIY_FUNCTION FD, COLORFUL_SYNC_LAMP_PENETRATE FF.
+
+    PRIVACY: the app uploads device stats/telemetry to
+    http://lotus.elkled.com:8082 (endpoints /api/profile/allowupload and
+    /api/info/add) and self-updates from https://www.elkble.com. The lamp
+    itself never needs the network — a replacement client talking GATT
+    keeps the device fully local. Firmware updates, if offered, ride the
+    GATT channel (READY_UPDATE 0x43 + image opcodes 0x52-0x54 in 500-byte
+    packets); no DFU service or firmware file URLs exist in the app.
+
+    CONFIDENCE: service/characteristic UUIDs and the 9-byte E1 frame HIGH
+    — the app's protocol code matches the independently reverse
+    engineered wporter82/lotus-lamp-python (pypi.org/project/lotus-lamp),
+    which is LIVE-TESTED on a MELK-OA10 unit; that library corroborates
+    the color/brightness/speed/mode/power commands below. The 213-mode
+    animation table (modes 0-212) is HIGH per the same library. E2/E3
+    framing, the broadcast/mesh packet layouts and the ELK-* obfuscation
+    scheme are static-analysis only — MEDIUM, verify against live
+    capture. FFF4 notification payload semantics (state echoes in 7E..EF
+    framing) are unmapped — needs a live capture.
+
+  identification:
+    service_uuids:
+      - "0000fff0-0000-1000-8000-00805f9b34fb"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fff0-0000-1000-8000-00805f9b34fb"
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 48793
+            description: >
+              0xBE99 — Shenzhen ELK mesh/broadcast family. Device-side
+              advertisements use this company ID; if data[1]==0x40 then
+              data[2] is a device-type ID (the app maps it to a display
+              name). Names start with ELK-/MELK-/ELBU- or an OEM variant;
+              the vendor app itself ignores names starting with ELKP.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. The lamp advertises when powered and accepts a
+      connection from any central — no account, no pairing PIN, no
+      credential exchange. Confidence medium: no live capture in this
+      repo; the flow is corroborated by the independently tested
+      lotus-lamp-python library, which simply scans, connects and writes.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the 0xFFF0 service UUID (or an ELK-/MELK-/ELBU- name),
+          connect, and write 9-byte E1 command frames to characteristic
+          0xFFF3. Classic (non-ELK-*) firmware needs no initialization
+          sequence. Subscribe to 0xFFF4 for state echoes.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the lamp."
+            actor: "user"
+            request:
+              protocol: "ble_gatt"
+          - action: "Scan for the 0xFFF0 service UUID and connect."
+            actor: "client"
+          - action: "Optionally subscribe to 0xFFF4 notifications, then write E1 frames to 0xFFF3."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. The app exposes a SET_RESTORE_FACTORY
+        opcode (0x87) in the E1 frame family, but its exact frame layout
+        and effect are untested — treat as unverified. Power-cycling drops
+        the current connection, which is the actual remedy for the common
+        failure mode: the lamp holds only one BLE link and another central
+        is still attached.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power for a few seconds and reapply."
+              actor: "user"
+              expect: "Lamp advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds the lamp to an owner or network, so switching
+        controllers is just connecting from the new one. The lamp accepts
+        a single BLE connection at a time — disconnect the old client
+        first (lotus-lamp-python documents exactly this failure mode). If
+        the old client is a phone, also remove the device from the OS
+        Bluetooth list so the phone stops auto-reconnecting and holding
+        the link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No auth on classic firmware; anything in radio range can connect
+        and issue commands. The ELK-* encrypted variant adds XOR
+        obfuscation with an app-embedded preset key — obfuscation, not
+        access control (the key is recoverable from the app). Physical
+        proximity remains the only real barrier.
+
+  variants:
+    - model: "MELK-OA10"
+      identification:
+        local_name_prefix: "MELK-OA"
+      notes: >
+        Reference unit: live-tested by wporter82/lotus-lamp-python
+        ("MELK-OA10 5F" — note spaces in the advertised name). All E1
+        commands below verified working on this model by that library;
+        213 animation modes (0-212).
+    - model: "ELK- classic"
+      identification:
+        local_name_prefix: "ELK-"
+    - model: "ELK-* encrypted firmware"
+      identification:
+        local_name_prefix: "ELK*"
+      notes: >
+        4th character '*' instead of '-' marks the obfuscated-frame
+        firmware (ON_OFF/MODE/BRIGHTNESS wrapped per the algorithm in
+        device.notes). Other opcodes stay plaintext per static analysis —
+        needs live verification.
+    - model: "ELBU-"
+      identification:
+        local_name_prefix: "ELBU-"
+    - model: "OEM rebrands (HX6-, HCW-, BYC-, SHY-, MHRS-, THUNDEROBOT, ...)"
+      notes: >
+        Same app, same protocol. The app's name matcher also accepts the
+        substrings "LED LIGHT STRIP" and "LED Constellation Lights".
+
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "LotusLamp X Control Service"
+    notes: >
+      Single custom service: write characteristic 0xFFF3
+      (write-without-response) for all commands, notify characteristic
+      0xFFF4 for state echoes. All E1-family writes are complete 9-byte
+      frames (7E <len> <cmd> <4-5 params> EF) — no characteristic-level
+      framing is declared on purpose, exactly as in
+      elk-bledom-led-strip.yaml: a consumer must not prepend length or
+      append a checksum to the values/templates below.
+    characteristics:
+      - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
+        name: "Command Write"
+        properties: ["write_without_response"]
+        notes: >
+          Write characteristic for every command. E1 frames below are
+          complete packets written verbatim. The <len> byte (byte 1) is
+          emitted as the app does (4 for brightness, 6 for time sync, else
+          7) but live testing by lotus-lamp-python shows a MELK-OA10
+          tolerates other values — do not treat a mismatch as fatal.
+          Confidence: power/color/brightness/speed/mode HIGH (corroborated
+          live); time sync and timer MEDIUM (static analysis only).
+        commands:
+          power_on:
+            description: "Turn the lamp on (cmd 0x04)."
+            value: [0x7E, 0x07, 0x04, 0x01, 0x01, 0xFF, 0xFF, 0x00, 0xEF]
+          power_off:
+            description: "Turn the lamp off (cmd 0x04)."
+            value: [0x7E, 0x07, 0x04, 0x01, 0x00, 0xFF, 0xFF, 0x00, 0xEF]
+          set_color:
+            description: >
+              Set static RGB color (cmd 0x05, palette type 0x03). The 0x10
+              in byte 7 is what the app emits for this command.
+            template: [0x7E, 0x07, 0x05, 0x03, "{red}", "{green}", "{blue}", 0x10, 0xEF]
+            parameters:
+              red: { type: "uint8", min: 0, max: 255 }
+              green: { type: "uint8", min: 0, max: 255 }
+              blue: { type: "uint8", min: 0, max: 255 }
+          set_brightness:
+            description: >
+              Set brightness 0-100 (cmd 0x01). The app emits len byte 0x04
+              here (0x07 also accepted on tested hardware — see notes).
+            template: [0x7E, 0x07, 0x01, "{level}", 0xFF, 0xFF, 0xFF, 0x00, 0xEF]
+            parameters:
+              level: { type: "uint8", min: 0, max: 100 }
+          set_speed:
+            description: "Set animation speed 0-100 (cmd 0x02)."
+            template: [0x7E, 0x04, 0x02, "{speed}", 0xFF, 0xFF, 0xFF, 0x00, 0xEF]
+            parameters:
+              speed: { type: "uint8", min: 0, max: 100 }
+          set_animation:
+            description: >
+              Set animation/mode 0-212 (cmd 0x03). The full 213-mode table
+              with official names and 8 categories (basic, trans, tail,
+              water, curtain, run, runback, flow) is published in
+              wporter82/lotus-lamp-python. Mode numbers may vary by model.
+            template: [0x7E, 0x07, 0x03, "{mode}", 0xFF, 0xFF, 0xFF, 0x00, 0xEF]
+            parameters:
+              mode: { type: "uint8", min: 0, max: 212 }
+          sync_time:
+            description: >
+              Sync the lamp's clock (cmd 0x83, DATA_TIME): hours, minutes,
+              seconds, weekday (1=Monday .. 7=Sunday).
+            template: [0x7E, 0x06, 0x83, "{hours}", "{minutes}", "{seconds}", "{day_of_week}", 0x00, 0xEF]
+            parameters:
+              hours: { type: "uint8", min: 0, max: 23 }
+              minutes: { type: "uint8", min: 0, max: 59 }
+              seconds: { type: "uint8", min: 0, max: 59 }
+              day_of_week: { type: "uint8", min: 1, max: 7 }
+          set_timer:
+            description: >
+              Schedule an on/off timer (cmd 0x82, TIMER_SWITCH): hours,
+              minutes, then 0x00, timer_type (0 = switch-on timer,
+              1 = switch-off timer), and a days bitmask — bit7 set enables
+              the schedule, bits 0-6 are Monday..Sunday.
+            template: [0x7E, 0x07, 0x82, "{hours}", "{minutes}", 0x00, "{timer_type}", "{days}", 0xEF]
+            parameters:
+              hours: { type: "uint8", min: 0, max: 23 }
+              minutes: { type: "uint8", min: 0, max: 59 }
+              timer_type: { type: "uint8", values: { "0": "switch-on timer", "1": "switch-off timer" } }
+              days: { type: "uint8" }
+
+      - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
+        name: "State Notify"
+        properties: ["notify"]
+        notes: >
+          State notifications. The app subscribes here on connect; the
+          lamp pushes status echoes in the same 7E..EF framing (and the
+          reply to INFO, cmd 0x84). Exact payload semantics are NOT fully
+          mapped — capture live traffic before relying on readback.
+          Confidence: framing MEDIUM, payload layout LOW.
+
+entities:
+  - platform: "light"
+    name: "LED Lamp"
+    features: ["brightness", "color", "effect"]
+    state_characteristic: "0000fff4-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+      set_color: "set_color"
+      set_brightness: "set_brightness"
+
+helpful_urls:
+  - title: "lotus-lamp (PyPI)"
+    url: "https://pypi.org/project/lotus-lamp/"
+    description: >-
+      Independently reverse-engineered Python library for this exact app family
+      (com.szelk.ledlamppro), live-tested on a MELK-OA10; corroborates the FFF0/
+      FFF3/FFF4 UUIDs and the 9-byte E1 color/brightness/speed/mode/power frames,
+      and publishes the full 213-mode animation table.
+  - title: "wporter82/lotus-lamp-python (GitHub)"
+    url: "https://github.com/wporter82/lotus-lamp-python"
+    description: >-
+      Source repo of the lotus-lamp library; docs/PROTOCOL.md documents the BLE
+      protocol (UUIDs, E1 frame layout) from APK analysis plus systematic testing.
+  - title: "LotusLamp X on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.szelk.ledlamppro"
+    description: >-
+      Vendor app this spec was derived from (Shenzhen ELK). Note the app's
+      telemetry endpoint lotus.elkled.com:8082 — unnecessary for local control.

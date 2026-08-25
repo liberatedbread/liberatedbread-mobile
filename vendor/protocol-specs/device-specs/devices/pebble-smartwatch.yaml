@@ -120,7 +120,10 @@ device:
       issued_to_client: []
       notes: "Standard Bluetooth pairing; no application-layer credential. No Wi-Fi on the watch itself."
 
-# The Pebble Protocol application layer + libpebble2 transports.
+# The Pebble Protocol application layer + libpebble2 transports. Bespoke
+# protocol material lives under `protocol_details` because the schema's top
+# level is closed; that block is the schema's namespace for single-spec
+# protocol blocks.
 protocol_details:
   pebble_protocol:
     framing: "Endpoint-addressed packets: length + numeric endpoint prefix, then a body. Big-endian by default."
@@ -136,13 +139,13 @@ protocol_details:
 # control is the Pebble Protocol packets above, not REST.
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. Control is the Pebble Protocol (endpoint-addressed
       packets) over Bluetooth serial or the port-9000 WebSocket developer
-      connection (see pebble_protocol), not HTTP/REST.
+      connection (see protocol_details.pebble_protocol), not HTTP/REST.
 
 helpful_urls:
   - title: "libpebble2 — Pebble Protocol + transports"

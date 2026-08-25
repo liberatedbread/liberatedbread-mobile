@@ -160,7 +160,8 @@ device:
         provisioning, not by anything this spec documents.
 
 # The CASTv2 wire protocol. TLS 8009 protobuf, so http_endpoints below is a
-# placeholder — control is this, not REST.
+# placeholder — control is this, not REST. Lives under `protocol_details`, the
+# schema's namespace for single-spec protocol blocks (the top level is closed).
 protocol_details:
   castv2_protocol:
     transport: "TLS over TCP, port 8009"
@@ -187,13 +188,13 @@ protocol_details:
 
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. There is no HTTP control surface: control is
       length-prefixed protobuf over a TLS socket on port 8009 (see
-      castv2_protocol).
+      protocol_details.castv2_protocol).
 
 commands:
   launch_default_media_receiver:

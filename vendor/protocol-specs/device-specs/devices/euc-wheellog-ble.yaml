@@ -72,15 +72,15 @@ device:
   discovery:
     none: >
       Deliberate. Nothing in the advertisement names a EUC: the BLE serial
-      module each brand fits is generic and its transport characteristic UUID is
-      module-specific (WheelLog reads it from the connected wheel rather than
-      restating one), and the brand itself is only learned from the first
+      module each brand fits is generic and its transport characteristic UUID
+      is module-specific (WheelLog reads it from the connected wheel rather
+      than restating one), and the brand itself is only learned from the first
       notification packets — King Song's AA 55 header, Gotway's 55 AA with the
       5A5A5A5A footer, Veteran's DC 5A 5C. That evidence arrives after a
-      connection, which is a scan's output, not its input, so an advertisement
-      axis written from it would claim wheels this spec cannot decode and miss
-      the ones it can. Manual selection until a discriminating advertisement
-      turns up.
+      connection, which is a scan's output and not its input, so an
+      advertisement axis written from it would claim wheels this spec cannot
+      decode and miss the ones it can. Manual selection until a discriminating
+      advertisement turns up.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -127,20 +127,23 @@ device:
 # The BLE serial characteristic UUID is module-specific (not captured from a
 # cited source); the standard Generic Access below is listed only to record a
 # connectable surface. The load-bearing content is the per-brand frame formats
-# in device.notes and euc_frame_formats.
+# in device.notes and protocol_details.euc_frame_formats.
 services:
   - uuid: "00001800-0000-1000-8000-00805f9b34fb"
     name: "Generic Access (standard)"
     notes: >
       Placeholder connectable surface. The real transport is a BLE serial/notify
       characteristic whose UUID is module-specific; obtain it from the connected
-      wheel (WheelLog auto-detects it). Decode per euc_frame_formats.
+      wheel (WheelLog auto-detects it). Decode per protocol_details.euc_frame_formats.
     characteristics:
       - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
         name: "Device Name"
         properties: ["read"]
         notes: "Standard device-name characteristic."
 
+# The per-brand frame formats are the load-bearing content. They live under
+# `protocol_details`, the schema's namespace for single-spec protocol blocks
+# (the top level is closed).
 protocol_details:
   euc_frame_formats:
     king_song:
@@ -159,7 +162,7 @@ entities:
   - platform: "sensor"
     name: "Speed"
     unit: "km/h"
-    notes: "Per-brand live frame (see euc_frame_formats)."
+    notes: "Per-brand live frame (see protocol_details.euc_frame_formats)."
   - platform: "sensor"
     name: "Battery Voltage"
     device_class: "voltage"

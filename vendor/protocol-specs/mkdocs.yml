@@ -73,6 +73,17 @@ nav:
           - AUTOBABA LED Backpack: devices/autobaba-led-backpack.md
           - Nyan BT Image Controller: devices/nyan-bt-image-controller.md
           - LED space Wi-Fi LED Screen: devices/led-space.md
+          - SP105E Magic LED Controller: devices/sp105e-magic-led.md
+          - BanlanX SP6xxE LED Controllers: devices/banlanx-sp6xxe.md
+          - duoCo StripX / Lotus Lantern Pixel Strips: devices/wl-smartled-pixel-strips.md
+          - LotusLamp X (MELK/ELK/ELBU): devices/lotuslamp-x.md
+          - iDeal LED Pixel Strings: devices/ideal-led.md
+          - Hello Fairy String/Curtain Lights: devices/hello-fairy.md
+          - CHEMION LED Glasses & Hat: devices/chemion-glasses.md
+          - Aurora LED Shoes: devices/aurora-led-shoes.md
+          - EmazingLights Spectra Gloves: devices/emazinglights-spectra.md
+          - Ignis Pixel Flow Props: devices/ignis-pixel.md
+          - Astral Hoops Atomic V AF: devices/astral-hoops.md
           - MoTool Slacker: devices/motool-slacker.md
           - AdMore Light Bar Pro: devices/admore-light-bar.md
           - ProGlow Motorcycle LED: devices/proglow-motorcycle-led.md
@@ -179,6 +190,7 @@ nav:
           - Logitech Harmony Hub: devices/logitech-harmony-hub.md
           - Google Chromecast (CASTv2): devices/chromecast-castv2.md
           - Magic Home / Zengge LED Controller: devices/magic-home-zengge-wifi.md
+          - SP108E LED Shop WiFi Controller: devices/led-shop-sp108e.md
           - WiZ Wi-Fi Lights: devices/wiz-wifi-light.md
           - Twinkly Smart Lights: devices/twinkly-lights.md
           - OSRAM Lightify Gateway: devices/osram-lightify-gateway.md

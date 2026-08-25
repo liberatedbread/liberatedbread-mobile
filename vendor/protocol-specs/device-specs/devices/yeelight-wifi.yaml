@@ -157,7 +157,9 @@ device:
         protection during provisioning is unknown. Post-setup port-55443 control
         is unauthenticated on the LAN, gated only by the LAN Control toggle.
 
-# The Yeelight LAN protocol.
+# The Yeelight LAN protocol. Bespoke material lives under `protocol_details`,
+# the schema's namespace for single-spec protocol blocks (the schema's top
+# level is closed).
 protocol_details:
   yeelight_lan_protocol:
     transport: "TCP, port 55443, JSON messages terminated by CRLF"
@@ -167,12 +169,12 @@ protocol_details:
 
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. Control is JSON over a raw TCP socket on port 55443
-      (see yeelight_lan_protocol), not HTTP.
+      (see protocol_details.yeelight_lan_protocol), not HTTP.
 
 commands:
   turn_on:

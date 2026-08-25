@@ -1,0 +1,554 @@
+# CHEMION LED Glasses / CHEMION HAT device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "CHEMION LED Glasses (CHEMION Original / CHEMION HAT)"
+  manufacturer: "CHEMION (CoolLED OEM hardware; companion app by Neofect)"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+    notes: >
+      Everything here comes from static analysis of the Android companion app
+      v3.0.5 (2026 research store) cross-checked against the public 2015-era
+      reverse engineering at github.com/gsuberland/ChemionHacking. No live
+      capture has been replayed against hardware by this project; the RX
+      (device-to-app) direction in particular is inferred, not traced.
+  protocol: "ble"
+  type: "led-glasses"
+  category: "wearable"
+  notes: >
+    Programmable LED matrix glasses (CHEMION Original) and an LED cap
+    (CHEMION HAT), controlled over BLE by the CHEMION app
+    (Android package com.neofect.chemion, analyzed v3.0.5). The hardware is
+    CoolLED OEM; some units advertise with "CoolLED" in the name.
+
+    TWO DEVICE TYPES, one frame protocol:
+      * CHEMION ORIGINAL (glasses) — Nordic UART Service (NUS)
+        6e400001-b5a3-f393-e0a9-e50e24dcca9e, write 6e400002-…, notify
+        6e400003-…. Matrix 9 rows x 24 cols at 2 bits per pixel (216 px,
+        54-byte frame). App descriptor carries a constant 6, believed to be
+        the save-slot count (MEDIUM). Chip: Nordic nRF51 series (per the 2015
+        ChemionHacking wiki: Cortex-M0 with legacy nRF DFU).
+      * CHEMION HAT — service 4b0d67ea-2faf-4b3c-8c53-f6af0f0171f5, write
+        4b0d67eb-…, notify 4b0d67ec-… (roles by NUS convention; MEDIUM).
+        Matrix 12 x 32 at 4 bits per pixel (384 px, 1536-byte / 0x600 frame) —
+        a color device. App descriptor constant 144 (0x90), believed to be
+        its slot count (MEDIUM).
+
+    FRAME FORMAT (app -> device; one frame per characteristic write, no
+    app-level MTU chunking — the app's BLE layer relies on long writes):
+      [0xFA] [cmd] [lenHi] [lenLo] [payload …] [checksum] [0x55] [0xA9]
+      * 0xFA constant header, 0x55 0xA9 constant trailer.
+      * cmd = command-TYPE byte (not the message ID): request=0x01,
+        reply=0x02, stream=0x03, notify=0x04, error=0x05, identify=0x06.
+        App->device writes use 0x01, 0x03 (realtime stream) and 0x04
+        (sound-reactive stream). HIGH — this map matches the 2015 wiki.
+      * lenHi,lenLo = payload length, big-endian.
+      * checksum = XOR of all PAYLOAD bytes only (header, cmd and length are
+        NOT covered). HIGH — the checksum the ChemionHacking wiki left
+        unsolved; recovered from the app's frame builder (eor loop, seed 0).
+      * Every payload embeds a 2-byte big-endian MESSAGE ID, and almost every
+        payload also carries a constant byte 0x01 (position varies: trailing
+        for power-off, leading elsewhere — see the commands).
+
+    MESSAGE ID MAP (msgId -> cmd type, payload; verified against the app's
+    frame builder, HIGH unless noted):
+      2  request [00 02 01]              power off
+      3  request [01 00 03]              battery level query
+      4  request [01 00 10 <idx>]        slot op, glasses only; NOTE the
+                                         payload embeds module ID 16, same
+                                         wire bytes as msgId 16 (MEDIUM:
+                                         legacy alias / delete slot)
+      5  request [01 00 05]              heartbeat — the app sends this every
+                                         5 s per connected device; send it or
+                                         expect the link to drop (MEDIUM:
+                                         requirement unverified on air)
+      6  stream  [01 00 06 <data…>]      realtime frame streaming, glasses
+                                         only (HAT gets an empty payload from
+                                         this path — its realtime route is
+                                         unresolved, MEDIUM)
+      7  request [01 00 07]              slot/status query (semantics MEDIUM)
+      9  notify  [01 00 09]              sound-reactive streaming marker
+                                         (MEDIUM semantics)
+      10 request [01 00 0A <data…>]      frame data block (54 B per glasses
+                                         frame)
+      11 request glasses: [01 00 0B <idx> <frameSizeHi> <frameSizeLo>]
+            HAT: empty payload             frames transfer start
+      12 request [01 00 0C]              frames transfer end (glasses only)
+      13 request [01 00 0D 01 <data…?>]  play frames on slot (glasses only;
+                                         trailing data optional, MEDIUM)
+      14 request [01 00 0E <idx>]        slot op with index (play/delete,
+                                         glasses only)
+      16 request [01 00 10 <idx>]        slot op with index (free space /
+                                         delete)
+      20 request [01 00 14 <idx>]        slot-frame upload start (both types)
+      21 request [01 00 15]              slot-frame upload end (glasses only)
+    Three further msgIds are loaded from static fields the disassembly does
+    not resolve (likely 1, 8 and 15 or 17 — status, old heartbeat, delete
+    slot / start DFU per the 2015 wiki's enum). The 2015 wiki's message enum
+    (STATUS 0x01 … START_DFU 0x11) broadly matches the low IDs; the current
+    app renumbers/extends (heartbeat is 5; 20/21 are new).
+
+    RX (device -> app): notifications arrive on 6e400003-… (glasses) /
+    4b0d67ec-… (HAT). Parsing was not fully traced; expect the same
+    0xFA … 0x55 0xA9 framing with cmd=reply(0x02)/notify(0x04)/error(0x05),
+    and a reply to msgId 3 carrying battery level (the 2015 wiki lists
+    BATTERY_LEVEL=0x03). MEDIUM — verify with one live capture.
+
+    NO ENCRYPTION on the BLE link. The AES/CRC32 code in the app is a stock
+    ZIP decoder used to unpack downloaded content packs, not the protocol.
+
+    OTA: NONE in app v3.0.5 — no Nordic DFU service, no firmware assets, no
+    start-DFU message path found. The 2015 app generation had nRF legacy DFU
+    with four Intel-HEX images (ChemionHacking wiki), so the nRF51 bootloader
+    may still be reachable on old stock, but nothing here depends on it.
+
+    CLOUD: api.chemi-on.com / content.chemi-on.com (and dev. variants) are a
+    content store and login/SNS layer — downloadable font/sound packs as ZIP.
+    None of it is needed for control: the BLE protocol above is the whole
+    control surface. No Wi-Fi/UDP/SSDP/mDNS transport exists in the app.
+
+    CONFIDENCE SUMMARY: frame format, checksum, cmd-type map and the msgId
+    payload skeletons above are HIGH (read directly from the app's frame
+    builder). Write/notify characteristic roles (NUS convention), slot-count
+    constants, heartbeat requirement, RX layout, 2bpp/4bpp pixel encodings
+    and per-slot-op semantics are MEDIUM pending live capture.
+  identification:
+    local_name_prefixes:
+      - "CHEMION"
+      - "HAT"
+      - "CoolLED"
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      - "4b0d67ea-2faf-4b3c-8c53-f6af0f0171f5"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "CHEMION"
+          service_uuids:
+            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "HAT"
+          service_uuids:
+            - "4b0d67ea-2faf-4b3c-8c53-f6af0f0171f5"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. The device advertises when powered on and the app
+      connects directly, enables notifications on the NUS TX characteristic
+      and starts the 5 s heartbeat. No account, PIN or bonding step was found
+      in the app flow. MEDIUM — inferred from the app's connect path, not yet
+      replayed on hardware.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the advertised name prefixes (CHEMION / HAT / CoolLED) or
+          the service UUIDs, connect, enable notifications on the notify
+          characteristic (6e400003 glasses / 4b0d67ec HAT), and write frames
+          to the write characteristic (6e400002 glasses / 4b0d67eb HAT). The
+          app additionally sends a heartbeat frame every 5 seconds.
+        ble:
+          advertised_name: "CHEMION"
+          pairing_required: false
+        steps:
+          - action: "Power the device on and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect, enable notifications on the notify characteristic, then send heartbeat every 5 s."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No reset procedure is documented and none was found in the app —
+        there is no credential state to clear. Power-cycling drops the
+        current connection, which is the remedy for the common failure mode:
+        the device already being connected to another central (one BLE link
+        at a time).
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Power the device off and on again."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds the device to an owner or network; switching
+        controllers is just connecting from the new one. If the old phone
+        keeps grabbing the link, remove the device from its OS Bluetooth
+        list — a cached bond can hold the single available connection.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No authentication of any kind: anything within radio range can
+        connect and issue commands, including power-off. Physical proximity
+        is the only access control.
+  variants:
+    - model: "CHEMION Original (glasses)"
+      identification:
+        local_name_prefix: "CHEMION"
+        service_uuids:
+          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    - model: "CHEMION HAT"
+      identification:
+        local_name_prefix: "HAT"
+        service_uuids:
+          - "4b0d67ea-2faf-4b3c-8c53-f6af0f0171f5"
+
+services:
+  # CHEMION Original glasses — Nordic UART Service
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "CHEMION Glasses Control Service (Nordic UART)"
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "Command Write"
+        properties: ["write"]
+        notes: >
+          NUS RX (device side): the app writes complete frames here in a
+          single write each (its BLE layer permits long writes; there is no
+          app-level chunking). Frame: [0xFA][cmd][lenHi][lenLo][payload]
+          [XOR of payload][0x55][0xA9]. NO characteristic-level `framing` is
+          declared on purpose — like the SPOTLED spec, every command below is
+          a COMPLETE frame written verbatim, header and trailer included.
+          cmd byte values: request=0x01, stream=0x03, notify=0x04.
+          Confidence: frame format and these payloads HIGH (from the app's
+          frame builder); per-command semantics as noted.
+        commands:
+          power_off:
+            description: "Power the glasses off (msgId 2). Worked frame: payload [00 02 01], XOR checksum 0x03."
+            value: [0xFA, 0x01, 0x00, 0x03, 0x00, 0x02, 0x01, 0x03, 0x55, 0xA9]
+            packet_layout:
+              "0": "0xFA header"
+              "1": "cmd 0x01 = request"
+              "2": "payload length hi (3)"
+              "3": "payload length lo (3)"
+              "4": "message ID hi (0)"
+              "5": "message ID lo (2 = power off)"
+              "6": "constant 0x01"
+              "7": "checksum = XOR of payload bytes 4..6"
+              "8": "0x55 trailer"
+              "9": "0xA9 trailer"
+          battery_query:
+            description: "Query battery level (msgId 3); reply arrives on the notify characteristic (layout MEDIUM, unverified)."
+            value: [0xFA, 0x01, 0x00, 0x03, 0x01, 0x00, 0x03, 0x02, 0x55, 0xA9]
+          heartbeat:
+            description: "Keep-alive (msgId 5). The app sends this every 5 s per connected device; mirror that cadence (requirement MEDIUM)."
+            value: [0xFA, 0x01, 0x00, 0x03, 0x01, 0x00, 0x05, 0x04, 0x55, 0xA9]
+          slot_query:
+            description: "Request with payload [01 00 07] (msgId 7). Exact semantics MEDIUM — slot/status query family; no index is appended in app v3.0.5."
+            value: [0xFA, 0x01, 0x00, 0x03, 0x01, 0x00, 0x07, 0x06, 0x55, 0xA9]
+          stream_sound_marker:
+            description: "Sound-reactive streaming marker (msgId 9, cmd type notify 0x04); sent on the sound-reactive path before/alongside realtime frames. Semantics MEDIUM."
+            value: [0xFA, 0x04, 0x00, 0x03, 0x01, 0x00, 0x09, 0x08, 0x55, 0xA9]
+          stream_frame:
+            description: >
+              Realtime stream one frame (msgId 6, cmd type stream 0x03).
+              Payload [01 00 06] + frame bytes. Glasses frame is 54 bytes
+              (9x24 @ 2bpp); len = 3 + frame byte count (0x0039 for a full
+              glasses frame). Glasses only — on the HAT this path emits an
+              empty payload (MEDIUM).
+            template: [0xFA, 0x03, "{len_hi}", "{len_lo}", 0x01, 0x00, 0x06, "{frame_data}", "{checksum}", 0x55, 0xA9]
+            parameters:
+              len_hi:
+                type: "uint8"
+                default: 0
+                description: "Payload length, high byte = (3 + frame_data length) >> 8."
+              len_lo:
+                type: "uint8"
+                default: 57
+                description: "Payload length, low byte — 57 for a full 54-byte glasses frame."
+              frame_data:
+                type: "bytes"
+                min_length: 1
+                max_length: 54
+                description: "Frame pixels, 2 bits per pixel, 9x24 = 54 bytes for a full frame. Bit order/orientation MEDIUM — verify against the 2015 wiki and live capture."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+          frame_data_block:
+            description: >
+              One frame of a slot upload (msgId 10). Payload [01 00 0A] +
+              frame bytes (54 per glasses frame); len = 3 + frame byte count.
+              Sent between a transfer-start (msgId 11 or 20) and
+              transfer-end (msgId 12 or 21); the exact start/end pairing per
+              flow is MEDIUM.
+            template: [0xFA, 0x01, "{len_hi}", "{len_lo}", 0x01, 0x00, 0x0A, "{frame_data}", "{checksum}", 0x55, 0xA9]
+            parameters:
+              len_hi:
+                type: "uint8"
+                default: 0
+                description: "Payload length, high byte = (3 + frame_data length) >> 8."
+              len_lo:
+                type: "uint8"
+                default: 57
+                description: "Payload length, low byte — 57 for a full 54-byte glasses frame."
+              frame_data:
+                type: "bytes"
+                min_length: 1
+                max_length: 54
+                description: "Frame pixels, 2 bits per pixel, 54 bytes for a full glasses frame. Encoding orientation MEDIUM."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+          glasses_transfer_start:
+            description: >
+              Frames transfer start (msgId 11, glasses only — the app emits an
+              empty payload for the HAT here). Payload [01 00 0B] + slot
+              index + 2-byte big-endian frame size (54 for glasses).
+            template: [0xFA, 0x01, 0x00, 0x06, 0x01, 0x00, 0x0B, "{slot_index}", "{frame_size_hi}", "{frame_size_lo}", "{checksum}", 0x55, 0xA9]
+            parameters:
+              slot_index:
+                type: "uint8"
+                min: 0
+                max: 5
+                description: "Target save slot. 6 slots per the app descriptor constant (MEDIUM)."
+              frame_size_hi:
+                type: "uint8"
+                default: 0
+                description: "Frame payload size, high byte (54 = 0x0036 for glasses)."
+              frame_size_lo:
+                type: "uint8"
+                default: 54
+                description: "Frame payload size, low byte (54 for glasses)."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+          glasses_transfer_end:
+            description: "Frames transfer end (msgId 12, glasses only). XOR checksum 0x0D."
+            value: [0xFA, 0x01, 0x00, 0x03, 0x01, 0x00, 0x0C, 0x0D, 0x55, 0xA9]
+          play_slot:
+            description: >
+              Play stored frames (msgId 13, glasses only). Payload
+              [01 00 0D 01]; the app can append optional trailing data whose
+              semantics are unresolved (MEDIUM) — this value sends none.
+            value: [0xFA, 0x01, 0x00, 0x04, 0x01, 0x00, 0x0D, 0x01, 0x0D, 0x55, 0xA9]
+          slot_op:
+            description: "Slot operation with index (msgId 14, glasses only) — play/delete family. Payload [01 00 0E <index>]."
+            template: [0xFA, 0x01, 0x00, 0x04, 0x01, 0x00, 0x0E, "{slot_index}", "{checksum}", 0x55, 0xA9]
+            parameters:
+              slot_index:
+                type: "uint8"
+                min: 0
+                max: 5
+                description: "Slot to operate on (6 slots, MEDIUM)."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+          slot_free_or_delete:
+            description: "Slot operation with index (msgId 16) — free-space/delete family. Payload [01 00 10 <index>]. Note: msgId 4 emits these same wire bytes (legacy alias, MEDIUM)."
+            template: [0xFA, 0x01, 0x00, 0x04, 0x01, 0x00, 0x10, "{slot_index}", "{checksum}", 0x55, 0xA9]
+            parameters:
+              slot_index:
+                type: "uint8"
+                min: 0
+                max: 5
+                description: "Slot to free/delete (6 slots, MEDIUM)."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+          slot_frame_upload_start:
+            description: "Start of a slot-frame upload (msgId 20; applies to both device types). Payload [01 00 14 <index>]."
+            template: [0xFA, 0x01, 0x00, 0x04, 0x01, 0x00, 0x14, "{slot_index}", "{checksum}", 0x55, 0xA9]
+            parameters:
+              slot_index:
+                type: "uint8"
+                min: 0
+                max: 5
+                description: "Slot being uploaded (6 slots, MEDIUM)."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+          slot_frame_upload_end:
+            description: "End of a slot-frame upload (msgId 21, glasses only). XOR checksum 0x14."
+            value: [0xFA, 0x01, 0x00, 0x03, 0x01, 0x00, 0x15, 0x14, 0x55, 0xA9]
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "Notify"
+        properties: ["notify"]
+        notes: >
+          NUS TX (device side): the app enables notifications immediately
+          after connecting. Parsing was not fully traced (MEDIUM): expect the
+          same [0xFA][cmd][len][payload][XOR][0x55 0xA9] framing with
+          cmd=reply(0x02)/notify(0x04)/error(0x05); battery level should
+          arrive as a reply to msgId 3 (the 2015 wiki lists
+          BATTERY_LEVEL=0x03). Verify layout with one live capture before
+          decoding fields.
+
+  # CHEMION HAT — vendor 128-bit service, same frame protocol
+  - uuid: "4b0d67ea-2faf-4b3c-8c53-f6af0f0171f5"
+    name: "CHEMION HAT Control Service"
+    characteristics:
+      - uuid: "4b0d67eb-2faf-4b3c-8c53-f6af0f0171f5"
+        name: "Command Write"
+        properties: ["write"]
+        notes: >
+          Write characteristic for the HAT (role by NUS-style convention;
+          MEDIUM — verify on air). Same frame format as the glasses:
+          [0xFA][cmd][lenHi][lenLo][payload][XOR of payload][0x55][0xA9].
+          Matrix 12 x 32 @ 4bpp color = 1536-byte (0x600) frames, so a full
+          frame message is ~1546 bytes — it only fits via a negotiated MTU /
+          long write (the app's BLE layer permits long writes; no app-level
+          chunking). Commands below mirror the glasses set with HAT frame
+          sizes; msgId 11 carries an EMPTY payload on the HAT, so its
+          transfer start is slot_frame_upload_start (msgId 20) instead
+          (MEDIUM).
+        commands:
+          power_off:
+            description: "Power the HAT off (msgId 2). Same frame as the glasses."
+            value: [0xFA, 0x01, 0x00, 0x03, 0x00, 0x02, 0x01, 0x03, 0x55, 0xA9]
+          battery_query:
+            description: "Query battery level (msgId 3); reply on the notify characteristic (layout MEDIUM)."
+            value: [0xFA, 0x01, 0x00, 0x03, 0x01, 0x00, 0x03, 0x02, 0x55, 0xA9]
+          heartbeat:
+            description: "Keep-alive (msgId 5); the app sends it every 5 s (requirement MEDIUM)."
+            value: [0xFA, 0x01, 0x00, 0x03, 0x01, 0x00, 0x05, 0x04, 0x55, 0xA9]
+          transfer_start:
+            description: "Frames transfer start (msgId 11) as the app emits it for the HAT: EMPTY payload (length 0, checksum 0). MEDIUM — the HAT upload path more likely starts with slot_frame_upload_start (msgId 20)."
+            value: [0xFA, 0x01, 0x00, 0x00, 0x00, 0x55, 0xA9]
+          stream_frame:
+            description: >
+              Realtime stream one frame (msgId 6, cmd type stream 0x03). HAT
+              frame is 1536 bytes (12x32 @ 4bpp color); len = 3 + frame byte
+              count (0x0603 for a full frame). MEDIUM — the app emits an
+              empty payload on this path for the HAT, so the HAT realtime
+              route may actually be frame_data_block (msgId 10); verify.
+            template: [0xFA, 0x03, "{len_hi}", "{len_lo}", 0x01, 0x00, 0x06, "{frame_data}", "{checksum}", 0x55, 0xA9]
+            parameters:
+              len_hi:
+                type: "uint8"
+                default: 6
+                description: "Payload length, high byte — 0x06 for a full 1536-byte HAT frame (0x0603)."
+              len_lo:
+                type: "uint8"
+                default: 3
+                description: "Payload length, low byte — 0x03 for a full HAT frame."
+              frame_data:
+                type: "bytes"
+                min_length: 1
+                max_length: 1536
+                description: "Frame pixels, 4 bits per pixel color, 12x32 = 1536 bytes for a full frame. Nibble order / palette MEDIUM."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+          frame_data_block:
+            description: >
+              One frame of a slot upload (msgId 10). Payload [01 00 0A] +
+              frame bytes (1536 per HAT frame); len = 3 + frame byte count.
+            template: [0xFA, 0x01, "{len_hi}", "{len_lo}", 0x01, 0x00, 0x0A, "{frame_data}", "{checksum}", 0x55, 0xA9]
+            parameters:
+              len_hi:
+                type: "uint8"
+                default: 6
+                description: "Payload length, high byte — 0x06 for a full HAT frame."
+              len_lo:
+                type: "uint8"
+                default: 3
+                description: "Payload length, low byte — 0x03 for a full HAT frame."
+              frame_data:
+                type: "bytes"
+                min_length: 1
+                max_length: 1536
+                description: "Frame pixels, 4 bits per pixel color, 1536 bytes for a full HAT frame. Nibble order / palette MEDIUM."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+          slot_frame_upload_start:
+            description: "Start of a slot-frame upload (msgId 20; both device types). Payload [01 00 14 <index>]. HAT slot count believed 144 (app descriptor constant 0x90, MEDIUM)."
+            template: [0xFA, 0x01, 0x00, 0x04, 0x01, 0x00, 0x14, "{slot_index}", "{checksum}", 0x55, 0xA9]
+            parameters:
+              slot_index:
+                type: "uint8"
+                min: 0
+                max: 143
+                description: "Slot being uploaded (up to 144 slots, MEDIUM)."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+          slot_free_or_delete:
+            description: "Slot operation with index (msgId 16) — free-space/delete family. Payload [01 00 10 <index>]."
+            template: [0xFA, 0x01, 0x00, 0x04, 0x01, 0x00, 0x10, "{slot_index}", "{checksum}", 0x55, 0xA9]
+            parameters:
+              slot_index:
+                type: "uint8"
+                min: 0
+                max: 143
+                description: "Slot to free/delete (up to 144 slots, MEDIUM)."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+      - uuid: "4b0d67ec-2faf-4b3c-8c53-f6af0f0171f5"
+        name: "Notify"
+        properties: ["notify"]
+        notes: >
+          Notify characteristic for the HAT (role by NUS-style convention;
+          MEDIUM). Same expectations as the glasses notify characteristic:
+          0xFA-framed replies/notifications/errors. Verify on air.
+
+entities:
+  - platform: "light"
+    name: "LED Matrix"
+    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_off: "power_off"
+    notes: >
+      The protocol's only plain power command is OFF (msgId 2); no power-on
+      command exists in the app's message map, so waking the device is the
+      physical button. Everything else is display content: realtime frame
+      streaming (stream_frame), slot upload/play/delete, battery query and
+      heartbeat. No brightness or color commands were found — color lives in
+      the HAT's 4bpp frame data, and glasses intensity in its 2bpp pixels.
+    variants:
+      - "CHEMION Original (glasses)"
+  - platform: "light"
+    name: "HAT LED Matrix"
+    command_characteristic: "4b0d67eb-2faf-4b3c-8c53-f6af0f0171f5"
+    commands:
+      turn_off: "power_off"
+    notes: >
+      Same surface as the glasses entity, on the HAT's own service. Content
+      is 12x32 @ 4bpp color frames.
+    variants:
+      - "CHEMION HAT"
+
+helpful_urls:
+  - title: "gsuberland/ChemionHacking — public reverse engineering of the 2015-era CHEMION glasses"
+    url: "https://github.com/gsuberland/ChemionHacking"
+    description: >-
+      Open-source prior art: 2015-era app v1.x teardown covering the same frame
+      header/trailer and command-type map, the nRF51 chip identification, and the
+      legacy DFU images. Its one open question — the packet checksum — is answered
+      in this spec: a plain XOR over the payload bytes.
+  - title: "CHEMION app on Google Play (com.neofect.chemion)"
+    url: "https://play.google.com/store/apps/details?id=com.neofect.chemion"
+    description: >-
+      The vendor companion app this protocol was recovered from (analyzed version
+      3.0.5). Content packs it downloads are not needed for control.
+  - title: "CHEMION official site"
+    url: "https://www.chemionglasses.com/"
+    description: "Vendor product site for the glasses and HAT."

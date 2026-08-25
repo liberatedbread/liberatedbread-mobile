@@ -40,6 +40,18 @@ spec's `device.setup` block; the patterns are explained in
 | [AUTOBABA LED Backpack](autobaba-led-backpack.md) | BLE + Wi-Fi | Complete | None needed | LOY SPACE / popled.cn |
 | [Nyan BT Image Controller](nyan-bt-image-controller.md) | BLE | Complete | None needed | NYAN GEAR / LOY SPACE |
 | [LED space Wi-Fi LED Screen](led-space.md) | Wi-Fi (device AP) + BLE variant | Complete | None needed (device hosts its AP) | LOY SPACE / popled.cn |
+| [SP105E Magic LED Controller](sp105e-magic-led.md) | BLE | Spec Available | None needed | Sperll-era OEM (BTF-LIGHTING, ALITOVE, …) |
+| [BanlanX SP6xxE LED Controllers](banlanx-sp6xxe.md) | BLE | Spec Available | None needed | Sperll (BanlanX app) |
+| [SP108E LED Shop WiFi Controller](led-shop-sp108e.md) | WiFi (device AP; TCP 8189) | Spec Available | Join device SoftAP (low) | Sperll-era OEM |
+| [duoCo StripX / Lotus Lantern Pixel Strips](wl-smartled-pixel-strips.md) | BLE | Spec Available | None needed | fstart/easylink OEM (MELK/ELK) |
+| [LotusLamp X (MELK/ELK/ELBU)](lotuslamp-x.md) | BLE | Spec Available | None needed | Shenzhen ELK |
+| [iDeal LED Pixel Strings](ideal-led.md) | BLE | Spec Available | None needed | Heaton OEM |
+| [Hello Fairy String/Curtain Lights](hello-fairy.md) | BLE | Spec Available | None needed | Avatar Controls (Lenze/ESP32/Bluetrum) |
+| [CHEMION LED Glasses & Hat](chemion-glasses.md) | BLE | Spec Available | None needed | CHEMION (Funiot) |
+| [Aurora LED Shoes](aurora-led-shoes.md) | BLE | Spec Available | None needed | jtkj OEM |
+| [EmazingLights Spectra Gloves](emazinglights-spectra.md) | BLE (hub → 2.4 GHz gloves) | Spec Available | Hub pairing mode (medium) | EmazingLights (app delisted) |
+| [Ignis Pixel Flow Props](ignis-pixel.md) | BLE (+ nRF24 prop sync) | Spec Available | None needed | Ignis Pixel |
+| [Astral Hoops Atomic V AF](astral-hoops.md) | BLE | Spec Available | None needed | Astral Hoops |
 | [MoTool Slacker](motool-slacker.md) | BLE | In Progress | None needed | MoTool |
 | [AdMore Light Bar Pro](admore-light-bar.md) | BLE | Complete | None needed | AdMore Lighting Inc. |
 | [ProGlow Motorcycle LED](proglow-motorcycle-led.md) | BLE | Spec Available | None needed | ProGlow |

@@ -110,12 +110,10 @@ http_endpoints:
     name: "Resume print"
     description: "Resume the current print (printer.print.resume)."
 
+# The JSON-RPC WebSocket transport. This is a narrative block, not the schema's
+# structured `websocket` surface, so it lives under `protocol_details` because
+# the schema's top level is closed to bespoke shapes.
 protocol_details:
-  # Narrative, not a contract: this socket carries push notifications
-  # (and, on the Harmony, an envelope still to be confirmed), while the
-  # commands above ride HTTP. It is documented here rather than in the
-  # first-class `websocket:` block, which describes a socket a client
-  # EXECUTES against — connect plus channels — and this is not one.
   websocket:
     path: "/websocket"
     description: >

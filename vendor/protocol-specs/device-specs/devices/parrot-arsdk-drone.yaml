@@ -64,7 +64,7 @@ device:
       - type: "mdns"
         mdns:
           # ARSDK3 discovery is a TCP 44444 JSON handshake, not mDNS; AR.Drone is
-          # a fixed AP IP. Placeholder block; see parrot_protocol.
+          # a fixed AP IP. Placeholder block; see protocol_details.parrot_protocol.
           service_type: "_arsdk._udp.local."
           port: 44444
           identity_mapping:
@@ -76,7 +76,7 @@ device:
         notes: >
           Join the drone's own Wi-Fi AP. AR.Drone: fixed IP 192.168.1.1.
           Bebop/Anafi: AP IP 192.168.42.1, then TCP 44444 discovery handshake
-          (see parrot_protocol).
+          (see protocol_details.parrot_protocol).
     identity:
       stable_keys: ["ssid"]
       display: "ssid"
@@ -120,7 +120,9 @@ device:
         client on the AP has full control. SAFETY: this commands flight; treat
         all controls as advanced.
 
-# The two Parrot control generations.
+# The two Parrot control generations. Bespoke protocol material lives under
+# `protocol_details` because the schema's top level is closed; that block is
+# the schema's namespace for single-spec protocol blocks.
 protocol_details:
   parrot_protocol:
     ar_drone:
@@ -133,12 +135,12 @@ protocol_details:
 
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. Control is AT commands over UDP (AR.Drone) or the ARSDK3
-      binary protocol over UDP after a TCP 44444 handshake (see parrot_protocol);
+      binary protocol over UDP after a TCP 44444 handshake (see protocol_details.parrot_protocol);
       there is no HTTP control surface.
 
 commands:

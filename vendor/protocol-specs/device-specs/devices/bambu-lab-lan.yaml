@@ -120,7 +120,6 @@ device:
         - "LAN Access Code (dev_access_code)"
       issued_to_client:
         - "LAN Access Code (read from the touchscreen; password for MQTT/FTPS/RTSPS)"
-        - "Device serial (read from the touchscreen; the MQTT topics are keyed by it, so `credential:serial` fills every command's address)"
       notes: >
         The LAN Access Code is the shared credential for all three local
         transports. Onboarding is via the touchscreen; the passphrase is entered

@@ -126,6 +126,9 @@ device:
         The local key gates the AES-128-ECB TCP session and is obtained from the
         cloud. Onboarding is app-mediated and not documented here.
 
+# The wire protocol. Bespoke framing/key material lives under
+# `protocol_details`, the schema's namespace for single-spec protocol blocks
+# (the schema's top level is closed).
 protocol_details:
   roborock_local_protocol:
     transport: "TCP, port 58867"
@@ -137,12 +140,12 @@ protocol_details:
 
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. Control is AES-128-ECB JSON over a raw TCP socket on port
-      58867 (see roborock_local_protocol), not HTTP.
+      58867 (see protocol_details.roborock_local_protocol), not HTTP.
 
 commands:
   get_status:

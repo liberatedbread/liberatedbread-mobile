@@ -1,0 +1,439 @@
+# Ignis Pixel LED flow-arts props (iPixel poi / staffs / fans / hoops) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Ignis Pixel LED Flow-Arts Props"
+  manufacturer: "Ignis Pixel"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      All protocol facts here come from static analysis of the Android app's
+      native library (com.ignispixel v2.29.9 — the app is a Qt shell and every
+      protocol detail lives in one symbol-rich shared object) plus live fetches
+      of the vendor's public firmware server. No Ignis Pixel hardware has been
+      driven from this spec; numeric command opcodes are not yet extracted.
+  protocol: "ble"
+  category: "light"
+  type: "flow-arts-pixel-prop"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+  notes: >
+    Ignis Pixel "iPixel" programmable LED flow-arts props: pixel poi, staffs,
+    fans, buugeng, hoops, clubs, juggling props, jumpropes and lamp/toy form
+    factors. The vendor's public firmware catalog (Update.xml) lists ~137
+    device types across six families (see variants). The Android app is
+    com.ignispixel (Qt6/QML; iOS equivalent exists). The vendor is in business
+    and ships firmware publicly, but the BLE protocol is unpublished.
+
+    HARDWARE (HIGH, from chip strings in the app binary): main MCU STM32F103
+    or STM32F411; BLE front end is an nRF52832 running a Nordic UART Service
+    bridge — the STM32 parses the framed protocol, the nRF52 is a
+    transparent-ish pipe. Pixels are WS2812. Props with the Wireless Sync
+    option additionally carry an nRF24L01+ 2.4 GHz radio for prop-to-prop
+    group sync; that link is NOT BLE and is not app-facing except through the
+    CM_RF_* / CM_SETTINGS_*RADIO* configuration commands.
+
+    BLE PROFILE (HIGH): the app's BLE scanner accepts any device advertising
+    the Nordic UART Service UUID 6e400001-b5a3-f393-e0a9-e50e24dcca9e — no
+    name-prefix filter. Phone writes commands to 6e400002-... WITH response
+    and enables notifications on 6e400003-... via the standard 0x2902 CCC
+    descriptor. The advertised local name on real hardware was never captured
+    (open item), so the NUS UUID is the only scan signal today — and NUS is a
+    shared platform UUID, so confirm identity after connecting (see
+    discovery.notes).
+
+    WIRE FRAMING (HIGH, from the app's message encode/decode/packet-complete
+    routines): one 0xFF start byte, then the payload with every literal 0xFF
+    byte escaped as the two bytes FF FE, then a two-byte FF FF end marker. No
+    length field on the wire; a received packet is complete when it ends in
+    FF FF. Payloads longer than one ATT write are chunked — chunk size / MTU
+    handling is an OPEN item.
+
+    MESSAGE STRUCTURE (HIGH for the header layout, MEDIUM for the request
+    envelope interpretation): every message starts with an 8-byte header:
+    [0] uint8 message type id; [1..4] uint32 LE time; [5..6] uint16 LE
+    checksum; [7] uint8 reserved. The checksum is CRC-16/CCITT (poly 0x1021,
+    init 0, MSB-first, no final XOR) over the whole message with the checksum
+    field zeroed. A separate table-driven CRC32 (init 0) protects bulk data
+    blocks (image and firmware payloads). Phone→device requests are built as a
+    13-byte buffer: [7]=1, [8]=command id byte, [9..12]=uint32 LE argument,
+    CRC16 stored at [5..6], then escaped+framed. The header's own type byte
+    ([0]) for these PC→device requests appears to be 0 with the real command
+    at offset 8, and [7]=1 is likely a protocol-version or request flag —
+    both MEDIUM, confirm against one captured packet.
+
+    INBOUND MESSAGE TYPES (HIGH that these structs exist; field order beyond
+    the header only partially mapped): MSG_ACK, MSG_ACK_EX, MSG_API_VER,
+    MSG_COLOR, MSG_DATA_BL, MSG_DATA_DBL, MSG_DATA_ONE, MSG_DEV_INFO,
+    MSG_HW_INFO, MSG_JOURNAL_DATA, MSG_JOURNAL_INFO, MSG_MODE_DATA_DBL,
+    MSG_MODE_DATA_ONE, MSG_PC_CMD, MSG_PC_CMD_EX, MSG_RF_CMD,
+    MSG_TRAINING_ADD_DATA, MSG_UID, MSG_UPTIME (~21 types). MSG_HW_INFO
+    reports MCU_Type, RF_Type, IMU_Type, Flash_Type, ImuExist, RadioExist,
+    RadioFreq, RadioGroup, RadioMode, BatV, BatLevel, FW_Ver (uint32), BL_Ver
+    and FW_DevType (uint16) — this is how a client learns the model family,
+    battery level and radio sync settings.
+
+    COMMAND VOCABULARY (~70 names recovered, HIGH; NUMERIC OPCODES NOT YET
+    EXTRACTED — the top open item). The opcode bytes are embedded as small
+    literal-pool constants next to inline command-name string comparisons in
+    the app's native command-dispatch code; a scripted disassembly pass over
+    the address-computation/load pairs there can dump the full name→opcode
+    map, after which every symbolic command below becomes a concrete
+    one-byte id plus argument. Groups of commands: settings/brightness
+    (CM_SET_BRIGHT, CM_SET_DURATION, CM_SET_SYS_PARAM, CM_SETTINGS_SENSOR /
+    PHASE / STRETCH / RUNONSTART / DISABLERADIO / SAVEINTERNALRADIO /
+    SENSOR_AUTO_CONTROL / SHOW_BAT_LEVEL_IN_SOLID_COLORS / BLACKWHENSTILL /
+    DIMWHENSTILL / ENABLE_LOWER / ENABLE_UPPER), display modes
+    (CM_MODE_BALL / CREEPING_LINE / SWING / VOLCHOK / VOLCHOK_RUN / PLAYER),
+    housekeeping (CM_GET_UPTIME, CM_GET/SET_ALARM, CM_GET/SET_OFF_TIMER,
+    CM_GET_HARDWARE_INFO, CM_GET_DUMP_INFO, CM_SEND_TEST_PACKET,
+    ID_MESS_GET_ID, ID_MESS_GET_INFO, ID_MESS_SET_TIME), training/journal
+    (ID_CMD_JOURNAL_*, ID_CMD_TRAINING_ADD_*), sensor
+    (CM_SENSOR_MANUAL_CONTROL), radio sync (CM_RF_FREQ, CM_RF_GROUP,
+    CM_RF_SLEEP, CM_RF_WAKEUP, CM_RF_FIND_ME, CM_RF_FILL_COLOR,
+    CM_RF_CHANGE_IMG, CM_RF_CHANGE_SEQ, CM_RF_CHANGE_ADD_SEQ,
+    CM_RF_STOP_IMG, CM_RF_RF_EXT_MODULE, CM_RF_RF_INT_MODULE,
+    CM_RF_RF_SLAVE_MODE, CM_RF_RF_GROUP_WORK, CM_SWITCH_RF, CM_GET_RF_PARAM),
+    image upload (ID_MSG_WRITE_IMAGE, ID_MSG_ERASE_IMAGE with MSG_DATA_ONE /
+    MSG_DATA_DBL pixel blocks), and OTA firmware update.
+
+    OTA OVER BLE (sequence HIGH, block layout MEDIUM): enter bootloader
+    (ID_MESS_GO_BURN) → erase (ID_MESS_FIRMWARE_ERASE) → stream firmware as
+    MSG_DATA_BL blocks, each CRC32-protected, addressed by file offset →
+    return to the main application (ID_MESS_GOTO_MAIN). Firmware images come
+    as a header/data pair internally. Firmware version is a packed uint32,
+    e.g. 0x03002100 = v3.0.33. Whether .fw files are obfuscated is an OPEN
+    item — check a downloaded header before writing a flasher.
+
+    FIRMWARE DISTRIBUTION (HIGH, verified live): the vendor publishes
+    everything on plain HTTPS — the Update.xml catalog (per device Type in
+    hex matching FW_DevType, Ver, MinVer, FileName and release notes) and an
+    md5 manifest of every file (hash.md5, ~1600 entries). Release .fw files
+    live under /Update/Firmware/V3/Release/..., test builds under V3/Test,
+    legacy V1/V2 images as .cr files, and the desktop Qt updater
+    (IgnisPixelUtility_Win.exe / _Mac.zip) under /Update/Software/. See
+    helpful_urls. The app races four mirror hosts and keeps the fastest.
+
+    PROP-TO-PROP SYNC (HIGH, vendor FAQ): models with the Wireless Sync
+    option ("I"-suffixed names, FW_DevType 0x25xx–0x2Axx) sync over the
+    nRF24L01+ radio on 13 selectable channels × 32 groups, configured on the
+    prop's own system menu (hold the UP+DOWN buttons 5 s) or via the CM_RF_*
+    commands. One prop acts as controller; the others follow. On-air framing
+    of the RF link is UNMAPPED — the shared framing routine's name suggests
+    the same FF-framing is reused (hypothesis). CM_SWITCH_RF and
+    CM_SETTINGS_SAVEINTERNALRADIO switch a prop between BLE control and
+    RF-group slave mode; per the v3.0.33 release notes BLE mode is
+    re-activated after power-cycling unless the radio mode is saved.
+
+    CONFIDENCE SUMMARY: HIGH — GATT UUIDs and write/notify roles, wire
+    framing and escaping, header layout and CRC16/CRC32 parameters, the OTA
+    command order, firmware server layout, RF channel/group counts. MEDIUM —
+    request-envelope semantics (header type 0 / reserved 1), MSG_HW_INFO
+    field order, device-family byte mapping, chunking for large transfers.
+    OPEN — the full numeric opcode map, exact MSG_DATA_* / MSG_PC_CMD_EX
+    field layouts (image pixel blocks carry R/G/B uint32 fields with a gamma
+    step), .fw obfuscation, RF on-air protocol, advertised BLE local name.
+  identification:
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+    notes: >
+      The Nordic UART Service UUID is a shared platform UUID used by countless
+      unrelated devices, and it is the only scan signal documented here (the
+      vendor app's own scanner also filters on this UUID alone). A consumer
+      MUST confirm identity after connecting: issue the get-id / hardware-info
+      request and check the FW_DevType field against the variant table before
+      presenting the device as an Ignis Pixel prop. The advertised local name
+      on real hardware has not been captured — record it on first contact and
+      promote it to identification.local_name_prefix.
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning, account or pairing: a prop advertises over BLE as soon
+      as it is powered on and accepts a connection from any central. Prop-to-
+      prop radio sync groups are configured on the device itself through its
+      button-driven system menu (vendor FAQ), not during BLE onboarding.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Power the prop, scan for the Nordic UART Service UUID, connect,
+          enable notifications on 6e400003 and confirm identity with the
+          get-id / hardware-info request before issuing commands. There is no
+          handshake, PIN or key exchange — the framed protocol is accepted
+          immediately.
+        ble:
+          advertised_name: "unknown — NUS service UUID is the scan signal"
+          pairing_required: false
+        steps:
+          - action: "Power the prop and scan for an advertisement carrying the Nordic UART Service UUID."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect, subscribe to 6e400003 notifications, and read the device identity (get-id / hardware-info request) to confirm FW_DevType."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        There is no BLE pairing or credential state to clear — power-cycling
+        drops the current connection, which is also the remedy for the common
+        failure mode of the prop already being connected to another phone.
+        Radio-sync settings (channel/group) live on the device and are changed
+        through its system menu, not wiped by anything on the BLE side.
+        Firmware-level recovery (a prop that no longer boots) is done with the
+        vendor's public desktop utility, which speaks the same bootloader
+        protocol documented here.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Power the prop off for a few seconds and back on."
+              actor: "user"
+              expect: "Prop advertises again and accepts a new connection."
+        - name: "Firmware recovery / reflash"
+          steps:
+            - action: "Download the release .fw for the exact model from the vendor's public update server (see helpful_urls)."
+              actor: "user"
+            - action: "Flash it with the desktop Ignis Pixel Utility, or reimplement the documented OTA sequence (go-to-bootloader, erase, CRC32-protected data blocks, return-to-main)."
+              actor: "client"
+              expect: "Prop reboots into the main application with the flashed firmware version."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds a prop to a phone or account, so switching controllers
+        is just connecting from the new one. If the old phone keeps grabbing
+        the link, remove the prop from its OS Bluetooth list. Note that a prop
+        switched into RF slave mode (Wireless Sync) stops accepting BLE
+        control until power-cycled, unless its radio mode was saved.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No credentials exist anywhere in this protocol. Any central within
+        radio range can connect and issue every command, including firmware
+        erase/reflash — physical proximity is the only access control.
+  variants:
+    - model: "Gen1 classic poi (FW_DevType 0x04xx)"
+      identification:
+        service_uuids:
+          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    - model: "Gen2 props (0x05xx/0x06xx: NG poi, hoops, fans, buugeng, staff)"
+      identification:
+        service_uuids:
+          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    - model: "Gen3 toys (0x07xx: BubblePoi/JellyPoi, sticks, clubs, cubes)"
+      identification:
+        service_uuids:
+          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    - model: "Jumpropes (0x0Axx: JRope, Hoop SD)"
+      identification:
+        service_uuids:
+          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    - model: "Radio-sync I models (0x25xx-0x2Axx, internal nRF24 radio)"
+      identification:
+        service_uuids:
+          - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+
+services:
+  # The single transport service: Nordic UART over an nRF52832 bridge.
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART Service (Ignis Pixel protocol transport)"
+    notes: >
+      The nRF52832 exposes stock Nordic UART Service; the Ignis Pixel framed
+      protocol rides on top of it and is parsed by the STM32 main MCU. No
+      characteristic-level `framing` is declared anywhere in this spec ON
+      PURPOSE: the wire format (0xFF start / FF FE byte-escaping / FF FF end,
+      no length field) fits none of the schema's named framing schemes, and
+      the checksum is CRC-16/CCITT per message rather than a per-frame sum.
+      Documenting it in prose is the honest representation; the command
+      entries below are SYMBOLIC (name, role and payload shape known; opcode
+      byte not yet extracted) and must not be emitted as bytes by any
+      consumer until the numeric opcode map is landed.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "NUS RX (phone to device)"
+        properties: ["write"]
+        notes: >
+          Commands are written here WITH response (write request, not
+          write-no-response). Wire framing (HIGH): emit 0xFF, then the payload
+          with every 0xFF byte escaped as FF FE, then FF FF. Payload = 8-byte
+          header ([0] type, [1..4] time u32 LE, [5..6] CRC16-CCITT u16 LE
+          poly 0x1021 init 0 over the message with this field zeroed,
+          [7] reserved) + body. Phone→device requests are 13 bytes:
+          [7]=1, [8]=command id, [9..12] argument u32 LE (MEDIUM — confirm
+          type=0/reserved=1 against a capture). Large transfers (images,
+          firmware) are chunked across multiple writes at an
+          as-yet-undetermined chunk size; bulk data blocks carry their own
+          CRC32 (init 0). ALL commands below are symbolic: their numeric
+          opcode lives in literal-pool constants beside the command-name
+          string comparisons in the app's native command-dispatch code and
+          has not been dumped yet — treat every entry as
+          "id byte TBD + documented argument".
+        commands:
+          get_id:
+            description: "Identity probe (ID_MESS_GET_ID). First request to send after connecting; reply carries the device identity used to confirm this is an Ignis Pixel prop."
+            verification: "hypothesis"
+          get_info:
+            description: "Basic device info (ID_MESS_GET_INFO / ID_CMD_BLE_INFO / ID_CMD_INFO_EX family)."
+            verification: "hypothesis"
+          get_hardware_info:
+            description: "Hardware info (CM_GET_HARDWARE_INFO -> MSG_HW_INFO): MCU/RF/IMU/flash types, radio freq/group/mode, battery voltage and level, FW_Ver (uint32, e.g. 0x03002100 = v3.0.33), BL_Ver, FW_DevType (uint16 family+model id matching the Update.xml Type attribute)."
+            verification: "hypothesis"
+          set_brightness:
+            description: "Set global brightness (CM_SET_BRIGHT / ID_MESS_CMD_SET_BRIGHT). Argument range not yet mapped."
+            verification: "hypothesis"
+          set_duration:
+            description: "Set mode/image duration (CM_SET_DURATION)."
+            verification: "hypothesis"
+          set_time:
+            description: "Set device clock (ID_MESS_SET_TIME); basis for alarms and the off-timer."
+            verification: "hypothesis"
+          set_mode:
+            description: "Select a built-in display mode (CM_MODE_BALL / CREEPING_LINE / SWING / VOLCHOK / VOLCHOK_RUN / PLAYER). One opcode per mode; argument shape unmapped."
+            verification: "hypothesis"
+          set_sys_param:
+            description: "Write a system/setting parameter (CM_SET_SYS_PARAM / ID_CMD_READ_SYS_PARAM to read, CM_SETTINGS_* family: SENSOR, PHASE, STRETCH, RUNONSTART, DISABLERADIO, SAVEINTERNALRADIO, SENSOR_AUTO_CONTROL, SHOW_BAT_LEVEL_IN_SOLID_COLORS, BLACKWHENSTILL, DIMWHENSTILL, ENABLE_LOWER, ENABLE_UPPER). Each setting is its own opcode record."
+            verification: "hypothesis"
+          get_uptime:
+            description: "Read device uptime (CM_GET_UPTIME -> MSG_UPTIME)."
+            verification: "hypothesis"
+          get_alarm:
+            description: "Read alarm config (CM_GET_ALARM / ID_CMD_GET_ALARM); CM_SET_ALARM writes it."
+            verification: "hypothesis"
+          get_off_timer:
+            description: "Read the sleep/off timer (CM_GET_OFF_TIMER / ID_CMD_GET_OFF_TIMER); CM_SET_OFF_TIMER writes it. Added to firmware in v3.0.33."
+            verification: "hypothesis"
+          send_test_packet:
+            description: "Loopback/diagnostic test packet (CM_SEND_TEST_PACKET / ID_CMD_TEST_PACKET)."
+            verification: "hypothesis"
+          get_dump_info:
+            description: "Read debug dump (CM_GET_DUMP_INFO / ID_CMD_GET_DBG_DUMP_DATA)."
+            verification: "hypothesis"
+          journal_read:
+            description: "Training journal access (ID_CMD_JOURNAL_INFO / JOURNAL_GET_TRAIN / JOURNAL_CLEAR_TRAINS, ID_CMD_TRAINING_ADD_INFO/GET/CLEAR -> MSG_JOURNAL_INFO / MSG_JOURNAL_DATA / MSG_TRAINING_ADD_DATA)."
+            verification: "hypothesis"
+          sensor_manual_control:
+            description: "Manual control of the motion/throw sensor (CM_SENSOR_MANUAL_CONTROL)."
+            verification: "hypothesis"
+          rf_configure:
+            description: "Configure the nRF24 prop-to-prop sync radio (CM_RF_FREQ channel 1-13, CM_RF_GROUP group 1-32, CM_RF_RF_INT_MODULE / RF_EXT_MODULE / RF_SLAVE_MODE / RF_GROUP_WORK, CM_GET_RF_PARAM to read, CM_SWITCH_RF to toggle BLE vs RF-slave operation). On Wireless-Sync I models only."
+            verification: "hypothesis"
+          rf_group_action:
+            description: "Broadcast an action to the RF sync group (CM_RF_SLEEP, CM_RF_WAKEUP, CM_RF_FIND_ME, CM_RF_FILL_COLOR, CM_RF_CHANGE_IMG / CHANGE_SEQ / CHANGE_ADD_SEQ, CM_RF_STOP_IMG). Sent to the local prop, relayed over nRF24 to its group."
+            verification: "hypothesis"
+          write_image:
+            description: "Upload an image/timeline to the prop (ID_MSG_WRITE_IMAGE, pixel data as MSG_DATA_ONE / MSG_DATA_DBL blocks with R/G/B uint32 channels and a gamma step; per-block CRC32; erase via ID_MSG_ERASE_IMAGE). Exact block layout and write pacing (page-write timeouts exist on-device) are OPEN — map before implementing."
+            verification: "hypothesis"
+          ota_go_burn:
+            description: "OTA step 1: reboot into the bootloader (ID_MESS_GO_BURN)."
+            verification: "hypothesis"
+            advanced: true
+            advanced_reason: "Drops the prop into its bootloader; the main firmware stops running until the OTA sequence completes or GOTO_MAIN is sent. A failed or abandoned flash can leave the prop needing a desktop-utility reflash. Have the correct model's .fw file ready first."
+          ota_firmware_erase:
+            description: "OTA step 2: erase the application flash region (ID_MESS_FIRMWARE_ERASE)."
+            verification: "hypothesis"
+            advanced: true
+            advanced_reason: "Erases the prop's main firmware. Until new firmware is written and GOTO_MAIN succeeds the prop will not run normally; recovery is the desktop Ignis Pixel Utility with the model's release .fw from the public update server."
+          ota_data_bl:
+            description: "OTA step 3: write one firmware block (ID_MSG_DATA_BL / MSG_DATA_BL), addressed by file offset with a per-block CRC32. Repeat for the whole image; firmware arrives as a header/data pair internally."
+            verification: "hypothesis"
+            advanced: true
+            advanced_reason: "Writes raw firmware to flash. Writing an image built for a different FW_DevType can brick the prop until recovered with the desktop utility; verify the Update.xml Type attribute against the device's reported FW_DevType first."
+          ota_goto_main:
+            description: "OTA step 4: leave the bootloader and start the main application (ID_MESS_GOTO_MAIN)."
+            verification: "hypothesis"
+            advanced: true
+            advanced_reason: "Boots whatever is currently in application flash. Only send after the full image was written and every block CRC was accepted; otherwise the prop stays in the bootloader."
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "NUS TX (device to phone)"
+        properties: ["notify"]
+        notes: >
+          All device→phone traffic arrives as notifications; enable via the
+          standard CCC descriptor 00002902-0000-1000-8000-00805f9b34fb.
+          Reassembly (HIGH): append notification bytes until the stream ends
+          in FF FF (that pair is the end marker), strip the leading 0xFF
+          start byte, then unescape every FF FE pair back to a single 0xFF.
+          The result begins with the 8-byte message header (type, time,
+          CRC16-CCITT, reserved — verify the CRC with the checksum field
+          zeroed before trusting the body). Known inbound structs (~21):
+          MSG_ACK, MSG_ACK_EX, MSG_API_VER, MSG_COLOR, MSG_DATA_BL,
+          MSG_DATA_DBL, MSG_DATA_ONE, MSG_DEV_INFO, MSG_HW_INFO,
+          MSG_JOURNAL_DATA, MSG_JOURNAL_INFO, MSG_MODE_DATA_DBL,
+          MSG_MODE_DATA_ONE, MSG_PC_CMD, MSG_PC_CMD_EX, MSG_RF_CMD,
+          MSG_TRAINING_ADD_DATA, MSG_UID, MSG_UPTIME. Field layouts beyond
+          the header are only partially mapped (MSG_HW_INFO field list is in
+          device.notes); MSG_PC_CMD_EX carries ArgA-D/AckCodeA-D fields whose
+          exact widths are OPEN.
+
+entities:
+  - platform: "light"
+    name: "Pixel Prop"
+    features: ["brightness"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    command_characteristic: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+    notes: >
+      SYMBOLIC until the numeric opcode map is extracted: the bound commands
+      name roles, not bytes. There is no BLE power on/off command — props are
+      switched on the device buttons; CM_RF_SLEEP / CM_RF_WAKEUP act over the
+      RF group link. Brightness state read-back path is unmapped (likely part
+      of the system-parameter block).
+    commands:
+      set_brightness: "set_brightness"
+
+helpful_urls:
+  - title: "Ignis Pixel firmware catalog (Update.xml)"
+    url: "https://software-upload.ignispixel.com/Update/Update.xml"
+    description: >-
+      Public firmware manifest: every device Type (hex, matching the FW_DevType
+      reported by MSG_HW_INFO), current Ver/MinVer, .fw file path and per-release
+      notes. Verified live. Firmware binaries sit under
+      /Update/Firmware/V3/Release/ (test builds under V3/Test/, legacy V1/V2
+      images as .cr).
+  - title: "Ignis Pixel file manifest (hash.md5)"
+    url: "https://software-upload.ignispixel.com/Update/hash.md5"
+    description: >-
+      md5 manifest of every file on the update server (~1600 entries) — use it
+      to verify downloaded firmware and to enumerate the catalog without
+      scraping.
+  - title: "Ignis Pixel Utility (desktop updater, Windows)"
+    url: "https://software-upload.ignispixel.com/Update/Software/IgnisPixelUtility_Win.exe"
+    description: >-
+      Vendor's public Qt desktop updater (a Mac zip sits beside it). Flashes
+      firmware over USB and is the documented recovery path for a prop whose
+      OTA was interrupted; also a second, independent implementation of the
+      bootloader protocol documented here.
+  - title: "Ignis Pixel FAQ / support"
+    url: "https://ignispixel.com/faq/support"
+    description: >-
+      Vendor documentation of the Wireless Sync feature (13 radio channels x 32
+      groups, system-menu configuration, UP+DOWN button combos) and of the
+      desktop-utility recovery flow for V2 props.
+  - title: "Ignis Pixel downloads page"
+    url: "https://ignispixel.com/downloads"
+    description: >-
+      Vendor's official bundle of user guides, manuals, software and picture
+      sets — the manual documents the on-device system menu that configures
+      radio sync independently of the app.
+  - title: "Ignis Pixel on Google Play (com.ignispixel)"
+    url: "https://play.google.com/store/apps/details?id=com.ignispixel"
+    description: >-
+      The companion app this spec was recovered from (v2.29.9 analyzed). Qt6/QML
+      shell; all protocol logic is in one symbol-rich native library, which is
+      why the framing and header layouts here carry HIGH confidence.

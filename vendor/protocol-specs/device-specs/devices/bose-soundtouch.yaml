@@ -224,21 +224,31 @@ http_endpoints:
       Body <zone master="MASTER_MAC" senderIPAddress=...><member ipaddress=...>
       MEMBER_MAC</member></zone> to play the master's audio on the members.
 
-protocol_details:
-  # Narrative, not a contract: this socket carries push notifications
-  # (and, on the Harmony, an envelope still to be confirmed), while the
-  # commands above ride HTTP. It is documented here rather than in the
-  # first-class `websocket:` block, which describes a socket a client
-  # EXECUTES against — connect plus channels — and this is not one.
-  websocket:
-    path: "/ (port 8080)"
-    description: >
-      Push channel. Connect ws://<ip>:8080 with subprotocol "gabbo"; the speaker
-      emits <updates deviceID=...> wrappers on change (nowPlayingUpdated,
-      volumeUpdated, presetsUpdated, zoneUpdated, sourcesUpdated, bassUpdated,
-      connectionStateUpdated, infoUpdated).
-    message_format: "xml"
-    verification: "reported"
+websocket:
+  connect:
+    port: 8080
+    scheme: "ws"
+    path: "/"
+    headers:
+      # The speaker requires this subprotocol on the handshake.
+      Sec-WebSocket-Protocol: "gabbo"
+  channels:
+    - name: "updates"
+      default: true
+      # Server-push only: the speaker emits on this socket and accepts
+      # nothing on it. Control is the port-8090 HTTP API, which is why
+      # `device.transport` is http and every command declares it.
+      direction: "receive"
+      # Frames are XML documents carried as WebSocket text messages.
+      encoding: "text"
+      description: >
+        Server-push only: the speaker emits <updates deviceID=...> wrappers on
+        change (nowPlayingUpdated, volumeUpdated, presetsUpdated, zoneUpdated,
+        sourcesUpdated, bassUpdated, connectionStateUpdated, infoUpdated).
+  notes: >
+    Push channel. Connect ws://<ip>:8080 with subprotocol "gabbo". Control is
+    the port-8090 HTTP API; this socket is the push half of the same surface.
+    Verification: reported.
 
 commands:
   play:
