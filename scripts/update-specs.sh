@@ -589,7 +589,17 @@ run_checks || exit 1
 source "$(dirname "$0")/regen-spec-index.sh"
 regen_spec_index
 
+# Rewrite the iOS Bonjour allow-list from the catalogue. Unlike the index this
+# output is COMMITTED — it ships in the iOS bundle — so it lands in the working
+# tree beside the subtree squash and goes into the same commit. Doing it here is
+# what makes a new Wi-Fi spec discoverable on iOS without anyone remembering to
+# edit a plist. See scripts/regen-bonjour-services.sh.
+# shellcheck source=regen-bonjour-services.sh
+source "$(dirname "$0")/regen-bonjour-services.sh"
+regen_bonjour_services
+
 if [ "$changed" -eq 1 ]; then
   log "Now run ./scripts/test.sh — the catalogue feeds the matcher, the iOS"
   log "Bonjour list and the registries, and each has a test that reads it."
+  log "If the Bonjour list above changed, commit ios/Runner/Info.plist too."
 fi
