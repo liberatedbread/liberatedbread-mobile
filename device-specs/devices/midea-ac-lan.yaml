@@ -63,7 +63,7 @@ device:
       - type: "mdns"
         mdns:
           # Midea does not advertise mDNS; discovery is a UDP 6445 broadcast.
-          # Placeholder block; see midea_lan_protocol.
+          # Placeholder block; see protocol_details.midea_lan_protocol.
           service_type: "_http._tcp.local."
           port: 6444
           identity_mapping:
@@ -74,7 +74,7 @@ device:
               source: "udp:6445#name"
         notes: >
           Real discovery: UDP broadcast to port 6445; devices answer and control
-          switches to TCP 6444. See midea_lan_protocol.
+          switches to TCP 6444. See protocol_details.midea_lan_protocol.
     identity:
       stable_keys: ["id"]
       display: "name"
@@ -130,6 +130,9 @@ device:
         gates the encrypted TCP 6444 session; it is obtained from the cloud once
         and then used entirely locally.
 
+# The Midea LAN appliance protocol. Bespoke protocol material lives under
+# `protocol_details` because the schema's top level is closed; that block is
+# the schema's namespace for single-spec protocol blocks.
 protocol_details:
   midea_lan_protocol:
     transport: "TCP 6444 (control, encrypted) / UDP 6445 (discovery)"
@@ -142,12 +145,12 @@ protocol_details:
 
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. Control is an encrypted binary protocol over TCP port
-      6444 (see midea_lan_protocol), not HTTP.
+      6444 (see protocol_details.midea_lan_protocol), not HTTP.
 
 commands:
   query:

@@ -27,6 +27,25 @@ happened **mid-production-run**. Identify the app before the hardware.
 Vendor guidance for telling v3 units apart: power the panel on and look at the serial number —
 if it renders **horizontally**, the unit is a new-board revision and needs iLEDColor.
 
+## Product-line census (what owners actually call their devices)
+- **"OG back panel"** — Dream LED Skin v1/v2, the zip-on skin for the Lunchbox pack.
+- **"Pin panel"** — DreamSkin v3 **DreamPanel**; it is designed to slip into the Lunchbox
+  **Pin Skin** sleeve, hence the owner nickname. 2048 LEDs (double the v2). App per the
+  generation table above (SPOTLED → iLEDColor mid-run switch, 2025-12-08 vendor blog post).
+  (If a unit is a small rigid 64×64 GIF player instead, it is the retired **PXL-RT** —
+  different, discontinued product; confirm before speccing.)
+- **"Side panel"** — **DreamBox Conversion Kit** inserts for the CLEAR Lunchbox: 3 panels,
+  3584 LEDs total = 1 top panel (1536 LEDs) + **2 side panels (1024 LEDs each)**; also a
+  mini DreamBox insert for the CLEAR mini. The product page does not name the app, but its
+  feature list is verbatim SPOTLED vocabulary (animated GIFs, 20-frame animation limit,
+  playlists, graffiti mode) — inferred SPOTLED, and post-2025-12 batches plausibly moved to
+  iLEDColor like the DreamPanel did. The serial-orientation test above settles it per unit.
+- **Cosmic Strip** — 6-ft strip shipping with an **SP110E** controller (LED Hue); covered by
+  the sp110e_* commands in the device spec.
+- Retired (Wayback): PXL-RT 64×64 GIF player, LED face mask, LED band, LED fan, LED visor.
+- SpotLED deprecation note: the 2025-12-05 vendor blog walks users through **sideloading**
+  the SPOTLED APK on newer Android — the exact abandonment scenario this repo exists for.
+
 ## Known facts (public)
 - Dream LED Skin (v1) tutorial connects to an "SP107e" controller using the "LED CHORD" app.
 - Dream LED Skin 2.0 tutorial uses SpotLED; device names begin with `LBXDRMSKIN_LED_`.

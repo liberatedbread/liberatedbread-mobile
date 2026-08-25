@@ -1,0 +1,599 @@
+# iDeal LED (com.tech.idealled) device spec — Heaton-OEM pixel strings/trees
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "iDeal LED Pixel Strings & Trees"
+  manufacturer: "Heaton OEM (Shenzhen; app com.tech.idealled)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "light"
+  notes: >
+    Addressable RGB pixel strings, curtain lights and pixel trees (firmware
+    product codes TR21xx/TR22xx/TR23xx; ~14 product-keyed firmware images are
+    bundled in the vendor app assets) driven by the iDeal LED app
+    (com.tech.idealled, analyzed v3.0.4). Member of the Heaton OEM app family
+    shared with Magic Display and Shining Glasses: same 16-byte
+    [len][ASCII opcode] command framing, same d44bc439-...-1296xx
+    characteristic set, same AES-128-ECB command encryption — but a JieLi
+    control chip (JieLi OTA service 0xAE00) and a string/tree opcode set.
+    Sibling specs: magic-display.yaml (panel opcodes, Quintic), idotmatrix.yaml
+    (different, CRC32-framed upload protocol — cross-linked as family, not as
+    wire-compatible), shining-glasses.yaml.
+
+    COMMAND FRAMING (HIGH — vendor-app static analysis, corroborated by
+    8none1/idealLED): every command is a 16-byte block — byte 0 = payload
+    length (count of the meaningful bytes that follow), bytes 1..n = ASCII
+    opcode (4-9 chars) plus parameter bytes, remainder zero-padded. The whole
+    block is AES-128-ECB encrypted (single block, no IV) before the write to
+    characteristic ...9600. Notifications on ...9601 are decrypted with the
+    same key and then matched as plaintext ASCII ack strings: MULTOK,
+    MULTCPOK, MULTREOK, SGLSOK, PLACPOK, PLAREOK, LAMPNMAX+value,
+    LAMPNCANNOT, ERROR. Recovered AES keys recorded per clean-room convention:
+    the static key on the characteristics below is the one PUBLISHED by the
+    open-source 8none1/idealLED project (and matches the key independently
+    recovered from the vendor app's bundled native crypto library; it is
+    byte-identical to the Magic Display family key).
+
+    DISCOVERY: the vendor app's scanner gates on the 0xFFF0 service UUID — in
+    v3.0.4 the advertised-name filter (default prefix "IDL", cloud-extendable)
+    is stubbed off, so the service UUID is the operative gate. The
+    manufacturer-specific advertisement (AD type 0xFF) starts with
+    54 52 00 61 ("TR" + 0x0061); a scan-response filter matches that prefix
+    followed by 0x14. Parsed adv fields (vendor app's adv parser): byte 6 =
+    device group id, byte 7 = vendor/device id, bytes 11-12 = lamp count
+    (uint16 LE). CAUTION (8none1): devices advertising as "IDL" or "ISP"
+    lights exist that speak a DIFFERENT protocol — confirm 0xFFF0 plus the
+    d44bc439 characteristics before driving.
+
+    POST-CONNECT (MEDIUM — order not pinned by static analysis): the app sends
+    a CONNECT handshake (+7B, payload undecoded), CONFIRM +2B for RGB channel
+    order (parameter bytes are ASCII 'G'=0x47, 'B'=0x42, 'R'=0x52), CHECKLINE
+    +00/01 link check, and LAMPQ lamp-count queries (reply LAMPNMAX+val or
+    LAMPNCANNOT); LEDS+1B / LEDFIRST / LEDSECOND configure LED counts and
+    daisy-chain position. The ...9602 characteristic reads a firmware version
+    (decrypted payload contains 52 00 61 82..., version bytes at [6],[7]).
+
+    BULK TRANSFERS: multicolor lists, doodle frames and images are fragmented
+    as [chunk_len+1][frame_index][data...] with 96-byte chunks when an MTU was
+    negotiated, else 18 (MEDIUM — from the app's fragmentation builder; whether
+    bulk fragments on ...960a are additionally ECB-encrypted is UNVERIFIED —
+    sibling Magic Display encrypts 16-byte blocks on its bulk channel, but
+    iDeal LED's 96-byte fragment format suggests raw. Capture one MULT upload
+    to settle it). DOOTCP signals doodle transfer completion.
+
+    OPCODES BEYOND THE COMMANDS BELOW (seen in the vendor app, layouts not
+    fully decoded — do NOT guess payloads, 8none1 bricked a light set with
+    out-of-family bytes): SCHD +8B schedule/timer; MIC / MIC+2B music mode;
+    CAMERA +3B camera color-capture; SCREEN0/SCREEN0CP screen push; BEGU+b
+    upload-begin marker; CALL +2B call notification; DEN +1B; LOCATE; FLASHE;
+    LIDON/LIDOFF; LEWPT +1B (roles uncertain).
+
+    OTA: standard JieLi RCSP BLE OTA (jl_bt_ota SDK; native auth library in
+    the app): service 0xAE00, write 0xAE01, notify 0xAE02; firmware is the
+    JieLi .ufw container. Firmware selection keys off productType / vendorId /
+    pid parsed from the TR advertisement. After OTA the device may reconnect
+    with its address minus 1 LSB (the vendor app carries a workaround).
+
+    CONFIDENCE: GATT layout, framing, encryption, core opcodes (TURN, LIGHT,
+    COLO, MODE, SPEED, SGLS, CONFIRM, LAMPQ) HIGH — static analysis of the
+    vendor app plus the working open-source implementations (8none1/idealLED
+    with btsnoop captures, koying/ha_ideal_led_ble). MULT header layout, DOOD
+    layout, fragmentation and OTA details MEDIUM (single source: the app).
+    Connect handshake order, SCHD/MIC/CAMERA payloads LOW — live capture
+    needed. Everything app-derived; not yet run against hardware by this repo.
+  identification:
+    local_name_prefix: "IDL"
+    service_uuids:
+      - "0000fff0-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 21076
+      company_id_hex: "0x5254"
+      description: >
+        Not an assigned identifier: 0x5254 little-endian spells "TR", the
+        first two bytes of the family's 54 52 00 xx advertisement prefix
+        (same squat as shining-glasses.yaml / magic-display.yaml). iDeal LED
+        units use 54 52 00 61 — see discovery for the payload match.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "IDL"
+          service_uuids:
+            - "0000fff0-0000-1000-8000-00805f9b34fb"
+          manufacturer_data:
+            company_id: 21076
+            match: "prefix"
+            pattern: "54520061"
+            description: >
+              Manufacturer-data (AD type 0xFF) payload starts with
+              0x54 0x52 0x00 0x61 ("TR" + 0x0061; company_id 21076 = 0x5254 is
+              the "TR" prefix little-endian). A scan-response filter in the
+              vendor app matches the same prefix followed by 0x14. Adv field
+              layout: byte 6 = device group id, byte 7 = vendor/device id,
+              bytes 11-12 = lamp count (uint16 LE).
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. Commands are AES-encrypted with a fixed, publicly
+      documented key, so any client that implements the framing can connect
+      straight away. Identify by the 0xFFF0 service plus the 54 52 00 61
+      manufacturer-data prefix rather than by name alone — 8none1 reports
+      "IDL"/"ISP"-named lights that speak a different protocol.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the device advertises as soon as it is powered
+          on and accepts a connection from any central. There is no account, no
+          network credential exchange and no pairing PIN, so a replacement
+          client only has to scan, connect and write.
+        ble:
+          advertised_name: "IDL"
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect, enable notifications on ...9601, optionally negotiate MTU (96-byte bulk chunks vs 18), then CONFIRM RGB order and query LAMPQ."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link. After a firmware OTA the device
+        may reappear with its address minus 1 LSB (vendor-app workaround
+        observed); rescan rather than assuming the old address.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands; the static
+        AES key obfuscates but does not authenticate. Physical proximity is
+        the only access control.
+
+  variants:
+    - model: "Pixel tree string (TR2107R, productType 0)"
+      identification:
+        local_name_prefix: "IDL"
+        service_uuids:
+          - "0000fff0-0000-1000-8000-00805f9b34fb"
+    - model: "Curtain lights (TR2110R, productType 1)"
+      identification:
+        service_uuids:
+          - "0000fff0-0000-1000-8000-00805f9b34fb"
+    - model: "25-lamp pixel string (TR2202R, productType 2)"
+      identification:
+        service_uuids:
+          - "0000fff0-0000-1000-8000-00805f9b34fb"
+    - model: "Other Heaton pixel strings (TR2203R/2206R/2207R/2208R/2210R/2309R)"
+      identification:
+        service_uuids:
+          - "0000fff0-0000-1000-8000-00805f9b34fb"
+
+# Custom consumer-side handler for the family's AES-128-ECB 16-byte
+# [len][ASCII opcode] command framing (shared with magic-display.yaml and
+# shining-glasses.yaml). Declarative.
+protocol_handler: "cdbwsoft_ecb"
+
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "iDeal LED Control Service"
+    characteristics:
+      - uuid: "d44bc439-abfd-45a2-b575-925416129600"
+        name: "Command (WRITE1)"
+        properties: ["write"]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "static"
+          static_key: "34522a5b7a6e492c08090a9d8d2a23f8"
+        notes: >
+          Main command channel. Plaintext is a 16-byte block
+          [payload_len][ASCII opcode][params][zero pad]; the block is
+          AES-128-ECB encrypted before the write. The static key is the one
+          PUBLISHED by the open-source 8none1/idealLED project (see
+          helpful_urls); it matches the key independently recovered from the
+          vendor app's bundled native crypto library and is byte-identical to
+          the Magic Display family key. Recorded per the repo's
+          recovered-key convention. Confidence: HIGH. Do NOT send
+          out-of-family bytes — the 8none1 author bricked a light set that
+          way (see helpful_urls).
+        commands:
+          power_on:
+            description: "Power on (TURN 0x01). Plaintext shown; encrypt before write."
+            value: [0x05, 0x54, 0x55, 0x52, 0x4E, 0x01]
+          power_off:
+            description: "Power off (TURN 0x00)."
+            value: [0x05, 0x54, 0x55, 0x52, 0x4E, 0x00]
+          set_brightness:
+            description: "Set brightness (LIGHT + 1 byte)."
+            template: [0x06, 0x4C, 0x49, 0x47, 0x48, 0x54, "{brightness}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_color:
+            description: "Set solid color (COLO + 3 bytes). NOTE the parameter order is G, R, B — not R, G, B."
+            template: [0x07, 0x43, 0x4F, 0x4C, 0x4F, "{green}", "{red}", "{blue}"]
+            parameters:
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_mode:
+            description: "Mode select (MODE + 1 byte)."
+            template: [0x05, 0x4D, 0x4F, 0x44, 0x45, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_direct_mode:
+            description: "Effect/direct mode (DIRECT + 1 byte)."
+            template: [0x07, 0x44, 0x49, 0x52, 0x45, 0x43, 0x54, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_speed:
+            description: "Set effect speed (SPEED + 1 byte)."
+            template: [0x06, 0x53, 0x50, 0x45, 0x45, 0x44, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          select_effect:
+            description: "Select built-in effect (SGLS + 1 byte index). Device acks SGLSOK on the notify channel."
+            template: [0x05, 0x53, 0x47, 0x4C, 0x53, "{index}"]
+            parameters:
+              index:
+                type: "uint8"
+                min: 0
+                max: 255
+          multicolor_effect:
+            description: >
+              Multicolor segment effect header (MULT + 6 bytes). Fields per
+              the vendor app's multicolor builder: model_index = effect model
+              index minus 10; direction = !reverse (1 = normal); the 100 is a
+              literal; then speed, color_count, saturation. After this header,
+              the RGB triplets are sent fragmented on the bulk channel
+              (...960a): fragments [chunk_len+1][frame_index][data...],
+              96-byte chunks with a negotiated MTU else 18. Device acks on
+              notify: MULTCPOK (header accepted), MULTOK (complete),
+              MULTREOK (re-send fragment). Confidence: MEDIUM — single source,
+              verify with a capture.
+            template: [0x0A, 0x4D, 0x55, 0x4C, 0x54, "{model_index}", "{direction}", 100, "{speed}", "{color_count}", "{saturation}"]
+            parameters:
+              model_index:
+                type: "uint8"
+                min: 0
+                max: 255
+              direction:
+                type: "uint8"
+                min: 0
+                max: 1
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+              color_count:
+                type: "uint8"
+                min: 0
+                max: 255
+              saturation:
+                type: "uint8"
+                min: 0
+                max: 255
+          doodle_pixel:
+            description: >
+              Doodle/freehand draw (DOOD + 7 bytes): two pixel-index bytes
+              (order unverified), mode, speed, then R, G, B. Device signals
+              doodle transfer completion with DOOTCP. A railings/icebar
+              product variant uses an extended 18-byte form
+              [0x12]['DOOD'][0][0][2][100][i][i2][i3]... . Confidence:
+              MEDIUM — layout from the app's draw sender, not captured.
+            template: [0x0B, 0x44, 0x4F, 0x4F, 0x44, "{index_hi}", "{index_lo}", "{mode}", "{speed}", "{red}", "{green}", "{blue}"]
+            parameters:
+              index_hi:
+                type: "uint8"
+                min: 0
+                max: 255
+              index_lo:
+                type: "uint8"
+                min: 0
+                max: 255
+              mode:
+                type: "uint8"
+                min: 0
+                max: 255
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+          enter_diy_mode:
+            description: "Enter DIY mode (SMVEW 0x01)."
+            value: [0x06, 0x53, 0x4D, 0x56, 0x45, 0x57, 0x01]
+          select_animation:
+            description: "Select built-in animation (ANIM + 1 byte index)."
+            template: [0x05, 0x41, 0x4E, 0x49, 0x4D, "{index}"]
+            parameters:
+              index:
+                type: "uint8"
+                min: 0
+                max: 255
+          select_image:
+            description: "Select built-in image (IMAG + 1 byte index)."
+            template: [0x05, 0x49, 0x4D, 0x41, 0x47, "{index}"]
+            parameters:
+              index:
+                type: "uint8"
+                min: 0
+                max: 255
+          begin_upload:
+            description: "Begin-upload marker preceding ANIM/IMAG payload pushes (BEGU + 1 byte). MEDIUM — role inferred."
+            template: [0x05, 0x42, 0x45, 0x47, 0x55, "{index}"]
+            parameters:
+              index:
+                type: "uint8"
+                min: 0
+                max: 255
+          play:
+            description: "Play uploaded content (PLAY + 1 byte)."
+            template: [0x05, 0x50, 0x4C, 0x41, 0x59, "{index}"]
+            parameters:
+              index:
+                type: "uint8"
+                min: 0
+                max: 255
+          placement_complete:
+            description: "Placement transfer complete (PLACP). Device acks PLACPOK (accepted) or PLAREOK (re-send)."
+            value: [0x05, 0x50, 0x4C, 0x41, 0x43, 0x50]
+          main_complete:
+            description: "Main transfer complete (MANCP)."
+            value: [0x05, 0x4D, 0x41, 0x4E, 0x43, 0x50]
+          confirm_rgb_order:
+            description: >
+              Confirm RGB channel order (CONFIRM + 2 bytes). Parameter bytes
+              are ASCII channel letters: 'G' = 0x47, 'B' = 0x42, 'R' = 0x52.
+            template: [0x09, 0x43, 0x4F, 0x4E, 0x46, 0x49, 0x52, 0x4D, "{first}", "{second}"]
+            parameters:
+              first:
+                type: "uint8"
+                min: 0
+                max: 255
+              second:
+                type: "uint8"
+                min: 0
+                max: 255
+          query_lamp_count:
+            description: "Query lamp-strip count (LAMPQ). Reply on notify: LAMPNMAX+value, or LAMPNCANNOT if unsupported."
+            value: [0x05, 0x4C, 0x41, 0x4D, 0x50, 0x51]
+          set_led_count:
+            description: "LED-count config (LEDS + 1 byte); part of the LEDFIRST/LEDSECOND config sequence."
+            template: [0x05, 0x4C, 0x45, 0x44, 0x53, "{count}"]
+            parameters:
+              count:
+                type: "uint8"
+                min: 0
+                max: 255
+          link_check:
+            description: "Link check (CHECKLINE + 0x00/0x01)."
+            template: [0x0A, 0x43, 0x48, 0x45, 0x43, 0x4B, 0x4C, 0x49, 0x4E, 0x45, "{flag}"]
+            parameters:
+              flag:
+                type: "uint8"
+                min: 0
+                max: 1
+
+      - uuid: "d44bc439-abfd-45a2-b575-925416129601"
+        name: "Notification"
+        properties: ["notify"]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "static"
+          static_key: "34522a5b7a6e492c08090a9d8d2a23f8"
+        notes: >
+          Device replies arrive here encrypted with the same AES-128-ECB key
+          (decrypt, then match plaintext ASCII from byte 1): MULTOK,
+          MULTCPOK, MULTREOK, SGLSOK, PLACPOK, PLAREOK, LAMPNMAX+value,
+          LAMPNCANNOT, ERROR. Whether replies longer than 16 bytes are
+          multi-block ECB is unverified.
+
+      - uuid: "d44bc439-abfd-45a2-b575-925416129602"
+        name: "Firmware Version"
+        properties: ["read"]
+        notes: >
+          Read characteristic for the firmware version. The payload decrypts
+          with the same family key; the decrypted bytes contain
+          52 00 61 82... with the version at offsets [6] and [7]. Confidence:
+          MEDIUM — layout observed in the vendor app's version parser.
+
+      - uuid: "d44bc439-abfd-45a2-b575-92541612960a"
+        name: "Bulk Data (WRITE2)"
+        properties: ["write"]
+        notes: >
+          Bulk channel for multicolor RGB-triplet lists, doodle frames and
+          image data. Fragment format [chunk_len+1][frame_index][data...],
+          96-byte chunks when an MTU is negotiated, else 18. Encryption
+          status UNVERIFIED (MEDIUM): sibling Magic Display ECB-encrypts
+          16-byte blocks on its bulk channel, but this fragment format is not
+          16-byte aligned, which suggests raw writes — settle with a capture
+          of one MULT upload.
+
+      - uuid: "d44bc439-abfd-45a2-b575-92541612960b"
+        name: "Auxiliary (WRITE3)"
+        properties: ["write"]
+        notes: >
+          Third write characteristic bound by the vendor app's BLE layer;
+          specific role not pinned down (live DIY / realtime data candidate,
+          by family analogy with magic-display.yaml). Confidence: LOW.
+
+  # JieLi RCSP OTA service (jl_bt_ota SDK). Firmware is the JieLi .ufw
+  # container; ~14 product-keyed images ship in the vendor app assets and
+  # updates are checked via POST api.e-toys.cn/api/getFirmwareInfo (see
+  # cloud block). OTA writes are not part of the AES command channel.
+  - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
+    name: "JieLi OTA Service"
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "OTA Write"
+        properties: ["write"]
+        notes: >
+          Standard JieLi BLE OTA write channel (RCSP/jl_bt_ota SDK);
+          .ufw container format. After OTA the device may reconnect with its
+          BLE address minus 1 LSB — rescan rather than reusing the old
+          address.
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "OTA Notify"
+        properties: ["notify"]
+
+# Vendor cloud is app-side only; the device itself never talks to it. All
+# control is local BLE, so this device keeps working when the service dies.
+cloud:
+  required: false
+  vendor_service: "e-toys.cn app backend + manage.heaton.com.cn (Heaton cloud)"
+  hosts:
+    - "http://api.e-toys.cn/api/ (also https://tapi.e-toys.cn mirror)"
+    - "https://manage.heaton.com.cn/api/"
+  endpoints:
+    - path: "getFirmwareInfo"
+      method: "POST"
+      name: "Firmware info / OTA check"
+      returns: "Latest .ufw firmware metadata, keyed by product type; the app falls back to the 14 .ufw images bundled in its assets."
+      verification: "reported"
+    - path: "app/bluetoothFilter"
+      method: "POST"
+      name: "BLE advertised-name filter list (extends the default IDL prefix)"
+      verification: "reported"
+    - path: "app/lastUpdate"
+      method: "POST"
+      name: "App update check"
+      verification: "reported"
+    - path: "app/count"
+      method: "POST"
+      name: "Install count (telemetry)"
+      verification: "reported"
+    - path: "rm/getMaterialUnderCategory"
+      method: "POST"
+      name: "Pattern/material content library (manage.heaton.com.cn)"
+      verification: "reported"
+  failure_mode: >
+    Nothing user-visible stops working. The device is driven entirely over
+    local BLE with no account and no pairing; the cloud only feeds the app's
+    firmware check, advertised-name filter list and pattern library, and
+    firmware images are bundled inside the app itself.
+  data_leaves_device:
+    - "app install/usage telemetry (phone-side; the BLE device itself has no network interface)"
+  notes: >
+    Endpoint set read from the vendor app's networking layer. Cloud request
+    signing uses a separate app-side key that is NOT part of the BLE protocol
+    and is not recorded here.
+
+local_access:
+  status: "native"
+  summary: >
+    Full local control over BLE as shipped: connect to the 0xFFF0 service,
+    AES-128-ECB with the static key recorded on the command characteristic
+    (public via 8none1/idealLED), no pairing, no account, no cloud dependency
+    at any step.
+  covers:
+    - "power, brightness, solid color (G,R,B order), mode, speed"
+    - "built-in effects (SGLS) and animations/images (ANIM/IMAG)"
+    - "multicolor segment effects (MULT + fragmented RGB upload)"
+    - "doodle/freehand draw (DOOD) and DIY mode (SMVE)"
+    - "RGB channel-order confirm, lamp-count query/config"
+    - "firmware OTA (JieLi .ufw) from app-bundled or cloud-fetched images"
+  not_covered:
+    - "schedule/timer (SCHD), music mode (MIC), camera capture (CAMERA) — payload layouts undecoded"
+
+entities:
+  - platform: "light"
+    name: "Pixel String"
+    features: ["brightness", "color", "effect"]
+    state_characteristic: "d44bc439-abfd-45a2-b575-925416129601"
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+      set_brightness: "set_brightness"
+      set_color: "set_color"
+      set_effect: "select_effect"
+
+helpful_urls:
+  - title: "8none1/idealLED — open-source iDeal LED integration + protocol notes"
+    url: "https://github.com/8none1/idealLED"
+    description: >-
+      Published the AES-128-ECB family key recorded on the characteristics above;
+      ships btsnoop HCI captures, an aes_decrypt.py test tool and att_protocol.md
+      protocol notes, plus a working Home Assistant (HACS) integration. Primary
+      corroboration for this spec.
+  - title: "koying/ha_ideal_led_ble — second Home Assistant integration"
+    url: "https://github.com/koying/ha_ideal_led_ble"
+    description: >-
+      Independent Home Assistant BLE integration for iDeal LED lights;
+      second open-source consumer of this protocol.
+  - title: "Bricked xmas lights writeup (8none1)"
+    url: "https://www.whizzy.org/2023-12-14-bricked-xmas/"
+    description: >-
+      The 8none1 author bricked a light set by sending out-of-family bytes
+      during development — the reason this spec warns against guessing
+      undecoded opcode payloads.
+  - title: "iDeal LED on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.tech.idealled"
+    description: "Vendor app (com.tech.idealled)."
+  - title: "Firmware info endpoint (OTA check)"
+    url: "https://api.e-toys.cn/api/getFirmwareInfo"
+    description: >-
+      Public vendor endpoint (POST) the app queries for .ufw firmware
+      updates; referenced so firmware need not be harvested into this repo.

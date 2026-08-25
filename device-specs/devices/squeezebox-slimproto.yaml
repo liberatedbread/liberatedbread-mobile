@@ -98,7 +98,7 @@ device:
           A control client discovers the Lyrion server (HTTP port 9000), then
           calls the CLI/JSON-RPC `players` query to enumerate connected players
           by MAC. Players themselves are found by the server via the UDP 3483
-          discovery exchange documented in slimproto_protocol below.
+          discovery exchange documented in protocol_details.slimproto_protocol below.
     identity:
       stable_keys: ["mac"]
       display: "name"
@@ -157,7 +157,9 @@ device:
         for it; by default it is open on the LAN.
 
 # The player<->server wire protocol. This is the half that keeps the hardware
-# alive; the JSON-RPC control surface below is how an app drives it.
+# alive; the JSON-RPC control surface below is how an app drives it. Bespoke
+# SlimProto material lives under `protocol_details`, the schema's namespace for
+# single-spec protocol blocks (the schema's top level is closed).
 protocol_details:
   slimproto_protocol:
     transport: "TCP, server listens on 3483; player connects out"

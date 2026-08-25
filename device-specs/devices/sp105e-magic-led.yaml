@@ -1,0 +1,489 @@
+# SP105E "Magic LED" Bluetooth SPI pixel controller device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "SP105E Magic LED Pixel Controller"
+  manufacturer: "Sperll-era pixel controller, sold under BTF-LIGHTING, ALITOVE, Super Bright LEDs and other brands"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+    notes: >
+      Recovered by clean-room static analysis of the Magic-LED Android app
+      (com.vengean.magicled v2.2.1, versionCode 16) — no live capture and no
+      hardware driven yet. Opcode bytes the app sends are read directly out of
+      its frame builder, so they are exact; device-side behaviour (accepted
+      ranges, persistence, replies other than the two documented ones) is
+      unverified.
+  protocol: "ble"
+  type: "led-pixel-controller"
+  category: "light"
+  notes: >
+    Bluetooth SPI pixel ("dream color") LED strip controller sold generically as
+    the SP105E and driven by the Magic-LED app (com.vengean.magicled). Single
+    HM-10-style serial-port BLE profile: service 0xFFE0, one characteristic
+    0xFFE1 (write + notify). The app is FULLY LOCAL: no sockets, no HTTP(S)
+    calls, no OTA/firmware URLs and no analytics domains anywhere in the
+    binary — once the protocol is implemented the vendor cloud (there is none)
+    and the vendor app are both unnecessary.
+
+    COMMAND FRAME — every command is exactly 5 bytes written to 0xFFE1:
+      [0]    0x38           header (ASCII '8')
+      [1..3] param0..param2 command parameters, big-endian where multi-byte
+      [4]    opcode         command byte
+    No length prefix, no checksum. For commands with fewer than three
+    parameters the app fills the unused slots with RANDOM bytes, nudged +1
+    whenever a filler byte would equal 0x83 or 0x38 (so a command frame never
+    contains a second 0x38 and never emits 0x83 — 0x83 is presumably the
+    device's own reply header, unverified). A replacement client may send 0x00
+    filler instead of random bytes; that satisfies the avoidance rule. The
+    fixed `value` commands below use 0x00 filler.
+
+    HANDSHAKE — after service discovery the app sends check_device (0xD5) with
+    three random parameter bytes r0,r1,r2 (each avoiding 0x38/0x83) and waits
+    up to 5 s for a notification. The device must reply with exactly 8 bytes
+    00 01 02 03 04 05 06 KEY where
+      KEY = ((r2 >> 5) & 0x07) | ((r0 << 1) & 0x53) | r1
+    Only after a correct reply does the app treat the device as an SP105E and
+    issue get_info. This is an obfuscation-grade challenge, not encryption:
+    the algorithm is documented here in full and there is nothing else to
+    recover. There is no encryption anywhere in the protocol — the app's only
+    crypto is a signature self-check on its own APK, unrelated to the device.
+
+    STATUS — get_info (0x10) returns an 8-byte notification decoded as:
+      [0] power (1 = on, 0 = off)
+      [1] current mode (1..200 effect index; what static-color modes report
+          here is unverified)
+      [2] speed (device-side range unverified — commonly 1..31 on SP105E
+          clones; the app only steps it relatively)
+      [3] brightness (device-side range unverified — commonly 1..255; same
+          caveat)
+      [4] IC type index (0..26, same table as set_ic_type)
+      [5] RGB order index (0..5, same table as set_rgb_order)
+      [6..7] total pixels, big-endian uint16
+    ANY 8-byte notification on 0xFFE1 is parsed as this status block and also
+    releases the app's write-wait gate.
+
+    MODES — dynamic effects are numbered 1..200 (jump_to_mode wraps 200 -> 1).
+    The UI's special entries map to dedicated opcodes: 0 = auto cycle (0x06),
+    1..5 = static red/green/blue/white/warm-white (the set_mode_* opcodes),
+    206 = custom solid color (solid_color, 0x1E). Mode index -> effect name
+    mapping does not exist even in the app (it shows bare numbers), so a
+    replacement client should present them numerically. Speed and brightness
+    have NO absolute setter in the protocol: the app sends relative up/down
+    steps and reads the current value back from the status reply. A client
+    wanting "set brightness to X" must get_info, compute the delta, and send
+    that many step commands.
+
+    TIMING — the app paces commands at one per ~200 ms from a worker thread,
+    retries a failed write once after 200 ms, and allows up to 5 s for the
+    handshake reply. Emulate the pacing; the device is a low-end MCU and
+    back-to-back writes are likely dropped (unverified).
+
+    IC TABLE — set_ic_type index -> driver IC (27 entries, from the app's own
+    resource table): 0 SM16703, 1 TM1804, 2 UCS1903, 3 WS2811, 4 WS2801,
+    5 SK6812, 6 SK6812-RGBW, 7 LPD6803, 8 LPD8806, 9 APA102, 10 APA105,
+    11 TM1814, 12 TM1914, 13 TM1913, 14 P9813, 15 INK1003, 16 DMX512,
+    17 P943S, 18 P9411, 19 P9412, 20 P9413, 21 P9414, 22 TX1812, 23 TX1813,
+    24 GS8206, 25 GS8208, 26 SK9822.
+
+    OPCODES NEVER SENT BY THIS APP VERSION — mode_up (0x17), mode_down (0x05),
+    led_match (0x1D, likely IR-remote pairing) and clear (0x0F, likely
+    reset-to-default) are defined in the app's opcode table but never emitted;
+    their device-side behaviour is a hypothesis.
+
+    FAMILY — same 0xFFE0/0xFFE1 serial-port profile as the SP107E/SP110E
+    documented in the sibling spec leds2rave4-lunchbox-led.yaml, but a
+    different opcode set and 5-byte (not 4-byte) frames with an 0x38 header.
+    The SP105E advertises the exact local name 'SP105E' (the vendor app's
+    device list keeps only exact-name matches — no prefix matching), which is
+    the reliable discriminator from its siblings.
+
+    CONFIDENCE — HIGH (read directly from the app's frame builder): frame
+    layout, full opcode map, handshake challenge/response formula, 8-byte
+    status layout, IC/RGB-order tables, command pacing. MEDIUM (needs live
+    capture): speed/brightness accepted ranges, mode byte semantics for
+    static-color modes, behaviour of the four never-sent opcodes, whether
+    set_* configuration persists across power cycles, and whether device
+    replies really carry an 0x83 header.
+  identification:
+    local_name_prefix: "SP105E"
+    service_uuids:
+      - "0000ffe0-0000-1000-8000-00805f9b34fb"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "SP105E"
+          service_uuids:
+            - "0000ffe0-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. The SP105E advertises as soon as it is powered and
+      accepts a connection from any central; strip layout (IC type, RGB order,
+      pixel count) is configured by command after connecting, not during
+      setup. The only connection ritual is the check_device handshake
+      documented on the 0xFFE1 characteristic.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: scan, connect, enable notifications on 0xFFE1,
+          run the check_device handshake, then get_info. There is no account,
+          no network credential exchange and no pairing PIN.
+        ble:
+          advertised_name: "SP105E"
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for the exact advertised name 'SP105E'."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect, enable notifications on 0xFFE1, send check_device and validate the 8-byte handshake reply (KEY formula in the characteristic notes)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "0000ffe0-0000-1000-8000-00805f9b34fb"
+            timeout_seconds: 5
+          - action: "Send get_info and decode the 8-byte status reply to learn current mode, speed, brightness, IC type, RGB order and pixel count."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear — the device bonds to nothing. What a
+        reset would need to restore is the strip configuration (IC type, RGB
+        order, pixel count); whether power-cycling preserves those settings
+        is unverified (open question). The defined-but-never-sent clear
+        opcode (0x0F) is the likely factory-default command; sending it is
+        speculative until captured. Power-cycling also drops the current
+        connection, which is the remedy for the common failure mode of the
+        controller already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove supply power for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises 'SP105E' again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        a phone, disconnect it in the app (or remove the device from the OS
+        Bluetooth list) first: the controller accepts a single connection, and
+        a nearby client that auto-reconnects will hold the link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect, pass the handshake (the KEY
+        formula is public, in this document) and issue commands. Physical
+        proximity is the only access control — relevant for a wearable or
+        vehicle installation, not a home ceiling.
+  variants:
+    - model: "SP105E"
+      identification:
+        local_name_prefix: "SP105E"
+        service_uuids:
+          - "0000ffe0-0000-1000-8000-00805f9b34fb"
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "SP105E LED Control Service (serial-port profile)"
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Control"
+        properties: ["write", "notify"]
+        notes: >
+          Fixed 5-byte command frame [0x38, p0, p1, p2, opcode]; no length
+          prefix, no checksum. Unused parameter slots carry filler (the app
+          uses random bytes avoiding 0x38/0x83; 0x00 works). Enable
+          notifications via the standard CCCD (0x2902) before the handshake.
+          Replies arrive on this same characteristic: the 8-byte handshake
+          response and the 8-byte status block (layout in the format table
+          below; ANY 8-byte notification is treated as status). Pace commands
+          at ~200 ms. Confidence: frame layout, opcodes, handshake formula and
+          status layout HIGH (decompiled frame builder); speed/brightness
+          ranges and never-sent opcode behaviour MEDIUM (need live capture).
+        format:
+          - offset: 0
+            length: 1
+            name: "power"
+            type: "uint8"
+            values: {0: "off", 1: "on"}
+          - offset: 1
+            length: 1
+            name: "mode"
+            type: "uint8"
+            notes: "Current mode: 1..200 dynamic effect index. What static-color and auto modes report here is unverified."
+          - offset: 2
+            length: 1
+            name: "speed"
+            type: "uint8"
+            notes: "Relative-stepped only; device-side range unverified (commonly 1..31 on SP105E clones)."
+          - offset: 3
+            length: 1
+            name: "brightness"
+            type: "uint8"
+            notes: "Relative-stepped only; device-side range unverified (commonly 1..255)."
+          - offset: 4
+            length: 1
+            name: "ic_type"
+            type: "uint8"
+            notes: "Index 0..26 into the same IC table as set_ic_type."
+          - offset: 5
+            length: 1
+            name: "rgb_order"
+            type: "uint8"
+            notes: "Index 0..5 into [RGB, RBG, GRB, GBR, BRG, BGR], same as set_rgb_order."
+          - offset: 6
+            length: 2
+            name: "pixels"
+            type: "uint16"
+            endianness: "big"
+            notes: "Configured pixel count."
+        commands:
+          check_device:
+            description: >
+              Handshake / device validation. Send three arbitrary bytes r0..r2
+              (each must not be 0x38 or 0x83); the device replies within ~5 s
+              with exactly 8 bytes 00 01 02 03 04 05 06 KEY where
+              KEY = ((r2 >> 5) & 0x07) | ((r0 << 1) & 0x53) | r1. Only after
+              a correct reply does the vendor app issue further commands.
+              Obfuscation-grade challenge, not encryption — the formula is
+              complete here. HIGH confidence.
+            verification: "reported"
+            template: [0x38, "{r0}", "{r1}", "{r2}", 0xD5]
+            parameters:
+              r0:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "Random challenge byte 0; feeds the reply KEY formula. Avoid 0x38 and 0x83."
+              r1:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "Random challenge byte 1; OR-ed into the reply KEY. Avoid 0x38 and 0x83."
+              r2:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "Random challenge byte 2; its top 3 bits feed the reply KEY. Avoid 0x38 and 0x83."
+          get_info:
+            description: >
+              Query device status; returns the 8-byte status notification
+              decoded by the format table above. HIGH confidence.
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x10]
+          power_toggle:
+            description: >
+              Toggle LED output on/off. There is NO discrete on or off command
+              in the protocol — read the power byte of the status reply to
+              learn the current state before toggling. HIGH confidence.
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0xAA]
+          auto_cycle:
+            description: "Auto-cycle through the dynamic effect modes (UI mode entry 0). HIGH confidence."
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x06]
+          mode_up:
+            description: >
+              Step to the next effect mode. Defined in the app's opcode table
+              but never sent by this app version — device-side behaviour
+              unverified (MEDIUM/hypothesis).
+            verification: "hypothesis"
+            value: [0x38, 0x00, 0x00, 0x00, 0x17]
+          mode_down:
+            description: >
+              Step to the previous effect mode. Defined but never sent by this
+              app version — behaviour unverified (MEDIUM/hypothesis).
+            verification: "hypothesis"
+            value: [0x38, 0x00, 0x00, 0x00, 0x05]
+          speed_up:
+            description: >
+              Increase effect speed by one relative step. No absolute setter
+              exists; read the current speed from the status reply. HIGH
+              confidence.
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x03]
+          speed_down:
+            description: "Decrease effect speed by one relative step. HIGH confidence."
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x09]
+          brightness_up:
+            description: >
+              Increase brightness by one relative step. No absolute setter
+              exists; read the current brightness from the status reply. HIGH
+              confidence.
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x2A]
+          brightness_down:
+            description: "Decrease brightness by one relative step. HIGH confidence."
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x28]
+          led_match:
+            description: >
+              Defined but never sent by this app version; likely pairs a
+              physical (IR) remote. Behaviour unverified — do not send
+              blindly (MEDIUM/hypothesis).
+            verification: "hypothesis"
+            value: [0x38, 0x00, 0x00, 0x00, 0x1D]
+          solid_color:
+            description: >
+              Set a custom static color (UI mode entry 206). Parameter order
+              is R, G, B regardless of the configured RGB order (the
+              controller re-maps at output per set_rgb_order — unverified but
+              implied). HIGH confidence.
+            verification: "reported"
+            template: [0x38, "{red}", "{green}", "{blue}", 0x1E]
+            parameters:
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+          clear:
+            description: >
+              Defined but never sent by this app version; likely resets
+              settings to defaults. Behaviour unverified — treat as the
+              probable factory-reset opcode and confirm by capture before
+              relying on it (MEDIUM/hypothesis).
+            verification: "hypothesis"
+            value: [0x38, 0x00, 0x00, 0x00, 0x0F]
+          jump_to_mode:
+            description: >
+              Jump directly to dynamic effect mode 1..200 (wraps 200 -> 1).
+              The app has no effect names — modes are numeric only. HIGH
+              confidence.
+            verification: "reported"
+            template: [0x38, "{mode}", 0x00, 0x00, 0x2C]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 1
+                max: 200
+                description: "Dynamic effect index 1..200; wraps 200 -> 1."
+          set_mode_red:
+            description: "Static red (UI mode entry 1). HIGH confidence."
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x12]
+          set_mode_green:
+            description: "Static green (UI mode entry 2). HIGH confidence."
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x18]
+          set_mode_blue:
+            description: "Static blue (UI mode entry 3). HIGH confidence."
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x36]
+          set_mode_white:
+            description: "Static white (UI mode entry 4). HIGH confidence."
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x3B]
+          set_mode_warm_white:
+            description: "Static warm white (UI mode entry 5). HIGH confidence."
+            verification: "reported"
+            value: [0x38, 0x00, 0x00, 0x00, 0x56]
+          set_pixels:
+            description: >
+              Set the configured pixel (LED) count, big-endian uint16 split
+              across two parameter bytes. Upper bound is not enforced by the
+              app and unknown for the device — keep within the physical strip
+              (MEDIUM on bounds, HIGH on frame).
+            verification: "reported"
+            template: [0x38, "{count_hi}", "{count_lo}", 0x00, 0x2D]
+            parameters:
+              count_hi:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "High byte of the big-endian uint16 pixel count."
+              count_lo:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Low byte of the big-endian uint16 pixel count."
+          set_rgb_order:
+            description: >
+              Set the output color-channel order by index into
+              [RGB, RBG, GRB, GBR, BRG, BGR]. HIGH confidence.
+            verification: "reported"
+            template: [0x38, "{order}", 0x00, 0x00, 0x3C]
+            parameters:
+              order:
+                type: "uint8"
+                allowed: [0, 1, 2, 3, 4, 5]
+                labels: ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR"]
+          set_ic_type:
+            description: >
+              Set the LED driver IC by index into the app's 27-entry table
+              (see labels). Wrong IC + wrong RGB order is the classic 'strip
+              shows garbage colors' failure; configure both after first
+              connect. HIGH confidence.
+            verification: "reported"
+            template: [0x38, "{ic}", 0x00, 0x00, 0x1C]
+            parameters:
+              ic:
+                type: "uint8"
+                allowed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+                labels: ["SM16703", "TM1804", "UCS1903", "WS2811", "WS2801", "SK6812", "SK6812-RGBW", "LPD6803", "LPD8806", "APA102", "APA105", "TM1814", "TM1914", "TM1913", "P9813", "INK1003", "DMX512", "P943S", "P9411", "P9412", "P9413", "P9414", "TX1812", "TX1813", "GS8206", "GS8208", "SK9822"]
+
+entities:
+  - platform: "light"
+    name: "LED Strip"
+    features: ["brightness", "color", "effect"]
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    notes: >
+      The protocol has only a power TOGGLE (no discrete on/off) and only
+      RELATIVE brightness/speed steps: read the 8-byte status (power, speed,
+      brightness fields) to learn the current state, then toggle or step the
+      required number of times. Effects are numeric 1..200 via jump_to_mode,
+      plus the five set_mode_* static colors.
+    commands:
+      turn_on: "power_toggle"
+      turn_off: "power_toggle"
+      set_color: "solid_color"
+
+helpful_urls:
+  - title: "BTF-LIGHTING — SP105E Bluetooth SPI LED Controller"
+    url: "https://www.btf-lighting.com/products/sp105e-spi-led-controller"
+    description: >-
+      Representative retail listing for the controller this spec documents: DC5-24V SPI
+      pixel controller for WS2811/WS2812B/SK6812/APA102-class strips, controlled by the
+      Magic-LED app over Bluetooth.
+  - title: "Super Bright LEDs — Magic-LED Bluetooth Controller (SP105E)"
+    url: "https://www.superbrightleds.com/magic-led-bluetooth-controller-for-digital-rgb-led-strip-lights-sp105e"
+    description: >-
+      Another retailer selling the identical SP105E unit under the Magic-LED name —
+      evidence of how widely this one firmware is rebranded, and of the strip types it
+      is paired with.
+  - title: "Magic-LED on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.vengean.magicled"
+    description: >-
+      The vendor app (com.vengean.magicled) whose v2.2.1 build this protocol was
+      recovered from. Fully local — no account, no cloud — so it remains usable as a
+      fallback while it stays installable.

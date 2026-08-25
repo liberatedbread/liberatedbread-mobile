@@ -1,0 +1,579 @@
+# BanlanX / Sperll SP6xxE pixel & PWM LED controller (SceneX app) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Sperll SP6xxE LED Controller (BanlanX)"
+  manufacturer: "SPLED (BanlanX) / Shenzhen Sperll Optoelectronic"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "light"
+  notes: >
+    SPI pixel / PWM LED strip controllers driven by the SceneX app
+    (com.spled.scenex, analyzed at v3.3.2 — a Flutter app whose protocol logic
+    is Dart AOT-compiled, so byte-level recovery from the app itself is limited;
+    framing below is corroborated by the app only at the role/string level).
+
+    PRIMARY CITATION: the open-source UniLED (HACS) integration,
+    github.com/monty68/uniled, custom_components/uniled/lib/ble/ — five BanlanX
+    modules covering the whole family. This spec SUMMARIZES that work; the
+    per-model effect tables and full status decode live there, not here:
+      * banlanx_601.py  — SP601E (2ch SPI RGB, music): frame
+        [0xAA, opcode, len, payload...]. Status notifications carry flag bytes
+        0x53 0x43 with a 5-byte header [flag1, flag2, packet_no, msg_len,
+        payload_len], reassembled across packets; per-channel state is 11
+        bytes/channel.
+      * banlanx_60x.py  — SP602E (4ch) / SP608E (8ch): same layout with header
+        byte 0x88 (opcodes = SP601E opcode - 0xA0 offset, e.g. power 0x82) and
+        status flags 0x36 0x38.
+      * banlanx2.py     — SP611E/SP617E/SP620E/SP621E: frame
+        [0xA0, opcode, len, payload...].
+      * banlanx3.py     — SP613E/SP614E/SP623E/SP624E: frame
+        [opcode, len, payload...] with NO header byte (state query is
+        [0x1D, 0x00]).
+      * banlanx_6xx.py  — SP630E and SP631E..SP63AE / SP641E..SP64AE: frame
+        documented in full below (the current product line, and the family the
+        sp6xxe_* commands on the 0xFFE0 service belong to).
+
+    DISCOVERY: BLE manufacturer-data advertisement, company id 20563
+    (0x5053 = "SP" little-endian). For the SP63xE/SP64xE series the payload is
+    [model_id, 0x10]; model_id table (per banlanx_6xx.py): 0x1F SP630E,
+    0x20 SP631E, 0x21 SP632E, 0x22 SP633E, 0x23 SP634E, 0x24 SP635E,
+    0x25 SP636E, 0x26 SP637E, 0x27 SP638E, 0x28 SP639E, 0x29 SP63AE,
+    0x2C SP641E, 0x2D SP642E, 0x2E SP643E, 0x2F SP644E, 0x30 SP645E,
+    0x31 SP646E, 0x32 SP647E, 0x33 SP648E, 0x34 SP649E, 0x35 SP64AE.
+    (SP64xE are the dual-mode BLE+Wi-Fi counterparts of the same functions.)
+    Older families match on the first manufacturer-data byte(s) instead:
+    SP601E 0x01, SP602E 0x02, SP608E 0x05, SP617E 0x17, SP620E 0x1B
+    (per the respective uniled modules). Confidence: reported (uniled) — not
+    yet confirmed against a live advertisement by this project.
+
+    SP6xxE (0x53) FRAME: [0x53 ('S'), cmd, key, 0x01, 0x00, payload_len,
+    payload...]. Header length 6, payload_len at offset 5. key (offset 2) is
+    0x00 for plaintext — every sp6xxe_* command below uses key 0x00. A nonzero
+    key means an encrypted payload, which uniled rejects as unsupported;
+    a replacement client should log and drop such notifications rather than
+    misparse them.
+
+    SP6xxE STATUS (notification with cmd byte 0x02, ~53-byte payload; offsets
+    are into the full packet, per banlanx_6xx.py): firmware version string
+    data[11:18] UTF-8; light-type config byte data[19] — selects the output
+    hardware mapping (0x81 PWM mono, 0x83 PWM CCT, 0x85 PWM RGB, 0x87 PWM RGBW,
+    0x8A PWM RGBCCT, 0x82 SPI mono, 0x84/0x8D SPI CCT, 0x86 SPI RGB,
+    0x88 SPI RGBW, 0x8B/0x8E SPI RGBCCT, 0x89/0x8C SPI RGB + 1/2 PWM ch);
+    on/off effect data[20] (1 flow fwd, 2 flow back, 3 gradient, 4 stars),
+    on/off speed data[21] (1 slow, 2 medium, 3 fast), on/off pixel count
+    data[22:24] big-endian (1-600); coexistence data[24]; on-power restore
+    data[25] (0 off, 1 on, 2 last state); power data[29] (!=0 on);
+    effect loop data[30]; chip order data[31]; mode data[32] (1 static color,
+    2 static white, 3 dynamic color, 4 dynamic white, 5 sound color,
+    6 sound white, 7 custom); effect data[33]; effect play data[34];
+    color level data[35]; white level data[36]; static RGBW data[37:41];
+    speed data[42]; length data[43]; direction data[44]; audio gain data[45];
+    audio input data[46]; sound-mode RGB data[47:50]; CCT cold/warm
+    data[50:52]; DIY mode data[52]. Decode the light-type byte FIRST — it
+    determines which of the remaining fields are meaningful.
+
+    NEW IN APP 3.3.2 — "ELS" AUTHENTICATED CHANNEL (MEDIUM confidence, static
+    analysis only, NOT in uniled): four 128-bit vendor characteristics
+    5833ff01/02/03/04-9b8b-5191-6142-22a4536ef123 (parent service UUID not
+    recovered — only the characteristic strings are present in the app binary).
+    Nearby strings describe a connect-time auth handshake (sequence, client and
+    server auth values), an encrypted session (per-session key material, fixed
+    encrypted-block size) and a cloud endpoint
+    https://app.ledhue.com/spiot/els/v1. Cipher and message format unknown
+    (no hardcoded key material found; a pointycastle-style Dart crypto stack is
+    plausible). Whether new firmware REQUIRES this channel or the app falls
+    back to the legacy plaintext framing is an open question — verify by live
+    capture before assuming the plaintext path works on new units.
+
+    OTA: custom BLE OTA over the command channel (no Nordic DFU service, no
+    chip-vendor SDK libs in the app). Firmware check endpoint:
+    https://app.ledhue.com/spiot/device/check-update; the .bin download URL is
+    returned by that API (pattern not recovered). Firmware files are not
+    committed here — query the endpoint on your own unit.
+
+    OTHER TRANSPORTS: dual-mode (SP64xE) models provision Wi-Fi via an
+    ESP-style SoftAP at 192.168.4.1 (2.4 GHz only) from the app's
+    network-config flow; the on-Wi-Fi control path is undocumented (cloud
+    relay via app.ledhue.com suspected — capture needed). Cloud endpoints
+    (app check-update, manuals, Alexa linking) live under
+    https://app.ledhue.com/spiot; local BLE control needs none of them.
+
+    CONFIDENCE SUMMARY: service/characteristic UUIDs HIGH (app + uniled
+    agree). All command bytes and the status layout are 'reported' — taken
+    from uniled, a maintained community implementation, never captured by this
+    project; verify on hardware before shipping against them. The ELS channel
+    and SoftAP provisioning are MEDIUM/static-only. Unresolved UUIDs in the
+    app: 0000ff12/ff14/ff15-... (probably an accessory/remote family on
+    service 0000ff10-..., not SP6xxE).
+  identification:
+    service_uuids:
+      - "0000ffe0-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 20563
+      company_id_hex: "0x5053"
+      description: >
+        0x5053 spells "SP" little-endian — a squatted, product-family ID, not
+        a SIG assignment. Payload [model_id, 0x10] on SP63xE/SP64xE (model_id
+        0x1F-0x35, see device notes); older BanlanX families match on the
+        first payload byte(s). Per uniled; live confirmation pending.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000ffe0-0000-1000-8000-00805f9b34fb"
+          manufacturer_data:
+            company_id: 20563
+            match: "masked"
+            pattern: "0010"
+            mask: "00FF"
+            description: >
+              SP63xE/SP64xE: second payload byte is the fixed marker 0x10, the
+              first is the model id (0x1F-0x35). Older families (SP601E etc.)
+              carry other payload prefixes under the same company id — treat a
+              company-id match with a non-conforming payload as a probable
+              family member and identify exactly after connect via the status
+              notification.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      BLE-only models (SP63xE and older) need no provisioning: they advertise
+      as soon as powered and accept a connection from any central. Dual-mode
+      SP64xE models optionally get Wi-Fi credentials via the device's SoftAP
+      (192.168.4.1) during the app's network-config flow — that path is
+      documented from app strings only (MEDIUM) and is not required for local
+      BLE control.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan, connect, enable notifications on 0xFFE1 and issue the state
+          query. No account, PIN or bonding on legacy firmware. New firmware
+          may attempt the authenticated ELS channel first (see device notes) —
+          fallback order unverified.
+        ble:
+          advertised_name: "SP6"
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for company id 0x5053 or service 0xFFE0."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect, subscribe to 0xFFE1 notifications, send sp6xxe_state_query."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        BLE models hold no credentials, so there is nothing to clear —
+        power-cycling drops the current connection, which is the remedy for
+        the common failure mode (another central holding the single link). On
+        dual-mode SP64xE units a reset would clear the stored Wi-Fi
+        credentials; the physical reset procedure is not documented here.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE models bind to nothing; switching controllers is just connecting
+        from the new one (remove the OS-level Bluetooth entry on the old phone
+        so it stops auto-reconnecting and holding the link). For SP64xE Wi-Fi,
+        re-running the SoftAP provisioning flow with the new network is the
+        expected path — procedure unverified.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE: anything in radio range can connect and issue commands; physical
+        proximity is the only access control on legacy firmware. Wi-Fi
+        credentials on dual-mode models are handed over during SoftAP
+        provisioning — the over-the-air protection of that exchange is
+        undocumented.
+
+  variants:
+    - model: "SP630E"
+      identification:
+        service_uuids:
+          - "0000ffe0-0000-1000-8000-00805f9b34fb"
+      notes: >
+        All-in-one RGB(CW) SPI/PWM music controller, model_id 0x1F. Output
+        mapping is runtime-configurable across 14 light types (see device
+        notes) via sp6xxe_set_light_type; speaks the 0x53 frame.
+    - model: "SP631E-SP63AE / SP641E-SP64AE"
+      identification:
+        service_uuids:
+          - "0000ffe0-0000-1000-8000-00805f9b34fb"
+      notes: >
+        Single-function SPI or PWM music controllers (mono/CCT/RGB/RGBW/
+        RGBCCT), model_ids 0x20-0x29 (SP63xE, BLE-only) and 0x2C-0x35
+        (SP64xE, dual-mode BLE+Wi-Fi). Same 0x53 frame as SP630E with a fixed
+        light-type config.
+    - model: "SP601E"
+      identification:
+        service_uuids:
+          - "0000ffe0-0000-1000-8000-00805f9b34fb"
+      notes: >
+        2-channel SPI RGB music controller. 0xAA-framed command set
+        (sp601e_* commands); manufacturer-data first byte 0x01. Effects:
+        solid 0x19, dynamic patterns 0x01-0x18, sound effects 0x65-0x74;
+        9 scenes, speed 1-10, length 1-150, gain 1-16 (per uniled
+        banlanx_601.py).
+    - model: "SP602E / SP608E"
+      identification:
+        service_uuids:
+          - "0000ffe0-0000-1000-8000-00805f9b34fb"
+      notes: >
+        4/8-channel SPI RGB music controllers. Same protocol shape as SP601E
+        with header byte 0x88 and status flags 0x36 0x38; opcodes carry the
+        same low nibble (state query [0x88,0x8F,0x00], power opcode 0x82,
+        color 0x89, scene 0x8E). Effect length up to 240. Not re-transcribed
+        here — see uniled banlanx_60x.py.
+    - model: "SP611E / SP617E / SP620E / SP621E"
+      identification:
+        service_uuids:
+          - "0000ffe0-0000-1000-8000-00805f9b34fb"
+      notes: >
+        "BanlanX v2" SPI/PWM controllers, frame [0xA0, opcode, len,
+        payload...] (state query [0xA0,0x70,0x00]). SP617E adds CCT white
+        channels. Not re-transcribed here — see uniled banlanx2.py.
+    - model: "SP613E / SP614E / SP623E / SP624E"
+      identification:
+        service_uuids:
+          - "0000ffe0-0000-1000-8000-00805f9b34fb"
+      notes: >
+        "BanlanX v3" SPI/PWM controllers, frame [opcode, len, payload...]
+        with no header byte (state query [0x1D,0x00]). SP614E/SP624E add CCT
+        white channels. Not re-transcribed here — see uniled banlanx3.py.
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "BanlanX LED Control Service"
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Control"
+        properties: ["write_without_response", "notify"]
+        notes: >
+          Single command/notification channel for every BanlanX model; the
+          frame format depends on the model generation (see device notes).
+          NO characteristic-level `framing` is declared on purpose: every
+          value/template below is a COMPLETE frame written verbatim.
+          Commands named sp6xxe_* use the 0x53 frame (SP630E and
+          SP63xE/SP64xE); sp601e_* use the 0xAA frame (SP601E). Confidence:
+          all bytes 'reported' from uniled — verify on hardware. Enable
+          notifications and send the state query first; decode the status
+          light-type byte before deciding which commands apply. A nonzero
+          key byte (offset 2) in a notification means an encrypted payload —
+          do not parse it as plaintext. Status notification layout and the
+          SP602E/608E (0x88), v2 (0xA0) and v3 (headerless) frame families
+          are summarized in device notes and fully decoded in uniled.
+        commands:
+          sp6xxe_state_query:
+            description: "SP6xxE: request device status; answer arrives as a notification with cmd byte 0x02 (~53-byte payload, layout in device notes)"
+            value: [0x53, 0x02, 0x00, 0x01, 0x00, 0x01, 0x01]
+            verification: reported
+          sp6xxe_power_on:
+            description: "SP6xxE: power on (cmd 0x50, payload 0x01)"
+            value: [0x53, 0x50, 0x00, 0x01, 0x00, 0x01, 0x01]
+            verification: reported
+          sp6xxe_power_off:
+            description: "SP6xxE: power off (cmd 0x50, payload 0x00)"
+            value: [0x53, 0x50, 0x00, 0x01, 0x00, 0x01, 0x00]
+            verification: reported
+          sp6xxe_set_brightness:
+            description: >
+              SP6xxE: set brightness (cmd 0x51). `which` selects the level
+              being addressed: 0x00 color level, 0x01 white level — uniled
+              picks it from the active light mode. Ignored in sound modes.
+            template: [0x53, 0x51, 0x00, 0x01, 0x00, 0x02, "{which}", "{level}"]
+            parameters:
+              which:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["Color level", "White level"]
+                default: 0
+              level:
+                type: "uint8"
+                min: 0
+                max: 255
+            verification: reported
+          sp6xxe_set_rgb_color:
+            description: >
+              SP6xxE: set RGB color (cmd 0x57) for dynamic/sound modes. In
+              static modes use sp6xxe_set_static_rgb (cmd 0x52), which also
+              carries the brightness level.
+            template: [0x53, 0x57, 0x00, 0x01, 0x00, 0x03, "{red}", "{green}", "{blue}"]
+            parameters:
+              red: { type: "uint8", min: 0, max: 255 }
+              green: { type: "uint8", min: 0, max: 255 }
+              blue: { type: "uint8", min: 0, max: 255 }
+            verification: reported
+          sp6xxe_set_static_rgb:
+            description: "SP6xxE: set static RGB color with brightness (cmd 0x52)"
+            template: [0x53, 0x52, 0x00, 0x01, 0x00, 0x04, "{red}", "{green}", "{blue}", "{level}"]
+            parameters:
+              red: { type: "uint8", min: 0, max: 255 }
+              green: { type: "uint8", min: 0, max: 255 }
+              blue: { type: "uint8", min: 0, max: 255 }
+              level: { type: "uint8", min: 0, max: 255, default: 255 }
+            verification: reported
+          sp6xxe_set_white:
+            description: "SP6xxE: set white channel level (cmd 0x51 with which=0x01); convenience alias for sp6xxe_set_brightness on white"
+            template: [0x53, 0x51, 0x00, 0x01, 0x00, 0x02, 0x01, "{level}"]
+            parameters:
+              level: { type: "uint8", min: 0, max: 255 }
+            verification: reported
+          sp6xxe_set_cct:
+            description: "SP6xxE: set CCT cold/warm levels (cmd 0x60 dynamic/sound modes; cmd 0x61 in static modes — same payload)"
+            template: [0x53, 0x60, 0x00, 0x01, 0x00, 0x02, "{cold}", "{warm}"]
+            parameters:
+              cold: { type: "uint8", min: 0, max: 255 }
+              warm: { type: "uint8", min: 0, max: 255 }
+            verification: reported
+          sp6xxe_set_mode_effect:
+            description: >
+              SP6xxE: set light mode + effect (cmd 0x53). Mode: 1 static
+              color, 2 static white, 3 dynamic color, 4 dynamic white,
+              5 sound color, 6 sound white, 7 custom. Effect numbers are
+              per-mode and depend on the light-type config — full tables in
+              uniled banlanx_6xx.py. After changing mode, send
+              sp6xxe_state_query to re-sync.
+            template: [0x53, 0x53, 0x00, 0x01, 0x00, 0x02, "{mode}", "{effect}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 1
+                max: 7
+              effect:
+                type: "uint8"
+                min: 0
+                max: 255
+            verification: reported
+          sp6xxe_set_effect_speed:
+            description: "SP6xxE: effect speed (cmd 0x54)"
+            template: [0x53, 0x54, 0x00, 0x01, 0x00, 0x01, "{speed}"]
+            parameters:
+              speed: { type: "uint8", min: 0, max: 255 }
+            verification: reported
+          sp6xxe_set_effect_length:
+            description: "SP6xxE: effect length / segment size (cmd 0x55)"
+            template: [0x53, 0x55, 0x00, 0x01, 0x00, 0x01, "{length}"]
+            parameters:
+              length: { type: "uint8", min: 0, max: 255 }
+            verification: reported
+          sp6xxe_set_effect_direction:
+            description: "SP6xxE: effect direction (cmd 0x56; 0x00 forward, 0x01 reverse)"
+            template: [0x53, 0x56, 0x00, 0x01, 0x00, 0x01, "{reverse}"]
+            parameters:
+              reverse:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["Forward", "Reverse"]
+            verification: reported
+          sp6xxe_effect_play:
+            description: "SP6xxE: play/pause the running effect (cmd 0x5D; 0x01 play, 0x00 pause)"
+            template: [0x53, 0x5D, 0x00, 0x01, 0x00, 0x01, "{play}"]
+            parameters:
+              play:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["Pause", "Play"]
+            verification: reported
+          sp6xxe_set_effect_loop:
+            description: "SP6xxE: loop the effect list (cmd 0x58)"
+            template: [0x53, 0x58, 0x00, 0x01, 0x00, 0x01, "{loop}"]
+            parameters:
+              loop:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["Off", "On"]
+            verification: reported
+          sp6xxe_set_audio_input:
+            description: "SP6xxE: audio input source for sound modes (cmd 0x59; values per uniled: internal mic / player / aux — exact enum in banlanx_6xx.py DICTOF_AUDIO_INPUTS)"
+            template: [0x53, 0x59, 0x00, 0x01, 0x00, 0x01, "{input}"]
+            parameters:
+              input: { type: "uint8", min: 0, max: 255 }
+            verification: reported
+          sp6xxe_set_audio_gain:
+            description: "SP6xxE: microphone sensitivity (cmd 0x5A)"
+            template: [0x53, 0x5A, 0x00, 0x01, 0x00, 0x01, "{gain}"]
+            parameters:
+              gain: { type: "uint8", min: 1, max: 16 }
+            verification: reported
+          sp6xxe_set_coexistence:
+            description: "SP6xxE: color/white coexistence — drive SPI pixels and PWM channels simultaneously (cmd 0x0A)"
+            template: [0x53, 0x0A, 0x00, 0x01, 0x00, 0x01, "{state}"]
+            parameters:
+              state:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["Off", "On"]
+            verification: reported
+          sp6xxe_set_on_power:
+            description: "SP6xxE: power-restore behavior (cmd 0x0B)"
+            template: [0x53, 0x0B, 0x00, 0x01, 0x00, 0x01, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                allowed: [0, 1, 2]
+                labels: ["Light off", "Light on", "Last state"]
+            verification: reported
+          sp6xxe_set_onoff_effect:
+            description: >
+              SP6xxE: power on/off animation (cmd 0x08): effect (1 flow
+              forward, 2 flow backward, 3 gradient, 4 stars), speed
+              (1 slow, 2 medium, 3 fast), pixel count big-endian 1-600.
+            template: [0x53, 0x08, 0x00, 0x01, 0x00, 0x05, 0x01, "{effect}", "{speed}", "{pixels_hi}", "{pixels_lo}"]
+            parameters:
+              effect:
+                type: "uint8"
+                allowed: [1, 2, 3, 4]
+                labels: ["Flow forward", "Flow backward", "Gradient", "Stars"]
+              speed:
+                type: "uint8"
+                allowed: [1, 2, 3]
+                labels: ["Slow", "Medium", "Fast"]
+              pixels_hi:
+                type: "uint8"
+                min: 0
+                max: 2
+                description: "High byte of the big-endian pixel count (1-600)."
+              pixels_lo:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Low byte of the big-endian pixel count (1-600)."
+            verification: reported
+          sp6xxe_set_chip_order:
+            description: "SP6xxE: LED chip color order (cmd 0x6B; index into the config's order list — RGB/RGBW/RGBCW permutations per uniled chips.py)"
+            template: [0x53, 0x6B, 0x00, 0x01, 0x00, 0x01, "{order}"]
+            parameters:
+              order: { type: "uint8", min: 0, max: 255 }
+            verification: reported
+          sp6xxe_set_light_type:
+            description: "SP630E only: reconfigure the output hardware mapping (cmd 0x6A, payload [0x01, type & 0x7F] per uniled; type values in device notes)"
+            advanced: true
+            advanced_reason: >
+              Re-maps which output driver (SPI/PWM, channel count, color
+              order family) the controller drives; a wrong value leaves the
+              strip dark or mis-colored until the correct type is restored.
+              Read the current light-type byte from a status notification
+              first so you can restore it.
+            template: [0x53, 0x6A, 0x00, 0x01, 0x00, 0x02, 0x01, "{light_type}"]
+            parameters:
+              light_type:
+                type: "uint8"
+                min: 0
+                max: 127
+                description: "Light-type code & 0x7F (0x81-0x8E family values in device notes; high bit is stripped per uniled)."
+            verification: reported
+          sp601e_state_query:
+            description: "SP601E: request status; reply arrives as 0x53 0x43-flagged notification packets, reassembled per the 5-byte header (see device notes)"
+            value: [0xAA, 0x2F, 0x00]
+            verification: reported
+          sp601e_power:
+            description: "SP601E: power per channel (opcode 0x22); channel 0xFF addresses all (uniled uses channels-1 for the master channel — 0x01 on the 2-channel SP601E)"
+            template: [0xAA, 0x22, 0x02, "{channel}", "{state}"]
+            parameters:
+              channel: { type: "uint8", min: 0, max: 255 }
+              state:
+                type: "uint8"
+                allowed: [0, 1]
+                labels: ["Off", "On"]
+            verification: reported
+          sp601e_set_brightness:
+            description: "SP601E: brightness per channel (opcode 0x25)"
+            template: [0xAA, 0x25, 0x02, "{channel}", "{level}"]
+            parameters:
+              channel: { type: "uint8", min: 0, max: 255 }
+              level: { type: "uint8", min: 0, max: 255 }
+            verification: reported
+          sp601e_set_rgb_color:
+            description: "SP601E: static RGB color per channel (opcode 0x29); trailing 0xFF is fixed"
+            template: [0xAA, 0x29, 0x05, "{channel}", "{red}", "{green}", "{blue}", 0xFF]
+            parameters:
+              channel: { type: "uint8", min: 0, max: 255 }
+              red: { type: "uint8", min: 0, max: 255 }
+              green: { type: "uint8", min: 0, max: 255 }
+              blue: { type: "uint8", min: 0, max: 255 }
+            verification: reported
+          sp601e_set_effect:
+            description: "SP601E: effect per channel (opcode 0x23): 0x19 solid, 0x01-0x18 dynamic patterns, 0x65-0x74 sound effects (names in uniled banlanx_601.py)"
+            template: [0xAA, 0x23, 0x02, "{channel}", "{effect}"]
+            parameters:
+              channel: { type: "uint8", min: 0, max: 255 }
+              effect: { type: "uint8", min: 0, max: 255 }
+            verification: reported
+          sp601e_set_effect_speed:
+            description: "SP601E: effect speed 1-10 per channel (opcode 0x26)"
+            template: [0xAA, 0x26, 0x02, "{channel}", "{speed}"]
+            parameters:
+              channel: { type: "uint8", min: 0, max: 255 }
+              speed: { type: "uint8", min: 1, max: 10 }
+            verification: reported
+          sp601e_set_scene:
+            description: "SP601E: recall saved scene 1-9 (opcode 0x2E)"
+            template: [0xAA, 0x2E, 0x01, "{scene}"]
+            parameters:
+              scene: { type: "uint8", min: 1, max: 9 }
+            verification: reported
+
+entities:
+  - platform: "light"
+    name: "LED Output"
+    features: ["brightness", "color", "effect"]
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "sp6xxe_power_on"
+      turn_off: "sp6xxe_power_off"
+      set_color: "sp6xxe_set_rgb_color"
+      set_brightness: "sp6xxe_set_brightness"
+      set_effect: "sp6xxe_set_mode_effect"
+
+helpful_urls:
+  - title: "monty68/uniled — UniLED (HACS)"
+    url: "https://github.com/monty68/uniled"
+    description: >-
+      Primary protocol citation: maintained Home Assistant integration whose
+      five BanlanX modules (custom_components/uniled/lib/ble/banlanx_601.py,
+      banlanx_60x.py, banlanx2.py, banlanx3.py, banlanx_6xx.py) decode every
+      frame family this spec summarizes, including the full per-mode effect
+      tables and status layouts not re-transcribed here.
+  - title: "uniled banlanx_6xx.py — SP630E/SP6xxE implementation"
+    url: "https://github.com/monty68/uniled/blob/master/custom_components/uniled/lib/ble/banlanx_6xx.py"
+    description: >-
+      Canonical source for the 0x53 frame, the model_id advertisement table
+      (0x1F-0x35), the 14 light-type configs and the ~53-byte status layout.
+  - title: "SceneX on Google Play (com.spled.scenex)"
+    url: "https://play.google.com/store/apps/details?id=com.spled.scenex"
+    description: >-
+      Vendor app analyzed at v3.3.2 for this spec (BLE UUIDs, ELS channel,
+      OTA and SoftAP endpoints).
+  - title: "BanlanX vendor FAQ/documentation"
+    url: "https://document.ledhue.com/banlanx/faq/version/8/default"
+    description: >-
+      Vendor-hosted user documentation for the SP6xxE line (Wi-Fi config
+      troubleshooting, manuals); linked from the app.
+  - title: "Vendor cloud base (firmware check / ELS endpoints)"
+    url: "https://app.ledhue.com/spiot"
+    description: >-
+      Base URL of the vendor cloud: /device/check-update returns OTA firmware
+      info (the .bin URL pattern is unrecovered), /els/v1 backs the new
+      authenticated channel. Reference only — local BLE control needs none of
+      it; no firmware files are mirrored here.

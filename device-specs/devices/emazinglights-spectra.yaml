@@ -1,0 +1,504 @@
+# EmazingLights Spectra (Smart Hub + LED gloves) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "EmazingLights Spectra Smart Hub"
+  manufacturer: "EmazingLights"
+  manufacturer_status: "abandoned"
+  testing:
+    status: untested
+    notes: >
+      Everything here is static analysis of the delisted vendor Android app
+      (com.emazinglights v1.8, versionCode 37). No live capture against real
+      hardware has been replayed by this project.
+  protocol: "ble"
+  category: "light"
+  notes: >
+    EmazingLights Spectra is a programmable LED glove set. The phone does NOT
+    talk to the gloves: it talks over BLE to a Spectra "Smart Hub" (firmware
+    device type "PhotoHub"), which relays commands to the gloves over a
+    proprietary 2.4 GHz link. A replacement client only needs the hub's BLE
+    interface; the hub-to-glove RF link is out of scope (and out of reach of a
+    phone). The hub is built on a Qualcomm CSR101x-family chip — its OTA
+    service UUIDs are the documented Qualcomm CSR (uEnergy) firmware-update
+    family.
+
+    ORPHAN STATUS: the app is delisted from Google Play, and the firmware
+    manifest endpoint the app polls for OTA updates
+    (http://www.facemeltcrew.com/ios/testmanifest.json) is DEAD — the domain
+    no longer resolves (verified 2026-08-25, curl: could not resolve host).
+    The app also has a cloud API for community features (glove-set
+    upload/download/likes at gloving.com, plain HTTP with a hardcoded static
+    app token) — it is NOT needed for control and is deliberately not
+    reproduced here. All device control is local BLE.
+
+    DISCOVERY: the hub is found by MANUFACTURER-SPECIFIC advertisement data
+    (AD type 0xFF), not by name. The vendor app's BLE scanner concatenates
+    hex(2-byte company ID) + hex(payload minus its last byte) and requires the
+    result to equal the ASCII string "LEHUB1" (hex 4c4548554231), plus the
+    LAST payload byte to equal 0x01, which is a "pairing mode active" flag —
+    a hub not in pairing mode does not appear in the app's scan results. The
+    exact split is ambiguous from static analysis: either company ID 0x004C
+    (unassigned test value) + payload "EHUB1"+flag, or company ID 0x454C +
+    payload "HUB1"+flag (the discovery block below declares the second reading;
+    both are MEDIUM confidence). A robust matcher scans the raw manufacturer
+    AD structure for the ASCII substring "LEHUB1" and checks the trailing
+    flag byte. The advertised NAME is user-renamable (see the housekeeping
+    service) and is display-only — never filter on it.
+
+    COMMAND TRANSPORT: all commands are 20-byte frames written to the command
+    characteristic (58511D0A-...) on the command service (F4DB6DA0-...):
+      byte 0      header   = 0x55
+      byte 1      opcode
+      byte 2      index / param
+      bytes 3-18  payload (16 bytes, zero-padded)
+      byte 19     checksum = XOR of bytes 0..18
+    Frames are built as hex strings and written with a plain
+    writeCharacteristic (default write type) — no bonding, no encryption, no
+    authentication. The app contains no crypto at all. Command pacing during a
+    sync upload is ONE FRAME EVERY 200 ms (the app's mode uploader sleeps
+    200 ms between writes); honour that pacing until live capture shows the
+    hub tolerates faster.
+
+    OPCODE MAP (header 0x55 on all):
+      0x01 writeModeSettings    payload [numColors, flashingPatternCode, 0,
+                                motionType, 1, threshold, low, medium, high]
+      0x02 writeBlockSettings   payload [blockIndex(1..n), R, G, B, 0, 1] —
+                                one frame per color in the sequence
+      0x03 changeDisplayMode    payload [mode]; app sends [1] after an upload
+      0x04 changeRunMode        index=1, payload [0,0] = start running
+      0x05 setPWMColor          payload [R, G, B] — direct color set
+      0x07 flashingPattern      14-byte custom-pattern payload (only for
+                                category-1/custom patterns; mode settings then
+                                carry pattern code 0xFF)
+      0x09 exitPairingMode      all-zero payload
+      0x0A syncStarted          index 1 = sync start, 2 = sync end
+    Opcode 0x06 is skipped in the app (0x05 -> 0x07 gap) — likely reserved.
+
+    MODE UPLOAD SEQUENCE (what the app sends to push a mode to the hub):
+      0x01 modeSettings
+      -> N x 0x02 blockSettings (one per color; "M"/"L" brightness color modes
+         are dimmed to 20% / 5% HSV value in-app before upload)
+      -> optional 0x07 flashingPatternSettings (custom patterns only)
+      -> 0x03 changeDisplayMode(1)
+      -> 0x04 changeRunMode(index 1, payload 0,0)
+    The flashingPatternCode in mode settings is a small int enumerating
+    classic built-in patterns (strobe/gap/repeat semantics); the code-to-
+    pattern table lives in the app's bundled database and has NOT been
+    extracted — see targets/emazinglights-spectra.md, remaining experiments.
+
+    OTA: firmware version is read from the housekeeping characteristic
+    B66DAC3C-... (value parsed as a hex integer: high byte = major, low byte
+    = minor). The OTA flow computes a CRC32 of the image zero-padded to a
+    16-byte multiple, then writes a 12-byte "new image" header
+    [CRC32 LE 4B][image length LE 4B][00 10 01 08], sends syncStarted(start)
+    on the command channel, and streams the image in 16-byte blocks over the
+    CSR OTA characteristics, with a 10 s stall watchdog. Firmware binaries
+    were hosted under the now-dead facemeltcrew.com root path; the manifest
+    JSON schema was {"firmware":[{"deviceType":"PhotoHub","versionNum":N,
+    "filename":"..."}]} with the binary at rootpath+filename.
+
+    CONFIDENCE: frame format, opcode map, service/characteristic UUIDs, the
+    "LEHUB1" advertisement filter, 200 ms pacing and the OTA flow are HIGH
+    (all read directly from the app's command builder and uploader). MEDIUM:
+    the company-ID/payload split of the manufacturer data (needs one real
+    advertisement capture); changeDisplayMode/changeRunMode operand semantics
+    (values observed, meanings inferred); battery characteristic encoding
+    (raw percent vs voltage unknown); whether the hub gates mode writes on
+    the 0x09 exitPairingMode handshake; whether the command characteristic
+    also notifies. LOW: factory reset behaviour (only indirect UI evidence
+    that removing hub batteries is the recovery path).
+  identification:
+    manufacturer_data:
+      company_id: 17740
+      company_id_hex: "0x454C"
+      description: >
+        Advertised manufacturer data spells ASCII "LEHUB1" when hex(company
+        ID) and hex(payload) are concatenated, with a trailing pairing-mode
+        flag byte (0x01 = pairing active). Split is ambiguous from static
+        analysis: 0x454C+"HUB1" (declared here) or 0x004C+"EHUB1" — see
+        discovery method description. MEDIUM confidence pending a real
+        advertisement capture.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 17740
+            additional_company_ids: [76]
+            match: "prefix"
+            pattern: "48554231"
+            description: >
+              Match manufacturer-specific AD data whose company ID + payload
+              hex-decodes to ASCII "LEHUB1": either company 0x454C with
+              payload prefix "HUB1" (hex 48554231, declared as the primary
+              match; company 76 = 0x004C listed as the equivalent alternative
+              reading with payload prefix "EHUB1"), or — most robustly — the
+              ASCII substring "LEHUB1" anywhere in the raw AD structure.
+              The LAST payload byte is a pairing-mode flag: 0x01 means the
+              hub is in pairing mode and willing to connect; the vendor app
+              hides hubs whose flag is not 0x01. Do not match on the local
+              name — it is user-renamable over GATT and display-only.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning, no account, no PIN, no bonding. The hub advertises
+      with a pairing-mode flag in its manufacturer data; a central that finds
+      the "LEHUB1" marker with flag 0x01 connects and writes 20-byte command
+      frames directly. The app sends opcode 0x09 (exitPairingMode) when
+      leaving pairing — whether the hub GATES mode writes on that handshake
+      is unverified (MEDIUM); safest is to mirror the app: connect, run the
+      upload sequence, then send exitPairingMode.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Power the hub, scan for the "LEHUB1" manufacturer-data marker with
+          pairing flag 0x01, connect, and write command frames. No
+          credentials are exchanged at any point.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the Smart Hub and scan for manufacturer data containing ASCII 'LEHUB1' with trailing pairing-mode byte 0x01."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and write 20-byte command frames to the command characteristic (58511D0A-...), paced at one frame per 200 ms during multi-frame uploads."
+            actor: "client"
+          - action: "Send opcode 0x09 (exitPairingMode) when done pairing/syncing, mirroring the vendor app."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state exists to clear — there is no bonding and no
+        network configuration on the hub. The vendor's own recovery
+        instruction for a wedged hub is to power it off or remove its
+        batteries; stored modes and the user-set hub name may survive a
+        power cycle (unverified).
+      procedures:
+        - name: "Power cycle / battery pull"
+          steps:
+            - action: "Turn the Smart Hub off, or remove its batteries for a few seconds, then power it back on."
+              actor: "user"
+              expect: "Hub advertises again with the pairing-mode flag set and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds the hub to a phone or network, so switching controllers
+        is just connecting from the new one. If the old phone keeps
+        auto-reconnecting and holding the link, remove the hub from that
+        phone's OS Bluetooth list.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect while the hub advertises its
+        pairing-mode flag and issue commands. Physical proximity is the only
+        access control.
+  variants:
+    - model: "Spectra Smart Hub (PhotoHub)"
+      identification:
+        manufacturer_data:
+          company_id: 17740
+          company_id_hex: "0x454C"
+          description: >
+            BLE relay between the phone and the Spectra gloves (proprietary
+            2.4 GHz hub-to-glove link). Firmware device type "PhotoHub" in
+            the OTA manifest.
+
+services:
+  - uuid: "f4db6da0-2fcf-d296-a741-42ff6328ef42"
+    name: "Spectra Command Service"
+    characteristics:
+      - uuid: "58511d0a-2cd1-6188-5445-9f98c91be785"
+        name: "Command"
+        properties: ["write"]
+        notes: >
+          Write target for all commands AND the OTA image stream. Fixed
+          20-byte frames: [0x55][opcode][index][16-byte payload,
+          zero-padded][XOR checksum over bytes 0..18]. Written with the
+          default write type — no encryption, no authentication. Whether this
+          characteristic also notifies is MEDIUM (unverified). Pace multi-
+          frame uploads at one frame per 200 ms (the vendor app's uploader
+          sleeps 200 ms between writes). All commands below are HIGH
+          confidence from the app's frame builder; operand SEMANTICS flagged
+          per command. Each template carries its trailing checksum as an
+          auto-computed xor_checksum parameter over the whole preceding frame
+          (checksum_start 0).
+        commands:
+          write_mode_settings:
+            description: >
+              Opcode 0x01: mode header for an upload — color count, built-in
+              flashing pattern code (0xFF = custom pattern, followed by a
+              0x07 frame), motion-reactive settings. Payload
+              [numColors, patternCode, 0, motionType, 1, threshold, low,
+              medium, high]; the literal 0 and 1 are as the app emits them.
+              threshold/low/medium/high are the motion-sensitivity band
+              boundaries. HIGH frame, MEDIUM field semantics.
+            template: [0x55, 0x01, 0x00, "{num_colors}", "{pattern_code}", 0x00, "{motion_type}", 0x01, "{threshold}", "{low}", "{medium}", "{high}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              num_colors:
+                type: "uint8"
+                min: 1
+                max: 16
+              pattern_code:
+                type: "uint8"
+                min: 0
+                max: 255
+              motion_type:
+                type: "uint8"
+                min: 0
+                max: 255
+              threshold:
+                type: "uint8"
+                min: 0
+                max: 255
+              low:
+                type: "uint8"
+                min: 0
+                max: 255
+              medium:
+                type: "uint8"
+                min: 0
+                max: 255
+              high:
+                type: "uint8"
+                min: 0
+                max: 255
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+          write_block_settings:
+            description: >
+              Opcode 0x02: one color block of the mode sequence — send one
+              frame per color, in order, right after write_mode_settings.
+              Payload [blockIndex(1..n), R, G, B, 0, 1]. The app dims RGB to
+              20% / 5% HSV value for its "M"/"L" brightness color modes
+              before upload. HIGH.
+            template: [0x55, 0x02, 0x00, "{block_index}", "{red}", "{green}", "{blue}", 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              block_index:
+                type: "uint8"
+                min: 1
+                max: 16
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+          change_display_mode:
+            description: >
+              Opcode 0x03: switch what the hub displays; the app sends
+              payload [1] ("show the just-uploaded mode") as the
+              second-to-last frame of an upload. HIGH frame, MEDIUM operand
+              meaning.
+            template: [0x55, 0x03, 0x00, "{mode}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 255
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+          change_run_mode:
+            description: >
+              Opcode 0x04: start running the uploaded mode. The app sends
+              index=1 with payload [0,0] as the final frame of every upload;
+              index=1 is presumed "run mode 1". HIGH frame, MEDIUM operand
+              meaning.
+            template: [0x55, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+          set_pwm_color:
+            description: >
+              Opcode 0x05: set a direct RGB color immediately (no mode
+              upload). Payload [R, G, B]. HIGH.
+            template: [0x55, 0x05, 0x00, "{red}", "{green}", "{blue}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+          write_flashing_pattern_settings:
+            description: >
+              Opcode 0x07: define a custom (category-1) flashing pattern;
+              only sent when write_mode_settings carried pattern code 0xFF.
+              14-byte payload [strobeLen, gapLen, groupGapLen,
+              brightnessSpeed, faderSpeed, colorRepeat, groupRepeat,
+              groupingNumber, firstColorStrobeLen, firstColorGapLen,
+              firstColorRepeat, firstColorPos, rampTargetLen, gapUpDown].
+              HIGH frame layout, MEDIUM field units/ranges (verify against
+              live hardware).
+            template: [0x55, 0x07, 0x00, "{strobe_len}", "{gap_len}", "{group_gap_len}", "{brightness_speed}", "{fader_speed}", "{color_repeat}", "{group_repeat}", "{grouping_number}", "{first_color_strobe_len}", "{first_color_gap_len}", "{first_color_repeat}", "{first_color_pos}", "{ramp_target_len}", "{gap_up_down}", 0x00, 0x00, "{checksum}"]
+            parameters:
+              strobe_len: { type: "uint8", min: 0, max: 255 }
+              gap_len: { type: "uint8", min: 0, max: 255 }
+              group_gap_len: { type: "uint8", min: 0, max: 255 }
+              brightness_speed: { type: "uint8", min: 0, max: 255 }
+              fader_speed: { type: "uint8", min: 0, max: 255 }
+              color_repeat: { type: "uint8", min: 0, max: 255 }
+              group_repeat: { type: "uint8", min: 0, max: 255 }
+              grouping_number: { type: "uint8", min: 0, max: 255 }
+              first_color_strobe_len: { type: "uint8", min: 0, max: 255 }
+              first_color_gap_len: { type: "uint8", min: 0, max: 255 }
+              first_color_repeat: { type: "uint8", min: 0, max: 255 }
+              first_color_pos: { type: "uint8", min: 0, max: 255 }
+              ramp_target_len: { type: "uint8", min: 0, max: 255 }
+              gap_up_down: { type: "uint8", min: 0, max: 255 }
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+          write_exit_pairing_mode:
+            description: >
+              Opcode 0x09: leave pairing mode; all-zero payload. The app
+              sends this when leaving pairing — whether the hub requires it
+              before accepting further mode writes is MEDIUM (unverified).
+            template: [0x55, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+          sync_started:
+            description: >
+              Opcode 0x0A: bracket a sync/OTA session — index 1 = start,
+              2 = end. Sent around the OTA image stream. HIGH.
+            template: [0x55, 0x0A, "{phase}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              phase:
+                type: "uint8"
+                min: 1
+                max: 2
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+
+  - uuid: "0788ead1-3899-45ac-0346-094599b058b8"
+    name: "Spectra Housekeeping Service"
+    characteristics:
+      - uuid: "e3daf87b-abe9-4a8f-9a42-1f27d2faa8fd"
+        name: "Battery"
+        properties: ["read"]
+        notes: >
+          Battery level, read-only. The app disconnects after two failed
+          reads, so treat read failures as fatal to the session. Encoding
+          (raw percent vs voltage) is MEDIUM — unverified; capture one read
+          against a known charge state.
+      - uuid: "b66dac3c-da9d-dabe-524b-32c864bbba0e"
+        name: "Firmware Version"
+        properties: ["read"]
+        notes: >
+          Hub firmware version, read-only. The app parses the value as a hex
+          integer: high byte = major, low byte = minor (e.g. 0x0108 -> 1.8).
+          HIGH. This is the version compared against the (now dead) OTA
+          manifest's versionNum.
+      - uuid: "cba9b4f5-bfed-959d-5741-bf7340d19491"
+        name: "Hub Name"
+        properties: ["read", "write"]
+        notes: >
+          User-facing hub name. Rename by writing the new name with each
+          character encoded as its ASCII hex string (e.g. "HUB" ->
+          "485542"). Display-only: the advertised name is never a discovery
+          filter. Encoding HIGH (from the app's rename path); read-back
+          format MEDIUM.
+
+  - uuid: "8a97f7c0-8506-11e3-baa7-0800200c9a66"
+    name: "OTA Firmware Upgrade Service (Qualcomm CSR)"
+    notes: >
+      The XXXXXXX0-8506-11E3-BAA7-0800200C9A66 UUID family with these
+      prefixes is the documented Qualcomm CSR (uEnergy, CSR101x) OTA
+      firmware-update service, which identifies the hub's chip family.
+      OTA flow (from the app's firmware updater): CRC32 of the image
+      zero-padded to a 16-byte multiple; write the 12-byte new-image header
+      [CRC32 LE 4B][image length LE 4B][00 10 01 08]; send sync_started
+      (phase 1) on the command characteristic; stream the image in 16-byte
+      blocks through the new-image-content characteristic; abort on a 10 s
+      stall. Firmware binaries were hosted under the now-dead
+      facemeltcrew.com root — no image is currently obtainable from the
+      vendor, so this surface is documented for completeness, not exercised.
+    characteristics:
+      - uuid: "210f99f0-8508-11e3-baa7-0800200c9a66"
+        name: "OTA New Image"
+        properties: ["write"]
+        notes: >
+          Receives the 12-byte new-image header
+          [CRC32 LE 4B][image length LE 4B][00 10 01 08] before streaming.
+          HIGH (CSR OTA family + app updater agree).
+      - uuid: "2691aa80-8508-11e3-baa7-0800200c9a66"
+        name: "OTA New Image Content"
+        properties: ["write"]
+        notes: "Image body, streamed in 16-byte blocks. HIGH."
+      - uuid: "2bdc5760-8508-11e3-baa7-0800200c9a66"
+        name: "OTA Expected Sequence Number"
+        properties: ["read", "notify"]
+        notes: >
+          Device-driven flow control for the block stream (CSR OTA expected
+          sequence number). Property set MEDIUM — verify against hardware.
+
+entities:
+  - platform: "light"
+    name: "Glove LEDs"
+    features: ["color"]
+    state_characteristic: "58511d0a-2cd1-6188-5445-9f98c91be785"
+    commands:
+      set_color: "set_pwm_color"
+
+helpful_urls:
+  - title: "OTA firmware manifest (DEAD — orphan evidence)"
+    url: "http://www.facemeltcrew.com/ios/testmanifest.json"
+    description: >-
+      Endpoint the app POSTed to check hub firmware versions; firmware binaries
+      were served from the same root. Domain no longer resolves (verified
+      2026-08-25) — recorded as evidence that this hardware is orphaned and no
+      vendor firmware remains obtainable.
+  - title: "Sivakumaran et al., ACM TOSN 2023 — BLE OTA protocol survey"
+    url: "https://dl.acm.org/doi/fullHtml/10.1145/3579856.3595806"
+    description: >-
+      Documents the Qualcomm CSR (uEnergy / CSR101x) OTA firmware-update
+      service whose UUID family (…-8506-11E3-BAA7-0800200C9A66) this hub
+      implements — the evidence for the hub's chip family.
+  - title: "EmazingLights (vendor site)"
+    url: "https://www.emazinglights.com/"
+    description: >-
+      Vendor storefront; the Spectra app is delisted from Google Play and the
+      Spectra firmware backend (facemeltcrew.com) is gone.

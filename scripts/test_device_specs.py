@@ -679,13 +679,21 @@ def test_entity_roles_come_from_the_documented_vocabulary(specs):
         for entity in spec.get("entities") or []:
             platform = entity.get("platform")
             allowed = ENTITY_ROLE_VOCABULARY.get(platform)
-            # Reading platforms (sensor, binary_sensor) have no roles, and an
-            # entity with no platform is a sensor by every consumer's default.
+            # A reading platform (sensor, binary_sensor, or no platform at all)
+            # has no CONTROLS, but it may still have to ask for its value:
+            # astral-hoops' battery gauge answers a `get_battery_level` write
+            # with an `&L<n>` record, and without naming that command the
+            # reading is one a consumer can display and never obtain. `poll` is
+            # the BLE analogue of the network side's `state_command`, and it is
+            # the only thing a reading may bind — anything else on a platform
+            # with no controls is a control nothing will send.
             if allowed is None:
-                assert not (entity.get("commands") or {}), (
+                stray = sorted(set(entity.get("commands") or {}) - {"poll"})
+                assert not stray, (
                     f"{device_id}: entity {entity.get('name')!r} has platform "
-                    f"{platform!r}, which has no controls, but binds "
-                    f"{sorted(entity['commands'])}. Nothing will send them."
+                    f"{platform!r}, which has no controls, but binds {stray}. "
+                    "Nothing will send them. A reading may bind `poll` — the "
+                    "command that fetches its value — and nothing else."
                 )
                 continue
             for role in entity.get("commands") or {}:
@@ -2120,9 +2128,26 @@ def test_a_runtime_channel_names_the_command_that_finds_it(specs):
             )
 
 
+def _is_send_channel(channel):
+    """Whether a client writes frames on this channel.
+
+    `direction: receive` is a socket the DEVICE pushes on — the SoundTouch
+    emits `<updates>` wrappers on one whose control surface is the port-8090
+    HTTP API. A client subscribes and sends nothing, so the rules below about
+    what a frame is built from have nothing to apply to.
+    """
+    return channel.get("direction", "send") == "send"
+
+
 def test_a_channel_carries_the_frame_its_encoding_needs(specs):
     for spec_name, _, ws in _websocket_specs(specs):
         for channel in ws["channels"]:
+            if not _is_send_channel(channel):
+                assert not (channel.get("frame") or channel.get("frame_template")), (
+                    f"{spec_name}: receive channel {channel['name']!r} declares a "
+                    "frame, which nothing will ever send"
+                )
+                continue
             if channel["encoding"] == "json":
                 assert channel.get("frame"), (
                     f"{spec_name}: json channel {channel['name']!r} declares no "
@@ -2160,9 +2185,17 @@ def test_websocket_pairing_says_what_it_issues_and_where(specs):
 def test_a_websocket_spec_declares_the_transport_its_commands_ride(specs):
     # The block describes a surface; `device.transport` is what makes the
     # commands route to it. A spec with one and not the other is half-migrated.
-    for spec_name, spec, _ in _websocket_specs(specs):
+    #
+    # Unless nothing rides it. A spec whose channels are ALL `receive` has
+    # declared a socket the device pushes on, not one its commands travel over:
+    # the SoundTouch emits state on 8080 and takes commands on the 8090 HTTP
+    # API, and `device.transport: http` is the true answer for it. Requiring
+    # `websocket` there would make the spec lie about where its commands go.
+    for spec_name, spec, ws in _websocket_specs(specs):
+        if not any(_is_send_channel(c) for c in ws["channels"]):
+            continue
         transport = spec["device"].get("transport")
         assert transport == "websocket", (
-            f"{spec_name}: declares a `websocket` block but "
+            f"{spec_name}: declares a sendable `websocket` channel but "
             f"device.transport is {transport!r}"
         )

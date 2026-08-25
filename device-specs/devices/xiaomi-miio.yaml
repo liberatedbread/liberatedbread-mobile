@@ -78,7 +78,7 @@ device:
         notes: >
           Some miIO devices advertise mDNS with device-type info; all answer the
           UDP 54321 Hello handshake (which may reveal the token). See
-          miio_protocol.
+          protocol_details.miio_protocol.
     identity:
       stable_keys: ["device_id", "mac"]
       display: "model"
@@ -137,6 +137,9 @@ device:
         can control the device. A token of all 0s or all fs is a placeholder; a
         token with other characters is likely valid.
 
+# The wire protocol. Bespoke miIO transport material lives under
+# `protocol_details`, the schema's namespace for single-spec protocol blocks
+# (the schema's top level is closed).
 protocol_details:
   miio_protocol:
     transport: "UDP, port 54321, AES-128-CBC (PKCS#7) payloads"
@@ -149,12 +152,12 @@ protocol_details:
 
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. Control is AES-encrypted JSON-RPC over UDP port 54321
-      (see miio_protocol), not HTTP.
+      (see protocol_details.miio_protocol), not HTTP.
 
 commands:
   handshake:

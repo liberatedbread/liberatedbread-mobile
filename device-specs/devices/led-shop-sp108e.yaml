@@ -1,0 +1,509 @@
+# SP108E "LED Shop" WiFi pixel controller — device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (clean-room — derived facts only):
+#   - Static analysis of the LED Shop Android app (com.cdc.ledshop) v1.13.0
+#     (versionCode 17), decompiled with jadx. No packer.
+#   - Corroboration: blacklizard/LED-Shop-SP108E (open-source macOS clone of the
+#     app, reverse engineered independently via Wireshark + APK analysis).
+#     That project drives the SAME 0x38/0x83 framing over UDP 8189; app v1.13.0
+#     uses TCP 8189. See the transport note below.
+
+device:
+  name: "SP108E WiFi Pixel Controller (LED Shop)"
+  manufacturer: "SPLED-family (sold as SP108E by many resellers)"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every fact comes from static
+      analysis of LED Shop v1.13.0 (com.cdc.ledshop); the framing, opcode set and
+      ports are corroborated by blacklizard/LED-Shop-SP108E, an independent
+      Wireshark-based RE — with one transport discrepancy (UDP vs TCP 8189)
+      documented below.
+  protocol: "wifi"
+  category: "light"
+  transport: "tcp"
+  notes: >
+    The SP108E is a WiFi addressable-LED (SPI pixel) strip controller driven by
+    the "LED Shop" Android app. It is Wi-Fi ONLY: the app declares no Bluetooth
+    permissions and contains no BLE code. It is also FULLY LOCAL: the decompiled
+    app contains zero http(s):// URLs — no cloud, no OTA, no analytics — so the
+    INTERNET permission exists only for the raw sockets to the controller. A
+    vendor shutdown can never brick this device; the rescue here is replacing
+    the app, not the backend.
+
+    TRANSPORTS:
+      * Control: TCP port 8189 (app socket layer: 1000 ms connect timeout,
+        5000 ms read timeout, keepAlive on).
+      * Provisioning: while the device hosts its SoftAP, the client binds local
+        UDP 8188 and waits for the controller's broadcast token reply.
+      * DISCREPANCY (document both): the prior public RE
+        (blacklizard/LED-Shop-SP108E) drives the identical 0x38/0x83 framing
+        over UDP 8189, successfully. App v1.13.0 uses TCP 8189 for all control
+        traffic and UDP only in provisioning. The device most likely listens on
+        8189 for both transports — the framing is transport-agnostic — but this
+        needs a live unit to confirm. Clients should try TCP first and fall back
+        to UDP.
+
+    FRAMING (HIGH confidence — decompile + blacklizard agree):
+      Standard 6-byte command frame: [0x38, rnd0, rnd1, rnd2, CMD, 0x83].
+      Bytes 1-3 are a per-frame random nonce chosen by the client; any nonce
+      byte that would equal the START_FLAG (0x38) or END_FLAG (0x83) is
+      incremented by 1 so it cannot collide with the flags. Up to 3 parameter
+      bytes override rnd0..rnd2 in order — i.e. parameters are stuffed into the
+      nonce slots, so no command carries more than 3 payload bytes. (Hypothesis:
+      DOT_COUNT/SEC_COUNT params are 2-byte big-endian and fit because the nonce
+      slots are free; confirm on hardware.)
+
+    HANDSHAKE KEY (HIGH): for CMD_CHECK_DEVICE (0xD5) and CMD_GET_DEVICE_NAME
+    (0x77) the client derives a key byte from its three nonce bytes:
+        key = ((b2 >> 5) & 7) | (b0 & 0x53) | ((b1 << 2) & 0xFD)
+    The device must echo the key in a fixed position: the discovery reply's
+    first byte equals the key (the device name follows from byte 1); the
+    AP-mode check reply is 6 bytes with the key at index 5. The nonce/key pair
+    is a weak replay/rendezvous mechanism, validated by the device on handshake
+    frames only.
+
+    ACK: most set-command replies are the single byte 0x31 ('1'). A wrong first
+    byte means retry/fail.
+
+    SEQUENCING (from the app's command dispatcher): commands are serialized
+    through a queue with a 200 ms inter-command delay under a lock. While the
+    device reports "off", most commands are dropped — toggle, get/set name,
+    sync, record-num, AP-mode and check-device are exempt. Preview/record
+    streams retry once on a bad first reply. Set-name and set-password are
+    TWO-STEP writes: send the framed command, await the 0x31 ACK, then send the
+    raw UTF-8 payload.
+
+    CONFIDENCE SUMMARY: framing, nonce rule, handshake key derivation, ACK
+    convention, ports (TCP 8189 / UDP 8188) and the full opcode map are HIGH
+    (single decompiled source, corroborated on framing/opcodes by blacklizard).
+    The 17-byte sync reply layout is HIGH as a decode map but its two
+    segment-count fields need hardware to disambiguate (see sync_state notes).
+    Custom-effect row streaming (preview/recode) is MEDIUM — the row byte
+    layout was not fully traced. UDP-8189 acceptance is a hypothesis pending a
+    live unit.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/blacklizard/LED-Shop-SP108E"
+    notes: >
+      No vendor protocol documentation. This spec was recovered from the LED
+      Shop v1.13.0 app; blacklizard/LED-Shop-SP108E is an independent open
+      implementation of the same wire protocol (UDP variant) and serves as the
+      cross-check.
+
+  identification:
+    ssid_prefix: "SP108E_"
+    default_port: 8189
+    lan_protocols:
+      - "ledshop-sp108e"
+
+  discovery:
+    methods:
+      # The SP108E neither advertises mDNS nor answers SSDP, and its discovery
+      # is a TCP port scan — a method the discovery-method vocabulary has no
+      # type for. Placeholder block in the wiz-wifi-light pattern: the REAL
+      # method is described in the notes below and in
+      # protocol_details.sp108e_protocol.discovery.
+      - type: "mdns"
+        mdns:
+          service_type: "_http._tcp.local."
+          port: 8189
+          identity_mapping:
+            stable_keys:
+              - source: "tcp:8189#device_name"
+                key: "device_name"
+            display:
+              source: "tcp:8189#device_name"
+        notes: >
+          Real discovery: TCP-scan the local /24 on port 8189. To each host
+          that accepts, send a framed CMD_GET_DEVICE_NAME (0x77) and treat a
+          reply whose first byte equals the derived handshake key as a found
+          SP108E — the device name follows from reply byte 1. The keyed reply
+          IS the identification: only a device speaking this protocol can
+          answer it. While the device is unprovisioned it instead hosts an
+          open SoftAP with SSID prefix SP108E_ at 192.168.4.1.
+    identity:
+      stable_keys: ["device_name"]
+      display: "device_name"
+      notes: >
+        The protocol exposes no MAC/serial on the control channel, so the
+        user-set device name (factory SSID-suffixed default, renameable via
+        CMD_SET_DEVICE_NAME) is the only stable key the wire offers. A
+        consumer may additionally pin the Wi-Fi MAC seen at join time.
+    static_ip_required: false
+    notes: >
+      No mDNS/SSDP/beacon. Discovery is active: TCP-scan the subnet on 8189
+      with a framed GET_DEVICE_NAME probe (see methods notes). Cheap
+      pre-filter for a scanner: an open TCP listener on 8189.
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Out of the box the controller hosts an open SoftAP (SSID prefix SP108E_,
+      device at 192.168.4.1) and is driven directly from it — provisioning onto
+      the home network is optional for control but is the normal flow. The
+      whole flow below is recovered from the app's provisioning path and has
+      NOT been replayed against hardware (hence medium, not high).
+    methods:
+      - type: "softap_udp"
+        verified: false
+        description: >
+          Client joins the device's SoftAP, hands it the home Wi-Fi credentials
+          in a framed CMD_AP_NETWORK_CONFIG over TCP 8189 (SSID/password/token
+          XOR-obfuscated with per-frame random key bytes — obfuscation, not
+          crypto), then confirms on the device's UDP 8188 token broadcast by
+          sending CMD_AP_NETWORK_CONFIG_OK. UDP 8188 is the token-reply socket
+          named by the method type; the credential exchange itself is TCP 8189.
+        softap:
+          ssid_prefix: "SP108E_"
+          open_network: true
+          gateway_ip: "192.168.4.1"
+          port: 8188
+          credential_encryption:
+            algorithm: "XOR obfuscation with per-frame random key bytes"
+            algorithm_steps:
+              - "Build the AP_NETWORK_CONFIG frame: [0x38, len_ssid, len_token, len_ipinfo, 0x26, 0x83, k0, (ssid XOR k0)..., k1, (token XOR k1)..., ipinfo...]."
+              - "k0 and k1 are fresh random bytes chosen by the client per frame; each is transmitted in the clear immediately before the run it obfuscates."
+              - "Each SSID byte is XORed with k0; each token/password byte is XORed with k1. Decoding is the identical XOR."
+              - "This is wire obfuscation only — the keys travel with the ciphertext. Treat the passphrase as exposed to anyone watching the SoftAP segment."
+            notes: >
+              Obfuscation-grade XOR, not encryption; there is no hardcoded key
+              to recover because the key bytes are random per frame and sent
+              alongside the data.
+        steps:
+          - action: "Connect the phone/client to the device's SoftAP (SSID prefix SP108E_, open network)."
+            actor: "user"
+            expect: "The device answers at 192.168.4.1."
+          - action: "Open a TCP connection to 192.168.4.1:8189 and bind a local UDP socket on port 8188 for the token reply."
+            actor: "client"
+          - action: "Send framed CMD_CHECK_DEVICE (0xD5); expect the keyed 6-byte reply (key at reply[5])."
+            actor: "client"
+          - action: "Send the CMD_AP_NETWORK_CONFIG (0x26) frame carrying the XOR-obfuscated home SSID, password and a client-chosen token."
+            actor: "client"
+          - action: "Wait on UDP 8188 for the controller's broadcast reply: starts with START_FLAG (0x38), bytes[2..5] = device IP, remainder = token text."
+            actor: "client"
+            expect: "The token in the reply matches the token sent."
+          - action: "On token match, send framed CMD_AP_NETWORK_CONFIG_OK (0x27) over TCP 8189."
+            actor: "client"
+            expect: "The device joins the home network and is thereafter found by the /24 TCP-8189 scan."
+        troubleshooting:
+          - symptom: "No token reply on UDP 8188."
+            causes:
+              - "Client socket not bound to UDP 8188 before sending the config frame."
+              - "Home network is 5 GHz — this class of controller is 2.4 GHz only."
+              - "Wrong passphrase; the device never leaves SoftAP mode."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. The app exposes CMD_SET_DEVICE_TO_AP_MODE (0x88), which
+        returns a reachable device to SoftAP/provisioning mode over the control
+        channel — a software path back to onboarding that needs no physical
+        access. A hardware button/reset procedure is not documented in the app
+        or the cited sources.
+      description: >
+        No physical reset procedure has been established. What IS established
+        from the app: any client on the control channel can send
+        CMD_SET_DEVICE_TO_AP_MODE (0x88) to drop the device back into SoftAP
+        mode, clearing its joined-network state in practice. Whether a button
+        on the PCB does the same is unverified.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Two in-place paths: (1) while the device is on the old network, TCP-send
+        CMD_SET_DEVICE_TO_AP_MODE (0x88), then re-run the SoftAP provisioning
+        flow with the new credentials; (2) the normal provisioning flow itself
+        whenever the device is reachable in AP mode. The old network must still
+        be up for path (1) — if the router is already gone, power-cycle the
+        device; controllers of this class fall back to SoftAP when their
+        network disappears (unverified on this unit).
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Device name (user-set)"
+        - "Optional device password (CMD_SET_DEVICE_PASSWORD; role in handshake untraced)"
+      issued_to_client: []
+      notes: >
+        The passphrase crosses the wire under per-frame random-key XOR — keys
+        transmitted alongside the ciphertext — which is obfuscation, not
+        protection; marked plaintext in spirit. No credential is issued back
+        to the client: control needs only LAN reachability, and the control
+        port has no authentication.
+
+# The wire protocol. Control is raw TCP 8189 (UDP 8189 per blacklizard — see
+# device notes); there is no HTTP surface. The http_endpoints entry below is a
+# placeholder required by the schema, exactly as in wiz-wifi-light.yaml.
+# Bespoke framing/opcode material lives under `protocol_details`, the schema's
+# namespace for single-spec protocol blocks.
+protocol_details:
+  sp108e_protocol:
+    transport: >
+      TCP, device listens on 8189 (SoftAP mode: 192.168.4.1:8189). Prior public
+      RE (blacklizard/LED-Shop-SP108E) uses UDP 8189 with identical framing —
+      device likely listens on both; TCP first, UDP fallback.
+    discovery: >
+      TCP-scan the /24 on 8189; send framed CMD_GET_DEVICE_NAME (0x77); a reply
+      whose first byte equals the derived key is a found device, name at reply[1..].
+    framing:
+      command_frame: "[0x38, b0, b1, b2, CMD, 0x83] — b0..b2 client-chosen random nonce; a nonce byte equal to 0x38 or 0x83 is incremented by 1; up to 3 parameter bytes override b0..b2 in order."
+      start_flag: "0x38"
+      end_flag: "0x83"
+      ack: "Single byte 0x31 ('1') acknowledges most set commands."
+      handshake_key: >
+        key = ((b2 >> 5) & 7) | (b0 & 0x53) | ((b1 << 2) & 0xFD), computed from
+        the three nonce bytes of CMD_CHECK_DEVICE / CMD_GET_DEVICE_NAME. Device
+        echoes the key: discovery reply byte 0, AP-mode check reply byte 5.
+      provisioning_frame: >
+        CMD_AP_NETWORK_CONFIG: [0x38, len_ssid, len_token, len_ipinfo, 0x26,
+        0x83, k0, ssid^k0..., k1, token^k1..., ipinfo...] — XOR obfuscation with
+        per-frame random key bytes k0/k1.
+      provisioning_reply: >
+        UDP 8188 broadcast during provisioning: byte 0 = START_FLAG (0x38),
+        bytes[2..5] = device IP, remainder = token text. On match the client
+        TCP-sends CMD_AP_NETWORK_CONFIG_OK (0x27).
+    sequencing: >
+      Serialize commands; 200 ms inter-command delay; drop non-exempt commands
+      while device reports off (exempt: toggle, get/set name, sync, record-num,
+      AP-mode, check-device); retry once on bad first reply for preview/record
+      streams; set-name/set-password are two-step (framed cmd -> 0x31 ACK -> raw
+      UTF-8 payload).
+    opcodes:
+      0x38: "START_FLAG — frame start"
+      0x83: "END_FLAG — frame end"
+      0xD5: "CMD_CHECK_DEVICE — handshake; expects keyed 6-byte reply (key at [5])"
+      0xAA: "CMD_TOGGLE_LAMP — power toggle (no discrete on/off; read sync byte [1] first)"
+      0x77: "CMD_GET_DEVICE_NAME — discovery; reply = key byte + name from [1]"
+      0x14: "CMD_SET_DEVICE_NAME — two-step: cmd frame -> 0x31 ACK -> raw UTF-8 payload"
+      0x16: "CMD_SET_DEVICE_PASSWORD — same two-step pattern"
+      0x88: "CMD_SET_DEVICE_TO_AP_MODE — drop device back to SoftAP/provisioning"
+      0x3C: "CMD_SET_RGB_SEQ — 1 param: RGB order"
+      0x1C: "CMD_SET_IC_MODEL — 1 param: LED chipset index"
+      0x24: "CMD_CUSTOM_PREVIEW — then stream rows, 0x31 ACK each (row format MEDIUM)"
+      0x4C: "CMD_CUSTOM_RECODE — then stream <=300 rows, 0x31 ACK each (row format MEDIUM)"
+      0x02: "CMD_CUSTOM_EFFECT"
+      0x07: "CMD_CUSTOM_DELETE"
+      0x10: "CMD_SYNC — reply is the 17-byte state block (see sync_state)"
+      0x2C: "CMD_MODE_CHANGE — 1 param: mode/effect index"
+      0x03: "CMD_SPEED — 1 param"
+      0x2A: "CMD_BRIGHTNESS — 1 param"
+      0x08: "CMD_WHITE_BRIGHTNESS — 1 param"
+      0x22: "CMD_COLOR — 3 params R,G,B"
+      0x20: "CMD_GET_RECORD_NUM"
+      0x2D: "CMD_DOT_COUNT — pixel count (2-byte big-endian hypothesis)"
+      0x2E: "CMD_SEC_COUNT — segment count (2-byte big-endian hypothesis)"
+      0x25: "CMD_CHANGE_PAGE"
+      0x06: "CMD_MODE_AUTO — auto cycle"
+      0x26: "CMD_AP_NETWORK_CONFIG — provisioning frame (see framing)"
+      0x27: "CMD_AP_NETWORK_CONFIG_OK — sent after UDP 8188 token match"
+      0x2F: "CMD_CHECK_DEVICE_IS_COOL — busy check; reply[0] must be 0x31"
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    status: "placeholder"
+    description: >
+      Placeholder only. Control is raw TCP 8189 with the 0x38/0x83 framed
+      binary protocol (see protocol_details.sp108e_protocol), not HTTP.
+
+commands:
+  # body is the frame as hex with {param} placeholders. Bytes 1-3 are the
+  # client-chosen nonce: any value except 0x38/0x83 works (increment on
+  # collision); commands below fix them at 00 where no parameter occupies the
+  # slot, which is legal. A consumer may randomize them freely.
+  check_device:
+    description: "Handshake probe; expects keyed 6-byte reply, key at reply[5]."
+    body: "38 00 00 00 D5 83"
+    verification: "reported"
+  get_device_name:
+    description: "Discovery/name query; reply[0] must equal the derived handshake key, name from reply[1]."
+    body: "38 00 00 00 77 83"
+    verification: "reported"
+  toggle_power:
+    description: >
+      Toggle power (the protocol has no discrete on/off). Read sync byte [1]
+      first and only toggle when it disagrees with the desired state.
+    body: "38 00 00 00 AA 83"
+    verification: "reported"
+  sync_state:
+    description: >
+      Fetch the 17-byte state block: [0]=0x38 [1]=device_on [2]=cur_mode
+      [3]=cur_speed [4]=brightness [5]=rgb_order [6:7]=segment count (BE,
+      clamped >=1) [8:9]=second count (BE; LEDs-per-segment vs secondary
+      segment field — needs hardware capture) [10..12]=adapter RGB
+      [13]=ic_model [14]=record/custom count [15]=white_brightness [16]=0x83.
+    body: "38 00 00 00 10 83"
+    verification: "reported"
+  set_mode:
+    description: "Select mode/effect index."
+    body: "38 {mode} 00 00 2C 83"
+    parameters:
+      mode:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Mode/effect index (occupies nonce slot b0)."
+    verification: "reported"
+  set_speed:
+    description: "Set animation speed."
+    body: "38 {speed} 00 00 03 83"
+    parameters:
+      speed:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Speed byte."
+    verification: "reported"
+  set_brightness:
+    description: "Set brightness."
+    body: "38 {level} 00 00 2A 83"
+    parameters:
+      level:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Brightness byte."
+    verification: "reported"
+  set_white_brightness:
+    description: "Set white-channel brightness (RGBW strips)."
+    body: "38 {level} 00 00 08 83"
+    parameters:
+      level:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "White brightness byte."
+    verification: "reported"
+  set_color:
+    description: "Set static RGB color (params occupy all three nonce slots)."
+    body: "38 {red} {green} {blue} 22 83"
+    parameters:
+      red:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Red 0-255."
+      green:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Green 0-255."
+      blue:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Blue 0-255."
+    verification: "reported"
+  set_auto_cycle:
+    description: "Enable auto mode cycling."
+    body: "38 00 00 00 06 83"
+    verification: "reported"
+  set_rgb_order:
+    description: "Set RGB byte order for the strip."
+    body: "38 {order} 00 00 3C 83"
+    parameters:
+      order:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "RGB order index (sync byte [5] reports current)."
+    verification: "reported"
+  set_ic_model:
+    description: "Set LED chipset model (WS2811, SK6812, etc. — index table not recovered)."
+    body: "38 {model} 00 00 1C 83"
+    parameters:
+      model:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Chipset index (sync byte [13] reports current)."
+    verification: "reported"
+  set_pixel_count:
+    description: "Set pixel (dot) count; 2-byte big-endian hypothesis — confirm on hardware."
+    body: "38 {count_hi} {count_lo} 00 2D 83"
+    parameters:
+      count_hi:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Pixel count high byte."
+      count_lo:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Pixel count low byte."
+    verification: "hypothesis"
+  set_segment_count:
+    description: "Set segment count; 2-byte big-endian hypothesis — confirm on hardware."
+    body: "38 {count_hi} {count_lo} 00 2E 83"
+    parameters:
+      count_hi:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Segment count high byte."
+      count_lo:
+        type: "integer"
+        min: 0
+        max: 255
+        description: "Segment count low byte."
+    verification: "hypothesis"
+  set_device_name:
+    description: >
+      Two-step rename: send this frame, await the 0x31 ACK, then send the new
+      name as a raw UTF-8 payload.
+    body: "38 00 00 00 14 83"
+    verification: "reported"
+  set_ap_mode:
+    description: "Drop the device back to SoftAP/provisioning mode."
+    body: "38 00 00 00 88 83"
+    verification: "reported"
+  check_busy:
+    description: "Busy check; reply[0] must be 0x31 before streaming."
+    body: "38 00 00 00 2F 83"
+    verification: "reported"
+
+entities:
+  - platform: "light"
+    name: "LED Strip"
+    features: ["brightness", "color", "effect"]
+    notes: >
+      State comes from sync_state (CMD_SYNC, 0x10): device_on at byte [1],
+      mode [2], speed [3], brightness [4], white brightness [15]. Power is a
+      TOGGLE on the wire: a consumer implementing turn_on/turn_off must read
+      sync byte [1] first and send toggle_power only when it disagrees.
+    commands:
+      turn_on: "toggle_power"
+      turn_off: "toggle_power"
+      set_color: "set_color"
+      set_brightness: "set_brightness"
+      set_effect: "set_mode"
+
+helpful_urls:
+  - title: "blacklizard/LED-Shop-SP108E"
+    url: "https://github.com/blacklizard/LED-Shop-SP108E"
+    description: >-
+      Open-source macOS clone of the LED Shop app; independent Wireshark-based
+      reverse engineering of the same 0x38/0x83 protocol (over UDP 8189). The
+      corroborating implementation for this spec.
+  - title: "psxde/sp108e-led-controller"
+    url: "https://github.com/psxde/sp108e-led-controller"
+    description: "Another open SP108E controller client."
+  - title: "BlitzKraig/SP108E-control"
+    url: "https://github.com/BlitzKraig/SP108E-control"
+    description: "Desktop SP108E control prototyped from Wireshark captures."
+  - title: "Tasmota — SP108E LED strip controller"
+    url: "https://tasmota.github.io/docs/devices/SP108E-LED-strip-controller/"
+    description: >-
+      Hardware teardown: an STM32F0 drives the LED CLK/data lines; flashing
+      alternative firmware requires a hardware modification.
+  - title: "LED Shop on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.cdc.ledshop"
+    description: "The vendor app (com.cdc.ledshop) this spec replaces."

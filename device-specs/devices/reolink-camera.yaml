@@ -164,6 +164,9 @@ camera:
       auth: "user"
       notes: "Lower-resolution sub stream for previews / low bandwidth."
 
+# The Baichuan binary protocol (TCP 9000). Bespoke framing/message-id material
+# lives under `protocol_details` because the schema's top level is closed; that
+# block is the schema's namespace for single-spec protocol blocks.
 protocol_details:
   reolink_baichuan_protocol:
     transport: "TCP 9000 (proprietary; the only surface on some models)"

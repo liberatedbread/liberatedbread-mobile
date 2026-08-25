@@ -61,7 +61,7 @@ device:
       - type: "mdns"
         mdns:
           # WiZ does not advertise mDNS; discovery is a UDP broadcast of a
-          # 'registration' message (see wiz_lan_protocol). Placeholder block.
+          # 'registration' message (see protocol_details.wiz_lan_protocol). Placeholder block.
           service_type: "_http._tcp.local."
           port: 38899
           identity_mapping:
@@ -73,7 +73,7 @@ device:
         notes: >
           Real discovery: UDP-broadcast a 'registration' message (to
           255.255.255.255:38899); every WiZ light replies with its state and
-          MAC. See wiz_lan_protocol.
+          MAC. See protocol_details.wiz_lan_protocol.
     identity:
       stable_keys: ["mac"]
       display: "moduleName"
@@ -128,6 +128,9 @@ device:
         passphrase protection during provisioning is unknown. Post-setup UDP
         control is unauthenticated on the LAN.
 
+# The wire protocol. Bespoke UDP/JSON material lives under `protocol_details`,
+# the schema's namespace for single-spec protocol blocks (the schema's top
+# level is closed).
 protocol_details:
   wiz_lan_protocol:
     transport: "UDP; light listens on 38899, client receives pushes on 38900"
@@ -136,12 +139,12 @@ protocol_details:
 
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. Control is UDP/JSON on port 38899 (see
-      wiz_lan_protocol), not HTTP.
+      protocol_details.wiz_lan_protocol), not HTTP.
 
 commands:
   turn_on:

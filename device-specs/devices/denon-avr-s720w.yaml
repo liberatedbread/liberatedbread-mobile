@@ -26,7 +26,7 @@
 # What is NOT here, because this generation does not have it: HEOS. HEOS
 # Built-in arrived on the AVR-S750H/X-series H models in 2018; on an S720W the
 # HEOS CLI port 1255 is closed, and a generic Denon handler that probes it and
-# gives up finds nothing. See `denon_common.absent_surfaces`.
+# gives up finds nothing. See `protocol_details.denon_common.absent_surfaces`.
 
 device:
   name: "Denon AVR-S720W AV Receiver"
@@ -582,7 +582,8 @@ evidence:
 # Everything needed to build a request byte for byte, in the role
 # `ecp_common` plays for Roku. The receiver's two command routes and its two
 # response shapes are all here; `http_endpoints` below catalogues what exists
-# and `commands` binds the invocations.
+# and `commands` binds the invocations. Lives under `protocol_details`, the
+# schema's namespace for single-spec protocol blocks (the top level is closed).
 protocol_details:
   denon_common:
     transport: "HTTP"
@@ -1066,7 +1067,7 @@ http_endpoints:
     name: "Direct Command"
     description: >
       The universal control route: `{command}` is one ASCII command from
-      `denon_common.command_vocabulary`, sent exactly as it would go over port
+      `protocol_details.denon_common.command_vocabulary`, sent exactly as it would go over port
       23 and WITHOUT a terminator. Answers 200 with an empty or stub body
       whether or not the command was meaningful — the receiver does not report
       rejection here, so a client that needs to know whether a change took
@@ -1295,7 +1296,7 @@ commands:
           Raw because the same token is what `<SurrMode>` reports back, so one
           spelling serves both the send and the state match. The renderer
           percent-encodes the space as it builds the request line — see
-          `denon_common.request_format.escaping`. Substituting a value that is
+          `protocol_details.denon_common.request_format.escaping`. Substituting a value that is
           already encoded gives `MSMCH%2520STEREO`; substituting a raw one
           without encoding puts a bare space in the request line and the
           receiver drops the request.

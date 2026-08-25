@@ -117,8 +117,8 @@ device:
 # surface (there is no HTTP and no request/response — the client only listens).
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. There is no HTTP surface: the hub broadcasts JSON

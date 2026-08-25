@@ -137,7 +137,9 @@ device:
         Local TCP 4000 control is unauthenticated on the LAN. Onboarding was
         cloud-mediated and is not documented here.
 
-# The Lightify gateway binary protocol.
+# The Lightify gateway binary protocol. Bespoke framing/command material lives
+# under `protocol_details` because the schema's top level is closed; that block
+# is the schema's namespace for single-spec protocol blocks.
 protocol_details:
   lightify_binary_protocol:
     transport: "TCP, port 4000, persistent, no auth, one request in flight"
@@ -161,12 +163,12 @@ protocol_details:
 
 http_endpoints:
   - method: "GET"
-    status: "placeholder"
     path: "/"
+    status: "placeholder"
     name: "Local API Placeholder"
     description: >
       Placeholder only. Control is the binary protocol on TCP 4000 (see
-      lightify_binary_protocol), not HTTP.
+      protocol_details.lightify_binary_protocol), not HTTP.
 
 commands:
   list_devices:
