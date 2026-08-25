@@ -4215,13 +4215,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkCapabilitiesDto dco_decode_network_capabilities_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return NetworkCapabilitiesDto(
       signedSession: dco_decode_opt_String(arr[0]),
       defaultPort: dco_decode_opt_box_autoadd_u_16(arr[1]),
       defaultScheme: dco_decode_opt_String(arr[2]),
-      protocolHandler: dco_decode_opt_String(arr[3]),
+      tlsVerification: dco_decode_opt_String(arr[3]),
+      tlsSelfSigned: dco_decode_bool(arr[4]),
+      protocolHandler: dco_decode_opt_String(arr[5]),
     );
   }
 
@@ -6525,11 +6527,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_signedSession = sse_decode_opt_String(deserializer);
     var var_defaultPort = sse_decode_opt_box_autoadd_u_16(deserializer);
     var var_defaultScheme = sse_decode_opt_String(deserializer);
+    var var_tlsVerification = sse_decode_opt_String(deserializer);
+    var var_tlsSelfSigned = sse_decode_bool(deserializer);
     var var_protocolHandler = sse_decode_opt_String(deserializer);
     return NetworkCapabilitiesDto(
         signedSession: var_signedSession,
         defaultPort: var_defaultPort,
         defaultScheme: var_defaultScheme,
+        tlsVerification: var_tlsVerification,
+        tlsSelfSigned: var_tlsSelfSigned,
         protocolHandler: var_protocolHandler);
   }
 
@@ -8673,6 +8679,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.signedSession, serializer);
     sse_encode_opt_box_autoadd_u_16(self.defaultPort, serializer);
     sse_encode_opt_String(self.defaultScheme, serializer);
+    sse_encode_opt_String(self.tlsVerification, serializer);
+    sse_encode_bool(self.tlsSelfSigned, serializer);
     sse_encode_opt_String(self.protocolHandler, serializer);
   }
 

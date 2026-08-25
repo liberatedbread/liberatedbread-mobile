@@ -399,7 +399,8 @@ class FakeSpecCodec implements SpecCodec {
   Future<NetworkCapabilitiesDto> networkCapabilities({
     required String specYaml,
   }) async =>
-      networkCapabilitiesResult ?? const NetworkCapabilitiesDto();
+      networkCapabilitiesResult ??
+      const NetworkCapabilitiesDto(tlsSelfSigned: false);
 
   @override
   Future<SoapRequestDto> renderNetworkCommand({

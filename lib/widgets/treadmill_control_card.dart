@@ -132,7 +132,7 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     return _ResolvedVerb(c.serviceUuid, c.charUuid, c.command, const {});
   }
 
-  final speedEntity = entityIndex.take('speed');
+  final speedEntity = entityIndex.take(EntityKeyIndex.speedSlot);
   final speedAction =
       speedEntity?.actions.where((a) => a.role == 'set_value').firstOrNull;
   final entitySpeedEntry = discovered(speedAction);
@@ -153,7 +153,7 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     return null;
   }
 
-  final start = verbFromEntity('start') ??
+  final start = verbFromEntity(EntityKeyIndex.startSlot) ??
       byName(const [
         'start_belt',
         'start_or_resume',
@@ -165,9 +165,9 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
         'ur_training_continue',
         'ft_prepared',
       ]);
-  var pause = verbFromEntity('pause') ??
+  var pause = verbFromEntity(EntityKeyIndex.pauseSlot) ??
       byName(const ['pause', 'training_pause', 'ur_training_pause']);
-  var stop = verbFromEntity('stop') ??
+  var stop = verbFromEntity(EntityKeyIndex.stopSlot) ??
       byName(const [
         'stop',
         'training_stop',

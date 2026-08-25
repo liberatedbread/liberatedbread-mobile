@@ -1895,3 +1895,126 @@ fn every_role_the_catalogue_binds_is_one_the_resolver_knows() {
         unknown.join("\n  ")
     );
 }
+
+/// The TLS policy a spec declares reaches the consumer that opens the socket.
+///
+/// `identification.tls` was parsed by nothing. Two specs — the Envoy and
+/// SmartCast, both `default_scheme: https` on a LAN address — ask for
+/// `trust_on_first_use`, and what they got was a client excusing any
+/// certificate from any host a caller had named. That is `none`'s behaviour
+/// applied to devices that asked to be pinned, and it looks identical to
+/// working right up until somebody is between you and the device.
+///
+/// Asserted over the whole catalogue rather than over the two: any spec that
+/// declares the block should have it carried, and the second half of the test
+/// is the half that would have caught the original bug — a scheme of `https`
+/// with no policy behind it is a device whose trust decision nobody made.
+#[test]
+fn a_declared_tls_policy_reaches_the_capabilities_dto() {
+    use liberated_bread_core::api::device_api::network_capabilities;
+
+    let mut declared = 0usize;
+    for path in vendored_yaml_paths() {
+        let text = fs::read_to_string(&path).expect("spec reads");
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let Ok(spec) = parse_device_spec(&text) else {
+            continue;
+        };
+        let Some(policy) = spec
+            .device
+            .identification
+            .as_ref()
+            .and_then(|i| i.tls.as_ref())
+        else {
+            continue;
+        };
+        declared += 1;
+
+        let caps = network_capabilities(text).expect("capabilities resolve");
+        assert_eq!(
+            caps.tls_verification, policy.verification,
+            "{file}: the spec states a TLS policy the consumer never sees"
+        );
+        assert_eq!(caps.tls_self_signed, policy.self_signed, "{file}");
+
+        // A LAN certificate that will never validate is exactly the case where
+        // a client has to be told what to do, so saying `self_signed` and
+        // nothing else leaves the decision where it was: invented downstream.
+        if policy.self_signed {
+            assert!(
+                policy.verification.is_some(),
+                "{file}: declares a self-signed certificate and no policy for \
+                 it, so every consumer invents one"
+            );
+        }
+    }
+    assert!(
+        declared >= 2,
+        "only {declared} spec(s) declare identification.tls — this test is \
+         reading the wrong place"
+    );
+}
+
+/// A bare web server on the LAN is not twenty-one smart devices.
+///
+/// `_http._tcp` is answered by every router admin page, NAS and printer web UI
+/// there is, and seventeen vendored specs mention it inside a discovery method.
+/// When the matcher started reading those methods, all seventeen began claiming
+/// every web server on the link at `Possible` — the same failure the absent
+/// port axis was removed for, arriving by a different door.
+///
+/// The rule that fixes it is not "never trust a shared type", because that
+/// would also throw away the specs that say WHICH one they mean: ESPHome
+/// narrows `_http._tcp` to nodes publishing a `config_hash` TXT record. So a
+/// shared type counts as evidence only where the spec narrowed it, and this
+/// pins both halves against the real catalogue.
+#[test]
+fn a_bare_shared_service_type_claims_nothing_in_the_catalogue() {
+    use liberated_bread_core::api::device_api::{
+        load_device_spec, match_network_device, NetworkDeviceDto, SpecIdentityDto,
+    };
+
+    let identities: Vec<SpecIdentityDto> = vendored_yaml_paths()
+        .into_iter()
+        .filter_map(|path| load_device_spec(fs::read_to_string(path).ok()?).ok())
+        .map(|spec| SpecIdentityDto::from(&spec))
+        .collect();
+    assert!(identities.len() > 100, "the catalogue did not load");
+
+    let bare = NetworkDeviceDto {
+        name: String::new(),
+        hostname: None,
+        service_types: vec!["_http._tcp.local.".into()],
+        ssdp_targets: Vec::new(),
+        answered_lan_protocols: Vec::new(),
+        txt: Default::default(),
+        port: Some(80),
+    };
+    let matches = match_network_device(identities.clone(), bare);
+    assert!(
+        matches.is_empty(),
+        "a host whose only signal is `_http._tcp` was claimed by {} spec(s): {:?}",
+        matches.len(),
+        matches.iter().map(|m| &m.device_name).collect::<Vec<_>>()
+    );
+
+    // The half that must keep working: the same host, publishing what ESPHome
+    // publishes, is an ESPHome node.
+    let node = NetworkDeviceDto {
+        name: String::new(),
+        hostname: None,
+        service_types: vec!["_http._tcp.local.".into()],
+        ssdp_targets: Vec::new(),
+        answered_lan_protocols: Vec::new(),
+        txt: std::collections::HashMap::from([
+            ("config_hash".to_string(), "0123abcd".to_string()),
+            ("version".to_string(), "2026.1.0".to_string()),
+        ]),
+        port: Some(80),
+    };
+    let named = match_network_device(identities, node);
+    assert!(
+        !named.is_empty(),
+        "a narrowed shared type must still name its device"
+    );
+}

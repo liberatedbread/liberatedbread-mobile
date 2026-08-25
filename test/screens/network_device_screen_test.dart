@@ -457,7 +457,9 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -724,7 +726,9 @@ void main() {
               // The spec's ecp2 block + declared port 8060, as the
               // capabilities resolver hands them over for a real Roku.
               capabilities: NetworkCapabilitiesDto(
-                  signedSession: 'ecp2', defaultPort: 8060),
+                  signedSession: 'ecp2',
+                  defaultPort: 8060,
+                  tlsSelfSigned: false),
             ),
           ),
         ),
@@ -923,7 +927,9 @@ void main() {
                   specYaml: 'yaml',
                   entities: [channelEntity],
                   capabilities: NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1081,7 +1087,9 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false))),
         ),
       ));
       // Let the load drop the spinner and the ECP2 textedit poll resolve — a
@@ -1134,7 +1142,9 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false))),
         ),
       ));
       for (var i = 0; i < 6; i++) {
@@ -1214,7 +1224,9 @@ void main() {
                     specYaml: 'yaml',
                     entities: [channelEntity, keyboardEntity],
                     capabilities: NetworkCapabilitiesDto(
-                        signedSession: 'ecp2', defaultPort: 8060))),
+                        signedSession: 'ecp2',
+                        defaultPort: 8060,
+                        tlsSelfSigned: false))),
           ),
         ));
         for (var i = 0; i < 8; i++) {
@@ -1316,7 +1328,9 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1504,7 +1518,9 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1797,7 +1813,9 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -2818,8 +2836,8 @@ void main() {
       ),
     ];
 
-    const roombaCapabilities =
-        NetworkCapabilitiesDto(protocolHandler: roombaProtocolHandler);
+    const roombaCapabilities = NetworkCapabilitiesDto(
+        protocolHandler: roombaProtocolHandler, tlsSelfSigned: false);
 
     final robot = NetworkDevice(
       host: '10.0.0.7',
@@ -2919,7 +2937,7 @@ void main() {
               specYaml: 'yaml',
               entities: roombaEntities,
               // Same transport, no robot handler.
-              capabilities: NetworkCapabilitiesDto(),
+              capabilities: NetworkCapabilitiesDto(tlsSelfSigned: false),
             ),
           ),
         ),
@@ -2969,7 +2987,7 @@ void main() {
             controls: const NetworkControls(
               specYaml: 'yaml',
               entities: roombaEntities,
-              capabilities: NetworkCapabilitiesDto(),
+              capabilities: NetworkCapabilitiesDto(tlsSelfSigned: false),
             ),
           ),
         ),

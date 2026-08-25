@@ -2068,6 +2068,20 @@ pub struct NetworkCapabilitiesDto {
     /// The spec's declared URL scheme (`https` for the Envoy or SmartCast),
     /// `None` meaning plain http.
     pub default_scheme: Option<String>,
+    /// The trust policy for that scheme's certificate, from
+    /// `identification.tls.verification`: `standard`, `trust_on_first_use`,
+    /// `vendor_ca` or `none`. `None` when the spec states none.
+    ///
+    /// Carried because a LAN certificate is almost never publicly verifiable,
+    /// so a client must decide something, and this is the spec deciding it.
+    /// Two specs ask for `trust_on_first_use` and every TLS client in the app
+    /// was excusing any certificate from anyone — `none`'s behaviour, applied
+    /// to devices that asked to be pinned.
+    pub tls_verification: Option<String>,
+    /// `identification.tls.self_signed` — the certificate will never validate
+    /// against a public chain, so refusing it outright is not an option and
+    /// the client owes the user a real policy instead.
+    pub tls_self_signed: bool,
     /// The spec's `protocol_handler`, when it names one — `roomba_mqtt`,
     /// `rabbit_air_lan`, `lifx_lan`.
     ///
@@ -2095,6 +2109,12 @@ pub fn network_capabilities(spec_yaml: String) -> anyhow::Result<NetworkCapabili
             .then(|| "ecp2".to_string()),
         default_port: ident.and_then(|i| i.default_port),
         default_scheme: ident.and_then(|i| i.default_scheme.clone()),
+        tls_verification: ident
+            .and_then(|i| i.tls.as_ref())
+            .and_then(|t| t.verification.clone()),
+        tls_self_signed: ident
+            .and_then(|i| i.tls.as_ref())
+            .is_some_and(|t| t.self_signed),
         protocol_handler: spec.protocol_handler.clone(),
     })
 }
@@ -3299,6 +3319,18 @@ struct MatchAxes {
     /// category of hardware answers to, like `upnp:rootdevice` or `_hap._tcp`.
     /// Reported so the caller can say what matched, but never promoting.
     shared_service_types: Vec<String>,
+    /// Whether any of those shared types was one this spec NARROWED — declared
+    /// TXT conditions for, and had them hold.
+    ///
+    /// This is what decides whether a shared type is evidence at all, and it
+    /// is the same rule the absent port axis below states: an identifier a
+    /// whole category volunteers ranks a device, it does not name one. A spec
+    /// saying "`_http._tcp` where the TXT records look like THIS" has named
+    /// one; a spec saying "`_http._tcp`" has named every web server on the
+    /// link. Before this, twenty-six specs claimed `_http._tcp` on the
+    /// strength of a discovery method mentioning it, and a bare web server
+    /// came back as twenty-one Possible smart devices.
+    narrowed_shared: bool,
     /// Likely tier.
     company_ids: Vec<u16>,
     /// Identifies a vendor, not a product — except where the spec says
@@ -3321,7 +3353,9 @@ impl MatchAxes {
             && self.service_uuids.is_empty()
             && self.shared_service_uuids.is_empty()
             && self.service_types.is_empty()
-            && self.shared_service_types.is_empty()
+            // A shared type counts only where the spec earned it. See
+            // [`Self::narrowed_shared`].
+            && !self.narrowed_shared
             && self.company_ids.is_empty()
             && self.mac_prefix.is_none()
     }
@@ -3783,11 +3817,20 @@ fn match_network_axes(
 
     let mut service_types: Vec<String> = Vec::new();
     let mut shared_service_types: Vec<String> = Vec::new();
+    let mut narrowed_shared = false;
     // Sorted into the bucket its genericness earns: a vendor's own type proves
     // a lot, one a whole category answers to proves nothing on its own.
-    let mut record = |declared: &str, normalized: &str| {
+    //
+    // `narrowed` is the third state, and it is what keeps a shared type from
+    // being evidence all by itself. A spec that says "`_http._tcp`, and the
+    // TXT records must look like THIS" has earned the type — an ESPHome node
+    // publishing `config_hash` really is one. A spec that just says
+    // "`_http._tcp`" has said nothing: every router admin page, NAS and
+    // printer web UI on the link answers to it.
+    let mut record = |declared: &str, normalized: &str, narrowed: bool| {
         if is_shared_service_type(normalized) {
             shared_service_types.push(declared.to_string());
+            narrowed_shared |= narrowed;
         } else {
             service_types.push(declared.to_string());
         }
@@ -3811,7 +3854,11 @@ fn match_network_axes(
         let fallback_ok = !identity.platform_fallback_types.contains(&wanted)
             || !narrowed_types.contains(&wanted);
         if device_types.contains(&wanted) && narrowed_ok && fallback_ok {
-            record(declared, &wanted);
+            record(
+                declared,
+                &wanted,
+                is_narrowed(&identity.txt_match_groups, &wanted),
+            );
         }
     }
     for target in &identity.ssdp_search_targets {
@@ -3820,7 +3867,9 @@ fn match_network_axes(
             .iter()
             .any(|t| t.eq_ignore_ascii_case(target))
         {
-            record(target, &normalize_service_type(target));
+            // SSDP search targets carry no TXT narrowing, so a shared one
+            // (`upnp:rootdevice`) can only ever corroborate.
+            record(target, &normalize_service_type(target), false);
         }
     }
 
@@ -3853,6 +3902,7 @@ fn match_network_axes(
         by_name_prefix,
         service_types,
         shared_service_types,
+        narrowed_shared,
         ..MatchAxes::default()
     }
 }
@@ -6598,12 +6648,18 @@ device:
     }
 
     #[test]
-    fn a_shared_search_target_alone_is_only_possible() {
+    fn a_shared_search_target_alone_is_not_evidence() {
         // The regression this whole split exists for. hue-bridge.yaml declares
         // `upnp:rootdevice`, and the Wi-Fi scan's M-SEARCH uses `ST: ssdp:all`,
-        // which every UPnP responder answers with exactly that. Before this,
-        // the router, the printer and the NAS were each reported Strong and
-        // badged "Philips Hue Bridge".
+        // which every UPnP responder answers with exactly that. Before the
+        // split, the router, the printer and the NAS were each reported Strong
+        // and badged "Philips Hue Bridge".
+        //
+        // Weakening it to Possible was not enough, and the port axis above says
+        // why in the same words: an identifier a whole category volunteers
+        // ranks a device, it does not name one. A list of twenty "possibly"
+        // rows for one web server is not a weaker answer than a wrong one, it
+        // is the same answer with a hedge on it.
         let mut identity = network_identity();
         identity.mdns_service_types.clear();
         identity.ssdp_search_targets = vec!["upnp:rootdevice".into()];
@@ -6613,22 +6669,21 @@ device:
             ssdp_targets: vec!["upnp:rootdevice".into()],
             ..anonymous_host()
         };
-        let matches = match_network_device(vec![identity], device);
-        assert_eq!(matches.len(), 1, "it still ranks — it just cannot claim");
-        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
-        assert_eq!(
-            matches[0].matched_service_types,
-            vec!["upnp:rootdevice".to_string()],
-            "still reported, so the UI can say what matched"
-        );
+        assert!(match_network_device(vec![identity], device).is_empty());
     }
 
     #[test]
-    fn a_shared_mdns_type_alone_is_only_possible() {
+    fn a_shared_mdns_type_alone_is_not_evidence() {
         // roku-ecp declares `_airplay._tcp`, lifx-z and rachio declare
         // `_hap._tcp`. An Apple TV is not a Roku; a HomeKit plug is not a
-        // sprinkler controller.
-        for shared in ["_airplay._tcp.local.", "_hap._tcp.local."] {
+        // sprinkler controller, and saying "possibly a sprinkler controller"
+        // about every HomeKit accessory in the house is not a smaller version
+        // of that mistake.
+        for shared in [
+            "_airplay._tcp.local.",
+            "_hap._tcp.local.",
+            "_http._tcp.local.",
+        ] {
             let mut identity = network_identity();
             identity.mdns_service_types = vec![shared.into()];
             identity.ssdp_search_targets = vec![];
@@ -6638,13 +6693,48 @@ device:
                 service_types: vec![shared.into()],
                 ..anonymous_host()
             };
-            let matches = match_network_device(vec![identity], device);
-            assert_eq!(
-                matches[0].confidence,
-                MatchConfidence::Possible,
+            assert!(
+                match_network_device(vec![identity], device).is_empty(),
                 "{shared} is answered by a whole ecosystem"
             );
         }
+    }
+
+    /// The other half, and the reason the rule is "narrowed" rather than
+    /// "never": a spec that says WHICH `_http._tcp` it means has named a
+    /// device. ESPHome's is `config_hash` in the TXT records — every node with
+    /// a web API has one, every other web server on the link does not.
+    #[test]
+    fn a_narrowed_shared_mdns_type_is_evidence() {
+        let mut identity = network_identity();
+        identity.mdns_service_types = vec!["_http._tcp.local.".into()];
+        identity.ssdp_search_targets = vec![];
+        identity.local_name_prefix_clear();
+        identity.txt_match_groups = vec![TxtMatchGroupDto {
+            service_types: vec!["_http._tcp".into()],
+            conditions: vec![TxtMatchDto {
+                key: "config_hash".into(),
+                kind: "present".into(),
+                value: None,
+            }],
+        }];
+
+        let bare_web_server = NetworkDeviceDto {
+            service_types: vec!["_http._tcp.local.".into()],
+            ..anonymous_host()
+        };
+        assert!(
+            match_network_device(vec![identity.clone()], bare_web_server).is_empty(),
+            "the narrowing has to HOLD, not merely be declared"
+        );
+
+        let node = NetworkDeviceDto {
+            service_types: vec!["_http._tcp.local.".into()],
+            txt: std::collections::HashMap::from([("config_hash".into(), "abc".into())]),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], node);
+        assert_eq!(matches.len(), 1, "a narrowed shared type names a device");
     }
 
     #[test]
@@ -6716,10 +6806,13 @@ device:
             ..anonymous_host()
         };
         let matches = match_network_device(vec![weak, network_identity()], device);
-        assert_eq!(matches.len(), 2);
+        // The weak one does not appear at all any more: its only axis is a
+        // search target every UPnP responder answers, and an identifier a
+        // whole category volunteers is not evidence. Ordering is still what
+        // this test is about — the survivor is the one that named the device.
+        assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].device_name, "Test Bridge");
         assert_eq!(matches[0].confidence, MatchConfidence::Strong);
-        assert_eq!(matches[1].confidence, MatchConfidence::Possible);
     }
 
     #[test]

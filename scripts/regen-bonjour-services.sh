@@ -34,8 +34,16 @@
 # fails the build if the array has drifted, so a plist edited by hand — or a
 # vendor done without this step — does not get far.
 
-# Regenerate the array in place. Expects PROJECT_DIR and a `log` function (both
-# provided by the caller). No-op without python3. Set LB_BONJOUR=0 to skip.
+# Runnable two ways, because both are documented and one of them silently did
+# nothing: `update-specs.sh` SOURCES this file and calls the function, while
+# the test's remediation line tells a human to run the script. Defining the
+# function and stopping there made that second route exit 0 having changed
+# nothing, leaving the plist untouched and the test still red — with the error
+# message pointing at the command that had just "worked".
+#
+# Regenerate the array in place. Expects PROJECT_DIR and a `log` function when
+# sourced; supplies both when run directly. No-op without python3. Set
+# LB_BONJOUR=0 to skip.
 regen_bonjour_services() {
   [[ "${LB_BONJOUR:-1}" == "0" ]] && return 0
   local project="${PROJECT_DIR:-$(pwd)}"
@@ -110,3 +118,13 @@ else:
     print(f'  {len(wanted)} service types (updated)')
 PY
 }
+
+# Run directly: stand up what the sourcing caller would have provided, then do
+# the work. `BASH_SOURCE[0] == $0` is false when sourced, so `update-specs.sh`
+# still just gets the definition.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  set -uo pipefail
+  PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  log() { printf '\033[1;32m[bonjour]\033[0m %s\n' "$*"; }
+  regen_bonjour_services
+fi

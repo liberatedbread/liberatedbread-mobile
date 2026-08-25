@@ -478,6 +478,34 @@ void main() {
     expect(call.params, isEmpty);
   });
 
+  testWidgets(
+      'a defaulted parameter is one tap away, seeded where the spec '
+      'put it', (tester) async {
+    // Off the default surface, not gone. Most defaulted parameters are
+    // protocol filler nobody should be handed, but some are the second axis of
+    // a real command — the Urevo's incline beside its speed, the LIFX strip's
+    // kelvin beside its colour — and this is the only place they can be set.
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _defaultedChar));
+
+    await tester.tap(find.text('2 values the spec fills in'));
+    await tester.pumpAndSettle();
+
+    // Seeded at the spec's own answer, so revealing one and sending without
+    // touching it puts the same bytes on the wire as leaving it hidden.
+    expect(tester.widget<Slider>(find.byType(Slider)).value, 42.0);
+    expect(find.text('Mid (400)'), findsOneWidget);
+
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+    final call =
+        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_mode');
+    expect(call.params['level'], 42.0);
+    expect(call.params['mode'], 400.0);
+  });
+
   testWidgets('selecting an allowed entry sends its value, not label or index',
       (tester) async {
     final ble = FakeBleService();

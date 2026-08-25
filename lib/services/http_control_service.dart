@@ -3,11 +3,13 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import '../core/error_text.dart';
 import 'spec_codec.dart' show HttpRequestDto;
+import 'tls_trust.dart';
 
 /// The transport half of plain-HTTP device control: send a rendered request
 /// to the device's own address.
@@ -22,12 +24,19 @@ class HttpControlClient {
   http.Client? _https;
   final http.Client? _injectedHttps;
 
-  /// Hosts an https request has been addressed to, the only certificates the
-  /// TLS client will excuse. A LAN device's certificate is self-signed or
-  /// chains to a vendor CA no platform store carries (the Envoy's, Vizio's),
-  /// so `badCertificateCallback` must fire — but only for the device the
-  /// caller named, never as a blanket "trust anything" on a shared client.
+  /// Hosts an https request has been addressed to. The fallback trust rule,
+  /// for a device whose spec states no TLS policy: excuse the certificate of a
+  /// host the caller named, never a blanket "trust anything" on a shared
+  /// client. Most of the catalogue is in this state and this is what those
+  /// devices have always done.
   final Set<String> _trustedHosts = <String>{};
+
+  /// The policy the SPEC states, when it states one, and the pin store that
+  /// serves it. `identification.tls.verification` was parsed by nothing, so
+  /// the two specs asking to be pinned got the host rule above — which excuses
+  /// a swapped certificate as readily as the real one, since the host is all
+  /// it looks at.
+  final TlsTrust? _trust;
 
   /// One request's ceiling. ECP answers in tens of milliseconds on a LAN, so
   /// ten seconds is generous — but a TV in deep standby can sit on a request,
@@ -35,16 +44,71 @@ class HttpControlClient {
   /// 200.
   static const timeout = Duration(seconds: 10);
 
-  HttpControlClient({http.Client? httpClient, http.Client? httpsClient})
-      : _http = httpClient ?? http.Client(),
-        _injectedHttps = httpsClient;
+  HttpControlClient({
+    http.Client? httpClient,
+    http.Client? httpsClient,
+    TlsTrust? trust,
+  })  : _http = httpClient ?? http.Client(),
+        _injectedHttps = httpsClient,
+        _trust = trust;
+
+  /// Each device's identity and declared policy, KEYED BY HOST.
+  ///
+  /// Not a single "current device": this client is a `Provider`, so one
+  /// instance is shared by every sender in the app, and a group run drives
+  /// several devices through it at once. A single mutable identity would let
+  /// the second device's registration land while the first device's handshake
+  /// was in flight — pinning one device's certificate under another's name,
+  /// and then refusing the real device forever after as "the certificate
+  /// changed". The callback is handed the host it is deciding about, so the
+  /// host is what selects the policy and the two cannot cross.
+  final Map<String, ({String identity, TlsPolicy? policy})> _policies = {};
+
+  /// Tell the client which device answers at [host].
+  ///
+  /// Separate from [send] because pinning has to happen before the handshake
+  /// and the store is async while `badCertificateCallback` is not: the pin is
+  /// read here so the callback can answer from memory.
+  Future<void> useTlsPolicy({
+    required String host,
+    required String identity,
+    required TlsPolicy? policy,
+  }) async {
+    _policies[host] = (identity: identity, policy: policy);
+    if (policy != null) await _trust?.prepare(identity);
+  }
 
   /// The TLS client, built on first https use so a plain-http app never pays
   /// for it. Trust is per-host, granted the moment a request names the host.
   http.Client get _httpsClient => _https ??= _injectedHttps ??
-      IOClient(HttpClient()
-        ..badCertificateCallback =
-            (cert, host, port) => _trustedHosts.contains(host));
+      IOClient(HttpClient()..badCertificateCallback = _evaluateCertificate);
+
+  /// Whether to accept a certificate the platform refused.
+  ///
+  /// The spec's policy when it states one, through the shared [TlsTrust] so
+  /// this client, the WebSocket session and the MQTT session cannot answer the
+  /// same question three different ways again. Otherwise the host rule, which
+  /// is what every device without a declared policy has always got.
+  /// [_evaluateCertificate], for the test that pins the isolation between two
+  /// devices sharing this client. Exposed rather than reached through a real
+  /// handshake because the thing under test is the DECISION, and standing up
+  /// two TLS servers to observe it would test dart:io.
+  @visibleForTesting
+  bool debugEvaluateCertificate(X509Certificate cert, String host, int port) =>
+      _evaluateCertificate(cert, host, port);
+
+  bool _evaluateCertificate(X509Certificate cert, String host, int port) {
+    bool byHost(X509Certificate _, String host, int __) =>
+        _trustedHosts.contains(host);
+    final trust = _trust;
+    final registered = _policies[host];
+    if (trust == null || registered == null) return byHost(cert, host, port);
+    return trust.evaluator(
+      identity: registered.identity,
+      policy: registered.policy,
+      fallback: byHost,
+    )(cert, host, port);
+  }
 
   /// Send one rendered request and return the response body.
   ///

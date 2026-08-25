@@ -550,6 +550,13 @@ pub fn encode_command_with_bytes(
         }
     }
 
+    // Pad BEFORE patching lengths, so `auto: packet_length` reports the bytes
+    // that actually go on the wire. On a fixed-width frame that is the padded
+    // width, and a length field carrying the pre-padding count would describe
+    // a packet the device is not receiving. No command in the catalogue
+    // declares both today; this is the rule for the first one that does.
+    let mut bytes = pad_to_fixed_length(bytes, command)?;
+
     // Patch the total length into every reserved packet_length field.
     let total = bytes.len();
     for (offset, width, big_endian) in length_fixups {
@@ -573,15 +580,17 @@ pub fn encode_command_with_bytes(
             bytes[offset + i] = le[src];
         }
     }
-    pad_to_fixed_length(bytes, command)
+    Ok(bytes)
 }
 
 /// Zero-pad an encoded frame up to the command's declared [`Command::fixed_length`].
 ///
-/// Applied after the length fixups, deliberately: `auto: packet_length` means
+/// Applied BEFORE the length fixups, deliberately: `auto: packet_length` means
 /// the bytes on the wire, and on a fixed-width frame that is the padded width.
 /// No command in the catalogue declares both today, so this is a rule for the
-/// first one that does rather than a behaviour anything relies on.
+/// first one that does rather than a behaviour anything relies on — which is
+/// exactly why it is worth getting right now, while nothing depends on the
+/// other answer.
 ///
 /// Padding is TRAILING, which is right only because every declaring spec says
 /// so in its own `packet_layout` ("rest zero", "zero padding through byte 18").
@@ -1333,6 +1342,48 @@ mod tests {
         assert_eq!(
             encode_command(&cmd, &HashMap::new()).unwrap(),
             vec![0x04, 0x02, 0, 0, 0, 0, 0, 0]
+        );
+    }
+
+    /// `auto: packet_length` on a fixed-width frame reports the PADDED width.
+    ///
+    /// Nothing in the catalogue declares both yet, which is the reason to pin
+    /// it: the first spec that does will read the length field off a capture
+    /// and expect the number the wire carries, not the number the template
+    /// happened to reach.
+    #[test]
+    fn a_packet_length_field_on_a_padded_frame_counts_the_padding() {
+        let mut params = ParameterSet::default();
+        params.params.insert(
+            "len".to_string(),
+            Parameter {
+                value_type: ValueType::Uint8,
+                auto: Some(AutoRole::PacketLength),
+                ..Parameter::default()
+            },
+        );
+        let cmd = Command {
+            description: "header, length, payload, then zeros".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0xF0),
+                TemplateElement::Param("len".into()),
+                TemplateElement::Byte(0x08),
+            ]),
+            parameters: Some(params),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: Some(8),
+        };
+        let bytes = encode_command(&cmd, &HashMap::new()).unwrap();
+        assert_eq!(bytes.len(), 8);
+        assert_eq!(
+            bytes[1], 8,
+            "the length field must describe the packet the device receives"
         );
     }
 

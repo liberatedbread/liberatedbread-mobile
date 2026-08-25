@@ -533,7 +533,12 @@ class NetworkGroupRunner {
       SoapDeviceDescription? description;
       if (_needsDescription(plan)) {
         final device = member.record;
-        final port = device.toNetworkDevice().controlPort;
+        // The sender's rule, not the device's: discovery first, then the port
+        // the spec declares. Asking `toNetworkDevice().controlPort` here meant
+        // the discovered one alone, so a device added by hand worked from its
+        // own screen and was skipped in a group — the same fact, answered two
+        // ways, which is what putting the rule on the sender was for.
+        final port = sender.controlPort;
         if (port == null) {
           return skip('No control port is known for this device');
         }

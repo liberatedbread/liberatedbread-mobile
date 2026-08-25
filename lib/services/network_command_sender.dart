@@ -11,6 +11,7 @@ import 'ws_control_service.dart';
 import 'rabbit_air_control_service.dart';
 import 'soap_control_service.dart';
 import 'spec_codec.dart';
+import 'tls_trust.dart';
 
 /// Sends spec-resolved actions to one network device, over whichever of the
 /// six transports each action declares — the send half of what
@@ -166,6 +167,9 @@ class NetworkCommandSender {
   Ecp2Session? _ecp2;
   Future<Ecp2Session?>? _ecp2Opening;
   bool _ecp2Unavailable = false;
+
+  /// The one-time TLS policy handover to the HTTP client, memoized.
+  Future<void>? _tlsReady;
 
   /// The MQTT session, for a device whose control surface rides one, and the
   /// connect in flight that every concurrent send waits on.
@@ -421,6 +425,23 @@ class NetworkCommandSender {
         // fallback stays cheap and the keyboard watch keeps owning the session.
       }
     }
+    // The device's own TLS policy, before the first handshake. Once per
+    // sender: the pin has to be in the client's hand synchronously when
+    // `badCertificateCallback` fires, and reading the store on every send
+    // would be work for an answer that cannot change.
+    _tlsReady ??= _http.useTlsPolicy(
+      host: host,
+      // The spec's identity, not the IP: a pin keyed by a DHCP lease is
+      // re-pinned every time the lease moves, which is the same as not
+      // pinning. `specYaml` names the product and `host` the unit, and until
+      // the network path carries a stable per-device id this pair is the best
+      // handle there is — stated here rather than implied, because it is the
+      // limit of what this pin is worth.
+      identity: '${capabilities?.protocolHandler ?? 'device'}@$host',
+      policy: TlsPolicy.parse(capabilities?.tlsVerification),
+    );
+    await _tlsReady;
+
     final port = controlPort;
     if (port == null) {
       // The same wording the screen's load path raises for a portless

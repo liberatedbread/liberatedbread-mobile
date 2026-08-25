@@ -80,8 +80,22 @@ class EntityKeyIndex<E> {
   /// it is the same gesture one level further out.
   static const List<String> navSlots = ['back', 'home', 'exit'];
 
-  /// The D-pad, clockwise from the top with OK in the middle.
-  static const List<String> padSlots = ['up', 'left', 'ok', 'right', 'down'];
+  /// The D-pad. Named one cell at a time because that is how the layout takes
+  /// them — each goes into its own square of the grid — and the list is
+  /// composed from the same names, so [knowsKey] cannot answer for a key no
+  /// cell actually asks for.
+  static const String upSlot = 'up';
+  static const String leftSlot = 'left';
+  static const String okSlot = 'ok';
+  static const String rightSlot = 'right';
+  static const String downSlot = 'down';
+  static const List<String> padSlots = [
+    upSlot,
+    leftSlot,
+    okSlot,
+    rightSlot,
+    downSlot,
+  ];
 
   /// Under the pad: the keys that act on what is on screen right now.
   static const List<String> underPadSlots = [
@@ -120,12 +134,18 @@ class EntityKeyIndex<E> {
     ...inputSlots,
   ];
 
-  /// The treadmill card's slots: the transport verbs and the speed setpoint.
+  /// The treadmill card's slots. Named individually for the same reason as the
+  /// D-pad's: the card resolves each verb on its own, against its own fallback
+  /// list of command names, so a shared `takeAll` would not describe it.
+  static const String startSlot = 'start';
+  static const String pauseSlot = 'pause';
+  static const String stopSlot = 'stop';
+  static const String speedSlot = 'speed';
   static const List<String> treadmillSlots = [
-    'start',
-    'pause',
-    'stop',
-    'speed'
+    startSlot,
+    pauseSlot,
+    stopSlot,
+    speedSlot,
   ];
 
   /// Display names each key historically matched — the remote card's rows,

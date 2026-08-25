@@ -44,8 +44,8 @@ void main() {
 
   // The ecp2 capability as the resolver hands it over for a real Roku:
   // the spec's own block plus its declared 8060.
-  const rokuCapabilities =
-      NetworkCapabilitiesDto(signedSession: 'ecp2', defaultPort: 8060);
+  const rokuCapabilities = NetworkCapabilitiesDto(
+      signedSession: 'ecp2', defaultPort: 8060, tlsSelfSigned: false);
 
   NetworkCommandSender sender({
     MockClient? httpClient,
@@ -210,7 +210,8 @@ void main() {
       }),
       discoveredControlPort: null,
       ssdpTargets: const [],
-      capabilities: const NetworkCapabilitiesDto(defaultPort: 8081),
+      capabilities:
+          const NetworkCapabilitiesDto(defaultPort: 8081, tlsSelfSigned: false),
     );
     await s.sendAction(action('turn_off', 'press_power_off'), {});
     expect(sent?.port, 8081);
@@ -221,7 +222,8 @@ void main() {
       sender(
         discoveredControlPort: 7250,
         ssdpTargets: const [],
-        capabilities: const NetworkCapabilitiesDto(defaultPort: 80),
+        capabilities:
+            const NetworkCapabilitiesDto(defaultPort: 80, tlsSelfSigned: false),
       ).controlPort,
       7250,
     );

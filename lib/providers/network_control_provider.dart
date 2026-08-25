@@ -16,6 +16,7 @@ import '../services/rabbit_air_key_store.dart';
 import '../services/rabbit_air_provision_service.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
+import '../services/tls_trust.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
 import 'network_scan_provider.dart';
@@ -29,8 +30,21 @@ final soapControlClientProvider =
 
 /// The plain-HTTP transport — same substitution rule, for tests that answer
 /// a keypress with a canned 200 instead of a Roku.
-final httpControlClientProvider =
-    Provider<HttpControlClient>((ref) => HttpControlClient());
+///
+/// Given the shared TLS trust so a spec that declares
+/// `identification.tls.verification` gets the policy it asked for. Without it
+/// the client falls back to trusting any certificate from a host a caller
+/// named, which is what every device with no declared policy has always had.
+final httpControlClientProvider = Provider<HttpControlClient>(
+  (ref) => HttpControlClient(trust: ref.watch(tlsTrustProvider)),
+);
+
+/// The certificate pins, and the policy that reads them. One instance, because
+/// a pin is about a device rather than about a request, and three transports
+/// have to agree about it.
+final tlsTrustProvider = Provider<TlsTrust>(
+  (ref) => TlsTrust(CertificatePinStore(ref.watch(settingsStoreProvider))),
+);
 
 /// The ECP2 signed-session transport — the Roku-only fallback for when plain
 /// ECP is refused (the "Limited" control-by-mobile-apps gate). Same

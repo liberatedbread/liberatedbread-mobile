@@ -1560,11 +1560,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
     final power = index.takeAll(EntityKeyIndex.powerSlots);
     final nav = index.takeAll(EntityKeyIndex.navSlots);
-    final up = index.take('up');
-    final left = index.take('left');
-    final ok = index.take('ok');
-    final right = index.take('right');
-    final down = index.take('down');
+    final up = index.take(EntityKeyIndex.upSlot);
+    final left = index.take(EntityKeyIndex.leftSlot);
+    final ok = index.take(EntityKeyIndex.okSlot);
+    final right = index.take(EntityKeyIndex.rightSlot);
+    final down = index.take(EntityKeyIndex.downSlot);
     final underPad = index.takeAll(EntityKeyIndex.underPadSlots);
     final transport = index.takeAll(EntityKeyIndex.transportSlots);
     final volume = index.takeAll(EntityKeyIndex.volumeSlots);

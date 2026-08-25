@@ -149,6 +149,9 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   /// spec flags as able to change how the hardware behaves.
   bool _advancedConfirmed = false;
 
+  /// Whether the defaulted parameters are on screen. See [_defaulted].
+  bool _showDefaulted = false;
+
   @override
   void initState() {
     super.initState();
@@ -167,6 +170,13 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       // defaulted parameter still encodes to its default. A `source` one has
       // no default and fails visibly, which is the contract.
       if (!p.userSettable) continue;
+      _seed(p);
+    }
+  }
+
+  /// The starting value for one parameter's control.
+  void _seed(ParameterDto p) {
+    {
       final allowed = p.allowed;
       final isDropdown = allowed != null &&
           allowed.isNotEmpty &&
@@ -174,11 +184,49 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       // Enumerated parameters start at the first allowed value and everything
       // else at the bottom of its range. The condition mirrors _buildParam:
       // only numeric non-bool parameters get the dropdown treatment.
+      // A defaulted parameter starts where the spec put it, so revealing one
+      // and sending without touching it puts the same bytes on the wire as
+      // leaving it hidden. A user-owned one starts at the bottom of its range,
+      // which is what it has always done.
+      final declared = p.default_;
+      if (declared != null &&
+          (!isDropdown ||
+              allowed.any((v) => v.toDouble() == declared.toDouble()))) {
+        final range = rangeFor(p.valueType, p.min, p.max);
+        _values[p.name] = isDropdown
+            ? declared.toDouble()
+            : declared.toDouble().clamp(range.min, range.max).toDouble();
+        return;
+      }
       _values[p.name] = isDropdown
           ? allowed.first.toDouble()
           : rangeFor(p.valueType, p.min, p.max).min;
     }
   }
+
+  /// Parameters the spec DEFAULTS but does not compute — a value the device
+  /// will accept from the caller, with an answer already supplied.
+  ///
+  /// These are the awkward middle of the schema's rule. Most are protocol
+  /// filler that no user should be handed (SmartDawn's `power_on` defaults
+  /// four DDP header fields), and drawing them was the bug. But some are real
+  /// knobs whose command needs a value for a second axis the caller usually
+  /// does not care about: the Urevo's `slope` beside its speed, the LIFX
+  /// strip's `kelvin` beside its colour, the Govee thermometer's history
+  /// window — and hiding those outright takes away the only place they can be
+  /// set at all.
+  ///
+  /// Nothing in the spec distinguishes the two, and guessing from the shape of
+  /// a range is the kind of inference this codebase does not do. So neither is
+  /// on the default surface and both are one tap away, seeded at the value the
+  /// spec chose.
+  ///
+  /// `auto` and `source` are NOT here: the encoder computes the first and the
+  /// client fetches the second, so there is nothing for a user to set.
+  List<ParameterDto> get _defaulted => [
+        for (final p in widget.command.parameters)
+          if (!p.userSettable && p.auto == null && p.source == null) p,
+      ];
 
   Future<void> _send() async {
     // Advanced commands ask once before their first send, showing the spec's
@@ -303,6 +351,32 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
             // screen and the values in `_values` cannot disagree.
             for (final p in command.parameters)
               if (p.userSettable) _buildParam(p),
+            if (_defaulted.isNotEmpty) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  style: TextButton.styleFrom(minimumSize: const Size(0, 40)),
+                  onPressed: () => setState(() {
+                    _showDefaulted = !_showDefaulted;
+                    if (_showDefaulted) {
+                      // Seeded on reveal rather than at mount, so a command
+                      // nobody expands sends exactly what it sent before: the
+                      // encoder fills each default itself.
+                      for (final p in _defaulted) {
+                        if (!_values.containsKey(p.name)) _seed(p);
+                      }
+                    }
+                  }),
+                  child: Text(
+                    _showDefaulted
+                        ? 'Hide the spec\'s defaults'
+                        : '${_defaulted.length} value${_defaulted.length == 1 ? '' : 's'} the spec fills in',
+                  ),
+                ),
+              ),
+              if (_showDefaulted)
+                for (final p in _defaulted) _buildParam(p),
+            ],
             Row(
               children: [
                 Expanded(

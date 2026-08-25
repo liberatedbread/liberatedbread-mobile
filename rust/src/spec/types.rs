@@ -1317,6 +1317,9 @@ pub struct Identification {
     /// never publicly verifiable.
     #[serde(default)]
     pub default_scheme: Option<String>,
+    /// What to do about that certificate. See [`TlsPolicy`].
+    #[serde(default)]
+    pub tls: Option<TlsPolicy>,
     /// Other discovery hints (e.g. admore's `local_name_dfu`,
     /// `local_name_armband*`), parsed and preserved but not yet interpreted.
     #[serde(flatten)]
@@ -1959,6 +1962,35 @@ impl Parameter {
         }
         Some(((value - self.value_offset.unwrap_or(0.0)) / scale).round())
     }
+}
+
+/// The trust policy for a `default_scheme: https` LAN device's certificate.
+///
+/// A LAN device's certificate is almost never publicly verifiable — the chain
+/// ends at a self-signed leaf or a vendor CA no platform store carries — so
+/// every client has to make a decision the platform cannot make for it. This
+/// block is the spec making that decision explicit instead of leaving each
+/// consumer to invent one.
+///
+/// It was parsed by nothing. Two specs (the Envoy and SmartCast) declare
+/// `verification: trust_on_first_use`, and what they got was every TLS client
+/// in the consumer accepting any certificate from anyone — the exact policy
+/// `none` names, applied to devices that asked for pinning.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TlsPolicy {
+    /// The certificate will never validate against a public chain, so the
+    /// consumer's trust decision is its own to make and to state.
+    #[serde(default)]
+    pub self_signed: bool,
+    /// `standard` | `trust_on_first_use` | `vendor_ca` | `none`.
+    ///
+    /// Untyped for the usual tolerance reason: a policy this build has not
+    /// heard of must read as "unknown" — which a consumer treats as its most
+    /// cautious known behaviour — rather than failing the whole spec.
+    #[serde(default)]
+    pub verification: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
 }
 
 /// Binary format field for parsing readable/notifiable characteristic values.

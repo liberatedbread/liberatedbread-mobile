@@ -2537,6 +2537,22 @@ class NetworkCapabilitiesDto {
   /// `None` meaning plain http.
   final String? defaultScheme;
 
+  /// The trust policy for that scheme's certificate, from
+  /// `identification.tls.verification`: `standard`, `trust_on_first_use`,
+  /// `vendor_ca` or `none`. `None` when the spec states none.
+  ///
+  /// Carried because a LAN certificate is almost never publicly verifiable,
+  /// so a client must decide something, and this is the spec deciding it.
+  /// Two specs ask for `trust_on_first_use` and every TLS client in the app
+  /// was excusing any certificate from anyone — `none`'s behaviour, applied
+  /// to devices that asked to be pinned.
+  final String? tlsVerification;
+
+  /// `identification.tls.self_signed` — the certificate will never validate
+  /// against a public chain, so refusing it outright is not an option and
+  /// the client owes the user a real policy instead.
+  final bool tlsSelfSigned;
+
   /// The spec's `protocol_handler`, when it names one — `roomba_mqtt`,
   /// `rabbit_air_lan`, `lifx_lan`.
   ///
@@ -2551,6 +2567,8 @@ class NetworkCapabilitiesDto {
     this.signedSession,
     this.defaultPort,
     this.defaultScheme,
+    this.tlsVerification,
+    required this.tlsSelfSigned,
     this.protocolHandler,
   });
 
@@ -2559,6 +2577,8 @@ class NetworkCapabilitiesDto {
       signedSession.hashCode ^
       defaultPort.hashCode ^
       defaultScheme.hashCode ^
+      tlsVerification.hashCode ^
+      tlsSelfSigned.hashCode ^
       protocolHandler.hashCode;
 
   @override
@@ -2569,6 +2589,8 @@ class NetworkCapabilitiesDto {
           signedSession == other.signedSession &&
           defaultPort == other.defaultPort &&
           defaultScheme == other.defaultScheme &&
+          tlsVerification == other.tlsVerification &&
+          tlsSelfSigned == other.tlsSelfSigned &&
           protocolHandler == other.protocolHandler;
 }
 
