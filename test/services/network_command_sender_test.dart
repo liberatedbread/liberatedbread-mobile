@@ -194,6 +194,39 @@ void main() {
     );
   });
 
+  test('the spec\'s port is the fallback when discovery carried none',
+      () async {
+    // 67 specs declare `identification.default_port`, and it was read for
+    // nothing but the Roku pin. A device added by hand, or found by a
+    // transport that carries an address and no port, failed every send with
+    // "did not advertise a control port" while its own spec said which port to
+    // use. Discovery still wins where it has an answer — the assertion below —
+    // because a device that told us where it is knows better than a default.
+    Uri? sent;
+    final s = sender(
+      httpClient: MockClient((request) async {
+        sent = request.url;
+        return http.Response('', 200);
+      }),
+      discoveredControlPort: null,
+      ssdpTargets: const [],
+      capabilities: const NetworkCapabilitiesDto(defaultPort: 8081),
+    );
+    await s.sendAction(action('turn_off', 'press_power_off'), {});
+    expect(sent?.port, 8081);
+  });
+
+  test('a discovered port still beats the spec on a non-roku', () {
+    expect(
+      sender(
+        discoveredControlPort: 7250,
+        ssdpTargets: const [],
+        capabilities: const NetworkCapabilitiesDto(defaultPort: 80),
+      ).controlPort,
+      7250,
+    );
+  });
+
   test('a soap action without a fetched description fails visibly', () async {
     final s = sender();
     await expectLater(

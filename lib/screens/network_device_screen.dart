@@ -509,10 +509,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // own initState will do the loading.
         await _rabbitAirPanelKey.currentState?.refresh();
       } else {
-        final port = widget.device.controlPort;
+        // Asked of the sender, which owns the rule: discovery first, then the
+        // port the spec declares. Reading `widget.device.controlPort` here
+        // meant only the discovered one, so a device added by hand — or found
+        // by a transport carrying an address and no port — failed on this line
+        // with its own spec naming the port two fields away.
+        final port = _sender.controlPort;
         if (port == null) {
-          // Nothing advertised a port at all — not a device this screen can
-          // drive.
+          // Nothing advertised a port and no spec declares one — not a device
+          // this screen can drive.
           throw const SoapTransportException(
               'the device did not advertise a control port');
         }
@@ -917,7 +922,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// buttons beside it still work, and the screen must not become an error
   /// page over a channel list.
   Future<void> _refreshQuerySources() async {
-    if (widget.device.controlPort == null) return;
+    if (_sender.controlPort == null) return;
     if (!_entities.any((e) => e.optionsSource != null)) return;
 
     if (mounted) setState(() => _loadingOptions = true);

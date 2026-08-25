@@ -137,14 +137,23 @@ class NetworkCommandSender {
   /// discovery-string guess.
   bool get isRoku => capabilities?.signedSession == 'ecp2';
 
-  /// The port a control request goes to. A device whose spec declares a
-  /// control port is pinned to it — Roku serves /keypress, /query, /launch
-  /// and /ecp-session only on its declared 8060, whatever port the SSDP
-  /// LOCATION carried (a field TV advertised 7250). Every other device uses
-  /// the port discovery captured.
+  /// The port a control request goes to.
+  ///
+  /// Roku is pinned to what its spec declares: it serves /keypress, /query,
+  /// /launch and /ecp-session only on 8060, whatever port the SSDP LOCATION
+  /// carried (a field TV advertised 7250). For everything else discovery wins,
+  /// because a device that told us where it is knows better than a catalogue
+  /// default — but the spec is the fallback rather than nothing.
+  ///
+  /// That fallback was missing, and `identification.default_port` is declared
+  /// by 67 specs. A device reached WITHOUT a discovered port — added by hand,
+  /// or found by a transport that carries an address and no port — had
+  /// `controlPort` come back null and every send fail with "the device did not
+  /// advertise a control port", while the spec sitting right there said which
+  /// port to use.
   int? get controlPort => isRoku
       ? (capabilities?.defaultPort ?? discoveredControlPort)
-      : discoveredControlPort;
+      : (discoveredControlPort ?? capabilities?.defaultPort);
 
   int get _kasaHostPort => devicePort ?? kasaPort;
 
