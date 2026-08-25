@@ -233,7 +233,11 @@ entities:
     step: 1
     unit: "A"
     commands:
-      turn_on: "set_current"
+      # A setpoint, not a power switch: `set_current` takes the amps this
+      # number is FOR (6-48, above) and the entity is a `number`. It was
+      # written as `turn_on`, which is a fixed role — no consumer looks for
+      # one on a number, so the slider resolved nothing and did not appear.
+      set_value: "set_current"
 
 helpful_urls:
   - title: "OpenEVSE/openevse_esp32_firmware"
