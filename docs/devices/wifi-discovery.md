@@ -143,6 +143,7 @@ firmware-level work.
 | Wemo appliances | SSDP/UPnP | `coffeemaker:1`, `crockpot:1`, `heater:1`, `purifier:1`, `humidifier:1` | `UDN`, then serial, then MAC |
 | Vector Robot | mDNS/DNS-SD | `_ankivector._tcp.local.` | Service name, hostname, TXT serial |
 | Frigidaire AC | Cloud API | Electrolux account appliance ID | Cloud appliance ID and app display name |
+| Denon AVR-S720W | SSDP/UPnP + mDNS | `SERVER: KnOS/...` plus a `0005cd` UDN node; AirPlay TXT `model` | `UDN`, then AirPlay `deviceid`; display `friendlyName` |
 
 For Wemo, ports are never the identity. Ports are connection details discovered
 from SSDP `LOCATION` or from the fallback probe list.
@@ -170,6 +171,57 @@ Example:
 python scripts/roku_discover.py --timeout 5
 ```
 
+### Denon / Marantz AV receivers: when every advertisement is generic
+
+Roku and Wemo are the easy shape — a vendor-specific search target does the
+identifying on its own. A Denon receiver is the other shape, and worth writing
+down because plenty of hardware behaves this way. Everything an AVR-S720W
+announces is a standard that dozens of unrelated devices also announce:
+
+```text
+mDNS: _http._tcp, _airplay._tcp, _raop._tcp, _spotify-connect._tcp
+SSDP: upnp:rootdevice, uuid:..., urn:schemas-upnp-org:device:MediaRenderer:1,
+      urn:schemas-upnp-org:service:{RenderingControl,ConnectionManager,AVTransport}:1
+```
+
+There is no vendor search target to send, so `MediaRenderer:1` (or `ssdp:all`)
+is the query, and identification happens on the **reply** instead. Three
+signals, in decreasing order of how cheaply they can be checked:
+
+| Signal | Where | Why it identifies |
+|---|---|---|
+| `SERVER: KnOS/3.2 UPnP/1.0 DMP/3.5` | M-SEARCH reply header | `KnOS/` is D&M's firmware platform. No HTTP fetch needed. |
+| `uuid:XXXXXXXX-XXXX-XXXX-XXXX-0005CDAABBCC` | `USN`/`UDN` | The UDN's node field is the device MAC, and `00:05:CD` is D&M's OUI. |
+| `cpath=/goform/spotifyConfig` | `_spotify-connect._tcp` TXT | `/goform/` is D&M's own web-API namespace, riding inside a third party's protocol. |
+
+The general lesson: when a device offers no vendor search target, look at the
+`SERVER` header, at the UDN's node field (which is very often the MAC, so an
+OUI lookup identifies the vendor without a single HTTP request), and at TXT
+records belonging to third-party protocols — a `cpath`, a `path`, a `url` value
+frequently leaks the vendor's own namespace.
+
+The TXT-record signals are declarable, not just observable: a spec claims the
+platform service type and narrows it with `mdns_txt_match` conditions (the
+Denon spec matches `cpath` exactly and the `deviceid` OUI as a prefix), the
+same contract that keeps `_esphomelib._tcp` from claiming every ESPHome node.
+Only the SSDP reply headers still have no machine-matcher slot in the schema.
+
+**Keep matching and identity separate.** All three signals above answer "what
+kind of thing is this?", and none of them answers "which unit is it?" — the
+`SERVER` string and the `cpath` are byte-identical on every device of the
+family, so keying a device list on one collapses two receivers into a single
+entry. Identity here is the SSDP UDN or the `_airplay._tcp` TXT `deviceid`.
+Nor are those two a join key for each other: a device with both a wired and a
+wireless interface has two MACs, and the two records may carry different ones,
+so join across transports by address.
+
+Model and generation then come from the AirPlay TXT records rather than an HTTP
+probe: `am`/`model` carry the model (`AVRS720W`), and `srcvers`/`vs` carry the
+AirPlay generation (`190.9.p6` is AirPlay 1; an AirPlay 2 receiver also
+advertises a `pk` public-key record). Control lives somewhere else entirely —
+`http://<ip>/goform/...` on port 80 — so do **not** reuse the port from the
+SSDP `LOCATION` header for it. See [Denon AVR-S720W](denon-avr-s720w.md).
+
 ## mDNS / DNS-SD: Local WiFi Devices
 
 Many newer WiFi devices advertise DNS-SD service records. These records should
@@ -186,6 +238,7 @@ connection details, not identity.
 | Lutron Caseta Bridge | `_leap._tcp.local.`, `_lutron._tcp.local.` | TXT `MACADDR`, then hostname | LEAP TLS/WebSocket on 8081 |
 | Rachio Controller | `_hap._tcp.local.` where `md` starts with Rachio | TXT `id` | HAP/local control research |
 | SmartThings Hub v2 | `_smartthings._tcp.local.` | TXT `id` | Edge WebSocket on `_smartthings-hedge._tcp` |
+| Denon / Marantz AVR | `_airplay._tcp.local.` for identity; `_spotify-connect._tcp.local.` (TXT `cpath=/goform/spotifyConfig`) to recognise one | TXT `deviceid` on `_airplay._tcp` — a `00:05:CD` MAC. `cpath` is a constant, never an identity | `GET /goform/formMainZone_MainZoneXmlStatusLite.xml` on port 80 |
 
 Use the local tools:
 

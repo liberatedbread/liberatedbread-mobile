@@ -1,0 +1,154 @@
+# Pebble Smartwatch — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - libpebble2 (official Pebble Python library) protocol + transport docs.
+#   - Rebble Foundation; Google's 2025 PebbleOS open-source release.
+
+device:
+  name: "Pebble Smartwatch (Classic / Time / Pebble 2 / 2025 revival)"
+  manufacturer: "Pebble Technology (defunct 2016; revived via Rebble + Core Devices)"
+  manufacturer_status: "abandoned"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The Pebble Protocol framing
+      and libpebble2 transports are from the libpebble2 documentation; the 2025
+      open-source status from Core Devices / Google announcements.
+  protocol: "ble"
+  category: "wearable"
+  notes: >
+    Pebble is the original crowdfunded smartwatch line (Classic, Steel, Time,
+    Time Steel/Round, Pebble 2). Pebble Technology shut down in 2016 (IP to Fitbit
+    then Google), but this is the model rescue story: in Dec 2025 Google
+    open-sourced the PebbleOS firmware 100%, Core Devices ships new
+    Pebble-compatible hardware, and the Rebble Foundation runs the web services
+    and appstore. Full local control, no cloud.
+
+    APPLICATION LAYER — the "Pebble Protocol": endpoint-addressed packets. Every
+    packet has a numeric `endpoint` and a body; framing is a length + endpoint
+    prefix. Field types: Uint8/16/32/64, Int*, Boolean, UUID; four string
+    encodings (PascalString length-prefixed, NullTerminated, Fixed, BinaryArray);
+    structural fields Union/FixedList/PascalList/Embed/Padding/Optional. Default
+    endianness is big-endian, configurable per field.
+
+    TRANSPORTS (libpebble2): direct Bluetooth serial to a paired watch; a
+    WebSocket via the phone app's Developer Connection (port 9000); and QEMU for
+    the emulator. Pebble supports only one simultaneous connection — disconnect
+    the phone before connecting a computer over serial. No cloud is needed for
+    protocol operation.
+
+    Endpoint NUMBER assignments beyond examples should be taken from libpebble2
+    source per message type.
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/pebble/libpebble2"
+    upstream_docs:
+      - url: "https://libpebble2.readthedocs.io/en/latest/protocol/"
+        title: "libpebble2 — Pebble Protocol"
+        covers: "The endpoint-addressed packet framing, the field type system and the string encodings."
+      - url: "https://libpebble2.readthedocs.io/en/latest/transports/"
+        title: "libpebble2 — transports"
+        covers: "Bluetooth serial, the WebSocket (port 9000) developer connection, and QEMU."
+    notes: >
+      libpebble2 was an official Pebble library, so much is documented rather
+      than reverse-engineered; the firmware itself was open-sourced by Google in
+      2025. Rebble runs the appstore/web services; Core Devices ships new
+      compatible hardware.
+
+  identification:
+    local_name_prefix: "Pebble"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Pebble"
+        notes: >
+          Watches advertise a "Pebble ..." name and pair as a standard BLE (or
+          Bluetooth Classic on older models) device. A client connects over one
+          of the libpebble2 transports.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Standard Bluetooth pairing; no vendor auth key. App installs now come from
+      the Rebble appstore (apps.rePebble.com) and the mobile app can subscribe to
+      multiple appstore feeds, so anyone can host a Pebble-compatible feed. High
+      confidence: official library docs + the 2025 open-source release.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Pair the watch over Bluetooth, then speak the Pebble Protocol over one
+          of the libpebble2 transports (Bluetooth serial to a paired watch, or a
+          WebSocket developer connection on port 9000). Only one connection at a
+          time.
+        ble:
+          pairing_required: true
+        steps:
+          - action: "Pair the watch over Bluetooth."
+            actor: "user"
+          - action: "Connect via libpebble2 (Bluetooth serial, or the port-9000 WebSocket dev connection) and exchange Pebble Protocol packets."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A factory reset (from the watch settings) clears apps and pairings and
+        returns the watch to first-run. The exact menu path varies by model and
+        is not transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Re-pair over Bluetooth; no network membership to change."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Bluetooth pairing"
+        - "Installed watchapps / configuration"
+      issued_to_client: []
+      notes: "Standard Bluetooth pairing; no application-layer credential. No Wi-Fi on the watch itself."
+
+# The Pebble Protocol application layer + libpebble2 transports.
+pebble_protocol:
+  framing: "Endpoint-addressed packets: length + numeric endpoint prefix, then a body. Big-endian by default."
+  field_types: "Uint8/16/32/64, Int*, Boolean, UUID; strings PascalString/NullTerminated/Fixed/BinaryArray; Union/FixedList/PascalList/Embed/Padding/Optional."
+  transports:
+    bluetooth_serial: "Direct to a paired watch over the OS Bluetooth stack."
+    websocket: "Via the phone app's Developer Connection, TCP port 9000 (MessageTargetPhone)."
+    qemu: "The Pebble emulator (MessageTargetQemu)."
+  concurrency: "One connection at a time — disconnect the phone before connecting a computer over serial."
+
+# The libpebble2 WebSocket developer connection (port 9000) is the concrete
+# local IP surface; http_endpoints is a placeholder for the access surface —
+# control is the Pebble Protocol packets above, not REST.
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Control is the Pebble Protocol (endpoint-addressed
+      packets) over Bluetooth serial or the port-9000 WebSocket developer
+      connection (see pebble_protocol), not HTTP/REST.
+
+helpful_urls:
+  - title: "libpebble2 — Pebble Protocol + transports"
+    url: "https://libpebble2.readthedocs.io/en/latest/protocol/"
+    description: "The official library's protocol framing and transport documentation."
+  - title: "Rebble Foundation"
+    url: "https://rebble.io/"
+    description: "Community web services + appstore keeping Pebble alive (RebbleOS, apps.rePebble.com)."
+  - title: "The new Pebble is now 100% open source (2025)"
+    url: "https://ericmigi.com/blog/pebble-watch-software-is-now-100percent-open-source/"
+    description: "Context on the 2025 PebbleOS open-source release and Core Devices' new hardware."

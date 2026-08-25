@@ -1,0 +1,209 @@
+# Gree Smart Air Conditioner (LAN) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - tomikaa87/gree-remote (GPL-3.0) — full protocol write-up + clients.
+#   - cmroche/greeclimate — AES-GCM (encryption v2) support for newer firmware.
+
+device:
+  name: "Gree Smart Air Conditioner (LAN)"
+  manufacturer: "Gree Electric Appliances (many OEM rebrands: Cooper & Hunter, etc.)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The UDP-7000 transport, the
+      AES-ECB/Base64 pack scheme, the scan/bind exchange and the parameter names
+      are from tomikaa87/gree-remote; the AES-GCM firmware split is from
+      cmroche/greeclimate.
+  protocol: "wifi"
+  category: "climate"
+  transport: "udp"
+  notes: >
+    Gree Wi-Fi air conditioners (and the many OEM rebrands) are controllable
+    entirely on the LAN over a UDP/JSON protocol on port 7000 — no cloud, no
+    account at any point. Gree is a very large manufacturer (active); the risk
+    here is firmware churn, not abandonment: newer firmware moved from AES-ECB to
+    AES-GCM ("encryption_version 2"), which older clients must handle.
+
+    TRANSPORT: UDP unicast + broadcast, port 7000. The JSON envelope carries
+    fields t, i, uid, cid, tcid and pack; the pack is AES-128-ECB (PKCS-7),
+    Base64-encoded. Two keys: a generic key shared by all devices (used for
+    scan/bind) and a per-device key returned during binding.
+
+    FLOW:
+      1. Discover: broadcast plaintext {"t":"scan"} to UDP 7000; each device
+         answers with its MAC and an encrypted metadata pack.
+      2. Bind: send a pack {"mac":"<MAC>","t":"bind","uid":0} (generic key); the
+         device replies {"t":"bindok","mac":"<MAC>","key":"<per-device key>"}.
+      3. Status: pack {"cols":["Pow","Mod","SetTem","WdSpd"],"mac":"<MAC>",
+         "t":"status"} → values by parameter name (Pow, Mod, SetTem, TemUn, ...).
+      4. Control: pack {"opt":["TemUn","SetTem"],"p":[0,27],"t":"cmd"}.
+
+    Newer firmware: some devices require encryption_version 2 (AES-GCM); a client
+    should try AES-ECB first and fall back to GCM.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/tomikaa87/gree-remote"
+    license: "GPL-3.0"
+    notes: >
+      No official English protocol publication; tomikaa87/gree-remote documents
+      it end-to-end and cmroche/greeclimate independently implements it
+      (including the GCM firmware variant).
+
+  identification:
+    default_port: 7000
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # Gree does not advertise mDNS; discovery is the UDP 7000 {"t":"scan"}
+          # broadcast. Placeholder block; see gree_lan_protocol.
+          service_type: "_http._tcp.local."
+          port: 7000
+          identity_mapping:
+            stable_keys:
+              - source: "udp:7000#mac"
+                key: "mac"
+            display:
+              source: "udp:7000#name"
+        notes: >
+          Real discovery: broadcast plaintext {"t":"scan"} to UDP 7000; each AC
+          answers with its MAC and an encrypted metadata pack. See
+          gree_lan_protocol.
+    identity:
+      stable_keys: ["mac"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A factory-fresh AC hosts its own AP for Wi-Fi onboarding via the Gree+
+      app; local control needs no cloud. After the unit is on the LAN, the
+      client performs the UDP bind (generic key → per-device key) once and
+      reuses the per-device key. Wi-Fi onboarding wire steps are not documented
+      here.
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          Join the AC's setup AP and hand it the home Wi-Fi credentials via the
+          Gree onboarding flow; then discover it on the LAN (UDP 7000 scan) and
+          bind to obtain the per-device key.
+        steps:
+          - action: "Onboard the AC onto Wi-Fi (Gree+ app / its setup AP)."
+            actor: "user"
+          - action: "Broadcast {\"t\":\"scan\"} on UDP 7000 and bind to get the per-device key."
+            actor: "client"
+            expect: "A bindok reply carrying the per-device AES key."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Returns the Wi-Fi module to onboarding (typically a remote-control key
+        combination on the AC). The exact gesture varies by model and is not
+        transcribed here.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        Wi-Fi re-provisioning is done through the module's onboarding, not the
+        control protocol.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Per-device AES key (returned at bind)"
+      issued_to_client:
+        - "Per-device AES key (from the bind exchange)"
+      notes: >
+        Wi-Fi onboarding is app-mediated (not documented here). Control packs are
+        AES-encrypted, but the generic key used for scan/bind is shared across
+        all Gree devices, so binding is possible by anyone on the LAN.
+
+gree_lan_protocol:
+  transport: "UDP unicast + broadcast, port 7000"
+  crypto: "pack field = AES-128-ECB (PKCS-7), Base64-encoded; newer firmware uses AES-GCM (encryption_version 2)"
+  envelope_fields: ["t", "i", "uid", "cid", "tcid", "pack"]
+  keys: "generic key (shared, used for scan/bind) + per-device key (returned at bind)"
+  parameters:
+    Pow: "power 0/1"
+    Mod: "mode 0 auto / 1 cool / 2 dry / 3 fan / 4 heat"
+    SetTem: "target temperature"
+    TemUn: "temperature unit 0 C / 1 F"
+    WdSpd: "fan speed"
+    Lig: "display light"
+    SwhSlp: "sleep mode"
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Control is AES-encrypted JSON over UDP port 7000 (see
+      gree_lan_protocol), not HTTP.
+
+commands:
+  power_on:
+    description: "Set power on (opt Pow, p 1)."
+    transport: "udp"
+    body: '{"opt":["Pow"],"p":[1],"t":"cmd"}'
+    verification: "reported"
+  power_off:
+    description: "Set power off (opt Pow, p 0)."
+    transport: "udp"
+    body: '{"opt":["Pow"],"p":[0],"t":"cmd"}'
+    verification: "reported"
+  set_temperature:
+    description: "Set target temperature (opt SetTem)."
+    transport: "udp"
+    body: '{"opt":["TemUn","SetTem"],"p":[0,{temp}],"t":"cmd"}'
+    parameters:
+      temp:
+        type: "integer"
+        min: 16
+        max: 30
+        description: "Target temperature (Celsius when TemUn is 0)."
+    verification: "reported"
+  set_mode:
+    description: "Set mode (opt Mod): 0 auto, 1 cool, 2 dry, 3 fan, 4 heat."
+    transport: "udp"
+    body: '{"opt":["Mod"],"p":[{mode}],"t":"cmd"}'
+    parameters:
+      mode:
+        type: "integer"
+        min: 0
+        max: 4
+        description: "0 auto, 1 cool, 2 dry, 3 fan, 4 heat."
+    verification: "reported"
+  get_status:
+    description: "Read status by parameter names."
+    transport: "udp"
+    body: '{"cols":["Pow","Mod","SetTem","WdSpd","TemUn"],"mac":"{mac}","t":"status"}'
+    parameters:
+      mac:
+        type: "string"
+        description: "Target device MAC."
+    verification: "reported"
+
+entities:
+  - platform: "climate"
+    name: "Air Conditioner"
+    min_temp: 16
+    max_temp: 30
+    temp_step: 1
+    notes: "Mode/setpoint/fan via the gree_lan_protocol parameters (Pow, Mod, SetTem, WdSpd)."
+
+helpful_urls:
+  - title: "tomikaa87/gree-remote"
+    url: "https://github.com/tomikaa87/gree-remote"
+    description: "GPL-3.0 — full protocol write-up (UDP 7000, AES pack, scan/bind, parameters) and reference clients."
+  - title: "cmroche/greeclimate"
+    url: "https://github.com/cmroche/greeclimate"
+    description: "Python client with AES-GCM (encryption_version 2) support for newer firmware."

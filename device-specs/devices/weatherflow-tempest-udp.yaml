@@ -1,0 +1,180 @@
+# WeatherFlow Tempest (local UDP) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - WeatherFlow's own UDP API docs: https://weatherflow.github.io/Tempest/api/udp/v171/
+
+device:
+  name: "WeatherFlow Tempest Weather Station"
+  manufacturer: "WeatherFlow-Tempest, Inc."
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The UDP port, message types
+      and obs_st field order are from WeatherFlow's own published UDP API (v171).
+  protocol: "wifi"
+  category: "sensor"
+  pictogram: "air-quality"
+  transport: "udp"
+  notes: >
+    The WeatherFlow Tempest (and the legacy Air/Sky sensors) is a home weather
+    station whose hub broadcasts JSON observation datagrams on the LAN — no cloud
+    needed to receive them and no authentication. WeatherFlow publishes the local
+    UDP API itself.
+
+    TRANSPORT: JSON over UDP broadcast, port 50222. Passive: a client just
+    listens; every message carries hub/device serial numbers.
+
+    MESSAGE TYPES:
+      rapid_wind   ~3 s wind speed (m/s) + direction (deg)
+      obs_st       the Tempest combined observation (see fields below)
+      obs_air / obs_sky   legacy Air / Sky sensor observations
+      evt_precip   rain start;  evt_strike   lightning (distance km, energy)
+      device_status  per-device health (bit-flag sensor status)
+      hub_status     firmware revision, uptime, RSSI
+    obs_st observation array (order): wind lull/avg/gust (m/s), wind direction
+    (deg), station pressure (mb), air temperature (C), relative humidity (%),
+    illuminance (lux), UV index, solar radiation (W/m^2), rain accumulation (mm),
+    lightning strike distance/count, battery volts, report interval.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://weatherflow.github.io/Tempest/api/udp/v171/"
+        title: "WeatherFlow — Tempest UDP API v171"
+        covers: "The UDP port, message types and the obs_st / rapid_wind / evt_* field layouts."
+    notes: >
+      This is the vendor's own local broadcast API, published deliberately for
+      third-party clients (weewx, Home Assistant). Nothing here was
+      reverse-engineered.
+
+  identification:
+    default_port: 50222
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # No mDNS; discovery is passive — just listen on UDP 50222 for the hub
+          # broadcasts. Placeholder block.
+          service_type: "_http._tcp.local."
+          port: 50222
+          identity_mapping:
+            stable_keys:
+              - source: "udp:50222#serial_number"
+                key: "serial_number"
+            display:
+              source: "udp:50222#hub_sn"
+        notes: >
+          Passive discovery: listen for UDP 50222 broadcasts; every datagram
+          carries the hub and device serial numbers.
+    identity:
+      stable_keys: ["serial_number"]
+      display: "serial_number"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      The hub's Wi-Fi onboarding is app-driven (not part of the local UDP API);
+      once the hub is on the LAN it broadcasts with no further setup and no
+      account needed for local reads.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Onboard the hub onto Wi-Fi with the WeatherFlow app. After it joins the
+          LAN it broadcasts observations on UDP 50222 with no further setup.
+        steps:
+          - action: "Onboard the hub onto Wi-Fi with the WeatherFlow app."
+            actor: "user"
+            expect: "The hub broadcasts obs_st / rapid_wind datagrams on UDP 50222."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Hub reset (button/power) returns it to onboarding; the exact gesture is
+        not documented in the UDP API and is not transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Wi-Fi is reconfigured through the app; local broadcasts resume once the hub rejoins."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Wi-Fi credentials"
+      issued_to_client: []
+      notes: >
+        The local UDP broadcast is unauthenticated and read-only; the Wi-Fi
+        passphrase is handled by the app's onboarding, not the API documented
+        here.
+
+# UDP broadcast receive-only; http_endpoints is a placeholder for the access
+# surface (there is no HTTP and no request/response — the client only listens).
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. There is no HTTP surface: the hub broadcasts JSON
+      observation datagrams on UDP port 50222, which a client passively receives.
+
+payload_formats:
+  obs_st:
+    description: "Tempest combined observation (the 'obs' array inside the obs_st message)."
+    fields:
+      - name: "wind_avg"
+        unit: "m/s"
+        description: "Average wind speed (index 2 of the obs array; lull=1, gust=3)."
+      - name: "wind_direction"
+        unit: "deg"
+        description: "Wind direction (index 4)."
+      - name: "station_pressure"
+        unit: "mbar"
+        description: "Station pressure (index 6)."
+      - name: "air_temperature"
+        unit: "C"
+        description: "Air temperature (index 7)."
+      - name: "relative_humidity"
+        unit: "%"
+        description: "Relative humidity (index 8)."
+      - name: "illuminance"
+        unit: "lux"
+        description: "Illuminance (index 9)."
+      - name: "uv"
+        description: "UV index (index 10)."
+      - name: "solar_radiation"
+        unit: "W/m2"
+        description: "Solar radiation (index 11)."
+      - name: "rain_accumulation"
+        unit: "mm"
+        description: "Rain over the reporting interval (index 12)."
+    parse_rules:
+      - "The observation is the first element of the message's `obs` array; indices above are positions within it."
+      - "See the WeatherFlow UDP API for the exact index of every field and for the legacy obs_air / obs_sky layouts."
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°C"
+  - platform: "sensor"
+    name: "Wind Speed"
+    unit: "m/s"
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+  - platform: "sensor"
+    name: "Pressure"
+    device_class: "atmospheric_pressure"
+    unit: "mbar"
+
+helpful_urls:
+  - title: "WeatherFlow — Tempest UDP API v171"
+    url: "https://weatherflow.github.io/Tempest/api/udp/v171/"
+    description: "The vendor's own local UDP broadcast API (port 50222, message types, field layouts)."

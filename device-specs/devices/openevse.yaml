@@ -1,0 +1,247 @@
+# OpenEVSE / EmonEVSE — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; open-by-design project):
+#   - OpenEVSE/openevse_esp32_firmware (GPLv3) — HTTP/MQTT/WebSocket gateway.
+#   - lincomatic/open_evse — the RAPI serial protocol on the controller.
+
+device:
+  name: "OpenEVSE / EmonEVSE Charging Station"
+  manufacturer: "OpenEVSE LLC (with OpenEnergyMonitor)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Facts are read from the
+      OpenEVSE ESP32 firmware docs (HTTP/MQTT), the RAPI header rapi_proc.h, and
+      the Stoplight API docs — all first-party open source.
+  protocol: "wifi"
+  category: "energy"
+  transport: "http"
+  notes: >
+    OpenEVSE (and the EmonEVSE variant) is an open-source EV charging station: an
+    ESP32 Wi-Fi gateway wraps a controller board that speaks the RAPI serial
+    protocol. Everything is local and open — HTTP API + WebSocket + MQTT, with
+    optional OCPP 1.6-J. No cloud is required.
+
+    HTTP: the ESP32 serves a web UI and JSON API (/status, /config, /override).
+    A WebSocket pushes live updates. Historically a RAPI passthrough existed at
+    /r?rapi=<command> but it is deprecated in favour of the HTTP API.
+
+    MQTT: base topic openevse-xxxx. Status subtopics /amp, /wh, /temp1..3,
+    /pilot, /status published ~every 30 s; control via /override/set, /claim/set,
+    /schedule/set, /limit/set, /divertmode/set, /restart; a RAPI bridge is at
+    <base>/rapi/in/$SC 13 -> <base>/rapi/out/#. Announce: a retained message on
+    openevse/announce/xxxx carries state, hostname and IP.
+
+    RAPI (controller serial): commands are $cc pp..^xk\r where ^xk is an 8-bit
+    XOR checksum (legacy *ck additive also accepted); v3.0.0+ adds optional
+    sequence ids :ss; responses are $OK.../$NK.... Key commands: GS state/elapsed,
+    GE settings+flags, GG charging current (mA)+voltage (mV), GC capacity range,
+    SC set current, SL service level, GU energy Ws+Wh, GH/SH kWh limit,
+    FS sleep/pause, FE enable/resume.
+
+    SAFETY: this controls mains EV charging current. Treat current-setting and
+    enable/sleep commands as advanced.
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/OpenEVSE/openevse_esp32_firmware"
+    license: "GPL-3.0"
+    upstream_docs:
+      - url: "https://openevse.stoplight.io/docs/openevse-wifi-v4/"
+        title: "OpenEVSE WiFi v4 — HTTP API"
+        covers: "The /status, /config and /override endpoints and the WebSocket."
+      - url: "https://github.com/OpenEVSE/openevse_esp32_firmware/blob/master/docs/mqtt.md"
+        title: "OpenEVSE — MQTT"
+        covers: "The base topic, status subtopics, control /set topics and the RAPI bridge."
+      - url: "https://github.com/lincomatic/open_evse/blob/master/firmware/open_evse/rapi_proc.h"
+        title: "open_evse — RAPI protocol header"
+        covers: "The RAPI command framing, checksum and command set."
+    notes: >
+      Firmware, hardware and API docs are all public. Upstream is authoritative;
+      this file normalises the published surface into the registry shape.
+
+  identification:
+    default_port: 80
+    mdns_service_type: "_http._tcp.local."
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_http._tcp.local."
+          port: 80
+          identity_mapping:
+            stable_keys:
+              - source: "http:/status#wifi_client_mac"
+                key: "mac"
+            display:
+              source: "http:/config#hostname"
+        notes: >
+          The ESP32 gateway serves HTTP on port 80 and announces over MQTT
+          (openevse/announce/xxxx with state/hostname/IP). Confirm with GET
+          /status.
+    identity:
+      stable_keys: ["mac"]
+      display: "hostname"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A factory-fresh gateway hosts its own Wi-Fi AP and serves the setup UI;
+      joining it to the home network needs no cloud. Provisioning wire steps are
+      not transcribed here (they are the standard ESP captive-portal flow).
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          Join the gateway's setup AP, open its web UI, and enter the home Wi-Fi
+          credentials; it reboots onto the LAN and serves the API on port 80.
+        steps:
+          - action: "Power a new/reset gateway and join its setup AP."
+            actor: "user"
+          - action: "Open the setup UI and submit the home Wi-Fi credentials."
+            actor: "client"
+            expect: "The gateway joins the LAN and answers GET /status."
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Clears Wi-Fi and gateway configuration, returning it to the setup AP.
+        Performed by holding the gateway's button (documented in the OpenEVSE
+        user guide); the exact hold time is not transcribed here.
+      procedures:
+        - name: "Button-hold factory reset"
+          verified: false
+          basis: "Documented in the OpenEVSE user guide; not replayed by this project."
+          steps:
+            - action: "Hold the gateway button until it resets and reopens the setup AP."
+              actor: "user"
+              expect: "The gateway returns to Wi-Fi setup."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Wi-Fi can be reconfigured from the gateway web UI while it is reachable."
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Optional web-UI / MQTT credentials"
+      issued_to_client: []
+      notes: >
+        The gateway can be given a web-UI password; by default the local API is
+        open on the LAN. Provisioning passes the Wi-Fi passphrase over the setup
+        AP's captive portal.
+
+http_endpoints:
+  - method: "GET"
+    path: "/status"
+    name: "Charger status"
+    description: "Live JSON: state, charging current (amp), energy (wh), temperatures, pilot, elapsed time."
+  - method: "GET"
+    path: "/config"
+    name: "Configuration"
+    description: "Gateway + charger configuration, including hostname and current-capacity limits."
+  - method: "GET"
+    path: "/override"
+    name: "Manual override (read)"
+    description: "The current manual override (charge/sleep state, target current)."
+  - method: "POST"
+    path: "/override"
+    name: "Manual override (set)"
+    description: "Set a manual override: state (active/disabled), charge_current, max_current."
+    request_body:
+      content_type: "application/json"
+
+mqtt_topics:
+  - topic: "openevse-{id}/amp"
+    name: "Charging current"
+    direction: "publish"
+    description: "Charging current in milliamps, published ~every 30 s."
+    payload_format:
+      encoding: "string"
+  - topic: "openevse-{id}/status"
+    name: "Charger state"
+    direction: "publish"
+    description: "Charger state string."
+    payload_format:
+      encoding: "string"
+  - topic: "openevse-{id}/override/set"
+    name: "Set override"
+    direction: "subscribe"
+    description: "Set a manual override (JSON payload: state, charge_current)."
+    payload_format:
+      encoding: "json"
+  - topic: "openevse-{id}/rapi/in/{command}"
+    name: "RAPI bridge (in)"
+    direction: "subscribe"
+    description: "Send a RAPI command (e.g. $SC 13 to set 13 A); replies on openevse-{id}/rapi/out/#."
+    payload_format:
+      encoding: "string"
+
+commands:
+  set_current:
+    description: "Set the charging current limit (amps), via the HTTP override."
+    transport: "http"
+    method: "POST"
+    path: "/override"
+    body: '{"state":"active","charge_current":{amps}}'
+    parameters:
+      amps:
+        type: "integer"
+        min: 6
+        max: 48
+        description: "Target charge current in A (per station capacity)."
+    verification: "reported"
+  pause:
+    description: "Pause charging (override sleep)."
+    transport: "http"
+    method: "POST"
+    path: "/override"
+    body: '{"state":"disabled"}'
+    verification: "reported"
+  resume:
+    description: "Resume charging (clear override)."
+    transport: "http"
+    method: "POST"
+    path: "/override"
+    body: '{"state":"active"}'
+    verification: "reported"
+
+entities:
+  - platform: "sensor"
+    name: "Charging Current"
+    device_class: "current"
+    unit: "A"
+    state_endpoint: "/status"
+    notes: "amp field (milliamps in MQTT; the /status amp is charging current)."
+  - platform: "sensor"
+    name: "Session Energy"
+    device_class: "energy"
+    unit: "Wh"
+    state_endpoint: "/status"
+    notes: "wh field."
+  - platform: "number"
+    name: "Charge Current Limit"
+    min: 6
+    max: 48
+    step: 1
+    unit: "A"
+    commands:
+      turn_on: "set_current"
+
+helpful_urls:
+  - title: "OpenEVSE/openevse_esp32_firmware"
+    url: "https://github.com/OpenEVSE/openevse_esp32_firmware"
+    description: "GPLv3 ESP32 gateway firmware: HTTP API, WebSocket, MQTT, OCPP."
+  - title: "OpenEVSE WiFi v4 — HTTP API (Stoplight)"
+    url: "https://openevse.stoplight.io/docs/openevse-wifi-v4/"
+    description: "The /status, /config and /override endpoints."
+  - title: "lincomatic/open_evse — RAPI protocol"
+    url: "https://github.com/lincomatic/open_evse/blob/master/firmware/open_evse/rapi_proc.h"
+    description: "The controller RAPI serial command set and framing."

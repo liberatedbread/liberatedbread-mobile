@@ -1,0 +1,186 @@
+# RuuviTag (BLE) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; open format):
+#   - docs.ruuvi.com (Data Format 5 / RAWv2 and Data Format 3 / RAWv1).
+
+device:
+  name: "RuuviTag Environmental Sensor"
+  manufacturer: "Ruuvi Innovations Ltd"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The DF5/DF3 byte layouts and
+      company id 0x0499 are from Ruuvi's own published data-format documentation.
+  protocol: "ble"
+  category: "sensor"
+  pictogram: "air-quality"
+  notes: >
+    The RuuviTag is an open BLE environmental sensor. Ruuvi publishes its
+    advertisement formats and firmware, so this is a clean open target: passive
+    BLE listen, no pairing, no cloud. Data is in the BLE Manufacturer Specific
+    Data under company id 0x0499 (on-air little-endian 99 04); the format is
+    discriminated by the first payload byte (0x05 = Data Format 5 / RAWv2, 0x03 =
+    Data Format 3 / RAWv1).
+
+    DATA FORMAT 5 (RAWv2), 24-byte payload, multi-byte fields MSB-first:
+      @0 format id 0x05
+      @1-2 temperature s16 x0.005 C (invalid 0x8000)
+      @3-4 humidity u16 x0.0025 % (invalid 0xFFFF)
+      @5-6 pressure u16, 1 Pa with -50000 Pa offset (invalid 0xFFFF)
+      @7-8/@9-10/@11-12 acceleration X/Y/Z s16, 1 mG (invalid 0x8000)
+      @13-14 power info: upper 11 bits battery mV (+1600 offset), lower 5 bits TX
+             power (2 dBm step, -40 offset)
+      @15 movement counter u8 (invalid 0xFF)
+      @16-17 measurement sequence u16 (invalid 0xFFFF)
+      @18-23 MAC address
+
+    DATA FORMAT 3 (RAWv1), 14-byte legacy: @0 0x03; @1 humidity u8 x0.5 %; @2-3
+    temperature (MSB=sign, x0.01 C); @4-5 pressure (1 Pa, -50000 offset);
+    @6-7/@8-9/@10-11 accel X/Y/Z mG; @12-13 battery mV.
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://docs.ruuvi.com/communication/bluetooth-advertisements/data-format-5-rawv2"
+        title: "Ruuvi — Data Format 5 (RAWv2)"
+        covers: "The 24-byte DF5 payload layout and company id 0x0499."
+      - url: "https://docs.ruuvi.com/communication/bluetooth-advertisements/data-format-3-rawv1"
+        title: "Ruuvi — Data Format 3 (RAWv1)"
+        covers: "The 14-byte legacy DF3 payload layout."
+    notes: >
+      Ruuvi publishes the data formats and firmware; nothing was reverse-
+      engineered. Company id 0x0499 is Ruuvi's own SIG assignment.
+
+  identification:
+    manufacturer_data:
+      company_id: 1177
+      company_id_hex: "0x0499"
+      description: >
+        Ruuvi Innovations. The first payload byte selects the format (0x05 = DF5
+        / RAWv2, 0x03 = DF3 / RAWv1). Name prefix "Ruuvi".
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Ruuvi"
+          manufacturer_data:
+            company_id: 1177
+            description: "Ruuvi (0x0499); decode by the leading format byte (0x05 / 0x03)."
+        notes: "Passive scan: match company id 0x0499, decode DF5 (or legacy DF3)."
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing to provision: the tag ships broadcasting. A magnet/button and the
+      Ruuvi Station app can change the interval, but the sensor stream needs no
+      onboarding.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Passive: scan for company id 0x0499 and decode the DF5 (or DF3) payload.
+          No connection required.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Scan for company id 0x0499 and decode the manufacturer-data payload per its format byte."
+            actor: "client"
+            expect: "Temperature/humidity/pressure/acceleration/battery update every advertisement."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Firmware reflash / a bootloader gesture exists but is not a broadcast
+        reset and is not transcribed here. The tag stores no network/cloud state.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; reading is passive."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No pairing/auth; measurements are broadcast in the clear. No Wi-Fi."
+
+# Broadcast-only sensor: the standard Generic Access below records a connectable
+# surface; the telemetry is entirely in the advertisement (payload_formats).
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access (standard)"
+    notes: >
+      Placeholder connectable surface. RuuviTag telemetry is in the manufacturer
+      advertisement (company id 0x0499), decoded in payload_formats. Firmware also
+      offers a Nordic UART GATT for history on some builds (not documented here).
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read"]
+        notes: "Standard device-name characteristic (\"Ruuvi ...\")."
+
+payload_formats:
+  data_format_5:
+    description: "RAWv2 (DF5), 24-byte manufacturer-data payload; multi-byte fields MSB-first."
+    fields:
+      - name: "format"
+        description: "byte 0 = 0x05."
+      - name: "temperature"
+        unit: "C"
+        scale: 0.005
+        description: "s16 @1, x0.005 C; 0x8000 invalid."
+      - name: "humidity"
+        unit: "%"
+        scale: 0.0025
+        description: "u16 @3, x0.0025 %; 0xFFFF invalid."
+      - name: "pressure"
+        unit: "Pa"
+        value_offset: 50000
+        description: "u16 @5, 1 Pa; decode as raw + 50000 Pa (value_offset); 0xFFFF invalid."
+      - name: "battery_mv"
+        unit: "mV"
+        value_offset: 1600
+        description: "upper 11 bits of @13-14, +1600 mV offset."
+      - name: "movement_counter"
+        description: "u8 @15; 0xFF invalid."
+      - name: "sequence"
+        description: "u16 @16; 0xFFFF invalid."
+    parse_rules:
+      - "A leading byte 0x03 is the legacy 14-byte DF3 layout instead; decode accordingly."
+      - "Treat the per-field sentinel values (0x8000 / 0xFFFF / 0xFF) as invalid."
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°C"
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+  - platform: "sensor"
+    name: "Pressure"
+    device_class: "atmospheric_pressure"
+    unit: "Pa"
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "mV"
+
+helpful_urls:
+  - title: "Ruuvi — Data Format 5 (RAWv2)"
+    url: "https://docs.ruuvi.com/communication/bluetooth-advertisements/data-format-5-rawv2"
+    description: "The 24-byte DF5 payload layout and company id 0x0499."
+  - title: "Ruuvi — Data Format 3 (RAWv1)"
+    url: "https://docs.ruuvi.com/communication/bluetooth-advertisements/data-format-3-rawv1"
+    description: "The 14-byte legacy DF3 payload layout."

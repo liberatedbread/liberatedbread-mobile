@@ -1,0 +1,193 @@
+# Xiaomi M365 / Ninebot-family E-Scooter (BLE) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - CamiAlfa/M365-BLE-PROTOCOL (protocolo + m365_register_map.h).
+#   - Informatic/py9b (link/ble.py, transport/xiaomi.py).
+#   - Zimperium advisory (unauthenticated BLE commands).
+
+device:
+  name: "Xiaomi Mijia M365 E-Scooter (BLE)"
+  manufacturer: "Xiaomi (Ninebot-built ESC/BMS)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The Nordic-UART UUIDs, the
+      55 AA frame + XOR checksum, and the register map are cross-confirmed by
+      CamiAlfa/M365-BLE-PROTOCOL and Informatic/py9b; the unauthenticated-command
+      issue is from the Zimperium advisory.
+  protocol: "ble"
+  category: "vehicle"
+  notes: >
+    The Xiaomi M365 (and the ESC/BMS shared with Ninebot-built variants) is the
+    most reverse-engineered e-scooter. Its BLE module is a stock Nordic UART port
+    that bridges to a half-duplex one-wire UART bus (115200 8N1) shared by the
+    BLE module, ESC and BMS: a client tunnels a register read/write protocol over
+    the NUS characteristics. Fully local, no cloud.
+
+    GATT: Nordic UART service 6e400001-b5a3-f393-e0a9-e50e24dcca9e; write/RX
+    6e400002-...; notify/TX 6e400003-.... Advertised name "MIscooterXXXX".
+
+    FRAME: 55 AA | L | D | T | c | payload(LSB-first) | ck0 ck1, where L = payload
+    length + 2. Checksum = (sum of bytes from L through payload) XOR 0xFFFF; ck0
+    low byte, ck1 high byte. Direction/address byte D: 0x20 master->ESC, 0x23
+    ESC->master, 0x22 master->battery, 0x25 battery->master. Command T: 0x01 read,
+    0x03 write.
+
+    KEY ESC REGISTERS: 0x10 serial (14-byte string), 0x17 PIN (6 bytes), 0x1A
+    firmware (BCD, 0x0133 = v1.3.3), 0x7B KERS/regen level (0/1/2), 0x7C cruise
+    on/off, 0x7D taillight, 0xB0 error codes, 0xB4 battery %, 0xB5 speed (m/h),
+    0xB7 total km (4 bytes), 0xB9 trip km x100. BATTERY/BMS (via D=0x22): 0x31
+    remaining mAh, 0x32 %, 0x33 current (Ax100, negative=charging), 0x34 voltage
+    (Vx10), 0x35 cell temp (+20C offset), 0x40-0x49 per-cell mV.
+
+    ENCRYPTED VARIANT: header 55 AB (vs 55 AA plaintext); payload XOR-masked with
+    a simple key stream (no AES/ECDH in the reference library).
+
+    SAFETY: see the security_advisory — commands are unauthenticated over BLE.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Informatic/py9b"
+    upstream_docs:
+      - url: "https://github.com/CamiAlfa/M365-BLE-PROTOCOL"
+        title: "CamiAlfa/M365-BLE-PROTOCOL"
+        covers: "The 55 AA frame, XOR checksum, address/command bytes and the ESC/BMS register map."
+    notes: >
+      No vendor documentation; the protocol is fully reverse-engineered and
+      cross-confirmed by multiple independent projects (py9b, CamiAlfa, ESP32
+      ports).
+
+  security_advisory:
+    severity: "vulnerable"
+    summary: >
+      The app password is validated only in-app; all scooter commands execute
+      over BLE without authentication, so anyone in BLE range can lock, brake,
+      accelerate, or flash firmware.
+    detail: >
+      Zimperium showed that the anti-theft lock, cruise, acceleration/braking and
+      even a malicious firmware flash execute over BLE with no on-wire
+      authentication — the password gate is app-side only. There is no user fix;
+      keeping the official app connected is the only mitigation noted.
+    advisory_url: "https://www.zimperium.com/blog/dont-give-me-a-brake-xiaomi-scooter-hack-enables-dangerous-accelerations-and-stops-for-unsuspecting-riders/"
+
+  identification:
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    local_name_prefix: "MIscooter"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "MIscooter"
+          service_uuids:
+            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        notes: >
+          Advertises the Nordic UART service and a "MIscooterXXXX" name. The same
+          NUS service is used by many devices, so confirm with a valid 55 AA
+          reply.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No PIN is required to talk to the plaintext bus (the PIN lives at ESC
+      register 0x17 and can be read/rewritten). Connect over BLE, subscribe to
+      the TX characteristic, and write 55 AA-framed register commands to RX.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Connect to the "MIscooter" NUS device, subscribe to notify char
+          6e400003, and write 55 AA-framed register reads/writes to 6e400002
+          (e.g. read 0xB4 battery %).
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Connect and subscribe to the TX characteristic (6e400003)."
+            actor: "client"
+          - action: "Write a 55 AA read of register 0xB4 to 6e400002 to get battery %."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No documented BLE factory reset; the PIN and settings are register writes,
+        not a single reset. Not transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; a new BLE client connects independently."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "6-byte PIN (register 0x17)"
+        - "ESC/BMS configuration registers"
+      issued_to_client: []
+      notes: >
+        The PIN gates the official app only, not the BLE bus (see the
+        security_advisory). There is no Wi-Fi.
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART serial bridge"
+    notes: >
+      Tunnels the 55 AA register protocol. Write commands to 6e400002, read
+      notifications on 6e400003. Frame: 55 AA L D T c payload ck0 ck1.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "RX (write)"
+        properties: ["write_without_response"]
+        notes: "55 AA-framed register read (T=0x01) / write (T=0x03) commands."
+        commands:
+          read_battery_percent:
+            description: "Read the 32-byte ESC status block starting at register 0xB0 (battery % is at offset 4 within the reply = register 0xB4). Frame: 55 aa 03 20 01 b0 20 0b ff."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x55, 0xAA, 0x03, 0x20, 0x01, 0xB0, 0x20, 0x0B, 0xFF]
+          read_serial:
+            description: "Read ESC register 0x10 (14-byte serial). Frame: 55 aa 03 20 01 10 0e bd ff."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x55, 0xAA, 0x03, 0x20, 0x01, 0x10, 0x0E, 0xBD, 0xFF]
+          cruise_on:
+            description: "Enable cruise control (write register 0x7C = 1). Frame: 55 aa 04 20 03 7c 01 00 5b ff."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x55, 0xAA, 0x04, 0x20, 0x03, 0x7C, 0x01, 0x00, 0x5B, 0xFF]
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "TX (notify)"
+        properties: ["notify"]
+        notes: "55 AA-framed replies (D=0x23 from ESC, 0x25 from battery)."
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: "ESC register 0xB4."
+  - platform: "sensor"
+    name: "Speed"
+    unit: "km/h"
+    notes: "ESC register 0xB5 (raw is m/h)."
+
+helpful_urls:
+  - title: "CamiAlfa/M365-BLE-PROTOCOL"
+    url: "https://github.com/CamiAlfa/M365-BLE-PROTOCOL"
+    description: "The 55 AA frame, XOR checksum, address/command bytes, and the full ESC/BMS register map."
+  - title: "Informatic/py9b"
+    url: "https://github.com/Informatic/py9b"
+    description: "Python library: BLE link, Xiaomi + Ninebot transports, ready-made read/unlock/passwd tools."
+  - title: "Zimperium — Xiaomi scooter BLE advisory"
+    url: "https://www.zimperium.com/blog/dont-give-me-a-brake-xiaomi-scooter-hack-enables-dangerous-accelerations-and-stops-for-unsuspecting-riders/"
+    description: "The unauthenticated-BLE-command issue recorded in the security_advisory."

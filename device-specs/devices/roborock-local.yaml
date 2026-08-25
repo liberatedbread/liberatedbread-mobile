@@ -1,0 +1,186 @@
+# Roborock Robot Vacuum (local) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Home Assistant roborock integration docs (port 58867, hybrid model).
+#   - Python-roborock/python-roborock + KonradIT/roborock-remote (framing/auth).
+
+device:
+  name: "Roborock Robot Vacuum (local protocol)"
+  manufacturer: "Roborock"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Port 58867, AES-128-ECB, the
+      cloud-login->local-key flow and the header layout are from the Home
+      Assistant roborock integration and KonradIT/roborock-remote (which credits
+      python-roborock).
+  protocol: "wifi"
+  category: "robot"
+  transport: "tcp"
+  notes: >
+    Roborock vacuums (S/QV/Qrevo/Saros series) can be driven locally over TCP,
+    which removes the cloud from the command path. The catch: even Home
+    Assistant's local mode fetches the device's IP and per-device "local key"
+    through a one-time Roborock cloud login, and map data + routines are still
+    cloud-fetched. So this is a "one-time cloud, then local control" story, not a
+    fully cloud-free one.
+
+    TRANSPORT: TCP port 58867. 4-byte big-endian length prefix, then a message
+    with header = version ("1.0", 3 bytes) + sequence (4B) + random (4B) +
+    timestamp (4B) + protocol id (2B). Payload = AES-128-ECB-encrypted JSON with
+    a CRC32 appended. Key derivation: MD5(encode_timestamp(ts) + local_key +
+    SALT). Protocol ids distinguish local (0/1, 2/3, 4/5) from cloud (101/102);
+    the cloud MQTT path uses the same binary message format.
+
+    NOTE: A01-protocol devices (Dyad wet/dry vacuums, Zeo washers) are cloud-only
+    (MQTT) and are NOT covered by this local TCP path.
+
+  openness:
+    status: "hostile"
+    reverse_engineered: true
+    source_code: "https://github.com/Python-roborock/python-roborock"
+    license: "Apache-2.0"
+    notes: >
+      The local protocol is not published and is cloud-account-gated (the local
+      key must be fetched via a Roborock login). python-roborock is the reference
+      implementation; KonradIT/roborock-remote documents the header/auth.
+
+  identification:
+    default_port: 58867
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # No LAN broadcast discovery; the device IP + local key come from the
+          # Roborock cloud after login. Placeholder block.
+          service_type: "_http._tcp.local."
+          port: 58867
+          identity_mapping:
+            stable_keys:
+              - source: "cloud:roborock#duid"
+                key: "duid"
+            display:
+              source: "cloud:roborock#name"
+        notes: >
+          No local broadcast: the Roborock cloud API (after account login)
+          returns each device's IP and local key; the client then connects
+          directly on TCP 58867.
+    identity:
+      stable_keys: ["duid"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      The vacuum is onboarded onto Wi-Fi via the Roborock app. Local control then
+      requires a one-time cloud login to enumerate the device and fetch its IP +
+      local key; commands and polling are local thereafter, but map data and
+      routines are always cloud-fetched.
+    methods:
+      - type: "cloud_account"
+        verified: false
+        description: >
+          Log into a Roborock account (an email code is sent), enumerate devices
+          via the cloud API, and fetch each device's local key + IP. Then connect
+          directly on TCP 58867 for local commands and polling.
+        cloud:
+          local_alternative: >
+            Partial — commands and polling run locally over TCP 58867 once the
+            local key is fetched, but the local key/IP enumeration and map/routine
+            data still require the Roborock cloud. There is no documented
+            fully-offline path.
+        steps:
+          - action: "Onboard the vacuum onto Wi-Fi with the Roborock app."
+            actor: "user"
+          - action: "Log into the Roborock cloud, enumerate devices, and fetch the local key + IP."
+            actor: "client"
+          - action: "Connect to the device on TCP 58867 and issue local commands with the local key."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A reset (button combination on the vacuum) clears Wi-Fi and re-pairs; it
+        may rotate the local key. The exact gesture is model-specific and not
+        transcribed here.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        Wi-Fi re-provisioning is via the Roborock app; a reset may rotate the
+        local key, requiring a fresh cloud fetch.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Per-device local key"
+      issued_to_client:
+        - "Per-device local key (fetched from the Roborock cloud after login)"
+      notes: >
+        The local key gates the AES-128-ECB TCP session and is obtained from the
+        cloud. Onboarding is app-mediated and not documented here.
+
+roborock_local_protocol:
+  transport: "TCP, port 58867"
+  framing: >
+    4-byte big-endian length prefix, then header (version '1.0' 3B, sequence 4B,
+    random 4B, timestamp 4B, protocol id 2B) + AES-128-ECB(JSON) + CRC32.
+  key_derivation: "MD5(encode_timestamp(ts) + local_key + SALT)."
+  protocol_ids: "local 0/1, 2/3, 4/5; cloud 101/102 (same message format over MQTT)."
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Control is AES-128-ECB JSON over a raw TCP socket on port
+      58867 (see roborock_local_protocol), not HTTP.
+
+commands:
+  get_status:
+    description: "Poll vacuum status (method get_status; returns state, battery, fan_power, msg_ver/msg_seq)."
+    transport: "tcp-json"
+    body: '{"id":1,"method":"get_status","params":[]}'
+    verification: "reported"
+  start_clean:
+    description: "Start cleaning (app_start / app_segment_clean depending on model)."
+    transport: "tcp-json"
+    body: '{"id":1,"method":"app_start","params":[]}'
+    verification: "reported"
+  return_home:
+    description: "Return to dock (app_charge)."
+    transport: "tcp-json"
+    body: '{"id":1,"method":"app_charge","params":[]}'
+    verification: "reported"
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: "From get_status."
+  - platform: "button"
+    name: "Start Cleaning"
+    commands:
+      press: "start_clean"
+  - platform: "button"
+    name: "Return to Dock"
+    commands:
+      press: "return_home"
+
+helpful_urls:
+  - title: "Home Assistant — Roborock integration"
+    url: "https://www.home-assistant.io/integrations/roborock/"
+    description: "Documents the local TCP 58867 model, the cloud-login->local-key flow, and A01 cloud-only devices."
+  - title: "Python-roborock/python-roborock"
+    url: "https://github.com/Python-roborock/python-roborock"
+    description: "Apache-2.0 reference client for the local + cloud protocols."
+  - title: "KonradIT/roborock-remote"
+    url: "https://github.com/KonradIT/roborock-remote"
+    description: "ESP32 local controller; documents the header layout and AES/key derivation."

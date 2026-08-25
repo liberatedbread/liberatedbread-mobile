@@ -1,0 +1,176 @@
+# Amcrest / Dahua IP Camera / NVR — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Amcrest CGI SDK API (official PDF); rroller/dahua HA client; python-amcrest.
+
+device:
+  name: "Amcrest / Dahua IP Camera / NVR"
+  manufacturer: "Dahua Technology (Amcrest is a US brand on Dahua firmware)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The CGI paths, RTSP URI, ports
+      and digest auth are from Amcrest's official CGI SDK PDF and the rroller/dahua
+      Home Assistant client.
+  protocol: "wifi"
+  category: "camera"
+  pictogram: "ip-camera"
+  transport: "rtsp"
+  notes: >
+    Amcrest is a US brand OEM'd on Dahua firmware; the two share a CGI/HTTP API
+    and RTSP. They are ONVIF Profile S devices and fully controllable locally with
+    no cloud (relevant given Dahua's NDAA restrictions in the US). Amcrest/Dahua
+    publish an official CGI/HTTP SDK.
+
+    PORTS: HTTP 80 (configurable), HTTPS 443, RTSP 554. AUTH: HTTP Digest (falls
+    back to Basic).
+
+    CGI (base http://{ip}/cgi-bin/...):
+      /cgi-bin/magicBox.cgi?action=getSystemInfo | getDeviceType | getMachineName
+        | getVendor | getSoftwareVersion   — identity/system
+      /cgi-bin/configManager.cgi?action=getConfig&name=... / setConfig&...
+      /cgi-bin/snapshot.cgi?channel={n}     — still image
+      /cgi-bin/global.cgi                    — login endpoint
+      /cgi-bin/ptz.cgi?action=getStatus      — PTZ
+      /cgi-bin/coaxialControlIO.cgi?action=getStatus&channel=1  — light/siren
+      /cgi-bin/eventManager.cgi?action=attach&codes=[...]&heartbeat=5 — event stream
+
+    RTSP live: rtsp://user:pass@{ip}:554/cam/realmonitor?channel=1&subtype=0
+    (subtype 0 = main, 1 = sub; channel selects the camera).
+
+    Discovery: ONVIF WS-Discovery (see onvif.yaml) plus direct CGI/RTSP on the
+    known ports; identity via magicBox.cgi getSystemInfo/getMachineName/getVendor.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://s3.amazonaws.com/amcrest-files/AMCREST_CGI_SDK_API.pdf"
+        title: "Amcrest CGI SDK API"
+        covers: "The /cgi-bin CGI paths, the RTSP realmonitor URI, ports and digest auth."
+    notes: >
+      The CGI + RTSP surface is officially documented (Amcrest CGI SDK / Dahua
+      HTTP API). A newer DHIP binary RPC2 protocol exists and is separately
+      reverse-engineered (see helpful_urls). See onvif.yaml for ONVIF discovery.
+
+  identification:
+    default_port: 80
+    ssdp_search_targets:
+      - "urn:schemas-onvif-org:service:Media"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_http._tcp.local."
+          port: 80
+          identity_mapping:
+            stable_keys:
+              - source: "http:/cgi-bin/magicBox.cgi?action=getSystemInfo#serialNumber"
+                key: "serial"
+            display:
+              source: "http:/cgi-bin/magicBox.cgi?action=getMachineName#name"
+        notes: >
+          Discover via ONVIF WS-Discovery (onvif.yaml) or probe
+          /cgi-bin/magicBox.cgi?action=getSystemInfo. Identity is the serial /
+          machine name.
+    identity:
+      stable_keys: ["serial"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      The camera joins the LAN; Dahua firmware forces an admin password on first
+      boot. Local HTTP Digest login thereafter, no cloud. Provisioning wire steps
+      are not documented here.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Onboard the camera, set the admin password on first boot, then use the
+          local CGI API over HTTP Digest and pull RTSP from port 554.
+        steps:
+          - action: "Onboard the camera onto the LAN and set the admin password on first boot."
+            actor: "user"
+          - action: "Log in over /cgi-bin/global.cgi (Digest) and read RTSP from cam/realmonitor."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Clears network config and admin password. Performed by holding the reset
+        button; the hold time is model-specific.
+      procedures:
+        - name: "Reset button hold"
+          verified: false
+          basis: "Dahua/Amcrest document a reset-button hold per model; not replayed here."
+          steps:
+            - action: "Hold the camera's reset button until it reboots into setup."
+              actor: "user"
+              expect: "The camera returns to first-boot state."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Network settings are changed from the camera UI while reachable."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Local admin password"
+      issued_to_client: []
+      notes: >
+        Local control uses the camera's admin credential over HTTP Digest.
+        Onboarding is app/UI-mediated and not documented here.
+
+camera:
+  enable_required: false
+  enable_notes: >
+    RTSP and the CGI API are available by default on Dahua/Amcrest firmware once
+    the admin password is set. ONVIF may need enabling on some models.
+  feed_host_source: "device"
+  streams:
+    - name: "Main stream (RTSP)"
+      transport: "rtsp"
+      url_template: "rtsp://{user}:{password}@{address}:554/cam/realmonitor?channel=1&subtype=0"
+      default_port: 554
+      served_by: "device"
+      auth: "user"
+      notes: "channel selects the camera; subtype 0 = main stream."
+    - name: "Sub stream (RTSP)"
+      transport: "rtsp"
+      url_template: "rtsp://{user}:{password}@{address}:554/cam/realmonitor?channel=1&subtype=1"
+      default_port: 554
+      served_by: "device"
+      auth: "user"
+      notes: "subtype 1 = lower-resolution sub stream."
+
+http_endpoints:
+  - method: "GET"
+    path: "/cgi-bin/magicBox.cgi?action=getSystemInfo"
+    name: "System info"
+    description: "Device serial/type/software version — the identity check (HTTP Digest)."
+  - method: "GET"
+    path: "/cgi-bin/snapshot.cgi?channel=1"
+    name: "Snapshot"
+    description: "A still JPEG from the given channel."
+  - method: "GET"
+    path: "/cgi-bin/eventManager.cgi?action=attach&codes=[All]&heartbeat=5"
+    name: "Event stream"
+    description: "Long-lived event stream (motion, IO, alarms) with a heartbeat."
+
+helpful_urls:
+  - title: "Amcrest CGI SDK API (official PDF)"
+    url: "https://s3.amazonaws.com/amcrest-files/AMCREST_CGI_SDK_API.pdf"
+    description: "The CGI paths, RTSP realmonitor URI, ports and digest auth."
+  - title: "rroller/dahua (Home Assistant client)"
+    url: "https://github.com/rroller/dahua"
+    description: "HA integration client.py — CGI endpoints, event stream, RTSP."
+  - title: "tchellomello/python-amcrest"
+    url: "https://github.com/tchellomello/python-amcrest"
+    description: "Python client for Amcrest and Dahua cameras/NVRs."

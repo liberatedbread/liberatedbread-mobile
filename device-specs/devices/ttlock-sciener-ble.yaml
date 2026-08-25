@@ -1,0 +1,193 @@
+# TTLock / Sciener BLE Locks — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Fusseldieb/ttlock-reverse-engineering (community RE of the BLE frame/crypto).
+#   - nv1t "The weird BLE-Lock" (cloud-side security research).
+#   - ttlock/Android_SDK_Demo (the official closed SDK, for the feature surface).
+
+device:
+  name: "TTLock / Sciener BLE Locks (rebadged smart deadbolts, padlocks, cabinet locks)"
+  manufacturer: "Sciener (TTLock platform) — rebadged by hundreds of OEMs"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The GATT UUIDs, frame layout
+      (magic 7F 5A, CRC-8/MAXIM, CRLF), and AES-CBC/PKCS5 crypto are from
+      Fusseldieb/ttlock-reverse-engineering; the cloud-side vulnerabilities from
+      nv1t's teardown. The community RE authors report the AES key-exchange is
+      not fully solved (residual padding errors), so treat control as partial.
+  protocol: "ble"
+  category: "lock"
+  notes: >
+    TTLock is a white-label BLE lock stack by Sciener, rebadged by a huge number
+    of OEMs (generic "S2xx" smart deadbolts, padlocks, cabinet locks). Sciener is
+    active and ships a closed Android/iOS SDK and a cloud, but does NOT publish
+    the BLE wire protocol; the community has partially reverse-engineered it.
+    Local control is possible: the cloud is only for key/passcode issuance, and
+    once a client holds the lock's per-lock AES key (obtained after pairing) it
+    can unlock over BLE offline.
+
+    GATT: command writes on characteristic 0000fff2 (write-without-response),
+    status notifications on 0000fff4; battery is the standard 0x2A19 under 0x180F.
+    (A Nordic legacy DFU service 00001530-1212-efde-1523-785feabcd123 is also
+    present for OTA — deliberately not documented here: bricking risk.)
+
+    FRAME: [12-byte header][16-32 byte data][3-byte tail]. Header bytes 0-1 are
+    the fixed magic 7F 5A; byte 2 protocol type, byte 3 sub-version, byte 4
+    scene, bytes 5-6 groupId, bytes 7-8 orgId, byte 9 command id, byte 10
+    encryption flag, byte 11 data length. Tail = 1 byte CRC-8/MAXIM over
+    header+payload, then CRLF (0D 0A) terminating every packet.
+
+    CRYPTO: data is AES/CBC/PKCS5, 16-byte blocks, with the IV equal to the key
+    (16 bytes). A pre-AES XOR obfuscation is applied per byte using a 256-entry
+    CRC table. Encryption is confirmed for protocol 5 / sub-version 3; the AES
+    key (aesKeyArray) is retrieved from the lock after successful pairing (it is
+    NOT one global constant). Auth is a custom multi-packet key exchange, not
+    standard BLE bonding.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Fusseldieb/ttlock-reverse-engineering"
+    upstream_docs:
+      - url: "https://github.com/Fusseldieb/ttlock-reverse-engineering"
+        title: "Fusseldieb/ttlock-reverse-engineering"
+        covers: "The GATT UUIDs, the 7F 5A frame layout, CRC-8/MAXIM + CRLF tail, and the AES-CBC (IV=key) crypto."
+    notes: >
+      Sciener publishes a closed SDK (black-box native lock core) and a
+      registered-developer cloud API, but not the BLE frame/crypto. The community
+      RE is the only open wire documentation and is incomplete (the AES
+      key-exchange is not fully solved).
+
+  security_advisory:
+    severity: "reported"
+    summary: >
+      TTLock's cloud API has had severe public flaws (user enumeration, exposed
+      passcodes) that let a researcher open locks; older BLE variants are weakly
+      protected.
+    detail: >
+      nv1t's teardown of a TTLock-family lock reported a certificate-pinning
+      bypass via a hardcoded string, SQL injection in a lock-info endpoint, and
+      an IDOR / user-enumeration flaw exposing ~502,000 user records with lock
+      passcodes returned by the API — enough to open affected locks. This is a
+      cloud-side issue (not a BLE replay), and its patch status is not
+      established here. Older/plaintext BLE protocol variants are also weakly
+      protected per the RE work.
+    advisory_url: "https://nv1t.github.io/blog/the-weired-ble-lock/"
+
+  identification:
+    local_name_prefix: "S2"
+    manufacturer_data:
+      description: >
+        The BLE advertisement local name encodes the last 6 MAC octets in
+        REVERSED byte order (e.g. a name ending "_abcdef" corresponds to MAC
+        ...ef:cd:ab). Many rebadged models advertise an "S2xx" style name.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^S[0-9]"
+        notes: >
+          Rebadged TTLock deadbolts commonly advertise an "S2xx"-style name whose
+          suffix is the reversed last-6-MAC. Because OEMs rename freely, confirm
+          by connecting and exchanging a 7F 5A-framed packet.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Pairing is done through the TTLock app, which registers the lock to a cloud
+      account and provisions the per-lock AES key material; passcodes/eKeys are
+      issued through the cloud but can be used offline. A third-party client needs
+      the lock's aesKeyArray (from a successful pairing) to drive it locally.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Pair with the lock to obtain its per-lock AES key (aesKeyArray), then
+          connect, subscribe to notify char 0000fff4, and write 7F 5A-framed,
+          AES-CBC-encrypted commands to 0000fff2.
+        ble:
+          pairing_required: true
+        steps:
+          - action: "Pair the lock (via the TTLock app or a client that implements the key exchange) to obtain the per-lock AES key."
+            actor: "user"
+          - action: "Connect, subscribe to 0000fff4, and write framed/encrypted commands to 0000fff2."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A reset (typically a button inside the lock, or an app command) clears
+        the pairing and key material. The exact gesture varies by OEM rebrand and
+        is not documented in the sources used here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; a client with the key re-connects independently."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Per-lock AES key (aesKeyArray), provisioned at pairing"
+        - "Issued passcodes / eKeys"
+      issued_to_client:
+        - "The per-lock AES key (after successful pairing)"
+      notes: >
+        The per-lock AES key gates control; it is provisioned at pairing (not a
+        global constant). There is no Wi-Fi on the lock itself (a separate TTLock
+        Wi-Fi gateway exists). See the security_advisory: the cloud that issues
+        keys/passcodes has had severe public flaws.
+
+services:
+  - uuid: "00001910-0000-1000-8000-00805f9b34fb"
+    name: "TTLock command service (0x1910)"
+    notes: >
+      Command channel (GATT service 0x1910; per the Fusseldieb gatttool dump the
+      fff2/fff4 characteristics sit inside service 0x1910, not a 0xFFF0 service).
+      Characteristics resolved by UUID: write 0000fff2
+      (write-without-response), notify 0000fff4. All packets are
+      [12B header (magic 7F 5A ...)][data][CRC-8/MAXIM][CRLF]; data is
+      AES/CBC/PKCS5 with IV = key. A Nordic DFU service (00001530-1212-efde-...)
+      is also present for OTA and is intentionally not documented (bricking risk).
+    characteristics:
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+        name: "Command write"
+        properties: ["write_without_response"]
+        notes: "7F 5A-framed, AES-CBC-encrypted command packets (lock/unlock, passcode ops)."
+      - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
+        name: "Status notify"
+        properties: ["notify"]
+        notes: "Framed responses and status; 16-byte encrypted data packets carry a trailing checksum byte."
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level (standard)"
+        properties: ["read"]
+        notes: "Standard SIG Battery Level (uint8 %) under service 0x180F."
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    notes: "Standard battery-level characteristic."
+
+helpful_urls:
+  - title: "Fusseldieb/ttlock-reverse-engineering"
+    url: "https://github.com/Fusseldieb/ttlock-reverse-engineering"
+    description: "Community RE: GATT UUIDs, the 7F 5A frame, CRC-8/MAXIM + CRLF, AES-CBC (IV=key) crypto."
+  - title: "nv1t — The weird BLE-Lock (security teardown)"
+    url: "https://nv1t.github.io/blog/the-weired-ble-lock/"
+    description: "Cloud-side vulnerabilities (user enumeration, exposed passcodes) affecting TTLock-family locks."
+  - title: "ttlock/Android_SDK_Demo (official closed SDK)"
+    url: "https://github.com/ttlock/Android_SDK_Demo"
+    description: "The vendor's public (but closed-core) SDK — confirms the lock/gateway/DFU feature surface, not the wire format."

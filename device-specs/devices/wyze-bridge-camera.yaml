@@ -1,0 +1,150 @@
+# Wyze Cam (via docker-wyze-bridge) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - mrlt8/docker-wyze-bridge (the community local-RTSP bridge).
+
+device:
+  name: "Wyze Cam (via docker-wyze-bridge)"
+  manufacturer: "Wyze Labs"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The bridge ports, the local
+      RTSP URL and the cloud-credential requirement are from the
+      docker-wyze-bridge README.
+  protocol: "wifi"
+  category: "camera"
+  pictogram: "ip-camera"
+  transport: "rtsp"
+  notes: >
+    Wyze cameras have NO first-party local API — control is cloud-app only. The
+    community docker-wyze-bridge fills the gap: it authenticates to the Wyze
+    cloud once (to enumerate cameras), connects to each camera over Wyze's TUTK
+    peer-to-peer transport, and re-serves the video LOCALLY as RTSP/RTMP/HLS/
+    WebRTC. This is a "cloud token to bootstrap, local stream thereafter" case,
+    not fully cloud-free.
+
+    BRIDGE PORTS (what the bridge exposes on the LAN): RTSP 8554, HLS/HTTP 8888,
+    WebRTC 8889, web UI 5000. Local stream URL: rtsp://{bridge-ip}:8554/{camera-name}.
+
+    AUTH: Wyze cloud credentials required — email/password plus (since May 2024)
+    an API Key + API ID from Wyze — to fetch camera info; media then streams
+    locally via P2P. No special camera firmware is required; some newer firmware
+    degrades remote P2P (local LAN usually still works).
+
+  openness:
+    status: "hostile"
+    reverse_engineered: true
+    source_code: "https://github.com/mrlt8/docker-wyze-bridge"
+    upstream_docs:
+      - url: "https://github.com/mrlt8/docker-wyze-bridge"
+        title: "mrlt8/docker-wyze-bridge"
+        covers: "The exposed ports, the local RTSP URL and the cloud API-key requirement."
+    notes: >
+      Wyze publishes no local API; the bridge reverse-engineers Wyze's TUTK P2P
+      transport and re-emits local streams. A one-time cloud login (API Key + ID)
+      is required to enumerate cameras — the one target here that is not fully
+      cloud-free.
+
+  identification:
+    default_port: 8554
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # No on-LAN ONVIF discovery: the bridge learns cameras from the Wyze
+          # account (cloud), connects P2P, and re-serves locally. Placeholder.
+          service_type: "_http._tcp.local."
+          port: 8554
+          identity_mapping:
+            stable_keys:
+              - source: "cloud:wyze#mac"
+                key: "mac"
+            display:
+              source: "cloud:wyze#nickname"
+        notes: >
+          Cameras are enumerated from the Wyze cloud account (not on-LAN); the
+          bridge then re-serves each as rtsp://{bridge-ip}:8554/{camera-name}.
+    identity:
+      stable_keys: ["mac"]
+      display: "camera_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      The camera is onboarded through the Wyze app (cloud) as normal. Then run
+      docker-wyze-bridge with the account's API Key + API ID + email to expose
+      local streams. There is no account-free path — cloud login bootstraps the
+      camera list.
+    methods:
+      - type: "cloud_account"
+        verified: false
+        description: >
+          Onboard the camera in the Wyze app, obtain a Wyze API Key + API ID, and
+          run docker-wyze-bridge with them; it connects P2P and serves local
+          RTSP/HLS/WebRTC.
+        cloud:
+          local_alternative: >
+            Partial — media streams locally (the bridge prefers a LAN connection)
+            once running, but enumerating the cameras requires a one-time Wyze
+            cloud login (email/password + API Key/ID). There is no fully
+            cloud-free path with stock firmware.
+        steps:
+          - action: "Onboard the camera in the Wyze app."
+            actor: "user"
+          - action: "Get a Wyze API Key + API ID and run docker-wyze-bridge with them."
+            actor: "user"
+          - action: "Consume the local stream at rtsp://{bridge-ip}:8554/{camera-name}."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Camera reset is done via the Wyze app / physical button (vendor cloud);
+        the bridge holds no camera state to reset. Not transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Wi-Fi is reconfigured via the Wyze app; the bridge reconnects P2P afterward."
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials (on the camera)"
+      issued_to_client:
+        - "Wyze API Key + API ID (used by the bridge to enumerate cameras)"
+      notes: >
+        Onboarding is app-mediated (not documented here). The bridge needs a Wyze
+        API Key/ID to bootstrap; media then flows locally.
+
+camera:
+  enable_required: true
+  enable_notes: >
+    Requires running docker-wyze-bridge with Wyze cloud credentials (API Key +
+    ID). Stock Wyze cameras expose no local API on their own.
+  feed_host_source: "device"
+  streams:
+    - name: "Local RTSP (via bridge)"
+      transport: "rtsp"
+      url_template: "rtsp://{bridge_address}:8554/{camera_name}"
+      default_port: 8554
+      served_by: "device"
+      auth: "none"
+      notes: "Served by docker-wyze-bridge on the LAN; {bridge_address} is the host running the bridge."
+    - name: "Local WebRTC (via bridge)"
+      transport: "webrtc"
+      url_template: "http://{bridge_address}:8889/{camera_name}"
+      default_port: 8889
+      served_by: "device"
+      auth: "none"
+      notes: "Low-latency WebRTC endpoint from the bridge."
+
+helpful_urls:
+  - title: "mrlt8/docker-wyze-bridge"
+    url: "https://github.com/mrlt8/docker-wyze-bridge"
+    description: "Community bridge: exposes Wyze cameras as local RTSP/RTMP/HLS/WebRTC; needs a Wyze API Key/ID."

@@ -1,0 +1,205 @@
+# Reolink IP Camera / Doorbell / NVR — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Home Assistant reolink integration; ReolinkCameraAPI/reolinkapipy.
+#   - thirtythreeforty/neolink + its Baichuan Wireshark dissector.
+
+device:
+  name: "Reolink IP Camera / Doorbell / NVR"
+  manufacturer: "Reolink"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The ports, RTSP URLs, the
+      /cgi-bin/api.cgi login/token flow and the Baichuan (port 9000) header
+      layout are from the Home Assistant integration, reolinkapipy and neolink's
+      dissector.
+  protocol: "wifi"
+  category: "camera"
+  pictogram: "ip-camera"
+  transport: "rtsp"
+  notes: >
+    Reolink cameras, doorbells and NVRs are locally controllable with the
+    internet fully blocked: they serve an HTTP CGI JSON API, RTSP/RTMP/FLV
+    streams, ONVIF, and a proprietary "Baichuan" binary protocol on TCP 9000.
+    Reolink is active and firmware-updates these, but the vendor app defaults to
+    cloud/UID relay — so a local spec is the rescue for cloud-hesitant owners.
+
+    PORTS: HTTP 80, HTTPS 443, RTSP 554, RTMP 1935, ONVIF 8000 (events), TCP
+    9000 (Baichuan / push events). On some models RTSP/ONVIF must be enabled in
+    the camera settings first.
+
+    HTTP CGI API (base http(s)://{ip}/cgi-bin/api.cgi, JSON, driven by a `cmd`
+    param): POST cmd=Login {"User":{"userName":..,"password":..}} returns a token
+    (data.value.Token.name) reused as ?token={token}&cmd={command}. Some units
+    ship admin/123456 until changed.
+
+    RTSP: main rtsp://user:pass@{ip}/h264Preview_01_main, sub .../h264Preview_01_sub
+    (or the :554/... form). RTSP carries 4K/H.265; FLV is lightest on the camera.
+
+    BAICHUAN (TCP 9000): the only surface on some cameras (B800/D800, B400/D400,
+    E1, Lumus, 510A have no ONVIF/RTSP). Frame: 4-byte LE magic 0x0abcdef0 at
+    offset 0, then messageId (int32 LE @4), messageLen (@8), channel_id (@12),
+    streamID (@13), messageHandle (@15), messageClass (int16 LE @18); header is
+    20 bytes (legacy) or 24 bytes (modern, encrypt_xml flag @16, binOffset @20).
+    Named message ids: 1 login, 3 Preview (video), 23 Reboot, 80 VersionInfo.
+    XML payloads are XOR-obfuscated with an offset-dependent 8-byte key.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    source_code: "https://github.com/starkillerOG/reolink_aio"
+    upstream_docs:
+      - url: "https://www.home-assistant.io/integrations/reolink/"
+        title: "Home Assistant — Reolink integration"
+        covers: "The local ports, the stream-protocol choices and the cloud-independent event delivery."
+    notes: >
+      The HTTP CGI / ONVIF / RTSP surface is documented (Reolink's own HTTP API
+      guide); the Baichuan port-9000 protocol is reverse-engineered by neolink.
+      See onvif.yaml for the ONVIF discovery/stream mechanism.
+
+  identification:
+    default_port: 80
+    ssdp_search_targets:
+      - "urn:schemas-onvif-org:service:Media"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # Reolink cameras are found via ONVIF WS-Discovery (see onvif.yaml) or
+          # a direct HTTP/RTSP probe; Baichuan (9000) does not self-announce.
+          service_type: "_http._tcp.local."
+          port: 80
+          identity_mapping:
+            stable_keys:
+              - source: "http:/cgi-bin/api.cgi?cmd=GetDevInfo#uid"
+                key: "uid"
+            display:
+              source: "http:/cgi-bin/api.cgi?cmd=GetDevInfo#name"
+        notes: >
+          Discover via ONVIF WS-Discovery (onvif.yaml) or by probing HTTP
+          /cgi-bin/api.cgi. Confirm with a Login + GetDevInfo. Baichuan-only
+          models are reached by connecting TCP 9000 directly.
+    identity:
+      stable_keys: ["uid"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      The camera joins the LAN (wired or Wi-Fi via the app/QR). On some models
+      RTSP and ONVIF ports must be enabled in the camera UI before RTSP works.
+      Local HTTP login uses admin + a user-set password (some ship admin/123456).
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Onboard the camera onto the network, then (on models where they are
+          off) enable the RTSP and ONVIF ports in the camera settings. Log in
+          locally over /cgi-bin/api.cgi with admin + password.
+        steps:
+          - action: "Onboard the camera onto the LAN (app/QR or wired)."
+            actor: "user"
+          - action: "Enable RTSP/ONVIF ports in the camera settings if disabled."
+            actor: "user"
+            expect: "RTSP answers on 554 and ONVIF on 8000."
+          - action: "Log in over /cgi-bin/api.cgi (cmd=Login) to obtain a token."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Clears network config and the admin password, returning the camera to
+        first-boot. Performed by holding the physical reset button; the hold time
+        is model-specific.
+      procedures:
+        - name: "Reset button hold"
+          verified: false
+          basis: "Reolink documents a reset-button hold per model; not replayed here."
+          steps:
+            - action: "Hold the camera's reset button until it reboots into setup."
+              actor: "user"
+              expect: "The camera returns to first-boot state."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Network settings can be changed from the camera UI/app while reachable."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Local admin password"
+      issued_to_client:
+        - "Session token (from cmd=Login, reused as ?token=)"
+      notes: >
+        Local control uses the camera's own admin credential (change the default
+        admin/123456). Onboarding is app-mediated and not documented here.
+
+camera:
+  enable_required: true
+  enable_notes: >
+    On some models RTSP and ONVIF are disabled by default and must be enabled in
+    the camera settings. Baichuan-only models (B800/D800, B400/D400, E1, Lumus,
+    510A) have no RTSP — use the neolink bridge on TCP 9000 instead.
+  feed_host_source: "device"
+  streams:
+    - name: "Main stream (RTSP)"
+      transport: "rtsp"
+      url_template: "rtsp://{user}:{password}@{address}:554/h264Preview_01_main"
+      default_port: 554
+      served_by: "device"
+      auth: "user"
+      notes: "H.264/H.265; 4K on capable models. Force TCP transport in players for reliability."
+    - name: "Sub stream (RTSP)"
+      transport: "rtsp"
+      url_template: "rtsp://{user}:{password}@{address}:554/h264Preview_01_sub"
+      default_port: 554
+      served_by: "device"
+      auth: "user"
+      notes: "Lower-resolution sub stream for previews / low bandwidth."
+
+reolink_baichuan_protocol:
+  transport: "TCP 9000 (proprietary; the only surface on some models)"
+  framing: >
+    4-byte LE magic 0x0abcdef0 @0; messageId (int32 LE @4); messageLen (@8);
+    channel_id (@12); streamID (@13); messageHandle (@15); messageClass
+    (int16 LE @18). Header 20 B (legacy) or 24 B (modern: encrypt_xml @16,
+    binOffset @20). XML payloads XOR-obfuscated with an offset-dependent 8-byte
+    key.
+  message_ids:
+    "1": "login"
+    "3": "Preview (video)"
+    "23": "Reboot"
+    "80": "VersionInfo"
+
+http_endpoints:
+  - method: "POST"
+    path: "/cgi-bin/api.cgi?cmd=Login"
+    name: "Login (get token)"
+    description: >
+      Body {"cmd":"Login","action":0,"param":{"User":{"userName":..,"password":..}}}.
+      Returns a token at data.value.Token.name, reused as ?token={token}&cmd={command}
+      on all later calls.
+    request_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/cgi-bin/api.cgi?cmd=GetDevInfo"
+    name: "Device info"
+    description: "Model, firmware and unique id — confirms a device is Reolink."
+
+helpful_urls:
+  - title: "Home Assistant — Reolink integration"
+    url: "https://www.home-assistant.io/integrations/reolink/"
+    description: "Local ports, stream-protocol choices, cloud-independent events."
+  - title: "ReolinkCameraAPI/reolinkapipy"
+    url: "https://github.com/ReolinkCameraAPI/reolinkapipy"
+    description: "Python client for the /cgi-bin/api.cgi login/token flow and command surface."
+  - title: "thirtythreeforty/neolink"
+    url: "https://github.com/thirtythreeforty/neolink"
+    description: "RTSP bridge for Baichuan-only Reolink cameras; carries the port-9000 Wireshark dissector."

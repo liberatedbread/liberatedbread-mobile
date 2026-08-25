@@ -1,0 +1,180 @@
+# Xiaomi miIO Protocol — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - OpenMiHome/mihome-binary-protocol PROTOCOL.md — the transport.
+#   - rytilahti/python-miio (GPL-3.0) — reference client + discovery.
+
+device:
+  name: "Xiaomi miIO / MiHome Devices (transport)"
+  manufacturer: "Xiaomi (and ecosystem OEMs — Roborock, Dreame, Viomi, etc.)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The 32-byte header, the
+      handshake, AES-128-CBC key/IV derivation and the UDP port are from
+      OpenMiHome/mihome-binary-protocol; discovery and token extraction from
+      python-miio.
+  protocol: "wifi"
+  category: "other"
+  transport: "udp"
+  notes: >
+    miIO is the local UDP transport spoken by a huge range of Xiaomi/Mijia
+    ecosystem devices — robot vacuums, air purifiers, plugs, lights, gateways.
+    Documenting the TRANSPORT lets every miIO device be reached locally; the
+    per-device commands are JSON-RPC payloads carried inside it. No cloud is
+    needed once the per-device token is known — but obtaining that token usually
+    requires a one-time cloud step.
+
+    TRANSPORT: encrypted binary over UDP port 54321. 32-byte header: magic
+    0x2131 (16b); packet length incl. header (16b); Unknown1 (32b, 0x00000000
+    normal / 0xFFFFFFFF in Hello); Device ID (32b, 0xFFFFFFFF in Hello); Stamp
+    (32b, incrementing); then a 128-bit field = MD5 checksum OR the device token;
+    then optional encrypted payload.
+
+    HANDSHAKE ("Hello"): client sends a fixed 32-byte packet (magic 0x2131,
+    length 0x0020, all remaining fields 0xFF); the device replies with a 32-byte
+    packet carrying its 128-bit token in the checksum field.
+
+    ENCRYPTION: AES-128-CBC + PKCS#7. Key = MD5(Token); IV = MD5(Key +
+    Token). The MD5 checksum field covers the whole packet with the checksum
+    field zeroed; Stamp is a transaction counter. Payloads are JSON-RPC commands.
+
+    DISCOVERY: two ways — by handshake (works on all miIO devices, may expose the
+    token, but gives no device-type info) and by mDNS (returns device-type info
+    but not on all devices). `miiocli discover` auto-detects on the LAN.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/rytilahti/python-miio"
+    license: "GPL-3.0"
+    upstream_docs:
+      - url: "https://github.com/OpenMiHome/mihome-binary-protocol/blob/master/doc/PROTOCOL.md"
+        title: "OpenMiHome — miIO binary protocol"
+        covers: "The 32-byte header, handshake, AES-128-CBC key/IV derivation and checksum."
+    notes: >
+      Not officially published; the transport was reverse-engineered and is fully
+      documented by the community. python-miio is the reference client. Modern
+      devices layer MIoT (miot-spec) over the same transport.
+
+  identification:
+    default_port: 54321
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_miio._udp.local."
+          port: 54321
+          identity_mapping:
+            stable_keys:
+              - source: "txt:mac"
+                key: "mac"
+            display:
+              source: "txt:model"
+        notes: >
+          Some miIO devices advertise mDNS with device-type info; all answer the
+          UDP 54321 Hello handshake (which may reveal the token). See
+          miio_protocol.
+    identity:
+      stable_keys: ["device_id", "mac"]
+      display: "model"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A device is onboarded onto Wi-Fi via the Mi Home app. Local control then
+      needs the per-device 128-bit token: it can sometimes be read from the Hello
+      handshake, but usually it is extracted once from the Xiaomi cloud
+      (`miiocli cloud list`, needs the micloud package + Xiaomi account). After
+      that, control is local.
+    methods:
+      - type: "cloud_account"
+        verified: false
+        description: >
+          Onboard onto Wi-Fi with Mi Home, then obtain the per-device token
+          (from the Hello handshake if it exposes it, else `miiocli cloud list`
+          against a Xiaomi account). Control is local UDP 54321 thereafter.
+        cloud:
+          local_alternative: >
+            Yes — once the per-device token is known, all control is local over
+            UDP 54321. The cloud is touched only to obtain the token (and some
+            devices leak it via the local handshake, needing no cloud at all).
+        steps:
+          - action: "Onboard the device onto Wi-Fi with the Mi Home app."
+            actor: "user"
+          - action: "Obtain the per-device token (local handshake or `miiocli cloud list`)."
+            actor: "client"
+          - action: "Control locally over UDP 54321 with the token."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Per-device reset (usually a button hold) returns the device to
+        onboarding and may rotate the token. Gestures vary by product and are not
+        transcribed here.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        Wi-Fi re-provisioning is via Mi Home; a reset may rotate the token,
+        requiring re-extraction.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Per-device 128-bit token"
+      issued_to_client:
+        - "The 128-bit token (from handshake or cloud extraction)"
+      notes: >
+        The token is the whole security model: anyone on the LAN with the token
+        can control the device. A token of all 0s or all fs is a placeholder; a
+        token with other characters is likely valid.
+
+miio_protocol:
+  transport: "UDP, port 54321, AES-128-CBC (PKCS#7) payloads"
+  header: >
+    32 bytes: magic 0x2131 (16b), length incl. header (16b), Unknown1 (32b),
+    Device ID (32b), Stamp (32b), then 128-bit MD5-checksum-or-token.
+  handshake: "Client Hello = fixed 32 bytes (magic 0x2131, length 0x0020, rest 0xFF); device replies with its token in the checksum field."
+  key_derivation: "Key = MD5(Token); IV = MD5(Key + Token)."
+  payload: "JSON-RPC, e.g. {\"id\":1,\"method\":\"get_prop\",\"params\":[...]} (per-device method set)."
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Control is AES-encrypted JSON-RPC over UDP port 54321
+      (see miio_protocol), not HTTP.
+
+commands:
+  handshake:
+    description: "Send the Hello packet to learn the device id/stamp (and, on some devices, the token)."
+    transport: "udp"
+    body: "21 31 00 20 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF"
+    verification: "reported"
+  get_properties:
+    description: "Read device properties (per-device JSON-RPC method, e.g. get_prop / get_properties)."
+    transport: "udp"
+    body: '{"id":1,"method":"get_prop","params":["power"]}'
+    verification: "reported"
+  set_power:
+    description: "Set power (example legacy method; MIoT devices use set_properties with siid/piid)."
+    transport: "udp"
+    body: '{"id":1,"method":"set_power","params":["on"]}'
+    verification: "reported"
+
+helpful_urls:
+  - title: "OpenMiHome/mihome-binary-protocol"
+    url: "https://github.com/OpenMiHome/mihome-binary-protocol/blob/master/doc/PROTOCOL.md"
+    description: "The miIO binary transport: header, handshake, AES-128-CBC key/IV, checksum."
+  - title: "rytilahti/python-miio"
+    url: "https://github.com/rytilahti/python-miio"
+    description: "GPL-3.0 reference client; discovery, token handling, per-device command modules and generic MIoT."

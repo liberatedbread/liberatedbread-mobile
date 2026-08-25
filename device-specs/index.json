@@ -19,6 +19,34 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Amcrest / Dahua IP Camera / NVR",
+    "path": "device-specs/devices/amcrest-dahua-camera.yaml",
+    "protocol": "wifi",
+    "category": "camera",
+    "manufacturer": "Dahua Technology (Amcrest is a US brand on Dahua firmware)",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Amcrest CGI SDK API (official PDF)",
+        "url": "https://s3.amazonaws.com/amcrest-files/AMCREST_CGI_SDK_API.pdf",
+        "description": "The CGI paths, RTSP realmonitor URI, ports and digest auth."
+      },
+      {
+        "title": "rroller/dahua (Home Assistant client)",
+        "url": "https://github.com/rroller/dahua",
+        "description": "HA integration client.py — CGI endpoints, event stream, RTSP."
+      },
+      {
+        "title": "tchellomello/python-amcrest",
+        "url": "https://github.com/tchellomello/python-amcrest",
+        "description": "Python client for Amcrest and Dahua cameras/NVRs."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Android Device (Wireless Debugging / ADB over Wi-Fi)",
     "path": "device-specs/devices/android-adb-wireless.yaml",
     "protocol": "wifi",
@@ -99,6 +127,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Anki Overdrive / Anki Drive Smart Cars",
+    "path": "device-specs/devices/anki-overdrive-ble.yaml",
+    "protocol": "ble",
+    "category": "other",
+    "manufacturer": "Anki (assets later Digital Dream Labs)",
+    "manufacturer_status": "shutdown",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "anki/drive-sdk",
+        "url": "https://github.com/anki/drive-sdk",
+        "description": "Official Anki SDK (Apache-2.0): vehicle GATT profile, advertisement parsing, message protocol."
+      },
+      {
+        "title": "anki/drive-sdk — vehicle_gatt_profile.h",
+        "url": "https://github.com/anki/drive-sdk/blob/master/include/ankidrive/vehicle_gatt_profile.h",
+        "description": "The service and read/write characteristic UUIDs used here."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Aranet4 CO2 Sensor (and Aranet2 / Radiation / Radon family)",
     "path": "device-specs/devices/aranet4.yaml",
     "protocol": "ble",
@@ -147,6 +198,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "b-parasite Soil Moisture Sensor",
+    "path": "device-specs/devices/b-parasite-ble.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "rbaron (open-source project)",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "rbaron/b-parasite",
+        "url": "https://github.com/rbaron/b-parasite",
+        "description": "Open hardware + firmware; BTHome-v2 default encoding and the legacy custom advertisement."
+      },
+      {
+        "title": "ESPHome — b_parasite component",
+        "url": "https://esphome.io/components/sensor/b_parasite.html",
+        "description": "Decodes the legacy custom advertisement (soil moisture, temp, humidity, battery, illuminance)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Bafang BBS02 Mid-Drive",
     "path": "device-specs/devices/bafang-bbs02.yaml",
     "protocol": "uart",
@@ -164,6 +238,34 @@
         "title": "OpenBafangTool UART motor API",
         "url": "https://github.com/andrey-pr/OpenBafangTool/blob/master/docs/Bafang%20UART%20motor%20API.md",
         "description": "Parameter block and command reference cited by the device page."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Bambu Lab 3D Printer (X1 / P1 / A1)",
+    "path": "device-specs/devices/bambu-lab-lan.yaml",
+    "protocol": "wifi",
+    "category": "printer",
+    "manufacturer": "Bambu Lab",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Doridian/OpenBambuAPI — MQTT",
+        "url": "https://github.com/Doridian/OpenBambuAPI/blob/main/mqtt.md",
+        "description": "The device/{serial}/request|report topics, JSON command shape and command families."
+      },
+      {
+        "title": "Doridian/OpenBambuAPI — video",
+        "url": "https://github.com/Doridian/OpenBambuAPI/blob/main/video.md",
+        "description": "The RTSPS (322) and raw TCP+TLS (6000) camera transports."
+      },
+      {
+        "title": "Doridian/OpenBambuAPI — FTP",
+        "url": "https://github.com/Doridian/OpenBambuAPI/blob/main/ftp.md",
+        "description": "The FTPS (990) file access (gcode/3mf, timelapse, logs)."
       }
     ],
     "schema_version": "2020-12"
@@ -447,6 +549,34 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Bose SoundTouch Speakers",
+    "path": "device-specs/devices/bose-soundtouch.yaml",
+    "protocol": "wifi",
+    "category": "speaker",
+    "manufacturer": "Bose",
+    "manufacturer_status": "unsupported",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Bose — SoundTouch end of life",
+        "url": "https://www.bose.com/soundtouch-end-of-life",
+        "description": "The cloud shutdown, the local-only app update, and the published Web API."
+      },
+      {
+        "title": "CharlesBlonde/libsoundtouch",
+        "url": "https://github.com/CharlesBlonde/libsoundtouch",
+        "description": "Python client for the port-8090 API and the gabbo WebSocket (predates the public docs)."
+      },
+      {
+        "title": "thlucas1/bosesoundtouchapi",
+        "url": "https://github.com/thlucas1/bosesoundtouchapi",
+        "description": "MIT Python client; notes that the Home Speaker 300/500/700 do NOT use this API."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Brava Oven",
     "path": "device-specs/devices/brava-oven.yaml",
     "protocol": "wifi",
@@ -509,6 +639,28 @@
         "url": "https://www.home-assistant.io/integrations/brother/",
         "title": "Home Assistant Brother integration",
         "description": "HA core integration monitoring Brother network printers over SNMP; covers the QL label-printer family."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "BTHome v2 (BLE sensor broadcast format)",
+    "path": "device-specs/devices/bthome-v2.yaml",
+    "protocol": "ble",
+    "category": "reference",
+    "manufacturer": "BTHome (open standard)",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "helpful_urls": [
+      {
+        "title": "BTHome v2 — format",
+        "url": "https://bthome.io/format/",
+        "description": "The authoritative object-id / measurement table and the device-info byte."
+      },
+      {
+        "title": "BTHome v2 — encryption",
+        "url": "https://bthome.io/encryption/",
+        "description": "The AES-CCM key/nonce/counter/MIC layout for encrypted BTHome."
       }
     ],
     "schema_version": "2020-12"
@@ -657,6 +809,52 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Google Chromecast (CASTv2)",
+    "path": "device-specs/devices/chromecast-castv2.yaml",
+    "protocol": "wifi",
+    "category": "tv",
+    "manufacturer": "Google",
+    "manufacturer_status": "abandoned",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "thibauts/node-castv2",
+        "url": "https://github.com/thibauts/node-castv2",
+        "description": "MIT — the canonical CASTv2 protocol description (framing, namespaces, heartbeat)."
+      },
+      {
+        "title": "thibauts/node-castv2-client",
+        "url": "https://github.com/thibauts/node-castv2-client",
+        "description": "MIT — Default Media Receiver load/seek example (the local-media path)."
+      },
+      {
+        "title": "home-assistant-libs/pychromecast",
+        "url": "https://github.com/home-assistant-libs/pychromecast",
+        "description": "MIT — reference Python client; discovery TXT keys and app IDs."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Concept2 Performance Monitor 5 (PM5)",
+    "path": "device-specs/devices/concept2-pm5.yaml",
+    "protocol": "ble",
+    "category": "fitness",
+    "manufacturer": "Concept2, Inc.",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Concept2 — PM5 software / Bluetooth interface",
+        "url": "https://www.concept2.com/service/monitors/pm5/software",
+        "description": "The vendor-published PM5 BLE interface definition and the CSAFE command spec."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "CoolLEDX LED Sign",
     "path": "device-specs/devices/coolledx-led-sign.yaml",
     "protocol": "ble",
@@ -664,6 +862,44 @@
     "manufacturer": "Juntong Technology",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Denon AVR-S720W AV Receiver",
+    "path": "device-specs/devices/denon-avr-s720w.yaml",
+    "protocol": "wifi",
+    "category": "speaker",
+    "manufacturer": "Denon",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "testing_detail": "capture-verified",
+    "helpful_urls": [
+      {
+        "title": "Denon AVR-S720W owner's manual",
+        "url": "https://manuals.denon.com/AVRS720W/NA/EN/"
+      },
+      {
+        "title": "denonavr — Python library for Denon/Marantz receivers (Home Assistant's backend)",
+        "url": "https://github.com/ol-iver/denonavr"
+      },
+      {
+        "title": "Home Assistant Denon AVR Network Receivers integration",
+        "url": "https://www.home-assistant.io/integrations/denonavr/"
+      },
+      {
+        "title": "openHAB denonmarantz binding — independent implementation of both routes",
+        "url": "https://www.openhab.org/addons/bindings/denonmarantz/"
+      },
+      {
+        "title": "Unofficial AirPlay protocol specification (RAOP TXT record semantics)",
+        "url": "https://nto.github.io/AirPlay.html"
+      },
+      {
+        "title": "librespot — open Spotify Connect implementation, incl. the zeroconf getInfo/addUser API",
+        "url": "https://github.com/librespot-org/librespot"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -966,6 +1202,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "eQ-3 Eqiva Bluetooth Radiator Thermostat (CC-RT-BLE)",
+    "path": "device-specs/devices/eqiva-eq3-ble-trv.yaml",
+    "protocol": "ble",
+    "category": "climate",
+    "manufacturer": "eQ-3 AG (Eqiva)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Heckie75/eQ-3-radiator-thermostat",
+        "url": "https://github.com/Heckie75/eQ-3-radiator-thermostat",
+        "description": "Byte-level command/response API for the CC-RT-BLE valve."
+      },
+      {
+        "title": "rytilahti/python-eq3bt",
+        "url": "https://github.com/rytilahti/python-eq3bt",
+        "description": "MIT Python client (bleak/bluepy/gattlib); GATT UUIDs and the FW-1.20+ pairing note."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "ESPHome Node (generic)",
     "path": "device-specs/devices/esphome-device.yaml",
     "protocol": "wifi",
@@ -1056,6 +1315,24 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Electric Unicycles (King Song / Gotway-Begode / Veteran) — WheelLog",
+    "path": "device-specs/devices/euc-wheellog-ble.yaml",
+    "protocol": "ble",
+    "category": "vehicle",
+    "manufacturer": "King Song, Gotway/Begode, Veteran/Leaperkim (community-decoded)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Wheellog/Wheellog.Android",
+        "url": "https://github.com/Wheellog/Wheellog.Android",
+        "description": "Open-source EUC logger; the per-brand BLE frame decoders documented here."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Fardriver ND-series Motor Controller",
     "path": "device-specs/devices/fardriver-controller.yaml",
     "protocol": "ble",
@@ -1115,6 +1392,46 @@
         "title": "bm1549/home-assistant-frigidaire (HACS)",
         "url": "https://github.com/bm1549/home-assistant-frigidaire",
         "description": "HACS custom component for Frigidaire ACs via the Electrolux cloud API; cloud fallback where the local path documented here is unavailable."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Fronius Solar Inverter (Solar API V1)",
+    "path": "device-specs/devices/fronius-solar-api.yaml",
+    "protocol": "wifi",
+    "category": "energy",
+    "manufacturer": "Fronius International",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Fronius — Solar API (JSON) documentation",
+        "url": "https://www.fronius.com/en/solar-energy/installers-partners/technical-data/all-products/system-monitoring/open-interfaces/fronius-solar-api-json-",
+        "description": "Official Solar API V1: endpoints, request model, response envelope, platform compatibility."
+      },
+      {
+        "title": "mwittig/node-fronius-solar",
+        "url": "https://github.com/mwittig/node-fronius-solar",
+        "description": "Community Node client for the Solar API."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "BLE Fitness Machine Service (FTMS)",
+    "path": "device-specs/devices/ftms-fitness-machine-service.yaml",
+    "protocol": "ble",
+    "category": "reference",
+    "manufacturer": "Bluetooth SIG",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "helpful_urls": [
+      {
+        "title": "Bluetooth SIG — Fitness Machine Service v1.0",
+        "url": "https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/",
+        "description": "The published FTMS specification (UUIDs, control-point opcodes, data flag layouts)."
       }
     ],
     "schema_version": "2020-12"
@@ -1355,6 +1672,52 @@
         "title": "Home Assistant Govee lights local integration",
         "url": "https://www.home-assistant.io/integrations/govee_light_local/",
         "description": "HA core integration for the firmware-side LAN API (UDP 4001/4002/4003) that WiFi models expose once the local-network-API function is enabled."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Gree Smart Air Conditioner (LAN)",
+    "path": "device-specs/devices/gree-ac-lan.yaml",
+    "protocol": "wifi",
+    "category": "climate",
+    "manufacturer": "Gree Electric Appliances (many OEM rebrands: Cooper & Hunter, etc.)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "tomikaa87/gree-remote",
+        "url": "https://github.com/tomikaa87/gree-remote",
+        "description": "GPL-3.0 — full protocol write-up (UDP 7000, AES pack, scan/bind, parameters) and reference clients."
+      },
+      {
+        "title": "cmroche/greeclimate",
+        "url": "https://github.com/cmroche/greeclimate",
+        "description": "Python client with AES-GCM (encryption_version 2) support for newer firmware."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Hikvision IP Camera / NVR (ISAPI)",
+    "path": "device-specs/devices/hikvision-isapi-camera.yaml",
+    "protocol": "wifi",
+    "category": "camera",
+    "manufacturer": "Hangzhou Hikvision",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "maciej-or/hikvision_next",
+        "url": "https://github.com/maciej-or/hikvision_next",
+        "description": "HA integration; ISAPI paths, alertStream, RTSP channel URL."
+      },
+      {
+        "title": "hikvisionapi (PyPI)",
+        "url": "https://pypi.org/project/hikvisionapi/",
+        "description": "Python ISAPI client (deviceInfo, streaming channels, motionDetection, alertStream)."
       }
     ],
     "schema_version": "2020-12"
@@ -1783,6 +2146,34 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "JBD / Xiaoxiang Smart BMS",
+    "path": "device-specs/devices/jbd-xiaoxiang-bms-ble.yaml",
+    "protocol": "ble",
+    "category": "energy",
+    "manufacturer": "Shenzhen Jiabaida (JBD) — many LiFePO4 pack rebrands (Overkill Solar, LIONTRON, ECO-WORTHY, ...)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "bms-tools — JBD register map",
+        "url": "https://gitlab.com/bms-tools/bms-tools/-/blob/master/JBD_REGISTER_MAP.md",
+        "description": "The authoritative register map, framing and checksum."
+      },
+      {
+        "title": "syssi/esphome-jbd-bms",
+        "url": "https://github.com/syssi/esphome-jbd-bms",
+        "description": "Apache-2.0 ESPHome component (BLE + UART)."
+      },
+      {
+        "title": "kolins-cz/Smart-BMS-Bluetooth-ESP32",
+        "url": "https://github.com/kolins-cz/Smart-BMS-Bluetooth-ESP32",
+        "description": "ESP32 BLE client; source of the 0xFF00/0xFF01/0xFF02 UUIDs."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Johnson JLX LDM330 / LDM130 Laser Distance Meter (Precaster Enterprises OEM platform)",
     "path": "device-specs/devices/jlx-laser-distance-meter.yaml",
     "protocol": "ble",
@@ -2090,6 +2481,34 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Logitech Harmony Hub",
+    "path": "device-specs/devices/logitech-harmony-hub.yaml",
+    "protocol": "wifi",
+    "category": "hub",
+    "manufacturer": "Logitech",
+    "manufacturer_status": "abandoned",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "ehendrix23/aioharmony",
+        "url": "https://github.com/ehendrix23/aioharmony",
+        "description": "Apache-2.0 async client (WebSocket + legacy XMPP) that Home Assistant's Harmony integration uses."
+      },
+      {
+        "title": "JordanMartin/harmonyhub-api",
+        "url": "https://github.com/JordanMartin/harmonyhub-api",
+        "description": "Node client documenting the port-8088 provisioning POST and the 60s idle timeout."
+      },
+      {
+        "title": "Home Assistant — local API removal and restoration (2018)",
+        "url": "https://www.home-assistant.io/blog/2018/12/17/logitech-harmony-removes-local-api/",
+        "description": "Context on the firmware 4.15.206 local-API removal and its restoration in 4.15.250."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Lutron Caseta Smart Bridge 2",
     "path": "device-specs/devices/lutron-caseta-smart-bridge.yaml",
     "protocol": "wifi",
@@ -2166,6 +2585,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Magic Home / Zengge Wi-Fi LED Controller",
+    "path": "device-specs/devices/magic-home-zengge-wifi.yaml",
+    "protocol": "wifi",
+    "category": "light",
+    "manufacturer": "Zengge (white-labeled: Magic Home, Magic Hue, MagicLight, Flux, and dozens more)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Danielhiversen/flux_led",
+        "url": "https://github.com/Danielhiversen/flux_led",
+        "description": "LGPL-3.0 reference client (Home Assistant flux_led integration); protocol.py has the command bytes and checksum."
+      },
+      {
+        "title": "vikstrous/zengge-lightcontrol",
+        "url": "https://github.com/vikstrous/zengge-lightcontrol",
+        "description": "Port-5577 + UDP-48899 protocol write-up, including the HF-A11ASSISTHREAD config handshake."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Matter Device (Matter-over-Wi-Fi / Thread node)",
     "path": "device-specs/devices/matter-device.yaml",
     "protocol": "wifi",
@@ -2184,6 +2626,29 @@
         "url": "https://github.com/project-chip/connectedhomeip",
         "title": "Matter SDK (connectedhomeip)",
         "description": "Reference implementation; the DNS-SD service types (_matter._tcp / _matterc._udp) and TXT keys."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Midea Air Conditioner / Dehumidifier (LAN)",
+    "path": "device-specs/devices/midea-ac-lan.yaml",
+    "protocol": "wifi",
+    "category": "climate",
+    "manufacturer": "Midea Group (many rebrands: Comfee, Inventor, Pro Breeze, Artic King, Toshiba-app units)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "mill1000/midea-msmart (msmart-ng)",
+        "url": "https://github.com/mill1000/midea-msmart",
+        "description": "MIT maintained reference client; discover/query/control CLI and the V3 token/key flow."
+      },
+      {
+        "title": "nbogojevic/midea-beautiful-air",
+        "url": "https://github.com/nbogojevic/midea-beautiful-air",
+        "description": "MIT — covers dehumidifier rebadges and the token/key-from-cloud story."
       }
     ],
     "schema_version": "2020-12"
@@ -2217,6 +2682,46 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Moonraker API (Klipper web API server)",
+    "path": "device-specs/devices/moonraker-klipper-api.yaml",
+    "protocol": "wifi",
+    "category": "reference",
+    "manufacturer": "Klipper / Moonraker project (Arksine, Kevin O'Connor & community)",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "helpful_urls": [
+      {
+        "title": "Moonraker — External API introduction",
+        "url": "https://moonraker.readthedocs.io/en/latest/external_api/introduction/",
+        "description": "The HTTP REST + JSON-RPC/WebSocket transports and method mapping."
+      },
+      {
+        "title": "Moonraker — configuration",
+        "url": "https://moonraker.readthedocs.io/en/latest/configuration/",
+        "description": "Default ports and the [authorization] trusted_clients model."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Mopeka Pro Check Tank Sensor",
+    "path": "device-specs/devices/mopeka-pro-check-ble.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "Mopeka Products LLC",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "ESPHome — mopeka_pro_check",
+        "url": "https://esphome.io/components/sensor/mopeka_pro_check.html",
+        "description": "Passive BLE decode: level/distance/temperature/battery/quality and tank calibration."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "MoTool Slacker",
     "path": "device-specs/devices/motool-slacker.yaml",
     "protocol": "ble",
@@ -2239,6 +2744,29 @@
         "title": "eigger/hass-niimbot (HACS)",
         "url": "https://github.com/eigger/hass-niimbot",
         "description": "HACS integration printing to Niimbot BLE label printers (D110 family) from Home Assistant."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Ninebot / Segway E-Scooter (BLE)",
+    "path": "device-specs/devices/ninebot-segway-ble.yaml",
+    "protocol": "ble",
+    "category": "vehicle",
+    "manufacturer": "Ninebot-Segway",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Informatic/py9b",
+        "url": "https://github.com/Informatic/py9b",
+        "description": "Ninebot 5A A5 transport + shared BLE link and register tooling."
+      },
+      {
+        "title": "CamiAlfa/M365-BLE-PROTOCOL",
+        "url": "https://github.com/CamiAlfa/M365-BLE-PROTOCOL",
+        "description": "The shared ESC/BMS register map (Xiaomi + Ninebot family)."
       }
     ],
     "schema_version": "2020-12"
@@ -2427,6 +2955,107 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Onewheel (V1 / + / XR / Pint / GT)",
+    "path": "device-specs/devices/onewheel-ble.yaml",
+    "protocol": "ble",
+    "category": "vehicle",
+    "manufacturer": "Future Motion",
+    "manufacturer_status": "active",
+    "openness": "hostile",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "ponewheel/android-ponewheel",
+        "url": "https://github.com/ponewheel/android-ponewheel",
+        "description": "Community Onewheel app: the per-attribute GATT map and the firmware unlock handshake."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "ONVIF (Open Network Video Interface Forum)",
+    "path": "device-specs/devices/onvif.yaml",
+    "protocol": "wifi",
+    "category": "reference",
+    "manufacturer": "ONVIF (industry consortium)",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "helpful_urls": [
+      {
+        "title": "onvif-python (client)",
+        "url": "https://pypi.org/project/onvif-python/",
+        "description": "WS-Discovery, the WSDL namespaces, GetProfiles/GetStreamUri, and digest auth."
+      },
+      {
+        "title": "ONVIF — Media Service Specification (PDF)",
+        "url": "https://www.onvif.org/specs/srv/media/ONVIF-Media-Service-Spec.pdf",
+        "description": "First-party spec for GetProfiles / GetStreamUri."
+      },
+      {
+        "title": "valkka-examples — ONVIF",
+        "url": "https://elsampsa.github.io/valkka-examples/_build/html/onvif.html",
+        "description": "Practical ONVIF walkthrough (device_service path, namespaces, ports)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "OpenEVSE / EmonEVSE Charging Station",
+    "path": "device-specs/devices/openevse.yaml",
+    "protocol": "wifi",
+    "category": "energy",
+    "manufacturer": "OpenEVSE LLC (with OpenEnergyMonitor)",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "OpenEVSE/openevse_esp32_firmware",
+        "url": "https://github.com/OpenEVSE/openevse_esp32_firmware",
+        "description": "GPLv3 ESP32 gateway firmware: HTTP API, WebSocket, MQTT, OCPP."
+      },
+      {
+        "title": "OpenEVSE WiFi v4 — HTTP API (Stoplight)",
+        "url": "https://openevse.stoplight.io/docs/openevse-wifi-v4/",
+        "description": "The /status, /config and /override endpoints."
+      },
+      {
+        "title": "lincomatic/open_evse — RAPI protocol",
+        "url": "https://github.com/lincomatic/open_evse/blob/master/firmware/open_evse/rapi_proc.h",
+        "description": "The controller RAPI serial command set and framing."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "openScale-documented BLE Body Scales (Beurer/Sanitas, Medisana BS444, Trisa)",
+    "path": "device-specs/devices/openscale-body-scales.yaml",
+    "protocol": "ble",
+    "category": "scale",
+    "manufacturer": "Beurer / Sanitas / SilverCrest, Medisana, Trisa (openScale documents 85 scales)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "openScale — supported scales",
+        "url": "https://github.com/oliexdev/openScale/wiki/Supported-scales-in-openScale",
+        "description": "GPLv3 — catalogue of 85 scales and links to each family's BLE protocol page."
+      },
+      {
+        "title": "openScale — Medisana BS444 protocol",
+        "url": "https://github.com/oliexdev/openScale/wiki/Medisana-BS444",
+        "description": "The 0x78b2 service, indicate characteristics and the 02 7b 7b f6 0d trigger."
+      },
+      {
+        "title": "openScale — Trisa Body Analyze protocol",
+        "url": "https://github.com/oliexdev/openScale/wiki/Trisa-Body-Analyze",
+        "description": "The challenge-response pairing and weight mantissa/exponent encoding."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Oral-B iO Smart Brush",
     "path": "device-specs/devices/oral-b-io-smartbrush.yaml",
     "protocol": "ble",
@@ -2454,6 +3083,29 @@
         "title": "Oral-B firmware host",
         "url": "https://fw.iot-dev.alchemy.codes",
         "description": "The official firmware host hardcoded in the vendor app."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "OSRAM Lightify Gateway (+ paired Zigbee bulbs/plugs)",
+    "path": "device-specs/devices/osram-lightify-gateway.yaml",
+    "protocol": "wifi",
+    "category": "light",
+    "manufacturer": "OSRAM (consumer arm later LEDVANCE)",
+    "manufacturer_status": "shutdown",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "noctarius/lightify-binary-protocol",
+        "url": "https://github.com/noctarius/lightify-binary-protocol",
+        "description": "The reverse-engineered gateway binary protocol reference (framing, command ids)."
+      },
+      {
+        "title": "tfriedel/python-lightify",
+        "url": "https://github.com/tfriedel/python-lightify",
+        "description": "Apache-2.0 Python implementation; independent confirmation of port 4000 and the model."
       }
     ],
     "schema_version": "2020-12"
@@ -2504,6 +3156,34 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Parrot Drones (AR.Drone / Bebop / Anafi)",
+    "path": "device-specs/devices/parrot-arsdk-drone.yaml",
+    "protocol": "wifi",
+    "category": "other",
+    "manufacturer": "Parrot SA",
+    "manufacturer_status": "abandoned",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "felixge/node-ar-drone",
+        "url": "https://github.com/felixge/node-ar-drone",
+        "description": "AR.Drone 1.0/2.0 client — AT commands over UDP 5556, navdata, video."
+      },
+      {
+        "title": "katarina — Bebop protocol notes",
+        "url": "https://github.com/robotika/katarina/blob/master/bebop-protocol.md",
+        "description": "ARSDK3 TCP 44444 discovery JSON and the c2d/d2c UDP ports."
+      },
+      {
+        "title": "Parrot — Olympe / ARSDK (official open source)",
+        "url": "https://developer.parrot.com/docs/olympe/overview.html",
+        "description": "The official ARSDK3 Python controller and SDK for the Anafi family."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "PAX Vaporizer",
     "path": "device-specs/devices/pax-vape.yaml",
     "protocol": "ble",
@@ -2527,6 +3207,34 @@
         "title": "varenc/pax-app-bluetooth-server",
         "url": "https://github.com/varenc/pax-app-bluetooth-server",
         "description": "Preserves the official PAX Web Bluetooth app bundle (captured April 2026 before the May 2026 shutdown); best public source for the Era Pro enrollment path."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Pebble Smartwatch (Classic / Time / Pebble 2 / 2025 revival)",
+    "path": "device-specs/devices/pebble-smartwatch.yaml",
+    "protocol": "ble",
+    "category": "wearable",
+    "manufacturer": "Pebble Technology (defunct 2016; revived via Rebble + Core Devices)",
+    "manufacturer_status": "abandoned",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "libpebble2 — Pebble Protocol + transports",
+        "url": "https://libpebble2.readthedocs.io/en/latest/protocol/",
+        "description": "The official library's protocol framing and transport documentation."
+      },
+      {
+        "title": "Rebble Foundation",
+        "url": "https://rebble.io/",
+        "description": "Community web services + appstore keeping Pebble alive (RebbleOS, apps.rePebble.com)."
+      },
+      {
+        "title": "The new Pebble is now 100% open source (2025)",
+        "url": "https://ericmigi.com/blog/pebble-watch-software-is-now-100percent-open-source/",
+        "description": "Context on the 2025 PebbleOS open-source release and Core Devices' new hardware."
       }
     ],
     "schema_version": "2020-12"
@@ -2576,6 +3284,24 @@
     "manufacturer": "ProGLOW / TTCBLE",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "PrusaLink (Prusa MK4 / MK3.9 / XL / Mini)",
+    "path": "device-specs/devices/prusalink-local-api.yaml",
+    "protocol": "wifi",
+    "category": "printer",
+    "manufacturer": "Prusa Research",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "PrusaLink — OpenAPI spec",
+        "url": "https://github.com/prusa3d/Prusa-Link-Web/blob/master/spec/openapi.yaml",
+        "description": "The official /api/v1 endpoints, auth, and OctoPrint-compatible layer."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2702,6 +3428,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Radio Thermostat CT30/CT50/CT80 (+ 3M Filtrete 3M50)",
+    "path": "device-specs/devices/radiothermostat-ct50.yaml",
+    "protocol": "wifi",
+    "category": "climate",
+    "manufacturer": "Radio Thermostat Company of America",
+    "manufacturer_status": "shutdown",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "openHAB — RadioThermostat binding",
+        "url": "https://www.openhab.org/addons/bindings/radiothermostat/",
+        "description": "Documents the /tstat resources, SSDP discovery and the /cloud disable POST; confirms the cloud is defunct."
+      },
+      {
+        "title": "mhrivnak/radiotherm",
+        "url": "https://github.com/mhrivnak/radiotherm",
+        "description": "BSD-3 Python client for the local API."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "ratgdo Garage-Door Controller (ESPHome)",
     "path": "device-specs/devices/ratgdo.yaml",
     "protocol": "wifi",
@@ -2734,6 +3483,80 @@
         "url": "https://ratgdo.github.io/esphome-ratgdo/",
         "title": "ratgdo ESPHome installer & docs",
         "description": "Web flasher and setup for the mainstream ratgdo firmware."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Renogy BT-1 / BT-2 Solar Charge Controllers",
+    "path": "device-specs/devices/renogy-bt-ble.yaml",
+    "protocol": "ble",
+    "category": "energy",
+    "manufacturer": "Renogy (Rover/Wanderer/Adventurer controllers; SRNE / Rich Solar rebadges)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "cyrils/renogy-bt",
+        "url": "https://github.com/cyrils/renogy-bt",
+        "description": "GPL-3.0 reference client: GATT UUIDs, Modbus-over-BLE framing, Rover register map, MQTT/HTTP republish."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Reolink IP Camera / Doorbell / NVR",
+    "path": "device-specs/devices/reolink-camera.yaml",
+    "protocol": "wifi",
+    "category": "camera",
+    "manufacturer": "Reolink",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant — Reolink integration",
+        "url": "https://www.home-assistant.io/integrations/reolink/",
+        "description": "Local ports, stream-protocol choices, cloud-independent events."
+      },
+      {
+        "title": "ReolinkCameraAPI/reolinkapipy",
+        "url": "https://github.com/ReolinkCameraAPI/reolinkapipy",
+        "description": "Python client for the /cgi-bin/api.cgi login/token flow and command surface."
+      },
+      {
+        "title": "thirtythreeforty/neolink",
+        "url": "https://github.com/thirtythreeforty/neolink",
+        "description": "RTSP bridge for Baichuan-only Reolink cameras; carries the port-9000 Wireshark dissector."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Roborock Robot Vacuum (local protocol)",
+    "path": "device-specs/devices/roborock-local.yaml",
+    "protocol": "wifi",
+    "category": "robot",
+    "manufacturer": "Roborock",
+    "manufacturer_status": "active",
+    "openness": "hostile",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Home Assistant — Roborock integration",
+        "url": "https://www.home-assistant.io/integrations/roborock/",
+        "description": "Documents the local TCP 58867 model, the cloud-login->local-key flow, and A01 cloud-only devices."
+      },
+      {
+        "title": "Python-roborock/python-roborock",
+        "url": "https://github.com/Python-roborock/python-roborock",
+        "description": "Apache-2.0 reference client for the local + cloud protocols."
+      },
+      {
+        "title": "KonradIT/roborock-remote",
+        "url": "https://github.com/KonradIT/roborock-remote",
+        "description": "ESP32 local controller; documents the header layout and AES/key derivation."
       }
     ],
     "schema_version": "2020-12"
@@ -2773,6 +3596,29 @@
       {
         "title": "RoMote — open-source Android ECP remote",
         "url": "https://github.com/wseemann/RoMote"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "RuuviTag Environmental Sensor",
+    "path": "device-specs/devices/ruuvitag-ble.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "Ruuvi Innovations Ltd",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Ruuvi — Data Format 5 (RAWv2)",
+        "url": "https://docs.ruuvi.com/communication/bluetooth-advertisements/data-format-5-rawv2",
+        "description": "The 24-byte DF5 payload layout and company id 0x0499."
+      },
+      {
+        "title": "Ruuvi — Data Format 3 (RAWv1)",
+        "url": "https://docs.ruuvi.com/communication/bluetooth-advertisements/data-format-3-rawv1",
+        "description": "The 14-byte legacy DF3 payload layout."
       }
     ],
     "schema_version": "2020-12"
@@ -2908,6 +3754,34 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "SESAME Smart Locks (SESAME 3/4/5/5 PRO, Bot 2, bike 2)",
+    "path": "device-specs/devices/sesame-candyhouse-ble.yaml",
+    "protocol": "ble",
+    "category": "lock",
+    "manufacturer": "CANDY HOUSE",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "CANDY HOUSE — SesameOS3 Bluetooth protocol",
+        "url": "https://github.com/CANDY-HOUSE/API_document/blob/master/SesameOS3/bluetooth.md",
+        "description": "The official published protocol: advertisement, GATT UUIDs, segment framing, item codes, ECDH/AES-CCM crypto."
+      },
+      {
+        "title": "homy-newfs8/libsesame3bt-core",
+        "url": "https://github.com/homy-newfs8/libsesame3bt-core",
+        "description": "Independent ESP32 implementation — confirms the Tx/Rx chars, CMAC session token and lock/unlock primitives."
+      },
+      {
+        "title": "CANDY HOUSE developer docs",
+        "url": "https://docs.candyhouse.co/",
+        "description": "The overall SesameOS3 SDK / API documentation."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Shining Glasses",
     "path": "device-specs/devices/shining-glasses.yaml",
     "protocol": "ble",
@@ -2969,6 +3843,29 @@
         "title": "FCC-hosted SmartDawn curtain-lights manual",
         "url": "https://fccid.io/m/03e7be1bfdf844811e2d2cef87f6127da9424fa5c4ea7d89950479b3f244e0c4.pdf",
         "description": "User manual for JY25CUT-series curtain lights confirming BLE app control and the physical mode button."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Smarter iKettle 2.0 (and Smarter Coffee)",
+    "path": "device-specs/devices/smarter-ikettle.yaml",
+    "protocol": "wifi",
+    "category": "appliance",
+    "manufacturer": "Smarter Applications Ltd",
+    "manufacturer_status": "shutdown",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "ian-kent/ikettle2 — protocol notes",
+        "url": "https://github.com/ian-kent/ikettle2/blob/master/protocol/README.md",
+        "description": "Port-2081 framing, the 0x7e terminator, command/response IDs and the water-level quirk."
+      },
+      {
+        "title": "jkellerer/iBrew",
+        "url": "https://github.com/jkellerer/iBrew",
+        "description": "iBrew fork — console/CLI/library for iKettle 2.0 and Smarter Coffee (tested against firmware v19)."
       }
     ],
     "schema_version": "2020-12"
@@ -3075,6 +3972,39 @@
     "manufacturer": "Host No.4 Technology (Chengdu) Co., Ltd.",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Logitech Squeezebox (SlimProto player family)",
+    "path": "device-specs/devices/squeezebox-slimproto.yaml",
+    "protocol": "wifi",
+    "category": "speaker",
+    "manufacturer": "Slim Devices / Logitech (server now community-run as Lyrion)",
+    "manufacturer_status": "abandoned",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "LMS-Community/slimserver (Lyrion Music Server)",
+        "url": "https://github.com/LMS-Community/slimserver",
+        "description": "The GPL server — the authoritative SlimProto + CLI implementation that keeps Squeezebox hardware alive."
+      },
+      {
+        "title": "Lyrion — SlimProto protocol reference",
+        "url": "https://lyrion.org/reference/slimproto-protocol/",
+        "description": "Player<->server TCP 3483 framing and command set."
+      },
+      {
+        "title": "Lyrion wiki — SlimProto TCP protocol",
+        "url": "https://wiki.lyrion.org/index.php/SlimProto_TCP_protocol.html",
+        "description": "Byte-level HELO/strm/STAT details and the embedded audio-fetch HTTP request."
+      },
+      {
+        "title": "Lyrion — CLI / JSON-RPC reference",
+        "url": "https://lyrion.org/reference/cli/using-the-cli/",
+        "description": "The control API on TCP 9090 and HTTP /jsonrpc.js used by the commands here."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -3301,6 +4231,34 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "TTLock / Sciener BLE Locks (rebadged smart deadbolts, padlocks, cabinet locks)",
+    "path": "device-specs/devices/ttlock-sciener-ble.yaml",
+    "protocol": "ble",
+    "category": "lock",
+    "manufacturer": "Sciener (TTLock platform) — rebadged by hundreds of OEMs",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Fusseldieb/ttlock-reverse-engineering",
+        "url": "https://github.com/Fusseldieb/ttlock-reverse-engineering",
+        "description": "Community RE: GATT UUIDs, the 7F 5A frame, CRC-8/MAXIM + CRLF, AES-CBC (IV=key) crypto."
+      },
+      {
+        "title": "nv1t — The weird BLE-Lock (security teardown)",
+        "url": "https://nv1t.github.io/blog/the-weired-ble-lock/",
+        "description": "Cloud-side vulnerabilities (user enumeration, exposed passcodes) affecting TTLock-family locks."
+      },
+      {
+        "title": "ttlock/Android_SDK_Demo (official closed SDK)",
+        "url": "https://github.com/ttlock/Android_SDK_Demo",
+        "description": "The vendor's public (but closed-core) SDK — confirms the lock/gateway/DFU feature surface, not the wire format."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Tuya Bluetooth Soil Tester (zwjcy / SGS01 family)",
     "path": "device-specs/devices/tuya-bt-soil-tester.yaml",
     "protocol": "ble",
@@ -3422,6 +4380,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Twinkly Smart Lights (string / curtain / matrix)",
+    "path": "device-specs/devices/twinkly-lights.yaml",
+    "protocol": "wifi",
+    "category": "light",
+    "manufacturer": "Ledworks Srl (Twinkly)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "scrool/xled",
+        "url": "https://github.com/scrool/xled",
+        "description": "MIT reference client for the Twinkly private API."
+      },
+      {
+        "title": "xled-docs — unofficial API documentation",
+        "url": "https://xled-docs.readthedocs.io/",
+        "description": "Endpoint-by-endpoint REST + UDP realtime protocol documentation."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Ubiquiti UniFi / EdgeMAX Device (AP / switch / gateway / NVR / NAS)",
     "path": "device-specs/devices/ubiquiti-unifi-device.yaml",
     "protocol": "wifi",
@@ -3510,6 +4491,34 @@
         "url": "https://play.google.com/store/apps/details?id=com.urevo.app",
         "title": "UREVO app (Google Play)",
         "description": "Official companion app — the protocol source for this spec."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Valetudo (rooted robot vacuum, on-device REST/MQTT)",
+    "path": "device-specs/devices/valetudo.yaml",
+    "protocol": "wifi",
+    "category": "robot",
+    "manufacturer": "Sören Beye (Hypfer) + community (vacuum vendors: Roborock, Dreame, Midea)",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Valetudo",
+        "url": "https://valetudo.cloud/",
+        "description": "Apache-2.0 on-robot cloud replacement (REST/MQTT/UI); rooting guides for Roborock/Dreame/Midea."
+      },
+      {
+        "title": "Hypfer/Valetudo",
+        "url": "https://github.com/Hypfer/Valetudo",
+        "description": "Source; the REST /api/v2 + capabilities model."
+      },
+      {
+        "title": "dustbuilder (Dennis Giese)",
+        "url": "https://builder.dontvacuum.me/",
+        "description": "Builds rooted firmware images with Valetudo prepackaged and DNS patched."
       }
     ],
     "schema_version": "2020-12"
@@ -3605,6 +4614,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "VESC (open-source motor controller)",
+    "path": "device-specs/devices/vesc-ble-uart.yaml",
+    "protocol": "ble",
+    "category": "motor",
+    "manufacturer": "Benjamin Vedder & community",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "vedderb/bldc",
+        "url": "https://github.com/vedderb/bldc",
+        "description": "The VESC firmware: COMM packet protocol (comm/packet.c) and command ids (datatypes.h)."
+      },
+      {
+        "title": "vedderb/vesc_express",
+        "url": "https://github.com/vedderb/vesc_express",
+        "description": "The BLE (Nordic UART) bridge — comm_ble.c has the service/characteristic UUIDs."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Vevor VT256 Thermal Imager (Hti-Xintai HT-W01)",
     "path": "device-specs/devices/vevor-vt256-thermal-imager.yaml",
     "protocol": "wifi",
@@ -3649,6 +4681,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Victron Energy Instant Readout (BLE broadcast)",
+    "path": "device-specs/devices/victron-instant-readout-ble.yaml",
+    "protocol": "ble",
+    "category": "energy",
+    "manufacturer": "Victron Energy",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Victron — BLE protocol publication (community archive)",
+        "url": "https://communityarchive.victronenergy.com/questions/93919/victron-bluetooth-ble-protocol-publication.html",
+        "description": "Victron's own announcement of the published advertisement format."
+      },
+      {
+        "title": "keshavdv/victron-ble",
+        "url": "https://github.com/keshavdv/victron-ble",
+        "description": "Reference decoder (company id 0x02E1, AES-CTR, record types and field layouts)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Vizio SmartCast TV",
     "path": "device-specs/devices/vizio-smartcast.yaml",
     "protocol": "wifi",
@@ -3687,6 +4742,24 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "WeatherFlow Tempest Weather Station",
+    "path": "device-specs/devices/weatherflow-tempest-udp.yaml",
+    "protocol": "wifi",
+    "category": "sensor",
+    "manufacturer": "WeatherFlow-Tempest, Inc.",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "WeatherFlow — Tempest UDP API v171",
+        "url": "https://weatherflow.github.io/Tempest/api/udp/v171/",
+        "description": "The vendor's own local UDP broadcast API (port 50222, message types, field layouts)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Belkin Wemo Smart Devices",
     "path": "device-specs/devices/wemo-devices.yaml",
     "protocol": "wifi",
@@ -3710,6 +4783,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "WiZ Wi-Fi Lights (bulbs, strips, plugs)",
+    "path": "device-specs/devices/wiz-wifi-light.yaml",
+    "protocol": "wifi",
+    "category": "light",
+    "manufacturer": "WiZ Connected (Signify / Philips)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "sbidy/pywizlight",
+        "url": "https://github.com/sbidy/pywizlight",
+        "description": "MIT reference client; backs the Home Assistant wiz integration."
+      },
+      {
+        "title": "UselessMnemonic/OpenWiz",
+        "url": "https://github.com/UselessMnemonic/OpenWiz",
+        "description": "MIT — documents the UDP 38899/38900 ports and the JSON method set."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "WLED Addressable LED Controller",
     "path": "device-specs/devices/wled-controller.yaml",
     "protocol": "wifi",
@@ -3728,6 +4824,52 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Wyze Cam (via docker-wyze-bridge)",
+    "path": "device-specs/devices/wyze-bridge-camera.yaml",
+    "protocol": "wifi",
+    "category": "camera",
+    "manufacturer": "Wyze Labs",
+    "manufacturer_status": "active",
+    "openness": "hostile",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "mrlt8/docker-wyze-bridge",
+        "url": "https://github.com/mrlt8/docker-wyze-bridge",
+        "description": "Community bridge: exposes Wyze cameras as local RTSP/RTMP/HLS/WebRTC; needs a Wyze API Key/ID."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Xiaomi Mi Band / Amazfit (Huami/Zepp) Bands",
+    "path": "device-specs/devices/xiaomi-huami-miband.yaml",
+    "protocol": "ble",
+    "category": "wearable",
+    "manufacturer": "Xiaomi / Huami (Zepp Health)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Gadgetbridge (Freeyourgadget)",
+        "url": "https://codeberg.org/Freeyourgadget/Gadgetbridge",
+        "description": "GPLv3 — the authoritative multi-generation Mi Band / Amazfit protocol implementation."
+      },
+      {
+        "title": "Gadgetbridge — Huami server pairing",
+        "url": "https://codeberg.org/Freeyourgadget/Gadgetbridge/wiki/Huami-Server-Pairing",
+        "description": "Why newer bands need a server-generated key and how it is extracted."
+      },
+      {
+        "title": "leojrfs — Mi Band 2 auth writeup",
+        "url": "https://leojrfs.github.io/writing/miband2-part1-auth/",
+        "description": "The three-step AES-ECB auth handshake and the auth characteristic UUID."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Xiaomi Mijia LYWSD03MMC Thermometer/Hygrometer",
     "path": "device-specs/devices/xiaomi-lywsd03mmc.yaml",
     "protocol": "ble",
@@ -3741,6 +4883,34 @@
         "url": "https://www.home-assistant.io/integrations/xiaomi_ble/",
         "title": "Home Assistant Xiaomi BLE integration",
         "description": "HA core integration passively decoding LYWSD03MMC advertisements (bindkey for stock firmware; plaintext with ATC custom firmware)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Xiaomi Mijia M365 E-Scooter (BLE)",
+    "path": "device-specs/devices/xiaomi-m365-ble.yaml",
+    "protocol": "ble",
+    "category": "vehicle",
+    "manufacturer": "Xiaomi (Ninebot-built ESC/BMS)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "CamiAlfa/M365-BLE-PROTOCOL",
+        "url": "https://github.com/CamiAlfa/M365-BLE-PROTOCOL",
+        "description": "The 55 AA frame, XOR checksum, address/command bytes, and the full ESC/BMS register map."
+      },
+      {
+        "title": "Informatic/py9b",
+        "url": "https://github.com/Informatic/py9b",
+        "description": "Python library: BLE link, Xiaomi + Ninebot transports, ready-made read/unlock/passwd tools."
+      },
+      {
+        "title": "Zimperium — Xiaomi scooter BLE advisory",
+        "url": "https://www.zimperium.com/blog/dont-give-me-a-brake-xiaomi-scooter-hack-enables-dangerous-accelerations-and-stops-for-unsuspecting-riders/",
+        "description": "The unauthenticated-BLE-command issue recorded in the security_advisory."
       }
     ],
     "schema_version": "2020-12"
@@ -3830,6 +5000,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Xiaomi miIO / MiHome Devices (transport)",
+    "path": "device-specs/devices/xiaomi-miio.yaml",
+    "protocol": "wifi",
+    "category": "other",
+    "manufacturer": "Xiaomi (and ecosystem OEMs — Roborock, Dreame, Viomi, etc.)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "OpenMiHome/mihome-binary-protocol",
+        "url": "https://github.com/OpenMiHome/mihome-binary-protocol/blob/master/doc/PROTOCOL.md",
+        "description": "The miIO binary transport: header, handshake, AES-128-CBC key/IV, checksum."
+      },
+      {
+        "title": "rytilahti/python-miio",
+        "url": "https://github.com/rytilahti/python-miio",
+        "description": "GPL-3.0 reference client; discovery, token handling, per-device command modules and generic MIoT."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "XKGlow XKChrome Motorcycle LED Controller",
     "path": "device-specs/devices/xkglow-chrome.yaml",
     "protocol": "ble",
@@ -3837,6 +5030,29 @@
     "manufacturer": "XKGlow",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Yale Access / August Smart Locks",
+    "path": "device-specs/devices/yale-august-ble.yaml",
+    "protocol": "ble",
+    "category": "lock",
+    "manufacturer": "August / Yale (ASSA ABLOY)",
+    "manufacturer_status": "active",
+    "openness": "hostile",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Yale-Libs/yalexs-ble",
+        "url": "https://github.com/Yale-Libs/yalexs-ble",
+        "description": "The local BLE implementation Home Assistant uses: GATT UUIDs, HAP framing, opcodes, AES-CBC session."
+      },
+      {
+        "title": "Home Assistant — August / Yale integration",
+        "url": "https://www.home-assistant.io/integrations/august/",
+        "description": "Documents the offline-key requirement and how to sync it from the cloud for local control."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -3884,6 +5100,34 @@
         "title": "Home Assistant — Yeelight integration",
         "url": "https://www.home-assistant.io/integrations/yeelight/",
         "description": "Core integration covering basic on/off/colour for Yeelight LAN lights, including the cube at that level."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Yeelight Wi-Fi Lights (bulbs, strips, ceiling, bedside)",
+    "path": "device-specs/devices/yeelight-wifi.yaml",
+    "protocol": "wifi",
+    "category": "light",
+    "manufacturer": "Qingdao Yeelink Information Technology (Xiaomi ecosystem)",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Yeelight WiFi Light Inter-Operation Specification (vendor PDF)",
+        "url": "https://www.yeelight.com/download/Yeelight_Inter-Operation_Spec.pdf",
+        "description": "The vendor-published local protocol: port 55443 JSON, SSDP on 1982, method set."
+      },
+      {
+        "title": "python-yeelight",
+        "url": "https://gitlab.com/stavros/python-yeelight",
+        "description": "Reference Python client; documents music mode and the method set."
+      },
+      {
+        "title": "Home Assistant Yeelight integration",
+        "url": "https://www.home-assistant.io/integrations/yeelight/",
+        "description": "HA core integration over this LAN protocol (requires LAN Control enabled)."
       }
     ],
     "schema_version": "2020-12"

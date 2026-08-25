@@ -1,0 +1,223 @@
+# Magic Home / Zengge Wi-Fi LED Controllers — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Danielhiversen/flux_led (LGPL-3.0) — the de-facto reference client
+#     (Home Assistant uses it); protocol.py carries the command bytes.
+#   - vikstrous/zengge-lightcontrol — the port-5577 + UDP-48899 write-up.
+
+device:
+  name: "Magic Home / Zengge Wi-Fi LED Controller"
+  manufacturer: "Zengge (white-labeled: Magic Home, Magic Hue, MagicLight, Flux, and dozens more)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Command bytes, the port-5577
+      transport and the additive checksum are transcribed from flux_led's
+      protocol.py and vikstrous/zengge-lightcontrol.
+  protocol: "wifi"
+  category: "light"
+  transport: "tcp"
+  notes: >
+    Zengge makes the Wi-Fi LED controllers and bulbs sold under a huge number of
+    brands — Magic Home, Magic Hue, MagicLight, Flux and many more. They speak a
+    plaintext binary protocol on TCP port 5577 with NO authentication and no
+    handshake. flux_led reverse-engineered it from packet captures and is the
+    client Home Assistant uses. Zengge is still in business (manufacturer_status
+    active), but the local protocol is what matters here: block the controller
+    from the internet and everything below still works.
+
+    TRANSPORT: TCP 5577, binary commands. The last byte of every command is a
+    checksum = (sum of all preceding bytes) & 0xFF. Several protocol variants
+    exist — the original (no checksum), an 8-byte and a 9-byte color form, and
+    addressable A1/A2/A3 strip protocols; the newest (A3/CCT/Christmas) wrap the
+    inner command in an outer frame beginning B0 B1 B2 B3 00 01.
+
+    KEY COMMANDS (from flux_led protocol.py):
+      power on  : 71 23 0F + checksum
+      power off : 71 24 0F + checksum
+      state query: 81 8A 8B + checksum  (reply begins 0x81 on modern protocols,
+                   0x66 on the original checksum-less one)
+      color set : 31 RR GG BB WW <write_mode> 0F + checksum (8-byte form; a
+                   9-byte form adds a second/cool white byte)
+      device config query (addressable): 63 ... returns LED count, segments,
+                   IC type (WS2812B/SK6812/...) and wiring order.
+
+    HARDWARE: legacy units are Hi-Flying HF-LPB100/LPT120 modules; newer ones
+    are ESP8285-based.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Danielhiversen/flux_led"
+    license: "LGPL-3.0"
+    notes: >
+      No vendor documentation; the protocol was reverse-engineered from packet
+      captures. flux_led (now under the lightinglibs org) is the authoritative
+      implementation and backs Home Assistant's flux_led integration.
+
+  identification:
+    default_port: 5577
+    ssid_prefix: "LEDnet"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # Zengge controllers do NOT advertise a dedicated mDNS service; they
+          # are found by the UDP 48899 "HF-A11ASSISTHREAD" config handshake
+          # documented in zengge_lan_protocol below. This block is a formal
+          # placeholder — treat the UDP probe as the real discriminator.
+          service_type: "_http._tcp.local."
+          port: 5577
+          identity_mapping:
+            stable_keys:
+              - source: "udp:48899#mac"
+                key: "mac"
+            display:
+              source: "udp:48899#model"
+        notes: >
+          Discovery in practice is the Hi-Flying module's UDP 48899 config
+          channel: broadcast the ASCII "HF-A11ASSISTHREAD", to which modules
+          answer "+ok" and then report IP/MAC/model. See zengge_lan_protocol.
+    identity:
+      stable_keys: ["mac"]
+      display: "model"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A factory-fresh module hosts its own AP; joining it to the home Wi-Fi uses
+      the Hi-Flying UDP 48899 config channel (ASCII AT-style commands set the
+      SSID and passphrase after the HF-A11ASSISTHREAD handshake). No cloud
+      account is needed for local control. The exact AT sequence is not replayed
+      here — low.
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          Join the module's setup AP and drive the UDP 48899 config channel:
+          send "HF-A11ASSISTHREAD", wait for "+ok", then set the home SSID and
+          passphrase with the module's AT-style commands. The module reboots
+          onto the home network and answers on TCP 5577.
+        softap:
+          ssid_prefix: "LEDnet"
+          open_network: true
+        steps:
+          - action: "Power a new/reset controller and join its setup AP."
+            actor: "user"
+          - action: "On UDP 48899, send 'HF-A11ASSISTHREAD'; expect '+ok'."
+            actor: "client"
+          - action: "Send the AT-style commands that set the home SSID/passphrase."
+            actor: "client"
+            expect: "The module reboots and joins the home Wi-Fi; TCP 5577 answers."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Returns the module to AP/setup mode and clears Wi-Fi credentials.
+        Per-controller reset gestures (power-cycle sequences) are not documented
+        in the sources used here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The UDP 48899 config channel can rewrite the module's Wi-Fi credentials
+        without a physical reset when the module is reachable.
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "Wi-Fi credentials"
+      issued_to_client: []
+      notes: >
+        The home passphrase is sent as an AT-style command over the UDP 48899
+        config channel — no encryption. Post-setup TCP 5577 control is
+        unauthenticated: anything on the LAN can drive the controller.
+
+# The Zengge/Magic Home LAN protocol.
+zengge_lan_protocol:
+  control:
+    transport: "TCP, port 5577"
+    authentication: "none"
+    checksum: "last byte = (sum of all preceding bytes) & 0xFF"
+    variants: >
+      original (no checksum), 8-byte color, 9-byte color (adds cool white), and
+      addressable A1/A2/A3 strip protocols. The newest (A3/CCT/Christmas) wrap
+      the inner command in an outer frame beginning B0 B1 B2 B3 00 01.
+  discovery:
+    transport: "UDP, port 48899"
+    handshake: "Broadcast ASCII 'HF-A11ASSISTHREAD'; module answers '+ok', then reports IP/MAC/model. Same channel configures the home SSID/passphrase."
+  cloud_note: >
+    Cloud path (not needed locally): bulbs tunnel to wifi.magichue.net:8805,
+    AES256 with a shared secret. Local TCP 5577 is wholly independent of it.
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Control is binary over a raw TCP socket on port 5577
+      (see zengge_lan_protocol); discovery is over UDP 48899. There is no HTTP
+      control surface on most modules (some expose a status page on port 80).
+
+commands:
+  turn_on:
+    description: "Power on. Frame: 71 23 0F <checksum>."
+    transport: "tcp-json"
+    body: "71 23 0F 0F"
+    verification: "reported"
+  turn_off:
+    description: "Power off. Frame: 71 24 0F <checksum>."
+    transport: "tcp-json"
+    body: "71 24 0F 04"
+    verification: "reported"
+  set_color:
+    description: >
+      Set RGB(W) color (8-byte form): 31 RR GG BB WW <write_mode> 0F <checksum>.
+      write_mode selects RGB vs white channel handling (0xF0 RGB-only, 0x0F
+      white-only, 0xFF both) per flux_led.
+    transport: "tcp-json"
+    body: "31 {red} {green} {blue} {white} F0 0F {checksum}"
+    parameters:
+      red:
+        type: "uint8"
+        description: "Red 0-255."
+      green:
+        type: "uint8"
+        description: "Green 0-255."
+      blue:
+        type: "uint8"
+        description: "Blue 0-255."
+      white:
+        type: "uint8"
+        description: "White channel 0-255 (0 for RGB-only fixtures)."
+      checksum:
+        type: "uint8"
+        auto: "sum_checksum"
+        description: "(sum of preceding bytes) & 0xFF; encoder-filled."
+    verification: "reported"
+  query_state:
+    description: "Query power/color state. Frame: 81 8A 8B <checksum>. Reply begins 0x81 (modern) or 0x66 (original)."
+    transport: "tcp-json"
+    body: "81 8A 8B 96"
+    verification: "reported"
+
+entities:
+  - platform: "light"
+    name: "LED Controller"
+    features: ["rgb"]
+    commands:
+      turn_on: "turn_on"
+      turn_off: "turn_off"
+
+helpful_urls:
+  - title: "Danielhiversen/flux_led"
+    url: "https://github.com/Danielhiversen/flux_led"
+    description: "LGPL-3.0 reference client (Home Assistant flux_led integration); protocol.py has the command bytes and checksum."
+  - title: "vikstrous/zengge-lightcontrol"
+    url: "https://github.com/vikstrous/zengge-lightcontrol"
+    description: "Port-5577 + UDP-48899 protocol write-up, including the HF-A11ASSISTHREAD config handshake."

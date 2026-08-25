@@ -1,0 +1,241 @@
+# Google Chromecast / CASTv2 — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - thibauts/node-castv2 (MIT) — the canonical CASTv2 wire description.
+#   - home-assistant-libs/pychromecast (MIT) — discovery + app IDs.
+
+device:
+  name: "Google Chromecast (CASTv2)"
+  manufacturer: "Google"
+  manufacturer_status: "abandoned"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The transport (TLS 8009,
+      length-prefixed protobuf), namespaces, heartbeat and mDNS string are from
+      node-castv2 and pychromecast; app IDs from pychromecast's config.
+  protocol: "wifi"
+  category: "tv"
+  pictogram: "streaming-stick"
+  transport: "tcp"
+  notes: >
+    Chromecast is Google's media-receiver line — the original Chromecast dongles,
+    Chromecast Audio, and Chromecast with Google TV — plus the CASTv2 receiver
+    baked into many third-party TVs and speakers. Google ended Chromecast
+    hardware production in August 2024 (replaced by the Google TV Streamer) and
+    gave the 4K/HD models security updates only into September 2025, so the
+    dongles themselves are now an abandoned line. The CASTv2 protocol lives on in
+    Cast-enabled devices.
+
+    Local relevance: discovery + CASTv2 control + the Default Media Receiver can
+    load and control arbitrary media URLs entirely on the LAN, with no Google
+    account touched at control time. (Most streaming APPS still require their own
+    cloud; this spec scopes to local casting of self-hosted media and basic
+    receiver control, not the app ecosystem.)
+
+    TRANSPORT: a TLS socket to TCP 8009 carrying length-prefixed protobuf
+    CastMessages. Framing is a 32-bit big-endian length prefix followed by a
+    CastMessage (protocol_version, source_id, destination_id, namespace,
+    payload_type STRING|BINARY, payload_utf8/payload_binary). Platform endpoints
+    are sender-0 / receiver-0; session endpoints use dynamic ids like client-<n>.
+
+    NAMESPACES:
+      urn:x-cast:com.google.cast.tp.connection  — virtual connection CONNECT/CLOSE
+      urn:x-cast:com.google.cast.tp.heartbeat   — PING/PONG (sender PINGs ~every 5s;
+                                                   no PONG => connection dead)
+      urn:x-cast:com.google.cast.receiver       — LAUNCH / STOP / GET_STATUS apps
+      urn:x-cast:com.google.cast.tp.deviceauth  — device authentication handshake
+      urn:x-cast:com.google.cast.media          — LOAD / PLAY / PAUSE / SEEK / STOP
+
+    APP IDs (LAUNCH via the receiver namespace): Default Media Receiver
+    CC1AD845, Backdrop E8C28D3C, YouTube 233637DE, DashCast 84912283,
+    BubbleUPnP 3927FA74. With the Default Media Receiver a client LOADs a
+    contentId + contentType and then PLAY/PAUSE/SEEK it — the local-media path.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/thibauts/node-castv2"
+    notes: >
+      Google publishes sender SDKs but not the wire protocol; CASTv2 was
+      reverse-engineered by the community. node-castv2 is the canonical
+      description; pychromecast (Home Assistant) is the reference Python client.
+
+  identification:
+    default_port: 8009
+    mdns_service_type: "_googlecast._tcp.local."
+    mdns_txt_match:
+      - key: "id"
+        match: "present"
+        description: "Cast devices publish a stable UUID in the mDNS TXT 'id' record."
+    identity_keys:
+      primary: "id"
+      display: "fn"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_googlecast._tcp.local."
+          port: 8009
+          txt_record_keys: ["fn", "md", "id", "ca"]
+          txt_match:
+            - key: "id"
+              match: "present"
+              description: "The device UUID; its presence marks a Cast device."
+          identity_mapping:
+            stable_keys:
+              - source: "txt:id"
+                key: "id"
+            display:
+              source: "txt:fn"
+        notes: >
+          Cast devices advertise _googlecast._tcp with TXT records fn (friendly
+          name), md (model), id (UUID) and ca. The UUID is the stable identity;
+          fn is the display name.
+    identity:
+      stable_keys: ["id"]
+      display: "fn"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Initial Wi-Fi onboarding runs through the Google Home app and a Google
+      account; the onboarding wire protocol is not documented here. Once on the
+      LAN, discovery and CASTv2 control need no account.
+    methods:
+      - type: "cloud_account"
+        verified: false
+        description: >
+          Factory setup joins the device to Wi-Fi via the Google Home app
+          (Google account required for setup). After that, local CASTv2 control
+          and Default-Media-Receiver playback work on the LAN with no account.
+        cloud:
+          local_alternative: >
+            Yes for CONTROL — discovery (mDNS) and CASTv2 (TLS 8009) drive the
+            device locally once it is on the network. Initial Wi-Fi provisioning,
+            however, requires the Google Home app and a Google account; there is
+            no documented account-free provisioning path.
+        steps:
+          - action: "Provision the device onto Wi-Fi with the Google Home app (Google account)."
+            actor: "user"
+          - action: "Discover it via _googlecast._tcp and open a TLS connection to port 8009 for local control."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Clears Wi-Fi credentials and the device's Home/account binding,
+        returning it to setup. Performed by holding the button on the device
+        (or from the Home app); the exact hold time is model-specific.
+      procedures:
+        - name: "Button-hold factory reset"
+          verified: false
+          basis: "Google documents a button-hold reset per model; not replayed here."
+          steps:
+            - action: "Hold the device's physical button until the LED indicates a reset, then release."
+              actor: "user"
+              expect: "The device reboots into setup mode."
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        Changing Wi-Fi networks is done through the Google Home app; there is no
+        documented local-protocol path to re-provision credentials, so a network
+        change is effectively a reprovision.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Google Home / account binding"
+      issued_to_client: []
+      notes: >
+        CASTv2 control on the LAN is not user-authenticated (a device-auth
+        handshake exists on the deviceauth namespace but does not gate local
+        media control). The Wi-Fi passphrase is handled by the Home app's
+        provisioning, not by anything this spec documents.
+
+# The CASTv2 wire protocol. TLS 8009 protobuf, so http_endpoints below is a
+# placeholder — control is this, not REST.
+castv2_protocol:
+  transport: "TLS over TCP, port 8009"
+  framing: >
+    32-bit big-endian length prefix, then a protobuf CastMessage with fields
+    protocol_version, source_id, destination_id, namespace, payload_type
+    (STRING|BINARY) and payload_utf8/payload_binary.
+  endpoints:
+    platform: "sender-0 (sender) / receiver-0 (receiver)"
+    session: "dynamic ids such as client-<n> once an app session is open"
+  heartbeat: "Sender PINGs on the heartbeat namespace ~every 5s; a missing PONG means the link is dead."
+  namespaces:
+    connection: "urn:x-cast:com.google.cast.tp.connection — CONNECT/CLOSE a virtual connection"
+    heartbeat: "urn:x-cast:com.google.cast.tp.heartbeat — PING/PONG"
+    receiver: "urn:x-cast:com.google.cast.receiver — LAUNCH/STOP/GET_STATUS an app by appId"
+    deviceauth: "urn:x-cast:com.google.cast.tp.deviceauth — device authentication"
+    media: "urn:x-cast:com.google.cast.media — LOAD/PLAY/PAUSE/SEEK/STOP media"
+  app_ids:
+    default_media_receiver: "CC1AD845"
+    backdrop: "E8C28D3C"
+    youtube: "233637DE"
+    dashcast: "84912283"
+    bubbleupnp: "3927FA74"
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. There is no HTTP control surface: control is
+      length-prefixed protobuf over a TLS socket on port 8009 (see
+      castv2_protocol).
+
+commands:
+  launch_default_media_receiver:
+    description: "LAUNCH the Default Media Receiver (appId CC1AD845) on the receiver namespace."
+    transport: "tcp-json"
+    body: '{"type":"LAUNCH","appId":"CC1AD845","requestId":1}'
+    verification: "reported"
+  load_media:
+    description: >
+      LOAD a media URL into the running receiver session (media namespace).
+      contentId is the URL; contentType is its MIME type.
+    transport: "tcp-json"
+    body: '{"type":"LOAD","media":{"contentId":"{url}","contentType":"{mime}","streamType":"BUFFERED"},"requestId":2}'
+    parameters:
+      url:
+        type: "string"
+        description: "Media URL for the receiver to fetch (e.g. a self-hosted MP4/MP3)."
+      mime:
+        type: "string"
+        description: "MIME type, e.g. video/mp4 or audio/mpeg."
+    verification: "reported"
+  play:
+    description: "PLAY/resume the current media session."
+    transport: "tcp-json"
+    body: '{"type":"PLAY","requestId":3}'
+    verification: "reported"
+  pause:
+    description: "PAUSE the current media session."
+    transport: "tcp-json"
+    body: '{"type":"PAUSE","requestId":4}'
+    verification: "reported"
+  stop_app:
+    description: "STOP the running receiver app (receiver namespace)."
+    transport: "tcp-json"
+    body: '{"type":"STOP","requestId":5}'
+    verification: "reported"
+
+helpful_urls:
+  - title: "thibauts/node-castv2"
+    url: "https://github.com/thibauts/node-castv2"
+    description: "MIT — the canonical CASTv2 protocol description (framing, namespaces, heartbeat)."
+  - title: "thibauts/node-castv2-client"
+    url: "https://github.com/thibauts/node-castv2-client"
+    description: "MIT — Default Media Receiver load/seek example (the local-media path)."
+  - title: "home-assistant-libs/pychromecast"
+    url: "https://github.com/home-assistant-libs/pychromecast"
+    description: "MIT — reference Python client; discovery TXT keys and app IDs."

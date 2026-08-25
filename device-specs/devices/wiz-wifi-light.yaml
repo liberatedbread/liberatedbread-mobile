@@ -1,0 +1,213 @@
+# WiZ Wi-Fi Lights — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - sbidy/pywizlight (MIT) — the reference client (Home Assistant wiz).
+#   - UselessMnemonic/OpenWiz (MIT) — the UDP port/JSON-method write-up.
+
+device:
+  name: "WiZ Wi-Fi Lights (bulbs, strips, plugs)"
+  manufacturer: "WiZ Connected (Signify / Philips)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The UDP 38899/38900 ports are
+      from OpenWiz; the JSON method dialect is from both pywizlight and OpenWiz.
+  protocol: "wifi"
+  category: "light"
+  transport: "udp"
+  notes: >
+    WiZ is Signify's (Philips) budget smart-lighting line — bulbs, light strips
+    and plugs — controllable entirely on the LAN over a small UDP/JSON protocol
+    with no cloud and no account once the light is on the network. pywizlight is
+    the reference client and backs Home Assistant's wiz integration.
+
+    TRANSPORT: UDP JSON datagrams. The light LISTENS on port 38899; the app/
+    client receives pushes on port 38900. No authentication. Discovery is a UDP
+    broadcast of a "registration" message to the broadcast address; every bulb
+    replies.
+
+    ENVELOPE: { "method": "", "params": {}, "result": {}, "error": {} } — UTF-8
+    JSON; not every field is present in every packet.
+
+    METHODS:
+      setPilot        — change state, e.g. {"method":"setPilot","params":{"state":true}}
+                        or {"r":255,"g":0,"b":0} or {"dimming":50} or {"sceneId":12}
+      getPilot        — read current state
+      syncPilot       — the light pushes its state to registered clients
+      registration    — register a client for pushes; doubles as the discovery probe
+      getSystemConfig / setSystemConfig, getUserConfig / setUserConfig — device config
+      pulse           — brief fade effect (delta + duration)
+    Params: r/g/b 0-255, dimming, color temperature in Kelvin (range varies by
+    bulb class), sceneId 1-35, effect speed. MACs appear as 12-digit lowercase
+    hex strings.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/sbidy/pywizlight"
+    license: "MIT"
+    notes: >
+      No vendor protocol documentation; pywizlight and OpenWiz reverse-engineered
+      the LAN API. pywizlight backs Home Assistant.
+
+  identification:
+    default_port: 38899
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # WiZ does not advertise mDNS; discovery is a UDP broadcast of a
+          # 'registration' message (see wiz_lan_protocol). Placeholder block.
+          service_type: "_http._tcp.local."
+          port: 38899
+          identity_mapping:
+            stable_keys:
+              - source: "udp:38899#mac"
+                key: "mac"
+            display:
+              source: "udp:38899#moduleName"
+        notes: >
+          Real discovery: UDP-broadcast a 'registration' message (to
+          255.255.255.255:38899); every WiZ light replies with its state and
+          MAC. See wiz_lan_protocol.
+    identity:
+      stable_keys: ["mac"]
+      display: "moduleName"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A new bulb is joined to Wi-Fi through the WiZ app; once on the network the
+      UDP protocol answers with no cloud step and no per-device LAN-enable
+      toggle. The onboarding wire flow is not documented in the sources used.
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          Onboard the bulb onto Wi-Fi via the WiZ app (SoftAP/SmartConfig-style).
+          After it joins, the UDP 38899 protocol answers directly — no account,
+          no LAN toggle.
+        steps:
+          - action: "Add the bulb in the WiZ app and give it the home Wi-Fi credentials."
+            actor: "user"
+            expect: "The bulb joins the LAN and answers a getPilot on UDP 38899."
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Clears Wi-Fi credentials and returns the bulb to onboarding. Done by
+        power-cycling the bulb several times (the WiZ-documented toggle-on/off
+        sequence); the exact count is not transcribed here.
+      procedures:
+        - name: "Power-cycle reset"
+          verified: false
+          basis: "WiZ documents a repeated power-cycle to reset; not replayed here."
+          steps:
+            - action: "Toggle the bulb's power on/off several times per WiZ's instructions until it pulses to confirm reset."
+              actor: "user"
+              expect: "The bulb re-enters onboarding mode."
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        No documented in-place Wi-Fi credential rewrite over the local protocol;
+        treat a network change as a reprovision through the app.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+      issued_to_client: []
+      notes: >
+        Onboarding is handled by the WiZ app and not documented here, so the
+        passphrase protection during provisioning is unknown. Post-setup UDP
+        control is unauthenticated on the LAN.
+
+wiz_lan_protocol:
+  transport: "UDP; light listens on 38899, client receives pushes on 38900"
+  envelope: '{ "method": "", "params": {}, "result": {}, "error": {} }'
+  discovery: "UDP-broadcast a 'registration' message; every WiZ light replies with its state and MAC."
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Control is UDP/JSON on port 38899 (see
+      wiz_lan_protocol), not HTTP.
+
+commands:
+  turn_on:
+    description: "Turn the light on."
+    transport: "udp"
+    body: '{"method":"setPilot","params":{"state":true}}'
+    verification: "reported"
+  turn_off:
+    description: "Turn the light off."
+    transport: "udp"
+    body: '{"method":"setPilot","params":{"state":false}}'
+    verification: "reported"
+  set_rgb:
+    description: "Set RGB color."
+    transport: "udp"
+    body: '{"method":"setPilot","params":{"r":{red},"g":{green},"b":{blue}}}'
+    parameters:
+      red:
+        type: "uint8"
+        description: "Red 0-255."
+      green:
+        type: "uint8"
+        description: "Green 0-255."
+      blue:
+        type: "uint8"
+        description: "Blue 0-255."
+    verification: "reported"
+  set_brightness:
+    description: "Set brightness (dimming), 10-100."
+    transport: "udp"
+    body: '{"method":"setPilot","params":{"dimming":{level}}}'
+    parameters:
+      level:
+        type: "integer"
+        min: 10
+        max: 100
+        description: "Dimming percent (WiZ accepts ~10-100)."
+    verification: "reported"
+  set_scene:
+    description: "Select a built-in scene by id (1-35)."
+    transport: "udp"
+    body: '{"method":"setPilot","params":{"sceneId":{scene}}}'
+    parameters:
+      scene:
+        type: "integer"
+        min: 1
+        max: 35
+        description: "Scene id 1-35."
+    verification: "reported"
+  get_state:
+    description: "Read current state (getPilot)."
+    transport: "udp"
+    body: '{"method":"getPilot","params":{}}'
+    verification: "reported"
+
+entities:
+  - platform: "light"
+    name: "WiZ Light"
+    features: ["brightness", "rgb"]
+    commands:
+      turn_on: "turn_on"
+      turn_off: "turn_off"
+      set_brightness: "set_brightness"
+
+helpful_urls:
+  - title: "sbidy/pywizlight"
+    url: "https://github.com/sbidy/pywizlight"
+    description: "MIT reference client; backs the Home Assistant wiz integration."
+  - title: "UselessMnemonic/OpenWiz"
+    url: "https://github.com/UselessMnemonic/OpenWiz"
+    description: "MIT — documents the UDP 38899/38900 ports and the JSON method set."

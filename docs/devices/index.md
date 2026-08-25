@@ -67,6 +67,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Samsung Tizen TVs](samsung-tizen-tv.md) | WiFi | Spec Available | On-TV allow prompt (high) | Samsung |
 | [Sony Bravia TVs](sony-bravia.md) | WiFi | Spec Available | PSK or on-TV PIN (medium) | Sony |
 | [Vizio SmartCast TVs](vizio-smartcast.md) | WiFi | Spec Available | On-TV PIN pairing (medium) | Vizio |
+| [Denon AVR-S720W](denon-avr-s720w.md) | WiFi (HTTP `/goform/` + ASCII on 23 + UPnP) | Spec Available | On-receiver menu / Ethernet (medium) | Denon |
 | [Philips Hue Bridge](hue-bridge.md) | WiFi | Complete | Wired + link button (high) | Signify / Philips Hue |
 | [Enphase Envoy](enphase-envoy.md) | WiFi | Complete | Wired / SoftAP (low) | Enphase Energy |
 | [Dyson Air Purifier](dyson-air-purifier.md) | WiFi | Complete | SoftAP, sticker creds (medium) | Dyson |
@@ -127,6 +128,52 @@ spec's `device.setup` block; the patterns are explained in
 | [Govee H6101/H6104 TV Backlight](govee-h6101-backlight.md) | BLE | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
 | [Govee RGB Lights (classic)](govee-rgb-light.md) | BLE (+ Wi-Fi variants) | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
 | [Govee RGBIC / DreamColor Lights](govee-rgbic-light.md) | BLE (+ Wi-Fi variants) | Spec Available | None needed | Govee (Shenzhen Intellirocks) |
+| [Logitech Squeezebox (SlimProto)](squeezebox-slimproto.md) | WiFi (TCP 3483/9000) | Spec Available | On-device, server-based | Slim Devices / Logitech |
+| [Bose SoundTouch Speakers](bose-soundtouch.md) | WiFi (HTTP 8090) | Spec Available | App/wired (local since 2026) | Bose |
+| [Logitech Harmony Hub](logitech-harmony-hub.md) | WiFi (WS 8088) | Spec Available | App config, then local (medium) | Logitech |
+| [Google Chromecast (CASTv2)](chromecast-castv2.md) | WiFi (TLS 8009) | Spec Available | Google Home app (low) | Google |
+| [Magic Home / Zengge LED](magic-home-zengge-wifi.md) | WiFi (TCP 5577) | Spec Available | SoftAP + UDP 48899 (low) | Zengge |
+| [WiZ Wi-Fi Lights](wiz-wifi-light.md) | WiFi (UDP 38899) | Spec Available | App onboarding (low) | WiZ (Signify) |
+| [Twinkly Smart Lights](twinkly-lights.md) | WiFi (HTTP 80 + UDP 7777) | Spec Available | SoftAP / app (low) | Ledworks (Twinkly) |
+| [OSRAM Lightify Gateway](osram-lightify-gateway.md) | WiFi (TCP 4000) | Spec Available | Cloud gone; local only (low) | OSRAM / LEDVANCE |
+| [Yeelight Wi-Fi Lights (LAN)](yeelight-wifi.md) | WiFi (TCP 55443) | Spec Available | App + LAN Control toggle (low) | Yeelight (Yeelink) |
+| [Gree Air Conditioner (LAN)](gree-ac-lan.md) | WiFi (UDP 7000) | Spec Available | SoftAP + bind (low) | Gree |
+| [Midea Air Conditioner (LAN)](midea-ac-lan.md) | WiFi (TCP 6444) | Spec Available | Token from cloud once (low) | Midea |
+| [Radio Thermostat CT30/50/80](radiothermostat-ct50.md) | WiFi (HTTP 80) | Spec Available | SoftAP; disable dead cloud (low) | Radio Thermostat (RTCOA) |
+| [Smarter iKettle / Coffee](smarter-ikettle.md) | WiFi (port 2081) | Spec Available | SoftAP (low) | Smarter |
+| [WeatherFlow Tempest](weatherflow-tempest-udp.md) | WiFi (UDP 50222) | Spec Available | App onboarding (low) | WeatherFlow-Tempest |
+| [Fronius Solar Inverter](fronius-solar-api.md) | WiFi (HTTP REST) | Spec Available | Device web UI (low) | Fronius |
+| [OpenEVSE Charging Station](openevse.md) | WiFi (HTTP/MQTT) | Spec Available | SoftAP (low) | OpenEVSE |
+| [Xiaomi miIO Protocol](xiaomi-miio.md) | WiFi (UDP 54321) | Spec Available | Mi Home + token (low) | Xiaomi ecosystem |
+| [Roborock Robot Vacuum (local)](roborock-local.md) | WiFi (TCP 58867) | Spec Available | Cloud login for local key (low) | Roborock |
+| [Valetudo (rooted vacuum)](valetudo.md) | WiFi (HTTP /api/v2) | Spec Available | Requires rooting (low) | Hypfer + community |
+| [Parrot Drones (AR.Drone / ARSDK)](parrot-arsdk-drone.md) | WiFi (UDP) | Spec Available | Join drone AP | Parrot |
+| [eQ-3 Eqiva Radiator Thermostat](eqiva-eq3-ble-trv.md) | BLE | Spec Available | None (BLE pair on FW 1.20+) | eQ-3 (Eqiva) |
+| [Concept2 PM5](concept2-pm5.md) | BLE | Spec Available | None needed | Concept2 |
+| [Xiaomi Mi Band / Amazfit](xiaomi-huami-miband.md) | BLE | Spec Available | Auth-key extraction on newer bands (medium) | Xiaomi / Huami (Zepp) |
+| [Pebble Smartwatch](pebble-smartwatch.md) | BLE | Spec Available | Bluetooth pairing | Pebble (Rebble / Core revival) |
+| [openScale BLE Body Scales](openscale-body-scales.md) | BLE | Spec Available | None needed | Beurer / Medisana / Trisa |
+| [Victron Instant Readout (BLE)](victron-instant-readout-ble.md) | BLE (broadcast) | Spec Available | Key from VictronConnect (high) | Victron Energy |
+| [JBD / Xiaoxiang Smart BMS](jbd-xiaoxiang-bms-ble.md) | BLE | Spec Available | None needed | Shenzhen Jiabaida (JBD) |
+| [Renogy BT-1 / BT-2 Solar Controllers](renogy-bt-ble.md) | BLE | Spec Available | None needed | Renogy |
+| [Anki Overdrive / Drive Cars](anki-overdrive-ble.md) | BLE | Spec Available | None needed | Anki (defunct) |
+| [TTLock / Sciener BLE Locks](ttlock-sciener-ble.md) | BLE | Spec Available | App pairing → per-lock key (medium) | Sciener (many OEM rebrands) |
+| [SESAME (CANDY HOUSE) Locks](sesame-candyhouse-ble.md) | BLE | Spec Available | ECDH registration (high) | CANDY HOUSE |
+| [Yale Access / August Locks](yale-august-ble.md) | BLE | Spec Available | Offline key from cloud account (medium) | August / Yale (ASSA ABLOY) |
+| [Xiaomi M365 E-Scooter](xiaomi-m365-ble.md) | BLE | Spec Available | None needed (unauthenticated) | Xiaomi / Ninebot |
+| [Ninebot / Segway E-Scooter](ninebot-segway-ble.md) | BLE | Spec Available | None needed (older FW) | Ninebot-Segway |
+| [Electric Unicycles (WheelLog)](euc-wheellog-ble.md) | BLE | Spec Available | None needed | King Song / Gotway / Veteran |
+| [Onewheel](onewheel-ble.md) | BLE | Spec Available | Firmware unlock handshake (≥4034) | Future Motion |
+| [VESC Motor Controller](vesc-ble-uart.md) | BLE + UART | Spec Available | None needed | VESC project (open) |
+| [RuuviTag Sensor](ruuvitag-ble.md) | BLE (broadcast) | Spec Available | None needed | Ruuvi Innovations |
+| [b-parasite Soil Sensor](b-parasite-ble.md) | BLE (BTHome v2) | Spec Available | None needed | rbaron (open) |
+| [Mopeka Pro Check Tank Sensor](mopeka-pro-check-ble.md) | BLE (broadcast) | Spec Available | Sync-button pairing | Mopeka Products |
+| [Reolink IP Camera](reolink-camera.md) | WiFi (RTSP/CGI + Baichuan 9000) | Spec Available | Enable RTSP/ONVIF (low) | Reolink |
+| [Amcrest / Dahua IP Camera](amcrest-dahua-camera.md) | WiFi (RTSP + CGI) | Spec Available | Set admin password (low) | Dahua / Amcrest |
+| [Hikvision IP Camera (ISAPI)](hikvision-isapi-camera.md) | WiFi (RTSP + ISAPI) | Spec Available | Activate + password (low) | Hangzhou Hikvision |
+| [Wyze Cam (docker-wyze-bridge)](wyze-bridge-camera.md) | WiFi (RTSP via bridge) | Spec Available | Wyze API key, then local (low) | Wyze Labs |
+| [Bambu Lab 3D Printer (LAN)](bambu-lab-lan.md) | WiFi (MQTT 8883 + FTPS + RTSPS) | Spec Available | Enable LAN mode + access code (low) | Bambu Lab |
+| [PrusaLink (MK4 / XL / Mini)](prusalink-local-api.md) | WiFi (HTTP /api/v1) | Spec Available | Enable PrusaLink; API key (low) | Prusa Research |
 
 ## Not everything here was liberated
 

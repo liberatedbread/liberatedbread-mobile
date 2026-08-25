@@ -1,0 +1,168 @@
+# Parrot Drones (AR.Drone / ARSDK3) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - felixge/node-ar-drone — AR.Drone 1.0/2.0 AT commands.
+#   - robotika/katarina bebop-protocol.md — ARSDK3 discovery + ports.
+#   - Parrot-Developers ARSDK3 / Olympe (official open source).
+
+device:
+  name: "Parrot Drones (AR.Drone / Bebop / Anafi)"
+  manufacturer: "Parrot SA"
+  manufacturer_status: "abandoned"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. AR.Drone AT commands are from
+      node-ar-drone; the ARSDK3 discovery handshake and UDP ports are from the
+      katarina RE doc (Parrot's own ARSDK_Protocols.pdf is a binary PDF).
+  protocol: "wifi"
+  category: "other"
+  transport: "udp"
+  notes: >
+    Parrot's consumer drones — AR.Drone 1.0/2.0 (AT-command era) and the Bebop/
+    Anafi ARSDK3 generation — are controlled entirely locally over the drone's
+    own Wi-Fi access point, no cloud ever. Parrot exited the consumer/toy drone
+    market in 2019 (only Anafi and its variants continued, then wound down), so
+    the AR.Drone and Bebop lines are abandoned — a clean rescue, and unusually
+    Parrot open-sourced the SDK.
+
+    AR.DRONE 1.0/2.0: connect to the drone AP (IP 192.168.1.1) and send AT
+    commands over UDP port 5556 — text commands like `AT*REF=1,512\r` (takeoff/
+    land), with sequence numbering; plus a TCP video stream.
+
+    BEBOP/ANAFI (ARSDK3): discovery is a TCP handshake on port 44444 — the
+    controller sends JSON {"controller_type":"computer","controller_name":
+    "<name>","d2c_port":"43210"} and the drone replies with {"c2d_port":54321,
+    "arstream_fragment_size":1000,...}. After that: UDP 54321 = commands
+    (controller->drone, c2d); UDP 43210 = navdata (drone->controller, d2c).
+    Bebop-family AP IP is 192.168.42.1. Commands are (projectId u8, classId u8,
+    commandId u16) triples on channel 10; PCMD motion is sent ~40 Hz.
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/Parrot-Developers/arsdk-xml"
+    upstream_docs:
+      - url: "https://developer.parrot.com/docs/olympe/overview.html"
+        title: "Parrot — Olympe (official Python controller)"
+        covers: "The official ARSDK3 Python controller (Anafi family) built on libarsdk/libpdraw/libpomp."
+      - url: "https://github.com/robotika/katarina/blob/master/bebop-protocol.md"
+        title: "katarina — Bebop protocol notes"
+        covers: "The ARSDK3 TCP 44444 discovery JSON and the c2d/d2c UDP ports."
+    notes: >
+      Parrot open-sourced the SDK (arsdk-xml, libARDiscovery, Olympe) and
+      published protocol PDFs; AR.Drone AT commands and the ARSDK3 ports are
+      community-documented on top. No account or cloud.
+
+  identification:
+    ssid_prefix: "ardrone"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # ARSDK3 discovery is a TCP 44444 JSON handshake, not mDNS; AR.Drone is
+          # a fixed AP IP. Placeholder block; see parrot_protocol.
+          service_type: "_arsdk._udp.local."
+          port: 44444
+          identity_mapping:
+            stable_keys:
+              - source: "wifi:ssid"
+                key: "ssid"
+            display:
+              source: "wifi:ssid"
+        notes: >
+          Join the drone's own Wi-Fi AP. AR.Drone: fixed IP 192.168.1.1.
+          Bebop/Anafi: AP IP 192.168.42.1, then TCP 44444 discovery handshake
+          (see parrot_protocol).
+    identity:
+      stable_keys: ["ssid"]
+      display: "ssid"
+    static_ip_required: true
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning and no account: the drone IS the access point. Join its
+      Wi-Fi and start talking (AT commands on UDP 5556 for AR.Drone, or the TCP
+      44444 handshake for ARSDK3). No pairing secret.
+    methods:
+      - type: "none"
+        verified: false
+        description: >
+          Join the drone's own Wi-Fi AP; then send AR.Drone AT commands on UDP
+          5556, or perform the ARSDK3 TCP 44444 discovery handshake and use the
+          negotiated c2d/d2c UDP ports.
+        steps:
+          - action: "Join the drone's Wi-Fi access point."
+            actor: "user"
+          - action: "AR.Drone: send AT commands on UDP 5556. ARSDK3: TCP 44444 handshake, then UDP 54321/43210."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Per-model reset (button combinations / battery cycles) exists but is not
+        transcribed here. The drone stores no cloud credential.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "The drone is its own AP; there is no home-network membership to change."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        The drone hosts an open (or WPA) AP and has no application-layer auth: a
+        client on the AP has full control. SAFETY: this commands flight; treat
+        all controls as advanced.
+
+# The two Parrot control generations.
+parrot_protocol:
+  ar_drone:
+    ap_ip: "192.168.1.1"
+    commands: "AT commands over UDP 5556, e.g. AT*REF=1,512\\r (takeoff/land), sequence-numbered; TCP video stream."
+  arsdk3:
+    discovery: "TCP 44444: controller sends {\"controller_type\":\"computer\",\"controller_name\":\"<name>\",\"d2c_port\":\"43210\"}; drone replies {\"c2d_port\":54321,\"arstream_fragment_size\":1000}."
+    ap_ip: "192.168.42.1 (Bebop family)"
+    commands: "UDP 54321 = commands (c2d); UDP 43210 = navdata (d2c). Commands are (projectId u8, classId u8, commandId u16) triples on channel 10; PCMD ~40 Hz."
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Control is AT commands over UDP (AR.Drone) or the ARSDK3
+      binary protocol over UDP after a TCP 44444 handshake (see parrot_protocol);
+      there is no HTTP control surface.
+
+commands:
+  takeoff_ardrone:
+    description: "AR.Drone takeoff (AT*REF with the takeoff bit set)."
+    transport: "udp"
+    body: "AT*REF=<seq>,290718208\\r"
+    verification: "reported"
+  land_ardrone:
+    description: "AR.Drone land (AT*REF with the takeoff bit clear)."
+    transport: "udp"
+    body: "AT*REF=<seq>,290717696\\r"
+    verification: "reported"
+  emergency_ardrone:
+    description: "AR.Drone emergency stop (AT*REF emergency bit)."
+    transport: "udp"
+    body: "AT*REF=<seq>,290717952\\r"
+    verification: "reported"
+
+helpful_urls:
+  - title: "felixge/node-ar-drone"
+    url: "https://github.com/felixge/node-ar-drone"
+    description: "AR.Drone 1.0/2.0 client — AT commands over UDP 5556, navdata, video."
+  - title: "katarina — Bebop protocol notes"
+    url: "https://github.com/robotika/katarina/blob/master/bebop-protocol.md"
+    description: "ARSDK3 TCP 44444 discovery JSON and the c2d/d2c UDP ports."
+  - title: "Parrot — Olympe / ARSDK (official open source)"
+    url: "https://developer.parrot.com/docs/olympe/overview.html"
+    description: "The official ARSDK3 Python controller and SDK for the Anafi family."

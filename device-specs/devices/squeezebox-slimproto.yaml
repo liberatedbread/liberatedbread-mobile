@@ -1,0 +1,294 @@
+# Logitech Squeezebox / SlimProto — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public, cross-checked; clean-room — derived facts only):
+#   - Lyrion Music Server (formerly Logitech Media Server), GPL:
+#     https://github.com/LMS-Community/slimserver
+#   - SlimProto protocol reference: https://lyrion.org/reference/slimproto-protocol/
+#     and the community wiki https://wiki.lyrion.org/index.php/SlimProto_TCP_protocol.html
+#   - CLI / JSON-RPC reference: https://lyrion.org/reference/cli/
+
+device:
+  name: "Logitech Squeezebox (SlimProto player family)"
+  manufacturer: "Slim Devices / Logitech (server now community-run as Lyrion)"
+  manufacturer_status: "abandoned"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every fact below is
+      transcribed from the Lyrion (ex-Logitech Media Server) project
+      documentation and the community SlimProto wiki. The server is GPL and
+      is the authoritative implementation — verify against it, not this file.
+  protocol: "wifi"
+  category: "speaker"
+  transport: "tcp"
+  notes: >
+    Squeezebox is Slim Devices' (later Logitech's) family of network music
+    players — Squeezebox 1/2/3/Classic, Boom, Transporter, Receiver, Radio and
+    Touch. Logitech discontinued the whole hardware line in 2012 and later shut
+    the mysqueezebox.com cloud, but the server software was handed to the
+    community and continues as the Lyrion Music Server (v9.0, Nov 2024), GPL.
+    A Squeezebox therefore never needed the vendor cloud for local playback: a
+    player connects to a Lyrion server on the LAN and streams from it. This is a
+    textbook rescue — the hardware keeps working as long as a server runs.
+
+    TWO PROTOCOLS live here:
+      1. SlimProto (TCP 3483) — the player<->server control channel. The player
+         connects out to the server; the server pushes `strm`/`audg`/`grfe`
+         packets and the player answers with `HELO`/`STAT`/`BYE!`. Audio itself
+         is pulled by the player over HTTP from the server (default port 9000).
+      2. The server control API — a line CLI on TCP 9090 and the equivalent
+         JSON-RPC over HTTP on port 9000 (POST /jsonrpc.js). This is what a
+         third-party app uses to drive playback ("play", "pause", volume,
+         playlist) by addressing a player by its MAC.
+    Controlling a Squeezebox means talking to its SERVER's control API; the
+    server in turn speaks SlimProto to the player. Both are documented below.
+
+    DISCOVERY: a player looking for a server broadcasts a discovery datagram on
+    UDP 3483; the server replies unicast to UDP 3483 on the player, which then
+    opens the TCP 3483 control connection. A control client instead finds the
+    server (its HTTP port 9000) and enumerates players through the CLI/JSON-RPC.
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/LMS-Community/slimserver"
+    license: "GPL-2.0"
+    upstream_docs:
+      - url: "https://lyrion.org/reference/slimproto-protocol/"
+        title: "Lyrion — SlimProto protocol"
+        covers: "The player<->server TCP 3483 framing, HELO/strm/STAT and the audg/grfe commands."
+      - url: "https://wiki.lyrion.org/index.php/SlimProto_TCP_protocol.html"
+        title: "Lyrion wiki — SlimProto TCP protocol"
+        covers: "Byte-level HELO fields, strm subcommands, the embedded HTTP GET the player issues to fetch audio."
+      - url: "https://lyrion.org/reference/cli/using-the-cli/"
+        title: "Lyrion — Command Line Interface"
+        covers: "The line CLI on TCP 9090 and the JSON-RPC (POST /jsonrpc.js) equivalents used to control players."
+    notes: >
+      The protocol is published by the (originally vendor-run, now community)
+      project and third-party clients are the point. Nothing here was reverse
+      engineered; this file normalises the published protocol into the registry
+      shape. Pin behaviour to the running server version, not to this document.
+
+  identification:
+    default_port: 9000
+    mdns_service_type: "_slimprotocol._tcp.local."
+    ssdp_search_targets:
+      - "urn:schemas-upnp-org:device:MediaServer:1"
+    identity_keys:
+      primary: "mac"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # The Lyrion SERVER advertises HTTP; players are found through the
+          # server's player list, not by browsing for the player directly.
+          service_type: "_slimprotocol._tcp.local."
+          port: 9000
+          identity_mapping:
+            stable_keys:
+              - source: "txt:mac"
+                key: "mac"
+            display:
+              source: "name"
+        notes: >
+          A control client discovers the Lyrion server (HTTP port 9000), then
+          calls the CLI/JSON-RPC `players` query to enumerate connected players
+          by MAC. Players themselves are found by the server via the UDP 3483
+          discovery exchange documented in slimproto_protocol below.
+    identity:
+      stable_keys: ["mac"]
+      display: "name"
+    static_ip_required: false
+    notes: >
+      A player's Wi-Fi/Ethernet MAC is its stable identity, carried in the
+      SlimProto HELO and used as the addressing token in every CLI/JSON-RPC
+      command. Do not key on IP: players are DHCP clients.
+
+  setup:
+    required: false
+    confidence: "low"
+    notes: >
+      A player is provisioned through its own on-device UI (or wired Ethernet):
+      it is told the Wi-Fi network and the address of a Lyrion server, then
+      connects out on TCP 3483. No cloud account is required for a local
+      server. The provisioning UI is not documented here — mark low.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Use the player's front-panel/on-screen setup to join Wi-Fi (or plug
+          in Ethernet) and point it at a Lyrion server's IP. The player then
+          opens the SlimProto TCP 3483 connection on its own.
+        steps:
+          - action: "On the player, run its setup and join the home network (or connect Ethernet)."
+            actor: "user"
+          - action: "Point the player at the Lyrion server address (or let UDP 3483 discovery find it)."
+            actor: "user"
+            expect: "The player connects to the server and appears in its player list."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Per-model reset procedures exist (front-panel key combos on the
+        Classic/Boom/Radio/Touch) but are not transcribed here. A reset returns
+        the player to first-boot network setup; it stores no cloud credential
+        once pointed at a local server.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A player can be re-pointed at a different server from its own settings
+        UI, and the server can move a player with the SlimProto `serv` command.
+        No factory reset is needed to change servers or networks in place.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Wi-Fi credentials (entered on the player's own UI)"
+        - "Configured Lyrion server address"
+      issued_to_client: []
+      notes: >
+        The Wi-Fi passphrase is entered on the device, not carried over a link
+        this spec documents. The control API (CLI/JSON-RPC) can be protected by
+        HTTP Basic auth / a CLI `login` command when the server is configured
+        for it; by default it is open on the LAN.
+
+# The player<->server wire protocol. This is the half that keeps the hardware
+# alive; the JSON-RPC control surface below is how an app drives it.
+slimproto_protocol:
+  transport: "TCP, server listens on 3483; player connects out"
+  discovery:
+    method: "udp_broadcast"
+    port: 3483
+    description: >
+      A player broadcasts a discovery datagram on UDP 3483; the server answers
+      unicast to UDP 3483 on the player, which then opens the TCP 3483 control
+      connection. (The exact discovery datagram byte layout is not restated
+      here — the port and direction are the load-bearing facts.)
+  framing:
+    server_to_client: >
+      2-byte length (network byte order, excludes itself) + 4-byte command tag
+      + data.
+    client_to_server: >
+      4-byte operation + 4-byte length + data.
+  client_messages:
+    HELO: >
+      Player registration: a DeviceID byte ('2'=Squeezebox, '4'=Squeezebox2,
+      '5'=Transporter, '10'=Boom), firmware revision, 6-byte MAC, a 16-byte
+      UUID on newer firmware, WLAN channel bitfield, a bytes-received counter,
+      and an optional comma-separated capability string (codecs wma/flc/pcm/
+      aac/mp3/ogg in preference order, plus MaxSampleRate, Model, HasDigitalOut,
+      SyncgroupID).
+    STAT: >
+      Heartbeat / event: status codes such as STMc (connected), STMd (decoder
+      ready), STMu (underrun), STMn (unsupported format), plus buffer fullness,
+      elapsed time and Wi-Fi signal.
+    IR: "Raw infrared remote codes from the player's remote."
+    BYE!: "Player is disconnecting."
+  server_messages:
+    strm: >
+      Stream control (24+ bytes). Subcommand: 's' start, 'p' pause, 'u' unpause,
+      'q' stop, 't' status, 'f' flush, 'a' skip. Carries a format byte ('p' PCM,
+      'm' MP3, 'f' FLAC, 'w' WMA, 'a' AAC), sample size/rate/channels/endianness,
+      a buffer threshold, a 16.16 fixed-point replay-gain, the server IP+port,
+      and then a literal embedded HTTP request (e.g.
+      `GET /stream.mp3?player=<mac> HTTP/1.0`) that the player issues to fetch
+      the audio (with a Basic-auth header if the server is password-protected).
+    audg: "Volume: 16.16 fixed-point left/right gains plus preamp."
+    aude: "Enable/disable the SPDIF and DAC outputs."
+    grfe: "Display bitmap (e.g. 320x32 on Squeezebox3), optional LZF compression."
+    grfb: "Display brightness."
+    serv: "Switch the player to another server (IP + optional SyncgroupID)."
+    vers: "Server version."
+
+# The control API a third-party app actually calls. The JSON-RPC endpoint is a
+# genuine HTTP access surface; the line CLI on TCP 9090 is the same command
+# vocabulary newline-delimited.
+http_endpoints:
+  - method: "POST"
+    path: "/jsonrpc.js"
+    name: "Lyrion JSON-RPC control"
+    description: >
+      The server's JSON-RPC control endpoint on HTTP port 9000. Body is
+      {"id":1,"method":"slim.request","params":["<player-mac>",[<command>...]]}.
+      Anything the line CLI (TCP 9090) can do is available here, addressed to a
+      player by its MAC. Commands are URL-percent-escaped UTF-8 tokens, e.g.
+      ["mixer","volume","50"] or ["playlist","index","+1"]. A bare "" player id
+      targets the server itself (e.g. the "players" query to enumerate players).
+    request_body:
+      content_type: "application/json"
+      fields:
+        - name: "method"
+          type: "string"
+          description: "Always \"slim.request\"."
+        - name: "params"
+          type: "array"
+          description: "[player-id, [command tokens]] — player-id is the MAC, or \"\" for a server-scoped query."
+
+commands:
+  play:
+    description: "Resume/begin playback on the addressed player."
+    transport: "http"
+    method: "POST"
+    path: "/jsonrpc.js"
+    body: '{"id":1,"method":"slim.request","params":["{player}",["play"]]}'
+    parameters:
+      player:
+        type: "string"
+        description: "Target player MAC (aa:bb:cc:dd:ee:ff)."
+    verification: "reported"
+  pause:
+    description: "Pause the addressed player."
+    transport: "http"
+    method: "POST"
+    path: "/jsonrpc.js"
+    body: '{"id":1,"method":"slim.request","params":["{player}",["pause","1"]]}'
+    parameters:
+      player:
+        type: "string"
+        description: "Target player MAC."
+    verification: "reported"
+  next_track:
+    description: "Skip to the next playlist item."
+    transport: "http"
+    method: "POST"
+    path: "/jsonrpc.js"
+    body: '{"id":1,"method":"slim.request","params":["{player}",["playlist","index","+1"]]}'
+    parameters:
+      player:
+        type: "string"
+        description: "Target player MAC."
+    verification: "reported"
+  set_volume:
+    description: "Set the player volume, 0-100."
+    transport: "http"
+    method: "POST"
+    path: "/jsonrpc.js"
+    body: '{"id":1,"method":"slim.request","params":["{player}",["mixer","volume","{level}"]]}'
+    parameters:
+      player:
+        type: "string"
+        description: "Target player MAC."
+      level:
+        type: "integer"
+        min: 0
+        max: 100
+        description: "Volume percent."
+    verification: "reported"
+
+helpful_urls:
+  - title: "LMS-Community/slimserver (Lyrion Music Server)"
+    url: "https://github.com/LMS-Community/slimserver"
+    description: "The GPL server — the authoritative SlimProto + CLI implementation that keeps Squeezebox hardware alive."
+  - title: "Lyrion — SlimProto protocol reference"
+    url: "https://lyrion.org/reference/slimproto-protocol/"
+    description: "Player<->server TCP 3483 framing and command set."
+  - title: "Lyrion wiki — SlimProto TCP protocol"
+    url: "https://wiki.lyrion.org/index.php/SlimProto_TCP_protocol.html"
+    description: "Byte-level HELO/strm/STAT details and the embedded audio-fetch HTTP request."
+  - title: "Lyrion — CLI / JSON-RPC reference"
+    url: "https://lyrion.org/reference/cli/using-the-cli/"
+    description: "The control API on TCP 9090 and HTTP /jsonrpc.js used by the commands here."

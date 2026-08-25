@@ -1,0 +1,143 @@
+# b-parasite (BLE soil sensor) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; open-by-design project):
+#   - rbaron/b-parasite (repo + BLE sample README); ESPHome b_parasite component.
+
+device:
+  name: "b-parasite Soil Moisture Sensor"
+  manufacturer: "rbaron (open-source project)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The BTHome-v2 default encoding
+      and the measurement set are from the b-parasite BLE sample README and the
+      ESPHome b_parasite component.
+  protocol: "ble"
+  category: "sensor"
+  notes: >
+    b-parasite is an open-source (nRF52840/nRF52833) BLE soil-moisture sensor
+    that also reports air temperature/humidity, light and battery. Passive BLE
+    listen, no pairing, no cloud. Its DEFAULT firmware broadcasts in BTHome v2 —
+    so decode it per the bthome-v2.yaml reference (service data UUID 0xFCD2). A
+    legacy custom advertisement is also supported (decoded by the ESPHome
+    b_parasite component). Devices are identified by MAC address.
+
+    Sensors: SHTC3 (air temp/humidity), a capacitive soil probe (moisture %),
+    and an ALS-PT19 phototransistor (light) on light-equipped boards; CR2032
+    powered. Licenses: firmware MIT, hardware CC BY-SA 4.0. An experimental
+    Zigbee firmware also exists.
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/rbaron/b-parasite"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://github.com/rbaron/b-parasite"
+        title: "rbaron/b-parasite"
+        covers: "The hardware, the BTHome-v2 default encoding, and the legacy custom advertisement."
+    notes: >
+      Fully open project. The shipping default is BTHome v2 — cite bthome-v2.yaml
+      for the wire format. The legacy custom format's exact byte offsets are not
+      restated here.
+
+  identification:
+    manufacturer_data:
+      description: >
+        Default firmware broadcasts BTHome v2 in BLE SERVICE DATA under UUID
+        0xFCD2 (see bthome-v2.yaml). Legacy firmware uses a custom advertisement.
+        Devices are keyed by MAC address.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fcd2-0000-1000-8000-00805f9b34fb"
+        notes: >
+          Default firmware: match BTHome-v2 service data UUID 0xFCD2 (bthome-v2)
+          and key on MAC. Legacy firmware: the ESPHome b_parasite component keys
+          on MAC and decodes the custom advertisement.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing to provision: insert the battery and it broadcasts. Add to Home
+      Assistant via BTHome auto-discovery, or to ESPHome by MAC.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Passive: scan for BTHome v2 (UUID 0xFCD2) and decode the object records
+          (soil moisture, temperature, humidity, battery, illuminance). No
+          connection required.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Insert the battery; scan for BTHome-v2 service data (UUID 0xFCD2) and decode by MAC."
+            actor: "client"
+            expect: "Soil moisture, air temp/humidity, battery, and light (if fitted) update per advertisement."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: "Firmware reflash; no broadcast reset. No network/cloud state."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; reading is passive."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No pairing/auth (BTHome may be AES-CCM encrypted if built with a key). No Wi-Fi."
+
+# Broadcast-only sensor; telemetry is in the BTHome-v2 advertisement (see
+# bthome-v2.yaml). Generic Access records a connectable surface.
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access (standard)"
+    notes: >
+      Placeholder connectable surface. Telemetry is the BTHome-v2 advertisement
+      (UUID 0xFCD2) — decode per bthome-v2.yaml.
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read"]
+        notes: "Standard device-name characteristic."
+
+entities:
+  - platform: "sensor"
+    name: "Soil Moisture"
+    unit: "%"
+    notes: "BTHome moisture object (0x14)."
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°C"
+    notes: "BTHome temperature object (0x02)."
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    notes: "BTHome humidity object (0x03)."
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    notes: "BTHome voltage object (0x0C)."
+
+helpful_urls:
+  - title: "rbaron/b-parasite"
+    url: "https://github.com/rbaron/b-parasite"
+    description: "Open hardware + firmware; BTHome-v2 default encoding and the legacy custom advertisement."
+  - title: "ESPHome — b_parasite component"
+    url: "https://esphome.io/components/sensor/b_parasite.html"
+    description: "Decodes the legacy custom advertisement (soil moisture, temp, humidity, battery, illuminance)."

@@ -1,0 +1,275 @@
+# Radio Thermostat CT30/CT50/CT80 (Wi-Fi USNAP) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Radio Thermostat Company of America "Wi-Fi USNAP Module API v1.3" (2012).
+#     The vendor PDF carries a restrictive advisory (no commercial use, no
+#     redistribution of the document); the facts below are paraphrased as
+#     independent derived facts, NOT copied from the document.
+#   - mhrivnak/radiotherm and the openHAB radiothermostat binding.
+
+device:
+  name: "Radio Thermostat CT30/CT50/CT80 (+ 3M Filtrete 3M50)"
+  manufacturer: "Radio Thermostat Company of America"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Endpoints and field
+      semantics are paraphrased from the vendor Wi-Fi USNAP API v1.3 and
+      corroborated by mhrivnak/radiotherm and the openHAB binding.
+  protocol: "wifi"
+  category: "climate"
+  pictogram: "thermostat"
+  transport: "http"
+  notes: >
+    The Radio Thermostat CT30/CT50/CT80 (and the 3M Filtrete 3M50 rebrand) are
+    Wi-Fi thermostats with a documented local REST API. The vendor's cloud
+    (my.radiothermostat.com) was discontinued on 2023-05-15 — the page now
+    literally reads "RTCOA - Discontinued" — so the local API is the only thing
+    keeping these units smart. Textbook rescue: plain HTTP, JSON bodies, no
+    authentication.
+
+    ENDPOINTS (HTTP port 80, JSON; GET reads, POST writes):
+      /tstat            main state: tmode, fmode, temp, tstate, fstate,
+                        t_heat/t_cool setpoints, override, hold, time
+      /tstat/model      model + firmware string
+      /tstat/led        energy_led: 0 off / 1 green / 2 yellow / 4 red
+      /tstat/program/<heat|cool>/<mon..sun>   per-day schedule
+      /tstat/program/<heat|cool>              whole-week schedule
+      /sys, /sys/name, /sys/command (reboot), /sys/mode, network config
+      /cloud            POST {"enabled":0} to stop the dead-cloud callbacks
+    Values: tmode 0 OFF / 1 HEAT / 2 COOL / 3 AUTO; fmode 0 AUTO / 1
+    AUTO-CIRCULATE / 2 ON; tstate 0/1/2 (OFF/HEAT/COOL); temp is a float °F.
+    time = {day, hour, minute} with day 0 = Monday. Success {"success":0},
+    errors {"error":-1}; transient values read as -1. The web server is
+    single-threaded (one connection at a time) and does not support chunked
+    encoding.
+
+    CAVEAT: t_heat is settable only in HEAT mode (the thermostat auto-switches);
+    AUTO mode and humidity control are CT80-only. Recall the CT80 Rev A/Rev B
+    and CT-30/CT50 feature differences before assuming a field exists.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://www.openhab.org/addons/bindings/radiothermostat/"
+        title: "openHAB — RadioThermostat binding"
+        covers: "The /tstat resources, SSDP discovery and the /cloud disable POST; confirms the cloud is defunct."
+    notes: >
+      The API is vendor-documented (Wi-Fi USNAP Module API v1.3), but that PDF
+      is under a restrictive licence that forbids redistribution — so this spec
+      paraphrases the protocol as derived facts rather than reproducing it. Two
+      independent clients (radiotherm, openHAB) confirm the endpoints.
+
+  identification:
+    default_port: 80
+    ssdp_search_targets:
+      - "urn:schemas-marvell-com:device:thermostat:1"
+
+  discovery:
+    methods:
+      - type: "ssdp"
+        ssdp:
+          multicast_group: "239.255.255.250"
+          multicast_port: 1900
+          search_targets:
+            - "urn:schemas-marvell-com:device:thermostat:1"
+          response_mapping:
+            location:
+              url: "LOCATION"
+              action: "fetch_json"
+              parse:
+                device_identity:
+                  stable_keys:
+                    - source: "http:/sys#uuid"
+                      key: "uuid"
+                  display:
+                    source: "http:/tstat/name#name"
+          match:
+            description: "A Marvell/USNAP thermostat answering WM-DISCOVER; confirm with GET /tstat."
+        notes: >
+          The module implements a Marvell "WM-DISCOVER" SSDP variant on
+          239.255.255.250:1900; the reply's Location points at the device. openHAB
+          auto-discovers this way. Confirm a hit with GET /tstat (its shape is
+          unmistakable).
+    identity:
+      stable_keys: ["uuid"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Wi-Fi provisioning uses the module's own system/network resources (its
+      setup AP + network configuration). No account is needed. Because the
+      vendor cloud is dead, a newly reset unit should have its cloud callbacks
+      disabled with POST /cloud {"enabled":0}. Provisioning wire steps are not
+      transcribed here.
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          Join the thermostat's setup AP and configure the home Wi-Fi through
+          the module's network-configuration resource; then disable the dead
+          cloud with POST /cloud {"enabled":0}.
+        steps:
+          - action: "Join the thermostat's setup AP."
+            actor: "user"
+          - action: "Set the home Wi-Fi via the module's network configuration resource."
+            actor: "client"
+            expect: "The thermostat joins the LAN and answers GET /tstat."
+          - action: "POST /cloud {\"enabled\":0} to stop the (now dead) cloud callbacks."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Clears Wi-Fi and schedule configuration, returning the thermostat to
+        setup. Performed from the on-device menu; the exact key sequence is
+        model-specific.
+      procedures:
+        - name: "On-device factory reset"
+          verified: false
+          basis: "Documented in the thermostat's own menu / vendor manual; not replayed here."
+          steps:
+            - action: "Use the thermostat's on-screen menu to factory reset / clear Wi-Fi."
+              actor: "user"
+              expect: "The thermostat returns to Wi-Fi setup."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Wi-Fi can be reconfigured through the module's network resource while the
+        thermostat is reachable.
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Schedule / program configuration"
+      issued_to_client: []
+      notes: >
+        The local REST API is unauthenticated on the LAN — anything on the
+        network can read and set the thermostat. Provisioning passes the Wi-Fi
+        passphrase over the module's setup network.
+
+http_endpoints:
+  - method: "GET"
+    path: "/tstat"
+    name: "Read thermostat state"
+    description: >
+      Current mode/fan/temperature and setpoints. Fields: tmode (0 OFF/1 HEAT/
+      2 COOL/3 AUTO), fmode (0 AUTO/1 AUTO-CIRC/2 ON), temp (float °F), tstate
+      (0/1/2), fstate (0/1), t_heat, t_cool, override, hold, time {day,hour,minute}.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - name: "temp"
+          type: "number"
+          description: "Current temperature, °F (float). Reads -1 while transient."
+        - name: "tmode"
+          type: "int"
+          description: "0 OFF, 1 HEAT, 2 COOL, 3 AUTO."
+        - name: "t_heat"
+          type: "number"
+          description: "Heat setpoint °F (present in HEAT/AUTO)."
+        - name: "t_cool"
+          type: "number"
+          description: "Cool setpoint °F (present in COOL/AUTO)."
+  - method: "POST"
+    path: "/tstat"
+    name: "Set thermostat state"
+    description: >
+      Accepts a partial object, e.g. {"tmode":1,"t_heat":68} or {"tmode":2,
+      "t_cool":75}. Setting t_heat requires HEAT mode (the thermostat
+      auto-switches). {"hold":1}/{"override":1} pin a temporary setpoint.
+    request_body:
+      content_type: "application/json"
+      fields:
+        - name: "tmode"
+          type: "int"
+          description: "0 OFF, 1 HEAT, 2 COOL, 3 AUTO (CT80)."
+          required: false
+        - name: "t_heat"
+          type: "number"
+          description: "Heat setpoint °F (mode auto-switches to HEAT)."
+          required: false
+        - name: "t_cool"
+          type: "number"
+          description: "Cool setpoint °F (mode auto-switches to COOL)."
+          required: false
+  - method: "GET"
+    path: "/tstat/model"
+    name: "Model + firmware"
+    description: "The model and firmware string — a quick identity check."
+  - method: "POST"
+    path: "/cloud"
+    name: "Disable cloud callbacks"
+    description: "Body {\"enabled\":0} stops the thermostat contacting the (now dead) Radio Thermostat cloud."
+    request_body:
+      content_type: "application/json"
+
+commands:
+  set_heat_setpoint:
+    description: "Set the heating setpoint (°F); switches to HEAT mode."
+    transport: "http"
+    method: "POST"
+    path: "/tstat"
+    body: '{"tmode":1,"t_heat":{temp}}'
+    parameters:
+      temp:
+        type: "number"
+        description: "Heat setpoint in °F."
+    verification: "reported"
+  set_cool_setpoint:
+    description: "Set the cooling setpoint (°F); switches to COOL mode."
+    transport: "http"
+    method: "POST"
+    path: "/tstat"
+    body: '{"tmode":2,"t_cool":{temp}}'
+    parameters:
+      temp:
+        type: "number"
+        description: "Cool setpoint in °F."
+    verification: "reported"
+  set_off:
+    description: "Turn the thermostat off (tmode 0)."
+    transport: "http"
+    method: "POST"
+    path: "/tstat"
+    body: '{"tmode":0}'
+    verification: "reported"
+  disable_cloud:
+    description: "Stop the dead-cloud callbacks."
+    transport: "http"
+    method: "POST"
+    path: "/cloud"
+    body: '{"enabled":0}'
+    verification: "reported"
+
+entities:
+  - platform: "climate"
+    name: "Thermostat"
+    min_temp: 45
+    max_temp: 95
+    temp_step: 1
+    state_endpoint: "/tstat"
+    notes: "Setpoints in °F; mode via tmode (0 OFF/1 HEAT/2 COOL/3 AUTO on CT80)."
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°F"
+    state_endpoint: "/tstat"
+    state_mapping:
+      value: "temp"
+
+helpful_urls:
+  - title: "openHAB — RadioThermostat binding"
+    url: "https://www.openhab.org/addons/bindings/radiothermostat/"
+    description: "Documents the /tstat resources, SSDP discovery and the /cloud disable POST; confirms the cloud is defunct."
+  - title: "mhrivnak/radiotherm"
+    url: "https://github.com/mhrivnak/radiotherm"
+    description: "BSD-3 Python client for the local API."

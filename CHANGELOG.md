@@ -8,6 +8,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Denon AVR-S720W** (`denon-avr-s720w`) — a 2016 KnOS-generation Denon
+  receiver, and the registry's first AV receiver. Four surfaces on one
+  address: the undocumented `/goform/` HTTP API on port 80, the
+  vendor-published ASCII control protocol on port 23, a UPnP MediaRenderer,
+  and AirPlay 1 + Spotify Connect sinks. The two control routes carry the
+  *same* command vocabulary — `GET /goform/formiPhoneAppDirect.xml?PWON` and
+  `PWON\r` on port 23 are one command — so every entity binds over HTTP and a
+  consumer that cannot hold a socket loses only the state push. There is no
+  authentication anywhere on the local surface; reachability *is* the access
+  model, and the spec says so rather than implying a credential protects it.
+
+  Discovery is the hard half, because everything the receiver announces is a
+  generic standard (`_http._tcp`, `_airplay._tcp`, `_raop._tcp`,
+  `_spotify-connect._tcp`; SSDP `MediaRenderer:1`). Three vendor-shaped
+  details do the identifying instead, all three observed on live hardware: the
+  SSDP `SERVER` header reads `KnOS/3.2 UPnP/1.0 DMP/3.5` and `KnOS/` is D&M's
+  firmware platform; the UDN's node field is the MAC, so a UDN ending in
+  twelve hex digits starting `0005cd` is a D&M device (a vendor signal and the
+  stable identity — but not a join key against the AirPlay `deviceid`, since a
+  receiver has two MACs and the records may carry different ones); and the
+  Spotify Connect
+  `cpath` is `/goform/spotifyConfig`, putting D&M's own web-API namespace in a
+  TXT record. `device.testing` is `untested`/`capture-verified` accordingly —
+  the discovery half is quoted from a contributed live scan, the control half
+  is graded `reported` from Denon's control-protocol documents and from
+  denonavr and the openHAB denonmarantz binding.
+
+  The traps are written down where a consumer will hit them. Volume is
+  expressed two ways on two routes that both work — signed dB in the status
+  documents and on `formiPhoneAppVolume.xml`, an offset integer on the ASCII
+  route, differing by 80 (`dB = MV - 80`), so `-20.0` is `MV60` and sending
+  `MV20` instead lands 40 dB quiet. -40 dB is the one level where the two
+  encodings share their digits, so it is the one value a round-trip test must
+  not use; the spec says so where the conversion is defined. At minimum
+  the receiver reports the literal string `--` rather than a number;
+  `VolumeDisplay: Absolute` changes only the front panel; mute reads lower
+  case and writes upper case; surround selection is a *request* the receiver
+  may substitute and report back with no error; port 23 accepts one client
+  and holding it locks out the vendor app; and the whole LAN surface is
+  powered down in standby unless **Setup > Network > Network Control** is
+  "Always On", with no documented Wake-on-LAN path. Also recorded is what is
+  *absent*, so a probe that finds nothing is not read as a fault: no HEOS
+  Built-in and therefore a closed TCP 1255 (HEOS arrived with the 2018
+  AVR-S750H), AirPlay 1 only with no `pk` record, and a single zone.
+
+  The WiFi discovery guide gains a section on this shape of device — one
+  that offers no vendor search target at all — since it generalises past
+  Denon: identify on the M-SEARCH *reply* rather than the query, using the
+  `SERVER` header, the UDN's node field (very often the MAC, so an OUI lookup
+  names the vendor with no HTTP request at all), and TXT records belonging to
+  third-party protocols, which routinely leak the vendor's own namespace.
+
+  The TXT-record signals are declared machine-readably, not just narrated:
+  the spec claims `_spotify-connect._tcp` with an `mdns_txt_match` on
+  `cpath = /goform/spotifyConfig`, and its AirPlay/RAOP discovery methods
+  carry `txt_match` conditions (`deviceid` prefix `00:05:CD`, `am` prefix
+  `AVR`) — the platform-service-type contract the ESPHome fix established,
+  applied at authoring time. The advertised-but-unmatchable `_http._tcp`
+  record stays in the evidence and out of the methods, since with no TXT
+  data to narrow it a method there would claim every web server on the
+  link. Only the `KnOS/` SERVER header remains prose, because the schema
+  has no SSDP-reply matcher slot yet.
 - **`commands[].path_fallback` and `entities[].state_topic_fallback`**
   ([P15](docs/contributing/spec-evolution.md#p15)): a second address for the
   same invocation or reading, for a family whose firmware generations name

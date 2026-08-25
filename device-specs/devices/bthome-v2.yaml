@@ -1,0 +1,94 @@
+# BTHome v2 (BLE sensor broadcast format) — Reference Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - bthome.io/format and bthome.io/encryption (the published open standard).
+#
+# This is a REFERENCE spec: it documents the open BTHome v2 broadcast format that
+# many BLE sensor specs cite (Shelly BLU, ATC/pvvx Mijia firmware, b-parasite,
+# many ESPHome/DIY nRF52 sensors). It is not a device.
+
+device:
+  name: "BTHome v2 (BLE sensor broadcast format)"
+  manufacturer: "BTHome (open standard)"
+  manufacturer_status: "active"
+  model: "BTHome v2 — service data UUID 0xFCD2"
+  protocol: "ble"
+  category: "reference"
+  type: "reference-ble-broadcast-format"
+  notes: >
+    BTHome v2 is an open BLE sensor-broadcast format, decoded natively by Home
+    Assistant and produced by ESPHome, Shelly BLU devices, ATC/pvvx custom Mijia
+    firmware, b-parasite and many DIY nRF52 sensors. A BTHome-native device spec
+    should cite this file rather than restating the object table.
+
+    WIRE FORMAT: advertised in BLE Service Data under 16-bit UUID 0xFCD2 (on-air
+    little-endian D2 FC). After the UUID comes a device-information byte: bit0 =
+    encryption flag (0 unencrypted / 1 encrypted), bit2 = trigger-based/irregular
+    interval, bits5-7 = BTHome version (0b010 = v2). Example 0x40 = v2,
+    unencrypted, regular interval. The payload is a sequence of object records,
+    each = 1-byte object id + its little-endian value; a packet may carry several.
+
+    OBJECT IDS (subset; the bthome.io/format table is authoritative):
+      0x01 battery u8 1 % ; 0x02 temperature s16 x0.01 C ; 0x03 humidity u16
+      x0.01 % ; 0x04 pressure u24 x0.01 hPa ; 0x05 illuminance u24 x0.01 lux ;
+      0x06 mass u16 x0.01 kg ; 0x0A energy u24 x0.001 kWh ; 0x0B power u24 x0.01 W
+      ; 0x0C voltage u16 x0.001 V ; 0x0D pm2.5 u16 ug/m3 ; 0x0E pm10 u16 ug/m3 ;
+      0x12 CO2 u16 ppm ; 0x13 TVOC u16 ug/m3 ; 0x14 moisture u16 x0.01 % ; 0x3F
+      rotation s16 x0.1 deg ; 0x40 distance u16 mm ; 0x41 distance u16 x0.1 m ;
+      0x43 current u16 x0.001 A ; 0x45 temperature s16 x0.1 C ; 0x50 timestamp
+      u32 epoch ; 0x51 acceleration u16 x0.001 m/s2 ; 0x56 conductivity u16 uS/cm.
+      Binary sensors are single u8 (0/1) ids: 0x0F generic, 0x11 opening, 0x15
+      battery-low, 0x16 charging, 0x1A door, 0x21 motion, 0x23 occupancy, 0x2D
+      window. Events: 0x3A button, 0x3C dimmer. Device meta: 0xF0 device-type id
+      (u16), 0xF1 firmware version (u32).
+
+    ENCRYPTION: AES-CCM, 16-byte key. Nonce (13 bytes) = MAC(6) + UUID-reversed(2)
+    + device-info byte(1) + counter(4, LE). A 4-byte LE counter increments every
+    advertisement; a 4-byte MIC authenticates. Encrypted service-data layout =
+    UUID(2) + device-info(1) + ciphertext + counter(4) + MIC(4).
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://bthome.io/format/"
+        title: "BTHome v2 — format"
+        covers: "The service-data UUID 0xFCD2, the device-info byte, and the object-id / measurement table."
+      - url: "https://bthome.io/encryption/"
+        title: "BTHome v2 — encryption"
+        covers: "The AES-CCM key/nonce/counter/MIC layout."
+    notes: >
+      Published open standard (project by the Home Assistant community). Native in
+      Home Assistant and ESPHome; nothing was reverse-engineered. Consult
+      bthome.io/format for the complete, authoritative object-id list.
+
+  identification:
+    manufacturer_data:
+      description: >
+        BTHome v2 is carried in BLE SERVICE DATA (not manufacturer data) under
+        16-bit UUID 0xFCD2. A scanner matches on service-data UUID 0xFCD2 and
+        reads the device-info byte (bits5-7 = 0b010 for v2).
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fcd2-0000-1000-8000-00805f9b34fb"
+        notes: >
+          Match BLE service-data UUID 0xFCD2; the device-info byte's version field
+          (bits5-7) must be 0b010 for v2. Then walk the object records.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+helpful_urls:
+  - title: "BTHome v2 — format"
+    url: "https://bthome.io/format/"
+    description: "The authoritative object-id / measurement table and the device-info byte."
+  - title: "BTHome v2 — encryption"
+    url: "https://bthome.io/encryption/"
+    description: "The AES-CCM key/nonce/counter/MIC layout for encrypted BTHome."

@@ -1,0 +1,175 @@
+# PrusaLink (local printer API) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; vendor-documented):
+#   - prusa3d/Prusa-Link-Web (spec/openapi.yaml) — the official OpenAPI spec.
+
+device:
+  name: "PrusaLink (Prusa MK4 / MK3.9 / XL / Mini)"
+  manufacturer: "Prusa Research"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The endpoints and auth are
+      from Prusa's own PrusaLink OpenAPI spec.
+  protocol: "wifi"
+  category: "printer"
+  pictogram: "3d-printer"
+  transport: "http"
+  notes: >
+    PrusaLink is Prusa's on-printer web server (MK4, MK3.9, XL, Mini) with a
+    published OpenAPI spec. Local HTTP on the printer's LAN IP, no cloud. AUTH is
+    HTTP Digest (username `maker` + the printer's password/PIN) and/or an
+    X-Api-Key header. A legacy OctoPrint-compatible /api/ surface exists for older
+    clients.
+
+    ENDPOINTS:
+      GET  /api/version                    API + firmware version
+      GET  /api/v1/info                     device info
+      GET  /api/v1/status                   real-time printer/job/transfer/storage/
+                                            camera telemetry
+      GET  /api/v1/job                      current job
+      PUT  /api/v1/job/{id}/pause | /resume | /continue
+      DELETE /api/v1/job/{id}               stop
+      PUT  /api/v1/files/{storage}/{path}   upload G-code
+      POST /api/v1/files/{storage}/{path}   start a print of an uploaded file
+      HEAD /api/v1/files/{storage}/{path}   check presence
+      DELETE /api/v1/files/{storage}/{path} remove
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    source_code: "https://github.com/prusa3d/Prusa-Link-Web"
+    upstream_docs:
+      - url: "https://github.com/prusa3d/Prusa-Link-Web/blob/master/spec/openapi.yaml"
+        title: "PrusaLink — OpenAPI spec"
+        covers: "The /api/v1 endpoints, the auth (Digest maker + X-Api-Key), and the OctoPrint-compatible layer."
+    notes: >
+      Vendor-provided and documented (open OpenAPI spec; the firmware itself is
+      GPL). Upstream is authoritative.
+
+  identification:
+    default_port: 80
+    mdns_service_type: "_http._tcp.local."
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_http._tcp.local."
+          port: 80
+          identity_mapping:
+            stable_keys:
+              - source: "http:/api/v1/info#serial"
+                key: "serial"
+            display:
+              source: "http:/api/v1/info#name"
+        notes: >
+          The printer serves HTTP on its LAN IP (shown on the printer screen).
+          Confirm with GET /api/version or /api/v1/info.
+    identity:
+      stable_keys: ["serial"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Enable PrusaLink in the printer's network settings; the screen shows the API
+      key/password and IP. Connect with `maker` + password (Digest) or the API
+      key header. No cloud.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Enable PrusaLink in the printer network settings, note the IP and API
+          key/password from the screen, then call /api/v1 over HTTP Digest (maker +
+          password) or with the X-Api-Key header.
+        steps:
+          - action: "Enable PrusaLink in the printer network settings; read the IP and API key/password."
+            actor: "user"
+          - action: "Call GET /api/v1/status (Digest maker + password, or X-Api-Key)."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Network settings reset from the printer menu clears the Wi-Fi config and
+        rotates the API key. The exact menu path is not transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Network settings are changed from the printer menu while reachable."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "PrusaLink API key / password"
+      issued_to_client:
+        - "API key / maker password (read from the printer screen)"
+      notes: >
+        Local control uses the printer's API key / maker password over HTTP
+        Digest. Onboarding is via the printer UI, not this API.
+
+http_endpoints:
+  - method: "GET"
+    path: "/api/version"
+    name: "API + firmware version"
+    description: "PrusaLink API version and firmware — the identity check."
+  - method: "GET"
+    path: "/api/v1/status"
+    name: "Status"
+    description: "Real-time printer/job/transfer/storage/camera telemetry (Digest or X-Api-Key)."
+  - method: "GET"
+    path: "/api/v1/job"
+    name: "Current job"
+    description: "The current print job (progress, file, times)."
+  - method: "PUT"
+    path: "/api/v1/job/{id}/pause"
+    name: "Pause job"
+    description: "Pause the current job (also /resume, /continue; DELETE /api/v1/job/{id} stops)."
+  - method: "PUT"
+    path: "/api/v1/files/{storage}/{path}"
+    name: "Upload G-code"
+    description: "Upload a G-code file to the named storage; POST the same path starts a print of it."
+
+commands:
+  pause:
+    description: "Pause the current job."
+    transport: "http"
+    method: "PUT"
+    path: "/api/v1/job/{id}/pause"
+    parameters:
+      id:
+        type: "integer"
+        description: "Current job id (from GET /api/v1/job)."
+    verification: "reported"
+  resume:
+    description: "Resume the current job."
+    transport: "http"
+    method: "PUT"
+    path: "/api/v1/job/{id}/resume"
+    parameters:
+      id:
+        type: "integer"
+        description: "Current job id."
+    verification: "reported"
+
+entities:
+  - platform: "sensor"
+    name: "Printer State"
+    state_endpoint: "/api/v1/status"
+    notes: "printer.state from /api/v1/status."
+  - platform: "sensor"
+    name: "Job Progress"
+    unit: "%"
+    state_endpoint: "/api/v1/status"
+    notes: "job.progress from /api/v1/status."
+
+helpful_urls:
+  - title: "PrusaLink — OpenAPI spec"
+    url: "https://github.com/prusa3d/Prusa-Link-Web/blob/master/spec/openapi.yaml"
+    description: "The official /api/v1 endpoints, auth, and OctoPrint-compatible layer."

@@ -1,0 +1,176 @@
+# Midea Air Conditioner (LAN) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - mill1000/midea-msmart (MIT) — the maintained reference client.
+#   - nbogojevic/midea-beautiful-air (MIT) — dehumidifiers + token/key story.
+
+device:
+  name: "Midea Air Conditioner / Dehumidifier (LAN)"
+  manufacturer: "Midea Group (many rebrands: Comfee, Inventor, Pro Breeze, Artic King, Toshiba-app units)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The TCP-6444 / UDP-6445
+      ports, the V1/V2/V3 generation split and the one-time-cloud token/key
+      story are from msmart-ng and midea-beautiful-air; byte-level framing
+      should be pulled from msmart-ng source before relying on it.
+  protocol: "wifi"
+  category: "climate"
+  transport: "tcp"
+  notes: >
+    Midea's Wi-Fi air conditioners and dehumidifiers — sold under a very large
+    number of rebrands — are controllable on the LAN over TCP port 6444 with an
+    encrypted appliance protocol, discovered by a UDP broadcast to port 6445.
+    Midea is a giant OEM (active); the value here is the enormous rebadge
+    footprint plus a "one-time cloud, then local" story.
+
+    GENERATIONS:
+      V1 — limited support.
+      V2 — local, no token needed.
+      V3 — local, but needs a TOKEN + KEY (K1) pair obtained ONCE from the Midea
+           cloud (via NetHome Plus app credentials); after that, no further cloud
+           connection is required.
+
+    DISCOVERY: UDP broadcast to port 6445; control then switches to TCP 6444.
+    msmart-ng exposes Discover.discover() / discover_single(IP).
+
+    APPLIANCE TYPES: 0xAC air conditioners, 0xCC (portable), and dehumidifiers
+    (Comfee/Inventor/Pro Breeze rebadges via midea-beautiful-air). Compatible
+    vendor apps whose devices are reachable this way include Artic King, Midea
+    Air, NetHome Plus, SmartHome/MSmartHome and Toshiba AC NA.
+
+    The 0x5A5A / "8370" byte-level framing is not restated here — pull it from
+    msmart-ng source when implementing.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/mill1000/midea-msmart"
+    license: "MIT"
+    notes: >
+      No official protocol publication. msmart-ng (a maintained fork of
+      mac-zhou/midea-msmart) and midea-beautiful-air are the reference
+      implementations and agree on the architecture, ports and token/key flow.
+
+  identification:
+    default_port: 6444
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # Midea does not advertise mDNS; discovery is a UDP 6445 broadcast.
+          # Placeholder block; see midea_lan_protocol.
+          service_type: "_http._tcp.local."
+          port: 6444
+          identity_mapping:
+            stable_keys:
+              - source: "udp:6445#id"
+                key: "id"
+            display:
+              source: "udp:6445#name"
+        notes: >
+          Real discovery: UDP broadcast to port 6445; devices answer and control
+          switches to TCP 6444. See midea_lan_protocol.
+    identity:
+      stable_keys: ["id"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A device joins the LAN via its vendor app. For V3 units a token/key pair
+      must be fetched once from the Midea cloud (using NetHome Plus credentials),
+      after which control is fully local. V2 units need no token.
+    methods:
+      - type: "cloud_account"
+        verified: false
+        description: >
+          Onboard the unit onto Wi-Fi via the vendor app. For V3 firmware,
+          retrieve the TOKEN + KEY once from the Midea cloud (NetHome Plus
+          credentials) and cache them; all subsequent control is local over
+          TCP 6444.
+        cloud:
+          local_alternative: >
+            Yes — after a one-time cloud fetch of the V3 token/key (V2 needs
+            none), control is entirely local over TCP 6444. The cloud is touched
+            only to obtain the key.
+        steps:
+          - action: "Onboard the unit onto Wi-Fi with its vendor app."
+            actor: "user"
+          - action: "For V3 units, fetch the token/key once from the Midea cloud (NetHome Plus credentials) and store them."
+            actor: "client"
+          - action: "Discover on UDP 6445 and control over TCP 6444 with the cached key."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Returns the Wi-Fi module to onboarding (remote-control key combination on
+        the unit). The exact gesture is model-specific and not transcribed here.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        Wi-Fi re-provisioning is via the module's onboarding, not the control
+        protocol; the cached token/key survives a network change.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+      issued_to_client:
+        - "V3: TOKEN + KEY (K1) pair, fetched once from the Midea cloud"
+      notes: >
+        Wi-Fi onboarding is app-mediated (not documented here). The V3 token/key
+        gates the encrypted TCP 6444 session; it is obtained from the cloud once
+        and then used entirely locally.
+
+midea_lan_protocol:
+  transport: "TCP 6444 (control, encrypted) / UDP 6445 (discovery)"
+  generations:
+    V1: "limited support"
+    V2: "local, no token needed"
+    V3: "local, requires a TOKEN + KEY (K1) fetched once from the Midea cloud"
+  appliance_types: "0xAC air conditioner, 0xCC portable AC, dehumidifiers (via midea-beautiful-air)"
+  framing_note: "0x5A5A / 8370 byte framing — see msmart-ng source."
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Control is an encrypted binary protocol over TCP port
+      6444 (see midea_lan_protocol), not HTTP.
+
+commands:
+  query:
+    description: "Poll the appliance state (msmart-ng `query`)."
+    transport: "tcp-json"
+    body: "midea query command (0xAC/0xCC appliance)"
+    verification: "reported"
+  control:
+    description: "Set power / mode / target temperature / fan (msmart-ng `control`)."
+    transport: "tcp-json"
+    body: "midea control command (power, mode, target_temperature, fan_speed)"
+    verification: "reported"
+
+entities:
+  - platform: "climate"
+    name: "Air Conditioner"
+    min_temp: 16
+    max_temp: 30
+    temp_step: 0.5
+    notes: "Power/mode/setpoint/fan via the Midea appliance query/control commands."
+
+helpful_urls:
+  - title: "mill1000/midea-msmart (msmart-ng)"
+    url: "https://github.com/mill1000/midea-msmart"
+    description: "MIT maintained reference client; discover/query/control CLI and the V3 token/key flow."
+  - title: "nbogojevic/midea-beautiful-air"
+    url: "https://github.com/nbogojevic/midea-beautiful-air"
+    description: "MIT — covers dehumidifier rebadges and the token/key-from-cloud story."
