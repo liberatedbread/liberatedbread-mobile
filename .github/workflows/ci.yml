@@ -316,6 +316,15 @@ jobs:
       # is meant to survive.
       - name: Self-test the iOS retry logic
         run: ./scripts/ci-ios-tests-selftest.sh
+      # The bundle verifier itself, driven against stub nm/PlistBuddy binaries.
+      # It only ever runs on the 10x-billed macOS job, against an artifact that
+      # takes ten minutes to build, so its own bugs used to surface as a red run
+      # that blamed the build — which is exactly what `nm | grep -q` under
+      # `set -o pipefail` did: grep -q leaves at the first match, nm dies of
+      # SIGPIPE, and a correctly linked framework was reported as one missing
+      # the Rust library entirely. See the header of the selftest.
+      - name: Self-test the iOS bundle verifier
+        run: ./scripts/verify-ios-app-selftest.sh
       # The header of this file says every pinned version lives in one `env:`
       # block and that scripts/ci-versions.sh reads it. Nothing enforced the
       # second half. That script is deliberately forgiving — a key it cannot

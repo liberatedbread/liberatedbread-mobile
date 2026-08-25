@@ -242,7 +242,11 @@ else
     else
       # -D reads .dynsym, which a cdylib keeps even under strip = "symbols".
       if syms="$("$NM" -D --defined-only "$rust_so" 2>/dev/null)"; then
-        if printf '%s\n' "$syms" | grep -qE "$FRB_SYMBOL_PATTERN"; then
+        # Herestring, not `printf ... | grep -q`: grep -q exits at the first
+        # match and the pipeline's producer takes a SIGPIPE that `pipefail`
+        # turns into a failed test, reporting exported symbols as missing. See
+        # the same trap spelled out in scripts/verify_ios_app.sh.
+        if grep -qE "$FRB_SYMBOL_PATTERN" <<<"$syms"; then
           log "  ok  exports the flutter_rust_bridge dispatcher symbols"
         else
           fail "lib/$RUST_LIB exports no symbol matching /$FRB_SYMBOL_PATTERN/ — the FFI entry points are gone, so every Rust call would fail at runtime."
