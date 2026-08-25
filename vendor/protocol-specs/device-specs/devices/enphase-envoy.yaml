@@ -35,6 +35,10 @@ device:
   identification:
     mdns_service_type: "_enphase-envoy._tcp.local."
     default_port: 443
+    # The mDNS answer still advertises 80, but firmware 8.x serves the API
+    # exclusively over HTTPS on 443 and refuses 80 outright (live-observed
+    # on D8.3.5427). This is that prose in a form a consumer reads.
+    advertised_port_unreliable: true
     default_scheme: "https"
     tls:
       self_signed: true

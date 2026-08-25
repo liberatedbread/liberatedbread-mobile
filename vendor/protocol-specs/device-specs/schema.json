@@ -1049,6 +1049,10 @@
               "type": "integer",
               "description": "Default TCP port for the device's local API."
             },
+            "advertised_port_unreliable": {
+              "type": "boolean",
+              "description": "True when the port the device ADVERTISES is not the port its local API answers on, so a consumer must use `default_port` instead of what discovery captured. Two devices are like this and both were being reached at the wrong port by anything that trusted the announcement: the Envoy's mDNS answer still says 80 while firmware 8.x serves the API exclusively over HTTPS on 443 and refuses 80 outright, and a Roku serves /keypress and /ecp-session only on 8060 whatever its SSDP LOCATION carried (a field TV advertised 7250). Absent means the announcement is trustworthy, which is the normal case: a device that says where it is knows better than a catalogue default."
+            },
             "default_scheme": {
               "type": "string",
               "enum": [
