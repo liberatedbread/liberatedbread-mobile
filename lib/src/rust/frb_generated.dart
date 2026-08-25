@@ -4231,8 +4231,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkDeviceDto dco_decode_network_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return NetworkDeviceDto(
       name: dco_decode_String(arr[0]),
       hostname: dco_decode_opt_String(arr[1]),
@@ -4241,6 +4241,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       answeredLanProtocols: dco_decode_list_String(arr[4]),
       port: dco_decode_opt_box_autoadd_u_16(arr[5]),
       txt: dco_decode_Map_String_String_None(arr[6]),
+      mac: dco_decode_opt_String(arr[7]),
     );
   }
 
@@ -6549,6 +6550,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_answeredLanProtocols = sse_decode_list_String(deserializer);
     var var_port = sse_decode_opt_box_autoadd_u_16(deserializer);
     var var_txt = sse_decode_Map_String_String_None(deserializer);
+    var var_mac = sse_decode_opt_String(deserializer);
     return NetworkDeviceDto(
         name: var_name,
         hostname: var_hostname,
@@ -6556,7 +6558,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         ssdpTargets: var_ssdpTargets,
         answeredLanProtocols: var_answeredLanProtocols,
         port: var_port,
-        txt: var_txt);
+        txt: var_txt,
+        mac: var_mac);
   }
 
   @protected
@@ -8695,6 +8698,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.answeredLanProtocols, serializer);
     sse_encode_opt_box_autoadd_u_16(self.port, serializer);
     sse_encode_Map_String_String_None(self.txt, serializer);
+    sse_encode_opt_String(self.mac, serializer);
   }
 
   @protected

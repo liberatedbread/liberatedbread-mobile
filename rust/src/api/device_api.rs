@@ -670,6 +670,20 @@ pub struct NetworkDeviceDto {
     /// node from another — the platform's service type is identical across
     /// every board it ever flashed.
     pub txt: std::collections::HashMap<String, String>,
+    /// The device's hardware address, when discovery recovered one.
+    ///
+    /// The one thing on the network side that does not move: an IP is a DHCP
+    /// lease and a hostname is whatever the owner typed, while the OUI names
+    /// the company that built the thing. Twelve specs declare `mac_prefixes`
+    /// and the network matcher had no axis to spend them on — the Ubiquiti and
+    /// MikroTik transports were parsing a real address out of the wire and
+    /// leaving it in the TXT map, where nothing looked.
+    ///
+    /// The CALLER decides what counts as one; on the Dart side that is
+    /// `NetworkDevice.advertisedMac`, which deliberately declines HomeKit's
+    /// `id` record — MAC-shaped, randomly generated, and worth a confident lie
+    /// about who made the device.
+    pub mac: Option<String>,
 }
 
 /// The identifying fields of a spec, without the services, characteristics and
@@ -3716,24 +3730,7 @@ fn match_axes(
         .filter(|id| device.company_ids.contains(id))
         .collect();
 
-    let mac_prefix = device_mac.and_then(|address| {
-        // Best-first rather than first-declared: a spec listing both a
-        // vetted block and a shared one should be judged on the vetted one
-        // when the address is in it, regardless of declaration order.
-        identity
-            .mac_prefixes
-            .iter()
-            .filter(|entry| {
-                normalize_mac_prefix(&entry.prefix)
-                    .is_some_and(|normalized| address.starts_with(&normalized))
-            })
-            // `min_by_key` on the reversed key rather than `max_by_key`:
-            // both pick the best, but only this one keeps the first of
-            // several equally-good prefixes, so declaration order still
-            // breaks ties deterministically.
-            .min_by_key(|entry| std::cmp::Reverse(entry.confidence))
-            .cloned()
-    });
+    let mac_prefix = best_mac_prefix(&identity.mac_prefixes, device_mac);
 
     MatchAxes {
         by_name_prefix,
@@ -3795,6 +3792,32 @@ fn is_sig_assigned_service(uuid: &str) -> bool {
 /// `device_types` is `device.service_types` already through
 /// [`normalize_service_type`], computed once by the caller for the same reason
 /// [`match_axes`] takes the MAC pre-normalized: this runs per identity.
+/// The best of a spec's `mac_prefixes` that `address` falls in.
+///
+/// Best-first rather than first-declared: a spec listing both a vetted block
+/// and a shared one should be judged on the vetted one when the address is in
+/// it, regardless of declaration order.
+///
+/// Shared by both matchers, because an OUI means the same thing over either
+/// radio — it names the company that built the hardware. The network side had
+/// no MAC axis at all, so twelve specs' `mac_prefixes` were spent on BLE and
+/// ignored on Wi-Fi, where for several of them it is the only identifier that
+/// does not move.
+fn best_mac_prefix(prefixes: &[MacPrefixDto], address: Option<&str>) -> Option<MacPrefixDto> {
+    let address = address?;
+    prefixes
+        .iter()
+        .filter(|entry| {
+            normalize_mac_prefix(&entry.prefix)
+                .is_some_and(|normalized| address.starts_with(&normalized))
+        })
+        // `min_by_key` on the reversed key rather than `max_by_key`: both pick
+        // the best, but only this one keeps the first of several equally-good
+        // prefixes, so declaration order still breaks ties deterministically.
+        .min_by_key(|entry| std::cmp::Reverse(entry.confidence))
+        .cloned()
+}
+
 fn match_network_axes(
     identity: &SpecIdentityDto,
     device: &NetworkDeviceDto,
@@ -3898,13 +3921,43 @@ fn match_network_axes(
                 .is_some_and(|h| name_has_prefix(h, prefix))
     });
 
-    MatchAxes {
+    // The OUI, judged exactly as it is on the BLE side. It never admits on its
+    // own — `is_empty` does not count it, and the confidence rule reads its
+    // tier — so a spec whose only claim is "somebody at this company made it"
+    // still needs a second signal, which is the same rule that keeps a shared
+    // service type from naming a device.
+    let mac_prefix = best_mac_prefix(
+        &identity.mac_prefixes,
+        device.mac.as_deref().and_then(normalize_mac).as_deref(),
+    );
+
+    let mut axes = MatchAxes {
         by_name_prefix,
         service_types,
         shared_service_types,
         narrowed_shared,
+        mac_prefix,
         ..MatchAxes::default()
+    };
+    // On this side an OUI CORROBORATES and never admits. It names the company
+    // that built the hardware, not the hardware — Signify builds bridges and
+    // also lamps and also monitors — so a spec whose only agreement with a
+    // host is "somebody at this company made it" has not identified anything.
+    // The same rule as a shared service type, and the same one the absent port
+    // axis states.
+    //
+    // BLE differs deliberately: there the address IS most of what a scan
+    // result has, while a host on the network also volunteers a service type,
+    // a hostname and TXT records, so there is something for the OUI to
+    // corroborate.
+    if axes.mac_prefix.is_some() {
+        let taken = axes.mac_prefix.take();
+        // Put it back only if something else already stood on its own.
+        if !axes.is_empty() {
+            axes.mac_prefix = taken;
+        }
     }
+    axes
 }
 
 /// Whether a network identifier is answered by a whole category of hardware
@@ -6380,6 +6433,7 @@ http_endpoints:
             answered_lan_protocols: vec![],
             port: None,
             txt: Default::default(),
+            mac: None,
         }
     }
 
@@ -6735,6 +6789,69 @@ device:
         };
         let matches = match_network_device(vec![identity], node);
         assert_eq!(matches.len(), 1, "a narrowed shared type names a device");
+    }
+
+    /// The OUI is evidence on Wi-Fi, exactly as it is on BLE.
+    ///
+    /// Twelve specs declare `mac_prefixes` and the network matcher had no axis
+    /// to spend them on, while the Ubiquiti and MikroTik transports were
+    /// parsing a real address off the wire and leaving it in the TXT map where
+    /// nothing looked. An IP is a DHCP lease and a hostname is whatever the
+    /// owner typed; the OUI names the company that built the hardware.
+    #[test]
+    fn a_matching_oui_corroborates_a_network_match() {
+        let mut identity = network_identity();
+        identity.mac_prefixes = vec![MacPrefixDto {
+            prefix: "AA:BB:CC".into(),
+            confidence: MacPrefixConfidence::High,
+        }];
+
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            mac: Some("aa:bb:cc:11:22:33".into()),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity.clone()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            matches[0]
+                .matched_mac_prefix
+                .as_ref()
+                .map(|p| p.prefix.as_str()),
+            Some("AA:BB:CC"),
+            "the axis has to be reported, or the UI cannot say why it matched"
+        );
+
+        // A different manufacturer's address is not this spec's device — the
+        // service type still carries the match, but the OUI does not.
+        let other = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            mac: Some("11:22:33:44:55:66".into()),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], other);
+        assert!(matches[0].matched_mac_prefix.is_none());
+    }
+
+    /// And it never admits on its own: an OUI says who built the hardware, not
+    /// what the hardware is, and one company builds many products.
+    #[test]
+    fn an_oui_alone_does_not_claim_a_host() {
+        let mut identity = network_identity();
+        identity.mdns_service_types.clear();
+        identity.ssdp_search_targets = vec![];
+        identity.lan_protocols = vec![];
+        identity.local_name_prefix_clear();
+        identity.mac_prefixes = vec![MacPrefixDto {
+            prefix: "AA:BB:CC".into(),
+            confidence: MacPrefixConfidence::High,
+        }];
+
+        let device = NetworkDeviceDto {
+            mac: Some("aa:bb:cc:11:22:33".into()),
+            ..anonymous_host()
+        };
+        assert!(match_network_device(vec![identity], device).is_empty());
     }
 
     #[test]

@@ -1363,6 +1363,7 @@ fn vendored_specs_narrow_a_platform_service_type_by_its_txt_records() {
         answered_lan_protocols: vec![],
         port: Some(6053),
         txt: HashMap::from([("project_name".to_string(), project.to_string())]),
+        mac: None,
     };
     let named = |device: NetworkDeviceDto| -> Vec<String> {
         match_network_device(catalogue.clone(), device)
@@ -1989,6 +1990,7 @@ fn a_bare_shared_service_type_claims_nothing_in_the_catalogue() {
         answered_lan_protocols: Vec::new(),
         txt: Default::default(),
         port: Some(80),
+        mac: None,
     };
     let matches = match_network_device(identities.clone(), bare);
     assert!(
@@ -2011,6 +2013,7 @@ fn a_bare_shared_service_type_claims_nothing_in_the_catalogue() {
             ("version".to_string(), "2026.1.0".to_string()),
         ]),
         port: Some(80),
+        mac: None,
     };
     let named = match_network_device(identities, node);
     assert!(

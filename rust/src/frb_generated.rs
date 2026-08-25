@@ -5051,6 +5051,7 @@ impl SseDecode for crate::api::device_api::NetworkDeviceDto {
         let mut var_answeredLanProtocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_port = <Option<u16>>::sse_decode(deserializer);
         let mut var_txt = <std::collections::HashMap<String, String>>::sse_decode(deserializer);
+        let mut var_mac = <Option<String>>::sse_decode(deserializer);
         return crate::api::device_api::NetworkDeviceDto {
             name: var_name,
             hostname: var_hostname,
@@ -5059,6 +5060,7 @@ impl SseDecode for crate::api::device_api::NetworkDeviceDto {
             answered_lan_protocols: var_answeredLanProtocols,
             port: var_port,
             txt: var_txt,
+            mac: var_mac,
         };
     }
 }
@@ -7568,6 +7570,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkDeviceDto 
             self.answered_lan_protocols.into_into_dart().into_dart(),
             self.port.into_into_dart().into_dart(),
             self.txt.into_into_dart().into_dart(),
+            self.mac.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -9651,6 +9654,7 @@ impl SseEncode for crate::api::device_api::NetworkDeviceDto {
         <Vec<String>>::sse_encode(self.answered_lan_protocols, serializer);
         <Option<u16>>::sse_encode(self.port, serializer);
         <std::collections::HashMap<String, String>>::sse_encode(self.txt, serializer);
+        <Option<String>>::sse_encode(self.mac, serializer);
     }
 }
 
