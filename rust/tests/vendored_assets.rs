@@ -1753,3 +1753,55 @@ fn tcp_json_resolves_only_for_the_handler_that_owns_the_framing() {
         );
     }
 }
+
+/// Every role a spec binds is a role the resolver knows.
+///
+/// `entities[].commands` is declared in the schema as a bare
+/// `{"type": "object"}`: any key is legal, and the resolver matches a closed
+/// alias table and passes over the rest without a word. So a spec can spell a
+/// role `set_rgb` where the table says `set_color`, and the control does not
+/// appear — no error, no hidden-entities line if the entity resolved something
+/// else, nothing. Ten role names across seven specs were in exactly that state.
+///
+/// This is the guard that makes the disagreement loud. It cannot decide which
+/// side is wrong — sometimes the spec has a typo, sometimes the app owes the
+/// catalogue a role — but it stops the answer being silence.
+#[test]
+fn every_role_the_catalogue_binds_is_one_the_resolver_knows() {
+    use liberated_bread_core::spec::bindings::known_role_aliases;
+
+    let mut unknown: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let text = fs::read_to_string(&path).expect("spec reads");
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let Ok(spec) = parse_device_spec(&text) else {
+            continue;
+        };
+        for entity in &spec.entities {
+            // Reading platforms have no roles by design; an entity with no
+            // platform at all is a sensor by the same default the panels use.
+            let Some(platform) = entity.platform.as_deref() else {
+                continue;
+            };
+            let known = known_role_aliases(platform);
+            if known.is_empty() {
+                continue;
+            }
+            for role in entity.commands.keys() {
+                if known.contains(&role.as_str()) {
+                    continue;
+                }
+                unknown.push(format!(
+                    "{file}: {:?} ({platform}) binds {role:?}, which no role on \
+                     that platform accepts — known: {known:?}",
+                    entity.name
+                ));
+            }
+        }
+    }
+    assert!(
+        unknown.is_empty(),
+        "roles bound by the catalogue that resolve to nothing:\n  {}",
+        unknown.join("\n  ")
+    );
+}

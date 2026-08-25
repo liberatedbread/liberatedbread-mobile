@@ -226,6 +226,25 @@ const fn bound_role(
 /// A light's effect/animation picker — valued, the effect id.
 const SET_EFFECT: RoleSpec = bound_role("set_effect", &["set_effect"], true);
 
+/// A white light's colour temperature — valued, in whatever unit the bound
+/// command's parameter declares (Kelvin for the Yeelight, mireds elsewhere).
+///
+/// The role name was already in use on both sides and resolved on neither: the
+/// LIFX handler synthesises an action called `set_color_temperature` from the
+/// entity's `features`, and the network light card looks that name up — so
+/// LIFX got a white slider and every spec that BOUND the role got nothing,
+/// because the shared table had no row for it. Same name, two answers.
+const SET_COLOR_TEMPERATURE: RoleSpec =
+    bound_role("set_color_temperature", &["set_color_temperature"], true);
+
+/// A climate machine's mode pickers — valued, the mode id.
+///
+/// Bound-only, like every role added after the fallback lists' lesson: guessing
+/// which command sets an air conditioner's mode from its name is the kind of
+/// inference that turns the heat on.
+const SET_HVAC_MODE: RoleSpec = bound_role("set_hvac_mode", &["set_hvac_mode"], true);
+const SET_FAN_MODE: RoleSpec = bound_role("set_fan_mode", &["set_fan_mode"], true);
+
 /// The role a heat-level picker needs, and the one nothing in the catalogue
 /// could resolve before a Crock-Pot turned up: its modes are 0/50/51/52,
 /// which is a choice from a list and not a number anybody can slide between.
@@ -279,6 +298,7 @@ const PLATFORM_ROLES: &[(&str, &[&RoleSpec])] = &[
             &TOGGLE,
             &SET_BRIGHTNESS,
             &SET_COLOR,
+            &SET_COLOR_TEMPERATURE,
             &SET_EFFECT,
         ],
     ),
@@ -291,7 +311,24 @@ const PLATFORM_ROLES: &[(&str, &[&RoleSpec])] = &[
     // cannot delete.
     ("text", &[&SUBMIT, &PRESS]),
     ("number", &[&SET_VALUE]),
-    ("climate", &[&SET_VALUE]),
+    // A climate entity is a setpoint AND a machine. Both Frigidaire units bind
+    // power and two mode pickers beside their temperature, and this row held
+    // only the setpoint — so an air conditioner rendered a thermostat dial and
+    // no way to turn it on. Power carries its usual name fallbacks (this is the
+    // same `turn_on` a switch offers, and it means the same thing); the mode
+    // pickers are bound-only, because guessing which command sets a mode from
+    // its name is the kind of inference that turns the heat on.
+    (
+        "climate",
+        &[
+            &SET_VALUE,
+            &TURN_ON,
+            &TURN_OFF,
+            &TOGGLE,
+            &SET_HVAC_MODE,
+            &SET_FAN_MODE,
+        ],
+    ),
     (
         "fan",
         &[
@@ -307,6 +344,30 @@ const PLATFORM_ROLES: &[(&str, &[&RoleSpec])] = &[
         &[&OPEN_COVER, &CLOSE_COVER, &STOP_COVER, &SET_COVER_POSITION],
     ),
 ];
+
+/// Every role spelling a spec may bind on `platform`, as the resolver matches
+/// them.
+///
+/// The vocabulary, readable from outside. `entities[].commands` is declared in
+/// the schema as a bare `{"type": "object"}` — any key at all is legal YAML and
+/// legal against the schema — while the resolver here matches a closed set of
+/// aliases and passes over everything else in silence. That asymmetry is how
+/// ten role names across seven specs came to bind nothing at all with no
+/// error anywhere: the spec said `set_rgb`, the table says `set_color`, and
+/// the control simply did not appear.
+///
+/// Exported so a test can hold the catalogue against the table. It cannot make
+/// the two agree, but it can make a disagreement loud.
+pub fn known_role_aliases(platform: &str) -> Vec<&'static str> {
+    platform_roles(Some(platform))
+        .map(|roles| {
+            roles
+                .iter()
+                .flat_map(|r| r.aliases.iter().copied())
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 /// The table row for one platform, or none for a reading platform.
 fn platform_roles(platform: Option<&str>) -> Option<&'static [&'static RoleSpec]> {

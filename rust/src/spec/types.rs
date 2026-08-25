@@ -1507,6 +1507,22 @@ pub struct Command {
     /// Kept as free text because the right warning is device-specific.
     #[serde(default)]
     pub advanced_reason: Option<String>,
+    /// Total bytes on the wire for a command whose frame is a fixed width
+    /// whatever the payload, so the encoder zero-pads up to it.
+    ///
+    /// An ENCODING instruction, not documentation, and it was read by nothing:
+    /// four specs declare it and the encoder emitted the template's own length,
+    /// so a Veryfit `bind` went out as six bytes where the band expects twenty
+    /// and a ProGlow colour packet as seven. The device drops a short frame
+    /// without answering, which reaches the user as a button that does nothing
+    /// — the encoder having reported the command perfectly encodable.
+    ///
+    /// Trailing zeros, because that is what every declaring spec's own
+    /// `packet_layout` says the padding is. A frame that ALREADY exceeds the
+    /// width is a spec error and refused rather than truncated: half a command
+    /// on the wire is worse than none.
+    #[serde(default)]
+    pub fixed_length: Option<usize>,
 }
 
 /// What a locator command does to make the device noticeable.

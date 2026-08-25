@@ -30,6 +30,7 @@ import '../widgets/entity_cards/sensor_level_chip.dart';
 import '../widgets/network_light_card.dart';
 import '../widgets/power_strip_icon.dart';
 import '../widgets/rabbit_air_controls_panel.dart';
+import '../widgets/unclaimed_actions.dart';
 
 /// Controls for a network device whose matched spec declares entities — the
 /// Wi-Fi counterpart of the BLE device screen's typed control panel.
@@ -1387,8 +1388,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           initialOn: reading?.isOn,
           initialBrightness: reading?.number,
         );
+      // A platform this switch has no branch for still shows its reading —
+      // and, since the resolver may well have found it controls, its actions.
+      // Without the second half this default is the same defect the unclaimed
+      // rows above exist to close, one level up: a spec declaring a platform
+      // the catalogue has not needed yet would draw a value and no way to
+      // change it, with nothing saying so. Nothing in the catalogue reaches
+      // here today; that is precisely when the branch is cheap to get right.
       default:
-        return _sensorCard(entity);
+        return _sensorCard(entity, tail: _unclaimedActions(entity, const {}));
     }
   }
 
@@ -1449,6 +1457,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ),
             ],
           ),
+          // `press` is the deletion key drawn above, claimed whether or not
+          // the spec bound one — the field and its backspace are this card's.
+          _unclaimedActions(entity, const {'submit', 'press'}),
           const SizedBox(height: 4),
           Text('Types into whatever field is focused on the device.',
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
@@ -1749,6 +1760,47 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         ),
       );
 
+  /// The tail every curated card below ends with: the actions this entity
+  /// resolved that the card itself did not draw.
+  ///
+  /// A card asks for the handful of roles it knows by name and never learns
+  /// what else the resolver produced, so a role can be bound by a spec,
+  /// resolved by Rust and still reach nobody — the Hisense set, whose only
+  /// power channel is `toggle`, drew a title, a state line and no control at
+  /// all. [claimed] is what the card is responsible for, whether or not it is
+  /// on screen this build; everything else lands here.
+  ///
+  /// Nothing renders — the gap included — when the card claimed every
+  /// resolved role: a Padding around an empty row still takes its height, and
+  /// a card that already draws everything must look exactly as it did before.
+  Widget _unclaimedActions(NetworkEntityDto entity, Set<String> claimed) {
+    final unclaimed = entity.actions
+        .where((action) => !claimed.contains(action.role))
+        .toList(growable: false);
+    if (unclaimed.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: UnclaimedActions(
+        actions: [
+          for (final action in entity.actions)
+            (role: action.role, takesValue: action.userParams.isNotEmpty),
+        ],
+        claimed: claimed,
+        // This screen's own send path, so an unclaimed action gets the same
+        // read-back, the same refusal note and the same busy flag as the
+        // control drawn beside it — one sender, not two.
+        onSend: (role) async {
+          final action = _actionFor(entity, role);
+          if (action != null) await _send(entity, action);
+        },
+        // `_sending` keys on the entity rather than the role, so there is no
+        // per-role wait to show: the row goes inert while this entity is
+        // mid-send instead of putting a spinner on the wrong button.
+        enabled: !_sending.contains(entity.name) && !unclaimed.any(_lockedFor),
+      ),
+    );
+  }
+
   Widget _switchCard(NetworkEntityDto entity) {
     final reading = _readings[entity.name];
     final isOn = reading?.isOn;
@@ -1764,39 +1816,47 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final title = (alias != null && alias.isNotEmpty) ? alias : entity.name;
 
     return _card(
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
-                if (isOn == null)
-                  Text('State unknown',
-                      style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600)),
+                    if (isOn == null)
+                      Text('State unknown',
+                          style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+              if (busy)
+                const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+              else
+                Switch(
+                  value: isOn ?? false,
+                  onChanged: (turnOn == null ||
+                          turnOff == null ||
+                          _lockedFor(turnOn) ||
+                          _lockedFor(turnOff))
+                      ? null
+                      : (wantOn) =>
+                          unawaited(_send(entity, wantOn ? turnOn : turnOff)),
+                ),
+            ],
           ),
-          if (busy)
-            const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2))
-          else
-            Switch(
-              value: isOn ?? false,
-              onChanged: (turnOn == null ||
-                      turnOff == null ||
-                      _lockedFor(turnOn) ||
-                      _lockedFor(turnOff))
-                  ? null
-                  : (wantOn) =>
-                      unawaited(_send(entity, wantOn ? turnOn : turnOff)),
-            ),
+          // A set whose power channel is a toggle resolves neither of the two
+          // roles the switch above draws, and drew nothing before this.
+          _unclaimedActions(entity, const {'turn_on', 'turn_off'}),
         ],
       ),
     );
@@ -1943,6 +2003,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ),
             ],
           ),
+          _unclaimedActions(entity, const {'select_option'}),
         ],
       ),
     );
@@ -2022,6 +2083,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   : (value) => unawaited(
                       _send(entity, action, value: _trimNumber(value))),
             ),
+          _unclaimedActions(entity, const {'set_value'}),
         ],
       ),
     );
@@ -2173,6 +2235,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   : (value) => unawaited(
                       _send(entity, position, value: value.toString())),
             ),
+          _unclaimedActions(entity, const {
+            'open_cover',
+            'close_cover',
+            'stop_cover',
+            'set_cover_position',
+          }),
         ],
       ),
     );
@@ -2261,12 +2329,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ),
               ],
             ),
+          _unclaimedActions(entity, const {
+            'turn_on',
+            'turn_off',
+            'set_percentage',
+            'set_oscillating',
+          }),
         ],
       ),
     );
   }
 
-  Widget _sensorCard(NetworkEntityDto entity) {
+  /// A reading, with an optional [tail] beneath it — the unclaimed-actions row
+  /// for the `default:` arm of [_entityCard], whose entity may have resolved
+  /// controls this screen has no card for. Every named platform passes none.
+  Widget _sensorCard(NetworkEntityDto entity, {Widget? tail}) {
     final reading = _readings[entity.name];
     final unit = displayUnit(entity.unit);
     final value = switch (reading?.kind) {
@@ -2288,29 +2365,34 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
     final showLevel = level != null &&
         sensorLevelVisible(deviceClass: entity.deviceClass, level: level);
-    return _card(
-      child: Row(
-        children: [
-          if (icon != null) ...[
-            Icon(icon,
-                size: 20,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
-            const SizedBox(width: 8),
-          ],
-          Expanded(
-            child: Text(entity.name,
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600)),
-          ),
-          if (showLevel) ...[
-            SensorLevelChip(level: level),
-            const SizedBox(width: 8),
-          ],
-          Text(value, style: Theme.of(context).textTheme.bodyLarge),
+    final row = Row(
+      children: [
+        if (icon != null) ...[
+          Icon(icon,
+              size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          const SizedBox(width: 8),
         ],
-      ),
+        Expanded(
+          child: Text(entity.name,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w600)),
+        ),
+        if (showLevel) ...[
+          SensorLevelChip(level: level),
+          const SizedBox(width: 8),
+        ],
+        Text(value, style: Theme.of(context).textTheme.bodyLarge),
+      ],
+    );
+    return _card(
+      child: tail == null
+          ? row
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [row, tail],
+            ),
     );
   }
 

@@ -456,10 +456,10 @@ pub fn encode_command_with_bytes(
     bytes_params: &HashMap<String, Vec<u8>>,
 ) -> Result<Vec<u8>, ProtocolError> {
     if let Some(ref value) = command.value {
-        return Ok(value.clone());
+        return pad_to_fixed_length(value.clone(), command);
     }
     if let Some(bytes) = command.payload_bytes() {
-        return Ok(bytes);
+        return pad_to_fixed_length(bytes, command);
     }
 
     // Commands with setting_id or encoding need typed-control handlers
@@ -573,6 +573,38 @@ pub fn encode_command_with_bytes(
             bytes[offset + i] = le[src];
         }
     }
+    pad_to_fixed_length(bytes, command)
+}
+
+/// Zero-pad an encoded frame up to the command's declared [`Command::fixed_length`].
+///
+/// Applied after the length fixups, deliberately: `auto: packet_length` means
+/// the bytes on the wire, and on a fixed-width frame that is the padded width.
+/// No command in the catalogue declares both today, so this is a rule for the
+/// first one that does rather than a behaviour anything relies on.
+///
+/// Padding is TRAILING, which is right only because every declaring spec says
+/// so in its own `packet_layout` ("rest zero", "zero padding through byte 18").
+/// A frame that carries a trailing checksum cannot be completed this way — the
+/// checksum has to land at the last byte, not before the padding — and those
+/// specs list their pad bytes in the template instead, which leaves this a
+/// no-op for them. That is the honest division: this pads, it does not
+/// rearrange.
+fn pad_to_fixed_length(mut bytes: Vec<u8>, command: &Command) -> Result<Vec<u8>, ProtocolError> {
+    let Some(width) = command.fixed_length else {
+        return Ok(bytes);
+    };
+    if bytes.len() > width {
+        return Err(ProtocolError::ParameterInvalid {
+            name: "fixed_length".to_string(),
+            value: bytes.len() as f64,
+            reason: format!(
+                "encoded {} bytes, which does not fit the declared fixed_length of {width}",
+                bytes.len()
+            ),
+        });
+    }
+    bytes.resize(width, 0);
     Ok(bytes)
 }
 
@@ -1255,9 +1287,76 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         };
         let bytes = encode_command(&cmd, &HashMap::new()).unwrap();
         assert_eq!(bytes, vec![0x01, 0x01]);
+    }
+
+    /// A fixed-width frame goes out at its declared width, not the template's.
+    ///
+    /// The Veryfit band's `bind` is six template bytes and a twenty-byte
+    /// frame; the band drops the short one without answering, so the symptom
+    /// is a button that does nothing while the encoder calls the command
+    /// perfectly encodable.
+    #[test]
+    fn fixed_length_zero_pads_a_short_frame() {
+        let mut cmd = Command {
+            description: "bind".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0x04),
+                TemplateElement::Byte(0x01),
+                TemplateElement::Param("sdk".into()),
+            ]),
+            parameters: Some(pset([("sdk", param(ValueType::Uint8, None, None))])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: Some(8),
+        };
+        let params = HashMap::from([("sdk".to_string(), 34.0)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            vec![0x04, 0x01, 34, 0, 0, 0, 0, 0]
+        );
+
+        // The same rule for a fixed `value:` — the Veryfit's `unbind` writes
+        // its twenty bytes out in full, and a spec that wrote fewer would
+        // otherwise be padded by nobody.
+        cmd.template = None;
+        cmd.parameters = None;
+        cmd.value = Some(vec![0x04, 0x02]);
+        assert_eq!(
+            encode_command(&cmd, &HashMap::new()).unwrap(),
+            vec![0x04, 0x02, 0, 0, 0, 0, 0, 0]
+        );
+    }
+
+    /// A frame already wider than its declared width is a spec error, and
+    /// truncating it would put half a command on the wire — worse than none.
+    #[test]
+    fn fixed_length_refuses_a_frame_that_is_already_too_long() {
+        let cmd = Command {
+            description: "too wide".into(),
+            value: Some(vec![1, 2, 3, 4]),
+            template: None,
+            parameters: None,
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: Some(3),
+        };
+        assert!(matches!(
+            encode_command(&cmd, &HashMap::new()),
+            Err(ProtocolError::ParameterInvalid { ref name, .. }) if name == "fixed_length"
+        ));
     }
 
     #[test]
@@ -1279,6 +1378,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         };
         let params = HashMap::from([("brightness".into(), 75.0)]);
         let bytes = encode_command(&cmd, &params).unwrap();
@@ -1304,6 +1404,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         };
         let params = HashMap::from([("brightness".into(), 150.0)]);
         assert!(encode_command(&cmd, &params).is_err());
@@ -1326,6 +1427,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         }
     }
 
@@ -1369,6 +1471,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         };
         // 200 -> two-byte varint [0xC8, 0x01], total length 6 (BE in len).
         let bytes = encode_command(&cmd, &HashMap::from([("brightness".into(), 200.0)])).unwrap();
@@ -1404,6 +1507,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         };
         assert!(matches!(
             encode_command(&cmd, &HashMap::new()),
@@ -1438,6 +1542,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         }
     }
 
@@ -1493,6 +1598,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         };
         let params = HashMap::from([("b".into(), 0x53 as f64), ("c".into(), 0x0A as f64)]);
         assert_eq!(
@@ -1567,6 +1673,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         }
     }
 
@@ -1667,6 +1774,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         }
     }
 
@@ -1828,6 +1936,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         };
         let lo = HashMap::from([("n".into(), -128.0)]);
         assert_eq!(encode_command(&cmd, &lo).unwrap(), vec![0x80]);
@@ -1849,6 +1958,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         };
         let params = HashMap::from([("n".into(), -2.0)]);
         assert_eq!(
@@ -1876,6 +1986,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         };
         let params = HashMap::from([("n".into(), 4_000_000_000.0)]);
         assert_eq!(
@@ -1948,6 +2059,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         };
         // Even pathological parameter values should be ignored.
         let params = HashMap::from([("nonsense".into(), f64::NAN)]);
@@ -1971,6 +2083,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         }
     }
 
@@ -2117,6 +2230,7 @@ mod tests {
             locate: None,
             advanced: false,
             advanced_reason: None,
+            fixed_length: None,
         }
     }
 
