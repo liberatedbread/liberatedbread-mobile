@@ -967,13 +967,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     String? value,
     Map<String, String>? values,
   }) async {
-    // HTTP, Kasa, Rabbit Air and Roomba sends are independent — no read-back
-    // coupling — so they do not serialize behind the single-SOAP-write gate
-    // the Crock-Pot needs.
-    final independent = action.transport == 'http' ||
-        action.transport == _kasaTransport ||
-        action.transport == _rabbitAirTransport ||
-        action.transport == roombaTransport;
+    // Everything but SOAP is independent — no read-back coupling — so it does
+    // not serialize behind the single-SOAP-write gate the Crock-Pot needs.
+    // Asked of the sender rather than restated here: this was a third copy of
+    // the list and it had already fallen two transports behind, so a
+    // television's button and a Bambu's pause both queued behind a SOAP write
+    // that was never going to happen.
+    final independent = NetworkCommandSender.isIndependentTransport(action);
     // The disabled controls are the visible gate; this is the real one — a
     // tap can race the rebuild that greys the SOAP controls out.
     if (!independent && _soapSending != null) return;
@@ -987,7 +987,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       if (value != null && action.userParams.isNotEmpty) {
         sent[action.userParams.first] = value;
       }
-      if (action.transport == roombaTransport) {
+      // The ROBOT's path, not the transport's. `roombaTransport` is literally
+      // 'mqtt', so keying the fork on it alone sent every Hisense key press
+      // and every Bambu print command into `_sendRoomba`, which answered
+      // "Not connected to the robot." — 43 commands across two devices that
+      // have no BLID and never wanted one. `_isRoomba` asks the spec's
+      // `protocol_handler`, which is the question this fork is really about:
+      // the Roomba is the device with a bespoke credential store, an HA route
+      // and a controller holding its one client slot. Every other MQTT device
+      // takes the generic arm, which renders through the spec.
+      if (_isRoomba && action.transport == roombaTransport) {
         await _sendRoomba(action);
       } else {
         await _sender.sendAction(
@@ -1037,14 +1046,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<String> _sendNetworkHttp(HttpRequestDto request) =>
       _sender.sendHttpRequest(request);
 
-  /// Whether [action]'s control must sit out the current SOAP write. HTTP
-  /// presses, Kasa sends and Rabbit Air sends never lock out — see
-  /// [_soapSending].
+  /// Whether [action]'s control must sit out the current SOAP write. Only a
+  /// SOAP action locks out — see [_soapSending]. Same question as the
+  /// `independent` gate in [_send], asked of the same place, so the greyed-out
+  /// control and the refused tap cannot disagree about which is which.
   bool _lockedFor(NetworkActionDto? action) =>
       action != null &&
-      action.transport != 'http' &&
-      action.transport != _kasaTransport &&
-      action.transport != _rabbitAirTransport &&
+      !NetworkCommandSender.isIndependentTransport(action) &&
       _soapSending != null;
 
   /// Toggle one outlet of a power strip: render the child-scoped command with

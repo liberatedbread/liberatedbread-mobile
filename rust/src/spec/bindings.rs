@@ -849,6 +849,18 @@ pub struct NetworkAction<'a> {
     pub role: &'static str,
     pub command_name: &'a str,
     pub command: &'a SpecCommand,
+    /// The transport this action was ADMITTED on — [`effective_transport`],
+    /// already resolved, not `command.transport` raw.
+    ///
+    /// Carried rather than re-derived because the two answers differ whenever a
+    /// spec states its transport once on the device and omits it on every
+    /// command, which is exactly how both WebSocket TV specs are written. The
+    /// DTO builders used to recompute it from `command.transport` alone and
+    /// fell through to SOAP, so seventy commands across those two sets were
+    /// labelled `soap`, routed to the SOAP sender, and blocked the whole screen
+    /// on fetching a UPnP description neither TV serves. Admission and dispatch
+    /// now read the same string by construction; they cannot disagree.
+    pub transport: &'a str,
     /// The one value this control supplies, when it has one. Empty for a
     /// fixed action like `turn_off`.
     pub user_params: Vec<&'a str>,
@@ -950,16 +962,38 @@ fn resolve_network_roles<'a>(
 /// otherwise SOAP, the default from when SOAP was the only network transport
 /// and still what a Wemo spec means by saying nothing.
 fn effective_transport<'a>(spec: &'a DeviceSpec, command: &'a SpecCommand) -> &'a str {
-    command
-        .transport
-        .as_deref()
-        .or_else(|| {
-            spec.device
-                .extensions
-                .get("transport")
-                .and_then(|t| t.as_str())
-        })
-        .unwrap_or(soap::TRANSPORT)
+    declared_transport(spec, command).unwrap_or(soap::TRANSPORT)
+}
+
+/// The same chain without the SOAP default: what the spec actually SAYS this
+/// command rides, or nothing.
+///
+/// Separate from [`effective_transport`] because two callers want two different
+/// answers to "and if nobody said?". Admitting a control has to pick something,
+/// and SOAP is the historical answer. Reporting a pure reading's transport must
+/// not: the consumer reads `null` there as "the SOAP path" already, and
+/// inventing the string would only move the same assumption one layer up while
+/// making it look like the spec's own words.
+///
+/// Both callers get the inheritance, which is the half that was missing.
+pub fn declared_transport<'a>(spec: &'a DeviceSpec, command: &'a SpecCommand) -> Option<&'a str> {
+    command.transport.as_deref().or_else(|| {
+        spec.device
+            .extensions
+            .get("transport")
+            .and_then(|t| t.as_str())
+    })
+}
+
+/// The transport a named top-level command rides, inheritance included.
+///
+/// For the callers that hold a command NAME rather than the command — an
+/// entity's `state_command`, which is resolved through the spec's `commands`
+/// map. Exists so the fallback chain has exactly one definition: the DTO
+/// builder used to re-spell `command.transport` itself and dropped the
+/// device-level half every time.
+pub fn transport_of_command<'a>(spec: &'a DeviceSpec, command_name: &str) -> Option<&'a str> {
+    declared_transport(spec, spec.commands.get(command_name)?)
 }
 
 /// Decide whether a command can serve a network role.
@@ -970,19 +1004,22 @@ fn effective_transport<'a>(spec: &'a DeviceSpec, command: &'a SpecCommand) -> &'
 /// belongs in — Wemo's `SetCrockpotState` would be exactly that if the spec
 /// did not default the argument the control is not changing.
 fn qualify_network<'a>(
-    spec: &DeviceSpec,
+    spec: &'a DeviceSpec,
     role: &'static str,
     command_name: &'a str,
     command: &'a SpecCommand,
     takes_value: bool,
 ) -> Option<NetworkAction<'a>> {
     let protocol_handler = spec.protocol_handler.as_deref();
+    // Resolved once and carried on the action, so the string a command is
+    // ADMITTED on is the string a caller later dispatches on.
+    let transport = effective_transport(spec, command);
     // Renderable at all: a command missing its transport's address, or one for
     // a transport this crate does not speak, resolves to nothing rather than
     // to a control that errors when pressed. Each transport is whole on its
     // own terms — SOAP needs the service URN and action its envelope is built
     // from, plain HTTP needs the method and path that ARE the request.
-    match effective_transport(spec, command) {
+    match transport {
         soap::TRANSPORT => {
             if command.service.is_none() || command.action.is_none() {
                 return None;
@@ -1011,7 +1048,20 @@ fn qualify_network<'a>(
                 return None;
             }
         }
-        kasa::TRANSPORT => {
+        // `tcp-json` names a shape — JSON down a raw socket — that several
+        // vendors share and none of them frame alike. TP-Link wraps it in a
+        // length prefix and an XOR autokey, Yeelight terminates it with CRLF in
+        // plaintext, Tuya wraps it in 0x55aa and AES. So the transport alone
+        // cannot say what to put on the wire, and admitting on it alone drew
+        // live controls on four non-Kasa specs whose every press shipped
+        // Kasa-ciphered bytes at a device speaking something else — a control
+        // that lies, which is worse than one that is missing.
+        //
+        // The handler is what names the framing, exactly as it does for the
+        // `udp` arm below and for every BLE image handler. Until a spec's
+        // handler is registered here its entity is hidden and counted, which
+        // is the honest answer the surface DTO was built to give.
+        t if t == kasa::TRANSPORT && protocol_handler == Some(kasa::HANDLER_NAME) => {
             // The invocation IS the JSON body; a Kasa command without one has
             // nothing to send, exactly as a SOAP command without its service
             // or an HTTP command without its path does.
@@ -1064,6 +1114,7 @@ fn qualify_network<'a>(
         role,
         command_name,
         command,
+        transport,
         min: bounds.and_then(|p| p.min),
         max: bounds.and_then(|p| p.max),
         user_params,

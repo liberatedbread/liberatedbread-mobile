@@ -1546,3 +1546,210 @@ fn the_vendored_lg_spec_renders_both_of_its_channels() {
     assert_eq!(button.channel, "pointer");
     assert_eq!(button.text, "type:button\nname:HOME\n\n");
 }
+
+/// Every resolved action reports the transport the SPEC says it rides —
+/// its own `transport:`, else the device's, else SOAP.
+///
+/// The invariant that was missing, and the reason seventy commands across the
+/// two WebSocket TV specs spent a release labelled `soap`. Both sets declare
+/// `device.transport: websocket` once and deliberately omit it on every
+/// command; the admission gate resolved that correctly while the DTO builder
+/// re-spelled `command.transport` on its own and fell through to the SOAP
+/// default. Two derivations of one rule, and only one of them was tested.
+///
+/// So this asserts the rule over the whole catalogue rather than over the spec
+/// that happened to break: any future spec written the same way, on any
+/// transport, is covered the day it lands.
+#[test]
+fn every_resolved_action_reports_the_transport_its_spec_declares() {
+    use liberated_bread_core::api::device_api::network_entities_for_device;
+
+    let mut checked = 0usize;
+    for path in vendored_yaml_paths() {
+        let text = fs::read_to_string(&path).expect("spec reads");
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let Ok(spec) = parse_device_spec(&text) else {
+            continue;
+        };
+        let Ok(surface) = network_entities_for_device(text, vec![]) else {
+            continue;
+        };
+        // Two handlers SYNTHESISE their surface from `features` rather than
+        // resolving it from the commands map — LIFX because its binary UDP
+        // frames are not spec commands at all, the Roomba because its readings
+        // are pushed and there is no poll to name. Their actions carry the
+        // handler's own transport on purpose, so the commands map is not the
+        // right thing to compare them against. Every other spec goes through
+        // the resolver this test exists to pin.
+        if matches!(
+            spec.protocol_handler.as_deref(),
+            Some("lifx_lan_udp") | Some("roomba_mqtt")
+        ) {
+            continue;
+        }
+        // The spec's own answer, derived here independently of the resolver.
+        let device_transport = spec
+            .device
+            .extensions
+            .get("transport")
+            .and_then(|t| t.as_str());
+
+        for entity in &surface.entities {
+            for action in &entity.actions {
+                // Only actions RESOLVED FROM A DECLARED COMMAND. LIFX's are
+                // synthesised from an entity's `features` rather than from the
+                // commands map, and carry the `lifx` transport on purpose so
+                // the UI dispatches them to the UDP client; there is no spec
+                // command to compare them against.
+                let Some(command) = spec.commands.get(&action.command_name) else {
+                    continue;
+                };
+                let declared = command
+                    .transport
+                    .as_deref()
+                    .or(device_transport)
+                    .unwrap_or("soap");
+                assert_eq!(
+                    action.transport, declared,
+                    "{file}: action {:?} on {:?} reports transport {:?}, but the spec \
+                     says {declared:?}. A consumer routes the send on this string.",
+                    action.command_name, entity.name, action.transport,
+                );
+                checked += 1;
+            }
+        }
+    }
+    // A silent zero would make the assertions above decorative.
+    assert!(
+        checked > 100,
+        "only {checked} actions resolved across the catalogue — this test is \
+         reading the wrong thing"
+    );
+}
+
+/// The two WebSocket sets resolve their remotes ON the websocket.
+///
+/// Named separately from the catalogue-wide invariant because these are the
+/// specs the invariant was written for, and a regression here should say
+/// "the TV remotes are broken" rather than "some spec somewhere disagrees".
+#[test]
+fn the_websocket_tv_remotes_report_the_websocket_transport() {
+    use liberated_bread_core::api::device_api::network_entities_for_device;
+
+    for file in ["samsung-tizen-tv.yaml", "lg-webos.yaml"] {
+        let text = fs::read_to_string(spec_path(file)).expect("spec reads");
+        let surface = network_entities_for_device(text, vec![]).expect("resolves a surface");
+        let actions: Vec<&str> = surface
+            .entities
+            .iter()
+            .flat_map(|e| e.actions.iter())
+            .map(|a| a.transport.as_str())
+            .collect();
+        assert!(
+            !actions.is_empty(),
+            "{file} resolves no actions at all — the remote is gone"
+        );
+        // `launch_app` on the Samsung genuinely declares http; everything else
+        // inherits the device's websocket. Nothing may say soap: neither set
+        // ships a UPnP service, and the SOAP arm is what blocked the screen.
+        assert!(
+            !actions.contains(&"soap"),
+            "{file}: {} of {} actions report soap",
+            actions.iter().filter(|t| **t == "soap").count(),
+            actions.len()
+        );
+        assert!(
+            actions.contains(&"websocket"),
+            "{file} resolves no websocket action"
+        );
+    }
+}
+
+/// `tcp-json` is admitted only for the handler that owns the framing.
+///
+/// The transport names a shape — JSON down a raw socket — that ten vendored
+/// specs share and four of them frame incompatibly. Admitting on the string
+/// alone gave Yeelight, Tuya, Roborock and the iKettle live controls whose
+/// every press shipped TP-Link's XOR-autokey cipher at a device speaking
+/// something else. A control that lies is worse than one that is missing, so
+/// they are declined and counted until their handler is registered.
+#[test]
+fn tcp_json_resolves_only_for_the_handler_that_owns_the_framing() {
+    use liberated_bread_core::api::device_api::network_entities_for_device;
+
+    let kasa = fs::read_to_string(spec_path("tplink-kasa-smart-plug.yaml")).expect("spec reads");
+    let surface = network_entities_for_device(kasa, vec![]).expect("kasa resolves a surface");
+    assert!(
+        surface
+            .entities
+            .iter()
+            .any(|e| e.actions.iter().any(|a| a.transport == "tcp-json")),
+        "the spec that declares tplink_smarthome must keep its controls"
+    );
+
+    // Every other tcp-json spec: no action may claim the transport, and the
+    // entity has to be COUNTED rather than quietly dropped.
+    for path in vendored_yaml_paths() {
+        let text = fs::read_to_string(&path).expect("spec reads");
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let Ok(spec) = parse_device_spec(&text) else {
+            continue;
+        };
+        if spec.protocol_handler.as_deref() == Some("tplink_smarthome") {
+            continue;
+        }
+        let declares_tcp_json = spec
+            .commands
+            .values()
+            .any(|c| c.transport.as_deref() == Some("tcp-json"))
+            || spec
+                .device
+                .extensions
+                .get("transport")
+                .and_then(|t| t.as_str())
+                == Some("tcp-json");
+        if !declares_tcp_json {
+            continue;
+        }
+        let Ok(surface) = network_entities_for_device(text, vec![]) else {
+            continue;
+        };
+        for entity in &surface.entities {
+            for action in &entity.actions {
+                assert_ne!(
+                    action.transport, "tcp-json",
+                    "{file}: {:?} resolved a tcp-json action ({:?}) without declaring \
+                     a handler that says how to frame it — it would be sent with \
+                     TP-Link's cipher",
+                    entity.name, action.command_name,
+                );
+            }
+        }
+    }
+
+    // The four the gate was written for, named so a regression reads as "the
+    // Yeelight is mis-sending again" rather than as an abstract invariant.
+    // Zero sendable actions each: every command they declare is tcp-json, and
+    // none of them says how it is framed. An entity that still names a
+    // `state_command` survives as a reading, which is the existing rule for a
+    // stateful entity that resolves no action and is not this test's business.
+    for file in [
+        "yeelight-cube-lamp.yaml",
+        "tuya-wifi-gas-sensor.yaml",
+        "roborock-local.yaml",
+        "smarter-ikettle.yaml",
+    ] {
+        let text = fs::read_to_string(spec_path(file)).expect("spec reads");
+        let surface = network_entities_for_device(text, vec![]).expect("resolves");
+        let actions: Vec<&str> = surface
+            .entities
+            .iter()
+            .flat_map(|e| e.actions.iter())
+            .map(|a| a.command_name.as_str())
+            .collect();
+        assert!(
+            actions.is_empty(),
+            "{file} still offers {actions:?} — these would be sent with TP-Link's cipher"
+        );
+    }
+}

@@ -1644,11 +1644,13 @@ impl NetworkActionDto {
         Self {
             role: action.role.to_string(),
             command_name: action.command_name.to_string(),
-            transport: action
-                .command
-                .transport
-                .clone()
-                .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string()),
+            // The transport the resolver ADMITTED this action on, carried on
+            // the action rather than re-derived from `command.transport`. The
+            // two differ whenever a spec states its transport once on the
+            // device and omits it per command, which is how both WebSocket TV
+            // specs are written — re-deriving here called seventy of their
+            // commands `soap`.
+            transport: action.transport.to_string(),
             user_params: action.user_params.iter().map(|p| p.to_string()).collect(),
             read_back,
             credentials,
@@ -1917,18 +1919,15 @@ fn network_surface_for(
                 // screen can route the poll without guessing.
                 transport: actions
                     .first()
-                    .map(|a| {
-                        a.command
-                            .transport
-                            .clone()
-                            .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string())
-                    })
+                    .map(|a| a.transport.to_string())
                     .or_else(|| {
                         entity
                             .state_command
                             .as_deref()
-                            .and_then(|name| spec.commands.get(name))
-                            .and_then(|command| command.transport.clone())
+                            .and_then(|name| {
+                                crate::spec::bindings::transport_of_command(&spec, name)
+                            })
+                            .map(str::to_string)
                     }),
                 is_instanced: entity.instances.is_some(),
                 value_field: entity.value_field().map(str::to_string),

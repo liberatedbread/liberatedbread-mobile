@@ -37,14 +37,16 @@ const String _generator = 'scripts/regen-bonjour-services.sh';
 /// protocol the vendor superseded (Caséta's deprecated `_lap._tcp`); neither is
 /// an axis anything matches on, and asking iOS for permission on the strength
 /// of a footnote is not something to do by accident.
-final RegExp _deviceBlock = RegExp(r'^device:\n(?:[ \t].*\n|\n)*', multiLine: true);
+final RegExp _deviceBlock =
+    RegExp(r'^device:\n(?:[ \t].*\n|\n)*', multiLine: true);
 
 /// `mdns_service_type:` (the identification axis) and `service_type:` (each
 /// `discovery.methods[].mdns` entry). One value, two spellings, both of them an
 /// instruction to go looking — the scan reads identification, and the discovery
 /// methods are what the catalogue enumerates.
-final RegExp _serviceType =
-    RegExp(r'''^\s*(?:mdns_)?service_type:\s*["']?([^"'\n#]+)''', multiLine: true);
+final RegExp _serviceType = RegExp(
+    r'''^\s*(?:mdns_)?service_type:\s*["']?([^"'\n#]+)''',
+    multiLine: true);
 
 /// Types the app browses that no device spec names, each for a stated reason.
 /// Kept in step with `APP_OWNED` in [_generator].
@@ -104,7 +106,9 @@ void main() {
         // A DNS-SD type starts with an underscore; anything else under these
         // keys is a UPnP service URN (wemo and viera write one there).
         if (!type.startsWith('_')) continue;
-        wanted.putIfAbsent(type, () => <String>[]).add(file.uri.pathSegments.last);
+        wanted
+            .putIfAbsent(type, () => <String>[])
+            .add(file.uri.pathSegments.last);
       }
     }
     expect(

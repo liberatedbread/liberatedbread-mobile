@@ -26,7 +26,24 @@ use crate::error::ProtocolError;
 use crate::spec::types::{scalar_to_string, DeviceSpec, SpecCommand};
 
 /// The transport a command must declare to be sendable from here.
+///
+/// Shared, not owned. `tcp-json` describes a shape — JSON down a raw socket —
+/// and the catalogue has ten specs using it across four incompatible framings:
+/// TP-Link's length prefix and XOR autokey (this module), Yeelight's plaintext
+/// CRLF, Tuya's 0x55aa AES envelope, and the iKettle's raw hex. The transport
+/// says which shape; [`HANDLER_NAME`] says whose.
 pub const TRANSPORT: &str = "tcp-json";
+
+/// The spec `protocol_handler` this module answers to.
+///
+/// The name is the catalogue's, not one invented here: tplink-kasa-smart-plug
+/// has declared `protocol_handler: tplink_smarthome` all along and nothing read
+/// it, so admission keyed on the transport string alone and swept up every
+/// other `tcp-json` spec. Same shape as [`lifx::HANDLER_NAME`], and the same
+/// reason.
+///
+/// [`lifx::HANDLER_NAME`]: crate::protocol::lifx::HANDLER_NAME
+pub const HANDLER_NAME: &str = "tplink_smarthome";
 
 /// The port the Kasa smart-home protocol listens on, for control and for the
 /// discovery broadcast alike. The spec's `identification.default_port`,
@@ -49,11 +66,25 @@ pub struct KasaRequest {
 }
 
 /// Render one of the spec's `commands` into a request.
+///
+/// Refuses a spec that does not name this handler. The resolver already
+/// declines to build a control for one ([`qualify_network`]), so in the app
+/// this is unreachable — which is exactly why it is here: the group runner and
+/// the FFI both reach the renderers by name without going through the resolver,
+/// and a second spec landing on `tcp-json` must not be able to pick up TP-Link's
+/// cipher just by asking politely.
+///
+/// [`qualify_network`]: crate::spec::bindings
 pub fn render_request(
     spec: &DeviceSpec,
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<KasaRequest, ProtocolError> {
+    if spec.protocol_handler.as_deref() != Some(HANDLER_NAME) {
+        return Err(ProtocolError::UnsupportedCommandEncoding(
+            spec.protocol_handler.clone().unwrap_or_default(),
+        ));
+    }
     let command = super::top_level_command(spec, command_name)?;
     render_command(command_name, command, values)
 }
@@ -245,6 +276,9 @@ device:
   manufacturer_status: "active"
   protocol: "wifi"
   category: "switch"
+# As the real spec does. `tcp-json` alone no longer buys the TP-Link framing:
+# four other vendors declare that transport and none of them frame alike.
+protocol_handler: "tplink_smarthome"
 commands:
   relay_on:
     description: "On."

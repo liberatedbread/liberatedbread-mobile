@@ -2934,6 +2934,62 @@ void main() {
       expect(find.textContaining('did not advertise a control port'),
           findsNothing);
     });
+
+    /// The half the load test could not see. Loading cleanly proved the screen
+    /// did not open a robot session; it said nothing about where a PRESS goes,
+    /// and the press was the broken half — `_send` forked on the transport
+    /// string, which is `mqtt` for the robot and for every other MQTT device
+    /// alike, so a television's every key and a printer's every print command
+    /// were answered "Not connected to the robot."
+    ///
+    /// Asserted through the error rather than through a fake sender because
+    /// the error names the path taken. This device was discovered over SSDP
+    /// with no broker port, so the generic arm's own first refusal is the one
+    /// that lands — a sentence only `_sendMqtt` produces. Nothing here touches
+    /// the network either way; both paths refuse before opening a socket.
+    testWidgets('a non-Roomba MQTT press takes the generic send path',
+        (tester) async {
+      final television = NetworkDevice(
+        host: '10.0.0.9',
+        name: 'Living Room TV',
+        sources: const {NetworkDiscoverySource.ssdp},
+        discoveredAt: DateTime.utc(2026),
+      );
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+          roombaClientProvider.overrideWith((ref, blid) =>
+              fail('a television must not open a robot session')),
+        ],
+        child: MaterialApp(
+          home: NetworkDeviceScreen(
+            device: television,
+            controls: const NetworkControls(
+              specYaml: 'yaml',
+              entities: roombaEntities,
+              capabilities: NetworkCapabilitiesDto(),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Clean'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Not connected to the robot'),
+        findsNothing,
+        reason: 'a television has no BLID and never wanted the robot path',
+      );
+      expect(
+        find.textContaining('broker port'),
+        findsOneWidget,
+        reason: 'only the MQTT arm of the generic sender says this',
+      );
+    });
   });
 }
 
