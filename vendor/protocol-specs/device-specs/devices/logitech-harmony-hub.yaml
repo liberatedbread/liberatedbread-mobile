@@ -1,0 +1,231 @@
+# Logitech Harmony Hub — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - ehendrix23/aioharmony (Apache-2.0; lineage pyharmony) — the local
+#     WebSocket/XMPP client Home Assistant uses.
+#   - JordanMartin/harmonyhub-api (Node) — the port-8088 provisioning handshake.
+#   - Home Assistant harmony integration + the 2018 local-API history.
+
+device:
+  name: "Logitech Harmony Hub"
+  manufacturer: "Logitech"
+  manufacturer_status: "abandoned"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Facts are from the
+      aioharmony and harmonyhub-api open-source clients and Home Assistant's
+      integration; the local WebSocket message envelope should be confirmed
+      against aioharmony source before relying on the exact shape.
+  protocol: "wifi"
+  category: "hub"
+  transport: "http"
+  notes: >
+    The Harmony Hub is Logitech's IR/Bluetooth/IP universal-remote bridge: it
+    holds a configuration of "activities" (Watch TV, Play Game) and "devices"
+    and blasts IR / sends IP or Bluetooth commands to control an AV stack.
+    Logitech ended Harmony manufacturing in April 2021 and has begun dropping
+    support for older remotes, so the hardware is on borrowed time — but local
+    control survives entirely without Logitech's cloud.
+
+    LOCAL CONTROL: the hub exposes a WebSocket API on TCP 8088 with no
+    authentication beyond a locally-retrievable `remoteId`. A one-time HTTP POST
+    to port 8088 returns the remoteId; the client then opens a WebSocket and
+    issues JSON requests: get the config (activities + devices, each with a
+    label and id), get the current activity, start/stop an activity by id, send
+    a device command, hold a command for a duration, and change channel. Every
+    request carries a unique id echoed in the reply. Idle WebSocket connections
+    are closed by the hub after ~60s unless pinged.
+
+    HISTORY (worth knowing): firmware 4.15.206 (Dec 2018) removed the older XMPP
+    local API and broke local control; after community backlash Logitech
+    restored a local API path (XMPP re-enabled in 4.15.250, Feb 2019) and
+    committed to keeping local access. Modern firmware defaults to the WebSocket
+    transport; legacy hubs may still expose XMPP. aioharmony speaks both.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/ehendrix23/aioharmony"
+    notes: >
+      Logitech publishes no local protocol documentation; the WebSocket and
+      XMPP surfaces were reverse-engineered by the community. aioharmony (which
+      Home Assistant uses) is the reference implementation.
+
+  identification:
+    default_port: 8088
+    ssdp_search_targets:
+      - "urn:myharmony-com:device:harmony:1"
+
+  discovery:
+    methods:
+      - type: "ssdp"
+        ssdp:
+          search_targets:
+            - "urn:myharmony-com:device:harmony:1"
+          response_mapping:
+            location:
+              action: "fetch_xml"
+              parse:
+                device_identity:
+                  stable_keys:
+                    - source: "xml://device/UDN"
+                      key: "udn"
+                  display:
+                    source: "xml://device/friendlyName"
+          match:
+            description: "Manufacturer 'Logitech', device type urn:myharmony-com:device:harmony:1."
+            manufacturer_exact: "Logitech"
+        notes: >
+          Hubs answer SSDP for urn:myharmony-com:device:harmony:1 (this is the
+          search target Home Assistant's discovery uses). The community
+          harmonyhubjs-discover tool alternatively listens on a local UDP port
+          for hub responses.
+    identity:
+      stable_keys: ["udn"]
+      display: "friendlyName"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A hub's activities and devices are configured through Logitech's app
+      (historically backed by the MyHarmony cloud database). Once configured,
+      local control needs no pairing: any LAN client fetches the remoteId with
+      the port-8088 POST below and opens the WebSocket. Initial Wi-Fi onboarding
+      is app-driven and not documented here.
+    methods:
+      - type: "cloud_account"
+        verified: false
+        description: >
+          Activity/device configuration is authored in the Harmony app, which
+          historically synced with the MyHarmony cloud. After configuration,
+          control is fully local (see the WebSocket API); no account is needed
+          at control time.
+        cloud:
+          local_alternative: >
+            Yes for CONTROL — once the hub is configured, the local WebSocket
+            API on port 8088 drives it with no cloud. Editing the activity/device
+            configuration, however, has historically required the Harmony app;
+            with Logitech's servers winding down, export/keep a working
+            configuration while it can still be authored.
+        steps:
+          - action: "Configure activities and devices in the Harmony app (one-time, cloud-assisted)."
+            actor: "user"
+          - action: "Retrieve the hub's remoteId with the port-8088 provisioning POST, then open the WebSocket for local control."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Resets the hub to unconfigured state (clears Wi-Fi and the activity/
+        device configuration). Performed from the Harmony app or a hardware
+        reset; the exact procedure is model/firmware specific and not
+        transcribed here.
+      procedures:
+        - name: "Reset from the Harmony app"
+          verified: false
+          basis: "Logitech support documents an in-app reset; not replayed here."
+          steps:
+            - action: "Use the Harmony app's reset option (or the documented power-cycle) to return the hub to setup."
+              actor: "user"
+              expect: "The hub reboots into unconfigured/setup state."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Wi-Fi can be reconfigured from the app while the hub is reachable. Local
+        control resumes once the hub rejoins the LAN.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Activity and device configuration"
+      issued_to_client:
+        - "remoteId (retrieved from the hub over the port-8088 POST; gates the WebSocket session)"
+      notes: >
+        The remoteId is retrievable by any LAN client — it is not a secret so
+        much as a session parameter. Local control is otherwise unauthenticated
+        on the LAN. The Wi-Fi passphrase is handled by the app, not the control
+        API documented here.
+
+http_endpoints:
+  - method: "POST"
+    path: "/"
+    name: "Provisioning — get remoteId (port 8088)"
+    description: >
+      One-time handshake on port 8088. POST with headers Origin:
+      http://sl.dhg.myharmony.com, Content-Type: application/json,
+      Accept-Charset: utf-8, and body
+      {"id":1,"cmd":"setup.account?getProvisionInfo","params":{}}. The reply
+      carries the hub's remoteId, which the WebSocket session below needs.
+    request_body:
+      content_type: "application/json"
+      fields:
+        - name: "cmd"
+          type: "string"
+          description: "\"setup.account?getProvisionInfo\"."
+    response_body:
+      content_type: "application/json"
+      fields:
+        - name: "remoteId"
+          type: "string"
+          description: "Session id required to open the control WebSocket."
+
+websocket:
+  path: "/?domain=svcs.myharmony.com&hubId=<remoteId> (port 8088)"
+  description: >
+    Local control channel. After retrieving the remoteId, open a WebSocket on
+    port 8088 and issue JSON requests, each with a unique message id echoed in
+    the reply. Operations: get config (activities + devices, each label + id),
+    get current activity, start/stop activity by id, send device command, hold
+    command for a duration, change channel. Idle connections are closed after
+    ~60s unless pinged. The exact request envelope should be confirmed against
+    aioharmony source.
+  message_format: "json"
+  verification: "reported"
+
+# Local control is the WebSocket above; these name the invocations a client
+# sends over it (payloads modelled on aioharmony).
+commands:
+  get_config:
+    description: "Fetch the full config: activities and devices, each with a label and numeric id."
+    transport: "http"
+    verification: "reported"
+  start_activity:
+    description: "Start an activity by its id (turns on and switches inputs across the AV stack)."
+    transport: "http"
+    parameters:
+      activity_id:
+        type: "string"
+        description: "Activity id from get_config; -1 is the 'PowerOff' activity."
+    verification: "reported"
+  power_off:
+    description: "Stop the current activity (PowerOff, activity id -1)."
+    transport: "http"
+    verification: "reported"
+  send_command:
+    description: "Send a single device command (e.g. VolumeUp) to a device by id."
+    transport: "http"
+    parameters:
+      device_id:
+        type: "string"
+        description: "Device id from get_config."
+      command:
+        type: "string"
+        description: "Command label from the device's command list (e.g. VolumeUp, Mute)."
+    verification: "reported"
+
+helpful_urls:
+  - title: "ehendrix23/aioharmony"
+    url: "https://github.com/ehendrix23/aioharmony"
+    description: "Apache-2.0 async client (WebSocket + legacy XMPP) that Home Assistant's Harmony integration uses."
+  - title: "JordanMartin/harmonyhub-api"
+    url: "https://github.com/JordanMartin/harmonyhub-api"
+    description: "Node client documenting the port-8088 provisioning POST and the 60s idle timeout."
+  - title: "Home Assistant — local API removal and restoration (2018)"
+    url: "https://www.home-assistant.io/blog/2018/12/17/logitech-harmony-removes-local-api/"
+    description: "Context on the firmware 4.15.206 local-API removal and its restoration in 4.15.250."

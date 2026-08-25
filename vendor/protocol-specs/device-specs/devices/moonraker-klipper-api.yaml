@@ -1,0 +1,128 @@
+# Moonraker (Klipper web API) — Reference Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; open-by-design project):
+#   - moonraker.readthedocs.io (external API + configuration).
+#
+# This is a REFERENCE spec: it documents the Moonraker API that any Klipper-based
+# printer (Voron, RatOS, Sovol, rooted Creality K-series, Prusa in Klipper mode)
+# exposes. Device specs can cite it instead of restating the API.
+
+device:
+  name: "Moonraker API (Klipper web API server)"
+  manufacturer: "Klipper / Moonraker project (Arksine, Kevin O'Connor & community)"
+  manufacturer_status: "active"
+  model: "Moonraker API — HTTP REST + JSON-RPC/WebSocket"
+  protocol: "wifi"
+  category: "reference"
+  type: "reference-control-protocol"
+  pictogram: "3d-printer"
+  notes: >
+    Moonraker is the API server that fronts Klipper 3D-printer firmware; Fluidd,
+    Mainsail and KlipperScreen are its clients. Any Klipper-based printer running
+    Moonraker exposes this, so a printer device spec can cite this file. GPLv3,
+    fully local, no cloud.
+
+    TRANSPORTS (one server): HTTP REST ("REST-ish", dynamically registered
+    endpoints) and JSON-RPC 2.0 over a WebSocket at /websocket
+    (ws://host:port/websocket). Default port 7125; default ssl_port 7130; default
+    host 0.0.0.0. HTTP endpoints map to JSON-RPC method names (dotted
+    namespaces). HTTP success returns {"result": <data>}; JSON-RPC returns the
+    matching id + result/error.
+
+    REPRESENTATIVE METHODS/ENDPOINTS: printer.info (klippy host info), server.info
+    (server + klippy state), printer.objects.query (live object status),
+    server.files.metadata (G-code metadata), printer.gcode.script (run a G-code
+    line), printer.print.start / printer.print.pause / .resume / .cancel.
+
+    AUTH: the [authorization] block — trusted_clients (IPs/CIDRs/domains given
+    full API access) plus cors_domains; both empty by default (so a fresh install
+    trusts only localhost until configured).
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/Arksine/moonraker"
+    license: "GPL-3.0"
+    upstream_docs:
+      - url: "https://moonraker.readthedocs.io/en/latest/external_api/introduction/"
+        title: "Moonraker — External API introduction"
+        covers: "The HTTP REST + JSON-RPC/WebSocket transports, the /websocket path and the method/endpoint mapping."
+      - url: "https://moonraker.readthedocs.io/en/latest/configuration/"
+        title: "Moonraker — configuration"
+        covers: "The default ports (7125 / ssl 7130) and the [authorization] trusted_clients model."
+    notes: >
+      Open-source and documented for third parties; upstream is authoritative.
+      This file normalises the published API into the registry shape.
+
+  identification:
+    default_port: 7125
+    mdns_service_type: "_moonraker._tcp.local."
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_moonraker._tcp.local."
+          port: 7125
+          identity_mapping:
+            stable_keys:
+              - source: "http:/printer/info#hostname"
+                key: "hostname"
+            display:
+              source: "http:/printer/info#hostname"
+        notes: >
+          Moonraker instances are found on the LAN (Fluidd/Mainsail discover
+          them); confirm with GET /printer/info or /server/info on port 7125.
+    identity:
+      stable_keys: ["hostname"]
+      display: "hostname"
+    static_ip_required: false
+
+http_endpoints:
+  - method: "GET"
+    path: "/printer/info"
+    name: "Printer info"
+    description: "Klippy host info (state, hostname, software version) — maps to JSON-RPC printer.info."
+  - method: "GET"
+    path: "/server/info"
+    name: "Server info"
+    description: "Moonraker + klippy state — maps to server.info."
+  - method: "POST"
+    path: "/printer/objects/query"
+    name: "Query objects"
+    description: "Live status of named printer objects (toolhead, extruder, print_stats, ...)."
+    request_body:
+      content_type: "application/json"
+  - method: "POST"
+    path: "/printer/gcode/script"
+    name: "Run G-code"
+    description: "Body {\"script\":\"G28\"} runs a G-code line — maps to printer.gcode.script."
+    request_body:
+      content_type: "application/json"
+  - method: "POST"
+    path: "/printer/print/pause"
+    name: "Pause print"
+    description: "Pause the current print (printer.print.pause)."
+  - method: "POST"
+    path: "/printer/print/resume"
+    name: "Resume print"
+    description: "Resume the current print (printer.print.resume)."
+
+websocket:
+  path: "/websocket"
+  description: >
+    JSON-RPC 2.0 over WebSocket (ws://host:7125/websocket). The same methods as
+    the HTTP endpoints, plus server-pushed notifications (notify_status_update,
+    notify_gcode_response) for live state.
+  message_format: "json"
+  verification: "reported"
+
+helpful_urls:
+  - title: "Moonraker — External API introduction"
+    url: "https://moonraker.readthedocs.io/en/latest/external_api/introduction/"
+    description: "The HTTP REST + JSON-RPC/WebSocket transports and method mapping."
+  - title: "Moonraker — configuration"
+    url: "https://moonraker.readthedocs.io/en/latest/configuration/"
+    description: "Default ports and the [authorization] trusted_clients model."

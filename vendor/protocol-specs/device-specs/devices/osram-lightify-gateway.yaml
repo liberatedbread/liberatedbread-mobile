@@ -1,0 +1,233 @@
+# OSRAM/LEDVANCE Lightify Gateway — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - noctarius/lightify-binary-protocol — the reverse-engineered binary
+#     protocol reference.
+#   - tfriedel/python-lightify (Apache-2.0) — an independent implementation.
+
+device:
+  name: "OSRAM Lightify Gateway (+ paired Zigbee bulbs/plugs)"
+  manufacturer: "OSRAM (consumer arm later LEDVANCE)"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The binary framing, command
+      ids and port 4000 are from noctarius/lightify-binary-protocol, corroborated
+      on the port by python-lightify.
+  protocol: "wifi"
+  category: "light"
+  transport: "tcp"
+  notes: >
+    The Lightify Gateway is OSRAM's Wi-Fi-to-Zigbee bridge for its Lightify smart
+    bulbs, strips and plugs. OSRAM shut the Lightify cloud on 2026-08-31 (2021 in
+    the original announcement window), ending internet control, Alexa/Google
+    integrations and — by several community reports — the ability to add devices
+    or edit groups/scenes/timers through the app. OSRAM stated local Wi-Fi app
+    control continues if the app is > 2.1.0 and the gateway Wi-Fi firmware is
+    > 1.8.3.0. This is exactly the rescue case: the reverse-engineered local TCP
+    protocol is the only fully-functional path left, and the bulbs behind it are
+    plain Zigbee that any coordinator can also adopt.
+
+    TRANSPORT: a persistent TCP connection to gateway port 4000, binary, no
+    authentication, no multiplexing (one outstanding request per connection).
+    All multi-byte values little-endian; strings UTF-8.
+
+    FRAMING: bytes 0-1 packet length (excluding these two); byte 2 flag (0x00
+    unicast-to-device / 0x01 device-response / 0x02 broadcast-to-zone / 0x03
+    zone-response); byte 3 command id; bytes 4-7 a monotonically increasing
+    request id. Responses insert a status byte at offset 8. Addressing: 8 bytes
+    — a device is its uint64 MAC; a zone is the zone id in bytes 0-1, rest zero.
+
+    COMMANDS:
+      0x13 list paired devices   0x1E list zones/groups   0x1F list scenes
+      0x31 set brightness        0x32 set power on/off     0x33 set color temp (2000-6500 K)
+      0x36 set RGBW color        0x52 activate scene       0x68 get device info
+      0x6F get gateway firmware version
+    Each works per-device or per-zone via the flag + addressing scheme.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/tfriedel/python-lightify"
+    license: "Apache-2.0"
+    notes: >
+      The gateway protocol is not published by OSRAM; noctarius reverse-
+      engineered the binary format and python-lightify implements it. Post-
+      shutdown provisioning behaviour is uncertain — sources disagree on whether
+      new devices can still be added after the cloud closed.
+
+  identification:
+    default_port: 4000
+    mdns_service_type: "_http._tcp.local."
+    hostname_pattern: "Lightify-XXXXXXXX"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_http._tcp.local."
+          port: 4000
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+                key: "hostname"
+            display:
+              source: "hostname"
+        notes: >
+          The gateway advertises an mDNS/Bonjour _http._tcp service with a
+          hostname like "Lightify-XXXXXXXX"; control is on TCP 4000. Confirm by
+          opening 4000 and issuing 0x6F (get firmware).
+    identity:
+      stable_keys: ["hostname"]
+      display: "hostname"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Original onboarding used the Lightify app + cloud. After the 2026-08-31
+      shutdown, adding new devices reportedly no longer works while already-
+      paired local control survives; the gateway must carry final firmware
+      (Wi-Fi firmware > 1.8.3.0). Provisioning wire steps are not documented
+      here.
+    methods:
+      - type: "cloud_account"
+        verified: false
+        description: >
+          Initial gateway onboarding and device pairing historically ran through
+          the Lightify app and cloud. Post-shutdown, local control of already-
+          paired devices works over TCP 4000; new-device pairing may require the
+          (now-dead) cloud.
+        cloud:
+          local_alternative: >
+            Yes for control of already-paired devices — the TCP 4000 binary
+            protocol drives them with no cloud. Adding NEW devices after the
+            cloud shutdown is uncertain; the durable rescue is to re-pair the
+            (plain Zigbee) bulbs to any Zigbee coordinator instead.
+        steps:
+          - action: "Ensure the gateway carries final firmware (Wi-Fi firmware > 1.8.3.0)."
+            actor: "user"
+          - action: "Connect to gateway TCP 4000 and enumerate paired devices (0x13) / zones (0x1E)."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A reset would clear the gateway's Zigbee network and Wi-Fi config. With
+        the cloud gone, a reset risks stranding the gateway (re-onboarding may
+        need the dead app); the reset gesture is not documented here.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        No documented local Wi-Fi re-provisioning path; with the cloud down,
+        moving the gateway to a new network is risky. Re-pairing the bulbs to a
+        standalone Zigbee coordinator is the more durable option.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Zigbee network (paired bulbs/plugs, zones, scenes)"
+      issued_to_client: []
+      notes: >
+        Local TCP 4000 control is unauthenticated on the LAN. Onboarding was
+        cloud-mediated and is not documented here.
+
+# The Lightify gateway binary protocol.
+lightify_binary_protocol:
+  transport: "TCP, port 4000, persistent, no auth, one request in flight"
+  endianness: "little-endian; strings UTF-8"
+  framing: >
+    [len u16][flag u8][command u8][request_id u32][payload]. flag: 0x00 unicast
+    device / 0x01 device response / 0x02 zone broadcast / 0x03 zone response.
+    Responses add a status byte at offset 8.
+  addressing: "device = uint64 MAC (8 bytes); zone = zone id in bytes 0-1, rest zero."
+  commands:
+    "0x13": "list paired devices"
+    "0x1E": "list zones/groups"
+    "0x1F": "list scenes"
+    "0x31": "set brightness"
+    "0x32": "set power on/off"
+    "0x33": "set color temperature (2000-6500 K)"
+    "0x36": "set RGBW color"
+    "0x52": "activate scene"
+    "0x68": "get device info"
+    "0x6F": "get gateway firmware version"
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Control is the binary protocol on TCP 4000 (see
+      lightify_binary_protocol), not HTTP.
+
+commands:
+  list_devices:
+    description: "List paired devices (command 0x13)."
+    transport: "tcp-json"
+    body: "command 0x13"
+    verification: "reported"
+  set_power:
+    description: "Set a device or zone on/off (command 0x32)."
+    transport: "tcp-json"
+    body: "command 0x32, addressing = device MAC or zone id, payload state 0/1"
+    parameters:
+      address:
+        type: "bytes"
+        min_length: 8
+        max_length: 8
+        description: "8-byte device MAC (or zone id in bytes 0-1)."
+      state:
+        type: "uint8"
+        min: 0
+        max: 1
+        description: "0 off, 1 on."
+    verification: "reported"
+  set_brightness:
+    description: "Set brightness (command 0x31)."
+    transport: "tcp-json"
+    body: "command 0x31, addressing, payload brightness + transition time"
+    parameters:
+      address:
+        type: "bytes"
+        min_length: 8
+        max_length: 8
+        description: "8-byte device MAC (or zone id)."
+      level:
+        type: "uint8"
+        min: 0
+        max: 100
+        description: "Brightness percent."
+    verification: "reported"
+  set_color:
+    description: "Set RGBW color (command 0x36)."
+    transport: "tcp-json"
+    body: "command 0x36, addressing, payload R G B W + transition"
+    parameters:
+      address:
+        type: "bytes"
+        min_length: 8
+        max_length: 8
+        description: "8-byte device MAC (or zone id)."
+    verification: "reported"
+
+entities:
+  - platform: "light"
+    name: "Lightify Light"
+    features: ["brightness", "rgb", "color_temp"]
+    commands:
+      turn_on: "set_power"
+      turn_off: "set_power"
+
+helpful_urls:
+  - title: "noctarius/lightify-binary-protocol"
+    url: "https://github.com/noctarius/lightify-binary-protocol"
+    description: "The reverse-engineered gateway binary protocol reference (framing, command ids)."
+  - title: "tfriedel/python-lightify"
+    url: "https://github.com/tfriedel/python-lightify"
+    description: "Apache-2.0 Python implementation; independent confirmation of port 4000 and the model."

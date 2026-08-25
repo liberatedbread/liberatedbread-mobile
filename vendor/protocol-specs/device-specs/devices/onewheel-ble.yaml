@@ -1,0 +1,176 @@
+# Onewheel (BLE) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - ponewheel/android-ponewheel (OWDevice.java, BluetoothUtilImpl.java, README).
+
+device:
+  name: "Onewheel (V1 / + / XR / Pint / GT)"
+  manufacturer: "Future Motion"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The GATT service and
+      per-attribute characteristic UUIDs and the firmware unlock handshake are
+      from ponewheel/android-ponewheel's source.
+  protocol: "ble"
+  category: "vehicle"
+  notes: >
+    The Onewheel self-balancing board (V1, +, XR, Pint, GT) is controlled over
+    BLE with a rich per-attribute GATT (not a UART tunnel). Fully local, no cloud.
+    Future Motion is hostile to third-party clients — firmware >= 4034 will not
+    stream telemetry until the client answers a keyed challenge — so the community
+    pOneWheel app implements the published unlock handshake to keep local control.
+
+    GATT: service e659f300-ea98-11e3-ac10-0800200c9a66; every characteristic
+    shares the e659fXXX-ea98-11e3-ac10-0800200c9a66 pattern:
+      f301 serial, f302 riding mode, f303 battery %, f30a odometer, f30b speed
+      RPM, f30c lighting mode, f30d/f30e front/back lights, f30f status/error,
+      f310 controller temp, f311 firmware revision, f312 current (A), f313/f314
+      trip total/regen Ah, f315 battery temp, f316 battery voltage, f317 safety
+      headroom, f318 hardware revision, f319 lifetime odometer, f31a lifetime Ah,
+      f31b battery cells, f31c last error, f3fd custom name.
+      f3fe UART read, f3ff UART write — used for the firmware unlock handshake.
+
+    UNLOCK HANDSHAKE (firmware revision >= 4034, from pOneWheel): read a challenge
+    from f3fe, take challenge bytes [3..19), append the published static key
+    D9255F0F23354E19BA739CCDC4A91765, MD5-hash it, prepend the magic bytes
+    43:52:58 ("CRX"), append the digest, compute an XOR checksum over the buffer,
+    and write the response to f3ff. Without this, firmware >= 4034 will not stream
+    telemetry. (The static key is a hardcoded shared secret published in the
+    pOneWheel source — Future Motion's gate is security-through-obscurity.)
+
+  openness:
+    status: "hostile"
+    reverse_engineered: true
+    source_code: "https://github.com/ponewheel/android-ponewheel"
+    upstream_docs:
+      - url: "https://github.com/ponewheel/android-ponewheel"
+        title: "ponewheel/android-ponewheel"
+        covers: "The per-attribute GATT map and the firmware >= 4034 unlock handshake."
+    notes: >
+      Future Motion publishes nothing and actively locks firmware and litigates
+      against clones; the GATT map and the unlock handshake were reverse-
+      engineered by the pOneWheel community. Documented anyway — expect Future
+      Motion to keep changing the gate.
+
+  identification:
+    service_uuids:
+      - "e659f300-ea98-11e3-ac10-0800200c9a66"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "e659f300-ea98-11e3-ac10-0800200c9a66"
+        notes: >
+          Boards advertise the e659f300 service; the device name is typically
+          serial-based. The f3fd characteristic holds a user-set custom name.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Connect over BLE and enable notifications on the desired characteristics;
+      for firmware >= 4034 perform the unlock challenge-response before telemetry
+      flows. No pairing PIN. Confidence high on the GATT map (read from source).
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Connect, enable notifications on the attribute characteristics, and (on
+          firmware >= 4034) run the unlock handshake: read the challenge from
+          f3fe, compute the CRX+MD5(challenge+static key) response, and write it
+          to f3ff.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Connect to the e659f300 service and enable notifications on the desired attributes."
+            actor: "client"
+          - action: "On firmware >= 4034, read the f3fe challenge and write the computed unlock response to f3ff."
+            actor: "client"
+            expect: "Telemetry begins streaming on the attribute characteristics."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No documented BLE factory reset; the board stores no network/cloud state.
+        Not transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; a new BLE client connects independently."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Board configuration and ride data"
+      issued_to_client: []
+      notes: >
+        No pairing secret. Firmware >= 4034 gates telemetry behind the unlock
+        challenge-response (a published static-key handshake), not a per-user
+        credential. No Wi-Fi. SAFETY: this commands a self-balancing board — treat
+        all controls as advanced.
+
+services:
+  - uuid: "e659f300-ea98-11e3-ac10-0800200c9a66"
+    name: "Onewheel service"
+    notes: >
+      Per-attribute characteristics (e659fXXX-...). Firmware >= 4034 requires the
+      unlock handshake on the UART read/write pair (f3fe/f3ff) before telemetry
+      streams. See device.notes for the full attribute map and the handshake.
+    characteristics:
+      - uuid: "e659f303-ea98-11e3-ac10-0800200c9a66"
+        name: "Battery remaining (%)"
+        properties: ["read", "notify"]
+        notes: "Battery percentage."
+      - uuid: "e659f30b-ea98-11e3-ac10-0800200c9a66"
+        name: "Speed (RPM)"
+        properties: ["read", "notify"]
+        notes: "Wheel RPM (convert to speed by wheel circumference)."
+      - uuid: "e659f316-ea98-11e3-ac10-0800200c9a66"
+        name: "Battery voltage"
+        properties: ["read", "notify"]
+        notes: "Pack voltage."
+      - uuid: "e659f311-ea98-11e3-ac10-0800200c9a66"
+        name: "Firmware revision"
+        properties: ["read"]
+        notes: "Firmware revision; >= 4034 requires the unlock handshake."
+      - uuid: "e659f3fe-ea98-11e3-ac10-0800200c9a66"
+        name: "UART read (unlock challenge)"
+        properties: ["read", "notify"]
+        notes: "The challenge is read here for the firmware >= 4034 unlock handshake."
+      - uuid: "e659f3ff-ea98-11e3-ac10-0800200c9a66"
+        name: "UART write (unlock response)"
+        properties: ["write"]
+        notes: >
+          The unlock response is written here: CRX (43 52 58) + MD5(challenge[3..19)
+          + static key) + XOR checksum. Static key D9255F0F23354E19BA739CCDC4A91765
+          (published in pOneWheel).
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "e659f303-ea98-11e3-ac10-0800200c9a66"
+  - platform: "sensor"
+    name: "Speed"
+    unit: "rpm"
+    state_characteristic: "e659f30b-ea98-11e3-ac10-0800200c9a66"
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    state_characteristic: "e659f316-ea98-11e3-ac10-0800200c9a66"
+
+helpful_urls:
+  - title: "ponewheel/android-ponewheel"
+    url: "https://github.com/ponewheel/android-ponewheel"
+    description: "Community Onewheel app: the per-attribute GATT map and the firmware unlock handshake."

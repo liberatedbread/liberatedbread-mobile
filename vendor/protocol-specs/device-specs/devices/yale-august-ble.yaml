@@ -1,0 +1,198 @@
+# Yale Access / August BLE Locks — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Yale-Libs/yalexs-ble (const.py / session.py / lock.py) — the local BLE
+#     implementation Home Assistant uses.
+#   - Home Assistant "Yale Access Bluetooth" / august integration docs.
+
+device:
+  name: "Yale Access / August Smart Locks"
+  manufacturer: "August / Yale (ASSA ABLOY)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The GATT UUIDs, HAP-derived
+      framing, opcodes and AES-CBC (zero-IV) session crypto are from
+      Yale-Libs/yalexs-ble; the offline-key requirement from the Home Assistant
+      integration docs.
+  protocol: "ble"
+  category: "lock"
+  notes: >
+    August / Yale Access smart locks (August Smart Lock, Pro, Wi-Fi Smart Lock,
+    Yale Assure with a Yale Access module). There is no official local API — the
+    vendor posture is closed — but direct BLE lock/unlock works once a client
+    holds the lock's OFFLINE KEY and key slot (index). Those must be pulled from
+    an August/Yale account (a cloud login), after which day-to-day unlock is
+    fully local. yalexs-ble is the reference local implementation (Home
+    Assistant's "Yale Access Bluetooth").
+
+    GATT: primary service 0000fe24-0000-1000-8000-00805f9b34fb; write
+    bd4ac611-0b45-11e3-8ffd-0800200c9a66, read bd4ac612-..., secure-write
+    bd4ac613-..., secure-read bd4ac614-.... Yale company id 0x01D1 (465).
+
+    FRAMING: HomeKit-derived (HAP). Plaintext frames begin 0x06, encrypted frames
+    begin 0x11; responses are a fixed 18-byte frame. Command opcodes: 0x02
+    GETSTATUS, 0x03 WRITESETTING, 0x04 READSETTING, 0x0A UNLOCK, 0x0B LOCK, 0x2D
+    LOCK_ACTIVITY.
+
+    CRYPTO/AUTH: a secure handshake exchanges two 8-byte halves —
+    SEC_LOCK_TO_MOBILE_KEY_EXCHANGE (0x01) then SEC_INITIALIZATION_COMMAND (0x03)
+    — which combine into a 16-byte session key; the keyIndex (slot) is submitted
+    with the secure-session init. Session payloads are AES-CBC with a 16-byte
+    all-zero IV, keyed by the offline key. If the key or slot is wrong the lock
+    rejects the exchange. Motor result is read at response byte[15] (0x00
+    success; 0x1E-0x23 jam/mechanical failure).
+
+  openness:
+    status: "hostile"
+    reverse_engineered: true
+    source_code: "https://github.com/Yale-Libs/yalexs-ble"
+    upstream_docs:
+      - url: "https://www.home-assistant.io/integrations/august/"
+        title: "Home Assistant — August / Yale integration"
+        covers: "The requirement that the account holds the offline keys, and how to sync them from the cloud."
+    notes: >
+      No published local protocol; local control depends on an offline key the
+      vendor cloud holds. The BLE stack was reverse-engineered and is mature
+      (in production in Home Assistant). The zero-IV AES-CBC + static offline-key
+      design has drawn security scrutiny historically; no fresh advisory URL was
+      verified for this spec, so none is asserted here.
+
+  identification:
+    service_uuids:
+      - "0000fe24-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 465
+      company_id_hex: "0x01D1"
+      description: "Yale (0x01D1). Locks advertise the 0xFE24 service."
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fe24-0000-1000-8000-00805f9b34fb"
+          manufacturer_data:
+            company_id: 465
+            description: "Yale company id 0x01D1; primary service 0xFE24."
+        notes: >
+          Match the 0xFE24 service (and Yale company id 0x01D1). The lock is then
+          driven over BLE once the offline key + slot are supplied.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Enroll the lock in the August/Yale app, then log the account into a client
+      that can sync the OFFLINE KEY + key slot from the cloud (this is what Home
+      Assistant's august/yalexs integration does; a fresh owner account may be
+      needed to force the keys to synchronize). Hand those to a local BLE client
+      for offline unlock thereafter.
+    methods:
+      - type: "cloud_account"
+        verified: false
+        description: >
+          Obtain the lock's offline key + slot from an August/Yale account (a
+          one-time cloud step), then run the BLE secure handshake (0x01/0x03) and
+          send LOCK (0x0B) / UNLOCK (0x0A) as AES-CBC-encrypted frames.
+        cloud:
+          local_alternative: >
+            Yes for control — once the offline key + slot are synced from the
+            cloud, lock/unlock is entirely local over BLE. The offline key itself
+            can only be obtained from an August/Yale account; there is no
+            documented account-free way to get it.
+        steps:
+          - action: "Enroll the lock in the August/Yale app and sync the account so it holds the offline keys."
+            actor: "user"
+          - action: "Extract the offline key + key slot via the account (e.g. the yalexs integration)."
+            actor: "client"
+          - action: "Run the BLE secure handshake, then send UNLOCK (0x0A) / LOCK (0x0B) as AES-CBC frames."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A hardware reset (per model) clears the lock's enrollment and keys. The
+        exact procedure varies by model and is not transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership on the lock; a client with the offline key re-connects independently."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Offline key material + key slots (enrolled devices)"
+      issued_to_client:
+        - "The offline key + slot (synced from the August/Yale cloud account)"
+      notes: >
+        The offline key is the crown jewel: it keys the AES-CBC session and is
+        held by the vendor cloud, so obtaining it requires an account. The Wi-Fi
+        variants add a separate radio/bridge; the lock core here is BLE.
+
+services:
+  - uuid: "0000fe24-0000-1000-8000-00805f9b34fb"
+    name: "August / Yale lock service (0xFE24)"
+    notes: >
+      HAP-derived framing (plaintext first byte 0x06, encrypted 0x11; 18-byte
+      response). Two sessions: a plaintext Session and an AES-CBC SecureSession
+      keyed by the offline key. Motor result at response byte[15].
+    characteristics:
+      - uuid: "bd4ac611-0b45-11e3-8ffd-0800200c9a66"
+        name: "Write"
+        properties: ["write"]
+        notes: "Plaintext-session write."
+      - uuid: "bd4ac612-0b45-11e3-8ffd-0800200c9a66"
+        name: "Read"
+        properties: ["read", "notify"]
+        notes: "Plaintext-session read."
+      - uuid: "bd4ac613-0b45-11e3-8ffd-0800200c9a66"
+        name: "Secure write"
+        properties: ["write"]
+        notes: >
+          AES-CBC secure-session write (offline-key). Opcodes 0x0A UNLOCK, 0x0B
+          LOCK, 0x02 GETSTATUS.
+        commands:
+          unlock:
+            description: "Unlock (opcode 0x0A), sent as an AES-CBC secure frame."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x0A]
+          lock:
+            description: "Lock (opcode 0x0B), sent as an AES-CBC secure frame."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x0B]
+          get_status:
+            description: "Read lock status (opcode 0x02)."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x02]
+      - uuid: "bd4ac614-0b45-11e3-8ffd-0800200c9a66"
+        name: "Secure read"
+        properties: ["read", "notify"]
+        notes: "AES-CBC secure-session read; motor result at byte[15]."
+
+entities:
+  - platform: "switch"
+    name: "Lock"
+    icon: "mdi:lock"
+    command_characteristic: "bd4ac613-0b45-11e3-8ffd-0800200c9a66"
+    commands:
+      turn_on: "lock"
+      turn_off: "unlock"
+    notes: "on = locked (0x0B), off = unlocked (0x0A)."
+
+helpful_urls:
+  - title: "Yale-Libs/yalexs-ble"
+    url: "https://github.com/Yale-Libs/yalexs-ble"
+    description: "The local BLE implementation Home Assistant uses: GATT UUIDs, HAP framing, opcodes, AES-CBC session."
+  - title: "Home Assistant — August / Yale integration"
+    url: "https://www.home-assistant.io/integrations/august/"
+    description: "Documents the offline-key requirement and how to sync it from the cloud for local control."

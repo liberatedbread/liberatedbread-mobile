@@ -1,0 +1,145 @@
+# Ninebot / Segway E-Scooter (BLE) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Informatic/py9b (transport/ninebot.py, transport/xiaomi.py, link/ble.py).
+#   - CamiAlfa/M365-BLE-PROTOCOL (shared register map).
+
+device:
+  name: "Ninebot / Segway E-Scooter (BLE)"
+  manufacturer: "Ninebot-Segway"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The Nordic-UART bridge and the
+      5A A5 frame header are from Informatic/py9b (transport/ninebot.py); the
+      shared register model from CamiAlfa/M365-BLE-PROTOCOL. Newer G30-class
+      firmware is widely reported to add AES session crypto — NOT verified from a
+      source here, so it is flagged, not asserted.
+  protocol: "ble"
+  category: "vehicle"
+  notes: >
+    Ninebot / Segway ES and MAX (G30) e-scooters (and Ninebot-built EUCs) use the
+    same Nordic-UART serial-over-BLE bridge as the Xiaomi M365 — see
+    xiaomi-m365-ble.yaml for the register read/write model and the ESC/BMS
+    register map, which are shared. Only the outer frame differs.
+
+    GATT: Nordic UART service 6e400001-b5a3-f393-e0a9-e50e24dcca9e; write/RX
+    6e400002-...; notify/TX 6e400003-... (same as the M365).
+
+    FRAME: header 5A A5 (vs the Xiaomi 55 AA), then length, source addr,
+    destination addr, command, argument, payload, and a 2-byte little-endian
+    checksum. The read/write register model and the ESC-vs-battery address scheme
+    match the Xiaomi variant.
+
+    CRYPTO: the reference library's Ninebot transport is checksum-only (no
+    AES/CCM/nonce/ECDH). Newer G30 firmware is widely reported to add AES session
+    encryption; that is not confirmed from a source used here and should be
+    verified before relying on plaintext access on current units.
+
+    SAFETY: on plaintext/older units the same "commands unauthenticated over BLE"
+    class of issue as the M365 applies (shared bus + app-only password).
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Informatic/py9b"
+    upstream_docs:
+      - url: "https://github.com/Informatic/py9b"
+        title: "Informatic/py9b"
+        covers: "The Ninebot 5A A5 framing (transport/ninebot.py) and the shared BLE link."
+    notes: >
+      No vendor documentation; the plaintext framing is reverse-engineered.
+      Newer-firmware session crypto is not covered by the fetched sources.
+
+  identification:
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        notes: >
+          Advertises the Nordic UART service. The advertised-name convention was
+          not captured from a cited source, so match on the NUS service plus a
+          valid 5A A5 reply.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Connect over BLE, subscribe to the TX characteristic, and write 5A A5-framed
+      register commands to RX (register model shared with the M365). On newer
+      firmware a session-crypto handshake may be required — verify per unit.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Connect to the NUS device, subscribe to 6e400003, and write 5A A5-framed
+          register reads/writes to 6e400002 (register map per xiaomi-m365-ble).
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Connect and subscribe to the TX characteristic (6e400003)."
+            actor: "client"
+          - action: "Write a 5A A5-framed register read; parse the checksummed reply."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No documented BLE factory reset; settings are register writes. Not
+        transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; a new BLE client connects independently."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "ESC/BMS configuration registers"
+        - "Optional session key (newer firmware; unverified here)"
+      issued_to_client: []
+      notes: >
+        Older units gate the app only, not the bus. Newer firmware may add a
+        session key — verify before assuming plaintext access. No Wi-Fi.
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART serial bridge"
+    notes: >
+      Tunnels the 5A A5 register protocol. Write to 6e400002, read notifications
+      on 6e400003. Register model shared with xiaomi-m365-ble.yaml.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "RX (write)"
+        properties: ["write_without_response"]
+        notes: "5A A5-framed register read/write commands."
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "TX (notify)"
+        properties: ["notify"]
+        notes: "5A A5-framed replies (ESC / battery)."
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: "Shared ESC register 0xB4 (see xiaomi-m365-ble)."
+
+helpful_urls:
+  - title: "Informatic/py9b"
+    url: "https://github.com/Informatic/py9b"
+    description: "Ninebot 5A A5 transport + shared BLE link and register tooling."
+  - title: "CamiAlfa/M365-BLE-PROTOCOL"
+    url: "https://github.com/CamiAlfa/M365-BLE-PROTOCOL"
+    description: "The shared ESC/BMS register map (Xiaomi + Ninebot family)."

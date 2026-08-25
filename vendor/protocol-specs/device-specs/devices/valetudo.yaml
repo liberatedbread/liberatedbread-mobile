@@ -1,0 +1,193 @@
+# Valetudo (rooted-vacuum cloud replacement) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; open-by-design project):
+#   - Hypfer/Valetudo (Apache-2.0) — https://valetudo.cloud/
+#   - dustbuilder / dustcloud (Dennis Giese) — the rooting path.
+
+device:
+  name: "Valetudo (rooted robot vacuum, on-device REST/MQTT)"
+  manufacturer: "Sören Beye (Hypfer) + community (vacuum vendors: Roborock, Dreame, Midea)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The /api/v2 REST base, the
+      Swagger UI, MQTT with HA autodiscovery and the capability model are from
+      valetudo.cloud and the project's discussions/issues.
+  protocol: "wifi"
+  category: "robot"
+  transport: "http"
+  notes: >
+    Valetudo is cloud-replacement software that runs ON a rooted robot vacuum
+    (Roborock, Dreame, Midea). It intercepts the vendor firmware's cloud
+    communication ("brain parasite") without replacing the firmware, and exposes
+    a fully local web UI, REST API and MQTT — no vendor cloud. This is the
+    canonical rescue path for de-clouding a working robot or reviving one whose
+    vendor cloud is dying.
+
+    LOCAL SURFACE (on the robot's own IP):
+      REST base /api/v2; interactive docs + live UI at http://ROBOT_IP/swagger/
+      GET /api/v2/           meta-endpoint listing every endpoint + method for
+                             THIS robot (endpoints are generated from the robot's
+                             capabilities, so the set varies by model)
+      PUT /api/v2/robot/capabilities/BasicControlCapability  {"action":"start"|
+                             "stop"|"home"}
+      Capabilities are named, e.g. /api/v2/robot/capabilities/
+      PersistentMapControlCapability. OpenAPI schemas back the docs and validate
+      every incoming request.
+      MQTT with Home Assistant autodiscovery is also available.
+
+    Valetudo is deliberately NOT a feature-complete reimplementation of the
+    vendor app; it exposes what the robot's firmware supports.
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: true
+    source_code: "https://github.com/Hypfer/Valetudo"
+    license: "Apache-2.0"
+    upstream_docs:
+      - url: "https://valetudo.cloud/"
+        title: "Valetudo — documentation"
+        covers: "The REST/Swagger/MQTT interfaces, supported vendors, and the rooting-essentials guide."
+    notes: >
+      Valetudo itself is open source; it interposes on reverse-engineered vendor
+      firmware comms. Rooting the robot (per model) is a prerequisite —
+      dustbuilder builds images with Valetudo prepackaged and DNS patched.
+
+  identification:
+    default_port: 80
+    mdns_service_type: "_http._tcp.local."
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_http._tcp.local."
+          port: 80
+          identity_mapping:
+            stable_keys:
+              - source: "http:/api/v2/robot#serial"
+                key: "serial"
+            display:
+              source: "http:/api/v2/robot#modelName"
+        notes: >
+          A Valetudo robot serves HTTP on its own IP; GET /api/v2/ enumerates
+          the available endpoints. MQTT autodiscovery also advertises it to Home
+          Assistant.
+    identity:
+      stable_keys: ["serial"]
+      display: "modelName"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Valetudo requires the robot to be rooted first (method varies by model —
+      UART/fastboot/dustbuilder). dustbuilder can prepackage Valetudo and patch
+      DNS. After rooting, Valetudo serves its local REST/MQTT with no cloud. The
+      rooting steps are model-specific and not transcribed here.
+    methods:
+      - type: "wired"
+        verified: false
+        description: >
+          Root the robot per its model's documented procedure (often a UART
+          shell or fastboot; dustbuilder builds a Valetudo image), flash the
+          Valetudo-enabled firmware, then use the on-robot REST/MQTT locally.
+        steps:
+          - action: "Root the robot per the model's rooting-essentials guide (UART/fastboot/dustbuilder)."
+            actor: "user"
+          - action: "Flash a Valetudo-enabled image (dustbuilder can prepackage it and patch DNS)."
+            actor: "user"
+            expect: "The robot serves Valetudo's web UI/REST on its own IP."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Reverting to stock firmware / re-rooting is model-specific and not
+        covered here. Valetudo config is stored on the robot; a firmware reflash
+        clears it.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Valetudo has a Wi-Fi configuration surface; the robot's network can be
+        changed from the local UI without re-rooting.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Valetudo configuration"
+      issued_to_client: []
+      notes: >
+        The local REST/UI can be given HTTP Basic auth; by default it is open on
+        the LAN. No vendor cloud is involved.
+
+http_endpoints:
+  - method: "GET"
+    path: "/api/v2/"
+    name: "Endpoint index (capabilities)"
+    description: >
+      Meta-endpoint: JSON of every endpoint and accepted method for THIS robot.
+      Endpoints are generated from the robot's capabilities, so the set varies by
+      model.
+  - method: "GET"
+    path: "/api/v2/robot/state"
+    name: "Robot state"
+    description: "Current state (battery, status, attachments) for the robot."
+  - method: "PUT"
+    path: "/api/v2/robot/capabilities/BasicControlCapability"
+    name: "Basic control"
+    description: "Body {\"action\":\"start\"|\"stop\"|\"home\"} — start/stop cleaning or return to dock."
+    request_body:
+      content_type: "application/json"
+
+commands:
+  start:
+    description: "Start cleaning."
+    transport: "http"
+    method: "PUT"
+    path: "/api/v2/robot/capabilities/BasicControlCapability"
+    body: '{"action":"start"}'
+    verification: "reported"
+  stop:
+    description: "Stop cleaning."
+    transport: "http"
+    method: "PUT"
+    path: "/api/v2/robot/capabilities/BasicControlCapability"
+    body: '{"action":"stop"}'
+    verification: "reported"
+  return_home:
+    description: "Return to the dock."
+    transport: "http"
+    method: "PUT"
+    path: "/api/v2/robot/capabilities/BasicControlCapability"
+    body: '{"action":"home"}'
+    verification: "reported"
+
+entities:
+  - platform: "button"
+    name: "Start Cleaning"
+    commands:
+      press: "start"
+  - platform: "button"
+    name: "Stop"
+    commands:
+      press: "stop"
+  - platform: "button"
+    name: "Return to Dock"
+    commands:
+      press: "return_home"
+
+helpful_urls:
+  - title: "Valetudo"
+    url: "https://valetudo.cloud/"
+    description: "Apache-2.0 on-robot cloud replacement (REST/MQTT/UI); rooting guides for Roborock/Dreame/Midea."
+  - title: "Hypfer/Valetudo"
+    url: "https://github.com/Hypfer/Valetudo"
+    description: "Source; the REST /api/v2 + capabilities model."
+  - title: "dustbuilder (Dennis Giese)"
+    url: "https://builder.dontvacuum.me/"
+    description: "Builds rooted firmware images with Valetudo prepackaged and DNS patched."

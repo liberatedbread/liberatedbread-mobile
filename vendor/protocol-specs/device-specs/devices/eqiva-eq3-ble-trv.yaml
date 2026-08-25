@@ -1,0 +1,244 @@
+# eQ-3 Eqiva Bluetooth Radiator Thermostat (CC-RT-BLE) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Heckie75/eQ-3-radiator-thermostat — the byte-level API markdown.
+#   - rytilahti/python-eq3bt (MIT) — the GATT characteristic UUIDs + pairing.
+
+device:
+  name: "eQ-3 Eqiva Bluetooth Radiator Thermostat (CC-RT-BLE)"
+  manufacturer: "eQ-3 AG (Eqiva)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The command/response byte
+      tables are from Heckie75/eQ-3-radiator-thermostat; the GATT write/notify
+      characteristic UUIDs and the FW-1.20+ pairing note are from
+      rytilahti/python-eq3bt.
+  protocol: "ble"
+  category: "climate"
+  notes: >
+    The Eqiva eQ-3 Bluetooth radiator valve (CC-RT-BLE) is a hugely common
+    European smart TRV. It has no radio but BLE, so control is entirely local:
+    commands are written to a vendor GATT characteristic and status arrives on a
+    notify characteristic. Firmware 1.20+ may require a one-time BLE pairing
+    (hold the wheel until "Pair" shows).
+
+    GATT: write commands to characteristic 3fa4585a-ce4a-3bad-db4b-b8df8179ea09
+    (handle 0x0411); status notifications on d0e8434d-cd29-0996-af41-6c90f4e0eb2a
+    (handle 0x0421). The product name "CC-RT-BLE" is at handle 0x0321, vendor
+    "eq-3" at handle 0x0311.
+
+    COMMANDS (first byte = opcode):
+      00                        read serial
+      03 yy mm dd hh mm ss      request status + sync clock
+      40 00 / 40 40 / 40 a3     mode: auto / manual / vacation
+      41 <target*2>             set target temperature (value = °C × 2)
+      43 / 44                   comfort preset / eco preset
+      45 01 / 45 00             boost on / boost off
+      80 01 / 80 00             lock / unlock the buttons
+      11 ...                    configure comfort/eco presets
+      13 <(offset+3.5)*2>       set temperature-sensor offset
+      14 <temp>                 window-open detection config
+      20 <day 00-06>            read a day's schedule (00=Sat..06=Fri)
+      f0                        factory reset
+    Temperatures throughout are one byte = °C × 2 (decode as byte / 2).
+
+    STATUS NOTIFICATION: byte1 0x02, byte2 0x01, byte3 mode bitfield (manual
+    0x01, vacation 0x02, boost 0x04, ...), byte4 valve %, byte5 0x04, byte6
+    target temp (value/2 °C), bytes 7-10 vacation date, bytes 11-15 comfort/eco/
+    window config.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/rytilahti/python-eq3bt"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://github.com/Heckie75/eQ-3-radiator-thermostat/blob/master/eq-3-radiator-thermostat-api.md"
+        title: "Heckie75 — eQ-3 radiator thermostat API"
+        covers: "The full byte-level command/response tables and the status notification layout."
+    notes: >
+      No vendor API; the protocol was reverse-engineered. Heckie75 documents the
+      byte tables and python-eq3bt (bleak/bluepy/gattlib) implements them.
+
+  identification:
+    local_name_prefix: "CC-RT-BLE"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "CC-RT-BLE"
+        notes: >
+          The device advertises with the product name at GATT handle 0x0321
+          reading "CC-RT-BLE"; scan by that name prefix.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing to provision beyond an optional one-time BLE pairing on firmware
+      1.20+ (hold the wheel until the device shows "Pair"). Older firmware
+      connects without bonding. High confidence: two independent implementations
+      (Heckie75 docs + python-eq3bt) agree on the GATT surface.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the "CC-RT-BLE" name, connect, subscribe to the notify
+          characteristic, and write commands to the command characteristic.
+          Pair first (hold the wheel until "Pair") on firmware 1.20+.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Scan for CC-RT-BLE and connect."
+            actor: "client"
+          - action: "On firmware 1.20+, pair (hold the thermostat wheel until 'Pair' appears)."
+            actor: "user"
+          - action: "Subscribe to the notify characteristic, then send 03 yy mm dd hh mm ss to sync the clock and read status."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: high
+      effect: >
+        Command 0xf0 restores factory defaults (clears schedules, presets,
+        offsets and any pairing). The device also has a physical reset via its
+        menu.
+      procedures:
+        - name: "Send factory-reset command 0xf0"
+          verified: false
+          basis: "Documented in Heckie75's byte-level API; not replayed by this project."
+          steps:
+            - action: "Write 0xf0 to the command characteristic."
+              actor: "client"
+              expect: "The thermostat returns to factory defaults."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network membership. A new client connects (and pairs on FW 1.20+)
+        independently; existing pairings are unaffected.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "BLE pairing (LTK) on firmware 1.20+"
+        - "Schedule, comfort/eco presets, sensor offset"
+      issued_to_client: []
+      notes: >
+        Standard BLE pairing on newer firmware; no application-layer credential.
+        There is no Wi-Fi.
+
+services:
+  - uuid: "3fa4585a-ce4a-3bad-db4b-b8df8179ea09"
+    name: "eQ-3 command characteristic"
+    notes: >
+      Write commands here (handle 0x0411). Status notifications come back on
+      d0e8434d-cd29-0996-af41-6c90f4e0eb2a (handle 0x0421). Temperatures are
+      one byte = °C × 2.
+    characteristics:
+      - uuid: "3fa4585a-ce4a-3bad-db4b-b8df8179ea09"
+        name: "Command"
+        properties: ["write"]
+        commands:
+          sync_and_status:
+            description: "Request status and sync the clock: 03 yy mm dd hh mm ss (year is (full year - 2000))."
+            encoding: "bytes"
+            verification: "reported"
+            template: [0x03, "{year}", "{month}", "{day}", "{hour}", "{minute}", "{second}"]
+            parameters:
+              year:
+                type: "uint8"
+                description: "Full year minus 2000 (e.g. 2026 -> 26)."
+              month:
+                type: "uint8"
+                min: 1
+                max: 12
+              day:
+                type: "uint8"
+                min: 1
+                max: 31
+              hour:
+                type: "uint8"
+                min: 0
+                max: 23
+              minute:
+                type: "uint8"
+                min: 0
+                max: 59
+              second:
+                type: "uint8"
+                min: 0
+                max: 59
+          set_temperature:
+            description: "Set the target temperature: 41 <target*2>. The byte is °C × 2 (e.g. 21.0 °C -> 42)."
+            encoding: "bytes"
+            verification: "reported"
+            template: [0x41, "{raw}"]
+            parameters:
+              raw:
+                type: "uint8"
+                min: 9
+                max: 61
+                description: "Target °C × 2. Valid target range is ~4.5-30.5 °C, i.e. raw 9-61."
+          set_mode_auto:
+            description: "Switch to automatic (schedule) mode: 40 00."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x40, 0x00]
+          set_mode_manual:
+            description: "Switch to manual mode: 40 40."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x40, 0x40]
+          boost_on:
+            description: "Start boost heating: 45 01."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x45, 0x01]
+          boost_off:
+            description: "Stop boost: 45 00."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x45, 0x00]
+          lock:
+            description: "Lock the physical buttons: 80 01."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x80, 0x01]
+          unlock:
+            description: "Unlock the physical buttons: 80 00."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x80, 0x00]
+      - uuid: "d0e8434d-cd29-0996-af41-6c90f4e0eb2a"
+        name: "Status notify"
+        properties: ["notify"]
+        notes: >
+          Status frames: byte3 mode bitfield (manual 0x01, vacation 0x02, boost
+          0x04), byte4 valve %, byte6 target temp (value/2 °C), later bytes carry
+          vacation date and comfort/eco/window config.
+
+entities:
+  - platform: "climate"
+    name: "Radiator Thermostat"
+    min_temp: 4.5
+    max_temp: 30.5
+    temp_step: 0.5
+    notes: "Target via set_temperature (byte = °C × 2); mode via set_mode_auto/manual; boost via boost_on/off."
+
+helpful_urls:
+  - title: "Heckie75/eQ-3-radiator-thermostat"
+    url: "https://github.com/Heckie75/eQ-3-radiator-thermostat"
+    description: "Byte-level command/response API for the CC-RT-BLE valve."
+  - title: "rytilahti/python-eq3bt"
+    url: "https://github.com/rytilahti/python-eq3bt"
+    description: "MIT Python client (bleak/bluepy/gattlib); GATT UUIDs and the FW-1.20+ pairing note."

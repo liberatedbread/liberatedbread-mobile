@@ -1,0 +1,160 @@
+# BLE Fitness Machine Service (FTMS) — Reference Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Bluetooth SIG "Fitness Machine Service" v1.0 (public specification).
+#
+# This is a REFERENCE spec: it documents a published standard that other device
+# specs (treadmills, indoor bikes, rowers, cross-trainers) cite instead of
+# restating. It is not a device.
+
+device:
+  name: "BLE Fitness Machine Service (FTMS)"
+  manufacturer: "Bluetooth SIG"
+  manufacturer_status: "active"
+  model: "Fitness Machine Service v1.0 (service 0x1826)"
+  protocol: "ble"
+  category: "reference"
+  type: "reference-ble-profile"
+  notes: >
+    FTMS is the Bluetooth SIG's standard GATT service for fitness equipment —
+    treadmills, indoor/spin bikes, rowers, cross-trainers and steppers. It is the
+    interoperable local-control fallback when a vendor's own profile is
+    proprietary, and it is what apps like Zwift use to drive a trainer locally
+    over BLE (no cloud, no account). A concrete device spec should cite this file
+    rather than re-listing the UUIDs and opcodes.
+
+    SERVICE: 0x1826 (advertised).
+    CHARACTERISTICS:
+      0x2ACC  Fitness Machine Feature (which fields/controls the machine supports)
+      0x2ACD  Treadmill Data
+      0x2AD2  Indoor Bike Data
+      0x2AD3  Training Status
+      0x2AD9  Fitness Machine Control Point (write; take control + set targets)
+      0x2ADA  Fitness Machine Status
+    CONTROL POINT op codes (write to 0x2AD9):
+      0x00 Request Control      0x01 Reset
+      0x02 Set Target Speed     0x03 Set Target Inclination
+      0x04 Set Target Resistance Level   0x05 Set Target Power
+      0x07 Start or Resume      0x08 Stop or Pause
+    HANDSHAKE: a Central must first write Request Control (0x00); the machine
+    acknowledges via an indication on the Control Point (op code + request op
+    code + result) before target-setting ops are honoured.
+    DATA: the Treadmill Data / Indoor Bike Data notifications begin with a
+    little-endian flags bitmask that says which optional fields (speed, cadence,
+    power, heart rate, distance, calories, ...) are present; a client must parse
+    the flags to locate each field.
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/"
+        title: "Bluetooth SIG — Fitness Machine Service v1.0"
+        covers: "The service/characteristic UUIDs, the control-point opcodes and the data flag layouts."
+    notes: >
+      Published SIG standard; third-party implementation is the intended use. The
+      UUIDs and opcodes here are from the public specification. Per-field
+      bit-by-bit layouts of Treadmill/Indoor Bike Data are in the SIG spec and
+      should be transcribed per-field when writing a concrete device spec.
+
+services:
+  - uuid: "00001826-0000-1000-8000-00805f9b34fb"
+    name: "Fitness Machine Service (0x1826)"
+    notes: >
+      The advertised FTMS service. A machine exposes a subset of the
+      characteristics below depending on its type; read 0x2ACC (Feature) to learn
+      which fields and controls it supports.
+    characteristics:
+      - uuid: "00002acc-0000-1000-8000-00805f9b34fb"
+        name: "Fitness Machine Feature (0x2ACC)"
+        properties: ["read"]
+        notes: "Bitfields declaring which data fields and target-setting controls the machine supports."
+      - uuid: "00002acd-0000-1000-8000-00805f9b34fb"
+        name: "Treadmill Data (0x2ACD)"
+        properties: ["notify"]
+        notes: "Leading little-endian flags bitmask, then the present fields (speed, incline, distance, HR, ...)."
+      - uuid: "00002ad2-0000-1000-8000-00805f9b34fb"
+        name: "Indoor Bike Data (0x2AD2)"
+        properties: ["notify"]
+        notes: "Leading flags bitmask, then the present fields (speed, cadence, power, HR, ...)."
+      - uuid: "00002ad3-0000-1000-8000-00805f9b34fb"
+        name: "Training Status (0x2AD3)"
+        properties: ["read", "notify"]
+        notes: "Current training status."
+      - uuid: "00002ad9-0000-1000-8000-00805f9b34fb"
+        name: "Fitness Machine Control Point (0x2AD9)"
+        properties: ["write", "indicate"]
+        notes: >
+          Take control and set targets. Write Request Control (0x00) first; the
+          machine indicates the result before honouring target ops.
+        commands:
+          request_control:
+            description: "Take control of the machine (op 0x00). Required before any target-setting op."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x00]
+          reset:
+            description: "Reset the machine (op 0x01)."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x01]
+          set_target_speed:
+            description: "Set target speed (op 0x02) — u16 in 0.01 km/h, little-endian."
+            encoding: "bytes"
+            verification: "reported"
+            template: [0x02, "{speed_lo}", "{speed_hi}"]
+            parameters:
+              speed_lo:
+                type: "uint8"
+                description: "Low byte of target speed (u16, 0.01 km/h)."
+              speed_hi:
+                type: "uint8"
+                description: "High byte of target speed."
+          set_target_resistance:
+            description: "Set target resistance level (op 0x04)."
+            encoding: "bytes"
+            verification: "reported"
+            template: [0x04, "{level}"]
+            parameters:
+              level:
+                type: "uint8"
+                description: "Target resistance level (units per machine, see 0x2ACC)."
+          set_target_power:
+            description: "Set target power (op 0x05) — s16 watts, little-endian."
+            encoding: "bytes"
+            verification: "reported"
+            template: [0x05, "{power_lo}", "{power_hi}"]
+            parameters:
+              power_lo:
+                type: "uint8"
+                description: "Low byte of target power (s16 W)."
+              power_hi:
+                type: "uint8"
+                description: "High byte of target power."
+          start_or_resume:
+            description: "Start or resume (op 0x07)."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x07]
+          stop_or_pause:
+            description: "Stop or pause (op 0x08). Parameter 0x01 = stop, 0x02 = pause."
+            encoding: "bytes"
+            verification: "reported"
+            template: [0x08, "{control}"]
+            parameters:
+              control:
+                type: "uint8"
+                min: 1
+                max: 2
+                description: "1 = stop, 2 = pause."
+      - uuid: "00002ada-0000-1000-8000-00805f9b34fb"
+        name: "Fitness Machine Status (0x2ADA)"
+        properties: ["notify"]
+        notes: "Asynchronous status events (control taken, target changed, stopped by safety key, ...)."
+
+helpful_urls:
+  - title: "Bluetooth SIG — Fitness Machine Service v1.0"
+    url: "https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/"
+    description: "The published FTMS specification (UUIDs, control-point opcodes, data flag layouts)."

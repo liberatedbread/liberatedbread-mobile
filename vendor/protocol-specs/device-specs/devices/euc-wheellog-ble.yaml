@@ -1,0 +1,168 @@
+# Electric Unicycles (WheelLog-decoded, BLE) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Wheellog/Wheellog.Android per-brand adapters (KingsongAdapter.java,
+#     GotwayAdapter.java, VeteranAdapter.java).
+
+device:
+  name: "Electric Unicycles (King Song / Gotway-Begode / Veteran) — WheelLog"
+  manufacturer: "King Song, Gotway/Begode, Veteran/Leaperkim (community-decoded)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The per-brand frame formats
+      (headers, field offsets, command bytes) are from WheelLog's Android
+      per-brand adapters. NOTE: the BLE serial characteristic UUID is
+      module/brand-specific and was not captured from a cited source, so it is
+      not asserted here — WheelLog auto-detects the brand from the first packets.
+  protocol: "ble"
+  category: "vehicle"
+  notes: >
+    Electric unicycles from King Song, Gotway/Begode and Veteran/Leaperkim are
+    decoded by the open-source WheelLog Android app. Each brand is a notify-stream
+    of fixed-length framed packets over a BLE serial characteristic; brand is
+    identified from the first packets rather than a fixed advertised UUID. Fully
+    local BLE, no cloud. The per-brand frame formats below are the load-bearing
+    facts; the transport characteristic UUID is device-specific (obtain it from
+    the connected wheel / WheelLog).
+
+    KING SONG (KingsongAdapter): 20-byte frame, header AA 55, trailer 14 5A 5A;
+    the packet-type selector is byte 16. Live-data type 0xA9: voltage bytes 2-3
+    (LE), speed 4-5, total distance 6-9 (32-bit), current 10-11, temperature
+    12-13. Other types: 0xB9 distance/time/fan, 0xBB name/model, 0xB3 serial,
+    0xA4/0xB5 speed/alarm settings, 0xF1/0xF2 dual-battery BMS. Commands (write
+    byte 16): beep 0x88, request name 0x9B, request serial 0x63, power-off 0x40.
+
+    GOTWAY / BEGODE (GotwayAdapter): 24-byte frame, header 55 AA, footer 5A 5A
+    5A 5A (bytes 20-23); type byte at index 18 — 0x00 live "Frame A", 0x04
+    "Frame B" (totals/settings), 0x07 motor-temp/batt-current, 0x01/0x02/0x03
+    BMS, 0xFF advanced settings. Frame A (big-endian): voltage 2-3 (1/100 V),
+    speed 4-5 (km/h = x3.6), distance 8-9 (m), phase current 10-11 (1/100 A
+    signed), temperature 12-13 (v/340 + 36.53 C), PWM 14-15. Voltage base 67.2 V
+    with a config-selected multiplier (0->1.0x ... 4->2.0x) to cover 84/100.8 V
+    packs. Commands (ASCII): beep 'b', calibration 'c', lights E/Q/T, max-speed
+    'W', miles/km 'm'/'g'.
+
+    VETERAN / LEAPERKIM (VeteranAdapter): header DC 5A 5C + length byte;
+    big-endian: voltage @4, speed @6 (x10 signed), distance @8 (word-reversed
+    int), total distance @12, phase current @16 (x10), temperature @18; CRC32 on
+    longer frames. 24S (100.8 V nominal) reference.
+
+    SAFETY: beep/lights/max-speed/calibration commands are unauthenticated by
+    design in these decoders.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Wheellog/Wheellog.Android"
+    upstream_docs:
+      - url: "https://github.com/Wheellog/Wheellog.Android"
+        title: "Wheellog/Wheellog.Android"
+        covers: "The per-brand BLE frame decoders (KingsongAdapter, GotwayAdapter, VeteranAdapter)."
+    notes: >
+      No vendor documentation; WheelLog reverse-engineered each brand's frames.
+      The BLE transport characteristic UUID lives in WheelLog's BLE service class
+      (not the per-brand adapters) and is not restated here.
+
+  identification: {}
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble: {}
+        notes: >
+          WheelLog connects to the wheel's BLE serial characteristic and
+          identifies the brand from the first packets (King Song header AA 55,
+          Gotway 55 AA + 5A5A5A5A footer, Veteran DC 5A 5C), rather than from a
+          fixed advertised service UUID.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Connect to the wheel's BLE serial characteristic and subscribe to
+      notifications; the brand is auto-detected from the first packets. No
+      pairing secret. Confidence medium: King Song and Gotway frames are fully
+      read from the adapters; Veteran offsets are read but less cross-checked.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Connect over BLE, subscribe to the wheel's serial/notify characteristic,
+          and decode the incoming frames per the brand detected from the header.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Connect and subscribe to the wheel's BLE serial characteristic."
+            actor: "client"
+          - action: "Detect the brand from the first packets and decode live data per the frame format."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No documented BLE factory reset; per-brand settings are command writes,
+        not a single reset. Not transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; a new BLE client connects independently."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Per-brand wheel settings (speed limits, alarms, lights)"
+      issued_to_client: []
+      notes: "No pairing/auth documented; frames are unauthenticated over BLE. No Wi-Fi."
+
+# The BLE serial characteristic UUID is module-specific (not captured from a
+# cited source); the standard Generic Access below is listed only to record a
+# connectable surface. The load-bearing content is the per-brand frame formats
+# in device.notes and euc_frame_formats.
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access (standard)"
+    notes: >
+      Placeholder connectable surface. The real transport is a BLE serial/notify
+      characteristic whose UUID is module-specific; obtain it from the connected
+      wheel (WheelLog auto-detects it). Decode per euc_frame_formats.
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read"]
+        notes: "Standard device-name characteristic."
+
+euc_frame_formats:
+  king_song:
+    frame: "20 bytes, header AA 55, trailer 14 5A 5A; packet-type selector at byte 16."
+    live_type_0xA9: "voltage @2-3 LE, speed @4-5, total distance @6-9 (32-bit), current @10-11, temperature @12-13."
+    commands: "beep 0x88, request name 0x9B, request serial 0x63, power-off 0x40 (written at byte 16)."
+  gotway_begode:
+    frame: "24 bytes, header 55 AA, footer 5A 5A 5A 5A (@20-23); type byte @18."
+    frame_a_0x00: "big-endian: voltage @2-3 (1/100 V), speed @4-5 (km/h=x3.6), distance @8-9 (m), phase current @10-11 (1/100 A signed), temperature @12-13 (v/340+36.53 C), PWM @14-15."
+    voltage_multiplier: "base 67.2 V x {0:1.0, 1:1.25, 2:1.5, 3:1.738, 4:2.0, 5:2.5, 6:2.25} (config-selected) for 84/100.8 V packs."
+    commands: "ASCII: beep 'b', calibration 'c', lights E/Q/T, max-speed 'W', miles/km 'm'/'g'."
+  veteran_leaperkim:
+    frame: "header DC 5A 5C + length byte; big-endian: voltage @4, speed @6 (x10 signed), distance @8 (word-reversed), total @12, phase current @16 (x10), temperature @18; CRC32 on longer frames."
+
+entities:
+  - platform: "sensor"
+    name: "Speed"
+    unit: "km/h"
+    notes: "Per-brand live frame (see euc_frame_formats)."
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    notes: "Per-brand live frame."
+
+helpful_urls:
+  - title: "Wheellog/Wheellog.Android"
+    url: "https://github.com/Wheellog/Wheellog.Android"
+    description: "Open-source EUC logger; the per-brand BLE frame decoders documented here."

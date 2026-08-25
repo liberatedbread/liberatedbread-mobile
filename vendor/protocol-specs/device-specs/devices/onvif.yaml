@@ -1,0 +1,111 @@
+# ONVIF (IP camera standard) — Reference Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - onvif-python (PyPI), valkka-examples ONVIF docs, smartrtsp ONVIF guide.
+#
+# This is a REFERENCE spec: it documents the open ONVIF standard that IP-camera
+# device specs (Reolink, Amcrest/Dahua, Hikvision, generic cameras) cite for
+# discovery and stream access. It is not a device.
+
+device:
+  name: "ONVIF (Open Network Video Interface Forum)"
+  manufacturer: "ONVIF (industry consortium)"
+  manufacturer_status: "active"
+  model: "Profiles S / T (streaming), G (recording), A / C (access control)"
+  protocol: "wifi"
+  category: "reference"
+  type: "reference-camera-protocol"
+  pictogram: "ip-camera"
+  notes: >
+    ONVIF is the open standard most IP cameras, doorbells and NVRs implement for
+    discovery, device management and video streaming. A concrete camera spec
+    should cite this file for the discovery + stream-URI mechanism rather than
+    restating it; the device itself carries only its vendor-specific quirks.
+
+    DISCOVERY (WS-Discovery): a Probe is multicast over UDP to the reserved
+    address 239.255.255.250:3702; ONVIF devices reply (unicast ProbeMatch) with
+    their service endpoint URL, device type and a device UUID.
+
+    DEVICE SERVICE: the Device Management service is at the HTTP subaddress
+    /onvif/device_service. SOAP over HTTP; ports are typically 80 (management)
+    and 554 (RTSP media).
+
+    WSDL SERVICE NAMESPACES:
+      Device Management  http://www.onvif.org/ver10/device/wsdl
+      Media              http://www.onvif.org/ver10/media/wsdl
+      PTZ                http://www.onvif.org/ver20/ptz/wsdl
+      Imaging            http://www.onvif.org/ver20/imaging/wsdl
+      Events             http://www.onvif.org/ver10/events/wsdl
+
+    KEY SOAP OPERATIONS: GetDeviceInformation, GetServices / GetCapabilities,
+    GetProfiles, GetStreamUri, GetSnapshotUri.
+
+    GETTING A STREAM: call the media service GetStreamUri(ProfileToken=<token>,
+    StreamSetup={Stream: RTP-Unicast, Transport: {Protocol: RTSP}}) where the
+    profile token comes from GetProfiles. The device returns a device-specific
+    RTSP URL (e.g. rtsp://<ip>:554/Streaming/Channels/101). ONVIF defines the
+    MECHANISM (GetStreamUri), not a fixed URI — read the URI the device reports.
+
+    AUTH: WS-UsernameToken with Digest is the standard for ONVIF devices.
+
+    PROFILES: S (basic live streaming/PTZ), T (advanced video, H.265, HTTPS,
+    metadata), G (edge storage/recording/playback), A (access-control config),
+    C (door control). S and T are the camera-streaming ones this registry uses.
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://www.onvif.org/specs/srv/media/ONVIF-Media-Service-Spec.pdf"
+        title: "ONVIF — Media Service Specification"
+        covers: "GetProfiles / GetStreamUri and the media-service operations."
+      - url: "https://pypi.org/project/onvif-python/"
+        title: "onvif-python (client)"
+        covers: "WS-Discovery address/port, the WSDL namespaces, the key operation names and the digest auth."
+    notes: >
+      Published open standard maintained by the ONVIF forum. The facts here are
+      from the onvif-python client documentation and the ONVIF media-service
+      spec; nothing was reverse-engineered.
+
+  identification:
+    default_port: 80
+    ssdp_search_targets:
+      - "urn:schemas-onvif-org:service:Media"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # ONVIF discovery is WS-Discovery over UDP 3702 multicast, which is not
+          # the UPnP SSDP the schema's `ssdp` method models. Documented in notes;
+          # this placeholder records the identity mapping.
+          service_type: "_http._tcp.local."
+          port: 80
+          identity_mapping:
+            stable_keys:
+              - source: "wsdiscovery:uuid"
+                key: "uuid"
+            display:
+              source: "soap:GetDeviceInformation#Model"
+        notes: >
+          Real discovery is WS-Discovery: multicast a Probe to
+          239.255.255.250:3702 (UDP); devices reply with their service endpoint
+          URL and a device UUID. Then GetProfiles + GetStreamUri yield the RTSP
+          URL. See device.notes.
+    identity:
+      stable_keys: ["uuid"]
+      display: "model"
+    static_ip_required: false
+
+helpful_urls:
+  - title: "onvif-python (client)"
+    url: "https://pypi.org/project/onvif-python/"
+    description: "WS-Discovery, the WSDL namespaces, GetProfiles/GetStreamUri, and digest auth."
+  - title: "ONVIF — Media Service Specification (PDF)"
+    url: "https://www.onvif.org/specs/srv/media/ONVIF-Media-Service-Spec.pdf"
+    description: "First-party spec for GetProfiles / GetStreamUri."
+  - title: "valkka-examples — ONVIF"
+    url: "https://elsampsa.github.io/valkka-examples/_build/html/onvif.html"
+    description: "Practical ONVIF walkthrough (device_service path, namespaces, ports)."

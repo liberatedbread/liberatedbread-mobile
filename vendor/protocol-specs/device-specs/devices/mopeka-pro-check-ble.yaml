@@ -1,0 +1,146 @@
+# Mopeka Pro Check (BLE tank sensor) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - ESPHome mopeka_pro_check component documentation.
+
+device:
+  name: "Mopeka Pro Check Tank Sensor"
+  manufacturer: "Mopeka Products LLC"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The passive-broadcast model,
+      the reported values and the tank-shape calibration are from the ESPHome
+      mopeka_pro_check component documentation.
+  protocol: "ble"
+  category: "sensor"
+  notes: >
+    Mopeka Pro Check ultrasonic tank sensors (LP/propane and universal) report
+    the fill level of a tank by measuring ultrasonic time-of-flight to the liquid
+    surface. The community decodes the BLE broadcast passively — no cloud, no
+    pairing — exactly as the ESPHome component does ("operates passively,
+    listening to BLE broadcasts").
+
+    IDENTIFICATION: sensors are identified by MAC address; a sync-button press
+    makes a sensor discoverable in logs (or set show_sensors_without_sync).
+
+    BROADCAST VALUES: tank level (% of capacity), raw distance/depth (mm,
+    ultrasonic time-of-flight), sensor temperature (not ambient-calibrated),
+    battery % (CR2032), and a reading quality/confidence enum (HIGH/MEDIUM/LOW/
+    ZERO) to discard unreliable readings. Level is derived from distance via a
+    tank-shape calibration: predefined vertical LP tanks (20/30/40 lb, 6/11/14
+    kg) or custom full/empty distance points.
+
+    Supported: Mopeka Pro Check LP, Pro Plus, Pro Check Universal, and the
+    Lippert Propane Tank Sensor.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/esphome/esphome"
+    upstream_docs:
+      - url: "https://esphome.io/components/sensor/mopeka_pro_check.html"
+        title: "ESPHome — mopeka_pro_check"
+        covers: "The passive-broadcast decode, the reported values (level/distance/temp/battery/quality) and tank calibration."
+    notes: >
+      Mopeka publishes no protocol; the BLE broadcast is reverse-engineered by
+      the community (ESPHome). The exact company id and per-byte layout are in the
+      ESPHome component source rather than the docs page cited.
+
+  identification:
+    manufacturer_data:
+      description: >
+        Mopeka Pro sensors broadcast their reading in BLE advertisements, decoded
+        passively; sensors are keyed by MAC address. Press the sync button to
+        surface the MAC.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble: {}
+        notes: >
+          Passive scan; press the sensor's sync button to surface its MAC in the
+          scanner logs, then key on that MAC. The exact manufacturer-data
+          company id / layout is in the ESPHome component source.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Press the sync button to make the sensor discoverable, add it by MAC, and
+      set the tank type (predefined LP tank) or custom full/empty distances. No
+      cloud, no pairing.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Passive: scan for the sensor's broadcast (sync-button press surfaces the
+          MAC), decode level/distance/temperature/battery/quality, and apply the
+          tank-shape calibration to convert distance to level.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Press the sensor's sync button to surface its MAC."
+            actor: "user"
+          - action: "Scan for the broadcast by MAC and decode the reading; set the tank type or custom full/empty distances."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: "No documented broadcast reset; the sensor stores no network/cloud state."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; reading is passive."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No pairing/auth; broadcasts are readable by anyone in range. No Wi-Fi."
+
+# Broadcast-only sensor; the reading is in the advertisement. Generic Access
+# records a connectable surface.
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access (standard)"
+    notes: >
+      Placeholder connectable surface. The tank reading is broadcast in the
+      manufacturer advertisement (decoded passively; layout in the ESPHome
+      component source).
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read"]
+        notes: "Standard device-name characteristic."
+
+entities:
+  - platform: "sensor"
+    name: "Tank Level"
+    unit: "%"
+    notes: "Percent of capacity, derived from distance + tank-shape calibration."
+  - platform: "sensor"
+    name: "Distance"
+    unit: "mm"
+    notes: "Raw ultrasonic distance to the liquid surface."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: "CR2032 battery level."
+  - platform: "sensor"
+    name: "Sensor Temperature"
+    device_class: "temperature"
+    unit: "°C"
+    notes: "Sensor temperature (not ambient-calibrated)."
+
+helpful_urls:
+  - title: "ESPHome — mopeka_pro_check"
+    url: "https://esphome.io/components/sensor/mopeka_pro_check.html"
+    description: "Passive BLE decode: level/distance/temperature/battery/quality and tank calibration."

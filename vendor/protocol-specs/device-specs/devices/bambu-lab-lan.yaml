@@ -1,0 +1,209 @@
+# Bambu Lab 3D Printer (LAN mode) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Doridian/OpenBambuAPI (mqtt.md, ftp.md, video.md).
+
+device:
+  name: "Bambu Lab 3D Printer (X1 / P1 / A1)"
+  manufacturer: "Bambu Lab"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The MQTT topics/commands, the
+      FTPS and camera ports, and the LAN Access Code auth are from the community
+      OpenBambuAPI documentation.
+  protocol: "wifi"
+  category: "printer"
+  pictogram: "3d-printer"
+  transport: "mqtt"
+  notes: >
+    Bambu Lab printers (X1/P1/A1) can be driven over the LAN with no cloud, but
+    Bambu is a cloud-first vendor and its 2024-2025 firmware "authorization"
+    change gated third-party/LAN access — so the community-documented LAN mode is
+    the rescue path. All three local transports authenticate with username `bblp`
+    and password = the printer's LAN Access Code (dev_access_code), read from the
+    printer's network settings after enabling LAN mode.
+
+    MQTT over TLS, port 8883 (mqtts://{ip}:8883): publish commands to
+    device/{serial}/request, subscribe status on device/{serial}/report (JSON).
+    Request shape {"<type>":{"sequence_id":"0","command":"<cmd>",...}}; reports
+    echo sequence_id and include "result":"success". Command families:
+    info/get_version, pushing/pushall (full state dump; version 1, push_target 1),
+    print/gcode_file|project_file|pause|resume|stop, print/gcode_line (raw
+    G-code), system/ledctrl, camera/ipcam_record_set. X1 always reports the full
+    object; P1P reports deltas — use pushall to force a snapshot.
+
+    FTPS (implicit TLS), port 990: gcode/3mf model files, timelapse, logs.
+
+    CAMERA: X1/P2S/H2 use RTSP-over-TLS port 322 (rtsps://{ip}:322/streaming/
+    live/1; H2 RTSPS off by default, enable on the touchscreen). A1/P1 use raw
+    TCP+TLS port 6000: an auth packet (bblp + access code, 32-byte null-padded
+    ASCII), then sequential JPEG frames with 16-byte headers (FF D8 ... FF D9).
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Doridian/OpenBambuAPI"
+    upstream_docs:
+      - url: "https://github.com/Doridian/OpenBambuAPI/blob/main/mqtt.md"
+        title: "OpenBambuAPI — MQTT"
+        covers: "The device/{serial}/request|report topics, the JSON command shape and the command families."
+      - url: "https://github.com/Doridian/OpenBambuAPI/blob/main/video.md"
+        title: "OpenBambuAPI — video"
+        covers: "The RTSPS (322) and raw TCP+TLS (6000) camera transports."
+    notes: >
+      Bambu publishes no LAN protocol spec; OpenBambuAPI is the community
+      documentation. The LAN Access Code is the shared credential for MQTT, FTPS
+      and the camera.
+
+  identification:
+    default_port: 8883
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_http._tcp.local."
+          port: 8883
+          identity_mapping:
+            stable_keys:
+              - source: "mqtt:device/{serial}/report#serial"
+                key: "serial"
+            display:
+              source: "mqtt:device/{serial}/report#name"
+        notes: >
+          The printer is found on the LAN by IP; the serial + access code are
+          shown in the printer's network settings, and MQTT topics are keyed by
+          the device serial.
+    identity:
+      stable_keys: ["serial"]
+      display: "serial"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Enable LAN Mode / LAN-only mode on the printer touchscreen and read the
+      Access Code + serial + IP from the network settings; that access code is the
+      password for MQTT (8883), FTPS (990) and RTSPS (322). The exact touchscreen
+      menu path is not transcribed here.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          On the printer touchscreen, enable LAN Mode and note the Access Code +
+          serial + IP. Connect MQTT over TLS to 8883 as bblp + access code and
+          publish to device/{serial}/request.
+        steps:
+          - action: "On the printer, enable LAN Mode and read the Access Code, serial and IP."
+            actor: "user"
+          - action: "Connect mqtts://{ip}:8883 as bblp + access code; subscribe device/{serial}/report and publish device/{serial}/request."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A factory reset from the touchscreen clears network config and the access
+        code. The exact menu path is not transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Wi-Fi and LAN mode are reconfigured from the touchscreen while reachable."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "LAN Access Code (dev_access_code)"
+      issued_to_client:
+        - "LAN Access Code (read from the touchscreen; password for MQTT/FTPS/RTSPS)"
+      notes: >
+        The LAN Access Code is the shared credential for all three local
+        transports. Onboarding is via the touchscreen; the passphrase is entered
+        there, not over a link this spec documents.
+
+mqtt_topics:
+  - topic: "device/{serial}/request"
+    name: "Command topic"
+    direction: "subscribe"
+    description: >
+      Publish commands here (from the client's perspective the printer subscribes).
+      JSON {"<type>":{"sequence_id":"0","command":"<cmd>",...}}; families
+      info/get_version, pushing/pushall, print/*, system/ledctrl, camera/*.
+    payload_format:
+      encoding: "json"
+  - topic: "device/{serial}/report"
+    name: "Status topic"
+    direction: "publish"
+    description: >
+      The printer publishes status here; reports echo sequence_id and include
+      "result":"success". X1 sends the full object; P1P sends deltas (force a
+      full snapshot with pushing/pushall).
+    payload_format:
+      encoding: "json"
+
+camera:
+  enable_required: true
+  enable_notes: >
+    The camera uses the LAN Access Code. X1/P2S/H2 serve RTSPS on port 322 (H2
+    off by default — enable on the touchscreen); A1/P1 use a raw TCP+TLS JPEG
+    stream on port 6000.
+  feed_host_source: "device"
+  streams:
+    - name: "Live (RTSPS)"
+      transport: "rtsp"
+      url_template: "rtsps://bblp:{access_code}@{address}:322/streaming/live/1"
+      default_port: 322
+      served_by: "device"
+      auth: "user"
+      notes: "X1 / P2S / H2. RTSP over TLS; user bblp + LAN Access Code."
+
+commands:
+  pause:
+    description: "Pause the current print."
+    transport: "mqtt"
+    body: '{"print":{"sequence_id":"0","command":"pause"}}'
+    verification: "reported"
+  resume:
+    description: "Resume the current print."
+    transport: "mqtt"
+    body: '{"print":{"sequence_id":"0","command":"resume"}}'
+    verification: "reported"
+  stop:
+    description: "Stop the current print."
+    transport: "mqtt"
+    body: '{"print":{"sequence_id":"0","command":"stop"}}'
+    verification: "reported"
+  pushall:
+    description: "Request a full state snapshot (needed on P1P, which otherwise sends deltas)."
+    transport: "mqtt"
+    body: '{"pushing":{"sequence_id":"0","command":"pushall","version":1,"push_target":1}}'
+    verification: "reported"
+
+entities:
+  - platform: "button"
+    name: "Pause"
+    commands:
+      press: "pause"
+  - platform: "button"
+    name: "Resume"
+    commands:
+      press: "resume"
+  - platform: "button"
+    name: "Stop"
+    commands:
+      press: "stop"
+
+helpful_urls:
+  - title: "Doridian/OpenBambuAPI — MQTT"
+    url: "https://github.com/Doridian/OpenBambuAPI/blob/main/mqtt.md"
+    description: "The device/{serial}/request|report topics, JSON command shape and command families."
+  - title: "Doridian/OpenBambuAPI — video"
+    url: "https://github.com/Doridian/OpenBambuAPI/blob/main/video.md"
+    description: "The RTSPS (322) and raw TCP+TLS (6000) camera transports."
+  - title: "Doridian/OpenBambuAPI — FTP"
+    url: "https://github.com/Doridian/OpenBambuAPI/blob/main/ftp.md"
+    description: "The FTPS (990) file access (gcode/3mf, timelapse, logs)."

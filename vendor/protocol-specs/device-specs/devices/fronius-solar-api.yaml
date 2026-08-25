@@ -1,0 +1,192 @@
+# Fronius Solar API (local) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Fronius Solar API V1 official documentation (help center + spec PDF).
+#     Facts paraphrased as derived facts, not reproduced.
+
+device:
+  name: "Fronius Solar Inverter (Solar API V1)"
+  manufacturer: "Fronius International"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Endpoints, the no-auth
+      property and the GEN24 enable/HTTPS behaviour are paraphrased from the
+      official Fronius Solar API V1 documentation.
+  protocol: "wifi"
+  category: "energy"
+  pictogram: "power-station"
+  transport: "http"
+  notes: >
+    Fronius solar inverters and dataloggers (Datamanager/Hybridmanager on Snap
+    inverters and Symo Hybrid; GEN24 / Tauro / Verto) expose a local JSON REST
+    API — the Solar API V1 — for telemetry. It is read-only and, notably,
+    unauthenticated: the API answers regardless of the user/admin password. On
+    GEN24 the API has an enable/disable switch (enable it in the inverter web
+    UI); older platforms answer by default.
+
+    NEGOTIATION: GET /solar_api/GetAPIVersion.cgi returns
+    {"APIVersion":1,"BaseURL":"/solar_api/v1/","CompatibilityRange":"1.5-9"}.
+
+    ENDPOINTS under /solar_api/v1/: GetInverterRealtimeData.cgi, GetInverterInfo,
+    GetActiveDeviceInfo, GetMeterRealtimeData, GetStorageRealtimeData,
+    GetOhmPilotRealtimeData, GetPowerFlowRealtimeData, GetLoggerInfo, and
+    GetArchiveData.cgi for history. Requests use Scope=System|Device,
+    DeviceId=<Solar Net address>, DataCollection= (e.g. CommonInverterData).
+    Responses are JSON with a common Head (status codes, timestamps) and a Body.
+
+    TRANSPORT: HTTP on Datamanager and older GEN24 (< 1.35); GEN24 >= 1.35 adds
+    HTTPS with a Fronius-generated (untrusted) certificate, and redirects
+    requests from non-private IPs to HTTPS while allowing plain HTTP from RFC1918
+    ranges. GEN24 reports null for several legacy DAY_ENERGY-style values.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://www.fronius.com/en/solar-energy/installers-partners/technical-data/all-products/system-monitoring/open-interfaces/fronius-solar-api-json-"
+        title: "Fronius — Solar API (JSON)"
+        covers: "The /solar_api/v1 endpoints, request model (Scope/DeviceId/DataCollection) and response envelope."
+    notes: >
+      Vendor-documented and vendor-supported; nothing here was reverse-
+      engineered. An OpenAPI/Swagger spec for GEN24/Tauro/Verto is also
+      officially downloadable from Fronius.
+
+  identification:
+    default_port: 80
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # Discovery is in-band via the version-negotiation CGI, not mDNS.
+          # Placeholder block.
+          service_type: "_http._tcp.local."
+          port: 80
+          identity_mapping:
+            stable_keys:
+              - source: "http:/solar_api/GetAPIVersion.cgi#APIVersion"
+                key: "api_version"
+            display:
+              source: "http:/solar_api/GetLoggerInfo#UniqueID"
+        notes: >
+          Confirm a Fronius device with GET /solar_api/GetAPIVersion.cgi (returns
+          APIVersion + BaseURL); GetLoggerInfo carries a unique id.
+    identity:
+      stable_keys: ["logger_unique_id"]
+      display: "logger_unique_id"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      The datalogger/inverter joins the LAN via its own web UI / setup AP. On
+      GEN24 the Solar API must be enabled in the inverter web UI (Site
+      Communication). No account is needed for local reads.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Join the inverter/datalogger to the network via its web UI, and on
+          GEN24 enable the Solar API in the inverter's Site Communication
+          settings. The API then answers under /solar_api/v1/ with no auth.
+        steps:
+          - action: "Network the inverter/datalogger via its own web UI."
+            actor: "user"
+          - action: "On GEN24, enable the Solar API in the inverter web UI."
+            actor: "user"
+            expect: "GET /solar_api/GetAPIVersion.cgi returns APIVersion 1."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A datalogger reset returns it to setup; the gesture is in Fronius's own
+        documentation and not transcribed here. The Solar API stores no user
+        credential (it is unauthenticated).
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Network settings are changed from the inverter/datalogger web UI in place."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Network configuration"
+      issued_to_client: []
+      notes: >
+        The Solar API is unauthenticated by design (it answers regardless of the
+        set passwords). Network onboarding is via the device's own web UI, not
+        this API.
+
+http_endpoints:
+  - method: "GET"
+    path: "/solar_api/GetAPIVersion.cgi"
+    name: "API version"
+    description: "Returns {\"APIVersion\":1,\"BaseURL\":\"/solar_api/v1/\",\"CompatibilityRange\":\"1.5-9\"} — the identity + base path."
+    response_body:
+      content_type: "application/json"
+      fields:
+        - name: "APIVersion"
+          type: "int"
+          description: "1 for current devices."
+        - name: "BaseURL"
+          type: "string"
+          description: "e.g. /solar_api/v1/."
+  - method: "GET"
+    path: "/solar_api/v1/GetInverterRealtimeData.cgi"
+    name: "Inverter realtime data"
+    description: >
+      Live inverter data. Query Scope=System (aggregate) or Scope=Device with
+      DeviceId + DataCollection=CommonInverterData (PAC, current DAY/YEAR/TOTAL
+      energy, etc.).
+  - method: "GET"
+    path: "/solar_api/v1/GetPowerFlowRealtimeData.fcgi"
+    name: "Power flow"
+    description: "Site power flow: PV production, load, grid import/export, and battery when present."
+  - method: "GET"
+    path: "/solar_api/v1/GetMeterRealtimeData.cgi"
+    name: "Meter realtime data"
+    description: "Smart-meter readings when a Fronius Smart Meter is installed."
+  - method: "GET"
+    path: "/solar_api/v1/GetStorageRealtimeData.cgi"
+    name: "Storage realtime data"
+    description: "Battery storage state when present."
+
+commands:
+  read_inverter:
+    description: "Read aggregate inverter realtime data (Scope=System)."
+    transport: "http"
+    method: "GET"
+    path: "/solar_api/v1/GetInverterRealtimeData.cgi?Scope=System"
+    verification: "reported"
+  read_power_flow:
+    description: "Read site power flow (production/load/grid/battery)."
+    transport: "http"
+    method: "GET"
+    path: "/solar_api/v1/GetPowerFlowRealtimeData.fcgi"
+    verification: "reported"
+
+entities:
+  - platform: "sensor"
+    name: "PV Power"
+    device_class: "power"
+    unit: "W"
+    state_endpoint: "/solar_api/v1/GetPowerFlowRealtimeData.fcgi"
+    notes: "Current PV production from the power-flow endpoint."
+  - platform: "sensor"
+    name: "Energy Today"
+    device_class: "energy"
+    unit: "Wh"
+    state_endpoint: "/solar_api/v1/GetInverterRealtimeData.cgi"
+    notes: "DAY_ENERGY from CommonInverterData (null on some GEN24 firmware)."
+
+helpful_urls:
+  - title: "Fronius — Solar API (JSON) documentation"
+    url: "https://www.fronius.com/en/solar-energy/installers-partners/technical-data/all-products/system-monitoring/open-interfaces/fronius-solar-api-json-"
+    description: "Official Solar API V1: endpoints, request model, response envelope, platform compatibility."
+  - title: "mwittig/node-fronius-solar"
+    url: "https://github.com/mwittig/node-fronius-solar"
+    description: "Community Node client for the Solar API."

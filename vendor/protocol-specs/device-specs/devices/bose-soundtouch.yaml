@@ -1,0 +1,323 @@
+# Bose SoundTouch — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no doc reproduction):
+#   - Bose's own "SoundTouch Web API" spec, published at end-of-life (v1.1,
+#     April 2026): the facts below are paraphrased from it, not copied. The
+#     document carries a royalty-free but revocable proprietary licence, so this
+#     spec restates the protocol as independent derived facts.
+#   - CharlesBlonde/libsoundtouch and thlucas1/bosesoundtouchapi (community
+#     clients that predate and corroborate the public docs).
+
+device:
+  name: "Bose SoundTouch Speakers"
+  manufacturer: "Bose"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Facts are paraphrased from
+      Bose's own SoundTouch Web API document (published at end-of-life) and
+      cross-checked against the libsoundtouch / bosesoundtouchapi community
+      clients.
+  protocol: "wifi"
+  category: "speaker"
+  pictogram: "smart-speaker"
+  transport: "http"
+  notes: >
+    SoundTouch is Bose's discontinued multi-room speaker line — SoundTouch
+    10/20/30, Portable, Wave SoundTouch, the SA-4/SA-5 amplifiers and the
+    Lifestyle/CineMate/VideoWave systems. Bose shut the SoundTouch cloud on
+    2026-05-06, ending presets, in-app streaming and firmware updates, but
+    patched the app for local-only control and PUBLISHED the local API at
+    end-of-life. Local control therefore survives the cloud: every speaker
+    serves an unauthenticated HTTP/XML API on port 8090 with a WebSocket push
+    channel on port 8080, and AirPlay / Spotify Connect / Bluetooth / AUX keep
+    working. This is a rescue where the vendor itself left the door open.
+
+    NOTE: the newer Bose "Home Speaker" 300/500/700 and Portable Home Speaker
+    do NOT use this API — they are a different product family. This spec covers
+    only the SoundTouch line.
+
+    CONTROL SURFACE (HTTP on port 8090; get* = GET, set* = POST with an XML
+    body; no authentication):
+      POST /key         — press/release a control key (see the key enum)
+      GET  /now_playing — current track/source/art/playStatus
+      GET/POST /volume  — 0-100, plus a muteenabled flag
+      POST /select      — choose an input by ContentItem (AUX/BLUETOOTH/PRODUCT)
+      GET  /sources     — the available inputs and their READY/UNAVAILABLE state
+      GET  /presets     — the six physical presets (ids 1-6)
+      GET  /info        — device id/type, components (firmware/serial), MAC/IP
+      GET/POST /bass, GET /bassCapabilities — bass level and its range
+      GET /getZone, POST /setZone, /addZoneSlave, /removeZoneSlave — multi-room
+    Default success response is <status>VALUE</status>; errors are an <errors>
+    element carrying <error value= name= severity=/>.
+
+    PUSH: connect a WebSocket to ws://<ip>:8080 with subprotocol "gabbo". The
+    speaker pushes <updates deviceID=...> wrappers on change: nowPlayingUpdated,
+    volumeUpdated, presetsUpdated, zoneUpdated, sourcesUpdated, bassUpdated,
+    connectionStateUpdated, infoUpdated and more.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://www.bose.com/soundtouch-end-of-life"
+        title: "Bose — SoundTouch end of life / end-of-service guidance"
+        covers: "The 2026-05-06 cloud shutdown, the local-only app update, and the published Web API."
+    notes: >
+      Bose released the "SoundTouch Web API" specification at end-of-life under
+      a royalty-free but revocable licence. Because the licence is revocable and
+      forbids redistributing the document, this spec paraphrases the protocol as
+      independent derived facts and does not reproduce the vendor text. The
+      community libsoundtouch/bosesoundtouchapi clients predate the public docs
+      and agree with them.
+
+  identification:
+    default_port: 8090
+    mdns_service_type: "_soundtouch._tcp.local."
+    ssdp_search_targets:
+      - "urn:schemas-upnp-org:device:MediaRenderer:1"
+    identity_keys:
+      primary: "deviceID"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_soundtouch._tcp.local."
+          port: 8090
+          identity_mapping:
+            stable_keys:
+              - source: "http:/info#deviceID"
+                key: "deviceID"
+            display:
+              source: "http:/info#name"
+        notes: >
+          SoundTouch units advertise _soundtouch._tcp (and _raop._tcp on
+          AirPlay-capable models). Confirm a hit by fetching GET /info on port
+          8090 and reading the device id and MAC. SSDP (MediaRenderer) is a
+          fallback.
+    identity:
+      stable_keys: ["deviceID"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Out-of-box, a SoundTouch speaker is joined to Wi-Fi via the SoundTouch
+      app over a wired setup or a temporary setup network. Since 2026-05-06 the
+      patched app performs setup, configuration and grouping fully locally
+      (no account). The provisioning wire steps are not documented here — low.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Use the (now local-only) SoundTouch app or the speaker's wired setup
+          to join the home Wi-Fi. Once on the LAN the port-8090 API answers with
+          no further onboarding.
+        steps:
+          - action: "Run the SoundTouch app's setup (or wired setup) and give the speaker the home Wi-Fi credentials."
+            actor: "user"
+            expect: "The speaker joins the LAN and answers GET /info on port 8090."
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        A factory reset clears Wi-Fi credentials and returns the speaker to
+        setup mode. Per-model button/power-cycle procedures exist (documented in
+        Bose's own support material); the exact key sequence is model-specific
+        and not transcribed here.
+      procedures:
+        - name: "Power-cycle factory reset (model-specific)"
+          verified: false
+          basis: >
+            Bose support documents a per-model reset (typically hold a button
+            while powering on, or a 10-button-hold on units with a keypad). Not
+            replayed by this project.
+          steps:
+            - action: "Follow the model's Bose-documented reset (button hold during power-on)."
+              actor: "user"
+              expect: "The speaker returns to Wi-Fi setup mode."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Wi-Fi can be re-run from the app while the speaker is reachable; a
+        physical reset is only needed if the old network is already gone.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Wi-Fi credentials"
+      issued_to_client: []
+      notes: >
+        The control API (port 8090) is unauthenticated on the LAN: anything on
+        the network can drive the speaker. The Wi-Fi passphrase is handled by
+        the app's setup flow, not the control API documented here.
+
+http_endpoints:
+  - method: "GET"
+    path: "/info"
+    name: "Device information"
+    description: >
+      Device id/type, component list (each with softwareVersion and
+      serialNumber), and networkInfo (MAC/IP). The endpoint that confirms a
+      device is SoundTouch and yields the stable deviceID.
+    response_body:
+      content_type: "application/xml"
+      fields:
+        - name: "deviceID"
+          type: "string"
+          description: "Stable device identity (attribute on the <info> element)."
+        - name: "name"
+          type: "string"
+          description: "User-set speaker name."
+        - name: "networkInfo"
+          type: "object"
+          description: "MAC address and current IP."
+  - method: "GET"
+    path: "/now_playing"
+    name: "Now playing"
+    description: "Current source, ContentItem, track/artist/album/stationName, art URL and playStatus."
+  - method: "GET"
+    path: "/volume"
+    name: "Read volume"
+    description: "<volume> with target/actual volume 0-100 and a <muteenabled> flag."
+  - method: "POST"
+    path: "/volume"
+    name: "Set volume"
+    description: "Body <volume>N</volume>, N in 0-100."
+    request_body:
+      content_type: "application/xml"
+  - method: "POST"
+    path: "/key"
+    name: "Press a control key"
+    description: >
+      Body <key state="press|release" sender="Gabbo">KEY</key>. Send a press
+      then a release. KEY includes PLAY, PAUSE, STOP, PREV_TRACK, NEXT_TRACK,
+      POWER, MUTE, VOLUME_UP, VOLUME_DOWN, PRESET_1..PRESET_6, AUX_INPUT,
+      SHUFFLE_ON/OFF, REPEAT_ONE/ALL, THUMBS_UP/DOWN.
+    request_body:
+      content_type: "application/xml"
+  - method: "GET"
+    path: "/sources"
+    name: "List inputs"
+    description: "<sourceItem source= sourceAccount= status=\"READY|UNAVAILABLE\"> entries."
+  - method: "POST"
+    path: "/select"
+    name: "Select an input"
+    description: 'Body <ContentItem source="AUX|BLUETOOTH|PRODUCT" sourceAccount="..."/>.'
+    request_body:
+      content_type: "application/xml"
+  - method: "GET"
+    path: "/presets"
+    name: "List presets"
+    description: "The six physical presets (ids 1-6), each a ContentItem."
+  - method: "POST"
+    path: "/setZone"
+    name: "Create a multi-room zone"
+    description: >
+      Body <zone master="MASTER_MAC" senderIPAddress=...><member ipaddress=...>
+      MEMBER_MAC</member></zone> to play the master's audio on the members.
+
+websocket:
+  path: "/ (port 8080)"
+  description: >
+    Push channel. Connect ws://<ip>:8080 with subprotocol "gabbo"; the speaker
+    emits <updates deviceID=...> wrappers on change (nowPlayingUpdated,
+    volumeUpdated, presetsUpdated, zoneUpdated, sourcesUpdated, bassUpdated,
+    connectionStateUpdated, infoUpdated).
+  message_format: "xml"
+  verification: "reported"
+
+commands:
+  play:
+    description: "Press PLAY (press then release)."
+    transport: "http"
+    method: "POST"
+    path: "/key"
+    body: '<key state="press" sender="Gabbo">PLAY</key>'
+    verification: "reported"
+  pause:
+    description: "Press PAUSE."
+    transport: "http"
+    method: "POST"
+    path: "/key"
+    body: '<key state="press" sender="Gabbo">PAUSE</key>'
+    verification: "reported"
+  power:
+    description: "Toggle standby (press POWER)."
+    transport: "http"
+    method: "POST"
+    path: "/key"
+    body: '<key state="press" sender="Gabbo">POWER</key>'
+    verification: "reported"
+  next_track:
+    description: "Skip to the next track."
+    transport: "http"
+    method: "POST"
+    path: "/key"
+    body: '<key state="press" sender="Gabbo">NEXT_TRACK</key>'
+    verification: "reported"
+  set_volume:
+    description: "Set volume 0-100."
+    transport: "http"
+    method: "POST"
+    path: "/volume"
+    body: '<volume>{level}</volume>'
+    parameters:
+      level:
+        type: "integer"
+        min: 0
+        max: 100
+        description: "Volume percent."
+    verification: "reported"
+  select_preset:
+    description: "Recall a physical preset 1-6."
+    transport: "http"
+    method: "POST"
+    path: "/key"
+    body: '<key state="press" sender="Gabbo">PRESET_{n}</key>'
+    parameters:
+      n:
+        type: "integer"
+        min: 1
+        max: 6
+        description: "Preset number 1-6."
+    verification: "reported"
+
+entities:
+  - platform: "number"
+    name: "Volume"
+    min: 0
+    max: 100
+    step: 1
+    state_endpoint: "/volume"
+    notes: "Reads/writes the /volume endpoint (0-100)."
+  - platform: "button"
+    name: "Play"
+    commands:
+      press: "play"
+  - platform: "button"
+    name: "Pause"
+    commands:
+      press: "pause"
+  - platform: "button"
+    name: "Power"
+    commands:
+      press: "power"
+
+helpful_urls:
+  - title: "Bose — SoundTouch end of life"
+    url: "https://www.bose.com/soundtouch-end-of-life"
+    description: "The cloud shutdown, the local-only app update, and the published Web API."
+  - title: "CharlesBlonde/libsoundtouch"
+    url: "https://github.com/CharlesBlonde/libsoundtouch"
+    description: "Python client for the port-8090 API and the gabbo WebSocket (predates the public docs)."
+  - title: "thlucas1/bosesoundtouchapi"
+    url: "https://github.com/thlucas1/bosesoundtouchapi"
+    description: "MIT Python client; notes that the Home Speaker 300/500/700 do NOT use this API."

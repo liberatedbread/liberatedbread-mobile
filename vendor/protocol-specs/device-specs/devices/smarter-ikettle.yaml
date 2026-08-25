@@ -1,0 +1,190 @@
+# Smarter iKettle 2.0 / Smarter Coffee — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - ian-kent/ikettle2 protocol notes.
+#   - jkellerer/iBrew (fork of Tristan79/iBrew) — cross-checked command IDs.
+
+device:
+  name: "Smarter iKettle 2.0 (and Smarter Coffee)"
+  manufacturer: "Smarter Applications Ltd"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The port-2081 framing and
+      command IDs are cross-checked between ian-kent/ikettle2 and iBrew (which
+      tested against iKettle 2.0 firmware v19).
+  protocol: "wifi"
+  category: "appliance"
+  transport: "tcp"
+  notes: >
+    The Smarter iKettle 2.0 (and the same-protocol Smarter Coffee) are Wi-Fi
+    kettles/coffee makers. Smarter is still a company, but the smart features for
+    these devices were removed from the app in mid-2025 — owners report the
+    kettles can no longer connect to the app, leaving "very expensive ordinary
+    kettles". The LAN protocol needs no cloud at all, so it is the rescue path.
+
+    TRANSPORT: a binary protocol on port 2081, over UDP or TCP, no
+    authentication. Message syntax: <id> <args> <terminator>, terminator always
+    byte 0x7e ('~').
+
+    COMMANDS (decimal ids; iBrew shows them in hex):
+      21   turn on / boil (optional target-temperature argument)
+      22   turn off
+      64 (0x40) get device info — used for UDP-broadcast discovery after setup
+      109  firmware-update mode (disables Wi-Fi, creates an "iKettle Update" AP)
+    RESPONSES:
+      3    command acknowledged
+      20   kettle status (flag byte, temperature, water level)
+      101 (0x65) device info reply, e.g. 65 01 13 7e = device type 0x01 (kettle),
+           firmware 0x13 (19)
+    Water-level quirk: the level byte reads 7 with the kettle OFF its base, 8
+    when ON the base.
+
+    DISCOVERY: the device-info command (0x64) is used over UDP broadcast after
+    setup — but this fails on routers that do not forward UDP broadcasts, so a
+    direct TCP connection to a known IP is the reliable path.
+
+    NOTE: the original iKettle (v1) uses an older, different protocol. This spec
+    covers the 2.0 / Smarter Coffee family.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/jkellerer/iBrew"
+    upstream_docs:
+      - url: "https://github.com/ian-kent/ikettle2/blob/master/protocol/README.md"
+        title: "ian-kent/ikettle2 — protocol notes"
+        covers: "The port-2081 framing, the 0x7e terminator, command/response IDs and the water-level quirk."
+    notes: >
+      No vendor documentation. ian-kent/ikettle2 and iBrew reverse-engineered
+      the protocol; iBrew tested against iKettle 2.0 firmware v19 and also drives
+      Smarter Coffee.
+
+  identification:
+    default_port: 2081
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          # No mDNS; discovery is the UDP-broadcast device-info command (0x64),
+          # which many routers drop. Placeholder; direct TCP to a known IP is the
+          # reliable path. See smarter_protocol.
+          service_type: "_http._tcp.local."
+          port: 2081
+          identity_mapping:
+            stable_keys:
+              - source: "udp:2081#device_type"
+                key: "device_type"
+            display:
+              source: "udp:2081#device_type"
+        notes: >
+          Real discovery: broadcast the device-info command (0x64) on UDP 2081;
+          devices answer 0x65 with their type + firmware. Broadcast may be
+          dropped by the router — prefer a direct TCP connection.
+    identity:
+      stable_keys: ["mac"]
+      display: "device_type"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A factory-fresh kettle hosts its own AP for Wi-Fi onboarding; joining it to
+      the home network needs no cloud. The firmware-update command (109) also
+      creates an "iKettle Update" AP. Onboarding wire steps are not documented
+      here.
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          Join the kettle's setup AP and hand it the home Wi-Fi credentials over
+          the port-2081 protocol; it reboots onto the LAN and answers device-info
+          (0x64) there.
+        steps:
+          - action: "Power a new/reset kettle and join its setup AP."
+            actor: "user"
+          - action: "Send the home Wi-Fi credentials over the port-2081 protocol."
+            actor: "client"
+            expect: "The kettle joins the home network and answers 0x64 device-info."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Returns the kettle to its setup AP. The reset gesture (button hold on the
+        base) is not documented in the sources used here. The firmware-update
+        command (109) separately forces an "iKettle Update" AP.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        No documented in-place Wi-Fi rewrite; treat a network change as a
+        reprovision via the setup AP.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+      issued_to_client: []
+      notes: >
+        Onboarding passes the Wi-Fi credentials over the port-2081 protocol on
+        the setup AP; no encryption is documented. Post-setup control is
+        unauthenticated on the LAN.
+
+smarter_protocol:
+  transport: "port 2081, UDP or TCP, binary"
+  framing: "<id> <args> <terminator 0x7e>"
+  commands:
+    "21": "turn on / boil (optional target-temperature argument)"
+    "22": "turn off"
+    "0x40 (64)": "get device info (UDP-broadcast discovery after setup)"
+    "109": "firmware-update mode (creates an 'iKettle Update' AP)"
+  responses:
+    "3": "command acknowledged"
+    "20": "kettle status (flag, temperature, water level)"
+    "0x65 (101)": "device info reply, e.g. 65 01 13 7e = kettle, firmware 19"
+  water_level_quirk: "level byte reads 7 off the base, 8 on the base"
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. Control is a binary protocol on port 2081 over TCP/UDP
+      (see smarter_protocol), not HTTP.
+
+commands:
+  boil:
+    description: "Turn on / boil (command 21). Optional target-temperature argument."
+    transport: "tcp-json"
+    body: "21 <target_temp?> 7e"
+    verification: "reported"
+  stop:
+    description: "Turn off (command 22)."
+    transport: "tcp-json"
+    body: "22 7e"
+    verification: "reported"
+  device_info:
+    description: "Query device type + firmware (command 0x40). Reply 0x65 ..."
+    transport: "tcp-json"
+    body: "64 7e"
+    verification: "reported"
+
+entities:
+  - platform: "switch"
+    name: "Kettle"
+    icon: "mdi:kettle"
+    commands:
+      turn_on: "boil"
+      turn_off: "stop"
+
+helpful_urls:
+  - title: "ian-kent/ikettle2 — protocol notes"
+    url: "https://github.com/ian-kent/ikettle2/blob/master/protocol/README.md"
+    description: "Port-2081 framing, the 0x7e terminator, command/response IDs and the water-level quirk."
+  - title: "jkellerer/iBrew"
+    url: "https://github.com/jkellerer/iBrew"
+    description: "iBrew fork — console/CLI/library for iKettle 2.0 and Smarter Coffee (tested against firmware v19)."

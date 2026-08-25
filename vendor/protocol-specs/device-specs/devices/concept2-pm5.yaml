@@ -1,0 +1,189 @@
+# Concept2 Performance Monitor 5 (PM5) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Concept2's own "PM Bluetooth Smart Communication Interface Definition"
+#     rev 1.30 (vendor-published) + the companion CSAFE definition.
+
+device:
+  name: "Concept2 Performance Monitor 5 (PM5)"
+  manufacturer: "Concept2, Inc."
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The custom base UUID, the
+      three services and their characteristics, and the CSAFE-over-control-point
+      design are paraphrased from Concept2's own published PM5 BLE interface
+      definition (rev 1.30).
+  protocol: "ble"
+  category: "fitness"
+  notes: >
+    The PM5 is the Performance Monitor on Concept2's RowErg, SkiErg and BikeErg.
+    Concept2 PUBLISHES its BLE interface specification, so this is a friendly
+    documented_api target: pure peer-to-peer BLE (the PM5 is the peripheral),
+    no cloud, no account.
+
+    CUSTOM BASE UUID: CE06xxxx-43E5-11E4-916C-0800200C9A66, where the `06` 16-bit
+    slot varies per service/characteristic. The PM advertises the base UUID in
+    its scan response; the GAP device name (0x2A00) reads "PM5 <serial>".
+
+    SERVICES (on the C2 base UUID):
+      0x0010 Device Information — model 0x0011, serial 0x0012, hardware rev 0x0013,
+             firmware rev 0x0014, manufacturer 0x0015 ("Concept2"), erg machine
+             type 0x0016, ATT MTU 0x0017, LL DLE 0x0018
+      0x0020 Control — receive 0x0021 (WRITE, a CSAFE command frame TO the PM),
+             transmit 0x0022 (READ/notify, the CSAFE response FROM the PM)
+      0x0030 Rowing — general status 0x0031 (19 B), additional-status-1 0x0032
+             (17 B), additional-status-2 0x0033 (20 B), plus stroke/split/force
+             characteristics 0x0035-0x003B
+    Workouts are set up and queried by writing CSAFE command frames to the
+    control receive characteristic; live metrics stream on the Rowing service
+    notifications. On Android an extra multiplexed characteristic packs several
+    status characteristics into one (last byte identifies which).
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://www.concept2.com/service/monitors/pm5/software"
+        title: "Concept2 — PM5 software / Bluetooth interface definition"
+        covers: "The PM5 BLE interface definition (services, characteristics, CSAFE control) and the CSAFE command spec."
+    notes: >
+      Concept2 publishes the interface definition; nothing here was reverse-
+      engineered. The CSAFE command set carried inside the control characteristics
+      is a separate published Concept2 document.
+
+  identification:
+    local_name_prefix: "PM5"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "PM5"
+          service_uuids:
+            - "ce060010-43e5-11e4-916c-0800200c9a66"
+        notes: >
+          The PM advertises the C2 base UUID in its scan response and its GAP
+          name reads "PM5 <serial>". Filter by the name prefix or the base UUID.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No auth keys or pairing secret: enable wireless on the monitor's menu
+      (More Options -> Turn Wireless ON) and connect. Confidence high — read
+      directly from the vendor spec.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          On the PM5, turn wireless on. Scan for "PM5 <serial>", connect,
+          subscribe to the Rowing service notifications, and write CSAFE command
+          frames to the control receive characteristic (0x0021) reading responses
+          on 0x0022.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "On the PM5, More Options -> Turn Wireless ON."
+            actor: "user"
+          - action: "Connect, subscribe to Rowing notifications (0x0031/0x0032/0x0033), read Device Info."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Turning wireless off (or powering down) unpairs; there is no network or
+        cloud state to clear. No dedicated factory-reset procedure is documented
+        here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; a new client connects independently."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No pairing secret; connection is by proximity/user-confirm on the monitor."
+
+services:
+  - uuid: "ce060010-43e5-11e4-916c-0800200c9a66"
+    name: "PM5 Device Information (0x0010)"
+    notes: "Model/serial/hardware/firmware/manufacturer and erg machine type."
+    characteristics:
+      - uuid: "ce060012-43e5-11e4-916c-0800200c9a66"
+        name: "Serial number (0x0012)"
+        properties: ["read"]
+        notes: "PM serial (also in the GAP name 'PM5 <serial>')."
+      - uuid: "ce060016-43e5-11e4-916c-0800200c9a66"
+        name: "Erg machine type (0x0016)"
+        properties: ["read"]
+        notes: "1-byte enum: rower / ski / bike."
+  - uuid: "ce060020-43e5-11e4-916c-0800200c9a66"
+    name: "PM5 Control (0x0020)"
+    notes: "CSAFE command/response channel."
+    characteristics:
+      - uuid: "ce060021-43e5-11e4-916c-0800200c9a66"
+        name: "CSAFE receive (0x0021)"
+        properties: ["write"]
+        notes: "Write a CSAFE command frame (up to 20 bytes) TO the PM to set up workouts / query."
+      - uuid: "ce060022-43e5-11e4-916c-0800200c9a66"
+        name: "CSAFE transmit (0x0022)"
+        properties: ["read", "notify"]
+        notes: "The CSAFE response frame FROM the PM."
+  - uuid: "ce060030-43e5-11e4-916c-0800200c9a66"
+    name: "PM5 Rowing (0x0030)"
+    notes: "Live metrics notifications."
+    characteristics:
+      - uuid: "ce060031-43e5-11e4-916c-0800200c9a66"
+        name: "General status (0x0031)"
+        properties: ["notify"]
+        notes: >
+          19 bytes: elapsed time (3 B, 0.01 s), distance (3 B, 0.1 m), workout
+          type, interval type, workout state, rowing state, stroke state, total
+          work distance (3 B), workout duration (3 B), duration type, drag factor.
+      - uuid: "ce060032-43e5-11e4-916c-0800200c9a66"
+        name: "Additional status 1 (0x0032)"
+        properties: ["notify"]
+        notes: >
+          17 bytes: elapsed time, speed (0.001 m/s), stroke rate, heart rate
+          (bpm, 255 invalid), current pace, average pace, rest distance, rest
+          time, erg machine type.
+      - uuid: "ce060033-43e5-11e4-916c-0800200c9a66"
+        name: "Additional status 2 (0x0033)"
+        properties: ["notify"]
+        notes: >
+          20 bytes: elapsed time, interval count, average power (W), total
+          calories, split/interval average pace/power/calories, last split
+          time/distance.
+
+entities:
+  - platform: "sensor"
+    name: "Power"
+    device_class: "power"
+    unit: "W"
+    state_characteristic: "ce060033-43e5-11e4-916c-0800200c9a66"
+    notes: "Average power from additional-status-2 (0x0033)."
+  - platform: "sensor"
+    name: "Stroke Rate"
+    unit: "spm"
+    state_characteristic: "ce060032-43e5-11e4-916c-0800200c9a66"
+    notes: "Stroke rate from additional-status-1 (0x0032)."
+  - platform: "sensor"
+    name: "Distance"
+    unit: "m"
+    state_characteristic: "ce060031-43e5-11e4-916c-0800200c9a66"
+    notes: "Distance from general status (0x0031), 0.1 m units."
+
+helpful_urls:
+  - title: "Concept2 — PM5 software / Bluetooth interface"
+    url: "https://www.concept2.com/service/monitors/pm5/software"
+    description: "The vendor-published PM5 BLE interface definition and the CSAFE command spec."

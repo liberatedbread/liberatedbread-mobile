@@ -1,0 +1,235 @@
+# Victron "Instant Readout" BLE — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Victron's own published "Extra Manufacturer Data" spec (community archive).
+#   - keshavdv/victron-ble (Unlicense) — the reference decoder.
+
+device:
+  name: "Victron Energy Instant Readout (BLE broadcast)"
+  manufacturer: "Victron Energy"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The record header, AES-CTR
+      scheme, record-type table and Solar Charger / Battery Monitor field
+      layouts are from Victron's own published spec and keshavdv/victron-ble.
+  protocol: "ble"
+  category: "energy"
+  pictogram: "power-station"
+  notes: >
+    Victron's "Instant Readout" is a read-only BLE telemetry broadcast that most
+    modern Victron products emit — SmartSolar MPPT chargers, BMV/SmartShunt
+    battery monitors, Phoenix inverters, Orion DC/DC, SmartLithium batteries,
+    Lynx BMS, Multi RS, VE.Bus and DC energy meters. Unusually, Victron itself
+    PUBLISHED the advertisement format. There is no connection and no cloud: a
+    scanner reads the manufacturer-data advertisement and decrypts it with the
+    per-device 128-bit key the owner extracts once from the VictronConnect app.
+
+    ADVERTISEMENT: BLE manufacturer data, company id 0x02E1 (737). The Instant
+    Readout container (byte offsets after the company id, per keshavdv/victron-ble)
+    is: bytes 0-1 a fixed prefix (manufacturer record type 0x10); bytes 2-3 the
+    model id (u16 LE); byte 4 the record/readout type (see RECORD TYPES); bytes
+    5-6 the AES-CTR IV/nonce (u16 LE); byte 7 the first byte of the encryption key
+    (a key-check byte, so a receiver can detect a stale key); bytes 8+ the AES-CTR
+    ciphertext. Encryption: AES-CTR, 128-bit key; the nonce is the 2-byte IV at
+    bytes 5-6; the CTR counter is MSB and starts at 0; all current records fit one
+    AES block (<= 20 bytes on nRF devices). Changing the Bluetooth PIN rotates
+    the key.
+
+    RECORD TYPES (the byte-4 readout type, NOT byte 0): 0x01 Solar Charger,
+    0x02 Battery Monitor, 0x03 Inverter, 0x04 DC/DC, 0x05 SmartLithium, 0x06
+    Inverter RS, 0x08 AC Charger, 0x09 Smart Battery Protect, 0x0A Lynx BMS,
+    0x0B Multi RS, 0x0C VE.Bus, 0x0D DC Energy Meter. Records may be extended but
+    never re-ordered; parsers must length-check every field and treat all-ones
+    values as NA.
+
+    NOTE: the telemetry is entirely in the advertisement — no GATT connection is
+    used. The `services` block below lists only the standard BLE Generic Access
+    present on the device; the real content is in payload_formats.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    source_code: "https://github.com/keshavdv/victron-ble"
+    upstream_docs:
+      - url: "https://communityarchive.victronenergy.com/questions/93919/victron-bluetooth-ble-protocol-publication.html"
+        title: "Victron — BLE protocol publication announcement"
+        covers: "Victron's own announcement and the 'Extra Manufacturer Data' advertisement format."
+    notes: >
+      Victron published the advertisement format on its wiki/community forum;
+      nothing here was reverse-engineered. keshavdv/victron-ble is the reference
+      decoder. The per-device key must still be read out of the VictronConnect
+      app (device settings -> Product Info).
+
+  identification:
+    manufacturer_data:
+      company_id: 737
+      company_id_hex: "0x02E1"
+      description: >
+        Victron Energy. Instant Readout advertisements carry record type 0x10 as
+        the first payload byte. The victron-ble decoder filters on company id
+        0x02E1; the record body is AES-CTR encrypted with the per-device key.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 737
+            description: "Victron Energy (0x02E1); Instant Readout payloads begin with record type 0x10."
+        notes: >
+          Passive scan: match company id 0x02E1 and a leading 0x10 record byte,
+          then AES-CTR-decrypt the record with the device key. No connection.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing to provision on the wire: pair/bond in VictronConnect once and read
+      the per-device advertisement key out of the app (Product Info -> Instant
+      Readout details). After that any scanner decodes the broadcasts. Changing
+      the Bluetooth PIN rotates the key.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Passive: scan for company id 0x02E1, AES-CTR-decrypt the record with
+          the per-device key. The key is a one-time extraction from
+          VictronConnect, not a wire step.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "In VictronConnect, open the device's Product Info and copy the Instant Readout advertisement key."
+            actor: "user"
+          - action: "Scan for company id 0x02E1 and decrypt the record with that key."
+            actor: "client"
+            expect: "Fields decode per payload_formats for the record type."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No advertisement-related reset. Changing the Bluetooth PIN in
+        VictronConnect rotates the encryption key (and invalidates any stored
+        key). Product resets are per-device and not covered here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network membership. Reading is passive; a PIN change requires
+        re-extracting the key.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Per-device AES-CTR advertisement key (rotated on Bluetooth PIN change)"
+      issued_to_client:
+        - "The advertisement key (read once from VictronConnect)"
+      notes: >
+        The advertisement is encrypted with a per-device key; anyone in range
+        with the key can read the telemetry. No control is possible over this
+        surface — it is read-only.
+
+services:
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access (standard)"
+    notes: >
+      Standard BLE Generic Access, listed only to record a connectable surface.
+      Instant Readout telemetry does NOT use GATT — it is entirely in the
+      manufacturer advertisement decoded in payload_formats below. VictronConnect
+      itself uses a separate vendor GATT not documented here.
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read"]
+        notes: "Standard device-name characteristic."
+
+payload_formats:
+  solar_charger_0x01:
+    description: >
+      Record type 0x01 (SmartSolar MPPT). Decrypted body, little-endian; all-ones
+      values are NA sentinels (0xFF / 0x7FFF / 0xFFFF / 0x1FF).
+    fields:
+      - name: "device_state"
+        description: "8-bit charger state."
+      - name: "charger_error"
+        description: "8-bit charger error code."
+      - name: "battery_voltage"
+        unit: "V"
+        scale: 0.01
+        description: "16-bit, 0.01 V."
+      - name: "battery_current"
+        unit: "A"
+        scale: 0.1
+        description: "16-bit signed, 0.1 A."
+      - name: "yield_today"
+        unit: "kWh"
+        scale: 0.01
+        description: "16-bit, 0.01 kWh."
+      - name: "pv_power"
+        unit: "W"
+        scale: 1
+        description: "16-bit, 1 W."
+      - name: "load_current"
+        unit: "A"
+        scale: 0.1
+        description: "9-bit, 0.1 A."
+  battery_monitor_0x02:
+    description: >
+      Record type 0x02 (BMV / SmartShunt). Decrypted body, little-endian; NA
+      sentinels as above.
+    fields:
+      - name: "time_to_go"
+        unit: "min"
+        scale: 1
+        description: "16-bit, minutes."
+      - name: "battery_voltage"
+        unit: "V"
+        scale: 0.01
+        description: "16-bit, 0.01 V."
+      - name: "alarm_reason"
+        description: "16-bit alarm bitfield."
+      - name: "aux_input"
+        description: "16-bit aux field (aux voltage / mid-voltage / temperature, selected by a 2-bit aux-input selector)."
+      - name: "battery_current"
+        unit: "A"
+        scale: 0.001
+        description: "22-bit signed, 0.001 A."
+      - name: "consumed_ah"
+        unit: "Ah"
+        scale: 0.1
+        description: "20-bit, 0.1 Ah (negated)."
+      - name: "state_of_charge"
+        unit: "%"
+        scale: 0.1
+        description: "10-bit, 0.1 %."
+
+entities:
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    notes: "From the Solar Charger / Battery Monitor record (0.01 V)."
+  - platform: "sensor"
+    name: "PV Power"
+    device_class: "power"
+    unit: "W"
+    notes: "Solar Charger record (1 W)."
+  - platform: "sensor"
+    name: "State of Charge"
+    device_class: "battery"
+    unit: "%"
+    notes: "Battery Monitor record (0.1 %)."
+
+helpful_urls:
+  - title: "Victron — BLE protocol publication (community archive)"
+    url: "https://communityarchive.victronenergy.com/questions/93919/victron-bluetooth-ble-protocol-publication.html"
+    description: "Victron's own announcement of the published advertisement format."
+  - title: "keshavdv/victron-ble"
+    url: "https://github.com/keshavdv/victron-ble"
+    description: "Reference decoder (company id 0x02E1, AES-CTR, record types and field layouts)."
