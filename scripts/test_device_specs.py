@@ -797,6 +797,23 @@ def test_the_entityless_backlog_names_only_real_specs(specs):
     )
 
 
+def test_an_unreliable_advertised_port_states_the_real_one(specs):
+    """`advertised_port_unreliable` without `default_port` says nothing.
+
+    The flag's whole content is "use the declared port instead of the
+    announced one". A spec that raises it and declares no port has told a
+    consumer to ignore the only port it has, which leaves it with none.
+    """
+    for device_id, spec in specs.items():
+        ident = spec["device"].get("identification") or {}
+        if not ident.get("advertised_port_unreliable"):
+            continue
+        assert ident.get("default_port"), (
+            f"{device_id}: says its advertised port is unreliable and declares "
+            "no `default_port`, so a consumer is left with no port at all"
+        )
+
+
 def test_entity_names_are_unique_per_variant(specs):
     """Two controls with one name are indistinguishable on screen and in a
     consumer's send-in-flight bookkeeping, which keys on the name.
