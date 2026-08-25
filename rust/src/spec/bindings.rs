@@ -526,10 +526,11 @@ fn qualify_valued<'a>(
             .parameters
             .as_ref()
             .and_then(|set| set.params.get(param_name.as_str()));
-        // A default fills the parameter, and so does `auto`: the encoder
-        // computes checksums, sequence numbers and packet lengths itself,
-        // so neither shape leaves a blank the user must own.
-        if declared.is_some_and(|p| p.default.is_some() || p.auto.is_some()) {
+        // Anything the spec fills is not a blank the user must own: the
+        // encoder computes an `auto`, substitutes a `default`, and fetches a
+        // `source`. One predicate for all three, shared with the raw command
+        // surface, so the two cannot answer differently again.
+        if declared.is_some_and(|p| !p.is_user_settable()) {
             continue;
         }
         match value_param {
@@ -834,13 +835,13 @@ fn qualify<'a>(
             user_params.push(param_name);
             continue;
         }
-        // Spec-supplied either way: a default is a stated value, `auto` is a
-        // value the encoder computes (checksum, sequence, packet_length).
+        // Spec-supplied one way or another: a stated `default`, a value the
+        // encoder computes (`auto`), or one the client fetches (`source`).
         let supplied = command
             .parameters
             .as_ref()
             .and_then(|set| set.params.get(param_name.as_str()))
-            .is_some_and(|p| p.default.is_some() || p.auto.is_some());
+            .is_some_and(|p| !p.is_user_settable());
         if !supplied {
             return None;
         }

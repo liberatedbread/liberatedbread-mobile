@@ -69,15 +69,18 @@ final _treadmillSpec = DeviceSpecDto(
             advanced: false,
             parameters: [
               ParameterDto(
-                name: 'speed',
-                valueType: 'uint8',
-                min: 0,
-                max: 60,
-                scale: 0.1,
-                unit: 'km/h',
-              ),
+                  name: 'speed',
+                  valueType: 'uint8',
+                  min: 0,
+                  max: 60,
+                  scale: 0.1,
+                  unit: 'km/h',
+                  userSettable: true),
               ParameterDto(
-                  name: 'checksum', valueType: 'uint8', auto: 'checksum'),
+                  name: 'checksum',
+                  valueType: 'uint8',
+                  auto: 'checksum',
+                  userSettable: false),
             ],
           ),
           CommandDto(
@@ -88,7 +91,12 @@ final _treadmillSpec = DeviceSpecDto(
             unsupportedEncoding: null,
             advanced: false,
             parameters: [
-              ParameterDto(name: 'action', valueType: 'uint8', min: 1, max: 2),
+              ParameterDto(
+                  name: 'action',
+                  valueType: 'uint8',
+                  min: 1,
+                  max: 2,
+                  userSettable: true),
             ],
           ),
         ],
@@ -444,10 +452,24 @@ void main() {
         unsupportedEncoding: null,
         advanced: false,
         parameters: [
-          ParameterDto(name: 'speed', valueType: 'uint8', min: 0, max: 255),
+          ParameterDto(
+              name: 'speed',
+              valueType: 'uint8',
+              min: 0,
+              max: 255,
+              userSettable: true),
           // The slope defaults to 0 in the spec, so the card sends speed alone.
-          ParameterDto(name: 'slope', valueType: 'uint8', min: 0, max: 255),
-          ParameterDto(name: 'checksum', valueType: 'uint8', auto: 'checksum'),
+          ParameterDto(
+              name: 'slope',
+              valueType: 'uint8',
+              min: 0,
+              max: 255,
+              userSettable: true),
+          ParameterDto(
+              name: 'checksum',
+              valueType: 'uint8',
+              auto: 'checksum',
+              userSettable: false),
         ],
       ),
     ]);

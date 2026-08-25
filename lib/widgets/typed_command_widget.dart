@@ -153,33 +153,27 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   void initState() {
     super.initState();
     for (final p in widget.command.parameters) {
-      // Parameters the encoder fills itself (checksum, sequence,
-      // packet_length) get no control and no seed value: offering a
-      // "checksum" slider lets the user write over a byte the protocol
-      // computes, and seeding a value would send exactly that.
-      if (p.auto != null) continue;
+      // A parameter the SPEC fills gets no control and no seed value. Which
+      // ones those are is the spec's answer, not this widget's: `userSettable`
+      // is the schema's own rule ("none of auto, default, source") applied in
+      // Rust, where the entity resolver reads the same predicate. This loop
+      // used to test `auto` alone, so 150 defaulted parameters across eight
+      // specs drew knobs the user could write over — SmartDawn's `power_on`,
+      // which is a fixed "turn on", offered four sliders for DDP filler, one
+      // of them a 0..4294967295 range over a connection id.
+      //
+      // Omitting the value is safe on the wire: the encoder resolves supplied
+      // value, then the spec's `default`, then a visible failure, so a
+      // defaulted parameter still encodes to its default. A `source` one has
+      // no default and fails visibly, which is the contract.
+      if (!p.userSettable) continue;
       final allowed = p.allowed;
       final isDropdown = allowed != null &&
           allowed.isNotEmpty &&
           isNumericValueType(p.valueType);
-      // The spec's own default seeds the control when it declares one — in
-      // raw device units, like everything in _values. A default outside the
-      // dropdown's allowed set is ignored rather than fed to a widget that
-      // has no item for it.
-      final declared = p.default_;
-      if (declared != null &&
-          (!isDropdown ||
-              allowed.any((v) => v.toDouble() == declared.toDouble()))) {
-        final range = rangeFor(p.valueType, p.min, p.max);
-        _values[p.name] = isDropdown
-            ? declared.toDouble()
-            : declared.toDouble().clamp(range.min, range.max).toDouble();
-        continue;
-      }
-      // Otherwise enumerated parameters start at the first allowed value and
-      // everything else at the bottom of its range. The condition mirrors
-      // _buildParam: only numeric non-bool parameters get the dropdown
-      // treatment.
+      // Enumerated parameters start at the first allowed value and everything
+      // else at the bottom of its range. The condition mirrors _buildParam:
+      // only numeric non-bool parameters get the dropdown treatment.
       _values[p.name] = isDropdown
           ? allowed.first.toDouble()
           : rangeFor(p.valueType, p.min, p.max).min;
@@ -304,10 +298,11 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
                 ),
               ),
             const SizedBox(height: 8),
-            // Encoder-filled parameters (auto: checksum/sequence/…) are
-            // excluded here exactly as in initState — no control, no value.
+            // Spec-filled parameters are excluded here exactly as in
+            // initState, and by the same one-word question, so the controls on
+            // screen and the values in `_values` cannot disagree.
             for (final p in command.parameters)
-              if (p.auto == null) _buildParam(p),
+              if (p.userSettable) _buildParam(p),
             Row(
               children: [
                 Expanded(

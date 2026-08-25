@@ -5535,6 +5535,8 @@ impl SseDecode for crate::api::device_api::ParameterDto {
         let mut var_unit = <Option<String>>::sse_decode(deserializer);
         let mut var_default_ = <Option<i64>>::sse_decode(deserializer);
         let mut var_auto = <Option<String>>::sse_decode(deserializer);
+        let mut var_source = <Option<String>>::sse_decode(deserializer);
+        let mut var_userSettable = <bool>::sse_decode(deserializer);
         return crate::api::device_api::ParameterDto {
             name: var_name,
             value_type: var_valueType,
@@ -5547,6 +5549,8 @@ impl SseDecode for crate::api::device_api::ParameterDto {
             unit: var_unit,
             default: var_default_,
             auto: var_auto,
+            source: var_source,
+            user_settable: var_userSettable,
         };
     }
 }
@@ -7819,6 +7823,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ParameterDto {
             self.unit.into_into_dart().into_dart(),
             self.default.into_into_dart().into_dart(),
             self.auto.into_into_dart().into_dart(),
+            self.source.into_into_dart().into_dart(),
+            self.user_settable.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -10002,6 +10008,8 @@ impl SseEncode for crate::api::device_api::ParameterDto {
         <Option<String>>::sse_encode(self.unit, serializer);
         <Option<i64>>::sse_encode(self.default, serializer);
         <Option<String>>::sse_encode(self.auto, serializer);
+        <Option<String>>::sse_encode(self.source, serializer);
+        <bool>::sse_encode(self.user_settable, serializer);
     }
 }
 

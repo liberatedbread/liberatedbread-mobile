@@ -4543,8 +4543,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ParameterDto dco_decode_parameter_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 11)
-      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    if (arr.length != 13)
+      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
     return ParameterDto(
       name: dco_decode_String(arr[0]),
       valueType: dco_decode_String(arr[1]),
@@ -4557,6 +4557,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       unit: dco_decode_opt_String(arr[8]),
       default_: dco_decode_opt_box_autoadd_i_64(arr[9]),
       auto: dco_decode_opt_String(arr[10]),
+      source: dco_decode_opt_String(arr[11]),
+      userSettable: dco_decode_bool(arr[12]),
     );
   }
 
@@ -6978,6 +6980,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_unit = sse_decode_opt_String(deserializer);
     var var_default_ = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_auto = sse_decode_opt_String(deserializer);
+    var var_source = sse_decode_opt_String(deserializer);
+    var var_userSettable = sse_decode_bool(deserializer);
     return ParameterDto(
         name: var_name,
         valueType: var_valueType,
@@ -6989,7 +6993,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         valueOffset: var_valueOffset,
         unit: var_unit,
         default_: var_default_,
-        auto: var_auto);
+        auto: var_auto,
+        source: var_source,
+        userSettable: var_userSettable);
   }
 
   @protected
@@ -9051,6 +9057,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.unit, serializer);
     sse_encode_opt_box_autoadd_i_64(self.default_, serializer);
     sse_encode_opt_String(self.auto, serializer);
+    sse_encode_opt_String(self.source, serializer);
+    sse_encode_bool(self.userSettable, serializer);
   }
 
   @protected

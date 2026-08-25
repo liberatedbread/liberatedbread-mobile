@@ -3049,6 +3049,23 @@ class ParameterDto {
   /// is why this field exists. `None` for ordinary caller-owned parameters.
   final String? auto;
 
+  /// Where the client fetches this value: `credential:<name>`, a secret
+  /// stored at pairing. Never a control, and never defaulted — a send that
+  /// reaches the wire without it must fail visibly.
+  final String? source;
+
+  /// Whether a generic control surface should draw a control for this
+  /// parameter at all — the schema's own rule (`auto`, `default` and
+  /// `source` each answer "what if the caller supplies nothing?" without
+  /// the user), already applied.
+  ///
+  /// The DECISION crosses the FFI, not just the three fields it is made
+  /// from, because it was made twice in Rust and once more in Dart and the
+  /// three disagreed: the raw command surface tested `auto` alone and drew
+  /// knobs for 150 defaulted parameters across eight specs. A consumer
+  /// renders what this says and holds no rule of its own.
+  final bool userSettable;
+
   const ParameterDto({
     required this.name,
     required this.valueType,
@@ -3061,6 +3078,8 @@ class ParameterDto {
     this.unit,
     this.default_,
     this.auto,
+    this.source,
+    required this.userSettable,
   });
 
   @override
@@ -3075,7 +3094,9 @@ class ParameterDto {
       valueOffset.hashCode ^
       unit.hashCode ^
       default_.hashCode ^
-      auto.hashCode;
+      auto.hashCode ^
+      source.hashCode ^
+      userSettable.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -3092,7 +3113,9 @@ class ParameterDto {
           valueOffset == other.valueOffset &&
           unit == other.unit &&
           default_ == other.default_ &&
-          auto == other.auto;
+          auto == other.auto &&
+          source == other.source &&
+          userSettable == other.userSettable;
 }
 
 /// The framed writes that set a looping playlist of stored effects — the

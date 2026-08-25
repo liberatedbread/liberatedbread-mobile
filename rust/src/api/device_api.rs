@@ -498,6 +498,21 @@ pub struct ParameterDto {
     /// this parameter — a "checksum" slider is nonsense, and that exact bug
     /// is why this field exists. `None` for ordinary caller-owned parameters.
     pub auto: Option<String>,
+    /// Where the client fetches this value: `credential:<name>`, a secret
+    /// stored at pairing. Never a control, and never defaulted — a send that
+    /// reaches the wire without it must fail visibly.
+    pub source: Option<String>,
+    /// Whether a generic control surface should draw a control for this
+    /// parameter at all — the schema's own rule (`auto`, `default` and
+    /// `source` each answer "what if the caller supplies nothing?" without
+    /// the user), already applied.
+    ///
+    /// The DECISION crosses the FFI, not just the three fields it is made
+    /// from, because it was made twice in Rust and once more in Dart and the
+    /// three disagreed: the raw command surface tested `auto` alone and drew
+    /// knobs for 150 defaulted parameters across eight specs. A consumer
+    /// renders what this says and holds no rule of its own.
+    pub user_settable: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1254,6 +1269,8 @@ impl From<(&str, &Parameter)> for ParameterDto {
             // Rendered through Display, which spells the role exactly as the
             // spec's snake_case wire string — Dart pattern-matches on it.
             auto: p.auto.map(|role| role.to_string()),
+            source: p.source.clone(),
+            user_settable: p.is_user_settable(),
         }
     }
 }

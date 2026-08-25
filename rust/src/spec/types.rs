@@ -1737,6 +1737,24 @@ pub struct Parameter {
     /// having to.
     #[serde(default)]
     pub auto: Option<AutoRole>,
+    /// Where the CLIENT obtains this value when it is not one the user sets:
+    /// `credential:<name>`, a secret stored at pairing time.
+    ///
+    /// The BLE sibling of [`SpecCommandParameter::source`], and it shares that
+    /// field's contract exactly: obtaining the value is part of the send, so a
+    /// client reaching the wire without it must fail visibly rather than
+    /// substitute anything — which is why a `source` parameter carries no
+    /// `default` and is never a control.
+    ///
+    /// Parsed here so it cannot become one. The struct had no such field and
+    /// no extensions bag, so `source:` on a BLE parameter was discarded at
+    /// parse and the generic command surface would have drawn it as a free
+    /// slider seeded at its minimum — a device's stored password rendered as a
+    /// knob, and a wrong secret sent instead of an honest "not paired yet".
+    /// No vendored spec declares one today; the point is that the first one
+    /// will not have to discover this.
+    #[serde(default)]
+    pub source: Option<String>,
     /// First frame byte an `auto: checksum` sums over, counting from the
     /// start of the encoded frame. Defaults to 1 when absent: treadmills like
     /// the KingSmith WalkingPad checksum everything after their fixed header
@@ -1829,6 +1847,7 @@ impl Default for Parameter {
             unit: None,
             notes: None,
             endianness: None,
+            source: None,
             auto: None,
             checksum_start: None,
             checksum_xor: None,
@@ -1837,6 +1856,27 @@ impl Default for Parameter {
 }
 
 impl Parameter {
+    /// Whether a generic control surface should draw a control for this
+    /// parameter — the schema's rule, in one place.
+    ///
+    /// The schema states it on both the BLE and the network parameter:
+    /// "a consumer building a generic control surface draws controls only for
+    /// parameters that are none of `auto`, `default`, `source`". Each of the
+    /// three answers the same question — what happens when the caller supplies
+    /// nothing — and answers it without the user: the encoder computes an
+    /// `auto`, substitutes a `default`, and fetches a `source`.
+    ///
+    /// Written here rather than at each call site because it was written at
+    /// each call site and they disagreed. The entity resolver tested
+    /// `default || auto`; the raw command browser tested `auto` alone, so 150
+    /// defaulted parameters across eight specs drew knobs — SmartDawn's
+    /// `power_on`, a fixed "turn on", offered four sliders for DDP filler,
+    /// one of them a 0..4294967295 range over a connection id. Neither tested
+    /// `source`, which nothing parsed.
+    pub fn is_user_settable(&self) -> bool {
+        self.auto.is_none() && self.default.is_none() && self.source.is_none()
+    }
+
     /// Whether this parameter states the meaning of its value rather than
     /// only its width — i.e. carries a transform worth inverting.
     pub fn has_number_semantics(&self) -> bool {
