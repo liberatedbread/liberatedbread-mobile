@@ -133,7 +133,7 @@ Future<void> forgetNetworkDevice({
   // device that refuses every connection with a generic "did not accept that",
   // no re-pair anywhere, and nothing short of wiping app data to fix it.
   if (trust != null) {
-    await trust.forget(identityFor(mac: deviceMac, host: host));
+    await trust.forget(identityFor(mac: deviceMac, host: host), host: host);
   }
   // And whatever the device's spec said it needed — a printer's serial, a
   // set's client id. Same reasoning, one layer up: forgetting a device has to
@@ -403,6 +403,11 @@ final networkGroupRunnerProvider = Provider<NetworkGroupRunner>((ref) {
     codec: ref.watch(specCodecProvider),
     soap: ref.watch(soapControlClientProvider),
     senderFor: ref.watch(networkCommandSenderFactoryProvider),
+    // Keyed the way the device screen and the certificate pin key it, so one
+    // physical device is one set of secrets wherever it is driven from.
+    credentialsFor: (device) => () => ref
+        .read(deviceCredentialStoreProvider)
+        .credentials(identityFor(mac: device.advertisedMac, host: device.host)),
   );
 });
 

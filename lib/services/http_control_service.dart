@@ -95,6 +95,12 @@ class HttpControlClient {
     // rather than a property, and there has already been one caller that got
     // these arguments wrong.
     if (policy != null) await _trust?.prepare(identity);
+    // Published UNCONDITIONALLY, and after the pin read for the reason above.
+    // `prepare` no longer throws — a store it could not read is recorded there
+    // and refuses at the handshake — because a throw here skipped this line
+    // and the increment below, leaving the host with no policy at all and the
+    // blanket-trust fallback deciding. That is the opposite of what a spec
+    // asking to be pinned wants from a transient storage failure.
     _policies[host] = (identity: identity, policy: policy);
     _registrations.update(host, (n) => n + 1, ifAbsent: () => 1);
   }
@@ -201,6 +207,18 @@ class HttpControlClient {
       }
     } on TimeoutException {
       throw const ControlTimeoutException();
+    } on HandshakeException {
+      // The shape a refused certificate ACTUALLY takes. `package:http`'s
+      // IOClient wraps only SocketException and HttpException into a
+      // ClientException; HandshakeException extends TlsException, which is
+      // neither, so it escapes the catch below untouched. That made
+      // ControlCertificateChangedException unreachable — the one sentence
+      // naming the only recovery there is, never shown, for the exact failure
+      // it was written for — and a raw platform exception went to the UI.
+      if (_trust?.refused(host) ?? false) {
+        throw const ControlCertificateChangedException();
+      }
+      throw const ControlUnreachableException();
     } on http.ClientException {
       // A refused certificate arrives here looking exactly like a device that
       // is switched off: `badCertificateCallback` returns a bool, so the

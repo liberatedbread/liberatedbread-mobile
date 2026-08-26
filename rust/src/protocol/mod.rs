@@ -58,6 +58,51 @@ pub fn top_level_command<'a>(
         })
 }
 
+/// Resolve one command parameter's value for a render.
+///
+/// The order is the contract, and every network transport shares it because
+/// four copies of it had already drifted into being four chances to disagree
+/// (the same duplication `Parameter::is_user_settable` was written to end):
+///
+/// 1. What the caller supplied. A read-back value the send just fetched, or a
+///    value the user picked, is more current than anything stored.
+/// 2. A STORED CREDENTIAL, looked up by the credential's OWN name rather than
+///    the parameter's. This is the step that was missing everywhere. The two
+///    names differ in most of the catalogue that uses them — Frigidaire's
+///    `applianceId` parameter is sourced from `credential:appliance_id`,
+///    Hisense's `client_id` from `credential:mqtt_client_id` — and a client
+///    stores what a spec's `issues_credentials` NAMES, which is the credential
+///    name. Without this step every such render failed on a value the app was
+///    holding, reporting a parameter name the person who typed it had never
+///    seen.
+/// 3. The parameter's declared `default`.
+/// 4. A visible failure. Never a blank: a request sent with an empty
+///    placeholder is the plausible-but-wrong one that is hardest to debug.
+pub fn resolve_parameter(
+    command: &SpecCommand,
+    command_name: &str,
+    param: &str,
+    values: &std::collections::BTreeMap<String, String>,
+) -> Result<String, ProtocolError> {
+    if let Some(value) = values.get(param) {
+        return Ok(value.clone());
+    }
+    let declared = command.parameters.get(param);
+    if let Some(name) = declared
+        .and_then(|p| p.source.as_deref())
+        .and_then(|s| s.strip_prefix("credential:"))
+        .filter(|name| !name.is_empty())
+    {
+        if let Some(value) = values.get(name) {
+            return Ok(value.clone());
+        }
+    }
+    declared
+        .and_then(|p| p.default.as_ref())
+        .and_then(crate::spec::types::scalar_to_string)
+        .ok_or_else(|| ProtocolError::ParameterMissing(format!("{command_name}.{param}")))
+}
+
 /// One ordered BLE write of an encoded frame: the payload and the
 /// characteristic it targets. Per-write targets exist because a protocol can
 /// span channels — Daniao's doodle flow opens the session on the command

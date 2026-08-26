@@ -238,8 +238,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       specYaml: widget.controls.specYaml,
       capabilities: widget.controls.capabilities,
     );
-    unawaited(_refreshMissingCredentials());
-    unawaited(_load());
+    // Credentials BEFORE the first load, not alongside it. Fired together,
+    // `_refreshMissingCredentials` was still awaiting its FFI call while
+    // `_load` was already rendering the opening state poll — with an empty
+    // map, because the handover to the sender had not happened yet. On a
+    // device that needs one the render throws, and it throws OUTSIDE the
+    // branch `_load` guards, so the screen errored out and never started its
+    // poll timer: an error banner on a device whose credential the app was
+    // already holding, until the user backed out and came in again.
+    unawaited(_refreshMissingCredentials().whenComplete(_load));
     unawaited(_watchKeyboard());
   }
 
@@ -469,22 +476,26 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   /// Whether anything on this screen needs the UPnP description document.
   ///
-  /// SOAP is what it exists for, and the only transport that needs it: state
-  /// reads and SOAP sends resolve their control URL from it. A device whose
-  /// surface is entirely plain HTTP (a Roku remote's buttons, an Envoy's
-  /// state poll), binary UDP (a LIFX strip) or Kasa (a raw socket) has no
-  /// `setup.xml` to fetch — asking for one turns a working device into a
-  /// permanent error screen. So this keys on `soap` specifically and on state
-  /// commands whose transport is not `http`, and excludes Kasa and Rabbit Air
-  /// outright: their entities carry a `state_command` (get_sysinfo /
-  /// get_state) but poll it over their own sockets, not from a description.
-  bool get _needsDescription =>
-      !_isKasa &&
-      !_isRabbitAir &&
-      !_speaksMqtt &&
-      (_stateCommands.any((command) => _stateTransport(command) != 'http') ||
-          _entities.any(
-              (e) => e.actions.any((action) => action.transport == 'soap')));
+  /// SOAP is what it exists for and the only transport that needs it: a SOAP
+  /// send and a SOAP state read both resolve their control URL out of it. A
+  /// device whose surface is plain HTTP (a Roku's buttons, an Envoy's poll),
+  /// binary UDP (a LIFX strip) or a raw socket (Kasa) has no `setup.xml` to
+  /// fetch, and asking for one turns a working device into a permanent error
+  /// screen: the request burns its full timeout, `_description` stays null and
+  /// `_ready` never becomes true.
+  ///
+  /// Asked POSITIVELY — "does anything here ride SOAP" — and that is the
+  /// point. It used to be the negative "is any state command NOT http",
+  /// carved out per transport as each one arrived, which meant every transport
+  /// added afterwards was included by default and had to remember to opt out.
+  /// Two already had not: once the Kasa renderer was gated on
+  /// `protocol_handler: tplink_smarthome`, the Tuya gas sensor and the
+  /// Yeelight cube resolved no actions at all, `_isKasa` went false, and their
+  /// tcp-json state commands sent both devices off to fetch a UPnP document
+  /// from hardware that speaks framed JSON on a raw socket.
+  bool get _needsDescription => _entities.any((e) =>
+      e.actions.any((action) => action.transport == 'soap') ||
+      (e.stateCommand.isNotEmpty && e.transport == 'soap'));
 
   /// Loaded enough to draw controls: the description is fetched, or nothing
   /// on this screen wants it.
@@ -674,7 +685,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         await _refreshStateHttp(command);
         continue;
       }
-      final description = _description!;
+      // Everything left resolves its address out of the description, so
+      // without one there is no poll to make. Skipped rather than asserted
+      // on: `_description` is legitimately null now that fetching one is
+      // asked positively — a Tuya gas sensor's tcp-json `dp_query` reaches
+      // here on a device that serves no UPnP document, and `!` would turn a
+      // reading it simply cannot take into a crash.
+      final description = _description;
+      if (description == null) {
+        Log.net.debug('no state poll for "$command" on ${widget.device.host}: '
+            'transport ${_stateTransport(command) ?? '<unknown>'} needs a '
+            'device description and this device serves none');
+        continue;
+      }
       final request = await codec.renderNetworkStateRequest(
         specYaml: widget.controls.specYaml,
         stateCommand: command,

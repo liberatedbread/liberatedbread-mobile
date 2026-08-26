@@ -3550,6 +3550,16 @@ impl MatchAxes {
         usize::from(self.by_name_prefix)
             + usize::from(!self.service_uuids.is_empty())
             + usize::from(!self.service_types.is_empty())
+            // A shared type the spec EARNED by narrowing it counts, and counts
+            // here rather than in `service_types` so the two stay
+            // distinguishable. It was wired into `is_empty` — enough to admit
+            // the match — and into neither of the ranking questions, so
+            // ESPHome narrowed by `config_hash` and a Chromecast narrowed by
+            // `id` (the two cases the narrowing was written for) admitted at
+            // Possible and were then too weak to name the product. The device
+            // stayed "Unknown" on evidence the code had deliberately
+            // collected.
+            + usize::from(self.narrowed_shared)
             + usize::from(!self.company_ids.is_empty())
             + usize::from(self.mac_prefix_confidence() >= MacPrefixConfidence::Medium)
     }
@@ -3562,7 +3572,14 @@ impl MatchAxes {
         // one axis over: 0x181A is the Environmental Sensing service every
         // thermometer on the market exposes, and matching it was reporting each
         // of them as a Strong "Xiaomi LYWSD03MMC".
-        if !self.service_uuids.is_empty() || !self.service_types.is_empty() || self.agreeing() >= 2
+        if !self.service_uuids.is_empty()
+            || !self.service_types.is_empty()
+            // A narrowed shared type is proof-shaped for the same reason a
+            // vendor type is: the spec named conditions, and they held. An
+            // ESPHome node publishing the declared `config_hash` really is
+            // that board — which is the whole point of letting a spec narrow.
+            || self.narrowed_shared
+            || self.agreeing() >= 2
         {
             MatchConfidence::Strong
         } else if self.by_name_prefix
@@ -4095,6 +4112,13 @@ fn is_shared_service_type(normalized: &str) -> bool {
             | "_raop._tcp"
             | "_companion-link._tcp"
             | "_googlecast._tcp"
+            // A whole vendor's ecosystem, which is a category too: every
+            // Xiaomi/Roborock device ever made answers `_miio._udp`, so one
+            // spec claiming it was reporting a vacuum as a Yeelight cube. The
+            // union of the identification and discovery blocks is what newly
+            // surfaced it — before that this type was named only inside a
+            // discovery method, where nothing matched on it.
+            | "_miio._udp"
             // "It speaks HTTP" and "it is a printer" are categories, not
             // products.
             | "_http._tcp"
@@ -6894,6 +6918,16 @@ device:
         };
         let matches = match_network_device(vec![identity], node);
         assert_eq!(matches.len(), 1, "a narrowed shared type names a device");
+        // And it ranks. Admitting at Possible is not the same as identifying:
+        // the scan treats Possible as too weak to name a product, so a match
+        // that never reaches Strong leaves the device reading "Unknown" on
+        // evidence this code deliberately collected. Asserting only the COUNT
+        // is what let that ship.
+        assert_eq!(
+            matches[0].confidence,
+            MatchConfidence::Strong,
+            "a spec that named conditions and had them hold has earned the type"
+        );
     }
 
     /// The OUI is evidence on Wi-Fi, exactly as it is on BLE.

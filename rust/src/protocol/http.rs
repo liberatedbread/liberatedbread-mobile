@@ -258,15 +258,7 @@ fn resolve_param(
     param: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    if let Some(value) = values.get(param) {
-        return Ok(value.clone());
-    }
-    command
-        .parameters
-        .get(param)
-        .and_then(|p| p.default.as_ref())
-        .and_then(scalar_to_string)
-        .ok_or_else(|| ProtocolError::ParameterMissing(format!("{command_name}.{param}")))
+    crate::protocol::resolve_parameter(command, command_name, param, values)
 }
 
 /// The request an `http_endpoints` entry describes: its method and path.
@@ -313,6 +305,26 @@ pub fn spec_wide_default(spec: &DeviceSpec, param: &str) -> Option<String> {
         .find_map(|p| p.default.as_ref().and_then(scalar_to_string))
 }
 
+/// The credential a placeholder is sourced from, read across the spec by name.
+///
+/// The sibling of [`spec_wide_default`] and needed for the same reason: a bare
+/// `state_topic` has no owning command, so a `{applianceId}` in one has nothing
+/// to read a `source:` off. The spec still says what the name means — every
+/// Frigidaire command declares `applianceId: {source: credential:appliance_id}`
+/// — and a stored credential is filed under the CREDENTIAL's name, so without
+/// this the read fails on a value the app is holding.
+///
+/// Sound for the same reason and pinned by the same guard: a parameter name
+/// means one thing within a spec.
+pub fn spec_wide_credential<'a>(spec: &'a DeviceSpec, param: &str) -> Option<&'a str> {
+    spec.commands
+        .values()
+        .filter_map(|command| command.parameters.get(param))
+        .filter_map(|p| p.source.as_deref())
+        .find_map(|source| source.strip_prefix("credential:"))
+        .filter(|name| !name.is_empty())
+}
+
 /// Fill the `{...}` placeholders in a path from `values`, then from what the
 /// spec declares the name means.
 ///
@@ -340,6 +352,11 @@ pub fn fill_path(
         let value = values
             .get(param)
             .cloned()
+            // A stored credential is filed under the credential's name, which
+            // is usually NOT the placeholder's — see [`spec_wide_credential`].
+            .or_else(|| {
+                spec_wide_credential(spec, param).and_then(|name| values.get(name).cloned())
+            })
             .or_else(|| spec_wide_default(spec, param))
             .ok_or_else(|| ProtocolError::ParameterMissing(format!("{label}.{param}")))?;
         out.push_str(&percent_encode(&value));

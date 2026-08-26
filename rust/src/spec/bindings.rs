@@ -21,6 +21,7 @@ use super::types::{
 };
 use crate::codec::types::unsupported_encoding_kind;
 use crate::protocol::{http, kasa, mqtt, rabbit_air, soap, websocket};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// Whether a characteristic's payloads must pass through a byte transform
@@ -975,18 +976,25 @@ pub fn resolve_network_actions<'a>(
     };
 
     let mut actions = resolve_network_roles(spec, roles, entity);
-    if !has_state_binding(entity) {
+    if !has_state_binding(spec, entity) {
         actions.retain(|action| action.role != TOGGLE.role);
     }
     actions
 }
 
-/// Whether an entity says where a reading of its own comes from — the poll
-/// (`state_command`) or the push (`state_topic`) a client would establish
-/// state with. Both spellings count: which one a spec uses is the device's
-/// transport speaking, not a statement about whether the state exists.
-fn has_state_binding(entity: &Entity) -> bool {
-    entity.state_command.is_some() || entity.state_topic.is_some()
+/// Whether an entity says where a reading of its own comes from.
+///
+/// Asked of [`state_binding`], which is the one place that decides it — and
+/// that is the fix rather than a tidy-up. This used to read the raw
+/// `state_command`/`state_topic` fields, so once the resolver started refusing
+/// a location with no `state_mapping` (an address with no statement of which
+/// field is the reading) the two gave OPPOSITE answers for the same entity.
+/// The toggle contract requires establishing state before sending, so the
+/// entities in that gap kept a toggle that is unsendable by policy: a Hisense
+/// set's Power binds `toggle` and nothing else, so its whole surface was an
+/// action the rule meant to strip, drawn as a live button.
+fn has_state_binding(spec: &DeviceSpec, entity: &Entity) -> bool {
+    state_binding(spec, entity).is_some()
 }
 
 /// The role-map half of [`resolve_network_actions`], with no admission
@@ -1650,10 +1658,25 @@ pub fn matched_ble_variant_names(
         return Vec::new();
     };
 
+    // Both sides normalized, because the two sides spell the same UUID
+    // differently and comparing the raw strings silently never matched.
+    //
+    // A spec writes the full 128-bit form (`0000ffe0-0000-1000-8000-
+    // 00805f9b34fb`); the Dart caller folds every discovered service through
+    // `normalizeUuid` before it crosses the FFI, so what arrives is `ffe0`.
+    // `eq_ignore_ascii_case` between those is false, so the service axis
+    // matched nothing, every variant was rejected for having a declared axis
+    // it could not satisfy, and the empty result read as "do not narrow" —
+    // which is the behaviour that shipped before any of this existed. Both
+    // features built on this were therefore inert in the app while their
+    // tests, which hand-fed the long form, stayed green.
+    let found: Vec<Cow<'_, str>> = service_uuids
+        .iter()
+        .map(|u| crate::protocol::profiles::normalize_uuid(u))
+        .collect();
     let has_service = |declared: &str| {
-        service_uuids
-            .iter()
-            .any(|found| found.eq_ignore_ascii_case(declared))
+        let wanted = crate::protocol::profiles::normalize_uuid(declared);
+        found.iter().any(|f| f.eq_ignore_ascii_case(&wanted))
     };
 
     let mut scored: Vec<(usize, String)> = Vec::new();

@@ -2412,6 +2412,74 @@ void main() {
     });
   });
 
+  // ── A tcp-json device whose renderer is gated away ──────────────────────
+  //
+  // The Kasa renderer is gated on `protocol_handler: tplink_smarthome`, so the
+  // other two tcp-json specs — a Tuya gas sensor, a Yeelight cube — resolve no
+  // actions at all. Their entities still carry a tcp-json state command, and
+  // the screen's "does anything need the UPnP description" test used to be the
+  // negative "is any state command not http", which caught them: both devices
+  // went off to fetch a `/setup.xml` from hardware that speaks framed JSON on
+  // a raw socket, burned the full timeout, and sat on a permanent error page.
+  group('a tcp-json device with no resolved actions', () {
+    final sensor = NetworkDevice(
+      host: '10.0.0.15',
+      name: 'Gas Sensor',
+      port: 6668,
+      sources: const {NetworkDiscoverySource.lanProbe},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    // A reading with a tcp-json state binding and nothing to send: exactly
+    // what the gate leaves behind.
+    const entities = [
+      NetworkEntityDto(
+        name: 'Gas',
+        platform: 'sensor',
+        stateCommand: 'dp_query',
+        valueField: 'dps.1',
+        transport: 'tcp-json',
+        options: [],
+        isInstanced: false,
+        actions: [],
+      ),
+    ];
+
+    testWidgets('does not go looking for a UPnP description', (tester) async {
+      codec = FakeSpecCodec(networkEntities: (_) => entities);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('a Tuya sensor serves no setup.xml: ${r.url}')))),
+          httpControlClientProvider.overrideWithValue(HttpControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('and it speaks no HTTP either: ${r.url}')))),
+          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: sensor,
+              controls:
+                  const NetworkControls(specYaml: 'yaml', entities: entities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // The reading is honestly unknown — nothing here can poll a tcp-json
+      // command whose renderer this device does not qualify for — but the
+      // screen LOADED, which is the difference between an unavailable value
+      // and a device that reads as broken.
+      expect(find.textContaining('Could not reach'), findsNothing);
+      expect(find.text('Gas'), findsOneWidget);
+    });
+  });
+
   // ── HTTP state polling: a bare path, answered in XML (Denon receiver) ────
   //
   // The Envoy above names a COMMAND to poll. A large part of the catalogue

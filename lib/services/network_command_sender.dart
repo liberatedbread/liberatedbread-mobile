@@ -174,8 +174,15 @@ class NetworkCommandSender {
   Future<Map<String, String>> _storedCredentials() {
     final reader = _credentials;
     if (reader == null) return Future.value(const {});
+    // NOT latched on failure. `catchError` returns a future that COMPLETES
+    // successfully with the empty map, so memoizing it cached the failure: one
+    // PlatformException from a locked keystore and every later send from this
+    // sender rendered with no credentials, failing forever while the card
+    // showed the value as held. The memo is cleared in the handler, the way
+    // `_tlsReady`'s sibling does, so the next send asks again.
     return _credentialsRead ??= reader().catchError((Object e) {
       Log.net.debug('credential store unreadable for $host: $e');
+      _credentialsRead = null;
       return const <String, String>{};
     });
   }
@@ -184,6 +191,34 @@ class NetworkCommandSender {
   /// whether an action is sendable BEFORE trying it — the screen asking what
   /// it still has to ask a person for.
   Future<Map<String, String>> currentCredentials() => _storedCredentials();
+
+  /// The value for one of a command's parameters, resolved the way a renderer
+  /// resolves it: the caller's own first, then the stored credential the
+  /// action says fills it, then a credential of that literal name.
+  ///
+  /// Exists because the MQTT session needs two of them (`client_id`, and
+  /// whatever login the broker wants) BEFORE it has a rendered request to read
+  /// them out of, and the mapping between a parameter and the credential that
+  /// fills it lives in the spec — carried here as `action.credentials`, the
+  /// `{param, name}` pairs Rust parsed out of `source:`.
+  static String? _credentialFor(
+    NetworkActionDto action,
+    String param,
+    Map<String, String> credentials,
+    Map<String, String> values,
+  ) {
+    final supplied = values[param];
+    if (supplied != null && supplied.isNotEmpty) return supplied;
+    for (final declared in action.credentials) {
+      if (declared.param != param) continue;
+      final stored = credentials[declared.name];
+      if (stored != null && stored.isNotEmpty) return stored;
+    }
+    // A spec that names the credential exactly as the parameter (Hue's
+    // `username`) needs no mapping, and a broker login that is not a command
+    // parameter at all has none to find.
+    return credentials[param];
+  }
 
   /// Forget what was read, so the next send asks the store again. Called when
   /// a person supplies a credential: the value that was missing is now held,
@@ -286,7 +321,16 @@ class NetworkCommandSender {
     // with the sender. Otherwise both its maps grow for the life of the
     // process, and a host stays on the blanket-trust fallback list forever on
     // the strength of one request made once.
-    _http.forgetHost(host);
+    //
+    // Only if this sender REGISTERED, which `_tlsReady` is the record of. The
+    // client refcounts registrations per host, and forgetting unconditionally
+    // decremented a count this sender had never incremented: a second sender
+    // on the same host that never made an https send would, on close, drop a
+    // live sender's pinned policy to zero and remove it. That sender's own
+    // registration is memoized here, so it never re-registered, and its next
+    // request fell through to blanket trust — an impostor accepted on a device
+    // that was correctly pinned a moment earlier.
+    if (_tlsReady != null) _http.forgetHost(host);
     _tlsReady = null;
     final session = _ecp2;
     _ecp2 = null;
@@ -334,6 +378,12 @@ class NetworkCommandSender {
     // The caller's own first: a spec that names a parameter the caller also
     // set means the caller (a read-back value the send just fetched is more
     // current than anything a store holds).
+    //
+    // Keyed by the CREDENTIAL's name, which is usually not the parameter's:
+    // Frigidaire's `applianceId` is sourced from `credential:appliance_id`.
+    // The remap is Rust's (`protocol::resolve_parameter`), because the spec
+    // states the correspondence and doing it here would mean this side parsing
+    // `source:` strings the renderers already understand.
     final values = <String, String>{
       ...await _storedCredentials(),
       ...rawValues
@@ -383,7 +433,7 @@ class NetworkCommandSender {
       // names a parameter the caller also set means the caller.
       values: values,
     );
-    final session = await _openMqtt();
+    final session = await _openMqtt(action, values);
     await session.publish(request.topic, request.payload);
   }
 
@@ -392,7 +442,8 @@ class NetworkCommandSender {
   /// Unlike the ECP2 session there is no fallback path: a device whose control
   /// surface is MQTT has no second way in, so a failure to connect is the
   /// caller's to report rather than something to latch and route around.
-  Future<MqttSession> _openMqtt() {
+  Future<MqttSession> _openMqtt(
+      NetworkActionDto action, Map<String, String> values) {
     final existing = _mqtt;
     if (existing != null && existing.isConnected) return Future.value(existing);
     // One connect in flight, shared by every caller waiting on it. MQTT is an
@@ -401,12 +452,13 @@ class NetworkCommandSender {
     // the second overwriting the first's handle so its socket never closes —
     // and on a broker that serves one client at a time, the second CONNECT
     // evicts the first. The ECP2 path guards the same way for the same reason.
-    return _mqttOpening ??= _connectMqtt().whenComplete(() {
+    return _mqttOpening ??= _connectMqtt(action, values).whenComplete(() {
       _mqttOpening = null;
     });
   }
 
-  Future<MqttSession> _connectMqtt() async {
+  Future<MqttSession> _connectMqtt(
+      NetworkActionDto action, Map<String, String> values) async {
     if (_closed) {
       throw const MqttConnectionException('This device screen has closed.');
     }
@@ -416,7 +468,14 @@ class NetworkCommandSender {
           'the device did not advertise a broker port');
     }
     final credentials = await _storedCredentials();
-    final clientId = credentials['client_id'];
+    // The session must connect under the very id its topics are addressed to,
+    // so the id is read the way the topic reads it: through the action's own
+    // declared `credential:` mapping. Asking the store for `client_id`
+    // directly is what this used to do, and on the one set in the catalogue
+    // that pairs, the credential is named `mqtt_client_id` — so the lookup
+    // always missed and every send reported the device as unpaired moments
+    // after the user typed exactly what the card asked for.
+    final clientId = _credentialFor(action, 'client_id', credentials, values);
     if (clientId == null || clientId.isEmpty) {
       // Every topic is addressed to it, so there is no useful session without
       // one. Named rather than improvised: a generated id would connect and
@@ -441,8 +500,8 @@ class NetworkCommandSender {
       host,
       port,
       clientId: clientId,
-      username: credentials['username'],
-      password: credentials['password'],
+      username: _credentialFor(action, 'username', credentials, values),
+      password: _credentialFor(action, 'password', credentials, values),
     );
     // Published only once it is authenticated, and only if the screen is still
     // open: close() ran while this was in flight would have seen a null _mqtt

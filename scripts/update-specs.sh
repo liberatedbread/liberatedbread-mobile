@@ -656,7 +656,16 @@ regen_spec_index
 # edit a plist. See scripts/regen-bonjour-services.sh.
 # shellcheck source=regen-bonjour-services.sh
 source "$(dirname "$0")/regen-bonjour-services.sh"
-regen_bonjour_services
+# `|| exit 1` like every other generated artefact here, and for the reason that
+# function's own header states: this script runs under `set -uo pipefail` with
+# no `-e`, so a bare call discards the status. A malformed spec, a permissions
+# error on the temp plist or a renamed NSBonjourServices key all made the
+# heredoc print a traceback that scrolled past inside a subtree pull, the
+# success trailer print anyway, and the run exit 0 — leaving the committed
+# allow-list silently behind the catalogue, which is the exact iOS invisibility
+# this mechanism exists to prevent. `--check` cannot catch it either: it does
+# not re-derive the plist.
+regen_bonjour_services || exit 1
 
 if [ "$changed" -eq 1 ]; then
   log "Now run ./scripts/test.sh — the catalogue feeds the matcher, the iOS"

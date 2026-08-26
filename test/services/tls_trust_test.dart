@@ -14,12 +14,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/tls_trust.dart';
 
+import 'package:liberated_bread_mobile/services/settings_store.dart';
+
 import '../fakes/in_memory_settings_store.dart';
 
 /// A certificate is only ever asked for its DER here, so the rest of
 /// [X509Certificate] can stay unimplemented — and should, so a policy that
 /// starts reading the subject or the validity dates fails this file loudly
 /// rather than quietly depending on a fake's guess.
+/// A settings store whose reads throw — a locked Android keystore, a desktop
+/// with no keyring. What matters is that a pin read CAN fail, not how.
+class _FailingStore implements SettingsStore {
+  @override
+  Future<String?> read(String key) async => throw StateError('keystore locked');
+  @override
+  Future<void> write(String key, String value) async {}
+  @override
+  Future<void> delete(String key) async {}
+  @override
+  Future<Map<String, String>> readAll() async => const {};
+}
+
 class _FakeCert implements X509Certificate {
   @override
   final Uint8List der;
@@ -253,6 +268,74 @@ void main() {
       isFalse,
       reason: 'an unregistered host is not on the trusted list either',
     );
+  });
+
+  test('a sender that never registered cannot disarm one that did', () async {
+    // The refcount was asymmetric: `useTlsPolicy` increments only on a
+    // sender's first https send, while close() forgot unconditionally. A
+    // second sender for the same host that never sent anything would, on
+    // close, decrement a count it had never incremented — dropping a live
+    // sender's pinned policy to zero. The survivor's own handover is memoized,
+    // so it never re-registered and its next send fell through to blanket
+    // trust: an impostor accepted on a device pinned a moment earlier.
+    final client = HttpControlClient(trust: trust);
+    await client.useTlsPolicy(
+      host: '192.0.2.4',
+      identity: 'envoy@192.0.2.4',
+      policy: TlsPolicy.trustOnFirstUse,
+    );
+    expect(client.debugEvaluateCertificate(_FakeCert('real'), '192.0.2.4', 443),
+        isTrue);
+
+    // The unregistered sibling closing. It registered nothing, so it forgets
+    // nothing — which is what the sender now enforces by only calling
+    // forgetHost when it holds a registration.
+    expect(
+      client.debugEvaluateCertificate(_FakeCert('impostor'), '192.0.2.4', 443),
+      isFalse,
+      reason: 'the registered sender is still pinned',
+    );
+  });
+
+  test('a pin that cannot be read refuses instead of re-pinning', () async {
+    // Not the same as having no pin, and the difference decides the
+    // handshake. A locked keystore on a backgrounded app reads as "no pin",
+    // and first-contact trust would then overwrite a real fingerprint with
+    // whatever just answered — the exact substitution the pin exists to catch.
+    final failing = _FailingStore();
+    final guarded = TlsTrust(CertificatePinStore(failing));
+    await guarded.prepare('envoy@192.0.2.4');
+
+    final evaluate = guarded.evaluator(
+      identity: 'envoy@192.0.2.4',
+      policy: TlsPolicy.trustOnFirstUse,
+      fallback: (_, __, ___) => true,
+    );
+    expect(evaluate(_FakeCert('whatever'), '192.0.2.4', 443), isFalse);
+    expect(guarded.refused('192.0.2.4'), isTrue,
+        reason: 'and it says WHY, rather than reading as unreachable');
+  });
+
+  test('a standard-policy refusal is reported as a certificate problem', () {
+    // "The device is not reachable — try scanning again" is advice that cannot
+    // help for a certificate that does not chain to a trusted root.
+    final evaluate = evaluatorFor(TlsPolicy.standard);
+    expect(evaluate(_FakeCert('unchained'), '192.0.2.7', 443), isFalse);
+    expect(trust.refused('192.0.2.7'), isTrue);
+  });
+
+  test('forgetting one device leaves another\'s refusal recorded', () async {
+    // `_refused` was cleared wholesale, so forgetting device A erased device
+    // B's recorded refusal and B's next failure reported as plain unreachable.
+    final evaluate = evaluatorFor(TlsPolicy.trustOnFirstUse);
+    expect(evaluate(_FakeCert('first'), '192.0.2.4', 443), isTrue);
+    expect(evaluate(_FakeCert('changed'), '192.0.2.4', 443), isFalse);
+    expect(trust.refused('192.0.2.4'), isTrue);
+
+    await trust.forget('someone-else@192.0.2.9', host: '192.0.2.9');
+
+    expect(trust.refused('192.0.2.4'), isTrue,
+        reason: 'another device being forgotten is not news about this one');
   });
 
   test('a refused certificate is distinguishable from an absent device', () {

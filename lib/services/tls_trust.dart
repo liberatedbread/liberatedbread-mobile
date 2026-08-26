@@ -142,7 +142,22 @@ class TlsTrust {
   /// reported as "not reachable — it may be off or have a new address", with
   /// nothing anywhere naming the certificate or the one action that recovers
   /// it. The refusal is recorded here and read one layer up.
+  ///
+  /// Keyed by host because that is what the caller asks with, and REMOVED per
+  /// host for the same reason. It used to be cleared wholesale by [forget],
+  /// which meant forgetting device A erased device B's recorded refusal and
+  /// B's next failure reported as a plain unreachable.
   final Set<String> _refused = <String>{};
+
+  /// Identities whose stored pin could not be read.
+  ///
+  /// Not the same as having no pin, and the difference decides the handshake.
+  /// No pin is first contact: accept, remember. An UNREADABLE pin is a device
+  /// that may well have one — a locked keystore on a backgrounded app, a
+  /// desktop with no keyring — and taking the first-contact branch there would
+  /// overwrite a real pin with whatever just answered, which is precisely the
+  /// substitution the pin exists to catch. So it refuses instead.
+  final Set<String> _unreadable = <String>{};
 
   /// Whether the last handshake with [host] was refused BY THIS POLICY rather
   /// than by the network.
@@ -150,9 +165,25 @@ class TlsTrust {
 
   /// Load [identity]'s pin so [evaluator] can answer synchronously. Call
   /// before opening the connection.
+  ///
+  /// Never throws: the caller publishes its policy either way, and a store
+  /// that could not be read is recorded so the evaluator can fail CLOSED. A
+  /// throw here used to skip the caller's publish entirely, which left the
+  /// host on the blanket-trust fallback — a device that asked to be pinned
+  /// downgraded to accept-anything by a transient storage blip.
   Future<void> prepare(String identity) async {
-    final stored = await _pins.pin(identity);
-    if (stored != null && stored.isNotEmpty) _known[identity] = stored;
+    try {
+      final stored = await _pins.pin(identity);
+      _unreadable.remove(identity);
+      if (stored != null && stored.isNotEmpty) _known[identity] = stored;
+    } catch (e) {
+      _unreadable.add(identity);
+      Log.net.warning(
+        'could not read the stored certificate pin for $identity; '
+        'this device will refuse rather than trust on first contact',
+        error: e,
+      );
+    }
   }
 
   /// Forget [identity]'s pin, in the store and in memory.
@@ -164,9 +195,13 @@ class TlsTrust {
   /// in-memory copy matters as much as the stored one: `_known` lives on a
   /// Provider that outlives any screen, so a store-only clear would leave the
   /// old fingerprint deciding until the process ended.
-  Future<void> forget(String identity) async {
+  Future<void> forget(String identity, {String? host}) async {
     _known.remove(identity);
-    _refused.clear();
+    _unreadable.remove(identity);
+    // Only this device's recorded refusal. `_refused` is host-keyed and this
+    // is identity-keyed, so the host is passed when the caller knows it;
+    // clearing the whole set was erasing every OTHER device's refusal.
+    if (host != null) _refused.remove(host);
     await _pins.clear(identity);
   }
 
@@ -190,12 +225,25 @@ class TlsTrust {
             'TLS rejected for $host:$port: the spec asks for standard '
             'validation and the certificate does not chain to a trusted root',
           );
+          // Recorded like any other policy refusal. Without it the caller
+          // reports "not reachable — try scanning again", which is advice that
+          // cannot help for a failure that is not about reachability.
+          _refused.add(host);
           return false;
         case TlsPolicy.none:
           return true;
         case TlsPolicy.trustOnFirstUse:
         case TlsPolicy.vendorCa:
           final fingerprint = certificateFingerprint(cert);
+          if (_unreadable.contains(identity)) {
+            Log.net.warning(
+              'TLS refused for $host:$port: this device is pinned but its '
+              'stored fingerprint could not be read, so first-contact trust '
+              'would overwrite it',
+            );
+            _refused.add(host);
+            return false;
+          }
           final pinned = _known[identity];
           if (pinned == null) {
             _refused.remove(host);

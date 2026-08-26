@@ -161,8 +161,18 @@ List<_Declared> _declaredMethods() {
   // under `evidence:` or `protocol_details:` is a record of what a capture
   // once saw, not an instruction to go looking.
   final deviceBlock = RegExp(r'^device:\n(?:[ \t].*\n|\n)*', multiLine: true);
-  final method = RegExp(r'''type:\s*["']?udp_broadcast["']?\s*\n'''
-      r'''\s*udp_broadcast:\s*\n((?:\s{2,}\S.*\n|\s*\n)*)''');
+  // The body is the `udp_broadcast:` mapping and nothing after it, so the
+  // capture stops at the first line indented no further than the key itself.
+  // It used to accept any line indented two-plus spaces, which swallowed the
+  // rest of the `device:` block — 312 lines on irobot-roomba — so `allMatches`
+  // found at most ONE method per file. Two specs declare two each, and the
+  // one that went missing was tuya-generic-device's `6666/json`: precisely the
+  // entry that reveals port 6666 carrying two reply formats, which is the
+  // conflict this file's own backlog documents.
+  final method = RegExp(
+      r'''^(\s*)-?\s*type:\s*["']?udp_broadcast["']?\s*\n'''
+      r'''\s*udp_broadcast:\s*\n((?:\1\s+\S.*\n|[ \t]*\n)*)''',
+      multiLine: true);
   final port = RegExp(r'''^\s*port:\s*(\d+)''', multiLine: true);
   final format =
       RegExp(r'''^\s*response_format:\s*["']?(\w+)''', multiLine: true);
@@ -176,7 +186,7 @@ List<_Declared> _declaredMethods() {
     final device = deviceBlock.firstMatch(entity.readAsStringSync())?.group(0);
     if (device == null) continue;
     for (final match in method.allMatches(device)) {
-      final body = match.group(1)!;
+      final body = match.group(2)!;
       final declaredPort = port.firstMatch(body)?.group(1);
       if (declaredPort == null) continue;
       out.add(_Declared(
@@ -196,7 +206,17 @@ void main() {
     // vacuously true — the failure mode a derived allow-list has to be
     // defended against.
     final declared = _declaredMethods();
-    expect(declared, hasLength(greaterThanOrEqualTo(9)));
+    // The real count, not a floor that happens to sit at what a broken
+    // derivation returned: the regex under-counted to exactly 9 while this
+    // said `>= 9`, so the guard agreed with the bug. Two specs declare two
+    // methods each.
+    expect(declared, hasLength(greaterThanOrEqualTo(11)),
+        reason: 'the catalogue declares 11 udp_broadcast methods');
+    expect(
+      declared.where((d) => d.spec == 'tuya-generic-device.yaml'),
+      hasLength(2),
+      reason: 'a spec declaring two methods must yield two',
+    );
     expect(declared.map((d) => d.port).toSet(),
         containsAll(<int>[10001, 5678, 9999, 6666, 6667]));
   });

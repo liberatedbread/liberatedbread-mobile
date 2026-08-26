@@ -4,6 +4,7 @@ import 'dart:async';
 
 import '../core/error_text.dart';
 import '../core/group_actions.dart';
+import '../core/hex.dart';
 import '../core/log.dart';
 import '../core/stop_signal.dart';
 import '../models/ble_discovered_service.dart';
@@ -248,6 +249,29 @@ class GroupRunner {
     }
   }
 
+  /// The variants this member matched, or null when the question cannot be
+  /// answered — a codec failure, a spec that declares none.
+  ///
+  /// Null and empty both read as "do not narrow" downstream, which is the
+  /// behaviour that shipped before variant scoping: a device we cannot
+  /// identify keeps every control rather than losing all of them.
+  Future<List<String>?> _matchedVariants(
+    GroupMember member,
+    String specYaml,
+    List<BleDiscoveredService> services,
+  ) async {
+    try {
+      return await _codec.bleVariantNamesForDevice(
+        yaml: specYaml,
+        deviceName: member.name,
+        serviceUuids: [for (final s in services) normalizeUuid(s.uuid)],
+      );
+    } catch (e) {
+      Log.ble.debug('variant narrowing unavailable for ${member.id}: $e');
+      return null;
+    }
+  }
+
   Future<GroupRunEvent> _runCommands(
     GroupOp op,
     GroupMember member,
@@ -263,11 +287,18 @@ class GroupRunner {
         detail: 'No spec matched this device',
       );
     }
+    // Which model this member actually is, judged on what it advertised —
+    // the same narrowing the device screen and the treadmill card apply. A
+    // family spec can declare two same-named entities on two dialects sharing
+    // one writable characteristic, and without this a single "turn on" writes
+    // BOTH dialects' frames back to back.
+    final matchedVariants = await _matchedVariants(member, specYaml, services);
     final writes = resolveGroupWrites(
       op: op,
       spec: spec,
       services: services,
       brightnessPercent: brightnessPercent,
+      matchedVariants: matchedVariants,
     );
     if (writes.isEmpty) {
       // The spec promised the verb but this unit doesn't carry the
@@ -276,7 +307,8 @@ class GroupRunner {
       return GroupRunEvent(
         deviceId: member.id,
         status: GroupDeviceStatus.skipped,
-        detail: supportedGroupOps(spec).contains(op)
+        detail: supportedGroupOps(spec, matchedVariants: matchedVariants)
+                .contains(op)
             ? 'Not found on this device'
             : "Not supported by this device's spec",
       );
@@ -427,6 +459,11 @@ class NetworkGroupRunner {
   /// enough not to burst-flood a home AP with simultaneous TCP opens.
   static const concurrency = 4;
 
+  /// The credentials stored for one device, for the members whose spec names
+  /// any. Null in a fixture, which reads as "none stored" — the same thing a
+  /// device that needs none gets.
+  final CredentialReader Function(NetworkDevice device)? _credentialsFor;
+
   NetworkGroupRunner({
     required SpecCodec codec,
     required SoapControlClient soap,
@@ -435,8 +472,10 @@ class NetworkGroupRunner {
       required String specYaml,
       NetworkCapabilitiesDto? capabilities,
     }) senderFor,
+    CredentialReader Function(NetworkDevice device)? credentialsFor,
   })  : _codec = codec,
         _soap = soap,
+        _credentialsFor = credentialsFor,
         _senderFor = senderFor;
 
   Stream<GroupRunEvent> run(
@@ -546,11 +585,23 @@ class NetworkGroupRunner {
     );
     if (plan.isEmpty) return skip('Not found on this device');
 
+    final device = member.record.toNetworkDevice();
     final sender = _senderFor(
-      device: member.record.toNetworkDevice(),
+      device: device,
       specYaml: specYaml,
       capabilities: member.capabilities,
     );
+    // A group-built sender never had these, so its state reads rendered with
+    // an empty map and a Hue bridge's `/api/{username}/lights` failed on a
+    // value the app was holding. Wired only when this member's spec names a
+    // credential, for the reason the device screen gives: the store is the
+    // platform keychain and most of the catalogue needs nothing from it.
+    final credentialsFor = _credentialsFor;
+    if (credentialsFor != null &&
+        member.entities
+            .any((e) => e.actions.any((a) => a.credentials.isNotEmpty))) {
+      sender.useCredentials(credentialsFor(device));
+    }
     try {
       // The description, only if something in the plan rides SOAP — the
       // same rule the control screen applies: asking a Roku for setup.xml

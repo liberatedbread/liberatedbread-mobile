@@ -130,9 +130,11 @@ class GroupRead {
 /// only reports what the *spec* promises (including a declared SIG battery
 /// service, format block or not, since the profile can decode 2a19 without
 /// one).
-Set<GroupOp> supportedGroupOps(DeviceSpecDto spec) {
+Set<GroupOp> supportedGroupOps(DeviceSpecDto spec,
+    {List<String>? matchedVariants}) {
   final ops = <GroupOp>{};
-  for (final (entity: _, :action) in _controlActions(spec)) {
+  for (final (entity: _, :action)
+      in _controlActions(spec, matchedVariants: matchedVariants)) {
     switch (action.role) {
       case 'turn_on':
         ops.add(GroupOp.turnOn);
@@ -156,16 +158,37 @@ Set<GroupOp> supportedGroupOps(DeviceSpecDto spec) {
 /// two hand-kept copies of this filter would let a badge promise what a run
 /// then never writes, or vice versa.
 Iterable<({EntityDto entity, EntityActionDto action})> _controlActions(
-  DeviceSpecDto spec,
-) sync* {
+  DeviceSpecDto spec, {
+  List<String>? matchedVariants,
+}) sync* {
   for (final entity in spec.entities) {
     if (entity.platform != 'light' && entity.platform != 'switch') continue;
+    if (!entityIsForVariants(entity, matchedVariants)) continue;
     for (final action in entity.actions) {
       if (action.commandName == null) continue;
       yield (entity: entity, action: action);
     }
   }
 }
+
+/// Whether [entity] belongs to the model in front of us.
+///
+/// The one rule, shared by the device panel, the treadmill card and the group
+/// path — because the group path did not have it and that is a silent double
+/// write. A family spec can declare two same-named entities on two protocol
+/// dialects sharing one writable characteristic (seeblue's and leds2rave4's
+/// lights, KingSmith's two treadmill generations), so a `turn_on` that walks
+/// every entity encodes and writes BOTH dialects back to back — the exact bug
+/// the device screen's narrowing exists to prevent.
+///
+/// A null or empty narrowing means "do not narrow": showing everything is what
+/// shipped before variant scoping existed, and narrowing a device we could not
+/// identify would leave it with nothing at all.
+bool entityIsForVariants(EntityDto entity, List<String>? matchedVariants) =>
+    matchedVariants == null ||
+    matchedVariants.isEmpty ||
+    entity.variants.isEmpty ||
+    entity.variants.any(matchedVariants.contains);
 
 bool _isSpecBatteryEntity(EntityDto entity) =>
     entity.deviceClass == 'battery' &&
@@ -229,6 +252,9 @@ List<GroupWrite> resolveGroupWrites({
   required DeviceSpecDto spec,
   required List<BleDiscoveredService> services,
   double? brightnessPercent,
+
+  /// The variants this device matched, so a family spec writes ONE dialect.
+  List<String>? matchedVariants,
 }) {
   assert(op.isCommand, 'read ops resolve through resolve*Reads');
 
@@ -238,7 +264,8 @@ List<GroupWrite> resolveGroupWrites({
   final writable = discoveredWritablePairs(services);
 
   final writes = <GroupWrite>[];
-  for (final (:entity, :action) in _controlActions(spec)) {
+  for (final (:entity, :action)
+      in _controlActions(spec, matchedVariants: matchedVariants)) {
     if (action.role != op.roleName) continue;
     if (!writable.containsKey(
       discoveredPairKey(action.serviceUuid, action.characteristicUuid),

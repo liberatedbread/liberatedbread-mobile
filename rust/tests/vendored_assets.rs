@@ -1867,6 +1867,61 @@ fn every_credential_the_catalogue_names_can_be_obtained() {
     );
 }
 
+/// A stored credential fills the parameter it is sourced into, even when the
+/// two are spelled differently — which in most of the catalogue they are.
+///
+/// A client stores what `issues_credentials` NAMES, so the store is keyed by
+/// the credential's name. A renderer fills by the PARAMETER's name. Three of
+/// the five specs that use credentials spell those differently — Frigidaire's
+/// `applianceId` from `credential:appliance_id`, Hisense's `client_id` from
+/// `credential:mqtt_client_id` — so a renderer that only looked up the
+/// parameter name failed on a value the app was holding, and reported a name
+/// the person who typed it had never seen.
+#[test]
+fn a_stored_credential_fills_the_parameter_it_is_sourced_into() {
+    use liberated_bread_core::api::device_api::{
+        render_network_http_command, render_network_mqtt_command,
+    };
+    use std::collections::HashMap;
+
+    // Frigidaire: parameter `applianceId`, credential `appliance_id`.
+    let yaml = fs::read_to_string(spec_path("frigidaire-window-ac.yaml")).expect("spec reads");
+    let stored = HashMap::from([("appliance_id".to_string(), "OCP-12345".to_string())]);
+    let request = render_network_http_command(yaml, "turn_on".to_string(), stored)
+        .expect("the stored credential fills applianceId");
+    assert!(
+        request.path.contains("OCP-12345"),
+        "the appliance id belongs in the path, got {}",
+        request.path
+    );
+
+    // Hisense: parameter `client_id`, credential `mqtt_client_id`. The topic
+    // IS the address here, so a miss publishes nowhere useful.
+    let yaml = fs::read_to_string(spec_path("hisense-vidaa.yaml")).expect("spec reads");
+    let stored = HashMap::from([(
+        "mqtt_client_id".to_string(),
+        "56:b8:88:4e:f7:19$normal".to_string(),
+    )]);
+    let request = render_network_mqtt_command(yaml, "press_power".to_string(), stored)
+        .expect("the stored credential fills client_id");
+    assert_eq!(
+        request.topic,
+        "/remoteapp/tv/remote_service/56:b8:88:4e:f7:19$normal/actions/sendkey"
+    );
+
+    // And a bare state path, which has no owning command to read `source:`
+    // off and resolves the same correspondence across the spec instead.
+    let yaml = fs::read_to_string(spec_path("hue-bridge.yaml")).expect("spec reads");
+    let stored = HashMap::from([("username".to_string(), "nUP9k2sQ".to_string())]);
+    let request = liberated_bread_core::api::device_api::render_network_http_state_request(
+        yaml,
+        "/api/{username}/sensors".to_string(),
+        stored,
+    )
+    .expect("a bare path fills from the store too");
+    assert_eq!(request.path, "/api/nUP9k2sQ/sensors");
+}
+
 /// The two ends of the credential join, on the two vendored specs that make
 /// it: a value a pairing flow mints, and a value only a person can supply.
 ///
@@ -2274,6 +2329,29 @@ fn every_role_the_catalogue_binds_is_one_the_resolver_knows() {
             };
             let known = known_role_aliases(platform);
             if known.is_empty() {
+                // A platform the resolver has no roles for. Two very different
+                // things land here and the guard used to skip BOTH, which made
+                // it blind to the one drift case with no other symptom.
+                //
+                // A reading platform legitimately has no controls; the
+                // catalogue's own rule (upstream's
+                // `test_entity_roles_come_from_the_documented_vocabulary`) is
+                // that it may bind `poll` and nothing else. Anything else on a
+                // platform this resolver does not know — a typo, a platform
+                // added upstream and not here — is a binding that resolves to
+                // nothing, silently, on every device with that spec.
+                let stray: Vec<&str> = entity
+                    .commands
+                    .keys()
+                    .map(String::as_str)
+                    .filter(|role| *role != "poll")
+                    .collect();
+                if !stray.is_empty() {
+                    unknown.push(format!(
+                        "{file}: {:?} is on platform {platform:?}, which this                          resolver has no roles for at all, and binds {stray:?}",
+                        entity.name
+                    ));
+                }
                 continue;
             }
             for role in entity.commands.keys() {
@@ -2476,6 +2554,52 @@ fn a_ble_family_spec_narrows_to_the_device_in_front_of_it() {
     const FT: &str = "0000fff0-0000-1000-8000-00805f9b34fb";
     assert_eq!(matched("urevo-walking-pad.yaml", "", &[FTMS]), vec!["FTMS"]);
     assert_eq!(matched("urevo-walking-pad.yaml", "", &[FT]), vec!["FT"]);
+
+    // THE SPELLING THE APP ACTUALLY SENDS.
+    //
+    // Everything above hands over the full 128-bit form a spec is written in.
+    // Dart does not: `SpecMatchRequest.forServices` folds every discovered
+    // service through `normalizeUuid` first, so what crosses the FFI is
+    // `1826`, `ffe0`. Comparing that to the spec's raw string is false, so the
+    // service axis matched nothing, every variant was rejected for failing a
+    // declared axis, and the empty result read as "do not narrow" — the
+    // behaviour that shipped before any of this existed. Both features built
+    // on this narrowing were inert in the app for as long as this test only
+    // spoke the long form.
+    //
+    // So both spellings, on every spec that narrows by service. A test that
+    // agrees with the code instead of with its caller is worth nothing, and
+    // this is what that looks like when it happens.
+    for (spec_file, name, short, long, expected) in [
+        ("urevo-walking-pad.yaml", "", "1826", FTMS, "FTMS"),
+        ("urevo-walking-pad.yaml", "", "fff0", FT, "FT"),
+        ("kingsmith-walkingpad.yaml", "", "1826", FTMS, "FTMS"),
+        (
+            "kingsmith-walkingpad.yaml",
+            "",
+            "fe00",
+            "0000fe00-0000-1000-8000-00805f9b34fb",
+            "WiLink",
+        ),
+        (
+            "leds2rave4-lunchbox-led.yaml",
+            "unnamed-strip",
+            "ffe0",
+            FFE0,
+            "SP110E",
+        ),
+    ] {
+        assert_eq!(
+            matched(spec_file, name, &[short]),
+            vec![expected],
+            "{spec_file} must narrow on the short form Dart sends ({short})"
+        );
+        assert_eq!(
+            matched(spec_file, name, &[short]),
+            matched(spec_file, name, &[long]),
+            "{spec_file}: the two spellings of one UUID must agree"
+        );
+    }
 
     // The negative that matters most: a device matching NO variant narrows to
     // nothing, which the consumer reads as "show everything". Narrowing a

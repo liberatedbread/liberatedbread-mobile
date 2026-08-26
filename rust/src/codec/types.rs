@@ -599,10 +599,32 @@ pub fn encode_command_with_bytes(
 /// specs list their pad bytes in the template instead, which leaves this a
 /// no-op for them. That is the honest division: this pads, it does not
 /// rearrange.
+/// The widest frame a spec may declare.
+///
+/// A BLE ATT payload is 512 bytes at the protocol's own ceiling and every
+/// framed command in the catalogue is far under it; the bound is generous
+/// rather than tight because its job is to stop an ALLOCATION, not to police
+/// spec authors. `fixed_length` goes straight to `Vec::resize`, so without it
+/// a spec declaring `fixed_length: 67108864` on a one-byte command makes the
+/// device allocate 64 MB the moment someone presses Send — a multi-gigabyte
+/// memset on 64-bit, an allocation failure and process abort on 32-bit
+/// Android. Specs arrive from a user-configurable remote manifest, so "the
+/// catalogue would never" is not a bound.
+pub const MAX_FIXED_LENGTH: usize = 4096;
+
 fn pad_to_fixed_length(mut bytes: Vec<u8>, command: &Command) -> Result<Vec<u8>, ProtocolError> {
     let Some(width) = command.fixed_length else {
         return Ok(bytes);
     };
+    if width > MAX_FIXED_LENGTH {
+        return Err(ProtocolError::ParameterInvalid {
+            name: "fixed_length".to_string(),
+            value: width as f64,
+            reason: format!(
+                "declared fixed_length of {width} exceeds the {MAX_FIXED_LENGTH}-byte                  ceiling; no framed command is this wide and padding to it would                  allocate that much on the device"
+            ),
+        });
+    }
     if bytes.len() > width {
         return Err(ProtocolError::ParameterInvalid {
             name: "fixed_length".to_string(),

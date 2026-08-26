@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 
 use crate::error::ProtocolError;
-use crate::spec::types::{scalar_to_string, DeviceSpec, SpecCommand};
+use crate::spec::types::{DeviceSpec, SpecCommand};
 
 /// The transport a command must declare to be sendable from here.
 ///
@@ -187,15 +187,7 @@ fn resolve_param(
     param: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    if let Some(value) = values.get(param) {
-        return Ok(value.clone());
-    }
-    command
-        .parameters
-        .get(param)
-        .and_then(|p| p.default.as_ref())
-        .and_then(scalar_to_string)
-        .ok_or_else(|| ProtocolError::ParameterMissing(format!("{command_name}.{param}")))
+    crate::protocol::resolve_parameter(command, command_name, param, values)
 }
 
 // ── The cipher and framing ───────────────────────────────────────────────────
