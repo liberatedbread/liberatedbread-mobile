@@ -219,6 +219,64 @@ void main() {
         reason: 'an empty address is no address');
   });
 
+  test('one sender closing does not disarm another on the same host', () async {
+    // The client is shared and the registrations are not. A group run drives
+    // several members at once and closes each sender in a `finally`, so two
+    // saved records pointing at one host is enough for one close to erase a
+    // policy another sender is still relying on — and the survivor never
+    // re-registers, because its own handover is memoized. Its next https send
+    // would fall through to the by-host fallback, which accepts anything.
+    final client = HttpControlClient(trust: trust);
+    for (var i = 0; i < 2; i++) {
+      await client.useTlsPolicy(
+        host: '192.0.2.4',
+        identity: 'envoy@192.0.2.4',
+        policy: TlsPolicy.trustOnFirstUse,
+      );
+    }
+    expect(
+        client.debugEvaluateCertificate(_FakeCert('envoy'), '192.0.2.4', 443),
+        isTrue);
+
+    client.forgetHost('192.0.2.4');
+    expect(
+      client.debugEvaluateCertificate(_FakeCert('impostor'), '192.0.2.4', 443),
+      isFalse,
+      reason: 'the second sender is still live and still pinned',
+    );
+
+    // Both gone: the policy goes with them, and nothing about this host is
+    // remembered on a client that outlives every screen.
+    client.forgetHost('192.0.2.4');
+    expect(
+      client.debugEvaluateCertificate(_FakeCert('impostor'), '192.0.2.4', 443),
+      isFalse,
+      reason: 'an unregistered host is not on the trusted list either',
+    );
+  });
+
+  test('a refused certificate is distinguishable from an absent device', () {
+    // `badCertificateCallback` returns a bool, so the handshake failure that
+    // follows carries no reason and reads exactly like a device switched off.
+    // That is how a factory-reset Envoy got reported as "not reachable — it
+    // may be off or have a new address", with nothing naming the certificate
+    // or the one action that recovers it.
+    final evaluate = evaluatorFor(TlsPolicy.trustOnFirstUse);
+    expect(trust.refused('192.0.2.4'), isFalse);
+
+    expect(evaluate(_FakeCert('first'), '192.0.2.4', 443), isTrue);
+    expect(trust.refused('192.0.2.4'), isFalse,
+        reason: 'first contact is fine');
+
+    expect(evaluate(_FakeCert('changed'), '192.0.2.4', 443), isFalse);
+    expect(trust.refused('192.0.2.4'), isTrue);
+
+    // And the real device coming back clears it, so one bad handshake does not
+    // mislabel every later failure on that host.
+    expect(evaluate(_FakeCert('first'), '192.0.2.4', 443), isTrue);
+    expect(trust.refused('192.0.2.4'), isFalse);
+  });
+
   test('two devices do not share a pin', () async {
     final envoy = evaluatorFor(TlsPolicy.trustOnFirstUse);
     expect(envoy(_FakeCert('envoy-leaf'), '192.0.2.4', 443), isTrue);

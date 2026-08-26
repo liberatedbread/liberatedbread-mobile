@@ -631,12 +631,14 @@ class NetworkGroupRunner {
 
   bool _needsDescription(GroupNetworkPlan plan) {
     // Asked of the sender, which owns the list. This was a fourth copy of it
-    // and the stalest: it treated websocket, mqtt, udp and lifx as SOAP, so a
-    // television or a Bambu in a group sent the runner off to fetch a
-    // /setup.xml the device does not serve, burning the whole 10s HTTP timeout
-    // before any send happened. Two other copies were retired to this same
-    // call in the change that introduced it; this one is two lines above the
-    // hunk that did it.
+    // and the stalest: it treated websocket and mqtt as SOAP, so a television
+    // or a Bambu in a group sent the runner off to fetch a /setup.xml the
+    // device does not serve, burning the whole 10s HTTP timeout before any
+    // send happened. Two other copies were retired to this same call in the
+    // change that introduced it; this one is two lines above the hunk that did
+    // it. (`lifx` differs from the sender's list too, but inertly: a LIFX
+    // action cannot reach a group plan — `kGroupSendableTransports` excludes
+    // it — and a LIFX send from the device screen bypasses the sender.)
     bool soap(NetworkActionDto action) =>
         !NetworkCommandSender.isIndependentTransport(action);
     return plan.direct.any((send) => soap(send.action)) ||

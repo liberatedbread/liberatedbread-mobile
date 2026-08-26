@@ -133,6 +133,21 @@ class TlsTrust {
   /// the pin has to be in hand BEFORE the handshake.
   final Map<String, String> _known = <String, String>{};
 
+  /// Hosts whose certificate this policy REFUSED, so the failure that follows
+  /// can say why.
+  ///
+  /// `badCertificateCallback` returns a bool: it cannot carry a reason, and
+  /// what the caller sees is a `HandshakeException` indistinguishable from a
+  /// device being switched off. That is how a factory-reset Envoy ended up
+  /// reported as "not reachable — it may be off or have a new address", with
+  /// nothing anywhere naming the certificate or the one action that recovers
+  /// it. The refusal is recorded here and read one layer up.
+  final Set<String> _refused = <String>{};
+
+  /// Whether the last handshake with [host] was refused BY THIS POLICY rather
+  /// than by the network.
+  bool refused(String host) => _refused.contains(host);
+
   /// Load [identity]'s pin so [evaluator] can answer synchronously. Call
   /// before opening the connection.
   Future<void> prepare(String identity) async {
@@ -151,6 +166,7 @@ class TlsTrust {
   /// old fingerprint deciding until the process ended.
   Future<void> forget(String identity) async {
     _known.remove(identity);
+    _refused.clear();
     await _pins.clear(identity);
   }
 
@@ -182,6 +198,7 @@ class TlsTrust {
           final fingerprint = certificateFingerprint(cert);
           final pinned = _known[identity];
           if (pinned == null) {
+            _refused.remove(host);
             // First contact. Trusted, remembered, and the write is fired off
             // rather than awaited — the handshake cannot wait, and a pin that
             // fails to persist costs a re-pin, not a wrong answer.
@@ -192,7 +209,10 @@ class TlsTrust {
                 ));
             return true;
           }
-          if (pinned == fingerprint) return true;
+          if (pinned == fingerprint) {
+            _refused.remove(host);
+            return true;
+          }
           // A different certificate on a device that already showed us one.
           // Either the device was replaced or reset, or something is between
           // us and it. The pin is NEVER silently replaced: the user re-pairs,
@@ -201,6 +221,7 @@ class TlsTrust {
             'TLS refused for $host:$port: the certificate changed since this '
             'device was first seen. Re-pair it if the device was reset.',
           );
+          _refused.add(host);
           return false;
         case null:
           return fallback(cert, host, port);

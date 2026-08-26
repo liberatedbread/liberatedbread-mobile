@@ -64,6 +64,18 @@ class HttpControlClient {
   /// host is what selects the policy and the two cannot cross.
   final Map<String, ({String identity, TlsPolicy? policy})> _policies = {};
 
+  /// How many live senders are registered for each host.
+  ///
+  /// Counted because this client is shared and the registrations are not: the
+  /// group runner drives several members at once and closes each sender in a
+  /// `finally`, so two saved records pointing at one host — or a device screen
+  /// open across a group run — is enough for one sender's close to erase the
+  /// policy another is still relying on. The survivor never re-registers (its
+  /// own handover is memoized), so its next https send falls through to the
+  /// by-host fallback, which `send` has already added this host to. A device
+  /// that asked to be pinned would quietly go back to accepting anything.
+  final Map<String, int> _registrations = {};
+
   /// Tell the client which device answers at [host].
   ///
   /// Separate from [send] because pinning has to happen before the handshake
@@ -84,6 +96,7 @@ class HttpControlClient {
     // these arguments wrong.
     if (policy != null) await _trust?.prepare(identity);
     _policies[host] = (identity: identity, policy: policy);
+    _registrations.update(host, (n) => n + 1, ifAbsent: () => 1);
   }
 
   /// Forget everything remembered about [host].
@@ -94,6 +107,12 @@ class HttpControlClient {
   /// because a host in it is one whose certificate the fallback rule accepts
   /// without looking, forever, on the strength of one https request made once.
   void forgetHost(String host) {
+    final remaining = (_registrations[host] ?? 0) - 1;
+    if (remaining > 0) {
+      _registrations[host] = remaining;
+      return;
+    }
+    _registrations.remove(host);
     _policies.remove(host);
     _trustedHosts.remove(host);
   }
@@ -183,6 +202,14 @@ class HttpControlClient {
     } on TimeoutException {
       throw const ControlTimeoutException();
     } on http.ClientException {
+      // A refused certificate arrives here looking exactly like a device that
+      // is switched off: `badCertificateCallback` returns a bool, so the
+      // handshake failure carries no reason. Asking the policy which it was is
+      // the difference between "your Envoy is unreachable" and the one
+      // sentence that names the only recovery there is.
+      if (_trust?.refused(host) ?? false) {
+        throw const ControlCertificateChangedException();
+      }
       // Connection refused, no route, DNS — the device is not there to
       // answer. Same user question as a timeout, different wording.
       throw const ControlUnreachableException();
@@ -229,6 +256,24 @@ class ControlUnreachableException implements UserFacingException {
   @override
   String get message => 'The device is not reachable. It may be off or '
       'have a new address — try scanning again.';
+}
+
+/// The device presented a different certificate than the one it was pinned to.
+///
+/// Its own type rather than a flavour of unreachable, because the user's next
+/// action is completely different: nothing about the network is wrong, and no
+/// amount of rescanning or waiting will help. Either the device was reset (or
+/// took new firmware) and needs re-pairing, or something is answering in its
+/// place — and the app cannot tell which, which is exactly why it refuses
+/// rather than guessing and why it has to say so plainly.
+class ControlCertificateChangedException implements UserFacingException {
+  const ControlCertificateChangedException();
+  @override
+  String get message =>
+      'This device is presenting a different security certificate than it did '
+      'before. If you reset it or updated its firmware, remove it from Saved '
+      'devices and add it again. If you did not, something else may be '
+      'answering at its address.';
 }
 
 /// The transport failed: unreachable host, unexpected status, bad method.
