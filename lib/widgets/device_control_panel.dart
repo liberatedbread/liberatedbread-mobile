@@ -288,6 +288,11 @@ class DeviceControlPanel extends ConsumerWidget {
           specYaml: match.yaml,
           spec: match.spec,
           services: services,
+          // Narrowed by the same rule the cards below use. A walking-pad spec
+          // declares a Start, a Stop and a Target Speed per protocol
+          // GENERATION, all under the same names, so handing the card every
+          // entity made it drive whichever generation the spec listed first.
+          entities: match.spec.entities.where(forThisDevice).toList(),
         ),
       if (controls.isNotEmpty)
         _ControlsSection(

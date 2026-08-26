@@ -127,6 +127,9 @@ Widget _wrap({
   // form), and a default value must be const.
   DeviceSpecDto? spec,
   List<BleDiscoveredService> services = _treadmillServices,
+  // The variant-narrowed entities the panel hands over. Defaults to the whole
+  // spec's, which is what a single-generation device gets.
+  List<EntityDto>? entities,
 }) =>
     ProviderScope(
       overrides: [
@@ -141,6 +144,7 @@ Widget _wrap({
               specYaml: 'yaml',
               spec: spec ?? _treadmillSpec,
               services: services,
+              entities: entities ?? (spec ?? _treadmillSpec).entities,
             ),
           ),
         ),
@@ -584,6 +588,137 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(codec.encodeCalls.single.commandName, 'vendor_go');
+  });
+
+  testWidgets('a two-generation pad is driven by the generation in front of us',
+      (tester) async {
+    // The KingSmith shape, and the bug this card had. One spec covers two
+    // protocol generations — the private 0xFE00 `WiLink` service and the
+    // standard `FTMS` Fitness Machine Service — and declares a Start for EACH,
+    // both called "Start". Indexing all of them takes whichever the spec listed
+    // first, so an FTMS belt was driven from WiLink's entity: its
+    // characteristic is not on the device, the verb resolved to nothing, and
+    // the card fell back to guessing a command name out of a hardcoded list.
+    //
+    // The panel narrows by the advertised service UUID before handing the
+    // entities over — exactly the axis these generations differ on — so what
+    // arrives here is one generation's controls.
+    const ftmsSvc = '00001826-0000-1000-8000-00805f9b34fb';
+    const ftmsChar = '00002ad9-0000-1000-8000-00805f9b34fb';
+
+    EntityDto start(
+            String commandName, String svc, String chr, String variant) =>
+        EntityDto(
+            options: const [],
+            name: 'Start',
+            key: 'start',
+            platform: 'button',
+            canNotify: false,
+            hasFormat: false,
+            onWhenNonzero: false,
+            actions: [
+              EntityActionDto(
+                role: 'press',
+                serviceUuid: svc,
+                characteristicUuid: chr,
+                commandName: commandName,
+                userParams: const [],
+              ),
+            ],
+            variants: [variant]);
+
+    final wilinkStart = start('wilink_start', _svc, _char, 'WiLink');
+    final ftmsStart = start('ftms_start', ftmsSvc, ftmsChar, 'FTMS');
+
+    CommandDto command(String name) => CommandDto(
+          name: name,
+          description: name,
+          parameters: const [],
+          isFixed: true,
+          isEncodable: true,
+          unsupportedEncoding: null,
+          advanced: false,
+        );
+
+    final spec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallbackTypes: const [],
+      txtMatchGroups: const [],
+      hiddenEntityNames: const [],
+      deviceName: 'Two-Generation Pad',
+      manufacturer: 'KingSmith',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: 'treadmill',
+      localNamePrefixes: const [],
+      localNames: const [],
+      serviceUuids: const [_svc, ftmsSvc],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceTypes: const [],
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      defaultPort: null,
+      // WiLink first, which is what made the old index pick it.
+      entities: [wilinkStart, ftmsStart],
+      services: [
+        ServiceDto(uuid: _svc, name: 'wilink', characteristics: [
+          CharacteristicDto(
+            uuid: _char,
+            name: 'WiLink write',
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+            formatFields: const [],
+            commands: [command('wilink_start')],
+          ),
+        ]),
+        ServiceDto(uuid: ftmsSvc, name: 'ftms', characteristics: [
+          CharacteristicDto(
+            uuid: ftmsChar,
+            name: 'Treadmill Control Point',
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+            formatFields: const [],
+            commands: [command('ftms_start')],
+          ),
+        ]),
+      ],
+    );
+
+    // The device in front of us is an FTMS unit: only its service is
+    // discovered, and the panel narrowed the entities to that generation.
+    const services = [
+      BleDiscoveredService(uuid: ftmsSvc, characteristics: [
+        BleDiscoveredCharacteristic(
+          uuid: ftmsChar,
+          canRead: false,
+          canWrite: true,
+          canWriteWithoutResponse: true,
+          canNotify: false,
+        ),
+      ]),
+    ];
+
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x01]));
+    await tester.pumpWidget(_wrap(
+      ble: ble,
+      codec: codec,
+      spec: spec,
+      services: services,
+      entities: [ftmsStart],
+    ));
+
+    await tester.tap(find.text('Start'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+        of: find.byType(AlertDialog), matching: find.text('Start')));
+    await tester.pumpAndSettle();
+
+    expect(codec.encodeCalls.single.commandName, 'ftms_start',
+        reason: 'the belt in front of us is the FTMS generation');
   });
 }
 
