@@ -65,6 +65,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MacPrefixDto dco_decode_box_autoadd_mac_prefix_dto(dynamic raw);
 
   @protected
+  NetworkCredentialIssuanceDto
+      dco_decode_box_autoadd_network_credential_issuance_dto(dynamic raw);
+
+  @protected
   NetworkDeviceDto dco_decode_box_autoadd_network_device_dto(dynamic raw);
 
   @protected
@@ -248,6 +252,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<NetworkActionDto> dco_decode_list_network_action_dto(dynamic raw);
 
   @protected
+  List<NetworkCredentialDto> dco_decode_list_network_credential_dto(
+      dynamic raw);
+
+  @protected
   List<NetworkEntityDto> dco_decode_list_network_entity_dto(dynamic raw);
 
   @protected
@@ -380,6 +388,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkCapabilitiesDto dco_decode_network_capabilities_dto(dynamic raw);
 
   @protected
+  NetworkCredentialDto dco_decode_network_credential_dto(dynamic raw);
+
+  @protected
+  NetworkCredentialIssuanceDto dco_decode_network_credential_issuance_dto(
+      dynamic raw);
+
+  @protected
   NetworkDeviceDto dco_decode_network_device_dto(dynamic raw);
 
   @protected
@@ -432,6 +447,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MacPrefixDto? dco_decode_opt_box_autoadd_mac_prefix_dto(dynamic raw);
+
+  @protected
+  NetworkCredentialIssuanceDto?
+      dco_decode_opt_box_autoadd_network_credential_issuance_dto(dynamic raw);
 
   @protected
   NetworkReadingDto? dco_decode_opt_box_autoadd_network_reading_dto(
@@ -676,6 +695,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  NetworkCredentialIssuanceDto
+      sse_decode_box_autoadd_network_credential_issuance_dto(
+          SseDeserializer deserializer);
+
+  @protected
   NetworkDeviceDto sse_decode_box_autoadd_network_device_dto(
       SseDeserializer deserializer);
 
@@ -883,6 +907,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<NetworkCredentialDto> sse_decode_list_network_credential_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<NetworkEntityDto> sse_decode_list_network_entity_dto(
       SseDeserializer deserializer);
 
@@ -1035,6 +1063,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  NetworkCredentialDto sse_decode_network_credential_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  NetworkCredentialIssuanceDto sse_decode_network_credential_issuance_dto(
+      SseDeserializer deserializer);
+
+  @protected
   NetworkDeviceDto sse_decode_network_device_dto(SseDeserializer deserializer);
 
   @protected
@@ -1098,6 +1134,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   MacPrefixDto? sse_decode_opt_box_autoadd_mac_prefix_dto(
       SseDeserializer deserializer);
+
+  @protected
+  NetworkCredentialIssuanceDto?
+      sse_decode_opt_box_autoadd_network_credential_issuance_dto(
+          SseDeserializer deserializer);
 
   @protected
   NetworkReadingDto? sse_decode_opt_box_autoadd_network_reading_dto(
@@ -1366,6 +1407,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       MacPrefixDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_network_credential_issuance_dto(
+      NetworkCredentialIssuanceDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_network_device_dto(
       NetworkDeviceDto self, SseSerializer serializer);
 
@@ -1589,6 +1634,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<NetworkActionDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_network_credential_dto(
+      List<NetworkCredentialDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_network_entity_dto(
       List<NetworkEntityDto> self, SseSerializer serializer);
 
@@ -1752,6 +1801,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       NetworkCapabilitiesDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_network_credential_dto(
+      NetworkCredentialDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_credential_issuance_dto(
+      NetworkCredentialIssuanceDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_network_device_dto(
       NetworkDeviceDto self, SseSerializer serializer);
 
@@ -1819,6 +1876,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_mac_prefix_dto(
       MacPrefixDto? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_network_credential_issuance_dto(
+      NetworkCredentialIssuanceDto? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_network_reading_dto(

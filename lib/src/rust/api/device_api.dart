@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -518,6 +518,18 @@ Future<List<NetworkRoleReadingDto>> readNetworkInstance(
         entityName: entityName,
         stateReply: stateReply,
         instanceId: instanceId);
+
+/// Every credential this spec refers to, by name.
+///
+/// Answered for the whole device rather than per action, because that is the
+/// question a client actually has: "what do I need before this screen works?"
+/// A per-action answer forces the caller to union them itself and gets the
+/// issued-but-unconsumed case (Hue's `clientkey`) wrong, since no action
+/// mentions it at all.
+Future<List<NetworkCredentialDto>> credentialsForDevice(
+        {required String specYaml}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiCredentialsForDevice(specYaml: specYaml);
 
 /// The UDP port every LIFX device listens on. Exposed so the Dart client need
 /// not hardcode it separately from the protocol module.
@@ -2641,6 +2653,94 @@ class NetworkCapabilitiesDto {
           tlsSelfSigned == other.tlsSelfSigned &&
           advertisedPortUnreliable == other.advertisedPortUnreliable &&
           protocolHandler == other.protocolHandler;
+}
+
+/// One value a client must hold to drive this device.
+class NetworkCredentialDto {
+  /// The name it is referred to and stored under.
+  final String name;
+
+  /// The spec's own words for what this is and where a person gets it —
+  /// what a client shows when it has to ask, so no per-device UI copy is
+  /// written for a device the catalogue already describes.
+  final String? description;
+
+  /// Commands that cannot be sent without it.
+  final List<String> neededBy;
+
+  /// The flow that issues it, or absent when it comes from outside every
+  /// flow this spec describes.
+  final NetworkCredentialIssuanceDto? issuedBy;
+
+  /// Whether a client should ask a person for this value: something needs
+  /// it and no declared flow can mint it.
+  final bool mustBeAskedFor;
+
+  const NetworkCredentialDto({
+    required this.name,
+    this.description,
+    required this.neededBy,
+    this.issuedBy,
+    required this.mustBeAskedFor,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      description.hashCode ^
+      neededBy.hashCode ^
+      issuedBy.hashCode ^
+      mustBeAskedFor.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkCredentialDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          description == other.description &&
+          neededBy == other.neededBy &&
+          issuedBy == other.issuedBy &&
+          mustBeAskedFor == other.mustBeAskedFor;
+}
+
+/// The setup flow that mints a credential, when the spec declares one.
+class NetworkCredentialIssuanceDto {
+  /// The setup method's `type` — which flow to run.
+  final String method;
+
+  /// The command whose reply carries the value, when the spec names one.
+  final String? command;
+
+  /// Dotted path with bracketed indices into that reply.
+  final String replyPath;
+
+  /// A request argument that must be set for the field to appear at all.
+  final String? requestCondition;
+
+  const NetworkCredentialIssuanceDto({
+    required this.method,
+    this.command,
+    required this.replyPath,
+    this.requestCondition,
+  });
+
+  @override
+  int get hashCode =>
+      method.hashCode ^
+      command.hashCode ^
+      replyPath.hashCode ^
+      requestCondition.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkCredentialIssuanceDto &&
+          runtimeType == other.runtimeType &&
+          method == other.method &&
+          command == other.command &&
+          replyPath == other.replyPath &&
+          requestCondition == other.requestCondition;
 }
 
 /// What a scanner saw about one device on the local network.

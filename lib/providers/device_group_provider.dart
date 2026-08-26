@@ -9,6 +9,7 @@ import '../services/device_group_store.dart';
 import '../services/group_runner.dart';
 import '../services/saved_device_store.dart';
 import '../services/saved_network_device_store.dart';
+import '../services/device_credential_store.dart';
 import '../services/tls_trust.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
@@ -116,6 +117,7 @@ Future<void> forgetNetworkDevice({
   required DeviceGroupsNotifier groups,
   required String deviceId,
   TlsTrust? trust,
+  DeviceCredentialStore? credentials,
   String? deviceMac,
   String? host,
 }) async {
@@ -132,6 +134,13 @@ Future<void> forgetNetworkDevice({
   // no re-pair anywhere, and nothing short of wiping app data to fix it.
   if (trust != null) {
     await trust.forget(identityFor(mac: deviceMac, host: host));
+  }
+  // And whatever the device's spec said it needed — a printer's serial, a
+  // set's client id. Same reasoning, one layer up: forgetting a device has to
+  // mean forgetting it, or re-adding one leaves it half-remembered under
+  // secrets the person can no longer see to correct.
+  if (credentials != null) {
+    await credentials.forget(identityFor(mac: deviceMac, host: host));
   }
 }
 

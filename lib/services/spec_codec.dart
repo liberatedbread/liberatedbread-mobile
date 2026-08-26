@@ -45,6 +45,8 @@ export '../src/rust/api/device_api.dart'
         NetworkEntityDto,
         NetworkEntitySurfaceDto,
         NetworkCapabilitiesDto,
+        NetworkCredentialDto,
+        NetworkCredentialIssuanceDto,
         NetworkActionDto,
         NetworkOptionDto,
         NetworkReadBackDto,
@@ -255,6 +257,16 @@ abstract class SpecCodec {
   Future<NetworkCapabilitiesDto> networkCapabilities({
     required String specYaml,
   });
+
+  /// What this spec says a client must HOLD before it can drive the device —
+  /// every `credential:<name>` its commands refer to, joined to the setup
+  /// method that issues it where the spec declares one.
+  ///
+  /// Answered for the device rather than per action: "what do I need before
+  /// this screen works" is the question, and a per-action answer misses the
+  /// credential no action mentions (Hue's `clientkey`, issued at pairing and
+  /// obtainable at no other time).
+  Future<List<NetworkCredentialDto>> credentialsForDevice(String specYaml);
 
   /// Render a named command from the spec's `commands` block into a POSTable
   /// SOAP request. [values] carries what the user picked plus any read-back

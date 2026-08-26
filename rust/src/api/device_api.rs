@@ -3141,6 +3141,75 @@ fn find_entity<'a>(
         .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))
 }
 
+// ── Credentials ─────────────────────────────────────────────────────────────
+//
+// The values a client must hold before it can drive a device, joined to the
+// setup flow that mints them. See `crate::spec::credentials` for why the join
+// belongs on this side: the coupling between a `credential:<name>` parameter
+// and an `issues_credentials` entry is the NAME, and a consumer that has to
+// re-derive that mapping per device is the per-device credential table the
+// schema exists to avoid.
+
+/// The setup flow that mints a credential, when the spec declares one.
+#[derive(Debug, Clone)]
+pub struct NetworkCredentialIssuanceDto {
+    /// The setup method's `type` — which flow to run.
+    pub method: String,
+    /// The command whose reply carries the value, when the spec names one.
+    pub command: Option<String>,
+    /// Dotted path with bracketed indices into that reply.
+    pub reply_path: String,
+    /// A request argument that must be set for the field to appear at all.
+    pub request_condition: Option<String>,
+}
+
+/// One value a client must hold to drive this device.
+#[derive(Debug, Clone)]
+pub struct NetworkCredentialDto {
+    /// The name it is referred to and stored under.
+    pub name: String,
+    /// The spec's own words for what this is and where a person gets it —
+    /// what a client shows when it has to ask, so no per-device UI copy is
+    /// written for a device the catalogue already describes.
+    pub description: Option<String>,
+    /// Commands that cannot be sent without it.
+    pub needed_by: Vec<String>,
+    /// The flow that issues it, or absent when it comes from outside every
+    /// flow this spec describes.
+    pub issued_by: Option<NetworkCredentialIssuanceDto>,
+    /// Whether a client should ask a person for this value: something needs
+    /// it and no declared flow can mint it.
+    pub must_be_asked_for: bool,
+}
+
+/// Every credential this spec refers to, by name.
+///
+/// Answered for the whole device rather than per action, because that is the
+/// question a client actually has: "what do I need before this screen works?"
+/// A per-action answer forces the caller to union them itself and gets the
+/// issued-but-unconsumed case (Hue's `clientkey`) wrong, since no action
+/// mentions it at all.
+pub fn credentials_for_device(spec_yaml: String) -> anyhow::Result<Vec<NetworkCredentialDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(crate::spec::credentials::required_credentials(&spec)
+        .into_iter()
+        .map(|requirement| NetworkCredentialDto {
+            must_be_asked_for: requirement.must_be_asked_for(),
+            name: requirement.name,
+            description: requirement.description,
+            needed_by: requirement.needed_by,
+            issued_by: requirement
+                .issued_by
+                .map(|issued| NetworkCredentialIssuanceDto {
+                    method: issued.method,
+                    command: issued.command,
+                    reply_path: issued.reply_path,
+                    request_condition: issued.request_condition,
+                }),
+        })
+        .collect())
+}
+
 // ── LIFX (binary UDP) ───────────────────────────────────────────────────────
 // LIFX speaks a binary LAN protocol over UDP unicast, not text-over-TCP like
 // SOAP/HTTP. So instead of a rendered request DTO the caller POSTs, these return

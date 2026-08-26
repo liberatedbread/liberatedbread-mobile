@@ -2279,6 +2279,139 @@ void main() {
     });
   });
 
+  // ── A device that needs something before it can be driven ───────────────
+  //
+  // A `credential:` parameter is a value the client was GIVEN — a printer's
+  // serial off its touchscreen. Every word of the prompt comes from the spec,
+  // which is what makes it generic: a device added to the catalogue tomorrow
+  // gets a working ask with no UI written for it.
+  group('a spec-declared credential', () {
+    final printer = NetworkDevice(
+      host: '10.0.0.14',
+      name: 'X1 Carbon',
+      port: 8883,
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const serialNeeded = NetworkCredentialDto(
+      name: 'serial',
+      description: 'The printer serial, read off the touchscreen beside the '
+          'Access Code during setup.',
+      neededBy: ['pause', 'resume', 'stop'],
+      mustBeAskedFor: true,
+    );
+
+    // Issued by a pairing flow instead: nothing should ask for it.
+    const pairedInstead = NetworkCredentialDto(
+      name: 'username',
+      description: 'The whitelist username the link button issues.',
+      neededBy: ['set_light'],
+      issuedBy: NetworkCredentialIssuanceDto(
+          method: 'button_pairing', replyPath: '[0].success.username'),
+      mustBeAskedFor: false,
+    );
+
+    final buttons = [
+      const NetworkEntityDto(
+        name: 'Pause',
+        platform: 'button',
+        stateCommand: '',
+        options: [],
+        isInstanced: false,
+        actions: [
+          NetworkActionDto(
+            role: 'press',
+            commandName: 'pause',
+            transport: 'http',
+            userParams: [],
+            readBack: [],
+            credentials: [
+              NetworkSourceParamDto(param: 'serial', name: 'serial')
+            ],
+            instanceParams: [],
+          ),
+        ],
+      ),
+    ];
+
+    Future<InMemorySettingsStore> pumpPrinter(
+      WidgetTester tester, {
+      required List<NetworkCredentialDto> declared,
+      InMemorySettingsStore? settings,
+    }) async {
+      final store = settings ?? InMemorySettingsStore();
+      codec = FakeSpecCodec(
+        networkEntities: (_) => buttons,
+        networkCredentials: declared,
+      );
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          settingsStoreProvider.overrideWithValue(store),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('a printer serves no UPnP description: ${r.url}')))),
+          httpControlClientProvider.overrideWithValue(HttpControlClient(
+              httpClient: MockClient((r) async => http.Response('', 200)))),
+          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: printer,
+              controls: NetworkControls(specYaml: 'yaml', entities: buttons)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return store;
+    }
+
+    testWidgets('is asked for in the spec\'s own words', (tester) async {
+      await pumpPrinter(tester, declared: const [serialNeeded]);
+
+      expect(find.text('This device needs one more thing'), findsOneWidget);
+      // The description is the spec author's sentence, not UI copy written
+      // here — which is the whole point of driving the prompt off the spec.
+      expect(find.textContaining('read off the touchscreen'), findsOneWidget);
+      expect(find.text('Enter serial'), findsOneWidget);
+    });
+
+    testWidgets('stores what is typed and stops asking', (tester) async {
+      final store = await pumpPrinter(tester, declared: const [serialNeeded]);
+
+      await tester.tap(find.text('Enter serial'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '01P00A123456789');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(store.values.values, contains('01P00A123456789'));
+      expect(find.text('This device needs one more thing'), findsNothing);
+    });
+
+    testWidgets('one a pairing issues is never asked for', (tester) async {
+      // Prompting for it would teach people to paste a secret that a button
+      // press was about to hand over.
+      await pumpPrinter(tester, declared: const [pairedInstead]);
+      expect(find.textContaining('needs one more thing'), findsNothing);
+      expect(find.text('Enter username'), findsNothing);
+    });
+
+    testWidgets('one already stored is not asked for again', (tester) async {
+      await pumpPrinter(
+        tester,
+        declared: const [serialNeeded],
+        settings: InMemorySettingsStore(
+            {'credential.host:10.0.0.14.serial': '01P00A123456789'}),
+      );
+      expect(find.textContaining('needs one more thing'), findsNothing);
+    });
+  });
+
   // ── HTTP state polling: a bare path, answered in XML (Denon receiver) ────
   //
   // The Envoy above names a COMMAND to poll. A large part of the catalogue

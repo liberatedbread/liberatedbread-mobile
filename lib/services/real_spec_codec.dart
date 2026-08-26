@@ -168,6 +168,10 @@ class RealSpecCodec implements SpecCodec {
       rust.networkCapabilities(specYaml: specYaml);
 
   @override
+  Future<List<NetworkCredentialDto>> credentialsForDevice(String specYaml) =>
+      rust.credentialsForDevice(specYaml: specYaml);
+
+  @override
   Future<SoapRequestDto> renderNetworkCommand({
     required String specYaml,
     required String commandName,

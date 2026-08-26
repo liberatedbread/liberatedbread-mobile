@@ -1742,6 +1742,189 @@ fn a_parameter_name_means_one_thing_within_a_spec() {
     );
 }
 
+/// A name is either a credential or the user's to set — never both within one
+/// spec.
+///
+/// The sender merges the stored credentials under every render's values, so a
+/// name that means "the whitelist username" on one command and "a value the
+/// user picks" on another would have the store quietly answering for the user
+/// on the second. Nothing in the catalogue does this today; the merge is only
+/// safe while that holds, and this is what says so if it stops.
+#[test]
+fn a_credential_name_is_not_also_a_user_settable_parameter() {
+    let mut conflicts: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let yaml = fs::read_to_string(&path).expect("spec reads");
+        let Ok(spec) = parse_device_spec(&yaml) else {
+            continue;
+        };
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let credentials: BTreeSet<&str> = spec
+            .commands
+            .values()
+            .flat_map(|command| command.parameters.values())
+            .filter_map(|parameter| parameter.source.as_deref())
+            .filter_map(|source| source.strip_prefix("credential:"))
+            .collect();
+        for (command_name, command) in &spec.commands {
+            // `user_params` is the resolver's own answer to "what does the UI
+            // supply", so this asks the same question the send path asks.
+            for name in command.user_params() {
+                if credentials.contains(name) {
+                    conflicts.push(format!("{file}: {command_name}.{name}"));
+                }
+            }
+        }
+    }
+    assert!(
+        conflicts.is_empty(),
+        "these parameters are a stored credential on one command and the \
+         user's to set on another, so the sender's credential merge would \
+         answer for the user:\n  {}",
+        conflicts.join("\n  ")
+    );
+}
+
+/// Every credential the catalogue names is reachable — a client can either run
+/// a declared flow to get it, or show a person a sentence saying where to find
+/// it.
+///
+/// The drift this guards is a spec author adding `source: credential:token`
+/// with no `description` and no `issues_credentials` entry. Nothing breaks
+/// visibly: the commands resolve, the controls draw, and every press fails on
+/// a value the app has no way to obtain and no words to ask for. The prompt is
+/// built entirely from the spec — that is what makes it generic — so a
+/// credential the spec does not describe is a prompt with a blank in it.
+#[test]
+fn every_credential_the_catalogue_names_can_be_obtained() {
+    use liberated_bread_core::spec::credentials::required_credentials;
+
+    /// Credentials this rule already caught, fixed UPSTREAM, and still
+    /// present in the vendored copy because the subtree has not been
+    /// refreshed since. Each entry disappears with the next
+    /// `update-specs.sh`, and the guard fails again if one does not.
+    ///
+    /// This is not a permanent-exception list. An entry that survives a
+    /// refresh means the upstream fix did not land, which is worth a failing
+    /// test in its own right — so keep the list to what has genuinely been
+    /// written upstream, and delete each line the moment vendoring makes it
+    /// unnecessary.
+    const FIXED_UPSTREAM_NOT_YET_VENDORED: &[(&str, &str, &str)] = &[(
+        "hisense-vidaa.yaml",
+        "mqtt_client_id",
+        "described on all 39 parameters upstream ('A credential says where \
+         its value comes from'); pending an update-specs.sh refresh",
+    )];
+
+    let mut unobtainable: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let yaml = fs::read_to_string(&path).expect("spec reads");
+        let Ok(spec) = parse_device_spec(&yaml) else {
+            continue;
+        };
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        for requirement in required_credentials(&spec) {
+            if !requirement.must_be_asked_for() {
+                continue;
+            }
+            let described = requirement
+                .description
+                .as_deref()
+                .is_some_and(|d| !d.trim().is_empty());
+            if described {
+                assert!(
+                    !FIXED_UPSTREAM_NOT_YET_VENDORED
+                        .iter()
+                        .any(|(spec, name, _)| *spec == file && *name == requirement.name),
+                    "{file}: {} is described now — the upstream fix has been \
+                     vendored, so delete its FIXED_UPSTREAM_NOT_YET_VENDORED \
+                     line",
+                    requirement.name
+                );
+                continue;
+            }
+            if FIXED_UPSTREAM_NOT_YET_VENDORED
+                .iter()
+                .any(|(spec, name, _)| *spec == file && *name == requirement.name)
+            {
+                continue;
+            }
+            {
+                unobtainable.push(format!(
+                    "{file}: {} — needed by {:?}, issued by no declared flow, \
+                     and described nowhere",
+                    requirement.name, requirement.needed_by
+                ));
+            }
+        }
+    }
+    assert!(
+        unobtainable.is_empty(),
+        "a client can neither obtain nor ask for these. Give the parameter a \
+         `description` saying where a person finds the value, or declare the \
+         setup method that issues it in `issues_credentials`:\n  {}",
+        unobtainable.join("\n  ")
+    );
+}
+
+/// The two ends of the credential join, on the two vendored specs that make
+/// it: a value a pairing flow mints, and a value only a person can supply.
+///
+/// The coupling is the NAME and nothing else — `issues_credentials` keys its
+/// entries by the same spelling a `credential:<name>` parameter refers to —
+/// which is what lets a client pair, store, and fill a later request with no
+/// per-device table in between. This pins that the join actually happens over
+/// the vendored files rather than only over a fixture.
+#[test]
+fn a_vendored_credential_joins_its_flow_to_its_consumers() {
+    use liberated_bread_core::api::device_api::credentials_for_device;
+
+    // Hue: the link-button flow issues `username`, and every later request
+    // embeds it. Nothing should ask a person for it.
+    let yaml = fs::read_to_string(spec_path("hue-bridge.yaml")).expect("spec reads");
+    let hue = credentials_for_device(yaml).expect("hue resolves its credentials");
+    let username = hue
+        .iter()
+        .find(|c| c.name == "username")
+        .expect("the bridge names a username credential");
+    let issued = username
+        .issued_by
+        .as_ref()
+        .expect("the link-button flow issues it");
+    assert_eq!(issued.method, "button_pairing");
+    assert!(!username.needed_by.is_empty(), "requests embed it");
+    assert!(
+        !username.must_be_asked_for,
+        "a pairing mints it; prompting teaches people to paste what a button \
+         press was about to hand over"
+    );
+
+    // Bambu: the serial is read off the printer's own touchscreen, and no
+    // setup method in the spec can mint it. This is the ask-for case, and the
+    // spec's own sentence is what a client shows.
+    let yaml = fs::read_to_string(spec_path("bambu-lab-lan.yaml")).expect("spec reads");
+    let bambu = credentials_for_device(yaml).expect("bambu resolves its credentials");
+    let serial = bambu
+        .iter()
+        .find(|c| c.name == "serial")
+        .expect("the printer names a serial credential");
+    assert!(serial.issued_by.is_none());
+    assert!(serial.must_be_asked_for);
+    assert!(
+        serial
+            .description
+            .as_deref()
+            .is_some_and(|d| d.contains("touchscreen")),
+        "the prompt's words are the spec's: {:?}",
+        serial.description
+    );
+    assert_eq!(
+        serial.needed_by,
+        vec!["pause", "pushall", "resume", "stop"],
+        "every command publishes to a topic the serial addresses"
+    );
+}
+
 /// The two televisions whose whole control surface is a WebSocket. Until this
 /// branch their commands resolved to nothing at all — the resolver declined
 /// the transport, which is what kept a card of dead buttons off the screen —

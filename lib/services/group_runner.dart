@@ -664,7 +664,10 @@ class NetworkGroupRunner {
         final request = await _codec.renderNetworkHttpStateRequest(
           specYaml: specYaml,
           stateCommand: entity.stateCommand,
-          values: const {},
+          // The screen's sibling read passes these too; a group row that
+          // silently could not render its poll would report every paired
+          // device as state-unknown.
+          values: await sender.currentCredentials(),
         );
         returned = httpStateFields(await sender.sendHttpRequest(request));
       } else {

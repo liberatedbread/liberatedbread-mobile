@@ -26,6 +26,8 @@ import '../services/soap_control_service.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_controller.dart';
 import '../services/spec_codec.dart';
+import '../services/tls_trust.dart';
+import '../widgets/device_credentials_card.dart';
 import '../widgets/entity_cards/sensor_level_chip.dart';
 import '../widgets/network_light_card.dart';
 import '../widgets/power_strip_icon.dart';
@@ -113,6 +115,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// the "control by mobile apps" gate. Sticky for the screen's life so the
   /// note stays up after the error text is replaced by the next attempt.
   bool _controlRefused = false;
+
+  /// Credentials this device's spec names, that nothing has supplied yet and
+  /// that no declared setup flow can mint — the ones a person has to type.
+  ///
+  /// Recomputed whenever one is saved, so entering the last of them makes the
+  /// card go away rather than leaving a prompt for a value already held.
+  List<NetworkCredentialDto> _missingCredentials = const [];
 
   /// The per-device send pipeline — transport dispatch and the lazily
   /// opened ECP2 signed session both live in it, so a group run can drive
@@ -229,6 +238,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       specYaml: widget.controls.specYaml,
       capabilities: widget.controls.capabilities,
     );
+    unawaited(_refreshMissingCredentials());
     unawaited(_load());
     unawaited(_watchKeyboard());
   }
@@ -558,6 +568,63 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
   }
 
+  /// The device's own identity in the credential store — the same handle the
+  /// certificate pin is keyed by, for the same reason: a DHCP lease is not a
+  /// device, and a value filed under one would be lost on the next renewal.
+  String get _credentialIdentity =>
+      identityFor(mac: widget.device.advertisedMac, host: widget.device.host);
+
+  /// Work out what this device still needs from a person: the credentials its
+  /// spec says must be asked for, minus whatever is already stored.
+  ///
+  /// Failures are swallowed to an empty list. A screen that cannot read its
+  /// own credential requirements must not become an error page — the device
+  /// may well be one of the many that need none, and the sends themselves
+  /// still fail visibly if it is not.
+  Future<void> _refreshMissingCredentials() async {
+    try {
+      final declared = await ref
+          .read(specCodecProvider)
+          .credentialsForDevice(widget.controls.specYaml);
+      // A device that names none never opens the credential store. Most of
+      // the catalogue is that device, and the store is the platform keychain.
+      if (declared.isEmpty) {
+        if (mounted && _missingCredentials.isNotEmpty) {
+          setState(() => _missingCredentials = const []);
+        }
+        return;
+      }
+      // This spec names some, so the sends need them: hand the sender the
+      // store. Idempotent, and it is the only route by which this screen's
+      // sender ever reads one.
+      final store = ref.read(deviceCredentialStoreProvider);
+      _sender.useCredentials(() => store.credentials(_credentialIdentity));
+      final held = await _sender.currentCredentials();
+      final asked = declared.where((c) => c.mustBeAskedFor).toList();
+      final missing = asked
+          .where((c) => (held[c.name] ?? '').isEmpty)
+          .toList(growable: false);
+      if (mounted) setState(() => _missingCredentials = missing);
+    } catch (e) {
+      Log.net.debug('credential requirements unreadable: $e');
+    }
+  }
+
+  /// Store one credential under the name its spec gave it, then reload.
+  ///
+  /// The reload is the point: the value that was missing is now held, so the
+  /// state poll that failed on it can succeed, and the card that asked for it
+  /// can leave.
+  Future<void> _saveCredential(String name, String value) async {
+    await ref
+        .read(deviceCredentialStoreProvider)
+        .save(_credentialIdentity, name, value);
+    // The sender holds what it read; this is the moment that changed.
+    _sender.refreshCredentials();
+    await _refreshMissingCredentials();
+    if (mounted) await _load();
+  }
+
   /// Begin (or restart) the background state poll. A device with no state
   /// commands — a Roku's stateless button remote — has nothing to poll and
   /// never starts a timer. Idempotent: cancels any prior timer first, so a
@@ -640,7 +707,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final request = await codec.renderNetworkHttpStateRequest(
       specYaml: widget.controls.specYaml,
       stateCommand: command,
-      values: const {},
+      // A READ needs the credential as much as a write does: the Hue bridge's
+      // sensor path embeds the whitelist username, and a poll rendered from an
+      // empty map fails on a value the app is holding two lines away.
+      // A READ needs the credential as much as a write does: the Hue bridge's
+      // sensor path embeds the whitelist username. Empty for the devices that
+      // declare none, which never opened the store.
+      values: await _sender.currentCredentials(),
     );
     try {
       final body = await _sendNetworkHttp(request);
@@ -1183,6 +1256,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               const SizedBox(height: 16),
               _deviceInfo(description),
             ] else ...[
+              // Something the SPEC says this device needs and the app has not
+              // been given — a printer's serial, read off its own touchscreen.
+              // Above the controls because it is why they do not work: every
+              // send below fails on the missing name until it is here.
+              if (_missingCredentials.isNotEmpty) ...[
+                DeviceCredentialsCard(
+                  missing: _missingCredentials,
+                  onSave: _saveCredential,
+                ),
+                const SizedBox(height: 12),
+              ],
               // The device answered our questions but refused a command. That
               // is a setting on the device, and saying so beats leaving the
               // user to conclude the app is broken — discovery worked, the

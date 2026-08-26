@@ -13,6 +13,12 @@ import 'soap_control_service.dart';
 import 'spec_codec.dart';
 import 'tls_trust.dart';
 
+/// Reads the credentials stored for one device, name → value.
+///
+/// Asked per send rather than captured once — see
+/// [NetworkCommandSender.credentials] for why that matters.
+typedef CredentialReader = Future<Map<String, String>> Function();
+
 /// Sends spec-resolved actions to one network device, over whichever of the
 /// six transports each action declares — the send half of what
 /// NetworkDeviceScreen used to do inline, extracted so anything headless (a
@@ -87,12 +93,40 @@ class NetworkCommandSender {
   /// Opens the WebSocket. Injected so a test answers from canned frames.
   final WsConnect? _wsConnect;
 
-  /// Values for the `credential:`-sourced parameters a spec's MQTT commands
-  /// declare — the client id the session connects under, and whatever login
-  /// the broker wants. Empty when the device has not been paired: the render
-  /// then fails by name, which is the honest answer, rather than publishing
-  /// to a half-addressed topic.
-  final Map<String, String> mqttCredentials;
+  /// Values for the `credential:`-sourced parameters this spec declares,
+  /// name → value, as [DeviceCredentialStore] holds them.
+  ///
+  /// Spec-named throughout: `serial` on a Bambu printer, `username` on a Hue
+  /// bridge, `client_id` on a Hisense set. Empty when the device has not been
+  /// paired or told, and the render then fails BY NAME — which is the honest
+  /// answer, rather than putting a request with a brace in it on the wire.
+  ///
+  /// One map for every transport, not a per-transport one. This was
+  /// `mqttCredentials` and applied to exactly the MQTT send, so a `credential:`
+  /// parameter on any of the four other transports silently had nothing to
+  /// fill it — the same one-path-treated-and-not-its-siblings bug this file
+  /// has now been bitten by three times.
+  ///
+  /// The MQTT session's own login rides here too, under the names the broker
+  /// wants (`client_id`, `username`, `password`). Those are not `credential:`
+  /// parameters of any command, but they are the same kind of thing — a value
+  /// a client was given for one device — and giving them a second store would
+  /// mean two places to forget when a device is removed.
+  ///
+  /// A reader rather than a map because the answer CHANGES while this sender
+  /// lives: a person types the serial off their printer's touchscreen and the
+  /// very next press has to use it. A map captured at construction would make
+  /// that press fail on a value the app is already holding, and the screen
+  /// would have to rebuild its sender — dropping the signed session and the
+  /// broker connection with it — to pick the value up.
+  ///
+  /// Handed over by [useCredentials] rather than taken at construction,
+  /// because whether this device needs any is the SPEC's answer and reading
+  /// the spec is asynchronous. Absent — the case for all but a handful of the
+  /// catalogue — means the store is never opened at all, which is the point:
+  /// a device that names no credential must not touch the platform keychain
+  /// on every send.
+  CredentialReader? _credentials;
 
   NetworkCommandSender({
     required this.host,
@@ -109,7 +143,6 @@ class NetworkCommandSender {
     required RabbitAirControlClient rabbitAir,
     required Ecp2ControlService ecp2,
     MqttConnect? mqttConnect,
-    this.mqttCredentials = const {},
     this.wsCredential,
     this.onWsCredential,
     WsConnect? wsConnect,
@@ -121,6 +154,52 @@ class NetworkCommandSender {
         _kasa = kasa,
         _rabbitAir = rabbitAir,
         _ecp2Service = ecp2;
+
+  /// The credentials read from the store, held once read.
+  ///
+  /// Memoized because the callers are a four-second state poll and every
+  /// button press, and the store is the platform keychain — asking it per
+  /// poll is a lot of keychain traffic for an answer that changes when a
+  /// person types something and at no other time. [refreshCredentials] is
+  /// that moment.
+  Future<Map<String, String>>? _credentialsRead;
+
+  /// The stored credentials, or an empty map when this sender was built
+  /// without a reader (a fixture, a device whose spec names none).
+  ///
+  /// A store that cannot be read means "nothing stored", not a failed send.
+  /// The keychain being briefly unreadable must not break a device that needs
+  /// no credential at all — which is most of the catalogue — and one that does
+  /// still fails visibly, by name, at the render.
+  Future<Map<String, String>> _storedCredentials() {
+    final reader = _credentials;
+    if (reader == null) return Future.value(const {});
+    return _credentialsRead ??= reader().catchError((Object e) {
+      Log.net.debug('credential store unreadable for $host: $e');
+      return const <String, String>{};
+    });
+  }
+
+  /// The values a render would be given, for a caller that has to decide
+  /// whether an action is sendable BEFORE trying it — the screen asking what
+  /// it still has to ask a person for.
+  Future<Map<String, String>> currentCredentials() => _storedCredentials();
+
+  /// Forget what was read, so the next send asks the store again. Called when
+  /// a person supplies a credential: the value that was missing is now held,
+  /// and the very next press has to use it.
+  void refreshCredentials() => _credentialsRead = null;
+
+  /// Give this sender the store to read its device's credentials from.
+  ///
+  /// Called once the caller knows the spec declares any — which it learns
+  /// asynchronously, after this sender was built. Idempotent, and calling it
+  /// again with a new reader drops what the old one had been read to say.
+  void useCredentials(CredentialReader reader) {
+    if (identical(_credentials, reader)) return;
+    _credentials = reader;
+    _credentialsRead = null;
+  }
 
   /// The Kasa transport constant, matched as a bare string exactly as
   /// `'http'` is — one spec's actions are all one transport.
@@ -247,10 +326,18 @@ class NetworkCommandSender {
   /// action, whose every exchange is encrypted under the per-device key.
   Future<void> sendAction(
     NetworkActionDto action,
-    Map<String, String> values, {
+    Map<String, String> rawValues, {
     SoapDeviceDescription? description,
     String? rabbitAirKey,
   }) async {
+    // Merged once, here, so every transport's renderer sees the same values.
+    // The caller's own first: a spec that names a parameter the caller also
+    // set means the caller (a read-back value the send just fetched is more
+    // current than anything a store holds).
+    final values = <String, String>{
+      ...await _storedCredentials(),
+      ...rawValues
+    };
     switch (action.transport) {
       case 'http':
         await _sendHttp(action, values);
@@ -294,7 +381,7 @@ class NetworkCommandSender {
       commandName: action.commandName,
       // The user's values first, then the stored credentials — a spec that
       // names a parameter the caller also set means the caller.
-      values: {...mqttCredentials, ...values},
+      values: values,
     );
     final session = await _openMqtt();
     await session.publish(request.topic, request.payload);
@@ -328,7 +415,8 @@ class NetworkCommandSender {
       throw const MqttConnectionException(
           'the device did not advertise a broker port');
     }
-    final clientId = mqttCredentials['client_id'];
+    final credentials = await _storedCredentials();
+    final clientId = credentials['client_id'];
     if (clientId == null || clientId.isEmpty) {
       // Every topic is addressed to it, so there is no useful session without
       // one. Named rather than improvised: a generated id would connect and
@@ -353,8 +441,8 @@ class NetworkCommandSender {
       host,
       port,
       clientId: clientId,
-      username: mqttCredentials['username'],
-      password: mqttCredentials['password'],
+      username: credentials['username'],
+      password: credentials['password'],
     );
     // Published only once it is authenticated, and only if the screen is still
     // open: close() ran while this was in flight would have seen a null _mqtt

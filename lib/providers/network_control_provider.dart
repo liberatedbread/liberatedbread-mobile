@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
 import '../models/network_device.dart';
+import '../services/device_credential_store.dart';
 import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
 import '../services/kasa_control_service.dart';
@@ -69,6 +70,29 @@ final kasaControlClientProvider = Provider<KasaControlClient>(
 /// and get an isolated store for free.
 final rabbitAirKeyStoreProvider = Provider<RabbitAirKeyStore>(
     (ref) => RabbitAirKeyStore(ref.watch(settingsStoreProvider)));
+
+/// The generic per-device credential store — whatever a spec's own
+/// `credential:` parameters name, on the same secure settings store the three
+/// device-specific stores above use.
+final deviceCredentialStoreProvider = Provider<DeviceCredentialStore>(
+    (ref) => DeviceCredentialStore(ref.watch(settingsStoreProvider)));
+
+/// What one device's spec says a client must hold before it can be driven.
+///
+/// Read from the spec, not from the store: this is the QUESTION ("what does
+/// this device need?"), and [deviceCredentialStoreProvider] holds the answers
+/// so far. Keyed by the spec text because that is what determines it.
+final deviceCredentialsProvider = FutureProvider.autoDispose
+    .family<List<NetworkCredentialDto>, String>((ref, specYaml) async {
+  try {
+    return await ref.watch(specCodecProvider).credentialsForDevice(specYaml);
+  } catch (e) {
+    // A spec this cannot read must not break the screen that asked; it means
+    // "nothing declared", the same as a spec that names no credential.
+    Log.net.debug('credential requirements unreadable: $e');
+    return const [];
+  }
+});
 
 /// The Rabbit Air encrypted-UDP transport. Depends on the codec because the
 /// envelope rendering and the AES-128-CBC datagram crypto live in Rust; tests
