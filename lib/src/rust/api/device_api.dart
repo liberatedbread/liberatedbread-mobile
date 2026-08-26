@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
@@ -100,6 +100,34 @@ Future<NetworkEntitySurfaceDto> networkEntitiesForStateKeys(
         required Map<String, Map<String, String>> stateKeys}) =>
     RustLib.instance.api.crateApiDeviceApiNetworkEntitiesForStateKeys(
         specYaml: specYaml, ssdpTargets: ssdpTargets, stateKeys: stateKeys);
+
+/// Which of a spec's `device.variants[]` the BLE device in front of us could be.
+///
+/// Separate from [`load_device_spec`] rather than folded into it, and that is
+/// the whole design: that function is cached by spec string and called from
+/// everywhere, so a device-dependent answer there would serve one device's
+/// narrowing to the next. The spec DTO stays device-independent; this is the
+/// device-aware half, and what crosses is the matched variant NAMES, which the
+/// caller checks against each entity's own [`EntityDto::variants`].
+///
+/// Not the surviving entity names, which was the obvious shape and is wrong:
+/// seeblue's two dialects are BOTH called "Motorcycle LEDs", so a name is not
+/// an identity here and filtering by one keeps both — the very failure this
+/// exists to fix.
+///
+/// `device_name` is the advertised local name and `service_uuids` the services
+/// actually discovered on the connection — the richer list, and the one that
+/// tells an Airthings Wave Plus from a Wave Mini.
+///
+/// Empty means DO NOT NARROW: narrowing a device we cannot identify would
+/// blank it, and the honest fallback is what shipped before this existed. See
+/// `bindings::matched_ble_variant_names` for the matching rule.
+Future<List<String>> bleVariantNamesForDevice(
+        {required String specYaml,
+        required String deviceName,
+        required List<String> serviceUuids}) =>
+    RustLib.instance.api.crateApiDeviceApiBleVariantNamesForDevice(
+        specYaml: specYaml, deviceName: deviceName, serviceUuids: serviceUuids);
 
 /// Read [`NetworkCapabilitiesDto`] out of a spec.
 Future<NetworkCapabilitiesDto> networkCapabilities(
@@ -1552,6 +1580,16 @@ class EntityActionDto {
 class EntityDto {
   final String name;
 
+  /// The `device.variants[]` this entity belongs to, empty when it applies
+  /// to every model.
+  ///
+  /// Carried because a name is not an identity: a family spec declares one
+  /// entity per model and two of them can share a name — seeblue's Direct
+  /// and LEDGlow-V2 lights are both "Motorcycle LEDs", on different command
+  /// dialects. Checked against `ble_variant_names_for_device`, which is the
+  /// half that knows which model is in front of us.
+  final List<String> variants;
+
   /// Machine-stable semantic token from the spec's documented vocabulary
   /// (`ok`, `volume_up`, `start`, `stop`, …), so a curated layout — a
   /// remote grid, a treadmill card — can place this entity without
@@ -1647,6 +1685,7 @@ class EntityDto {
 
   const EntityDto({
     required this.name,
+    required this.variants,
     this.key,
     this.platform,
     this.deviceClass,
@@ -1675,6 +1714,7 @@ class EntityDto {
   @override
   int get hashCode =>
       name.hashCode ^
+      variants.hashCode ^
       key.hashCode ^
       platform.hashCode ^
       deviceClass.hashCode ^
@@ -1705,6 +1745,7 @@ class EntityDto {
       other is EntityDto &&
           runtimeType == other.runtimeType &&
           name == other.name &&
+          variants == other.variants &&
           key == other.key &&
           platform == other.platform &&
           deviceClass == other.deviceClass &&

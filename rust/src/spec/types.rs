@@ -1120,6 +1120,26 @@ impl DeviceInfo {
     }
 }
 
+/// Whether `value` starts with `prefix`, ASCII-case-insensitively.
+///
+/// The one prefix test both matchers use. Case-insensitive because BLE local
+/// names and DNS names are ASCII and vendors are not consistent about casing
+/// across firmware revisions (SmartDawn units advertise DN*-style names and the
+/// vendor app itself filters them case-insensitively) — and DNS names are
+/// case-insensitive by definition anyway. `get(..len)` rather than slicing so a
+/// multi-byte value can't panic mid-char; a `None` there cannot equal an ASCII
+/// prefix.
+///
+/// An empty prefix is treated as absent, not as a wildcard: an empty prefix
+/// matches every name, so a spec carrying `local_name_prefix: ""` would
+/// otherwise claim every scanned device.
+pub fn name_has_prefix(value: &str, prefix: &str) -> bool {
+    !prefix.is_empty()
+        && value
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+}
+
 /// Reduce a DNS-SD service type to a comparable stem: lowercase, no trailing
 /// dot, no `.local` suffix.
 ///

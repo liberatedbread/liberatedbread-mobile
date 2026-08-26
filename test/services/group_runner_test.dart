@@ -35,22 +35,22 @@ DeviceSpecDto _bulbSpec() => DeviceSpecDto(
       services: const [],
       entities: const [
         EntityDto(
-          options: [],
-          name: 'Bulb',
-          platform: 'light',
-          canNotify: false,
-          hasFormat: false,
-          onWhenNonzero: false,
-          actions: [
-            EntityActionDto(
-              role: 'turn_off',
-              serviceUuid: _svc,
-              characteristicUuid: _cmdChar,
-              commandName: 'power_off',
-              userParams: [],
-            ),
-          ],
-        ),
+            options: [],
+            name: 'Bulb',
+            platform: 'light',
+            canNotify: false,
+            hasFormat: false,
+            onWhenNonzero: false,
+            actions: [
+              EntityActionDto(
+                role: 'turn_off',
+                serviceUuid: _svc,
+                characteristicUuid: _cmdChar,
+                commandName: 'power_off',
+                userParams: [],
+              ),
+            ],
+            variants: []),
       ],
     );
 
@@ -76,22 +76,22 @@ DeviceSpecDto _onOnlySpec() => DeviceSpecDto(
       services: const [],
       entities: const [
         EntityDto(
-          options: [],
-          name: 'LEDs',
-          platform: 'light',
-          canNotify: false,
-          hasFormat: false,
-          onWhenNonzero: false,
-          actions: [
-            EntityActionDto(
-              role: 'turn_on',
-              serviceUuid: _svc,
-              characteristicUuid: _cmdChar,
-              commandName: 'on',
-              userParams: [],
-            ),
-          ],
-        ),
+            options: [],
+            name: 'LEDs',
+            platform: 'light',
+            canNotify: false,
+            hasFormat: false,
+            onWhenNonzero: false,
+            actions: [
+              EntityActionDto(
+                role: 'turn_on',
+                serviceUuid: _svc,
+                characteristicUuid: _cmdChar,
+                commandName: 'on',
+                userParams: [],
+              ),
+            ],
+            variants: []),
       ],
     );
 

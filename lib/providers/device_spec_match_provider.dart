@@ -121,6 +121,34 @@ String specKeyFor(DeviceSpecDto spec) =>
 /// The parsed catalogue indexed by [specKeyFor], for resolving stored keys
 /// back to (spec, yaml) pairs.
 ///
+/// Which of a matched spec's `device.variants[]` THIS device could be.
+///
+/// A family spec declares one entity per model, and until this existed the BLE
+/// path handed every model's over at once — so seeblue and leds2rave4, which
+/// each declare two lights with the SAME NAME on DIFFERENT command dialects,
+/// were resolved by the panel's name dedupe keeping whichever came first. A
+/// LEDGlowV2 was being driven with the Direct dialect's frames.
+///
+/// Variant names rather than surviving entity names, because those two lights
+/// share a name: the entity's own `variants` is the only thing that tells them
+/// apart.
+///
+/// Keyed by the same [SpecMatchRequest] the match itself uses, plus the yaml,
+/// so it re-resolves when either changes and shares the family cache rather
+/// than re-crossing the FFI on every rebuild. `autoDispose` for the reason the
+/// match provider is: a device disconnected is a key nobody should hold.
+final bleVariantNamesProvider = FutureProvider.autoDispose
+    .family<Set<String>, ({SpecMatchRequest request, String yaml})>(
+        (ref, args) async {
+  final codec = ref.watch(specCodecProvider);
+  final names = await codec.bleVariantNamesForDevice(
+    yaml: args.yaml,
+    deviceName: args.request.deviceName,
+    serviceUuids: args.request.serviceUuids,
+  );
+  return names.toSet();
+});
+
 /// Insertion order makes duplicates resolve the way [matchedDeviceSpecProvider]
 /// does: remote pack specs load after bundled ones, so on an identity
 /// collision the pack entry wins. This is the ONE place that shadowing rule

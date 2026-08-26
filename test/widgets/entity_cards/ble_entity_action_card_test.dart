@@ -56,14 +56,14 @@ Widget _wrap(
 void main() {
   testWidgets('a button presses its bound command', (tester) async {
     final entity = EntityDto(
-      options: const [],
-      name: 'Start',
-      platform: 'button',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [_action('press', 'start_belt')],
-    );
+        options: const [],
+        name: 'Start',
+        platform: 'button',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [_action('press', 'start_belt')],
+        variants: const []);
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xA2]));
     final ble = FakeBleService();
 
@@ -83,20 +83,20 @@ void main() {
   testWidgets('a select chip sends the option raw through the role parameter',
       (tester) async {
     final entity = EntityDto(
-      options: const [
-        NetworkOptionDto(raw: '0', label: 'Automatic'),
-        NetworkOptionDto(raw: '1', label: 'Manual'),
-        NetworkOptionDto(raw: '2', label: 'Standby'),
-      ],
-      name: 'Belt Mode',
-      platform: 'select',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        _action('select_option', 'switch_mode', userParams: ['mode'])
-      ],
-    );
+        options: const [
+          NetworkOptionDto(raw: '0', label: 'Automatic'),
+          NetworkOptionDto(raw: '1', label: 'Manual'),
+          NetworkOptionDto(raw: '2', label: 'Standby'),
+        ],
+        name: 'Belt Mode',
+        platform: 'select',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [
+          _action('select_option', 'switch_mode', userParams: ['mode'])
+        ],
+        variants: const []);
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x01]));
     final ble = FakeBleService();
 
@@ -119,18 +119,18 @@ void main() {
 
   testWidgets('a cover renders its motions and sends open', (tester) async {
     final entity = EntityDto(
-      options: const [],
-      name: 'Print Feed',
-      platform: 'cover',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        _action('open_cover', 'feed_open'),
-        _action('close_cover', 'feed_close'),
-        _action('stop_cover', 'feed_stop'),
-      ],
-    );
+        options: const [],
+        name: 'Print Feed',
+        platform: 'cover',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [
+          _action('open_cover', 'feed_open'),
+          _action('close_cover', 'feed_close'),
+          _action('stop_cover', 'feed_stop'),
+        ],
+        variants: const []);
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xAA]));
     final ble = FakeBleService();
 

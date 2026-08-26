@@ -522,23 +522,23 @@ void main() {
       defaultPort: null,
       entities: const [
         EntityDto(
-          options: [],
-          name: 'Start',
-          key: 'start',
-          platform: 'button',
-          canNotify: false,
-          hasFormat: false,
-          onWhenNonzero: false,
-          actions: [
-            EntityActionDto(
-              role: 'press',
-              serviceUuid: _svc,
-              characteristicUuid: _char,
-              commandName: 'vendor_go',
-              userParams: [],
-            ),
-          ],
-        ),
+            options: [],
+            name: 'Start',
+            key: 'start',
+            platform: 'button',
+            canNotify: false,
+            hasFormat: false,
+            onWhenNonzero: false,
+            actions: [
+              EntityActionDto(
+                role: 'press',
+                serviceUuid: _svc,
+                characteristicUuid: _char,
+                commandName: 'vendor_go',
+                userParams: [],
+              ),
+            ],
+            variants: []),
       ],
       services: const [
         ServiceDto(uuid: _svc, name: 'svc', characteristics: [

@@ -16,8 +16,8 @@
 //! toggle until the spec pins that byte down.
 
 use super::types::{
-    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, Service, SpecCommand,
-    TemplateElement, ValueType,
+    name_has_prefix, Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, Service,
+    SpecCommand, TemplateElement, ValueType,
 };
 use crate::codec::types::unsupported_encoding_kind;
 use crate::protocol::{http, kasa, mqtt, rabbit_air, soap, websocket};
@@ -1513,13 +1513,133 @@ fn matched_variant_names(spec: &DeviceSpec, ssdp_targets: &[String]) -> Vec<Stri
         .collect()
 }
 
+/// Which of a spec's variants a BLE device in front of us could be.
+///
+/// `device.variants[]` lets a family spec say which model an entity belongs to,
+/// and variant selection had exactly two axes: an SSDP `device_type`, and a
+/// `state_probe` against a reply. A BLE device has neither, so a BLE family
+/// spec narrowed to nothing and every model's entities were handed over at
+/// once. That is not a cosmetic problem: seeblue-motorcycle-led and
+/// leds2rave4-lunchbox-led each declare TWO lights with the SAME NAME speaking
+/// DIFFERENT COMMAND DIALECTS, and the panel's name dedupe keeps whichever the
+/// spec declared first — so a LEDGlowV2 was being driven with the Direct
+/// dialect's frames, silently.
+///
+/// # The rule
+///
+/// A variant is a CANDIDATE when it declares at least one axis this function
+/// can judge and EVERY axis it declares matches. Conjunction, not disjunction:
+/// a variant that names both a name prefix and a service is claiming both, and
+/// honouring only one of them would let it claim hardware it has never seen.
+///
+/// Then the most specific candidates win — the ones that matched the most
+/// axes. This is the half that the obvious implementation gets wrong.
+/// leds2rave4's SP110E declares ONLY service `ffe0`, which its SP107E sibling
+/// also carries alongside a name prefix; under plain conjunction an SP107E
+/// device matches both, and the two dialects are back. Counting matched axes
+/// separates them, and a genuine tie keeps every tied variant, because a spec
+/// that cannot tell two models apart should not have this function pretend
+/// otherwise.
+///
+/// # When nothing matches
+///
+/// Empty. NOT "no variants", which would drop every scoped entity and blank a
+/// device whose scan simply did not carry a name or a service list. The caller
+/// treats empty as "do not narrow" and shows what it always showed, so the
+/// worst case here is the behaviour that shipped before it existed.
+pub fn matched_ble_variant_names(
+    spec: &DeviceSpec,
+    device_name: &str,
+    service_uuids: &[String],
+) -> Vec<String> {
+    let Some(variants) = spec.device.variants.as_ref().and_then(|v| v.as_sequence()) else {
+        return Vec::new();
+    };
+
+    let has_service = |declared: &str| {
+        service_uuids
+            .iter()
+            .any(|found| found.eq_ignore_ascii_case(declared))
+    };
+
+    let mut scored: Vec<(usize, String)> = Vec::new();
+    for variant in variants {
+        let Some(identification) = variant.get("identification") else {
+            continue;
+        };
+        let mut declared = 0usize;
+        let mut matched = 0usize;
+
+        // The advertised name. `local_name_prefix` is the spelling every
+        // variant in the catalogue uses; the plural is accepted because the
+        // identification block one level up allows it and a spec author
+        // reasonably expects the same word to mean the same thing.
+        let mut prefixes: Vec<&str> = identification
+            .get("local_name_prefix")
+            .and_then(|p| p.as_str())
+            .into_iter()
+            .collect();
+        if let Some(list) = identification
+            .get("local_name_prefixes")
+            .and_then(|p| p.as_sequence())
+        {
+            prefixes.extend(list.iter().filter_map(|p| p.as_str()));
+        }
+        if !prefixes.is_empty() {
+            declared += 1;
+            if prefixes.iter().any(|p| name_has_prefix(device_name, p)) {
+                matched += 1;
+            }
+        }
+
+        // The services the device actually carries. Discovered rather than
+        // advertised, because that is what the caller has after connecting
+        // and it is the richer list.
+        if let Some(uuids) = identification
+            .get("service_uuids")
+            .and_then(|u| u.as_sequence())
+        {
+            let declared_uuids: Vec<&str> = uuids.iter().filter_map(|u| u.as_str()).collect();
+            if !declared_uuids.is_empty() {
+                declared += 1;
+                if declared_uuids.iter().any(|u| has_service(u)) {
+                    matched += 1;
+                }
+            }
+        }
+
+        if declared == 0 || matched != declared {
+            continue;
+        }
+        // Display name first, `model` second — the same order
+        // [`matched_variant_names`] uses, because entity `variants` lists cite
+        // whichever the spec wrote.
+        if let Some(name) = variant
+            .get("name")
+            .or_else(|| variant.get("model"))
+            .and_then(|n| n.as_str())
+        {
+            scored.push((matched, name.to_string()));
+        }
+    }
+
+    let Some(best) = scored.iter().map(|(score, _)| *score).max() else {
+        return Vec::new();
+    };
+    scored
+        .into_iter()
+        .filter(|(score, _)| *score == best)
+        .map(|(_, name)| name)
+        .collect()
+}
+
 /// An entity's `variants` scoping list, or `None` when it is unscoped.
 ///
 /// `Some(vec![])` and `None` are different on purpose, mirroring the schema:
 /// an empty list would claim "applies to no model at all", and the schema
 /// forbids writing one (`minItems: 1`) precisely because it always means a
 /// half-deleted edit rather than an intention.
-fn entity_variants(entity: &Entity) -> Option<Vec<String>> {
+pub fn entity_variants(entity: &Entity) -> Option<Vec<String>> {
     let value = entity.extensions.get("variants")?;
     let list = value.as_sequence()?;
     Some(

@@ -55,17 +55,17 @@ void main() {
     // govee's plug: commands only, no state characteristic at all. A toggle
     // would claim to know the current state; buttons promise nothing.
     final entity = EntityDto(
-      options: const [],
-      name: 'Plug Outlet',
-      platform: 'switch',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        _fixedAction('turn_on', 'turn_on'),
-        _fixedAction('turn_off', 'turn_off'),
-      ],
-    );
+        options: const [],
+        name: 'Plug Outlet',
+        platform: 'switch',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [
+          _fixedAction('turn_on', 'turn_on'),
+          _fixedAction('turn_off', 'turn_off'),
+        ],
+        variants: const []);
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x33, 0x01]));
     final ble = FakeBleService();
 
@@ -89,19 +89,19 @@ void main() {
   testWidgets('a switch with readable state renders a toggle that sends',
       (tester) async {
     final entity = EntityDto(
-      options: const [],
-      name: 'Temperature Control',
-      platform: 'switch',
-      stateCharacteristic: _stateChar,
-      canNotify: false,
-      hasFormat: true,
-      valueField: 'target_temp_raw',
-      onWhenNonzero: true,
-      actions: [
-        _fixedAction('turn_on', 'enable'),
-        _fixedAction('turn_off', 'disable'),
-      ],
-    );
+        options: const [],
+        name: 'Temperature Control',
+        platform: 'switch',
+        stateCharacteristic: _stateChar,
+        canNotify: false,
+        hasFormat: true,
+        valueField: 'target_temp_raw',
+        onWhenNonzero: true,
+        actions: [
+          _fixedAction('turn_on', 'enable'),
+          _fixedAction('turn_off', 'disable'),
+        ],
+        variants: const []);
     // Device reports a nonzero target temperature: on.
     final codec = FakeSpecCodec(
       decoded: const [
@@ -138,18 +138,18 @@ void main() {
   testWidgets('a press action renders a momentary button', (tester) async {
     // SwitchBot's bot: press alongside on/off. All three must be sendable.
     final entity = EntityDto(
-      options: const [],
-      name: 'Bot Press',
-      platform: 'switch',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        _fixedAction('turn_on', 'bot_turn_on'),
-        _fixedAction('turn_off', 'bot_turn_off'),
-        _fixedAction('press', 'bot_press'),
-      ],
-    );
+        options: const [],
+        name: 'Bot Press',
+        platform: 'switch',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [
+          _fixedAction('turn_on', 'bot_turn_on'),
+          _fixedAction('turn_off', 'bot_turn_off'),
+          _fixedAction('press', 'bot_press'),
+        ],
+        variants: const []);
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x57, 0x01]));
     final ble = FakeBleService();
 
@@ -173,16 +173,16 @@ void main() {
     // ember's temperature-control switch binds prose, not commands: live
     // state with no way to change it is exactly what the spec supports.
     const entity = EntityDto(
-      options: [],
-      name: 'Temperature Control',
-      platform: 'switch',
-      stateCharacteristic: _stateChar,
-      canNotify: false,
-      hasFormat: true,
-      valueField: 'target_temp_raw',
-      onWhenNonzero: true,
-      actions: [],
-    );
+        options: [],
+        name: 'Temperature Control',
+        platform: 'switch',
+        stateCharacteristic: _stateChar,
+        canNotify: false,
+        hasFormat: true,
+        valueField: 'target_temp_raw',
+        onWhenNonzero: true,
+        actions: [],
+        variants: []);
     final codec = FakeSpecCodec(decoded: const [
       DecodedValueDto(
         name: 'target_temp_raw',
@@ -208,17 +208,17 @@ void main() {
   testWidgets('an encode failure surfaces instead of pretending success',
       (tester) async {
     final entity = EntityDto(
-      options: const [],
-      name: 'Plug Outlet',
-      platform: 'switch',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        _fixedAction('turn_on', 'turn_on'),
-        _fixedAction('turn_off', 'turn_off'),
-      ],
-    );
+        options: const [],
+        name: 'Plug Outlet',
+        platform: 'switch',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [
+          _fixedAction('turn_on', 'turn_on'),
+          _fixedAction('turn_off', 'turn_off'),
+        ],
+        variants: const []);
     final codec = FakeSpecCodec(encodeError: StateError('bad param'));
     final ble = FakeBleService();
 

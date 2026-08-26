@@ -48,22 +48,22 @@ DeviceSpecDto _bulbSpec({String name = 'Example Smart Bulb'}) => DeviceSpecDto(
       services: const [],
       entities: const [
         EntityDto(
-          options: [],
-          name: 'Bulb',
-          platform: 'light',
-          canNotify: false,
-          hasFormat: false,
-          onWhenNonzero: false,
-          actions: [
-            EntityActionDto(
-              role: 'turn_off',
-              serviceUuid: _svc,
-              characteristicUuid: _chr,
-              commandName: 'power_off',
-              userParams: [],
-            ),
-          ],
-        ),
+            options: [],
+            name: 'Bulb',
+            platform: 'light',
+            canNotify: false,
+            hasFormat: false,
+            onWhenNonzero: false,
+            actions: [
+              EntityActionDto(
+                role: 'turn_off',
+                serviceUuid: _svc,
+                characteristicUuid: _chr,
+                commandName: 'power_off',
+                userParams: [],
+              ),
+            ],
+            variants: []),
       ],
     );
 

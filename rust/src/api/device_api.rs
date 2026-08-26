@@ -15,9 +15,9 @@ use crate::protocol::traits::DeviceProtocol;
 use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
-    normalize_service_type, Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity,
-    FormatField, Identification, MacPrefix, MacPrefixConfidence, Parameter, SecurityAdvisory,
-    Service,
+    name_has_prefix, normalize_service_type, Characteristic, CharacteristicProperty, Command,
+    DeviceSpec, Entity, FormatField, Identification, MacPrefix, MacPrefixConfidence, Parameter,
+    SecurityAdvisory, Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
@@ -314,6 +314,15 @@ pub struct ImageWritePlanDto {
 #[derive(Debug, Clone)]
 pub struct EntityDto {
     pub name: String,
+    /// The `device.variants[]` this entity belongs to, empty when it applies
+    /// to every model.
+    ///
+    /// Carried because a name is not an identity: a family spec declares one
+    /// entity per model and two of them can share a name — seeblue's Direct
+    /// and LEDGlow-V2 lights are both "Motorcycle LEDs", on different command
+    /// dialects. Checked against `ble_variant_names_for_device`, which is the
+    /// half that knows which model is in front of us.
+    pub variants: Vec<String>,
     /// Machine-stable semantic token from the spec's documented vocabulary
     /// (`ok`, `volume_up`, `start`, `stop`, …), so a curated layout — a
     /// remote grid, a treadmill card — can place this entity without
@@ -1163,6 +1172,7 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
     let color_fields = entity.color_rgb_fields();
     Some(EntityDto {
         name: entity.name.clone(),
+        variants: crate::spec::bindings::entity_variants(entity).unwrap_or_default(),
         key: entity.key.clone(),
         options: entity
             .options()
@@ -2109,6 +2119,40 @@ pub struct NetworkCapabilitiesDto {
     /// handler is the spec's own answer to "which conversation is this", so a
     /// consumer forks on it rather than on a device name.
     pub protocol_handler: Option<String>,
+}
+
+/// Which of a spec's `device.variants[]` the BLE device in front of us could be.
+///
+/// Separate from [`load_device_spec`] rather than folded into it, and that is
+/// the whole design: that function is cached by spec string and called from
+/// everywhere, so a device-dependent answer there would serve one device's
+/// narrowing to the next. The spec DTO stays device-independent; this is the
+/// device-aware half, and what crosses is the matched variant NAMES, which the
+/// caller checks against each entity's own [`EntityDto::variants`].
+///
+/// Not the surviving entity names, which was the obvious shape and is wrong:
+/// seeblue's two dialects are BOTH called "Motorcycle LEDs", so a name is not
+/// an identity here and filtering by one keeps both — the very failure this
+/// exists to fix.
+///
+/// `device_name` is the advertised local name and `service_uuids` the services
+/// actually discovered on the connection — the richer list, and the one that
+/// tells an Airthings Wave Plus from a Wave Mini.
+///
+/// Empty means DO NOT NARROW: narrowing a device we cannot identify would
+/// blank it, and the honest fallback is what shipped before this existed. See
+/// `bindings::matched_ble_variant_names` for the matching rule.
+pub fn ble_variant_names_for_device(
+    spec_yaml: String,
+    device_name: String,
+    service_uuids: Vec<String>,
+) -> anyhow::Result<Vec<String>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(bindings::matched_ble_variant_names(
+        &spec,
+        &device_name,
+        &service_uuids,
+    ))
 }
 
 /// Read [`NetworkCapabilitiesDto`] out of a spec.
@@ -3487,26 +3531,6 @@ fn strip_hex(raw: &str) -> Option<String> {
         .map(|c| c.to_ascii_lowercase())
         .collect();
     hex.chars().all(|c| c.is_ascii_hexdigit()).then_some(hex)
-}
-
-/// Whether `value` starts with `prefix`, ASCII-case-insensitively.
-///
-/// The one prefix test both matchers use. Case-insensitive because BLE local
-/// names and DNS names are ASCII and vendors are not consistent about casing
-/// across firmware revisions (SmartDawn units advertise DN*-style names and the
-/// vendor app itself filters them case-insensitively) — and DNS names are
-/// case-insensitive by definition anyway. `get(..len)` rather than slicing so a
-/// multi-byte value can't panic mid-char; a `None` there cannot equal an ASCII
-/// prefix.
-///
-/// An empty prefix is treated as absent, not as a wildcard: an empty prefix
-/// matches every name, so a spec carrying `local_name_prefix: ""` would
-/// otherwise claim every scanned device.
-fn name_has_prefix(value: &str, prefix: &str) -> bool {
-    !prefix.is_empty()
-        && value
-            .get(..prefix.len())
-            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
 /// One `discovery.methods[].ble.local_name` matcher, flattened for the FFI.

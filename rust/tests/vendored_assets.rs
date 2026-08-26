@@ -2021,3 +2021,126 @@ fn a_bare_shared_service_type_claims_nothing_in_the_catalogue() {
         "a narrowed shared type must still name its device"
     );
 }
+
+/// A BLE family spec narrows to the model in front of it.
+///
+/// `device.variants[]` had two axes, SSDP and a state probe, and a BLE device
+/// has neither — so a family spec narrowed to nothing and every model's
+/// entities came across at once. seeblue-motorcycle-led and
+/// leds2rave4-lunchbox-led each declare TWO lights with the SAME NAME speaking
+/// DIFFERENT command dialects, and the consumer's name dedupe kept whichever
+/// the spec declared first: a LEDGlowV2 driven with the Direct dialect's
+/// frames, silently and always.
+#[test]
+fn a_ble_family_spec_narrows_to_the_device_in_front_of_it() {
+    use liberated_bread_core::api::device_api::ble_variant_names_for_device;
+
+    let spec = |file: &str| fs::read_to_string(spec_path(file)).expect("spec reads");
+    let matched = |file: &str, name: &str, uuids: &[&str]| {
+        ble_variant_names_for_device(
+            spec(file),
+            name.to_string(),
+            uuids.iter().map(|u| u.to_string()).collect(),
+        )
+        .expect("narrowing resolves")
+    };
+
+    // Two dialects, told apart only by the advertised name. Exactly one
+    // variant survives, and it is the right one — which matters because the
+    // two ENTITIES share a name, so the variant is the only thing that
+    // distinguishes them.
+    assert_eq!(
+        matched("seeblue-motorcycle-led.yaml", "LEDGlowV2", &[]),
+        vec!["LEDGlow-V2"]
+    );
+    assert_eq!(
+        matched("seeblue-motorcycle-led.yaml", "LEDGlowMoto", &[]),
+        vec!["Direct"]
+    );
+
+    // The trap. SP110E declares ONLY service ffe0, which SP107E also carries
+    // alongside its name prefix — so a rule that merely required every
+    // DECLARED axis to match would hand an SP107E device both dialects again.
+    // The most specific match wins: two axes beat one.
+    const FFE0: &str = "0000ffe0-0000-1000-8000-00805f9b34fb";
+    assert_eq!(
+        matched("leds2rave4-lunchbox-led.yaml", "SP107e_ABC", &[FFE0]),
+        vec!["SP107E"],
+        "SP107E must not also claim SP110E"
+    );
+    assert_eq!(
+        matched("leds2rave4-lunchbox-led.yaml", "unnamed-strip", &[FFE0]),
+        vec!["SP110E"]
+    );
+
+    // A treadmill's verbs come from the service it actually carries.
+    const FTMS: &str = "00001826-0000-1000-8000-00805f9b34fb";
+    const FT: &str = "0000fff0-0000-1000-8000-00805f9b34fb";
+    assert_eq!(matched("urevo-walking-pad.yaml", "", &[FTMS]), vec!["FTMS"]);
+    assert_eq!(matched("urevo-walking-pad.yaml", "", &[FT]), vec!["FT"]);
+
+    // The negative that matters most: a device matching NO variant narrows to
+    // nothing, which the consumer reads as "show everything". Narrowing a
+    // device we cannot identify would blank it.
+    assert!(matched("urevo-walking-pad.yaml", "", &[]).is_empty());
+    assert!(matched("seeblue-motorcycle-led.yaml", "SomethingElse", &[]).is_empty());
+
+    // And the specs that narrow by service alone must still narrow: a real
+    // Airthings carries one family's services.
+    let airthings = parse_device_spec(&spec("airthings-wave-family.yaml")).expect("parses");
+    let variants = airthings
+        .device
+        .variants
+        .as_ref()
+        .and_then(|v| v.as_sequence())
+        .expect("airthings declares variants");
+    let first: Vec<&str> = variants
+        .iter()
+        .filter_map(|v| {
+            v.get("identification")?
+                .get("service_uuids")?
+                .as_sequence()?
+                .first()?
+                .as_str()
+        })
+        .take(1)
+        .collect();
+    assert!(
+        !first.is_empty(),
+        "airthings variants declare service uuids"
+    );
+    let one_model = matched("airthings-wave-family.yaml", "", &first);
+    assert_eq!(
+        one_model.len(),
+        1,
+        "one model's services identify one model: {one_model:?}"
+    );
+}
+
+/// Every entity that scopes itself to a variant carries that scoping across
+/// the FFI, or the consumer cannot apply the narrowing above.
+#[test]
+fn a_scoped_entity_carries_its_variants_across_the_ffi() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    let dto = load_device_spec(
+        fs::read_to_string(spec_path("seeblue-motorcycle-led.yaml")).expect("reads"),
+    )
+    .expect("parses");
+    let lights: Vec<&Vec<String>> = dto
+        .entities
+        .iter()
+        .filter(|e| e.name == "Motorcycle LEDs")
+        .map(|e| &e.variants)
+        .collect();
+    assert_eq!(
+        lights.len(),
+        2,
+        "both dialects still cross; narrowing picks"
+    );
+    assert_ne!(
+        lights[0], lights[1],
+        "the variants are the ONLY thing telling these two apart — they share a name"
+    );
+    assert!(lights.iter().all(|v| !v.is_empty()));
+}

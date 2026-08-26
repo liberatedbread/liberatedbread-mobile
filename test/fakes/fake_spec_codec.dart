@@ -215,6 +215,23 @@ class FakeSpecCodec implements SpecCodec {
     this.networkRabbitAirRequest,
   }) : encoded = encoded ?? Uint8List(0);
 
+  /// Variant names this fake narrows a BLE device to, when a test cares.
+  ///
+  /// Empty by default, which is what the real one returns for a device
+  /// matching no variant — so every test that does not set it sees the whole
+  /// entity list, exactly as before this existed.
+  List<String> Function(String deviceName, List<String> serviceUuids)?
+      bleVariantNames;
+
+  @override
+  Future<List<String>> bleVariantNamesForDevice({
+    required String yaml,
+    required String deviceName,
+    required List<String> serviceUuids,
+  }) async =>
+      bleVariantNames?.call(deviceName, serviceUuids) ?? const [];
+
+  @override
   @override
   Future<DeviceSpecDto> loadDeviceSpec(String yaml) async {
     if (loadError != null) throw loadError!;

@@ -45,20 +45,20 @@ EntityDto _entity(
   String? unit,
 }) =>
     EntityDto(
-      options: const [],
-      name: name,
-      platform: platform,
-      deviceClass: deviceClass,
-      stateCharacteristic: stateCharacteristic,
-      canNotify: false,
-      hasFormat: hasFormat,
-      valueField: valueField,
-      valueScale: valueScale,
-      precision: precision,
-      unit: unit,
-      onWhenNonzero: false,
-      actions: actions,
-    );
+        options: const [],
+        name: name,
+        platform: platform,
+        deviceClass: deviceClass,
+        stateCharacteristic: stateCharacteristic,
+        canNotify: false,
+        hasFormat: hasFormat,
+        valueField: valueField,
+        valueScale: valueScale,
+        precision: precision,
+        unit: unit,
+        onWhenNonzero: false,
+        actions: actions,
+        variants: const []);
 
 DeviceSpecDto _spec({
   List<EntityDto> entities = const [],
