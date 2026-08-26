@@ -4112,13 +4112,19 @@ fn is_shared_service_type(normalized: &str) -> bool {
             | "_raop._tcp"
             | "_companion-link._tcp"
             | "_googlecast._tcp"
-            // A whole vendor's ecosystem, which is a category too: every
-            // Xiaomi/Roborock device ever made answers `_miio._udp`, so one
-            // spec claiming it was reporting a vacuum as a Yeelight cube. The
-            // union of the identification and discovery blocks is what newly
-            // surfaced it — before that this type was named only inside a
-            // discovery method, where nothing matched on it.
-            | "_miio._udp"
+            // NOT `_miio._udp`, though it is a whole vendor's ecosystem and
+            // reads like one. Listing it here makes a Xiaomi device match
+            // NOTHING, because the spec that claims it — "Xiaomi miIO /
+            // MiHome Devices (transport)" — is a transport spec with no other
+            // axis, and it is RIGHT about a host on port 54321: the device
+            // does speak miIO. The real defect is one layer up, and it is a
+            // spec one: yeelight-cube-lamp also claims the type unnarrowed, so
+            // a vacuum comes back badged as a lamp. The fix is for the product
+            // spec to narrow the type by TXT (its own identity_mapping already
+            // reads `txt:model`) or to stop claiming it, leaving the platform
+            // spec as the honest answer. Filed upstream rather than papered
+            // over here, because trading a wrong name for no name is not an
+            // improvement.
             // "It speaks HTTP" and "it is a printer" are categories, not
             // products.
             | "_http._tcp"
