@@ -1463,12 +1463,24 @@ fn the_vendored_hisense_spec_resolves_a_remote_over_mqtt() {
     let surface =
         network_entities_for_device(yaml.clone(), vec![]).expect("hisense resolves a surface");
     let names: BTreeSet<&str> = surface.entities.iter().map(|e| e.name.as_str()).collect();
-    for expected in ["Power", "Up", "Down", "Left", "Right", "OK"] {
+    for expected in ["Power Key", "Up", "Down", "Left", "Right", "OK"] {
         assert!(
             names.contains(expected),
             "{expected:?} should be on the surface, got {names:?}"
         );
     }
+    // The remote's keys are what this set can actually be driven by. Its
+    // `Power` SWITCH is a different entity and is deliberately not drawn: its
+    // one binding is `toggle`, whose contract requires reading the state
+    // first, and its `state_topic` carries no `state_mapping` saying which
+    // field of that topic is the power state (the spec puts it in prose). A
+    // switch that can neither be read nor operated is the dead control the
+    // surface rule exists to keep off screen — the momentary key beside it
+    // works, which is the honest surface for this set.
+    assert!(
+        !names.contains("Power"),
+        "the toggle-only, mapping-less Power switch is not drivable, got {names:?}"
+    );
 
     let values = std::collections::HashMap::from([(
         "client_id".to_string(),
@@ -1496,34 +1508,237 @@ fn the_vendored_hisense_spec_resolves_a_remote_over_mqtt() {
     );
 }
 
-/// The Dyson purifier is the read-only end of the same transport: its spec
-/// records that the STATE-SET key names were never recovered, so it declares
-/// no commands at all — and its sensors still have to reach the screen, on
-/// the strength of the topic they arrive on.
+/// `state_topic` is a LOCATION, and a location is a binding only when the
+/// reading there can be both reached and read.
 ///
-/// The pair with the Hue bridge is the point. Hue stores an HTTP path in
-/// `state_topic` for a sensor family it deliberately leaves unbound, so
-/// reading every `state_topic` as a subscription would put a control on
-/// screen that can never update. One is a topic and the other is not, and
-/// what tells them apart is whether the device speaks MQTT.
+/// Twenty specs declare the field and no two of them mean quite the same
+/// thing by it, which is why this is resolved in one place
+/// (`bindings::state_binding`) rather than re-derived per transport. The four
+/// cases below are the whole rule:
+///
+/// - A Hisense set's `/remoteapp/mobile/broadcast/ui_service/state` opens with
+///   a slash and is an MQTT TOPIC all the same, because the device speaks
+///   MQTT. Shape must not be asked before transport.
+/// - A WLED controller's `/json/state` is a path on its own HTTP API. It names
+///   no command because there is none to name: the reading is a resource, and
+///   reading a resource is a GET of it.
+/// - The Dyson purifier is reachable and unreadable. Its spec records that the
+///   STATE-SET key names were never recovered, so it declares no
+///   `state_mapping` — nothing says which field at that topic is the reading,
+///   and a card admitted on the topic alone is permanently blank.
+/// - The Hue bridge is readable and unreachable: `/api/{username}/sensors/{id}`
+///   wants a credential this app does not store and a child id nothing
+///   enumerates.
+///
+/// The last two stay off the surface and are counted as hidden, which is what
+/// the honesty rule asks for — an absent control over a dead one.
 #[test]
-fn a_state_topic_is_a_binding_only_where_the_device_speaks_mqtt() {
-    use liberated_bread_core::api::device_api::network_entities_for_device;
+fn a_state_topic_binds_only_where_it_can_be_reached_and_read() {
+    use liberated_bread_core::api::device_api::{
+        network_entities_for_device, render_network_http_state_request,
+    };
 
-    let dyson = fs::read_to_string(spec_path("dyson-air-purifier.yaml")).expect("spec reads");
-    let surface = network_entities_for_device(dyson, vec![]).expect("dyson resolves a surface");
-    let names: BTreeSet<&str> = surface.entities.iter().map(|e| e.name.as_str()).collect();
-    assert!(
-        names.contains("Air Quality") && names.contains("Filter Life"),
-        "a purifier's sensors arrive on a subscribed topic, got {names:?}"
+    let entities = |file: &str| {
+        let yaml = fs::read_to_string(spec_path(file)).expect("spec reads");
+        network_entities_for_device(yaml, vec![])
+            .unwrap_or_else(|e| panic!("{file} should resolve a surface: {e}"))
+            .entities
+    };
+    let surfaced =
+        |file: &str| -> BTreeSet<String> { entities(file).into_iter().map(|e| e.name).collect() };
+
+    // A topic, because the device speaks MQTT — despite opening with a slash.
+    //
+    // Asserted on the TRANSPORT the DTO reports, not merely on the entity
+    // reaching the surface. That is what routes the read, and it is the half
+    // that fails silently: resolve this by shape before asking what the device
+    // speaks and the select still draws, while the screen polls a television's
+    // MQTT topic over HTTP and every read 404s.
+    let input = entities("hisense-vidaa.yaml")
+        .into_iter()
+        .find(|e| e.name == "Input")
+        .expect("a Hisense input select reads its state off a subscribed topic");
+    assert_eq!(
+        input.transport.as_deref(),
+        Some("mqtt"),
+        "the set's own transport decides what its state_topic means"
+    );
+    assert_eq!(
+        input.state_command, "/remoteapp/mobile/broadcast/ui_service/state",
+        "the topic itself rides the state binding's field"
     );
 
-    let hue = fs::read_to_string(spec_path("hue-bridge.yaml")).expect("spec reads");
-    let surface = network_entities_for_device(hue, vec![]).expect("hue resolves a surface");
-    let names: BTreeSet<&str> = surface.entities.iter().map(|e| e.name.as_str()).collect();
+    // A path on the device's own HTTP API, which is the whole of its surface:
+    // before this resolved, a WLED controller drew nothing at all.
+    let wled = surfaced("wled-controller.yaml");
     assert!(
-        !names.contains("Hue Sensor"),
-        "hue's state_topic is an HTTP path for an unbound family, got {names:?}"
+        wled.contains("WLED"),
+        "a WLED light reads its state out of /json/state, got {wled:?}"
+    );
+    let yaml = fs::read_to_string(spec_path("wled-controller.yaml")).expect("spec reads");
+    let request =
+        render_network_http_state_request(yaml, "/json/state".to_string(), Default::default())
+            .expect("a bare path renders as the GET it is");
+    assert_eq!(
+        (request.method.as_str(), request.path.as_str()),
+        ("GET", "/json/state")
+    );
+
+    // Reachable, unreadable: no state_mapping, so nothing says what to take
+    // out of what arrives.
+    let dyson = surfaced("dyson-air-purifier.yaml");
+    assert!(
+        dyson.is_empty(),
+        "a purifier whose state keys were never recovered has nothing to draw, got {dyson:?}"
+    );
+
+    // Readable, unreachable: the path wants a credential nothing stores.
+    let hue = surfaced("hue-bridge.yaml");
+    assert!(
+        !hue.contains("Hue Sensor"),
+        "hue's sensor path needs a credential this app has no store for, got {hue:?}"
+    );
+}
+
+/// Every `state_topic` the catalogue declares either resolves to a binding
+/// this crate can act on, or fails for one of the reasons below — and a NEW
+/// reason fails this test rather than making an entity quietly vanish.
+///
+/// This is the drift guard this project keeps needing: a closed table in code
+/// facing an open field in the schema, with no symptom when they disagree.
+/// The field's own description is "MQTT topic or HTTP endpoint", which is
+/// exactly the kind of open sentence a spec author will reasonably write a
+/// `coap://` or an `mqtts://` into one day. When that happens the entity would
+/// simply stop being drawn, on every device, with nothing said. So the
+/// unreadable locations are enumerated by the SCHEME they carry, and an
+/// unlisted scheme is a failure.
+#[test]
+fn every_state_topic_in_the_catalogue_resolves_or_is_a_known_backlog_item() {
+    use liberated_bread_core::spec::bindings::state_binding;
+
+    /// Location schemes no transport here can read, with what each would take.
+    /// Not a wish-list — every entry is a real entity on a real spec that the
+    /// surface is currently, deliberately, honest about not drawing.
+    const UNREADABLE_SCHEMES: &[(&str, &str)] = &[
+        (
+            "udp",
+            "a binary datagram exchange (LIFX, Mi-Light) — the reading is a decode, not a path",
+        ),
+        (
+            "ssap",
+            "an LG WebSocket request; the session exists, the read side is not wired",
+        ),
+        ("homekit", "HAP, which this app does not speak"),
+        ("smartthings", "a hub's own cloud-adjacent API"),
+        ("matter", "Matter, which this app does not speak"),
+    ];
+
+    /// Specs whose `state_topic` names a place on the VENDOR'S CLOUD rather
+    /// than on the device. Listed per spec, not waved through by shape, so
+    /// that a schemeless location on a spec that is not here still fails.
+    ///
+    /// Both Frigidaire units are the whole list, and their own `device.notes`
+    /// are the evidence: a static-analysis pass over three versions of the
+    /// Electrolux app found provisioning-only local paths and "no usable
+    /// post-pairing LAN discovery/control path". The schema has a way to say
+    /// this — `state_endpoint: "cloud"` — and these specs predate it; the
+    /// placeholder is also spelled `device_id` here while every command
+    /// parameter spells it `applianceId`, so nothing could fill it either way.
+    const CLOUD_ONLY_STATE: &[(&str, &str)] = &[
+        (
+            "frigidaire-portable-ac.yaml",
+            "Electrolux OCP cloud; no LAN control path exists",
+        ),
+        (
+            "frigidaire-window-ac.yaml",
+            "Electrolux OCP cloud; no LAN control path exists",
+        ),
+    ];
+
+    let mut unresolved: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let yaml = fs::read_to_string(&path).expect("spec reads");
+        let Ok(spec) = parse_device_spec(&yaml) else {
+            continue;
+        };
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        for entity in &spec.entities {
+            let Some(topic) = entity.state_topic.as_deref() else {
+                continue;
+            };
+            if state_binding(&spec, entity).is_some() {
+                continue;
+            }
+            // A location with no `state_mapping` is unreadable by declaration,
+            // and the spec saying so is the point — Dyson records that its
+            // state keys were never recovered.
+            if entity.state_mapping.is_empty() {
+                continue;
+            }
+            if CLOUD_ONLY_STATE.iter().any(|(spec, _)| *spec == file) {
+                continue;
+            }
+            // A scheme names a transport rather than a place on this device.
+            if let Some(scheme) = topic.split("://").next().filter(|s| s.len() < topic.len()) {
+                if UNREADABLE_SCHEMES.iter().any(|(known, _)| *known == scheme) {
+                    continue;
+                }
+                unresolved.push(format!(
+                    "{file}: {} — unknown location scheme '{scheme}://'",
+                    entity.name
+                ));
+                continue;
+            }
+            unresolved.push(format!("{file}: {} — {topic}", entity.name));
+        }
+    }
+    assert!(
+        unresolved.is_empty(),
+        "these state_topic locations resolve to no binding and match no known \
+         backlog reason. Either wire the transport, or — if it is genuinely \
+         out of reach — add its scheme to UNREADABLE_SCHEMES with what it \
+         would take:\n  {}",
+        unresolved.join("\n  ")
+    );
+}
+
+/// A parameter name means one thing within a spec.
+///
+/// This is what makes `http::spec_wide_default` sound. A `{placeholder}` in a
+/// bare `state_topic` has no owning command to read a default from — Philips's
+/// `/{api_version}/powerstate` names a version the spec declares fifty-four
+/// times, once per command, always as `6`. Resolving it by name across the
+/// spec is reading the spec; it would be GUESSING if one name could mean two
+/// things, and this is what keeps that from becoming true silently.
+#[test]
+fn a_parameter_name_means_one_thing_within_a_spec() {
+    let mut conflicts: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let yaml = fs::read_to_string(&path).expect("spec reads");
+        let Ok(spec) = parse_device_spec(&yaml) else {
+            continue;
+        };
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let mut seen: std::collections::BTreeMap<&str, BTreeSet<String>> = Default::default();
+        for command in spec.commands.values() {
+            for (name, parameter) in &command.parameters {
+                if let Some(default) = parameter.default.as_ref() {
+                    seen.entry(name).or_default().insert(format!("{default:?}"));
+                }
+            }
+        }
+        for (name, defaults) in seen {
+            if defaults.len() > 1 {
+                conflicts.push(format!("{file}: {name} defaults to {defaults:?}"));
+            }
+        }
+    }
+    assert!(
+        conflicts.is_empty(),
+        "one parameter name, two declared defaults — a path placeholder can no \
+         longer be resolved by name, and http::spec_wide_default has to become \
+         a per-command question:\n  {}",
+        conflicts.join("\n  ")
     );
 }
 

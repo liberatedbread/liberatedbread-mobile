@@ -1975,6 +1975,7 @@ fn network_surface_for(
         .into_iter()
         .map(|entity| {
             let actions = bindings::resolve_network_actions(&spec, entity);
+            let binding = bindings::state_binding(&spec, entity);
             NetworkEntityDto {
                 name: entity.name.clone(),
                 key: entity.key.clone(),
@@ -1989,35 +1990,41 @@ fn network_surface_for(
                 // gathering state commands must skip the empty string rather
                 // than render a request from it.
                 //
-                // On a device that pushes its readings the state binding is a
-                // topic, and it rides this same field — the convention the
-                // Roomba synthesiser above already follows. One field for
-                // "where the reading comes from", whatever the transport calls
-                // it; the transport below says which it is.
-                state_command: entity
-                    .state_command
-                    .clone()
-                    .or_else(|| entity.state_topic.clone())
+                // A command name, an MQTT topic or a bare HTTP path — whatever
+                // the resolved binding's location is, it rides this one field,
+                // the convention the Roomba synthesiser above already follows.
+                // One field for "where the reading comes from"; the transport
+                // below says which it is, and the two are read off the SAME
+                // resolution so they cannot disagree.
+                state_command: binding
+                    .map(|b| b.location().to_string())
                     .unwrap_or_default(),
                 // Every resolved action on one entity rides one transport —
                 // a spec binding a light's toggle to SOAP and its slider to
                 // HTTP would be describing two devices — so the first
                 // action's answer is the entity's. A pure reading has no
-                // action to answer for it; its transport is the one its state
-                // command declares (the Envoy's http telemetry poll), so the
-                // screen can route the poll without guessing.
-                transport: actions
-                    .first()
-                    .map(|a| a.transport.to_string())
-                    .or_else(|| {
-                        entity
-                            .state_command
-                            .as_deref()
-                            .and_then(|name| {
-                                crate::spec::bindings::transport_of_command(&spec, name)
-                            })
-                            .map(str::to_string)
-                    }),
+                // action to answer for it, and its transport is the one its
+                // state binding rides: the command's declared transport (the
+                // Envoy's http telemetry poll), `http` for a bare path, `mqtt`
+                // for a subscribed topic. Without this last arm a Dyson
+                // purifier — three readings, no commands at all, because its
+                // command keys were never recovered — reached the screen with
+                // no transport on any entity, and the screen went looking for
+                // the UPnP description a purifier has never served.
+                transport: actions.first().map(|a| a.transport.to_string()).or_else(
+                    || match binding {
+                        Some(bindings::StateBinding::Command(name)) => {
+                            bindings::transport_of_command(&spec, name).map(str::to_string)
+                        }
+                        Some(bindings::StateBinding::HttpPath(_)) => {
+                            Some(crate::protocol::http::TRANSPORT.to_string())
+                        }
+                        Some(bindings::StateBinding::MqttTopic(_)) => {
+                            Some(crate::protocol::mqtt::TRANSPORT.to_string())
+                        }
+                        None => None,
+                    },
+                ),
                 is_instanced: entity.instances.is_some(),
                 value_field: entity.value_field().map(str::to_string),
                 options: entity

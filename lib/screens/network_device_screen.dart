@@ -621,10 +621,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   /// The plain-HTTP state poll (the Envoy's production summary): render the
-  /// GET, send it, and flatten the JSON reply into the name→value pairs the
+  /// request, send it, and flatten the reply into the name→value pairs the
   /// entity decoder reads. The Kasa poll's structural twin over HTTP — fill
   /// `_stateByCommand`, then the shared decode — but through
   /// [HttpControlClient], with the reply flattened here.
+  ///
+  /// `command` is whatever the entity's state binding resolved to: a command
+  /// name on the Envoy, a bare path on a device whose spec declares its
+  /// readings as `state_topic` (`/json/state` on a WLED controller). The Rust
+  /// renderer owns that distinction; both arrive here as a request to send.
   ///
   /// A refusal (403, or 401 from the Envoy's JWT-gated firmware) is the same
   /// device-side policy a refused write is, so it raises the standing note
@@ -639,7 +644,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
     try {
       final body = await _sendNetworkHttp(request);
-      _stateByCommand[command] = jsonStateFields(body);
+      _stateByCommand[command] = httpStateFields(body);
     } on ControlRefusedException {
       _controlRefused = true;
     }

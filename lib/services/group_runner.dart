@@ -666,7 +666,7 @@ class NetworkGroupRunner {
           stateCommand: entity.stateCommand,
           values: const {},
         );
-        returned = jsonStateFields(await sender.sendHttpRequest(request));
+        returned = httpStateFields(await sender.sendHttpRequest(request));
       } else {
         final desc = description;
         if (desc == null) return null;

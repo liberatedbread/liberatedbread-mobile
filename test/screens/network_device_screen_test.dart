@@ -2279,6 +2279,102 @@ void main() {
     });
   });
 
+  // ── HTTP state polling: a bare path, answered in XML (Denon receiver) ────
+  //
+  // The Envoy above names a COMMAND to poll. A large part of the catalogue
+  // instead declares `state_topic`, which is a location rather than a name —
+  // the receiver's readings live at `/goform/formMainZone_MainZoneXmlStatusLite
+  // .xml` and no command names that path. The Rust resolver turns such a
+  // location into the GET it is; what this pins is the half on this side:
+  // that the reply is flattened by the encoding it ARRIVED in.
+  //
+  // The receiver answers XML, and its spec's `state_mapping` paths
+  // (`MasterVolume.value`) are written against that document. Flattening every
+  // reply as JSON — which is what this path did before — yields an empty map,
+  // so every reading reads Unknown on a device that answered correctly.
+  group('HTTP telemetry answered in XML (Denon receiver)', () {
+    final denonDevice = NetworkDevice(
+      host: '10.0.0.13',
+      name: 'AVR-S720W',
+      port: 80,
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    // The path IS the state binding — exactly what the DTO carries for an
+    // entity whose spec declares `state_topic` and no `state_command`.
+    const statusPath = '/goform/formMainZone_MainZoneXmlStatusLite.xml';
+
+    final denonEntities = [
+      const NetworkEntityDto(
+        name: 'Volume',
+        platform: 'sensor',
+        unit: 'dB',
+        stateCommand: statusPath,
+        valueField: 'MasterVolume.value',
+        transport: 'http',
+        options: [],
+        isInstanced: false,
+        actions: [],
+      ),
+    ];
+
+    const statusXml = '<?xml version="1.0" encoding="utf-8"?>'
+        '<item><Power><value>ON</value></Power>'
+        '<MasterVolume><value>-40.0</value></MasterVolume></item>';
+
+    testWidgets('polls the bare path and reads the XML reply', (tester) async {
+      final received = <http.Request>[];
+      codec = FakeSpecCodec(
+        networkEntities: (_) => denonEntities,
+        // What the Rust renderer makes of a bare path: the GET it is.
+        networkHttpRequest: (name, _) =>
+            HttpRequestDto(method: 'GET', path: name, body: ''),
+        // Reads the dotted path the spec names. It is only present if the XML
+        // was flattened; a JSON-only reader hands this an empty map.
+        networkReading: (entity, returned) {
+          final raw = returned['MasterVolume.value'];
+          if (raw == null) return null;
+          return NetworkReadingDto(
+              kind: NetworkReadingKind.number,
+              number: double.parse(raw),
+              raw: raw);
+        },
+      );
+      final receiver = MockClient((request) async {
+        received.add(request);
+        return http.Response(statusXml, 200);
+      });
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async => fail(
+                  'fetched a description for a plain HTTP poll: ${r.url}')))),
+          httpControlClientProvider
+              .overrideWithValue(HttpControlClient(httpClient: receiver)),
+          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: denonDevice,
+              controls:
+                  NetworkControls(specYaml: 'yaml', entities: denonEntities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(received, hasLength(1));
+      expect(received.single.url.path, statusPath);
+      expect(find.text('-40.0 dB'), findsOneWidget);
+      expect(find.text('Unknown'), findsNothing);
+    });
+  });
+
   // ── The fourth transport: a Rabbit Air purifier over encrypted UDP ──────
   //
   // Switch/select/number/sensor-shaped like the others, but every exchange is

@@ -1216,21 +1216,19 @@ fn qualify_network<'a>(
 /// by policy — admitting a switch on its strength alone would list a
 /// control the client must then refuse to operate.
 fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
-    // A `state_topic` is the same promise as a `state_command` where readings
-    // are pushed rather than polled: the entity says where its reading comes
-    // from, which is the whole of the honesty rule. Without it an MQTT set's
-    // Power switch — a toggle whose state arrives on a subscribed broadcast
-    // topic — is hidden as though it had no reading, and only the momentary
-    // buttons survive.
+    // "Says where its reading comes from" is asked of [`state_binding`], which
+    // is the one place that reads a `state_topic` and decides what kind of
+    // location it is. Both spellings are the same promise: a Hisense set's
+    // Power switch reads its state off a subscribed topic and a WLED
+    // controller's light reads it out of `/json/state`, and neither names a
+    // command because neither has one to name.
     //
-    // Narrowed to devices that actually speak MQTT, and that is not
-    // pedantry: the Hue bridge stores an HTTP path in `state_topic` for a
-    // sensor family its spec deliberately leaves unbound, and reading that as
-    // a subscription would put a control on screen that can never update.
-    // Where the field means a topic, it is a binding; elsewhere it means
-    // whatever the author meant and this does not guess.
-    entity.state_command.is_some()
-        || (entity.state_topic.is_some() && speaks_mqtt(spec))
+    // What the resolver refuses is the whole point of routing through it. A
+    // `udp://`/`homekit://` location names a transport this crate cannot read,
+    // and the Hue bridge's `/api/{username}/sensors/{id}` needs a credential
+    // nothing stores — both stay off the surface and are counted as hidden,
+    // rather than drawing a card that can never update.
+    state_binding(spec, entity).is_some()
         || matches!(entity.platform.as_deref(), Some("button") | Some("text"))
         || entity
             .options_source
@@ -1238,6 +1236,102 @@ fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
             .is_some_and(|source| http::endpoint_request(spec, &source.command).is_some())
         || is_assumed_state_switch(spec, entity)
         || is_assumed_state_cover(spec, entity)
+}
+
+/// Where one entity's reading comes from, resolved once from the spec.
+///
+/// The schema gives an entity two ways to say it: `state_command`, which NAMES
+/// something (an `http_endpoints` entry, a command), and `state_topic`, which
+/// is a LOCATION — "MQTT topic or HTTP endpoint", in the schema's own words.
+/// A location has to be read to know which, and that reading is here rather
+/// than in each transport, so the surface rule, the DTO's transport and the
+/// renderer all answer the same way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StateBinding<'a> {
+    /// `state_command`: a name in the spec's own endpoint/command vocabulary.
+    Command(&'a str),
+    /// `state_topic` holding a path on this device's own HTTP API —
+    /// `/json/state`, `/query/active-app`. Read with a GET of it.
+    HttpPath(&'a str),
+    /// `state_topic` holding a topic on this device's broker. Read by
+    /// subscribing; there is no request whose reply is the value.
+    MqttTopic(&'a str),
+}
+
+impl StateBinding<'_> {
+    /// The location itself — the command name, path or topic. This is what
+    /// rides the DTO's `state_command` field, whichever kind it is.
+    pub fn location(&self) -> &str {
+        match self {
+            StateBinding::Command(name) => name,
+            StateBinding::HttpPath(path) => path,
+            StateBinding::MqttTopic(topic) => topic,
+        }
+    }
+}
+
+/// Resolve where `entity`'s reading comes from, or `None` when the spec
+/// declares none this crate can act on.
+///
+/// The order matters and each step is a fact the spec states, not a guess:
+///
+/// 1. `state_command` names something. That vocabulary is closed and the
+///    renderer owns it.
+/// 2. Otherwise `state_topic` is a location, and the DEVICE decides what kind:
+///    on a device that speaks MQTT it is a topic, whatever it looks like. A
+///    Hisense set's `/remoteapp/mobile/broadcast/ui_service/state` opens with a
+///    slash and is a topic all the same, so shape must not be asked first.
+/// 3. A location carrying a URI scheme names a transport rather than a place
+///    on this device — `udp://{host}:56700`, `homekit://{hap_id}`,
+///    `ssap://audio/getVolume`. None of those is a read this crate can issue,
+///    so the entity is left off the surface and counted as hidden, which is
+///    the honest state rather than an invisible one.
+/// 4. What is left that opens with `/` is a path on the device's HTTP API —
+///    the only other thing the schema says the field can be.
+///
+/// A path whose placeholders the spec cannot fill on its own is not a binding:
+/// see [`crate::protocol::http::path_renderable_from_spec`].
+///
+/// Nor is a location with no `state_mapping`. A `state_command` names
+/// something the spec describes elsewhere, and the reply may simply BE the
+/// value; a location describes nothing — it is an address, and without a
+/// mapping there is no statement of which field at that address is the
+/// reading. A Roku's `/query/active-app` is the case: the path is right, the
+/// reply is real, and the spec never says what to take out of it. Admitting
+/// that draws a sensor whose value is permanently blank, which is what the
+/// surface rule exists to prevent.
+pub fn state_binding<'a>(spec: &'a DeviceSpec, entity: &'a Entity) -> Option<StateBinding<'a>> {
+    if let Some(command) = entity.state_command.as_deref() {
+        return Some(StateBinding::Command(command));
+    }
+    let topic = entity.state_topic.as_deref()?;
+    if entity.state_mapping.is_empty() {
+        return None;
+    }
+    if speaks_mqtt(spec) {
+        return Some(StateBinding::MqttTopic(topic));
+    }
+    if has_uri_scheme(topic) || !topic.starts_with('/') {
+        return None;
+    }
+    crate::protocol::http::path_renderable_from_spec(spec, topic)
+        .then_some(StateBinding::HttpPath(topic))
+}
+
+/// Whether a location opens with a `scheme://` — the RFC 3986 shape, so a
+/// path carrying a colon later on (`/printer/objects/query?a:b`) is not
+/// mistaken for one.
+fn has_uri_scheme(location: &str) -> bool {
+    let Some(scheme) = location
+        .split("://")
+        .next()
+        .filter(|s| s.len() < location.len())
+    else {
+        return false;
+    };
+    let mut chars = scheme.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
 }
 
 /// Whether this device's readings arrive over MQTT — the spec's declared
@@ -2968,6 +3062,113 @@ entities:
 "#;
         let spec = parse_device_spec(NAMED_ONLY).expect("test spec should parse");
         assert!(resolve_network_actions(&spec, &spec.entities[0]).is_empty());
+        assert!(network_entities(&spec).is_empty());
+    }
+
+    /// The `state_topic` resolver, whose whole job is that a LOCATION is not
+    /// self-describing: the same string means different things on different
+    /// devices, and only the spec can say which.
+    #[test]
+    fn a_state_topic_resolves_by_what_the_device_speaks_then_by_shape() {
+        const TEMPLATE: &str = r#"
+device:
+  name: Test Device
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+TRANSPORT
+commands:
+  ping:
+    description: Something to make the device speak a transport.
+    transport: TRANSPORT_NAME
+    method: GET
+    path: /ping
+entities:
+  - name: Reading
+    platform: sensor
+    state_topic: "TOPIC"
+    state_mapping:
+      value: field
+"#;
+        let resolve = |transport: &str, topic: &str| -> Option<String> {
+            let yaml = TEMPLATE
+                .replace("TRANSPORT_NAME", transport)
+                .replace(
+                    "TRANSPORT",
+                    if transport == "mqtt" {
+                        "transport: mqtt"
+                    } else {
+                        ""
+                    },
+                )
+                .replace("TOPIC", topic);
+            let spec = parse_device_spec(&yaml).expect("test spec should parse");
+            state_binding(&spec, &spec.entities[0]).map(|b| format!("{b:?}"))
+        };
+
+        // The device decides first. A Hisense set's topic opens with a slash
+        // and is a topic all the same, so shape must not be asked first.
+        assert_eq!(
+            resolve("mqtt", "/remoteapp/mobile/broadcast/ui_service/state").as_deref(),
+            Some("MqttTopic(\"/remoteapp/mobile/broadcast/ui_service/state\")")
+        );
+        // Only then shape: a path on the device's own HTTP API.
+        assert_eq!(
+            resolve("http", "/json/state").as_deref(),
+            Some("HttpPath(\"/json/state\")")
+        );
+        // A scheme names a transport rather than a place on this device.
+        for elsewhere in [
+            "udp://{host}:56700",
+            "homekit://{hap_id}",
+            "ssap://audio/getVolume",
+        ] {
+            assert_eq!(
+                resolve("http", elsewhere),
+                None,
+                "{elsewhere} is not a path here"
+            );
+        }
+        // Neither a topic nor a path: nothing to resolve, and nothing guessed.
+        assert_eq!(resolve("http", "appliance/{device_id}/state"), None);
+        // A path whose placeholder the spec cannot fill can never be issued.
+        assert_eq!(resolve("http", "/api/{username}/sensors"), None);
+    }
+
+    /// A colon inside a path is not a scheme. `://` is the whole test, and the
+    /// scheme before it has to look like one.
+    #[test]
+    fn only_an_rfc_shaped_scheme_counts_as_one() {
+        assert!(has_uri_scheme("udp://host"));
+        assert!(has_uri_scheme("smartthings://hub"));
+        assert!(!has_uri_scheme("/printer/objects/query?a:b"));
+        assert!(!has_uri_scheme("/goform/formMainZone_MainZoneXml.xml"));
+        assert!(!has_uri_scheme("appliance/{id}/state"));
+        // A digit cannot start a scheme, so a path that happens to contain
+        // "://" after a numeric segment is still a path.
+        assert!(!has_uri_scheme("8080://nope"));
+    }
+
+    /// A location with no `state_mapping` says where the reading lives and not
+    /// what it is. The Dyson purifier is the case: its spec records that the
+    /// state keys were never recovered, and a card admitted on the topic alone
+    /// would be permanently blank.
+    #[test]
+    fn a_location_with_nothing_to_read_out_of_it_is_not_a_binding() {
+        const UNMAPPED: &str = r#"
+device:
+  name: Test Purifier
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+  transport: mqtt
+entities:
+  - name: Air Quality
+    platform: sensor
+    state_topic: "{productType}/{serial}/status/current"
+"#;
+        let spec = parse_device_spec(UNMAPPED).expect("test spec should parse");
+        assert_eq!(state_binding(&spec, &spec.entities[0]), None);
         assert!(network_entities(&spec).is_empty());
     }
 }
