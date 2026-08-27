@@ -18,7 +18,7 @@ const _svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
 
 final _spec = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Example Smart Bulb',
@@ -36,7 +36,7 @@ final _spec = DeviceSpecDto(
       confidence: MacPrefixConfidence.medium,
     ),
   ],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: const [],
   lanProtocols: const [],
   defaultPort: null,

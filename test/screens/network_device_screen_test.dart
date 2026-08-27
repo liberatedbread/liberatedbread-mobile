@@ -457,7 +457,10 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -515,8 +518,10 @@ void main() {
       expect(find.textContaining('answered discovery'), findsOneWidget);
     });
 
-    NetworkEntityDto button(String name, [String? icon]) => NetworkEntityDto(
+    NetworkEntityDto button(String name, [String? icon, String? key]) =>
+        NetworkEntityDto(
           name: name,
+          key: key,
           platform: 'button',
           icon: icon,
           isInstanced: false,
@@ -594,6 +599,39 @@ void main() {
       expect(downPos.dx, closeTo(okPos.dx, 1));
       expect(upPos.dy, lessThan(okPos.dy));
       expect(okPos.dy, lessThan(downPos.dy));
+    });
+
+    testWidgets('a keyed remote fits a phone', (tester) async {
+      // The rows the layout fills from the spec hold whatever the spec keyed,
+      // and a keyed button is an icon AND a label AND padding — so the width
+      // is the spec's to decide. Six TV specs key back+home+exit, and viera
+      // keys menu+options+info too; as bare Rows those overflowed a 360dp
+      // phone by 131px inside the Card's padding chain and clipped the last
+      // key into something untappable. Every other test here runs at 800x600,
+      // which is why this one names its width.
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await pumpRemote(tester, received: [], entities: [
+        button('Back', 'mdi:arrow-u-left-top', 'back'),
+        button('Home', 'mdi:home', 'home'),
+        button('Exit', 'mdi:exit-to-app', 'exit'),
+        button('Menu', 'mdi:menu', 'menu'),
+        button('Options', 'mdi:asterisk', 'options'),
+        button('Info', 'mdi:information', 'info'),
+      ]);
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'a keyed remote must not overflow a phone',
+      );
+      // And every key is still reachable, not clipped off the edge.
+      for (final label in ['Back', 'Home', 'Exit', 'Menu', 'Options', 'Info']) {
+        expect(find.widgetWithText(FilledButton, label), findsOneWidget);
+      }
     });
 
     testWidgets('renders the channel picker below the button pad',
@@ -724,7 +762,10 @@ void main() {
               // The spec's ecp2 block + declared port 8060, as the
               // capabilities resolver hands them over for a real Roku.
               capabilities: NetworkCapabilitiesDto(
-                  signedSession: 'ecp2', defaultPort: 8060),
+                  signedSession: 'ecp2',
+                  defaultPort: 8060,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false),
             ),
           ),
         ),
@@ -923,7 +964,10 @@ void main() {
                   specYaml: 'yaml',
                   entities: [channelEntity],
                   capabilities: NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1081,7 +1125,10 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       // Let the load drop the spinner and the ECP2 textedit poll resolve — a
@@ -1134,7 +1181,10 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       for (var i = 0; i < 6; i++) {
@@ -1214,7 +1264,10 @@ void main() {
                     specYaml: 'yaml',
                     entities: [channelEntity, keyboardEntity],
                     capabilities: NetworkCapabilitiesDto(
-                        signedSession: 'ecp2', defaultPort: 8060))),
+                        signedSession: 'ecp2',
+                        defaultPort: 8060,
+                        tlsSelfSigned: false,
+                        advertisedPortUnreliable: false))),
           ),
         ));
         for (var i = 0; i < 8; i++) {
@@ -1316,7 +1369,10 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1504,7 +1560,10 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1797,7 +1856,10 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
-                      signedSession: 'ecp2', defaultPort: 8060))),
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false))),
         ),
       ));
       await tester.pumpAndSettle();
@@ -2214,6 +2276,303 @@ void main() {
       expect(find.textContaining('answered discovery'), findsOneWidget);
       expect(find.text('Unknown'), findsNWidgets(3));
       expect(find.textContaining('Could not reach'), findsNothing);
+    });
+  });
+
+  // ── A device that needs something before it can be driven ───────────────
+  //
+  // A `credential:` parameter is a value the client was GIVEN — a printer's
+  // serial off its touchscreen. Every word of the prompt comes from the spec,
+  // which is what makes it generic: a device added to the catalogue tomorrow
+  // gets a working ask with no UI written for it.
+  group('a spec-declared credential', () {
+    final printer = NetworkDevice(
+      host: '10.0.0.14',
+      name: 'X1 Carbon',
+      port: 8883,
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const serialNeeded = NetworkCredentialDto(
+      name: 'serial',
+      description: 'The printer serial, read off the touchscreen beside the '
+          'Access Code during setup.',
+      neededBy: ['pause', 'resume', 'stop'],
+      mustBeAskedFor: true,
+    );
+
+    // Issued by a pairing flow instead: nothing should ask for it.
+    const pairedInstead = NetworkCredentialDto(
+      name: 'username',
+      description: 'The whitelist username the link button issues.',
+      neededBy: ['set_light'],
+      issuedBy: NetworkCredentialIssuanceDto(
+          method: 'button_pairing', replyPath: '[0].success.username'),
+      mustBeAskedFor: false,
+    );
+
+    final buttons = [
+      const NetworkEntityDto(
+        name: 'Pause',
+        platform: 'button',
+        stateCommand: '',
+        options: [],
+        isInstanced: false,
+        actions: [
+          NetworkActionDto(
+            role: 'press',
+            commandName: 'pause',
+            transport: 'http',
+            userParams: [],
+            readBack: [],
+            credentials: [
+              NetworkSourceParamDto(param: 'serial', name: 'serial')
+            ],
+            instanceParams: [],
+          ),
+        ],
+      ),
+    ];
+
+    Future<InMemorySettingsStore> pumpPrinter(
+      WidgetTester tester, {
+      required List<NetworkCredentialDto> declared,
+      InMemorySettingsStore? settings,
+    }) async {
+      final store = settings ?? InMemorySettingsStore();
+      codec = FakeSpecCodec(
+        networkEntities: (_) => buttons,
+        networkCredentials: declared,
+      );
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          settingsStoreProvider.overrideWithValue(store),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('a printer serves no UPnP description: ${r.url}')))),
+          httpControlClientProvider.overrideWithValue(HttpControlClient(
+              httpClient: MockClient((r) async => http.Response('', 200)))),
+          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: printer,
+              controls: NetworkControls(specYaml: 'yaml', entities: buttons)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return store;
+    }
+
+    testWidgets('is asked for in the spec\'s own words', (tester) async {
+      await pumpPrinter(tester, declared: const [serialNeeded]);
+
+      expect(find.text('This device needs one more thing'), findsOneWidget);
+      // The description is the spec author's sentence, not UI copy written
+      // here — which is the whole point of driving the prompt off the spec.
+      expect(find.textContaining('read off the touchscreen'), findsOneWidget);
+      expect(find.text('Enter serial'), findsOneWidget);
+    });
+
+    testWidgets('stores what is typed and stops asking', (tester) async {
+      final store = await pumpPrinter(tester, declared: const [serialNeeded]);
+
+      await tester.tap(find.text('Enter serial'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '01P00A123456789');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(store.values.values, contains('01P00A123456789'));
+      expect(find.text('This device needs one more thing'), findsNothing);
+    });
+
+    testWidgets('one a pairing issues is never asked for', (tester) async {
+      // Prompting for it would teach people to paste a secret that a button
+      // press was about to hand over.
+      await pumpPrinter(tester, declared: const [pairedInstead]);
+      expect(find.textContaining('needs one more thing'), findsNothing);
+      expect(find.text('Enter username'), findsNothing);
+    });
+
+    testWidgets('one already stored is not asked for again', (tester) async {
+      await pumpPrinter(
+        tester,
+        declared: const [serialNeeded],
+        settings: InMemorySettingsStore(
+            {'credential.host:10.0.0.14.serial': '01P00A123456789'}),
+      );
+      expect(find.textContaining('needs one more thing'), findsNothing);
+    });
+  });
+
+  // ── A tcp-json device whose renderer is gated away ──────────────────────
+  //
+  // The Kasa renderer is gated on `protocol_handler: tplink_smarthome`, so the
+  // other two tcp-json specs — a Tuya gas sensor, a Yeelight cube — resolve no
+  // actions at all. Their entities still carry a tcp-json state command, and
+  // the screen's "does anything need the UPnP description" test used to be the
+  // negative "is any state command not http", which caught them: both devices
+  // went off to fetch a `/setup.xml` from hardware that speaks framed JSON on
+  // a raw socket, burned the full timeout, and sat on a permanent error page.
+  group('a tcp-json device with no resolved actions', () {
+    final sensor = NetworkDevice(
+      host: '10.0.0.15',
+      name: 'Gas Sensor',
+      port: 6668,
+      sources: const {NetworkDiscoverySource.lanProbe},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    // A reading with a tcp-json state binding and nothing to send: exactly
+    // what the gate leaves behind.
+    const entities = [
+      NetworkEntityDto(
+        name: 'Gas',
+        platform: 'sensor',
+        stateCommand: 'dp_query',
+        valueField: 'dps.1',
+        transport: 'tcp-json',
+        options: [],
+        isInstanced: false,
+        actions: [],
+      ),
+    ];
+
+    testWidgets('does not go looking for a UPnP description', (tester) async {
+      codec = FakeSpecCodec(networkEntities: (_) => entities);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('a Tuya sensor serves no setup.xml: ${r.url}')))),
+          httpControlClientProvider.overrideWithValue(HttpControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('and it speaks no HTTP either: ${r.url}')))),
+          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: sensor,
+              controls:
+                  const NetworkControls(specYaml: 'yaml', entities: entities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // The reading is honestly unknown — nothing here can poll a tcp-json
+      // command whose renderer this device does not qualify for — but the
+      // screen LOADED, which is the difference between an unavailable value
+      // and a device that reads as broken.
+      expect(find.textContaining('Could not reach'), findsNothing);
+      expect(find.text('Gas'), findsOneWidget);
+    });
+  });
+
+  // ── HTTP state polling: a bare path, answered in XML (Denon receiver) ────
+  //
+  // The Envoy above names a COMMAND to poll. A large part of the catalogue
+  // instead declares `state_topic`, which is a location rather than a name —
+  // the receiver's readings live at `/goform/formMainZone_MainZoneXmlStatusLite
+  // .xml` and no command names that path. The Rust resolver turns such a
+  // location into the GET it is; what this pins is the half on this side:
+  // that the reply is flattened by the encoding it ARRIVED in.
+  //
+  // The receiver answers XML, and its spec's `state_mapping` paths
+  // (`MasterVolume.value`) are written against that document. Flattening every
+  // reply as JSON — which is what this path did before — yields an empty map,
+  // so every reading reads Unknown on a device that answered correctly.
+  group('HTTP telemetry answered in XML (Denon receiver)', () {
+    final denonDevice = NetworkDevice(
+      host: '10.0.0.13',
+      name: 'AVR-S720W',
+      port: 80,
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    // The path IS the state binding — exactly what the DTO carries for an
+    // entity whose spec declares `state_topic` and no `state_command`.
+    const statusPath = '/goform/formMainZone_MainZoneXmlStatusLite.xml';
+
+    final denonEntities = [
+      const NetworkEntityDto(
+        name: 'Volume',
+        platform: 'sensor',
+        unit: 'dB',
+        stateCommand: statusPath,
+        valueField: 'MasterVolume.value',
+        transport: 'http',
+        options: [],
+        isInstanced: false,
+        actions: [],
+      ),
+    ];
+
+    const statusXml = '<?xml version="1.0" encoding="utf-8"?>'
+        '<item><Power><value>ON</value></Power>'
+        '<MasterVolume><value>-40.0</value></MasterVolume></item>';
+
+    testWidgets('polls the bare path and reads the XML reply', (tester) async {
+      final received = <http.Request>[];
+      codec = FakeSpecCodec(
+        networkEntities: (_) => denonEntities,
+        // What the Rust renderer makes of a bare path: the GET it is.
+        networkHttpRequest: (name, _) =>
+            HttpRequestDto(method: 'GET', path: name, body: ''),
+        // Reads the dotted path the spec names. It is only present if the XML
+        // was flattened; a JSON-only reader hands this an empty map.
+        networkReading: (entity, returned) {
+          final raw = returned['MasterVolume.value'];
+          if (raw == null) return null;
+          return NetworkReadingDto(
+              kind: NetworkReadingKind.number,
+              number: double.parse(raw),
+              raw: raw);
+        },
+      );
+      final receiver = MockClient((request) async {
+        received.add(request);
+        return http.Response(statusXml, 200);
+      });
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async => fail(
+                  'fetched a description for a plain HTTP poll: ${r.url}')))),
+          httpControlClientProvider
+              .overrideWithValue(HttpControlClient(httpClient: receiver)),
+          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: denonDevice,
+              controls:
+                  NetworkControls(specYaml: 'yaml', entities: denonEntities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(received, hasLength(1));
+      expect(received.single.url.path, statusPath);
+      expect(find.text('-40.0 dB'), findsOneWidget);
+      expect(find.text('Unknown'), findsNothing);
     });
   });
 
@@ -2818,8 +3177,10 @@ void main() {
       ),
     ];
 
-    const roombaCapabilities =
-        NetworkCapabilitiesDto(protocolHandler: roombaProtocolHandler);
+    const roombaCapabilities = NetworkCapabilitiesDto(
+        protocolHandler: roombaProtocolHandler,
+        tlsSelfSigned: false,
+        advertisedPortUnreliable: false);
 
     final robot = NetworkDevice(
       host: '10.0.0.7',
@@ -2919,7 +3280,8 @@ void main() {
               specYaml: 'yaml',
               entities: roombaEntities,
               // Same transport, no robot handler.
-              capabilities: NetworkCapabilitiesDto(),
+              capabilities: NetworkCapabilitiesDto(
+                  tlsSelfSigned: false, advertisedPortUnreliable: false),
             ),
           ),
         ),
@@ -2933,6 +3295,63 @@ void main() {
       expect(find.text('Clean'), findsOneWidget);
       expect(find.textContaining('did not advertise a control port'),
           findsNothing);
+    });
+
+    /// The half the load test could not see. Loading cleanly proved the screen
+    /// did not open a robot session; it said nothing about where a PRESS goes,
+    /// and the press was the broken half — `_send` forked on the transport
+    /// string, which is `mqtt` for the robot and for every other MQTT device
+    /// alike, so a television's every key and a printer's every print command
+    /// were answered "Not connected to the robot."
+    ///
+    /// Asserted through the error rather than through a fake sender because
+    /// the error names the path taken. This device was discovered over SSDP
+    /// with no broker port, so the generic arm's own first refusal is the one
+    /// that lands — a sentence only `_sendMqtt` produces. Nothing here touches
+    /// the network either way; both paths refuse before opening a socket.
+    testWidgets('a non-Roomba MQTT press takes the generic send path',
+        (tester) async {
+      final television = NetworkDevice(
+        host: '10.0.0.9',
+        name: 'Living Room TV',
+        sources: const {NetworkDiscoverySource.ssdp},
+        discoveredAt: DateTime.utc(2026),
+      );
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+          roombaClientProvider.overrideWith((ref, blid) =>
+              fail('a television must not open a robot session')),
+        ],
+        child: MaterialApp(
+          home: NetworkDeviceScreen(
+            device: television,
+            controls: const NetworkControls(
+              specYaml: 'yaml',
+              entities: roombaEntities,
+              capabilities: NetworkCapabilitiesDto(
+                  tlsSelfSigned: false, advertisedPortUnreliable: false),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Clean'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Not connected to the robot'),
+        findsNothing,
+        reason: 'a television has no BLID and never wanted the robot path',
+      );
+      expect(
+        find.textContaining('broker port'),
+        findsOneWidget,
+        reason: 'only the MQTT arm of the generic sender says this',
+      );
     });
   });
 }

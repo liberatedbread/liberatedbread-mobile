@@ -85,9 +85,13 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     // zeroconf is one) is only found if the scan asks for its exact
     // `_vendor._tcp` type by name. Sourced from the catalogue like the SSDP
     // targets — the scan layer knows no product names.
+    //
+    // Every type each spec names, not just its identification one: a third of
+    // the catalogue states its type only inside a discovery method, and those
+    // are precisely the ones this list exists for. `_miio._udp` and
+    // `_arsdk._udp` were never asked for by name.
     final mdnsTypes = <String>{
-      for (final identity in identities)
-        if (identity.mdnsServiceType case final type?) type,
+      for (final identity in identities) ...identity.mdnsServiceTypes,
     }.toList();
     if (!mounted) return;
 

@@ -1049,6 +1049,10 @@
               "type": "integer",
               "description": "Default TCP port for the device's local API."
             },
+            "advertised_port_unreliable": {
+              "type": "boolean",
+              "description": "True when the port the device ADVERTISES is not the port its local API answers on, so a consumer must use `default_port` instead of what discovery captured. Two devices are like this and both were being reached at the wrong port by anything that trusted the announcement: the Envoy's mDNS answer still says 80 while firmware 8.x serves the API exclusively over HTTPS on 443 and refuses 80 outright, and a Roku serves /keypress and /ecp-session only on 8060 whatever its SSDP LOCATION carried (a field TV advertised 7250). Absent means the announcement is trustworthy, which is the normal case: a device that says where it is knows better than a catalogue default."
+            },
             "default_scheme": {
               "type": "string",
               "enum": [
@@ -3312,6 +3316,13 @@
                 "type": "boolean",
                 "description": "The channel a command that names none uses. Exactly one channel may claim it."
               },
+              "direction": {
+                "enum": [
+                  "send",
+                  "receive"
+                ],
+                "description": "Which way frames travel on this channel. `send` (the default) is a control channel: the client writes frames built from `frame` or `frame_template`. `receive` is a channel the DEVICE pushes on and the client only subscribes to -- Bose's SoundTouch emits <updates> wrappers on a socket whose control surface is the port-8090 HTTP API. A receive channel carries no frame because the client sends none, and a spec whose channels are all `receive` is not driving its commands over the socket, so its `device.transport` is whatever those commands actually ride."
+              },
               "encoding": {
                 "enum": [
                   "json",
@@ -4972,7 +4983,12 @@
             }
           },
           "commands": {
-            "type": "object"
+            "type": "object",
+            "description": "Role -> command-name bindings for this entity's controls: the map that says which declared command a consumer sends when the user presses On, drags the brightness slider, or picks an option. Keys are ROLES from the documented vocabulary (pytest-enforced, see test_device_specs.py): turn_on, turn_off, toggle, press for the power-and-momentary shapes (power_on/power_off/power_toggle are accepted spellings of the first three); set_brightness, set_color, set_color_temperature, set_effect on a light; select_option on a select; submit on a text entity; set_value (set_temperature/set_target) on a number or climate, plus set_hvac_mode and set_fan_mode on climate; set_percentage (set_speed) and set_oscillating on a fan; open_cover, close_cover, stop_cover, set_cover_position on a cover. Values name a command in the top-level `commands` map. A role outside the vocabulary binds nothing anywhere -- the consumer matches these names, so a misspelling is a control that silently does not appear -- and a role a given consumer has not implemented yet is reported by it as unavailable rather than drawn.",
+            "$comment": "A pytest-owned vocabulary rather than a schema enum, on the `key` and `category` precedent: an enum would make every addition a schema change that hard-fails strict parsers, while the list keeps growth additive and typos caught. This key was `{\"type\": \"object\"}` -- anything at all was valid -- while every consumer matched a closed set, and eighteen bindings across seven specs had drifted outside it: openevse's amp setpoint bound `turn_on`, the Yeelight cube spelled its colour roles `set_rgb` and `set_color_temp`, and a name badge bound `set_text` to a bitmap chunk write. Every one of them read as wired and resolved nothing.",
+            "propertyNames": {
+              "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+            }
           }
         }
       }

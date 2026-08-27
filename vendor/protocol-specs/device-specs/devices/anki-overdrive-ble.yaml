@@ -1,0 +1,142 @@
+# Anki Overdrive / Anki Drive (BLE) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - anki/drive-sdk (official Anki GitHub org, Apache-2.0) — vehicle GATT
+#     profile header and advertisement parsing.
+
+device:
+  name: "Anki Overdrive / Anki Drive Smart Cars"
+  manufacturer: "Anki (assets later Digital Dream Labs)"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The service and characteristic
+      UUIDs are read from anki/drive-sdk's vehicle_gatt_profile.h.
+  protocol: "ble"
+  category: "other"
+  notes: >
+    Anki Overdrive and Anki Drive are BLE-controlled smart battle cars that run
+    on a physical track. Anki ceased operations in April 2019; Digital Dream Labs
+    bought the assets and then itself collapsed — so the cars are doubly
+    abandoned, a maximum rescue case. Usefully, Anki itself published drive-sdk
+    (Apache-2.0), a C implementation of the vehicle message protocol and
+    advertisement parsing.
+
+    CONTROL: pure BLE, no cloud, no pairing secret. Service UUID
+    BE15BEEF-6186-407E-8381-0BD89C4D8DF4 (ANKI_STR_SERVICE_UUID); read
+    characteristic BE15BEE0-6186-407E-8381-0BD89C4D8DF4; write characteristic
+    BE15BEE1-6186-407E-8381-0BD89C4D8DF4. The SDK parses the BLE advertisement
+    (local name / manufacturer data) to identify cars and covers a limited
+    initial protocol subset (set speed, change lane, etc.) via messages written
+    to the write characteristic and telemetry notified on the read
+    characteristic.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    source_code: "https://github.com/anki/drive-sdk"
+    license: "Apache-2.0"
+    upstream_docs:
+      - url: "https://github.com/anki/drive-sdk/blob/master/include/ankidrive/vehicle_gatt_profile.h"
+        title: "anki/drive-sdk — vehicle GATT profile"
+        covers: "The service and read/write characteristic UUIDs."
+    notes: >
+      Anki published drive-sdk (official, Apache-2.0) documenting the GATT
+      profile, advertisement parsing and a message subset; the community extended
+      it. Nothing here was reverse-engineered from a hostile target.
+
+  identification:
+    service_uuids:
+      - "be15beef-6186-407e-8381-0bd89c4d8df4"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "be15beef-6186-407e-8381-0bd89c4d8df4"
+        notes: >
+          Cars advertise the ANKI service UUID; drive-sdk further parses the
+          advertisement local name / manufacturer data to identify the specific
+          model.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing to provision: connect over BLE to the service/characteristics
+      above; no cloud or account. Confidence high on the GATT surface (verified
+      from the official header).
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the ANKI service UUID, connect, subscribe to the read
+          characteristic (BE15BEE0) for telemetry, and write vehicle messages to
+          the write characteristic (BE15BEE1).
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Scan for service be15beef-... and connect to the car."
+            actor: "client"
+          - action: "Subscribe to BE15BEE0 (read) and write vehicle messages to BE15BEE1 (write)."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No documented factory-reset procedure; the cars store no network or cloud
+        state. Charging on the track is the only persistent state change.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; a new BLE client connects independently."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No pairing secret or application-layer auth; BLE connection is open."
+
+services:
+  - uuid: "be15beef-6186-407e-8381-0bd89c4d8df4"
+    name: "Anki vehicle service"
+    notes: >
+      ANKI_STR_SERVICE_UUID. Telemetry is notified on the read characteristic
+      (BE15BEE0); control messages are written to the write characteristic
+      (BE15BEE1). Message payloads are the Anki vehicle protocol (set speed,
+      change lane, etc.) — see drive-sdk protocol.h.
+    characteristics:
+      - uuid: "be15bee0-6186-407e-8381-0bd89c4d8df4"
+        name: "Read (telemetry)"
+        properties: ["read", "notify"]
+        notes: "Vehicle telemetry / event notifications (position, version, status)."
+      - uuid: "be15bee1-6186-407e-8381-0bd89c4d8df4"
+        name: "Write (control)"
+        properties: ["write", "write_without_response"]
+        notes: >
+          Vehicle control messages (set speed, change lane, SDK mode, ping).
+          Payload formats are defined in drive-sdk's protocol.h.
+
+entities:
+  - platform: "number"
+    name: "Speed"
+    min: 0
+    max: 1000
+    step: 50
+    unit: "mm/s"
+    notes: "Set-speed message written to the control characteristic (drive-sdk protocol.h)."
+
+helpful_urls:
+  - title: "anki/drive-sdk"
+    url: "https://github.com/anki/drive-sdk"
+    description: "Official Anki SDK (Apache-2.0): vehicle GATT profile, advertisement parsing, message protocol."
+  - title: "anki/drive-sdk — vehicle_gatt_profile.h"
+    url: "https://github.com/anki/drive-sdk/blob/master/include/ankidrive/vehicle_gatt_profile.h"
+    description: "The service and read/write characteristic UUIDs used here."

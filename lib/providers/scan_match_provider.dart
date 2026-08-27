@@ -230,13 +230,13 @@ final specIdentitiesProvider =
         serviceUuids: p.spec.serviceUuids,
         companyIds: p.spec.companyIds,
         macPrefixes: p.spec.macPrefixes,
-        mdnsServiceType: p.spec.mdnsServiceType,
+        mdnsServiceTypes: p.spec.mdnsServiceTypes,
         ssdpSearchTargets: p.spec.ssdpSearchTargets,
         lanProtocols: p.spec.lanProtocols,
         defaultPort: p.spec.defaultPort,
         nameMatchers: p.spec.nameMatchers,
         txtMatchGroups: p.spec.txtMatchGroups,
-        platformFallback: p.spec.platformFallback,
+        platformFallbackTypes: p.spec.platformFallbackTypes,
       ),
   ];
 });

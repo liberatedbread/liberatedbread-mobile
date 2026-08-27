@@ -26,20 +26,20 @@ EntityActionDto _setValue({String? command}) => EntityActionDto(
 /// Gerbing's resolved shape: a 0-100% heat channel written directly, read
 /// back through the same characteristic.
 EntityDto _heatEntity({bool writable = true}) => EntityDto(
-      options: const [],
-      name: 'Heat Level 1',
-      platform: 'number',
-      unit: '%',
-      stateCharacteristic: _stateChar,
-      canNotify: false,
-      hasFormat: true,
-      valueField: 'heat_percent',
-      onWhenNonzero: false,
-      actions: writable ? [_setValue()] : const [],
-      setpointMin: 0,
-      setpointMax: 100,
-      setpointStep: 1,
-    );
+    options: const [],
+    name: 'Heat Level 1',
+    platform: 'number',
+    unit: '%',
+    stateCharacteristic: _stateChar,
+    canNotify: false,
+    hasFormat: true,
+    valueField: 'heat_percent',
+    onWhenNonzero: false,
+    actions: writable ? [_setValue()] : const [],
+    setpointMin: 0,
+    setpointMax: 100,
+    setpointStep: 1,
+    variants: const []);
 
 Widget _wrap(
   EntityDto entity, {
@@ -156,17 +156,17 @@ void main() {
     // Gerbing's thermometer: value = raw * 0.5 + 85 °F. Raw 100 is 135 °F,
     // and dropping the offset would read 50.
     const entity = EntityDto(
-      options: [],
-      name: 'Temperature Channel 1',
-      platform: 'number',
-      deviceClass: 'temperature',
-      stateCharacteristic: _stateChar,
-      canNotify: false,
-      hasFormat: true,
-      valueField: 'heat_percent',
-      onWhenNonzero: false,
-      actions: [],
-    );
+        options: [],
+        name: 'Temperature Channel 1',
+        platform: 'number',
+        deviceClass: 'temperature',
+        stateCharacteristic: _stateChar,
+        canNotify: false,
+        hasFormat: true,
+        valueField: 'heat_percent',
+        onWhenNonzero: false,
+        actions: [],
+        variants: []);
     await tester.pumpWidget(
       _wrap(
         entity,
@@ -186,21 +186,21 @@ void main() {
     // Ember's target temperature: its bytes cannot be encoded yet, but the
     // declared 49-63 °C range is still worth telling the user.
     const entity = EntityDto(
-      options: [],
-      name: 'Target Temperature',
-      platform: 'number',
-      deviceClass: 'temperature',
-      unit: 'C',
-      stateCharacteristic: _stateChar,
-      canNotify: false,
-      hasFormat: true,
-      valueField: 'heat_percent',
-      valueScale: 0.01,
-      onWhenNonzero: false,
-      actions: [],
-      setpointMin: 49,
-      setpointMax: 63,
-    );
+        options: [],
+        name: 'Target Temperature',
+        platform: 'number',
+        deviceClass: 'temperature',
+        unit: 'C',
+        stateCharacteristic: _stateChar,
+        canNotify: false,
+        hasFormat: true,
+        valueField: 'heat_percent',
+        valueScale: 0.01,
+        onWhenNonzero: false,
+        actions: [],
+        setpointMin: 49,
+        setpointMax: 63,
+        variants: []);
     await tester.pumpWidget(
       _wrap(entity, codec: _codecReading(5500), ble: FakeBleService()),
     );
@@ -218,20 +218,20 @@ void main() {
     /// A writable setpoint with whatever bounds a case wants to try.
     EntityDto boundedEntity({double? min, double? max, double? step}) =>
         EntityDto(
-          options: const [],
-          name: 'Heat Level 1',
-          platform: 'number',
-          unit: '%',
-          stateCharacteristic: _stateChar,
-          canNotify: false,
-          hasFormat: true,
-          valueField: 'heat_percent',
-          onWhenNonzero: false,
-          actions: [_setValue()],
-          setpointMin: min,
-          setpointMax: max,
-          setpointStep: step,
-        );
+            options: const [],
+            name: 'Heat Level 1',
+            platform: 'number',
+            unit: '%',
+            stateCharacteristic: _stateChar,
+            canNotify: false,
+            hasFormat: true,
+            valueField: 'heat_percent',
+            onWhenNonzero: false,
+            actions: [_setValue()],
+            setpointMin: min,
+            setpointMax: max,
+            setpointStep: step,
+            variants: const []);
 
     testWidgets('inverted bounds fall back to steppers instead of throwing',
         (tester) async {
@@ -270,19 +270,19 @@ void main() {
         (tester) async {
       // The "Accepts 100–2.55" line would be the same nonsense in prose.
       const entity = EntityDto(
-        options: [],
-        name: 'Target',
-        platform: 'number',
-        unit: '%',
-        stateCharacteristic: _stateChar,
-        canNotify: false,
-        hasFormat: true,
-        valueField: 'heat_percent',
-        onWhenNonzero: false,
-        actions: [],
-        setpointMin: 100,
-        setpointMax: 2.55,
-      );
+          options: [],
+          name: 'Target',
+          platform: 'number',
+          unit: '%',
+          stateCharacteristic: _stateChar,
+          canNotify: false,
+          hasFormat: true,
+          valueField: 'heat_percent',
+          onWhenNonzero: false,
+          actions: [],
+          setpointMin: 100,
+          setpointMax: 2.55,
+          variants: []);
       await tester.pumpWidget(
         _wrap(entity, codec: _codecReading(40), ble: FakeBleService()),
       );
@@ -313,18 +313,18 @@ void main() {
   testWidgets('a write-only setpoint says the current value is unknown',
       (tester) async {
     final entity = EntityDto(
-      options: const [],
-      name: 'Heat Level 1',
-      platform: 'number',
-      unit: '%',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [_setValue()],
-      setpointMin: 0,
-      setpointMax: 100,
-      setpointStep: 1,
-    );
+        options: const [],
+        name: 'Heat Level 1',
+        platform: 'number',
+        unit: '%',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [_setValue()],
+        setpointMin: 0,
+        setpointMax: 100,
+        setpointStep: 1,
+        variants: const []);
     final codec = _codecReading(0);
     await tester.pumpWidget(
       _wrap(entity,
@@ -385,14 +385,14 @@ void main() {
       (tester) async {
     // No min/max means a slider would be inventing bounds.
     final entity = EntityDto(
-      options: const [],
-      name: 'Animation Speed',
-      platform: 'number',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [_setValue(command: 'set_speed')],
-    );
+        options: const [],
+        name: 'Animation Speed',
+        platform: 'number',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [_setValue(command: 'set_speed')],
+        variants: const []);
     final codec = _codecReading(0);
     final ble = FakeBleService();
     await tester.pumpWidget(

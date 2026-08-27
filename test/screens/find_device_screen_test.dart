@@ -49,7 +49,7 @@ const _batteryService = BleDiscoveredService(
 /// A spec whose control characteristic declares a fixed `find_me` command.
 final _findMeSpec = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Fitness Band',
@@ -61,7 +61,7 @@ final _findMeSpec = DeviceSpecDto(
   serviceUuids: [_svc],
   companyIds: Uint16List(0),
   macPrefixes: [],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: [],
   lanProtocols: const [],
   defaultPort: null,

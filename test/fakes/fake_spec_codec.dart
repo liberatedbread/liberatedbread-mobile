@@ -98,6 +98,11 @@ class FakeSpecCodec implements SpecCodec {
   /// Returned by [networkCapabilities]; null answers an empty capability set.
   final NetworkCapabilitiesDto? networkCapabilitiesResult;
 
+  /// Returned by [credentialsForDevice] — what the spec says a client must
+  /// hold. Empty means a device that names no credential, which is most of
+  /// the catalogue.
+  final List<NetworkCredentialDto> networkCredentials;
+
   /// Answers [networkEntitiesForStateKeys] as a function of the flattened
   /// state replies — the probe-narrowed surface. Null falls back to
   /// [networkEntities], i.e. "the replies changed nothing".
@@ -202,6 +207,7 @@ class FakeSpecCodec implements SpecCodec {
     this.encodeEntityValueError,
     this.entityWrite,
     this.networkEntities,
+    this.networkCredentials = const [],
     this.networkHiddenNames = const [],
     this.networkCapabilitiesResult,
     this.networkEntitiesForState,
@@ -215,6 +221,23 @@ class FakeSpecCodec implements SpecCodec {
     this.networkRabbitAirRequest,
   }) : encoded = encoded ?? Uint8List(0);
 
+  /// Variant names this fake narrows a BLE device to, when a test cares.
+  ///
+  /// Empty by default, which is what the real one returns for a device
+  /// matching no variant — so every test that does not set it sees the whole
+  /// entity list, exactly as before this existed.
+  List<String> Function(String deviceName, List<String> serviceUuids)?
+      bleVariantNames;
+
+  @override
+  Future<List<String>> bleVariantNamesForDevice({
+    required String yaml,
+    required String deviceName,
+    required List<String> serviceUuids,
+  }) async =>
+      bleVariantNames?.call(deviceName, serviceUuids) ?? const [];
+
+  @override
   @override
   Future<DeviceSpecDto> loadDeviceSpec(String yaml) async {
     if (loadError != null) throw loadError!;
@@ -399,7 +422,14 @@ class FakeSpecCodec implements SpecCodec {
   Future<NetworkCapabilitiesDto> networkCapabilities({
     required String specYaml,
   }) async =>
-      networkCapabilitiesResult ?? const NetworkCapabilitiesDto();
+      networkCapabilitiesResult ??
+      const NetworkCapabilitiesDto(
+          tlsSelfSigned: false, advertisedPortUnreliable: false);
+
+  @override
+  Future<List<NetworkCredentialDto>> credentialsForDevice(
+          String specYaml) async =>
+      networkCredentials;
 
   @override
   Future<SoapRequestDto> renderNetworkCommand({

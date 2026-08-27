@@ -70,6 +70,18 @@ decode is fixed by the GSS — a spec does not need to invent it:
 Standard services seen here: `0x1800` Generic Access, `0x180A` Device
 Information, `0x180F` Battery, `0x181A` Environmental Sensing.
 
+### FTMS — a whole standard service as a reference spec
+
+Some SIG services are large enough to be worth a dedicated reference spec that
+device specs cite instead of restating. The **Fitness Machine Service** (`0x1826`)
+— treadmills, indoor bikes, rowers, cross-trainers — is documented in
+`device-specs/devices/ftms-fitness-machine-service.yaml` (a `reference-ble-profile`
+spec): the service and characteristic UUIDs (`0x2ACC` Feature, `0x2ACD` Treadmill
+Data, `0x2AD2` Indoor Bike Data, `0x2AD9` Control Point) and the control-point
+opcodes (Request Control `0x00`, Set Target Power `0x05`, Start `0x07`…). A
+concrete FTMS-speaking machine should cite that file rather than re-listing the
+profile.
+
 > **Convention.** When a service or characteristic is SIG-standard, say so and
 > point at the GSS rather than restating the byte layout. A future schema field
 > (`standard: true`) is proposed in
@@ -140,6 +152,17 @@ detail.
 | ISO 11898 | Raw CAN physical/data-link layer (the `bus` CAN devices) |
 | SAE J1939 | Higher-layer CAN used by some larger vehicles; worth naming where a bus uses it |
 | SAE J1962 / ISO 19689 | The 16-pin car and 6-pin Euro-5 motorcycle diagnostic connectors |
+
+## Camera, sensor and printer reference specs
+
+Three more published standards live in the registry as `category: reference`
+specs, for device specs to cite instead of restating:
+
+| Reference spec | Covers |
+|----------------|--------|
+| `device-specs/devices/onvif.yaml` | The open IP-camera standard — WS-Discovery (UDP 239.255.255.250:3702), the device/media SOAP services, `GetProfiles`/`GetStreamUri`, and RTSP. Cited by the Reolink, Amcrest/Dahua and Hikvision camera specs |
+| `device-specs/devices/bthome-v2.yaml` | The open BLE sensor-broadcast format (service data UUID `0xFCD2`, the object-id table, AES-CCM encryption). Cited by b-parasite and any BTHome-native sensor (Shelly BLU, ATC/pvvx Mijia firmware) |
+| `device-specs/devices/moonraker-klipper-api.yaml` | The Moonraker web API (HTTP REST + JSON-RPC/WebSocket on port 7125) that any Klipper-based printer exposes |
 
 ## Data modelling and interchange
 

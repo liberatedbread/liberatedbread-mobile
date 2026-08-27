@@ -64,7 +64,7 @@ IoTDevice _device(
 /// The one spec in the catalogue for the ranking tests below.
 final _catalogueSpec = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Example Smart Bulb',
@@ -77,7 +77,7 @@ final _catalogueSpec = DeviceSpecDto(
   serviceUuids: const [],
   companyIds: Uint16List(0),
   macPrefixes: const [],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: const [],
   lanProtocols: const [],
   defaultPort: null,

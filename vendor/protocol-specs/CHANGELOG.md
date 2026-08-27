@@ -6,8 +6,133 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The catalogue validates against its own schema again — 188/188.** `main`
+  had been red: nineteen specs failed `validate_specs.py` and seventeen pytest
+  guards failed. The fifty-spec expansion wave was written against the schema as
+  it stood when its branch opened, and the spec-driven-controls work tightened
+  three things underneath it, so the merge produced a catalogue that no longer
+  satisfied its own rules with nothing re-running to say so. Sixteen specs
+  carried a bespoke block at a top level that had since closed — their protocol
+  facts were somewhere no reader would look for them — and three declared a
+  `websocket:` block in the shape the first-class one replaced, so nothing could
+  execute it. Each moved to where it belongs, verified by round-tripping every
+  file: the content is byte-identical as data.
+
+- **Thirteen `GET /` endpoints hedged "placeholder" in prose while leaving
+  `status` off**, which by the schema's own rule reads as active and usable —
+  the opposite of what the prose said.
+
+- **bambu-lab-lan's four MQTT commands named no topic.** On MQTT the topic IS
+  the address, so they had nowhere to publish. They address
+  `device/{serial}/request`, with the serial declared `credential:serial` — it
+  is read off the touchscreen beside the Access Code, which the credentials
+  block now records.
+
+- **euc-wheellog-ble carried a `ble_scan` method with an empty matcher.** The
+  spec already explained why nothing can match: the BLE module is generic and
+  the brand is only known from the first notification packets, which is a scan's
+  output and not its input. That is `discovery.none`, and it says so now.
+
+- Five sensors spelled degrees `°C`/`°F` where the unit vocabulary is `C`/`F`;
+  four reference specs claimed a `model` where a standard states `coverage`.
+
 ### Added
 
+- **A documented vocabulary for `entities[].commands` role names**, per
+  platform, pytest-enforced — the same shape as `entities[].key` and
+  `category`, and for the same reason: a list rather than a schema enum keeps
+  growth additive and never hard-fails a strict parser.
+
+  The key was declared as a bare `{"type": "object"}`, so any key validated,
+  while every consumer matches a closed set of role names and passes over the
+  rest without a word. A binding outside that set therefore reads as wired,
+  resolves nothing, and produces no error, no warning and no missing-control
+  note — the entity resolved its OTHER roles, so nothing reports it. Eighteen
+  bindings across seven specs had drifted out that way, found by a consumer
+  holding its resolver's table against this catalogue; the catalogue could not
+  have found them itself.
+
+  Four specs were wrong and are fixed: openevse's amp setpoint bound `turn_on`
+  (a fixed role, on a `number`); yeelight-cube-lamp spelled its colour roles
+  after the commands they name rather than after the vocabulary, so the lamp
+  offered power and brightness and nothing else; a name badge bound `set_text`
+  to the chunk write of a bitmap upload; and ember-mug's two selects have one
+  parameterless command per option, a shape no role describes — those bindings
+  moved into notes that state the gap, since it is a schema question and not a
+  per-device one. Two role groups the catalogue was already using are declared
+  rather than removed: `set_color_temperature` on a light, and power plus
+  `set_hvac_mode`/`set_fan_mode` on climate.
+
+- **govee-h5075's `request_history` states its nine pad bytes and its trailing
+  checksum in the template**, rather than leaving them to `fixed_length`. A
+  consumer that pads a short frame pads at the END, which would bury the
+  checksum at byte 10 and leave byte 19 zero; `packet_layout` has always said
+  where they go, and the template now says it in the form an encoder reads.
+
+- **Denon AVR-S720W** (`denon-avr-s720w`) — a 2016 KnOS-generation Denon
+  receiver, and the registry's first AV receiver. Four surfaces on one
+  address: the undocumented `/goform/` HTTP API on port 80, the
+  vendor-published ASCII control protocol on port 23, a UPnP MediaRenderer,
+  and AirPlay 1 + Spotify Connect sinks. The two control routes carry the
+  *same* command vocabulary — `GET /goform/formiPhoneAppDirect.xml?PWON` and
+  `PWON\r` on port 23 are one command — so every entity binds over HTTP and a
+  consumer that cannot hold a socket loses only the state push. There is no
+  authentication anywhere on the local surface; reachability *is* the access
+  model, and the spec says so rather than implying a credential protects it.
+
+  Discovery is the hard half, because everything the receiver announces is a
+  generic standard (`_http._tcp`, `_airplay._tcp`, `_raop._tcp`,
+  `_spotify-connect._tcp`; SSDP `MediaRenderer:1`). Three vendor-shaped
+  details do the identifying instead, all three observed on live hardware: the
+  SSDP `SERVER` header reads `KnOS/3.2 UPnP/1.0 DMP/3.5` and `KnOS/` is D&M's
+  firmware platform; the UDN's node field is the MAC, so a UDN ending in
+  twelve hex digits starting `0005cd` is a D&M device (a vendor signal and the
+  stable identity — but not a join key against the AirPlay `deviceid`, since a
+  receiver has two MACs and the records may carry different ones); and the
+  Spotify Connect
+  `cpath` is `/goform/spotifyConfig`, putting D&M's own web-API namespace in a
+  TXT record. `device.testing` is `untested`/`capture-verified` accordingly —
+  the discovery half is quoted from a contributed live scan, the control half
+  is graded `reported` from Denon's control-protocol documents and from
+  denonavr and the openHAB denonmarantz binding.
+
+  The traps are written down where a consumer will hit them. Volume is
+  expressed two ways on two routes that both work — signed dB in the status
+  documents and on `formiPhoneAppVolume.xml`, an offset integer on the ASCII
+  route, differing by 80 (`dB = MV - 80`), so `-20.0` is `MV60` and sending
+  `MV20` instead lands 40 dB quiet. -40 dB is the one level where the two
+  encodings share their digits, so it is the one value a round-trip test must
+  not use; the spec says so where the conversion is defined. At minimum
+  the receiver reports the literal string `--` rather than a number;
+  `VolumeDisplay: Absolute` changes only the front panel; mute reads lower
+  case and writes upper case; surround selection is a *request* the receiver
+  may substitute and report back with no error; port 23 accepts one client
+  and holding it locks out the vendor app; and the whole LAN surface is
+  powered down in standby unless **Setup > Network > Network Control** is
+  "Always On", with no documented Wake-on-LAN path. Also recorded is what is
+  *absent*, so a probe that finds nothing is not read as a fault: no HEOS
+  Built-in and therefore a closed TCP 1255 (HEOS arrived with the 2018
+  AVR-S750H), AirPlay 1 only with no `pk` record, and a single zone.
+
+  The WiFi discovery guide gains a section on this shape of device — one
+  that offers no vendor search target at all — since it generalises past
+  Denon: identify on the M-SEARCH *reply* rather than the query, using the
+  `SERVER` header, the UDN's node field (very often the MAC, so an OUI lookup
+  names the vendor with no HTTP request at all), and TXT records belonging to
+  third-party protocols, which routinely leak the vendor's own namespace.
+
+  The TXT-record signals are declared machine-readably, not just narrated:
+  the spec claims `_spotify-connect._tcp` with an `mdns_txt_match` on
+  `cpath = /goform/spotifyConfig`, and its AirPlay/RAOP discovery methods
+  carry `txt_match` conditions (`deviceid` prefix `00:05:CD`, `am` prefix
+  `AVR`) — the platform-service-type contract the ESPHome fix established,
+  applied at authoring time. The advertised-but-unmatchable `_http._tcp`
+  record stays in the evidence and out of the methods, since with no TXT
+  data to narrow it a method there would claim every web server on the
+  link. Only the `KnOS/` SERVER header remains prose, because the schema
+  has no SSDP-reply matcher slot yet.
 - **`commands[].path_fallback` and `entities[].state_topic_fallback`**
   ([P15](docs/contributing/spec-evolution.md#p15)): a second address for the
   same invocation or reading, for a family whose firmware generations name

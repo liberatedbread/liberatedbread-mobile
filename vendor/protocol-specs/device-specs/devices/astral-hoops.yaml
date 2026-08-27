@@ -1,0 +1,539 @@
+# Astral Hoops Atomic V (AF series) LED flow props device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Astral Hoops Atomic V (AF Series)"
+  manufacturer: "Astral Hoops"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "light"
+  notes: >
+    Programmable LED flow props (hula hoops, wands, fans) sold by Astral Hoops,
+    driven by the "Astral" app (Android package com.astral.astral, v2.0.16 /
+    versionCode 36 analyzed). The app is small, unobfuscated, contains no
+    native libraries, no crypto, no account system and no ad/analytics SDKs;
+    its only network use is fetching public firmware files and a pattern
+    gallery over plain HTTPS. Local-only viability: HIGH — every control
+    function (modes, speed/hue, settings, pattern upload, firmware OTA) runs
+    over the BLE UART with no cloud involvement.
+
+    TRANSPORT: Microchip/ISSC Transparent UART BLE module (the well-known
+    public ISSC UUIDs, not vendor-specific). One GATT service
+    49535343-FE7D-4AE5-8FA9-9FAFD205E455 with TX (phone -> device, write)
+    49535343-1E4D-4BD9-BA61-23C647249616 and RX (device -> phone, notify)
+    49535343-8841-43F4-A8D4-ECBE34729BB3. Transparent UART: plain bytes both
+    ways, no BLE-level framing. The app never requests an MTU; in the bulk
+    paths (image upload, OTA) it manually splits payloads into 16-byte GATT
+    writes with ~10 ms between writes. A replacement client should do the
+    same (or negotiate an MTU and confirm the device tolerates it). The app
+    can hold several hoops connected at once and fans each command out to all
+    of them for synchronized control — a group of props is just N GATT
+    connections receiving the same bytes.
+
+    WIRE PROTOCOL: ASCII. App -> device commands are short strings beginning
+    with '#'; device -> phone messages are '&'-prefixed status records, simple
+    ACKs ("OK", "BL"), or single control bytes (0x05 ENQ, 0x06 ACK, 0x18 CAN).
+    On connect the app walks a settings query chain #GS -> #GT -> #GD -> #GA
+    -> #GO -> #GE -> #GL -> #GN (sleep seconds, POV stabilization, LED count,
+    battery type, prop type, LED type, battery level, product ID) and the
+    device answers each with the matching '&' record; the device also pushes
+    '&' records spontaneously on state change. See the RX characteristic notes
+    for the full record map.
+
+    IMAGERY: custom POV patterns are uploaded as gamma-corrected RGB888 pixel
+    data after a '#D' handshake, in 20-byte chunks each individually ACKed
+    with "OK", and persisted into a numbered pattern slot on the device (see
+    the image_upload_* commands and the features block). Factory patterns can
+    be restored with '#FORMAT'. The vendor hosts a free pattern gallery at
+    https://extras.astralhoops.com/patterns/ (plain HTTPS, pack list via
+    folders.php, per-folder list via patterns.php?folder=<f>, pattern files
+    downloaded as raw bytes).
+
+    FIRMWARE / OTA: the MCU is a Microchip/Atmel SAM D21 (ARM Cortex-M0+) —
+    the app's OTA updater reads the Cortex-M0+ CPUID (0x410CC601) and the
+    SAM D21 Device ID register (0x10010305 at its datasheet address
+    0x41002018) through the bootloader and checks both magic values. The BLE
+    front-end is the matching Microchip ISSC module. Firmware images are
+    PUBLIC, unauthenticated, plain-HTTPS downloads:
+      https://astralhoops.com/images/a5.ver      -> dotted version ("5.2.5")
+      https://astralhoops.com/images/a5beta.ver  -> beta version ("5.3.0")
+      https://astralhoops.com/images/af5.bin     -> raw flash image (~72 KB)
+      https://astralhoops.com/images/af5beta.bin -> beta image (~74 KB)
+    The .bin is a raw image loaded at flash offset 0x2000 (an 8 KB custom
+    bootloader sits at 0x0000-0x1FFF). OTA runs over the same BLE UART:
+    '#B' + 'MCURESET' (device answers "BL") enters the bootloader, which
+    speaks its own ASCII '#' -terminated command language (word/byte/halfword
+    writes staged to RAM and committed per 0x1000-byte flash page, plus an
+    XMODEM-CRC16 block path that appears legacy). See the bootloader_*
+    commands. Treat OTA as MEDIUM confidence overall: the full command
+    sequence is read from the app's updater code, not yet replayed against
+    hardware by this project.
+
+    CONFIDENCE: BLE UUIDs, advertised-name filter, command/response inventory,
+    settings chain, image-upload framing, firmware URLs (fetched live; a5.ver
+    returned "5.2.5" and af5.bin downloaded) HIGH from app analysis. MEDIUM:
+    exact '#GV'/'&V' reply layout (both an "&V<string>" branch and a
+    0x05-led binary triplet branch exist in the parser — needs a live
+    capture), '&M' payload field semantics (mode/group/speed/hue mapping and
+    the mode/item index tables, which live in UI resources), whether "#SS"
+    takes an ASCII or binary operand, whether the XMODEM block path is still
+    exercised, and the gallery folders.php/patterns.php response formats.
+  identification:
+    local_name_prefix: "Atomic"
+    service_uuids:
+      - "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Atomic"
+          service_uuids:
+            - "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+        notes: >
+          Advertised name is exactly "Atomic" + a 5-character unit ID
+          ("AtomicNNNNN"; the app requires name length >= 6, takes the first
+          6 characters as the literal "Atomic" and the trailing substring —
+          exactly 5 chars, "00000" if empty — as the unit ID).
+    identity:
+      stable_keys: ["address", "local_name"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning, no pairing, no account. The prop advertises as soon as
+      it is powered and accepts a connection from any central; the app
+      connects in-app (no OS-level bond). Confidence medium: derived from the
+      app's scanner/connect code, not yet exercised against hardware by this
+      project.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the "Atomic" name prefix, connect, enable notifications on
+          the RX characteristic, then walk the settings query chain
+          (#GS,#GT,#GD,#GA,#GO,#GE,#GL,#GN) to populate state. No PIN, no
+          bond, no credentials.
+        ble:
+          advertised_name: "Atomic"
+          pairing_required: false
+        steps:
+          - action: "Power the prop on and scan for an 'AtomicNNNNN' advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect, subscribe to RX notifications, and issue the settings query chain."
+            actor: "client"
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Two app-driven reset levels, both issued over the BLE UART: '#WIPE'
+        clears user customizations (device answers "OK"); '#FORMAT'
+        reformats pattern storage, after which the app re-uploads the factory
+        pattern set. Neither touches the BLE identity or the 5-char unit ID.
+        No credentials or network state exist to clear. A physical/button
+        reset procedure is unknown (not present in the app).
+      procedures:
+        - name: "Wipe customizations (BLE command)"
+          steps:
+            - action: "Connect and send the wipe_customizations command (#WIPE)."
+              actor: "client"
+              expect: "Device replies 'OK'; user customizations are cleared."
+        - name: "Factory-format pattern storage (BLE command)"
+          steps:
+            - action: "Connect and send the format_patterns command (#FORMAT), then re-upload pattern images."
+              actor: "client"
+              expect: "Pattern storage is reformatted; factory art must be re-uploaded afterwards (the vendor app re-sends its bundled pattern set)."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds the prop to a phone or network — switching controllers
+        is just connecting from the new one. The prop handles a single BLE
+        connection at a time, so disconnect (or power-cycle) the old central
+        first; a phone that keeps auto-reconnecting will hold the link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No credentials anywhere: no Wi-Fi, no account, no pairing PIN, no
+        crypto in the app or protocol. Anything in radio range can connect
+        and issue commands; physical proximity is the only access control.
+  variants:
+    - model: "Atomic V Hoop"
+      identification:
+        local_name_prefix: "Atomic"
+    - model: "Atomic V Wand"
+      identification:
+        local_name_prefix: "Atomic"
+    - model: "Atomic V Fan"
+      identification:
+        local_name_prefix: "Atomic"
+      notes: >
+        Hoop/wand/fan share the firmware and protocol; the prop form factor
+        is a device setting (prop/product type index, queried with #GO, set
+        with #SO<i>) rather than a different build. Variant split is by
+        product line, not by protocol.
+
+features:
+  - type: "stored_upload"
+    format: "rgb888"
+    frame_size: 20
+    response_characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+    play_command: "pattern_preview_slot"
+    resolution_source: "device_reported"
+    notes: >
+      POV pattern upload (persists on the device into a numbered slot and
+      plays standalone after disconnect). Flow, all over the BLE UART:
+      1) send image_upload_start ('#D'), wait for "OK";
+      2) send a 10-byte header: [width, height, 3, 0, 0, 0, 0, 0, 0, 0]
+         (3 = bytes per pixel, RGB888; width/height each carry a small pad —
+         confirm exact padding against a live unit);
+      3) send the pixel data in 20-byte chunks, waiting for an "OK" after
+         EACH chunk before sending the next;
+      4) after the last chunk send a single byte = the pattern slot number
+         to save into, expecting "OK".
+      Every pixel is passed through a 256-entry gamma/level-correction
+      lookup table before transmission (table hardcoded in the vendor app's
+      pattern designer; functionally a standard LED gamma ramp — recover the
+      exact table from a live capture if bit-exact colors matter). Image
+      geometry equals the prop's LED count (#GD / &D record) by the pattern
+      height. At the GATT layer the app splits all of the above into 16-byte
+      writes with ~10 ms spacing (no MTU negotiation).
+  - type: "firmware_update"
+    notes: >
+      Phone-based OTA over the BLE UART into a custom SAM D21 bootloader;
+      firmware images are public unauthenticated HTTPS downloads
+      (https://astralhoops.com/images/a5.ver + af5.bin; beta: a5beta.ver +
+      af5beta.bin). Sequence: compare '#GV' version against a5.ver; download
+      af5.bin (raw flash image for offset 0x2000); send '#B' then 'MCURESET'
+      (expect "BL"), wait ~1 s, send {0x80,0x80,'#'} then 'N#' (expect
+      {10,13}); verify CPUID/DID with the bootloader 'w' read command; erase
+      from 0x2000 ('X00002000#', expect "X\r\n"); program per 4-byte word /
+      2-byte halfword / 1-byte with W20/O20/H20 commands staged to RAM
+      0x5000 and committed per 0x1000-byte page with 'Y' commands (each
+      expects "Y\r\n"); finish with the AIRCR SYSRESETREQ write
+      'WE000ED0C,05FA0004#' and 'MCUDONE'. A 54-byte Thumb helper stub is
+      first written to RAM at 0x20004000 and jumped to — it performs the
+      actual flash writes. An alternate XMODEM-CRC16 block path exists
+      (SOH, block#, ~block#, 128 data bytes, CRC16/XMODEM poly 0x1021 init
+      0 over the data field; per-block ACK 0x06 / CAN 0x18; a 20-byte
+      variant carries 15 data bytes) but appears legacy — the main updater
+      uses the word-writer. MEDIUM confidence; not yet replayed on hardware.
+
+services:
+  # ISSC Transparent UART — ASCII command protocol
+  - uuid: "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+    name: "Astral Service (ISSC Transparent UART)"
+    characteristics:
+      - uuid: "49535343-1e4d-4bd9-ba61-23c647249616"
+        name: "TX (phone to device)"
+        properties: ["write"]
+        notes: >
+          All commands are ASCII strings written here; string parameters in
+          the templates below are encoded as their ASCII bytes (decimal
+          numbers as ASCII digits). The device answers on the RX
+          characteristic. Writes longer than 20 bytes should be split into
+          16-byte GATT writes with ~10 ms spacing (the app never negotiates
+          an MTU). The app supports broadcasting every command to multiple
+          connected props for synchronized control. Confidence: command
+          inventory HIGH (every opcode observed in the app); operand
+          encodings for #SS/#SD MEDIUM (see per-command notes).
+        commands:
+          get_mode:
+            description: "'#GM' — query current mode; device replies with an '&M' record."
+            value: [0x23, 0x47, 0x4D]
+          get_version:
+            description: >
+              '#GV' — query firmware version. Reply is either an '&V' record
+              (dotted string, e.g. "&V5.2.5") or a 0x05(ENQ)-led binary
+              triplet major.minor.revision — both parse branches exist in the
+              app; confirm on a live unit (MEDIUM).
+            value: [0x23, 0x47, 0x56]
+          get_sleep_seconds:
+            description: "'#GS' — query auto-sleep timeout; replies '&S<n>' (seconds; 0 = off)."
+            value: [0x23, 0x47, 0x53]
+          get_pov_stabilization:
+            description: "'#GT' — query POV stabilization; replies '&T<0|1>'."
+            value: [0x23, 0x47, 0x54]
+          get_led_count:
+            description: "'#GD' — query LED count; replies '&D<n>' or '&D<n,m>'."
+            value: [0x23, 0x47, 0x44]
+          get_battery_type:
+            description: "'#GA' — query battery type index; replies '&A<n>'."
+            value: [0x23, 0x47, 0x41]
+          get_prop_type:
+            description: "'#GO' — query prop/product type index (hoop/wand/fan); replies '&O<n>'."
+            value: [0x23, 0x47, 0x4F]
+          get_led_type:
+            description: "'#GE' — query LED type index; replies '&E<n>'."
+            value: [0x23, 0x47, 0x45]
+          get_battery_level:
+            description: "'#GL' — query battery level; replies '&L<n>' with n in 0-7."
+            value: [0x23, 0x47, 0x4C]
+          get_product_id:
+            description: "'#GN' — query product ID string; replies '&N<text>'."
+            value: [0x23, 0x47, 0x4E]
+          set_mode:
+            description: >
+              '#SM2=<mode>;1=<item>;' — set display mode and menu item
+              within the mode. mode/item are ASCII decimal indices into the
+              device's mode tables (the tables themselves live in app UI
+              resources — index map needs a live capture, MEDIUM). Device
+              replies with an '&M' record.
+            template: [0x23, 0x53, 0x4D, 0x32, 0x3D, "{mode}", 0x3B, 0x31, 0x3D, "{item}", 0x3B]
+            parameters:
+              mode:
+                type: "string"
+              item:
+                type: "string"
+          set_speed_hue:
+            description: >
+              '#SM3=<speed>;4=<hue>;' — set custom animation speed and hue
+              (ASCII decimal operands). This is the primary "pick a color"
+              control for the custom mode.
+            template: [0x23, 0x53, 0x4D, 0x33, 0x3D, "{speed}", 0x3B, 0x34, 0x3D, "{hue}", 0x3B]
+            parameters:
+              speed:
+                type: "string"
+              hue:
+                type: "string"
+          set_prop_type:
+            description: "'#SO<i>' — set prop/product type index (hoop/wand/fan); <i> is one ASCII decimal digit/number."
+            template: [0x23, 0x53, 0x4F, "{index}"]
+            parameters:
+              index:
+                type: "string"
+          set_led_type:
+            description: "'#SE<i>' — set LED type index; <i> is ASCII decimal."
+            template: [0x23, 0x53, 0x45, "{index}"]
+            parameters:
+              index:
+                type: "string"
+          set_battery_type:
+            description: "'#SA<i>' — set battery type index; <i> is ASCII decimal."
+            template: [0x23, 0x53, 0x41, "{index}"]
+            parameters:
+              index:
+                type: "string"
+          set_led_count:
+            description: >
+              '#SD' + LED count. Firmware >= 5.2 takes the count as TWO raw
+              big-endian bytes appended after the ASCII "#SD"; older firmware
+              takes ONE raw byte. (Operand encoding from the app's settings
+              writer — MEDIUM, confirm against a live unit.)
+            template: [0x23, 0x53, 0x44, "{count_hi}", "{count_lo}"]
+            parameters:
+              count_hi:
+                type: "uint8"
+                default: 0x00
+              count_lo:
+                type: "uint8"
+          set_sleep_seconds:
+            description: >
+              '#SS<n>' — set auto-sleep timeout in seconds; 0 (or ASCII '0')
+              disables. Operand encoding (ASCII vs raw byte) MEDIUM —
+              confirm on a live unit.
+            template: [0x23, 0x53, 0x53, "{seconds}"]
+            parameters:
+              seconds:
+                type: "string"
+          pov_stabilization_off:
+            description: "'#ST0' — disable POV stabilization; replies '&T0'."
+            value: [0x23, 0x53, 0x54, 0x30]
+          pov_stabilization_on:
+            description: "'#ST1' — enable POV stabilization; replies '&T1'."
+            value: [0x23, 0x53, 0x54, 0x31]
+          set_product_id:
+            description: "'#SN<text>' — assign the product ID string (ASCII text follows '#SN')."
+            template: [0x23, 0x53, 0x4E, "{text}"]
+            parameters:
+              text:
+                type: "string"
+          wipe_customizations:
+            description: "'#WIPE' — clear user customizations; device answers 'OK'."
+            value: [0x23, 0x57, 0x49, 0x50, 0x45]
+          format_patterns:
+            description: >
+              '#FORMAT' — factory-format pattern storage. Afterwards the
+              factory pattern set must be re-uploaded (the vendor app
+              re-sends its bundled default art through the normal image
+              upload flow).
+            value: [0x23, 0x46, 0x4F, 0x52, 0x4D, 0x41, 0x54]
+          pattern_preview_slot:
+            description: >
+              '#V' + one selector byte — select/preview stored pattern slot.
+              The selector byte is 46 + slot index (slot 0 = 0x2E '.').
+            template: [0x23, 0x56, "{selector}"]
+            parameters:
+              selector:
+                type: "uint8"
+                min: 46
+          image_upload_start:
+            description: >
+              '#D' — begin pattern image upload; device must answer 'OK'
+              before the 10-byte header and 20-byte ACKed pixel chunks are
+              sent (see the stored_upload feature for the full flow).
+            value: [0x23, 0x44]
+          bootloader_enter:
+            description: >
+              '#B' followed by 'MCURESET' — enter the SAM D21 firmware-update
+              bootloader; device answers 'BL'. Then follow the OTA sequence in
+              the firmware_update feature notes.
+            advanced: true
+            advanced_reason: "Firmware update path; an interrupted or malformed flash can brick the prop."
+            value: [0x23, 0x42]
+          bootloader_mcureset:
+            description: "'MCURESET' (sent right after '#B') — second half of the bootloader-entry handshake; expect 'BL'."
+            advanced: true
+            advanced_reason: "Firmware update path."
+            value: [0x4D, 0x43, 0x55, 0x52, 0x45, 0x53, 0x45, 0x54]
+          bootloader_read_word:
+            description: >
+              Bootloader: 'w<addr6hex>,<count># ' — read memory. Used by the
+              updater to verify the chip: 'wE000ED00,4#' must return
+              {01,C6,0C,41} (Cortex-M0+ CPUID 0x410CC601) and
+              'w41002018,4#' must return {05,03,01,10} (SAM D21 Device ID
+              0x10010305). Reply is the raw bytes.
+            advanced: true
+            advanced_reason: "Firmware update path."
+            template: [0x77, "{addr_hex6}", 0x2C, "{count}", 0x23]
+            parameters:
+              addr_hex6:
+                type: "string"
+              count:
+                type: "string"
+          bootloader_erase_app:
+            description: >
+              Bootloader: 'X00002000#' — erase application flash from 0x2000
+              (app region; the 8 KB bootloader below is preserved). Expects
+              'X\r\n'.
+            advanced: true
+            advanced_reason: "Erases the application firmware; the prop is inoperable until a valid image is flashed."
+            value: [0x58, 0x30, 0x30, 0x30, 0x30, 0x32, 0x30, 0x30, 0x30, 0x23]
+          bootloader_write_word:
+            description: >
+              Bootloader: 'W20<addr6hex>,<8 hex digits>#' — write one 4-byte
+              word (big-endian hex) at address. Halfword variant
+              'H20<addr6hex>,<4 hex>#'; byte variant 'O20<addr6hex>,<2
+              hex>#'. Data is staged to a RAM buffer at 0x5000 and committed
+              per 0x1000-byte page with 'Y20005000,0#' then
+              'Y00<flashaddr6>,00<len>#'; each 'Y' expects 'Y\r\n'.
+            advanced: true
+            advanced_reason: "Firmware update path."
+            template: [0x57, 0x32, 0x30, "{addr_hex6}", 0x2C, "{word_hex8}", 0x23]
+            parameters:
+              addr_hex6:
+                type: "string"
+              word_hex8:
+                type: "string"
+          bootloader_reset:
+            description: >
+              Bootloader: 'WE000ED0C,05FA0004#' — write AIRCR SYSRESETREQ
+              (system reset), then send 'MCUDONE'. Ends the OTA session and
+              boots the new firmware.
+            advanced: true
+            advanced_reason: "Firmware update path."
+            value: [0x57, 0x45, 0x30, 0x30, 0x30, 0x45, 0x44, 0x30, 0x43, 0x2C, 0x30, 0x35, 0x46, 0x41, 0x30, 0x30, 0x30, 0x34, 0x23]
+          bootloader_mcudone:
+            description: "'MCUDONE' — final OTA handshake token sent after the reset write."
+            advanced: true
+            advanced_reason: "Firmware update path."
+            value: [0x4D, 0x43, 0x55, 0x44, 0x4F, 0x4E, 0x45]
+
+      - uuid: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+        name: "RX (device to phone)"
+        properties: ["notify"]
+        notes: >
+          Enable notifications via the CCC descriptor after connecting. All
+          device-originated traffic arrives here. Record map (ASCII unless
+          noted):
+            '&' (0x26) starts a settings/status record; the second byte
+            selects the field:
+              &M <mode> <group?> <speed> <hue?>  mode change (>=6 bytes,
+                field semantics MEDIUM — mode/group/speed/hue mapping and
+                index tables live in app UI resources)
+              &L<n>  battery level 0-7
+              &S<n>  sleep seconds        &B<n>  brightness
+              &T<0|1> POV stabilization   &P<0|1> ISO stabilization
+              &C<n>  scan speed           &X<n>  megamix speed
+              &D<n> or &D<n,m>  LED count
+              &A<n>  battery type         &O<n>  prop type
+              &E<n>  LED type             &N<text> product ID string
+              &V<text> firmware version (dotted string)
+            0x05 (ENQ) as first byte: alternate version response (binary
+            major.minor.revision triplet follows — MEDIUM, confirm live).
+          Simple ACKs: "OK" (image-upload handshake, per-chunk ACK, WIPE,
+          FORMAT), "BL" (bootloader entered), single 0x06 ACK / 0x18 CAN per
+          block on the XMODEM path, and "Y\r\n"-style replies from bootloader
+          commands. '&' records are both replies to '#G*' queries and pushed
+          spontaneously on state change (mode switch, battery).
+
+entities:
+  - platform: "light"
+    name: "LED Prop"
+    features: ["color"]
+    state_characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+    command_characteristic: "49535343-1e4d-4bd9-ba61-23c647249616"
+    notes: >
+      Mode and color control. '&M' records on RX carry current
+      mode/speed/hue. There is no dedicated power on/off command in the
+      observed protocol — props wake on motion/physical switch; the "off"
+      equivalent is the auto-sleep timeout (set_sleep_seconds).
+    commands:
+      # `set_effect` is the vocabulary's name for a mode/animation picker;
+      # the command keeps its own name. It takes two values (mode and menu
+      # item), so a consumer that draws one-value controls will not resolve
+      # it yet — but the binding now says what it IS.
+      set_effect: "set_mode"
+      set_color: "set_speed_hue"
+  - platform: "sensor"
+    name: "Battery Level"
+    state_characteristic: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+    notes: >
+      '&L<n>' record, n in 0-7 (device-side battery gauge steps; query with
+      get_battery_level). Reported raw — a consumer should scale 0-7 to a
+      percentage or show the step directly.
+    commands:
+      poll: "get_battery_level"
+
+helpful_urls:
+  - title: "Astral Hoops"
+    url: "https://astralhoops.com/"
+    description: >-
+      Vendor site; sells the Atomic V AF-series hoops/wands/fans and hosts the
+      firmware and pattern gallery endpoints below.
+  - title: "Firmware version check (release)"
+    url: "https://astralhoops.com/images/a5.ver"
+    description: >-
+      Plain-text dotted version of the current release firmware (returned
+      "5.2.5" when fetched). Beta: https://astralhoops.com/images/a5beta.ver
+  - title: "Firmware image (release)"
+    url: "https://astralhoops.com/images/af5.bin"
+    description: >-
+      Raw SAM D21 flash image loaded at offset 0x2000 (~72 KB),
+      unauthenticated HTTPS download. Beta:
+      https://astralhoops.com/images/af5beta.bin
+  - title: "Pattern gallery"
+    url: "https://extras.astralhoops.com/patterns/"
+    description: >-
+      Free POV pattern packs: folders.php lists packs, <pack>/folders.php
+      lists folders, <pack>/patterns.php?folder=<f> lists patterns, files
+      download as raw bytes.
+  - title: "AF-series instructions"
+    url: "https://shop.astralhoops.com/pages/instructions-af"
+    description: "Vendor's official instructions page for the Atomic AF series."
+  - title: "Astral app on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.astral.astral"
+    description: >-
+      Vendor Android app (com.astral.astral, v2.0.16 analyzed). Local-only:
+      no account, no analytics; network use limited to firmware and pattern
+      downloads.

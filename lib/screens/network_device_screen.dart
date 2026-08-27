@@ -26,10 +26,13 @@ import '../services/soap_control_service.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_controller.dart';
 import '../services/spec_codec.dart';
+import '../services/tls_trust.dart';
+import '../widgets/device_credentials_card.dart';
 import '../widgets/entity_cards/sensor_level_chip.dart';
 import '../widgets/network_light_card.dart';
 import '../widgets/power_strip_icon.dart';
 import '../widgets/rabbit_air_controls_panel.dart';
+import '../widgets/unclaimed_actions.dart';
 
 /// Controls for a network device whose matched spec declares entities — the
 /// Wi-Fi counterpart of the BLE device screen's typed control panel.
@@ -112,6 +115,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// the "control by mobile apps" gate. Sticky for the screen's life so the
   /// note stays up after the error text is replaced by the next attempt.
   bool _controlRefused = false;
+
+  /// Credentials this device's spec names, that nothing has supplied yet and
+  /// that no declared setup flow can mint — the ones a person has to type.
+  ///
+  /// Recomputed whenever one is saved, so entering the last of them makes the
+  /// card go away rather than leaving a prompt for a value already held.
+  List<NetworkCredentialDto> _missingCredentials = const [];
 
   /// The per-device send pipeline — transport dispatch and the lazily
   /// opened ECP2 signed session both live in it, so a group run can drive
@@ -228,7 +238,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       specYaml: widget.controls.specYaml,
       capabilities: widget.controls.capabilities,
     );
-    unawaited(_load());
+    // Credentials BEFORE the first load, not alongside it. Fired together,
+    // `_refreshMissingCredentials` was still awaiting its FFI call while
+    // `_load` was already rendering the opening state poll — with an empty
+    // map, because the handover to the sender had not happened yet. On a
+    // device that needs one the render throws, and it throws OUTSIDE the
+    // branch `_load` guards, so the screen errored out and never started its
+    // poll timer: an error banner on a device whose credential the app was
+    // already holding, until the user backed out and came in again.
+    unawaited(_refreshMissingCredentials().whenComplete(_load));
     unawaited(_watchKeyboard());
   }
 
@@ -458,22 +476,26 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   /// Whether anything on this screen needs the UPnP description document.
   ///
-  /// SOAP is what it exists for, and the only transport that needs it: state
-  /// reads and SOAP sends resolve their control URL from it. A device whose
-  /// surface is entirely plain HTTP (a Roku remote's buttons, an Envoy's
-  /// state poll), binary UDP (a LIFX strip) or Kasa (a raw socket) has no
-  /// `setup.xml` to fetch — asking for one turns a working device into a
-  /// permanent error screen. So this keys on `soap` specifically and on state
-  /// commands whose transport is not `http`, and excludes Kasa and Rabbit Air
-  /// outright: their entities carry a `state_command` (get_sysinfo /
-  /// get_state) but poll it over their own sockets, not from a description.
-  bool get _needsDescription =>
-      !_isKasa &&
-      !_isRabbitAir &&
-      !_speaksMqtt &&
-      (_stateCommands.any((command) => _stateTransport(command) != 'http') ||
-          _entities.any(
-              (e) => e.actions.any((action) => action.transport == 'soap')));
+  /// SOAP is what it exists for and the only transport that needs it: a SOAP
+  /// send and a SOAP state read both resolve their control URL out of it. A
+  /// device whose surface is plain HTTP (a Roku's buttons, an Envoy's poll),
+  /// binary UDP (a LIFX strip) or a raw socket (Kasa) has no `setup.xml` to
+  /// fetch, and asking for one turns a working device into a permanent error
+  /// screen: the request burns its full timeout, `_description` stays null and
+  /// `_ready` never becomes true.
+  ///
+  /// Asked POSITIVELY — "does anything here ride SOAP" — and that is the
+  /// point. It used to be the negative "is any state command NOT http",
+  /// carved out per transport as each one arrived, which meant every transport
+  /// added afterwards was included by default and had to remember to opt out.
+  /// Two already had not: once the Kasa renderer was gated on
+  /// `protocol_handler: tplink_smarthome`, the Tuya gas sensor and the
+  /// Yeelight cube resolved no actions at all, `_isKasa` went false, and their
+  /// tcp-json state commands sent both devices off to fetch a UPnP document
+  /// from hardware that speaks framed JSON on a raw socket.
+  bool get _needsDescription => _entities.any((e) =>
+      e.actions.any((action) => action.transport == 'soap') ||
+      (e.stateCommand.isNotEmpty && e.transport == 'soap'));
 
   /// Loaded enough to draw controls: the description is fetched, or nothing
   /// on this screen wants it.
@@ -508,10 +530,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // own initState will do the loading.
         await _rabbitAirPanelKey.currentState?.refresh();
       } else {
-        final port = widget.device.controlPort;
+        // Asked of the sender, which owns the rule: discovery first, then the
+        // port the spec declares. Reading `widget.device.controlPort` here
+        // meant only the discovered one, so a device added by hand — or found
+        // by a transport carrying an address and no port — failed on this line
+        // with its own spec naming the port two fields away.
+        final port = _sender.controlPort;
         if (port == null) {
-          // Nothing advertised a port at all — not a device this screen can
-          // drive.
+          // Nothing advertised a port and no spec declares one — not a device
+          // this screen can drive.
           throw const SoapTransportException(
               'the device did not advertise a control port');
         }
@@ -550,6 +577,63 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         );
       });
     }
+  }
+
+  /// The device's own identity in the credential store — the same handle the
+  /// certificate pin is keyed by, for the same reason: a DHCP lease is not a
+  /// device, and a value filed under one would be lost on the next renewal.
+  String get _credentialIdentity =>
+      identityFor(mac: widget.device.advertisedMac, host: widget.device.host);
+
+  /// Work out what this device still needs from a person: the credentials its
+  /// spec says must be asked for, minus whatever is already stored.
+  ///
+  /// Failures are swallowed to an empty list. A screen that cannot read its
+  /// own credential requirements must not become an error page — the device
+  /// may well be one of the many that need none, and the sends themselves
+  /// still fail visibly if it is not.
+  Future<void> _refreshMissingCredentials() async {
+    try {
+      final declared = await ref
+          .read(specCodecProvider)
+          .credentialsForDevice(widget.controls.specYaml);
+      // A device that names none never opens the credential store. Most of
+      // the catalogue is that device, and the store is the platform keychain.
+      if (declared.isEmpty) {
+        if (mounted && _missingCredentials.isNotEmpty) {
+          setState(() => _missingCredentials = const []);
+        }
+        return;
+      }
+      // This spec names some, so the sends need them: hand the sender the
+      // store. Idempotent, and it is the only route by which this screen's
+      // sender ever reads one.
+      final store = ref.read(deviceCredentialStoreProvider);
+      _sender.useCredentials(() => store.credentials(_credentialIdentity));
+      final held = await _sender.currentCredentials();
+      final asked = declared.where((c) => c.mustBeAskedFor).toList();
+      final missing = asked
+          .where((c) => (held[c.name] ?? '').isEmpty)
+          .toList(growable: false);
+      if (mounted) setState(() => _missingCredentials = missing);
+    } catch (e) {
+      Log.net.debug('credential requirements unreadable: $e');
+    }
+  }
+
+  /// Store one credential under the name its spec gave it, then reload.
+  ///
+  /// The reload is the point: the value that was missing is now held, so the
+  /// state poll that failed on it can succeed, and the card that asked for it
+  /// can leave.
+  Future<void> _saveCredential(String name, String value) async {
+    await ref
+        .read(deviceCredentialStoreProvider)
+        .save(_credentialIdentity, name, value);
+    // The sender holds what it read; this is the moment that changed.
+    _sender.refreshCredentials();
+    await _refreshMissingCredentials();
+    if (mounted) await _load();
   }
 
   /// Begin (or restart) the background state poll. A device with no state
@@ -601,7 +685,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         await _refreshStateHttp(command);
         continue;
       }
-      final description = _description!;
+      // Everything left resolves its address out of the description, so
+      // without one there is no poll to make. Skipped rather than asserted
+      // on: `_description` is legitimately null now that fetching one is
+      // asked positively — a Tuya gas sensor's tcp-json `dp_query` reaches
+      // here on a device that serves no UPnP document, and `!` would turn a
+      // reading it simply cannot take into a crash.
+      final description = _description;
+      if (description == null) {
+        Log.net.debug('no state poll for "$command" on ${widget.device.host}: '
+            'transport ${_stateTransport(command) ?? '<unknown>'} needs a '
+            'device description and this device serves none');
+        continue;
+      }
       final request = await codec.renderNetworkStateRequest(
         specYaml: widget.controls.specYaml,
         stateCommand: command,
@@ -615,10 +711,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   /// The plain-HTTP state poll (the Envoy's production summary): render the
-  /// GET, send it, and flatten the JSON reply into the name→value pairs the
+  /// request, send it, and flatten the reply into the name→value pairs the
   /// entity decoder reads. The Kasa poll's structural twin over HTTP — fill
   /// `_stateByCommand`, then the shared decode — but through
   /// [HttpControlClient], with the reply flattened here.
+  ///
+  /// `command` is whatever the entity's state binding resolved to: a command
+  /// name on the Envoy, a bare path on a device whose spec declares its
+  /// readings as `state_topic` (`/json/state` on a WLED controller). The Rust
+  /// renderer owns that distinction; both arrive here as a request to send.
   ///
   /// A refusal (403, or 401 from the Envoy's JWT-gated firmware) is the same
   /// device-side policy a refused write is, so it raises the standing note
@@ -629,11 +730,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final request = await codec.renderNetworkHttpStateRequest(
       specYaml: widget.controls.specYaml,
       stateCommand: command,
-      values: const {},
+      // A READ needs the credential as much as a write does: the Hue bridge's
+      // sensor path embeds the whitelist username, and a poll rendered from an
+      // empty map fails on a value the app is holding two lines away.
+      // A READ needs the credential as much as a write does: the Hue bridge's
+      // sensor path embeds the whitelist username. Empty for the devices that
+      // declare none, which never opened the store.
+      values: await _sender.currentCredentials(),
     );
     try {
       final body = await _sendNetworkHttp(request);
-      _stateByCommand[command] = jsonStateFields(body);
+      _stateByCommand[command] = httpStateFields(body);
     } on ControlRefusedException {
       _controlRefused = true;
     }
@@ -916,7 +1023,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// buttons beside it still work, and the screen must not become an error
   /// page over a channel list.
   Future<void> _refreshQuerySources() async {
-    if (widget.device.controlPort == null) return;
+    if (_sender.controlPort == null) return;
     if (!_entities.any((e) => e.optionsSource != null)) return;
 
     if (mounted) setState(() => _loadingOptions = true);
@@ -967,13 +1074,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     String? value,
     Map<String, String>? values,
   }) async {
-    // HTTP, Kasa, Rabbit Air and Roomba sends are independent — no read-back
-    // coupling — so they do not serialize behind the single-SOAP-write gate
-    // the Crock-Pot needs.
-    final independent = action.transport == 'http' ||
-        action.transport == _kasaTransport ||
-        action.transport == _rabbitAirTransport ||
-        action.transport == roombaTransport;
+    // Everything but SOAP is independent — no read-back coupling — so it does
+    // not serialize behind the single-SOAP-write gate the Crock-Pot needs.
+    // Asked of the sender rather than restated here: this was a third copy of
+    // the list and it had already fallen two transports behind, so a
+    // television's button and a Bambu's pause both queued behind a SOAP write
+    // that was never going to happen.
+    final independent = NetworkCommandSender.isIndependentTransport(action);
     // The disabled controls are the visible gate; this is the real one — a
     // tap can race the rebuild that greys the SOAP controls out.
     if (!independent && _soapSending != null) return;
@@ -987,7 +1094,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       if (value != null && action.userParams.isNotEmpty) {
         sent[action.userParams.first] = value;
       }
-      if (action.transport == roombaTransport) {
+      // The ROBOT's path, not the transport's. `roombaTransport` is literally
+      // 'mqtt', so keying the fork on it alone sent every Hisense key press
+      // and every Bambu print command into `_sendRoomba`, which answered
+      // "Not connected to the robot." — 43 commands across two devices that
+      // have no BLID and never wanted one. `_isRoomba` asks the spec's
+      // `protocol_handler`, which is the question this fork is really about:
+      // the Roomba is the device with a bespoke credential store, an HA route
+      // and a controller holding its one client slot. Every other MQTT device
+      // takes the generic arm, which renders through the spec.
+      if (_isRoomba && action.transport == roombaTransport) {
         await _sendRoomba(action);
       } else {
         await _sender.sendAction(
@@ -1037,14 +1153,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<String> _sendNetworkHttp(HttpRequestDto request) =>
       _sender.sendHttpRequest(request);
 
-  /// Whether [action]'s control must sit out the current SOAP write. HTTP
-  /// presses, Kasa sends and Rabbit Air sends never lock out — see
-  /// [_soapSending].
+  /// Whether [action]'s control must sit out the current SOAP write. Only a
+  /// SOAP action locks out — see [_soapSending]. Same question as the
+  /// `independent` gate in [_send], asked of the same place, so the greyed-out
+  /// control and the refused tap cannot disagree about which is which.
   bool _lockedFor(NetworkActionDto? action) =>
       action != null &&
-      action.transport != 'http' &&
-      action.transport != _kasaTransport &&
-      action.transport != _rabbitAirTransport &&
+      !NetworkCommandSender.isIndependentTransport(action) &&
       _soapSending != null;
 
   /// Toggle one outlet of a power strip: render the child-scoped command with
@@ -1164,6 +1279,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               const SizedBox(height: 16),
               _deviceInfo(description),
             ] else ...[
+              // Something the SPEC says this device needs and the app has not
+              // been given — a printer's serial, read off its own touchscreen.
+              // Above the controls because it is why they do not work: every
+              // send below fails on the missing name until it is here.
+              if (_missingCredentials.isNotEmpty) ...[
+                DeviceCredentialsCard(
+                  missing: _missingCredentials,
+                  onSave: _saveCredential,
+                ),
+                const SizedBox(height: 12),
+              ],
               // The device answered our questions but refused a command. That
               // is a setting on the device, and saying so beats leaving the
               // user to conclude the app is broken — discovery worked, the
@@ -1379,8 +1505,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           initialOn: reading?.isOn,
           initialBrightness: reading?.number,
         );
+      // A platform this switch has no branch for still shows its reading —
+      // and, since the resolver may well have found it controls, its actions.
+      // Without the second half this default is the same defect the unclaimed
+      // rows above exist to close, one level up: a spec declaring a platform
+      // the catalogue has not needed yet would draw a value and no way to
+      // change it, with nothing saying so. Nothing in the catalogue reaches
+      // here today; that is precisely when the branch is cheap to get right.
       default:
-        return _sensorCard(entity);
+        return _sensorCard(entity, tail: _unclaimedActions(entity, const {}));
     }
   }
 
@@ -1441,6 +1574,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ),
             ],
           ),
+          // `press` is the deletion key drawn above, claimed whether or not
+          // the spec bound one — the field and its backspace are this card's.
+          _unclaimedActions(entity, const {'submit', 'press'}),
           const SizedBox(height: 4),
           Text('Types into whatever field is focused on the device.',
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
@@ -1534,45 +1670,40 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       keyOf: (entity) => entity.key,
       nameOf: (entity) => entity.name,
     );
-    final power = index.takeAll(const ['power', 'power_on', 'power_off']);
-    final nav = index.takeAll(const ['back', 'home']);
-    final up = index.take('up');
-    final left = index.take('left');
-    final ok = index.take('ok');
-    final right = index.take('right');
-    final down = index.take('down');
-    final underPad = index.takeAll(const ['replay', 'options']);
-    final transport =
-        index.takeAll(const ['rewind', 'play_pause', 'fast_forward']);
-    final volume = index.takeAll(const ['volume_up', 'mute', 'volume_down']);
-    final channel = index.takeAll(const ['channel_up', 'channel_down']);
-    final misc = index.takeAll(const ['search', 'find_remote']);
-    final inputs = index.takeAll(const [
-      'input_hdmi1',
-      'input_hdmi2',
-      'input_hdmi3',
-      'input_hdmi4',
-      'input_av',
-      'input_tuner',
-    ]);
+    final power = index.takeAll(EntityKeyIndex.powerSlots);
+    final nav = index.takeAll(EntityKeyIndex.navSlots);
+    final up = index.take(EntityKeyIndex.upSlot);
+    final left = index.take(EntityKeyIndex.leftSlot);
+    final ok = index.take(EntityKeyIndex.okSlot);
+    final right = index.take(EntityKeyIndex.rightSlot);
+    final down = index.take(EntityKeyIndex.downSlot);
+    final underPad = index.takeAll(EntityKeyIndex.underPadSlots);
+    final transport = index.takeAll(EntityKeyIndex.transportSlots);
+    final volume = index.takeAll(EntityKeyIndex.volumeSlots);
+    final channel = index.takeAll(EntityKeyIndex.channelSlots);
+    final misc = index.takeAll(EntityKeyIndex.miscSlots);
+    final inputs = index.takeAll(EntityKeyIndex.inputSlots);
     final leftover = index.leftovers;
 
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
+    // A Wrap, not a Row. These rows hold whatever the spec keyed, and a keyed
+    // button is a `FilledButton.tonalIcon` — icon, label and padding — so the
+    // width is the spec's to decide, not this layout's. Three of them
+    // (back/home/exit, which six TV specs bind) overflow a 360dp phone by
+    // 131px inside the Card's padding chain and clip the last key into
+    // something untappable; widget tests run at 800x600 and never see it. The
+    // input row and the leftover pile already wrap for exactly this reason.
     Widget labeledRow(List<NetworkEntityDto> entities,
-            {MainAxisAlignment alignment = MainAxisAlignment.center}) =>
+            {WrapAlignment alignment = WrapAlignment.center}) =>
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            mainAxisAlignment: alignment,
-            children: [
-              for (final entity in entities)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: _remoteButton(entity),
-                ),
-            ],
+          child: Wrap(
+            alignment: alignment,
+            spacing: 8,
+            runSpacing: 8,
+            children: [for (final entity in entities) _remoteButton(entity)],
           ),
         );
 
@@ -1589,8 +1720,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           Text('Remote',
               style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          if (power.isNotEmpty)
-            labeledRow(power, alignment: MainAxisAlignment.end),
+          if (power.isNotEmpty) labeledRow(power, alignment: WrapAlignment.end),
           if (nav.isNotEmpty) labeledRow(nav),
           if (up != null ||
               left != null ||
@@ -1741,6 +1871,47 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         ),
       );
 
+  /// The tail every curated card below ends with: the actions this entity
+  /// resolved that the card itself did not draw.
+  ///
+  /// A card asks for the handful of roles it knows by name and never learns
+  /// what else the resolver produced, so a role can be bound by a spec,
+  /// resolved by Rust and still reach nobody — the Hisense set, whose only
+  /// power channel is `toggle`, drew a title, a state line and no control at
+  /// all. [claimed] is what the card is responsible for, whether or not it is
+  /// on screen this build; everything else lands here.
+  ///
+  /// Nothing renders — the gap included — when the card claimed every
+  /// resolved role: a Padding around an empty row still takes its height, and
+  /// a card that already draws everything must look exactly as it did before.
+  Widget _unclaimedActions(NetworkEntityDto entity, Set<String> claimed) {
+    final unclaimed = entity.actions
+        .where((action) => !claimed.contains(action.role))
+        .toList(growable: false);
+    if (unclaimed.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: UnclaimedActions(
+        actions: [
+          for (final action in entity.actions)
+            (role: action.role, takesValue: action.userParams.isNotEmpty),
+        ],
+        claimed: claimed,
+        // This screen's own send path, so an unclaimed action gets the same
+        // read-back, the same refusal note and the same busy flag as the
+        // control drawn beside it — one sender, not two.
+        onSend: (role) async {
+          final action = _actionFor(entity, role);
+          if (action != null) await _send(entity, action);
+        },
+        // `_sending` keys on the entity rather than the role, so there is no
+        // per-role wait to show: the row goes inert while this entity is
+        // mid-send instead of putting a spinner on the wrong button.
+        enabled: !_sending.contains(entity.name) && !unclaimed.any(_lockedFor),
+      ),
+    );
+  }
+
   Widget _switchCard(NetworkEntityDto entity) {
     final reading = _readings[entity.name];
     final isOn = reading?.isOn;
@@ -1754,41 +1925,58 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final kasaState = _isKasa ? _stateByCommand[entity.stateCommand] : null;
     final alias = kasaState?['alias'];
     final title = (alias != null && alias.isNotEmpty) ? alias : entity.name;
+    // A Switch needs both directions to be honest: one that can only turn off
+    // is a control whose on side is broken, which is worse than no Switch.
+    final drawsSwitch = turnOn != null && turnOff != null;
 
     return _card(
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
-                if (isOn == null)
-                  Text('State unknown',
-                      style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600)),
+                    if (isOn == null)
+                      Text('State unknown',
+                          style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+              if (busy)
+                const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+              else if (drawsSwitch)
+                Switch(
+                  value: isOn ?? false,
+                  onChanged: (_lockedFor(turnOn) || _lockedFor(turnOff))
+                      ? null
+                      : (wantOn) =>
+                          unawaited(_send(entity, wantOn ? turnOn : turnOff)),
+                ),
+            ],
           ),
-          if (busy)
-            const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2))
-          else
-            Switch(
-              value: isOn ?? false,
-              onChanged: (turnOn == null ||
-                      turnOff == null ||
-                      _lockedFor(turnOn) ||
-                      _lockedFor(turnOff))
-                  ? null
-                  : (wantOn) =>
-                      unawaited(_send(entity, wantOn ? turnOn : turnOff)),
-            ),
+          // Claimed = what this build actually DREW, not what the card knows
+          // how to draw. A one-way power entity — LG and Samsung both declare
+          // `commands: {turn_off: ...}` with a note saying to render it as a
+          // one-way off — resolves only `turn_off`, so the Switch above cannot
+          // be honest and is not drawn at all. Listing `turn_off` as claimed
+          // anyway filtered the entity's ONLY sendable action out of the row
+          // below, leaving a title, a state line and a dead toggle: the exact
+          // shape UnclaimedActions exists to end.
+          _unclaimedActions(
+            entity,
+            drawsSwitch ? const {'turn_on', 'turn_off'} : const {},
+          ),
         ],
       ),
     );
@@ -1935,6 +2123,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ),
             ],
           ),
+          _unclaimedActions(entity, const {'select_option'}),
         ],
       ),
     );
@@ -2014,6 +2203,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   : (value) => unawaited(
                       _send(entity, action, value: _trimNumber(value))),
             ),
+          _unclaimedActions(entity, const {'set_value'}),
         ],
       ),
     );
@@ -2165,6 +2355,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   : (value) => unawaited(
                       _send(entity, position, value: value.toString())),
             ),
+          _unclaimedActions(entity, const {
+            'open_cover',
+            'close_cover',
+            'stop_cover',
+            'set_cover_position',
+          }),
         ],
       ),
     );
@@ -2253,12 +2449,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ),
               ],
             ),
+          _unclaimedActions(entity, const {
+            'turn_on',
+            'turn_off',
+            'set_percentage',
+            'set_oscillating',
+          }),
         ],
       ),
     );
   }
 
-  Widget _sensorCard(NetworkEntityDto entity) {
+  /// A reading, with an optional [tail] beneath it — the unclaimed-actions row
+  /// for the `default:` arm of [_entityCard], whose entity may have resolved
+  /// controls this screen has no card for. Every named platform passes none.
+  Widget _sensorCard(NetworkEntityDto entity, {Widget? tail}) {
     final reading = _readings[entity.name];
     final unit = displayUnit(entity.unit);
     final value = switch (reading?.kind) {
@@ -2280,29 +2485,34 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
     final showLevel = level != null &&
         sensorLevelVisible(deviceClass: entity.deviceClass, level: level);
-    return _card(
-      child: Row(
-        children: [
-          if (icon != null) ...[
-            Icon(icon,
-                size: 20,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
-            const SizedBox(width: 8),
-          ],
-          Expanded(
-            child: Text(entity.name,
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600)),
-          ),
-          if (showLevel) ...[
-            SensorLevelChip(level: level),
-            const SizedBox(width: 8),
-          ],
-          Text(value, style: Theme.of(context).textTheme.bodyLarge),
+    final row = Row(
+      children: [
+        if (icon != null) ...[
+          Icon(icon,
+              size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          const SizedBox(width: 8),
         ],
-      ),
+        Expanded(
+          child: Text(entity.name,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w600)),
+        ),
+        if (showLevel) ...[
+          SensorLevelChip(level: level),
+          const SizedBox(width: 8),
+        ],
+        Text(value, style: Theme.of(context).textTheme.bodyLarge),
+      ],
+    );
+    return _card(
+      child: tail == null
+          ? row
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [row, tail],
+            ),
     );
   }
 

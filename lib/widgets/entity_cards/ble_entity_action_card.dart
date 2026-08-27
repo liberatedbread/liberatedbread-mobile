@@ -11,6 +11,7 @@ import '../../providers/ble_provider.dart';
 import '../../providers/spec_codec_provider.dart';
 import '../../services/spec_codec.dart';
 import '../entity_value.dart';
+import '../unclaimed_actions.dart';
 
 /// The BLE control card for the platforms the unified role table added:
 /// `button`, `select`, `fan` and `cover`.
@@ -55,6 +56,46 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
 
   EntityActionDto? _action(String role) =>
       widget.entity.actions.where((a) => a.role == role).firstOrNull;
+
+  /// Every resolved action in the shape [UnclaimedActions] compares against.
+  /// A role with no user parameter is a fixed command, which is drawable as a
+  /// button without knowing anything else about the role.
+  List<({String role, bool takesValue})> get _resolvedActions => [
+        for (final action in widget.entity.actions)
+          (role: action.role, takesValue: action.userParams.isNotEmpty),
+      ];
+
+  /// Whatever the platform's own builder below did not draw. Each of the four
+  /// builders knows one role set, and the table resolves roles none of them
+  /// ask for — a fan's `toggle` is drawn by nobody — which otherwise reaches
+  /// the user as a card with a title, a state line and an empty control area.
+  ///
+  /// Padded only when something is unclaimed, so a card that draws every role
+  /// it resolved keeps the layout it had.
+  Widget _unclaimed(Set<String> claimed) {
+    final actions = _resolvedActions;
+    if (actions.every((a) => claimed.contains(a.role))) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: UnclaimedActions(
+        actions: actions,
+        claimed: claimed,
+        onSend: _sendRole,
+        sendingRole: _sendingRole,
+      ),
+    );
+  }
+
+  /// An unclaimed action goes out through the same codec write as a drawn
+  /// one, so a role this card never learned about cannot acquire a second
+  /// send path with its own encoding and its own error handling.
+  Future<void> _sendRole(String role) async {
+    final action = _action(role);
+    if (action == null) return;
+    await _send(action);
+  }
 
   Future<void> _send(EntityActionDto action,
       {Map<String, double> params = const {}, double? assume}) async {
@@ -129,7 +170,9 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
       'select' => _selectBody(value),
       'fan' => _fanBody(value, text),
       'cover' => _coverBody(value),
-      _ => const SizedBox.shrink(),
+      // A platform routed here without a builder claims nothing, so every
+      // action it resolved is drawn below rather than nowhere.
+      _ => _unclaimed(const {}),
     };
 
     return Container(
@@ -185,15 +228,21 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   /// A momentary action: the whole card is one press.
   Widget _buttonRow() {
     final press = _action('press');
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: FilledButton.tonalIcon(
-        onPressed: (press == null || _sendingRole != null)
-            ? null
-            : () => unawaited(_send(press)),
-        icon: const Icon(Icons.touch_app, size: 18),
-        label: const Text('Press'),
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.tonalIcon(
+            onPressed: (press == null || _sendingRole != null)
+                ? null
+                : () => unawaited(_send(press)),
+            icon: const Icon(Icons.touch_app, size: 18),
+            label: const Text('Press'),
+          ),
+        ),
+        _unclaimed(const {'press'}),
+      ],
     );
   }
 
@@ -202,26 +251,33 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   Widget _selectBody(EntityLiveValue? value) {
     final action = _action('select_option');
     final current = _assumed ?? value?.decodedNumber;
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final option in widget.entity.options)
-          ChoiceChip(
-            label: Text(option.label),
-            selected: current != null && double.tryParse(option.raw) == current,
-            onSelected: (action == null || _sendingRole != null)
-                ? null
-                : (_) {
-                    final raw = double.tryParse(option.raw);
-                    if (raw == null) return;
-                    _assumedBaseline = value?.decoded;
-                    final param = action.userParams.firstOrNull;
-                    unawaited(_send(action,
-                        params: param == null ? const {} : {param: raw},
-                        assume: raw));
-                  },
-          ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final option in widget.entity.options)
+              ChoiceChip(
+                label: Text(option.label),
+                selected:
+                    current != null && double.tryParse(option.raw) == current,
+                onSelected: (action == null || _sendingRole != null)
+                    ? null
+                    : (_) {
+                        final raw = double.tryParse(option.raw);
+                        if (raw == null) return;
+                        _assumedBaseline = value?.decoded;
+                        final param = action.userParams.firstOrNull;
+                        unawaited(_send(action,
+                            params: param == null ? const {} : {param: raw},
+                            assume: raw));
+                      },
+              ),
+          ],
+        ),
+        _unclaimed(const {'select_option'}),
       ],
     );
   }
@@ -297,6 +353,12 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                 ),
             ],
           ),
+        _unclaimed(const {
+          'turn_on',
+          'turn_off',
+          'set_percentage',
+          'set_oscillating',
+        }),
       ],
     );
   }
@@ -323,6 +385,7 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         );
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
@@ -355,6 +418,12 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                         assume: v));
                   },
           ),
+        _unclaimed(const {
+          'open_cover',
+          'close_cover',
+          'stop_cover',
+          'set_cover_position',
+        }),
       ],
     );
   }

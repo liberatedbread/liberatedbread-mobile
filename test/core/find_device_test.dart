@@ -31,7 +31,7 @@ DeviceSpecDto _spec({
 }) =>
     DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Test Device',
@@ -43,7 +43,7 @@ DeviceSpecDto _spec({
       serviceUuids: [serviceUuid],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,

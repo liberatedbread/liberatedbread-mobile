@@ -30,7 +30,7 @@ const _chr = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 DeviceSpecDto _bulbSpec({String name = 'Example Smart Bulb'}) => DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: name,
@@ -42,27 +42,28 @@ DeviceSpecDto _bulbSpec({String name = 'Example Smart Bulb'}) => DeviceSpecDto(
       serviceUuids: const [_svc],
       companyIds: Uint16List(0),
       macPrefixes: const [],
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       services: const [],
       entities: const [
         EntityDto(
-          options: [],
-          name: 'Bulb',
-          platform: 'light',
-          canNotify: false,
-          hasFormat: false,
-          onWhenNonzero: false,
-          actions: [
-            EntityActionDto(
-              role: 'turn_off',
-              serviceUuid: _svc,
-              characteristicUuid: _chr,
-              commandName: 'power_off',
-              userParams: [],
-            ),
-          ],
-        ),
+            options: [],
+            name: 'Bulb',
+            platform: 'light',
+            canNotify: false,
+            hasFormat: false,
+            onWhenNonzero: false,
+            actions: [
+              EntityActionDto(
+                role: 'turn_off',
+                serviceUuid: _svc,
+                characteristicUuid: _chr,
+                commandName: 'power_off',
+                userParams: [],
+              ),
+            ],
+            variants: []),
       ],
     );
 

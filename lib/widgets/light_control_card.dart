@@ -10,6 +10,7 @@ import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
 import 'entity_value.dart';
+import 'unclaimed_actions.dart';
 
 /// Preset swatches offered by the color picker. Plain RGB values sent
 /// verbatim; the device's own gamma/order handling is the spec template's
@@ -66,6 +67,11 @@ class LightControlCard extends ConsumerStatefulWidget {
 
 class _LightControlCardState extends ConsumerState<LightControlCard> {
   bool _sending = false;
+
+  /// Which role is in flight. `_sending` says that something is, which is all
+  /// the status line needs; a button that has to show its own wait needs to
+  /// know the send was ITS send.
+  String? _sendingRole;
   String? _errorText;
 
   /// Assumed power position after a send, until a newer decode reports truth.
@@ -87,6 +93,32 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
 
   EntityActionDto? _action(String role) =>
       widget.entity.actions.where((a) => a.role == role).firstOrNull;
+
+  /// The roles above: the ones this card is responsible for presenting,
+  /// whether or not a given device resolved them. A light also resolves
+  /// `toggle` and `set_effect`, which no lookup here asks for — so before
+  /// [UnclaimedActions] a spec could bind either, have Rust resolve it, and
+  /// have it reach no pixel and no report.
+  static const _claimedRoles = <String>{
+    'turn_on',
+    'turn_off',
+    'set_brightness',
+    'set_color',
+  };
+
+  /// Every resolved action in the shape [UnclaimedActions] reads. A role that
+  /// takes a user parameter gets named there rather than drawn, since a
+  /// control invented without knowing the value's shape is a dead control.
+  List<({String role, bool takesValue})> get _resolvedActions =>
+      widget.entity.actions
+          .map((a) => (role: a.role, takesValue: a.userParams.isNotEmpty))
+          .toList(growable: false);
+
+  /// Gates the spacer as well as the widget: a light whose every resolved
+  /// role is claimed must keep the exact layout it had, and a leading
+  /// `SizedBox` in front of an empty widget is still 8 pixels.
+  bool get _hasUnclaimed =>
+      widget.entity.actions.any((a) => !_claimedRoles.contains(a.role));
 
   /// Whether a brightness slider makes sense: either a dedicated brightness
   /// command resolved, or the color command carries a brightness parameter
@@ -140,6 +172,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
     if (commandName == null) return;
     setState(() {
       _sending = true;
+      _sendingRole = action.role;
       _errorText = null;
     });
     try {
@@ -159,6 +192,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
       if (!mounted) return;
       setState(() {
         _sending = false;
+        _sendingRole = null;
         if (assumeOn != null) _assumedOn = assumeOn;
       });
     } catch (e) {
@@ -170,6 +204,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
       );
       setState(() {
         _sending = false;
+        _sendingRole = null;
         _errorText = text;
       });
       ScaffoldMessenger.maybeOf(context)
@@ -193,6 +228,25 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
         _color != null) {
       _send(color);
     }
+  }
+
+  /// Send a role this card draws no control for, down the same path as every
+  /// control above: same encoder, same busy state, same error text. A second
+  /// sender here would be a second way for a write to go wrong quietly.
+  ///
+  /// No power assumption is passed. A `toggle` names no destination — its new
+  /// position is only knowable from the next decode, and assuming one would
+  /// paint a state the device may never have reached.
+  Future<void> _sendRole(String role) async {
+    final action = _action(role);
+    if (action == null) return;
+    // An unclaimed role promises nothing about the resulting position —
+    // `toggle` inverts whatever the device holds — so an assumption left by an
+    // earlier On/Off tap would keep the card reading "On (sent)" for a light
+    // this send may have just turned off. A write-only light never produces
+    // the live decode that would clear it. Same clearing the switch card does.
+    setState(() => _assumedOn = null);
+    await _send(action);
   }
 
   /// Seed control positions from the first live decode, and let a newer
@@ -389,6 +443,16 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                     },
                   ),
               ],
+            ),
+          ],
+          if (_hasUnclaimed) ...[
+            const SizedBox(height: 8),
+            UnclaimedActions(
+              actions: _resolvedActions,
+              claimed: _claimedRoles,
+              onSend: _sendRole,
+              sendingRole: _sendingRole,
+              enabled: !_sending,
             ),
           ],
         ],

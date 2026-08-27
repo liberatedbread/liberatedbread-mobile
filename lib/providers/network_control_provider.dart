@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
 import '../models/network_device.dart';
+import '../services/device_credential_store.dart';
 import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
 import '../services/kasa_control_service.dart';
@@ -16,6 +17,7 @@ import '../services/rabbit_air_key_store.dart';
 import '../services/rabbit_air_provision_service.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
+import '../services/tls_trust.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
 import 'network_scan_provider.dart';
@@ -29,8 +31,21 @@ final soapControlClientProvider =
 
 /// The plain-HTTP transport — same substitution rule, for tests that answer
 /// a keypress with a canned 200 instead of a Roku.
-final httpControlClientProvider =
-    Provider<HttpControlClient>((ref) => HttpControlClient());
+///
+/// Given the shared TLS trust so a spec that declares
+/// `identification.tls.verification` gets the policy it asked for. Without it
+/// the client falls back to trusting any certificate from a host a caller
+/// named, which is what every device with no declared policy has always had.
+final httpControlClientProvider = Provider<HttpControlClient>(
+  (ref) => HttpControlClient(trust: ref.watch(tlsTrustProvider)),
+);
+
+/// The certificate pins, and the policy that reads them. One instance, because
+/// a pin is about a device rather than about a request, and three transports
+/// have to agree about it.
+final tlsTrustProvider = Provider<TlsTrust>(
+  (ref) => TlsTrust(CertificatePinStore(ref.watch(settingsStoreProvider))),
+);
 
 /// The ECP2 signed-session transport — the Roku-only fallback for when plain
 /// ECP is refused (the "Limited" control-by-mobile-apps gate). Same
@@ -55,6 +70,29 @@ final kasaControlClientProvider = Provider<KasaControlClient>(
 /// and get an isolated store for free.
 final rabbitAirKeyStoreProvider = Provider<RabbitAirKeyStore>(
     (ref) => RabbitAirKeyStore(ref.watch(settingsStoreProvider)));
+
+/// The generic per-device credential store — whatever a spec's own
+/// `credential:` parameters name, on the same secure settings store the three
+/// device-specific stores above use.
+final deviceCredentialStoreProvider = Provider<DeviceCredentialStore>(
+    (ref) => DeviceCredentialStore(ref.watch(settingsStoreProvider)));
+
+/// What one device's spec says a client must hold before it can be driven.
+///
+/// Read from the spec, not from the store: this is the QUESTION ("what does
+/// this device need?"), and [deviceCredentialStoreProvider] holds the answers
+/// so far. Keyed by the spec text because that is what determines it.
+final deviceCredentialsProvider = FutureProvider.autoDispose
+    .family<List<NetworkCredentialDto>, String>((ref, specYaml) async {
+  try {
+    return await ref.watch(specCodecProvider).credentialsForDevice(specYaml);
+  } catch (e) {
+    // A spec this cannot read must not break the screen that asked; it means
+    // "nothing declared", the same as a spec that names no credential.
+    Log.net.debug('credential requirements unreadable: $e');
+    return const [];
+  }
+});
 
 /// The Rabbit Air encrypted-UDP transport. Depends on the codec because the
 /// envelope rendering and the AES-128-CBC datagram crypto live in Rust; tests
@@ -194,6 +232,8 @@ final networkCommandSenderFactoryProvider =
   }) =>
       NetworkCommandSender(
         host: device.host,
+        // The one handle that survives a DHCP lease, for the certificate pin.
+        deviceMac: device.advertisedMac,
         discoveredControlPort: device.controlPort,
         devicePort: device.port,
         ssdpTargets: device.ssdpTargets,

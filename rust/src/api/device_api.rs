@@ -15,8 +15,9 @@ use crate::protocol::traits::DeviceProtocol;
 use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
-    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField,
-    Identification, MacPrefix, MacPrefixConfidence, Parameter, SecurityAdvisory, Service,
+    name_has_prefix, normalize_service_type, Characteristic, CharacteristicProperty, Command,
+    DeviceSpec, Entity, FormatField, Identification, MacPrefix, MacPrefixConfidence, Parameter,
+    SecurityAdvisory, Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
@@ -95,9 +96,13 @@ pub struct DeviceSpecDto {
     /// only ever rank a device rather than identify one, and
     /// [`MacPrefixConfidence`] for how much any one of them is worth.
     pub mac_prefixes: Vec<MacPrefixDto>,
-    /// mDNS/DNS-SD service type this device announces itself under, e.g.
+    /// Every mDNS/DNS-SD service type this device announces itself under, e.g.
     /// `_hue._tcp`. The network counterpart of a vendor service UUID.
-    pub mdns_service_type: Option<String>,
+    ///
+    /// Plural because the schema states a type in two places and most of the
+    /// catalogue uses only the second; `DeviceInfo::mdns_service_types` unions
+    /// them and states why. Empty on a spec that names none.
+    pub mdns_service_types: Vec<String>,
     /// SSDP/UPnP search targets this device answers to.
     pub ssdp_search_targets: Vec<String>,
     /// Vendor LAN protocols this device is identified by answering (Kasa's
@@ -110,11 +115,12 @@ pub struct DeviceSpecDto {
     /// substring comparisons `local_name_prefixes`/`local_names` cannot
     /// express. See [`NameMatchDto`].
     pub name_matchers: Vec<NameMatchDto>,
-    /// TXT-record conditions narrowing this spec's mDNS service type from a
-    /// platform to this device. See [`TxtMatchGroupDto`].
+    /// TXT-record conditions narrowing one of this spec's mDNS service types
+    /// from a platform to this device. See [`TxtMatchGroupDto`].
     pub txt_match_groups: Vec<TxtMatchGroupDto>,
-    /// Whether this spec is its service type's catch-all.
-    pub platform_fallback: bool,
+    /// The service types this spec is the catch-all for, as
+    /// `normalize_service_type` stems. See [`SpecIdentityDto`].
+    pub platform_fallback_types: Vec<String>,
     pub services: Vec<ServiceDto>,
     /// Named consumer-side protocol handler (`daniao_ddp`, `rabbit_air`,
     /// `roomba_mqtt`, …), when the spec declares one. Surfaced so Dart can
@@ -308,6 +314,15 @@ pub struct ImageWritePlanDto {
 #[derive(Debug, Clone)]
 pub struct EntityDto {
     pub name: String,
+    /// The `device.variants[]` this entity belongs to, empty when it applies
+    /// to every model.
+    ///
+    /// Carried because a name is not an identity: a family spec declares one
+    /// entity per model and two of them can share a name — seeblue's Direct
+    /// and LEDGlow-V2 lights are both "Motorcycle LEDs", on different command
+    /// dialects. Checked against `ble_variant_names_for_device`, which is the
+    /// half that knows which model is in front of us.
+    pub variants: Vec<String>,
     /// Machine-stable semantic token from the spec's documented vocabulary
     /// (`ok`, `volume_up`, `start`, `stop`, …), so a curated layout — a
     /// remote grid, a treadmill card — can place this entity without
@@ -498,6 +513,21 @@ pub struct ParameterDto {
     /// this parameter — a "checksum" slider is nonsense, and that exact bug
     /// is why this field exists. `None` for ordinary caller-owned parameters.
     pub auto: Option<String>,
+    /// Where the client fetches this value: `credential:<name>`, a secret
+    /// stored at pairing. Never a control, and never defaulted — a send that
+    /// reaches the wire without it must fail visibly.
+    pub source: Option<String>,
+    /// Whether a generic control surface should draw a control for this
+    /// parameter at all — the schema's own rule (`auto`, `default` and
+    /// `source` each answer "what if the caller supplies nothing?" without
+    /// the user), already applied.
+    ///
+    /// The DECISION crosses the FFI, not just the three fields it is made
+    /// from, because it was made twice in Rust and once more in Dart and the
+    /// three disagreed: the raw command surface tested `auto` alone and drew
+    /// knobs for 150 defaulted parameters across eight specs. A consumer
+    /// renders what this says and holds no rule of its own.
+    pub user_settable: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -649,6 +679,20 @@ pub struct NetworkDeviceDto {
     /// node from another — the platform's service type is identical across
     /// every board it ever flashed.
     pub txt: std::collections::HashMap<String, String>,
+    /// The device's hardware address, when discovery recovered one.
+    ///
+    /// The one thing on the network side that does not move: an IP is a DHCP
+    /// lease and a hostname is whatever the owner typed, while the OUI names
+    /// the company that built the thing. Twelve specs declare `mac_prefixes`
+    /// and the network matcher had no axis to spend them on — the Ubiquiti and
+    /// MikroTik transports were parsing a real address out of the wire and
+    /// leaving it in the TXT map, where nothing looked.
+    ///
+    /// The CALLER decides what counts as one; on the Dart side that is
+    /// `NetworkDevice.advertisedMac`, which deliberately declines HomeKit's
+    /// `id` record — MAC-shaped, randomly generated, and worth a confident lie
+    /// about who made the device.
+    pub mac: Option<String>,
 }
 
 /// The identifying fields of a spec, without the services, characteristics and
@@ -687,8 +731,12 @@ pub struct SpecIdentityDto {
     pub service_uuids: Vec<String>,
     pub company_ids: Vec<u16>,
     pub mac_prefixes: Vec<MacPrefixDto>,
-    /// mDNS service type, for the Wi-Fi scan path. Absent on a BLE-only spec.
-    pub mdns_service_type: Option<String>,
+    /// Every mDNS service type this spec claims, for the Wi-Fi scan path.
+    /// Empty on a BLE-only spec. Plural because the schema states a type in
+    /// two blocks and 34 vendored specs use only the discovery one; a consumer
+    /// also seeds its DNS-SD queries from this, so a type missing here is a
+    /// device the scan never even asks for.
+    pub mdns_service_types: Vec<String>,
     /// SSDP search targets, for the Wi-Fi scan path.
     pub ssdp_search_targets: Vec<String>,
     /// Vendor LAN protocols this device is identified by answering (Kasa). A
@@ -703,15 +751,22 @@ pub struct SpecIdentityDto {
     /// regex a security advisory hangs on, the substring an OBD adapter is
     /// known by. Matched alongside those two, into the same name axis.
     pub name_matchers: Vec<NameMatchDto>,
-    /// TXT-record conditions that narrow this spec's mDNS service type from a
-    /// PLATFORM to this device. Any group holding admits the service type;
+    /// TXT-record conditions that narrow an mDNS service type from a PLATFORM
+    /// to this device. Any group governing that type and holding admits it;
     /// declaring groups that all fail withholds it — which is what stops
     /// ratgdo claiming every ESPHome node on the LAN.
     pub txt_match_groups: Vec<TxtMatchGroupDto>,
-    /// This spec is its service type's catch-all: it claims the type only
-    /// when no narrowed spec did (esphome-device). See
+    /// The service types this spec is the catch-all for, as
+    /// `normalize_service_type` stems: it claims one of these only when no
+    /// narrowed spec did (esphome-device on `_esphomelib._tcp`). See
     /// [`match_network_device`].
-    pub platform_fallback: bool,
+    ///
+    /// A list rather than a flag because a spec can hold both roles at once:
+    /// esphome-device is the catch-all for `_esphomelib._tcp` and, on the very
+    /// same spec, a NARROWED claimant of `_http._tcp` (a `config_hash` record
+    /// is what separates an API-less node from every other web server). One
+    /// flag would have made it stand aside from a claim it had earned.
+    pub platform_fallback_types: Vec<String>,
 }
 
 /// One spec that a scanned device might be, and why we think so.
@@ -904,13 +959,13 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
             service_uuids: spec.service_uuids.clone(),
             company_ids: spec.company_ids.clone(),
             mac_prefixes: spec.mac_prefixes.clone(),
-            mdns_service_type: spec.mdns_service_type.clone(),
+            mdns_service_types: spec.mdns_service_types.clone(),
             ssdp_search_targets: spec.ssdp_search_targets.clone(),
             lan_protocols: spec.lan_protocols.clone(),
             default_port: spec.default_port,
             name_matchers: spec.name_matchers.clone(),
             txt_match_groups: spec.txt_match_groups.clone(),
-            platform_fallback: spec.platform_fallback,
+            platform_fallback_types: spec.platform_fallback_types.clone(),
         }
     }
 }
@@ -937,6 +992,33 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 None => hidden_entity_names.push(entity.name.clone()),
             }
         }
+
+        // Both narrowing rules — a TXT group and the catch-all flag — are
+        // stated per service type, and the schema lets one name no type at
+        // all. Resolved here, once, into the concrete stems the matcher
+        // compares against, so no consumer has to re-derive the association:
+        // a rule that names a type governs that type, and a rule that names
+        // none is about the identification block's own — falling back to
+        // every type the spec declares when it has no identification type
+        // either, which is the reading a `None` used to get.
+        let mdns_service_types = spec.device.mdns_service_types();
+        let declared_stems: Vec<String> = mdns_service_types
+            .iter()
+            .map(|t| normalize_service_type(t))
+            .collect();
+        let own_stem = ident
+            .and_then(|i| i.mdns_service_type.as_deref())
+            .map(normalize_service_type);
+        let governed = |named: Option<String>| -> Vec<String> {
+            match named
+                .map(|t| normalize_service_type(&t))
+                .or_else(|| own_stem.clone())
+            {
+                Some(one) => vec![one],
+                None => declared_stems.clone(),
+            }
+        };
+
         Self {
             image_upload: image_upload_dto(spec),
             stored_upload: stored_upload_dto(spec),
@@ -966,7 +1048,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .and_then(|i| i.mac_prefixes.as_ref())
                 .map(|prefixes| prefixes.iter().map(MacPrefixDto::from).collect())
                 .unwrap_or_default(),
-            mdns_service_type: ident.and_then(|i| i.mdns_service_type.clone()),
+            mdns_service_types,
             ssdp_search_targets: ident
                 .and_then(|i| i.ssdp_search_targets.clone())
                 .unwrap_or_default(),
@@ -994,18 +1076,21 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                         .collect::<Vec<_>>()
                 })
                 .collect(),
-            // Both narrowing rules are per service type, and the only one
-            // this identity can match on is its own — so they are resolved
-            // against it here rather than carried across the FFI and
-            // re-associated by every caller. A group or a catch-all flag
-            // that names a DIFFERENT service type governs a match this
-            // build does not make, and is dropped rather than misapplied.
+            // Every group crosses the boundary now, each carrying the types it
+            // governs. Groups naming a type other than the identification
+            // block's used to be DROPPED here, on the reasoning that this
+            // build matched no other type — which was true only while a spec
+            // had one type. It cost esphome-device its `_http._tcp` condition
+            // and Denon its `_airplay._tcp`/`_raop._tcp` ones, so those types
+            // would have come back unnarrowed the moment the union admitted
+            // them: every web server on the link an ESPHome node, every
+            // AirPlay speaker a Denon receiver.
             txt_match_groups: spec
                 .device
                 .mdns_txt_groups()
                 .into_iter()
-                .filter(|(service_type, _)| governs_own_type(service_type.as_deref(), ident))
-                .map(|(_, conditions)| TxtMatchGroupDto {
+                .map(|(service_type, conditions)| TxtMatchGroupDto {
+                    service_types: governed(service_type),
                     conditions: conditions
                         .into_iter()
                         .map(|c| TxtMatchDto {
@@ -1016,11 +1101,12 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                         .collect(),
                 })
                 .collect(),
-            platform_fallback: spec
+            platform_fallback_types: spec
                 .device
                 .mdns_fallback_types()
-                .iter()
-                .any(|service_type| governs_own_type(service_type.as_deref(), ident)),
+                .into_iter()
+                .flat_map(governed)
+                .collect(),
             services: spec.services.iter().map(ServiceDto::from).collect(),
             protocol_handler: spec.protocol_handler.clone(),
             entities,
@@ -1086,6 +1172,7 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
     let color_fields = entity.color_rgb_fields();
     Some(EntityDto {
         name: entity.name.clone(),
+        variants: crate::spec::bindings::entity_variants(entity).unwrap_or_default(),
         key: entity.key.clone(),
         options: entity
             .options()
@@ -1254,6 +1341,8 @@ impl From<(&str, &Parameter)> for ParameterDto {
             // Rendered through Display, which spells the role exactly as the
             // spec's snake_case wire string — Dart pattern-matches on it.
             auto: p.auto.map(|role| role.to_string()),
+            source: p.source.clone(),
+            user_settable: p.is_user_settable(),
         }
     }
 }
@@ -1644,11 +1733,13 @@ impl NetworkActionDto {
         Self {
             role: action.role.to_string(),
             command_name: action.command_name.to_string(),
-            transport: action
-                .command
-                .transport
-                .clone()
-                .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string()),
+            // The transport the resolver ADMITTED this action on, carried on
+            // the action rather than re-derived from `command.transport`. The
+            // two differ whenever a spec states its transport once on the
+            // device and omits it per command, which is how both WebSocket TV
+            // specs are written — re-deriving here called seventy of their
+            // commands `soap`.
+            transport: action.transport.to_string(),
             user_params: action.user_params.iter().map(|p| p.to_string()).collect(),
             read_back,
             credentials,
@@ -1884,6 +1975,7 @@ fn network_surface_for(
         .into_iter()
         .map(|entity| {
             let actions = bindings::resolve_network_actions(&spec, entity);
+            let binding = bindings::state_binding(&spec, entity);
             NetworkEntityDto {
                 name: entity.name.clone(),
                 key: entity.key.clone(),
@@ -1898,38 +1990,41 @@ fn network_surface_for(
                 // gathering state commands must skip the empty string rather
                 // than render a request from it.
                 //
-                // On a device that pushes its readings the state binding is a
-                // topic, and it rides this same field — the convention the
-                // Roomba synthesiser above already follows. One field for
-                // "where the reading comes from", whatever the transport calls
-                // it; the transport below says which it is.
-                state_command: entity
-                    .state_command
-                    .clone()
-                    .or_else(|| entity.state_topic.clone())
+                // A command name, an MQTT topic or a bare HTTP path — whatever
+                // the resolved binding's location is, it rides this one field,
+                // the convention the Roomba synthesiser above already follows.
+                // One field for "where the reading comes from"; the transport
+                // below says which it is, and the two are read off the SAME
+                // resolution so they cannot disagree.
+                state_command: binding
+                    .map(|b| b.location().to_string())
                     .unwrap_or_default(),
                 // Every resolved action on one entity rides one transport —
                 // a spec binding a light's toggle to SOAP and its slider to
                 // HTTP would be describing two devices — so the first
                 // action's answer is the entity's. A pure reading has no
-                // action to answer for it; its transport is the one its state
-                // command declares (the Envoy's http telemetry poll), so the
-                // screen can route the poll without guessing.
-                transport: actions
-                    .first()
-                    .map(|a| {
-                        a.command
-                            .transport
-                            .clone()
-                            .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string())
-                    })
-                    .or_else(|| {
-                        entity
-                            .state_command
-                            .as_deref()
-                            .and_then(|name| spec.commands.get(name))
-                            .and_then(|command| command.transport.clone())
-                    }),
+                // action to answer for it, and its transport is the one its
+                // state binding rides: the command's declared transport (the
+                // Envoy's http telemetry poll), `http` for a bare path, `mqtt`
+                // for a subscribed topic. Without this last arm a Dyson
+                // purifier — three readings, no commands at all, because its
+                // command keys were never recovered — reached the screen with
+                // no transport on any entity, and the screen went looking for
+                // the UPnP description a purifier has never served.
+                transport: actions.first().map(|a| a.transport.to_string()).or_else(
+                    || match binding {
+                        Some(bindings::StateBinding::Command(name)) => {
+                            bindings::transport_of_command(&spec, name).map(str::to_string)
+                        }
+                        Some(bindings::StateBinding::HttpPath(_)) => {
+                            Some(crate::protocol::http::TRANSPORT.to_string())
+                        }
+                        Some(bindings::StateBinding::MqttTopic(_)) => {
+                            Some(crate::protocol::mqtt::TRANSPORT.to_string())
+                        }
+                        None => None,
+                    },
+                ),
                 is_instanced: entity.instances.is_some(),
                 value_field: entity.value_field().map(str::to_string),
                 options: entity
@@ -2004,6 +2099,24 @@ pub struct NetworkCapabilitiesDto {
     /// The spec's declared URL scheme (`https` for the Envoy or SmartCast),
     /// `None` meaning plain http.
     pub default_scheme: Option<String>,
+    /// The trust policy for that scheme's certificate, from
+    /// `identification.tls.verification`: `standard`, `trust_on_first_use`,
+    /// `vendor_ca` or `none`. `None` when the spec states none.
+    ///
+    /// Carried because a LAN certificate is almost never publicly verifiable,
+    /// so a client must decide something, and this is the spec deciding it.
+    /// Two specs ask for `trust_on_first_use` and every TLS client in the app
+    /// was excusing any certificate from anyone — `none`'s behaviour, applied
+    /// to devices that asked to be pinned.
+    pub tls_verification: Option<String>,
+    /// `identification.tls.self_signed` — the certificate will never validate
+    /// against a public chain, so refusing it outright is not an option and
+    /// the client owes the user a real policy instead.
+    pub tls_self_signed: bool,
+    /// `identification.advertised_port_unreliable` — use [`Self::default_port`]
+    /// rather than the port discovery captured, because this device's
+    /// announcement does not describe where its API is.
+    pub advertised_port_unreliable: bool,
     /// The spec's `protocol_handler`, when it names one — `roomba_mqtt`,
     /// `rabbit_air_lan`, `lifx_lan`.
     ///
@@ -2013,6 +2126,40 @@ pub struct NetworkCapabilitiesDto {
     /// handler is the spec's own answer to "which conversation is this", so a
     /// consumer forks on it rather than on a device name.
     pub protocol_handler: Option<String>,
+}
+
+/// Which of a spec's `device.variants[]` the BLE device in front of us could be.
+///
+/// Separate from [`load_device_spec`] rather than folded into it, and that is
+/// the whole design: that function is cached by spec string and called from
+/// everywhere, so a device-dependent answer there would serve one device's
+/// narrowing to the next. The spec DTO stays device-independent; this is the
+/// device-aware half, and what crosses is the matched variant NAMES, which the
+/// caller checks against each entity's own [`EntityDto::variants`].
+///
+/// Not the surviving entity names, which was the obvious shape and is wrong:
+/// seeblue's two dialects are BOTH called "Motorcycle LEDs", so a name is not
+/// an identity here and filtering by one keeps both — the very failure this
+/// exists to fix.
+///
+/// `device_name` is the advertised local name and `service_uuids` the services
+/// actually discovered on the connection — the richer list, and the one that
+/// tells an Airthings Wave Plus from a Wave Mini.
+///
+/// Empty means DO NOT NARROW: narrowing a device we cannot identify would
+/// blank it, and the honest fallback is what shipped before this existed. See
+/// `bindings::matched_ble_variant_names` for the matching rule.
+pub fn ble_variant_names_for_device(
+    spec_yaml: String,
+    device_name: String,
+    service_uuids: Vec<String>,
+) -> anyhow::Result<Vec<String>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(bindings::matched_ble_variant_names(
+        &spec,
+        &device_name,
+        &service_uuids,
+    ))
 }
 
 /// Read [`NetworkCapabilitiesDto`] out of a spec.
@@ -2031,6 +2178,13 @@ pub fn network_capabilities(spec_yaml: String) -> anyhow::Result<NetworkCapabili
             .then(|| "ecp2".to_string()),
         default_port: ident.and_then(|i| i.default_port),
         default_scheme: ident.and_then(|i| i.default_scheme.clone()),
+        tls_verification: ident
+            .and_then(|i| i.tls.as_ref())
+            .and_then(|t| t.verification.clone()),
+        tls_self_signed: ident
+            .and_then(|i| i.tls.as_ref())
+            .is_some_and(|t| t.self_signed),
+        advertised_port_unreliable: ident.is_some_and(|i| i.advertised_port_unreliable),
         protocol_handler: spec.protocol_handler.clone(),
     })
 }
@@ -2987,6 +3141,75 @@ fn find_entity<'a>(
         .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))
 }
 
+// ── Credentials ─────────────────────────────────────────────────────────────
+//
+// The values a client must hold before it can drive a device, joined to the
+// setup flow that mints them. See `crate::spec::credentials` for why the join
+// belongs on this side: the coupling between a `credential:<name>` parameter
+// and an `issues_credentials` entry is the NAME, and a consumer that has to
+// re-derive that mapping per device is the per-device credential table the
+// schema exists to avoid.
+
+/// The setup flow that mints a credential, when the spec declares one.
+#[derive(Debug, Clone)]
+pub struct NetworkCredentialIssuanceDto {
+    /// The setup method's `type` — which flow to run.
+    pub method: String,
+    /// The command whose reply carries the value, when the spec names one.
+    pub command: Option<String>,
+    /// Dotted path with bracketed indices into that reply.
+    pub reply_path: String,
+    /// A request argument that must be set for the field to appear at all.
+    pub request_condition: Option<String>,
+}
+
+/// One value a client must hold to drive this device.
+#[derive(Debug, Clone)]
+pub struct NetworkCredentialDto {
+    /// The name it is referred to and stored under.
+    pub name: String,
+    /// The spec's own words for what this is and where a person gets it —
+    /// what a client shows when it has to ask, so no per-device UI copy is
+    /// written for a device the catalogue already describes.
+    pub description: Option<String>,
+    /// Commands that cannot be sent without it.
+    pub needed_by: Vec<String>,
+    /// The flow that issues it, or absent when it comes from outside every
+    /// flow this spec describes.
+    pub issued_by: Option<NetworkCredentialIssuanceDto>,
+    /// Whether a client should ask a person for this value: something needs
+    /// it and no declared flow can mint it.
+    pub must_be_asked_for: bool,
+}
+
+/// Every credential this spec refers to, by name.
+///
+/// Answered for the whole device rather than per action, because that is the
+/// question a client actually has: "what do I need before this screen works?"
+/// A per-action answer forces the caller to union them itself and gets the
+/// issued-but-unconsumed case (Hue's `clientkey`) wrong, since no action
+/// mentions it at all.
+pub fn credentials_for_device(spec_yaml: String) -> anyhow::Result<Vec<NetworkCredentialDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(crate::spec::credentials::required_credentials(&spec)
+        .into_iter()
+        .map(|requirement| NetworkCredentialDto {
+            must_be_asked_for: requirement.must_be_asked_for(),
+            name: requirement.name,
+            description: requirement.description,
+            needed_by: requirement.needed_by,
+            issued_by: requirement
+                .issued_by
+                .map(|issued| NetworkCredentialIssuanceDto {
+                    method: issued.method,
+                    command: issued.command,
+                    reply_path: issued.reply_path,
+                    request_condition: issued.request_condition,
+                }),
+        })
+        .collect())
+}
+
 // ── LIFX (binary UDP) ───────────────────────────────────────────────────────
 // LIFX speaks a binary LAN protocol over UDP unicast, not text-over-TCP like
 // SOAP/HTTP. So instead of a rendered request DTO the caller POSTs, these return
@@ -3235,6 +3458,18 @@ struct MatchAxes {
     /// category of hardware answers to, like `upnp:rootdevice` or `_hap._tcp`.
     /// Reported so the caller can say what matched, but never promoting.
     shared_service_types: Vec<String>,
+    /// Whether any of those shared types was one this spec NARROWED — declared
+    /// TXT conditions for, and had them hold.
+    ///
+    /// This is what decides whether a shared type is evidence at all, and it
+    /// is the same rule the absent port axis below states: an identifier a
+    /// whole category volunteers ranks a device, it does not name one. A spec
+    /// saying "`_http._tcp` where the TXT records look like THIS" has named
+    /// one; a spec saying "`_http._tcp`" has named every web server on the
+    /// link. Before this, twenty-six specs claimed `_http._tcp` on the
+    /// strength of a discovery method mentioning it, and a bare web server
+    /// came back as twenty-one Possible smart devices.
+    narrowed_shared: bool,
     /// Likely tier.
     company_ids: Vec<u16>,
     /// Identifies a vendor, not a product — except where the spec says
@@ -3257,7 +3492,9 @@ impl MatchAxes {
             && self.service_uuids.is_empty()
             && self.shared_service_uuids.is_empty()
             && self.service_types.is_empty()
-            && self.shared_service_types.is_empty()
+            // A shared type counts only where the spec earned it. See
+            // [`Self::narrowed_shared`].
+            && !self.narrowed_shared
             && self.company_ids.is_empty()
             && self.mac_prefix.is_none()
     }
@@ -3313,6 +3550,16 @@ impl MatchAxes {
         usize::from(self.by_name_prefix)
             + usize::from(!self.service_uuids.is_empty())
             + usize::from(!self.service_types.is_empty())
+            // A shared type the spec EARNED by narrowing it counts, and counts
+            // here rather than in `service_types` so the two stay
+            // distinguishable. It was wired into `is_empty` — enough to admit
+            // the match — and into neither of the ranking questions, so
+            // ESPHome narrowed by `config_hash` and a Chromecast narrowed by
+            // `id` (the two cases the narrowing was written for) admitted at
+            // Possible and were then too weak to name the product. The device
+            // stayed "Unknown" on evidence the code had deliberately
+            // collected.
+            + usize::from(self.narrowed_shared)
             + usize::from(!self.company_ids.is_empty())
             + usize::from(self.mac_prefix_confidence() >= MacPrefixConfidence::Medium)
     }
@@ -3325,7 +3572,14 @@ impl MatchAxes {
         // one axis over: 0x181A is the Environmental Sensing service every
         // thermometer on the market exposes, and matching it was reporting each
         // of them as a Strong "Xiaomi LYWSD03MMC".
-        if !self.service_uuids.is_empty() || !self.service_types.is_empty() || self.agreeing() >= 2
+        if !self.service_uuids.is_empty()
+            || !self.service_types.is_empty()
+            // A narrowed shared type is proof-shaped for the same reason a
+            // vendor type is: the spec named conditions, and they held. An
+            // ESPHome node publishing the declared `config_hash` really is
+            // that board — which is the whole point of letting a spec narrow.
+            || self.narrowed_shared
+            || self.agreeing() >= 2
         {
             MatchConfidence::Strong
         } else if self.by_name_prefix
@@ -3372,26 +3626,6 @@ fn strip_hex(raw: &str) -> Option<String> {
     hex.chars().all(|c| c.is_ascii_hexdigit()).then_some(hex)
 }
 
-/// Whether `value` starts with `prefix`, ASCII-case-insensitively.
-///
-/// The one prefix test both matchers use. Case-insensitive because BLE local
-/// names and DNS names are ASCII and vendors are not consistent about casing
-/// across firmware revisions (SmartDawn units advertise DN*-style names and the
-/// vendor app itself filters them case-insensitively) — and DNS names are
-/// case-insensitive by definition anyway. `get(..len)` rather than slicing so a
-/// multi-byte value can't panic mid-char; a `None` there cannot equal an ASCII
-/// prefix.
-///
-/// An empty prefix is treated as absent, not as a wildcard: an empty prefix
-/// matches every name, so a spec carrying `local_name_prefix: ""` would
-/// otherwise claim every scanned device.
-fn name_has_prefix(value: &str, prefix: &str) -> bool {
-    !prefix.is_empty()
-        && value
-            .get(..prefix.len())
-            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
-}
-
 /// One `discovery.methods[].ble.local_name` matcher, flattened for the FFI.
 ///
 /// The schema's four comparisons against an advertised BLE local name, of
@@ -3417,10 +3651,27 @@ pub struct TxtMatchDto {
     pub value: Option<String>,
 }
 
-/// One AND-group of TXT conditions. A spec is satisfied when ANY group holds;
-/// a struct rather than a bare `Vec<Vec<_>>` because the FFI has no nesting.
+/// One AND-group of TXT conditions, and the mDNS service types it narrows. A
+/// spec is satisfied for a type when ANY group governing that type holds; a
+/// struct rather than a bare `Vec<Vec<_>>` because the FFI has no nesting.
 #[derive(Debug, Clone)]
 pub struct TxtMatchGroupDto {
+    /// The service types these conditions govern, as `normalize_service_type`
+    /// stems.
+    ///
+    /// Narrowing is PER SERVICE TYPE and pooling it is a real bug, not a
+    /// simplification: esphome-device conditions `_http._tcp` on a
+    /// `config_hash` record while claiming `_esphomelib._tcp` outright, so a
+    /// pooled group would apply the web server's condition to the native API's
+    /// service and drop every ESPHome node that publishes `config_hash` on the
+    /// other one. Denon is the same shape three ways over — a `deviceid` OUI
+    /// on `_airplay._tcp`, an `am` model prefix on `_raop._tcp`, a `cpath` on
+    /// `_spotify-connect._tcp`.
+    ///
+    /// Empty means the group governs nothing, which only happens on a spec
+    /// that declares no service types at all — there is nothing for it to
+    /// narrow either way.
+    pub service_types: Vec<String>,
     pub conditions: Vec<TxtMatchDto>,
 }
 
@@ -3493,32 +3744,46 @@ fn txt_group_holds(
         })
 }
 
-/// Whether the device's TXT records satisfy a spec's mDNS narrowing — any
-/// group holding is enough. A spec that declares none is unnarrowed and
-/// claims its service type outright, which is the historical behaviour.
+/// The groups that narrow ONE service type — the ones whose `service_types`
+/// name it.
+///
+/// The filter is the whole point: a spec's groups are not interchangeable.
+/// esphome-device's `config_hash` condition is about `_http._tcp` alone, and
+/// letting it speak for `_esphomelib._tcp` would drop every ESPHome node that
+/// publishes that record on the native API's service instead — which, per the
+/// spec's own notes, is every node that has an API at all.
+fn groups_governing<'a>(
+    groups: &'a [TxtMatchGroupDto],
+    wanted: &'a str,
+) -> impl Iterator<Item = &'a TxtMatchGroupDto> {
+    groups
+        .iter()
+        .filter(move |group| group.service_types.iter().any(|t| t == wanted))
+}
+
+/// Whether this spec narrows `wanted` at all, rather than claiming it
+/// outright. A spec is only a candidate to displace a catch-all when it does.
+fn is_narrowed(groups: &[TxtMatchGroupDto], wanted: &str) -> bool {
+    groups_governing(groups, wanted).next().is_some()
+}
+
+/// Whether the device's TXT records satisfy a spec's narrowing OF ONE SERVICE
+/// TYPE — any group governing that type and holding is enough. A spec that
+/// declares no group for it is unnarrowed there and claims it outright, which
+/// is the historical behaviour.
 fn txt_conditions_hold(
     groups: &[TxtMatchGroupDto],
     txt: &std::collections::HashMap<String, String>,
+    wanted: &str,
 ) -> bool {
-    groups.is_empty() || groups.iter().any(|group| txt_group_holds(group, txt))
-}
-
-/// Whether a discovery method's service type is the one the identification
-/// block declares — the only service type this build matches on.
-///
-/// `None` means the method named none, which the schema reads as the
-/// identification block's own. Compared on the [`normalize_service_type`]
-/// stem, so a trailing dot is not a missed rule.
-fn governs_own_type(
-    method_type: Option<&str>,
-    ident: Option<&crate::spec::types::Identification>,
-) -> bool {
-    let Some(method_type) = method_type else {
-        return true;
-    };
-    ident
-        .and_then(|i| i.mdns_service_type.as_deref())
-        .is_some_and(|own| normalize_service_type(own) == normalize_service_type(method_type))
+    let mut narrowed = false;
+    for group in groups_governing(groups, wanted) {
+        narrowed = true;
+        if txt_group_holds(group, txt) {
+            return true;
+        }
+    }
+    !narrowed
 }
 
 /// Compare one spec identity against one observation. The single place the
@@ -3587,24 +3852,7 @@ fn match_axes(
         .filter(|id| device.company_ids.contains(id))
         .collect();
 
-    let mac_prefix = device_mac.and_then(|address| {
-        // Best-first rather than first-declared: a spec listing both a
-        // vetted block and a shared one should be judged on the vetted one
-        // when the address is in it, regardless of declaration order.
-        identity
-            .mac_prefixes
-            .iter()
-            .filter(|entry| {
-                normalize_mac_prefix(&entry.prefix)
-                    .is_some_and(|normalized| address.starts_with(&normalized))
-            })
-            // `min_by_key` on the reversed key rather than `max_by_key`:
-            // both pick the best, but only this one keeps the first of
-            // several equally-good prefixes, so declaration order still
-            // breaks ties deterministically.
-            .min_by_key(|entry| std::cmp::Reverse(entry.confidence))
-            .cloned()
-    });
+    let mac_prefix = best_mac_prefix(&identity.mac_prefixes, device_mac);
 
     MatchAxes {
         by_name_prefix,
@@ -3666,6 +3914,32 @@ fn is_sig_assigned_service(uuid: &str) -> bool {
 /// `device_types` is `device.service_types` already through
 /// [`normalize_service_type`], computed once by the caller for the same reason
 /// [`match_axes`] takes the MAC pre-normalized: this runs per identity.
+/// The best of a spec's `mac_prefixes` that `address` falls in.
+///
+/// Best-first rather than first-declared: a spec listing both a vetted block
+/// and a shared one should be judged on the vetted one when the address is in
+/// it, regardless of declaration order.
+///
+/// Shared by both matchers, because an OUI means the same thing over either
+/// radio — it names the company that built the hardware. The network side had
+/// no MAC axis at all, so twelve specs' `mac_prefixes` were spent on BLE and
+/// ignored on Wi-Fi, where for several of them it is the only identifier that
+/// does not move.
+fn best_mac_prefix(prefixes: &[MacPrefixDto], address: Option<&str>) -> Option<MacPrefixDto> {
+    let address = address?;
+    prefixes
+        .iter()
+        .filter(|entry| {
+            normalize_mac_prefix(&entry.prefix)
+                .is_some_and(|normalized| address.starts_with(&normalized))
+        })
+        // `min_by_key` on the reversed key rather than `max_by_key`: both pick
+        // the best, but only this one keeps the first of several equally-good
+        // prefixes, so declaration order still breaks ties deterministically.
+        .min_by_key(|entry| std::cmp::Reverse(entry.confidence))
+        .cloned()
+}
+
 fn match_network_axes(
     identity: &SpecIdentityDto,
     device: &NetworkDeviceDto,
@@ -3677,10 +3951,7 @@ fn match_network_axes(
     // mDNS instance name would surface on the Wi-Fi tab -- the network analogue
     // of treating an empty prefix as a wildcard. The name prefix is a
     // corroborating signal here, never an admitting one.
-    let declares_mdns = identity
-        .mdns_service_type
-        .as_ref()
-        .is_some_and(|t| !t.is_empty());
+    let declares_mdns = identity.mdns_service_types.iter().any(|t| !t.is_empty());
     if !declares_mdns
         && identity.ssdp_search_targets.is_empty()
         && identity.lan_protocols.is_empty()
@@ -3691,34 +3962,48 @@ fn match_network_axes(
 
     let mut service_types: Vec<String> = Vec::new();
     let mut shared_service_types: Vec<String> = Vec::new();
+    let mut narrowed_shared = false;
     // Sorted into the bucket its genericness earns: a vendor's own type proves
     // a lot, one a whole category answers to proves nothing on its own.
-    let mut record = |declared: &str, normalized: &str| {
+    //
+    // `narrowed` is the third state, and it is what keeps a shared type from
+    // being evidence all by itself. A spec that says "`_http._tcp`, and the
+    // TXT records must look like THIS" has earned the type — an ESPHome node
+    // publishing `config_hash` really is one. A spec that just says
+    // "`_http._tcp`" has said nothing: every router admin page, NAS and
+    // printer web UI on the link answers to it.
+    let mut record = |declared: &str, normalized: &str, narrowed: bool| {
         if is_shared_service_type(normalized) {
             shared_service_types.push(declared.to_string());
+            narrowed_shared |= narrowed;
         } else {
             service_types.push(declared.to_string());
         }
     };
 
-    if let Some(declared) = identity
-        .mdns_service_type
-        .as_ref()
-        .filter(|t| !t.is_empty())
-    {
+    // Every type the spec names, not just the identification block's. A spec
+    // can legitimately be found under several — a Denon answers to AirPlay,
+    // RAOP and Spotify Connect — and each is judged on its own rules below.
+    for declared in identity.mdns_service_types.iter().filter(|t| !t.is_empty()) {
         // Specs write `_hue._tcp.local.`, `_hue._tcp.local` and `_hue._tcp`
         // interchangeably, and so do devices. Compare on the trimmed stem so a
         // trailing-dot difference is not a missed device.
         let wanted = normalize_service_type(declared);
         // A service type can be a PLATFORM's rather than a product's:
-        // `_esphomelib._tcp` is every ESPHome node ever flashed. Two rules
-        // keep one board's spec from claiming all of them — the spec's own
-        // TXT conditions must hold, and a catch-all spec stands aside for
-        // any narrowed spec whose conditions did.
-        let narrowed_ok = txt_conditions_hold(&identity.txt_match_groups, &device.txt);
-        let fallback_ok = !identity.platform_fallback || !narrowed_types.contains(&wanted);
+        // `_esphomelib._tcp` is every ESPHome node ever flashed, `_http._tcp`
+        // every web server on the link. Two rules keep one board's spec from
+        // claiming all of them — the spec's TXT conditions FOR THIS TYPE must
+        // hold, and a spec that is this type's catch-all stands aside for any
+        // narrowed spec whose conditions did.
+        let narrowed_ok = txt_conditions_hold(&identity.txt_match_groups, &device.txt, &wanted);
+        let fallback_ok = !identity.platform_fallback_types.contains(&wanted)
+            || !narrowed_types.contains(&wanted);
         if device_types.contains(&wanted) && narrowed_ok && fallback_ok {
-            record(declared, &wanted);
+            record(
+                declared,
+                &wanted,
+                is_narrowed(&identity.txt_match_groups, &wanted),
+            );
         }
     }
     for target in &identity.ssdp_search_targets {
@@ -3727,7 +4012,9 @@ fn match_network_axes(
             .iter()
             .any(|t| t.eq_ignore_ascii_case(target))
         {
-            record(target, &normalize_service_type(target));
+            // SSDP search targets carry no TXT narrowing, so a shared one
+            // (`upnp:rootdevice`) can only ever corroborate.
+            record(target, &normalize_service_type(target), false);
         }
     }
 
@@ -3756,12 +4043,43 @@ fn match_network_axes(
                 .is_some_and(|h| name_has_prefix(h, prefix))
     });
 
-    MatchAxes {
+    // The OUI, judged exactly as it is on the BLE side. It never admits on its
+    // own — `is_empty` does not count it, and the confidence rule reads its
+    // tier — so a spec whose only claim is "somebody at this company made it"
+    // still needs a second signal, which is the same rule that keeps a shared
+    // service type from naming a device.
+    let mac_prefix = best_mac_prefix(
+        &identity.mac_prefixes,
+        device.mac.as_deref().and_then(normalize_mac).as_deref(),
+    );
+
+    let mut axes = MatchAxes {
         by_name_prefix,
         service_types,
         shared_service_types,
+        narrowed_shared,
+        mac_prefix,
         ..MatchAxes::default()
+    };
+    // On this side an OUI CORROBORATES and never admits. It names the company
+    // that built the hardware, not the hardware — Signify builds bridges and
+    // also lamps and also monitors — so a spec whose only agreement with a
+    // host is "somebody at this company made it" has not identified anything.
+    // The same rule as a shared service type, and the same one the absent port
+    // axis states.
+    //
+    // BLE differs deliberately: there the address IS most of what a scan
+    // result has, while a host on the network also volunteers a service type,
+    // a hostname and TXT records, so there is something for the OUI to
+    // corroborate.
+    if axes.mac_prefix.is_some() {
+        let taken = axes.mac_prefix.take();
+        // Put it back only if something else already stood on its own.
+        if !axes.is_empty() {
+            axes.mac_prefix = taken;
+        }
     }
+    axes
 }
 
 /// Whether a network identifier is answered by a whole category of hardware
@@ -3794,6 +4112,19 @@ fn is_shared_service_type(normalized: &str) -> bool {
             | "_raop._tcp"
             | "_companion-link._tcp"
             | "_googlecast._tcp"
+            // NOT `_miio._udp`, though it is a whole vendor's ecosystem and
+            // reads like one. Listing it here makes a Xiaomi device match
+            // NOTHING, because the spec that claims it — "Xiaomi miIO /
+            // MiHome Devices (transport)" — is a transport spec with no other
+            // axis, and it is RIGHT about a host on port 54321: the device
+            // does speak miIO. The real defect is one layer up, and it is a
+            // spec one: yeelight-cube-lamp also claims the type unnarrowed, so
+            // a vacuum comes back badged as a lamp. The fix is for the product
+            // spec to narrow the type by TXT (its own identity_mapping already
+            // reads `txt:model`) or to stop claiming it, leaving the platform
+            // spec as the honest answer. Filed upstream rather than papered
+            // over here, because trading a wrong name for no name is not an
+            // improvement.
             // "It speaks HTTP" and "it is a printer" are categories, not
             // products.
             | "_http._tcp"
@@ -3806,16 +4137,6 @@ fn is_shared_service_type(normalized: &str) -> bool {
             | "_device-info._tcp"
             | "_services._dns-sd._udp"
     )
-}
-
-/// Reduce a DNS-SD service type to a comparable stem: lowercase, no trailing
-/// dot, no `.local` suffix.
-fn normalize_service_type(raw: &str) -> String {
-    let lower = raw.trim().trim_end_matches('.').to_ascii_lowercase();
-    lower
-        .strip_suffix(".local")
-        .map(str::to_owned)
-        .unwrap_or(lower)
 }
 
 /// Find every spec matching a device we are already talking to, with the
@@ -3879,21 +4200,30 @@ pub fn match_network_device(
         .map(|t| normalize_service_type(t))
         .collect();
     // Which advertised service types a NARROWED spec claims for this device:
-    // one that declares TXT conditions and whose conditions hold. The
-    // catch-all spec for such a type stands aside — that is what
-    // `platform_fallback` buys, and it is a cross-spec question, so it is
+    // one that declares TXT conditions on that type and whose conditions hold.
+    // The catch-all spec for such a type stands aside — that is what
+    // `platform_fallback_types` buys, and it is a cross-spec question, so it is
     // answered here rather than inside the per-identity axes.
+    //
+    // Asked per type rather than per spec, because a spec can be the catch-all
+    // for one of its types and a narrowed claimant of another (esphome-device
+    // is exactly that). Judging the spec as a whole would either let its
+    // catch-all role suppress a claim it had earned elsewhere, or let a
+    // narrowing on one type displace catch-alls on a type it says nothing
+    // about.
     let narrowed_types: Vec<String> = identities
         .iter()
-        .filter(|identity| {
-            !identity.platform_fallback
-                && !identity.txt_match_groups.is_empty()
-                && txt_conditions_hold(&identity.txt_match_groups, &device.txt)
-        })
-        .filter_map(|identity| {
-            let declared = identity.mdns_service_type.as_ref()?;
-            let wanted = normalize_service_type(declared);
-            device_types.contains(&wanted).then_some(wanted)
+        .flat_map(|identity| {
+            identity
+                .mdns_service_types
+                .iter()
+                .map(|declared| normalize_service_type(declared))
+                .filter(|wanted| {
+                    !identity.platform_fallback_types.contains(wanted)
+                        && device_types.contains(wanted)
+                        && is_narrowed(&identity.txt_match_groups, wanted)
+                        && txt_conditions_hold(&identity.txt_match_groups, &device.txt, wanted)
+                })
         })
         .collect();
     rank_matches(&identities, |identity| {
@@ -6238,6 +6568,7 @@ http_endpoints:
             answered_lan_protocols: vec![],
             port: None,
             txt: Default::default(),
+            mac: None,
         }
     }
 
@@ -6246,7 +6577,7 @@ http_endpoints:
     fn lan_protocol_identity() -> SpecIdentityDto {
         let mut identity = network_identity();
         identity.local_name_prefix_clear();
-        identity.mdns_service_type = None;
+        identity.mdns_service_types.clear();
         identity.ssdp_search_targets.clear();
         identity.lan_protocols = vec!["tplink-smarthome".into()];
         identity
@@ -6400,10 +6731,7 @@ device:
     #[test]
     fn network_identity_axes_reach_the_dto() {
         let dto = load_device_spec(NETWORK_YAML.into()).unwrap();
-        assert_eq!(
-            dto.mdns_service_type.as_deref(),
-            Some("_testbridge._tcp.local.")
-        );
+        assert_eq!(dto.mdns_service_types, vec!["_testbridge._tcp.local."]);
         assert_eq!(dto.ssdp_search_targets, vec!["urn:test:device:bridge:1"]);
         assert_eq!(dto.default_port, Some(8081));
     }
@@ -6465,7 +6793,7 @@ device:
         // port was admitting they claimed every host answering on it: any
         // router admin page came back "Possibly Rachio".
         let mut identity = network_identity();
-        identity.mdns_service_type = None;
+        identity.mdns_service_types.clear();
         identity.ssdp_search_targets = vec![];
         identity.local_name_prefixes = vec![];
 
@@ -6509,14 +6837,20 @@ device:
     }
 
     #[test]
-    fn a_shared_search_target_alone_is_only_possible() {
+    fn a_shared_search_target_alone_is_not_evidence() {
         // The regression this whole split exists for. hue-bridge.yaml declares
         // `upnp:rootdevice`, and the Wi-Fi scan's M-SEARCH uses `ST: ssdp:all`,
-        // which every UPnP responder answers with exactly that. Before this,
-        // the router, the printer and the NAS were each reported Strong and
-        // badged "Philips Hue Bridge".
+        // which every UPnP responder answers with exactly that. Before the
+        // split, the router, the printer and the NAS were each reported Strong
+        // and badged "Philips Hue Bridge".
+        //
+        // Weakening it to Possible was not enough, and the port axis above says
+        // why in the same words: an identifier a whole category volunteers
+        // ranks a device, it does not name one. A list of twenty "possibly"
+        // rows for one web server is not a weaker answer than a wrong one, it
+        // is the same answer with a hedge on it.
         let mut identity = network_identity();
-        identity.mdns_service_type = None;
+        identity.mdns_service_types.clear();
         identity.ssdp_search_targets = vec!["upnp:rootdevice".into()];
         identity.local_name_prefix_clear();
 
@@ -6524,24 +6858,23 @@ device:
             ssdp_targets: vec!["upnp:rootdevice".into()],
             ..anonymous_host()
         };
-        let matches = match_network_device(vec![identity], device);
-        assert_eq!(matches.len(), 1, "it still ranks — it just cannot claim");
-        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
-        assert_eq!(
-            matches[0].matched_service_types,
-            vec!["upnp:rootdevice".to_string()],
-            "still reported, so the UI can say what matched"
-        );
+        assert!(match_network_device(vec![identity], device).is_empty());
     }
 
     #[test]
-    fn a_shared_mdns_type_alone_is_only_possible() {
+    fn a_shared_mdns_type_alone_is_not_evidence() {
         // roku-ecp declares `_airplay._tcp`, lifx-z and rachio declare
         // `_hap._tcp`. An Apple TV is not a Roku; a HomeKit plug is not a
-        // sprinkler controller.
-        for shared in ["_airplay._tcp.local.", "_hap._tcp.local."] {
+        // sprinkler controller, and saying "possibly a sprinkler controller"
+        // about every HomeKit accessory in the house is not a smaller version
+        // of that mistake.
+        for shared in [
+            "_airplay._tcp.local.",
+            "_hap._tcp.local.",
+            "_http._tcp.local.",
+        ] {
             let mut identity = network_identity();
-            identity.mdns_service_type = Some(shared.into());
+            identity.mdns_service_types = vec![shared.into()];
             identity.ssdp_search_targets = vec![];
             identity.local_name_prefix_clear();
 
@@ -6549,13 +6882,121 @@ device:
                 service_types: vec![shared.into()],
                 ..anonymous_host()
             };
-            let matches = match_network_device(vec![identity], device);
-            assert_eq!(
-                matches[0].confidence,
-                MatchConfidence::Possible,
+            assert!(
+                match_network_device(vec![identity], device).is_empty(),
                 "{shared} is answered by a whole ecosystem"
             );
         }
+    }
+
+    /// The other half, and the reason the rule is "narrowed" rather than
+    /// "never": a spec that says WHICH `_http._tcp` it means has named a
+    /// device. ESPHome's is `config_hash` in the TXT records — every node with
+    /// a web API has one, every other web server on the link does not.
+    #[test]
+    fn a_narrowed_shared_mdns_type_is_evidence() {
+        let mut identity = network_identity();
+        identity.mdns_service_types = vec!["_http._tcp.local.".into()];
+        identity.ssdp_search_targets = vec![];
+        identity.local_name_prefix_clear();
+        identity.txt_match_groups = vec![TxtMatchGroupDto {
+            service_types: vec!["_http._tcp".into()],
+            conditions: vec![TxtMatchDto {
+                key: "config_hash".into(),
+                kind: "present".into(),
+                value: None,
+            }],
+        }];
+
+        let bare_web_server = NetworkDeviceDto {
+            service_types: vec!["_http._tcp.local.".into()],
+            ..anonymous_host()
+        };
+        assert!(
+            match_network_device(vec![identity.clone()], bare_web_server).is_empty(),
+            "the narrowing has to HOLD, not merely be declared"
+        );
+
+        let node = NetworkDeviceDto {
+            service_types: vec!["_http._tcp.local.".into()],
+            txt: std::collections::HashMap::from([("config_hash".into(), "abc".into())]),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], node);
+        assert_eq!(matches.len(), 1, "a narrowed shared type names a device");
+        // And it ranks. Admitting at Possible is not the same as identifying:
+        // the scan treats Possible as too weak to name a product, so a match
+        // that never reaches Strong leaves the device reading "Unknown" on
+        // evidence this code deliberately collected. Asserting only the COUNT
+        // is what let that ship.
+        assert_eq!(
+            matches[0].confidence,
+            MatchConfidence::Strong,
+            "a spec that named conditions and had them hold has earned the type"
+        );
+    }
+
+    /// The OUI is evidence on Wi-Fi, exactly as it is on BLE.
+    ///
+    /// Twelve specs declare `mac_prefixes` and the network matcher had no axis
+    /// to spend them on, while the Ubiquiti and MikroTik transports were
+    /// parsing a real address off the wire and leaving it in the TXT map where
+    /// nothing looked. An IP is a DHCP lease and a hostname is whatever the
+    /// owner typed; the OUI names the company that built the hardware.
+    #[test]
+    fn a_matching_oui_corroborates_a_network_match() {
+        let mut identity = network_identity();
+        identity.mac_prefixes = vec![MacPrefixDto {
+            prefix: "AA:BB:CC".into(),
+            confidence: MacPrefixConfidence::High,
+        }];
+
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            mac: Some("aa:bb:cc:11:22:33".into()),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity.clone()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            matches[0]
+                .matched_mac_prefix
+                .as_ref()
+                .map(|p| p.prefix.as_str()),
+            Some("AA:BB:CC"),
+            "the axis has to be reported, or the UI cannot say why it matched"
+        );
+
+        // A different manufacturer's address is not this spec's device — the
+        // service type still carries the match, but the OUI does not.
+        let other = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            mac: Some("11:22:33:44:55:66".into()),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], other);
+        assert!(matches[0].matched_mac_prefix.is_none());
+    }
+
+    /// And it never admits on its own: an OUI says who built the hardware, not
+    /// what the hardware is, and one company builds many products.
+    #[test]
+    fn an_oui_alone_does_not_claim_a_host() {
+        let mut identity = network_identity();
+        identity.mdns_service_types.clear();
+        identity.ssdp_search_targets = vec![];
+        identity.lan_protocols = vec![];
+        identity.local_name_prefix_clear();
+        identity.mac_prefixes = vec![MacPrefixDto {
+            prefix: "AA:BB:CC".into(),
+            confidence: MacPrefixConfidence::High,
+        }];
+
+        let device = NetworkDeviceDto {
+            mac: Some("aa:bb:cc:11:22:33".into()),
+            ..anonymous_host()
+        };
+        assert!(match_network_device(vec![identity], device).is_empty());
     }
 
     #[test]
@@ -6597,7 +7038,7 @@ device:
         // comment states — so it must not be half of a "two signals agree"
         // promotion, for the same reason a shared block is not.
         let mut identity = network_identity();
-        identity.mdns_service_type = None;
+        identity.mdns_service_types.clear();
         identity.ssdp_search_targets = vec![];
 
         let device = NetworkDeviceDto {
@@ -6615,7 +7056,7 @@ device:
         // promotes; the full identity matches on its own mDNS type.
         let mut weak = network_identity();
         weak.device_name = "Weak".into();
-        weak.mdns_service_type = None;
+        weak.mdns_service_types.clear();
         weak.ssdp_search_targets = vec!["upnp:rootdevice".into()];
         weak.local_name_prefixes = vec![];
 
@@ -6627,10 +7068,13 @@ device:
             ..anonymous_host()
         };
         let matches = match_network_device(vec![weak, network_identity()], device);
-        assert_eq!(matches.len(), 2);
+        // The weak one does not appear at all any more: its only axis is a
+        // search target every UPnP responder answers, and an identifier a
+        // whole category volunteers is not evidence. Ordering is still what
+        // this test is about — the survivor is the one that named the device.
+        assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].device_name, "Test Bridge");
         assert_eq!(matches[0].confidence, MatchConfidence::Strong);
-        assert_eq!(matches[1].confidence, MatchConfidence::Possible);
     }
 
     #[test]

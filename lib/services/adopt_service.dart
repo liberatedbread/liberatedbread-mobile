@@ -869,11 +869,14 @@ class AdoptService {
   }
 }
 
-/// A stopwatch reading as tenths of a second — the resolution that separates
-/// "the device answered" from "the deadline expired", which is the question
-/// every line in this flow is really asking.
-String _elapsed(Stopwatch watch) =>
-    '${(watch.elapsedMilliseconds / 1000).toStringAsFixed(1)}s';
+/// A stopwatch reading, in the one spelling every timed line in this app uses.
+///
+/// Was a local `toStringAsFixed(1)` here and nowhere else, which is what made
+/// this the only flow in the app that could answer "how long did that take".
+/// [formatElapsed] is that rendering, shared, and it reads sub-second waits in
+/// milliseconds — the difference between "the device answered" and "the
+/// deadline expired" is exactly what every line in this flow is asking.
+String _elapsed(Stopwatch watch) => formatElapsed(watch.elapsed);
 
 /// A live adoption conversation: the family, the matched-spec YAML the render
 /// calls need, and — for Wemo — the resolved device description its control

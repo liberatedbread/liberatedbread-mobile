@@ -742,6 +742,7 @@ class RealNetworkScanService implements NetworkScanService {
       if (changed != null) controller.add(changed);
     }
 
+    final elapsed = Stopwatch()..start();
     () async {
       try {
         // Before either transport starts, and released in the finally below:
@@ -838,8 +839,23 @@ class RealNetworkScanService implements NetworkScanService {
           isApplePlatform: Platform.isIOS || Platform.isMacOS,
         );
         if (failure != null) controller.addError(failure);
-        Log.net.info('network scan finished: '
-            '${coalescer.deviceCount} device(s)');
+        // What a reader needs when a scan comes back empty, which is the only
+        // time this line gets read. "0 devices" alone cannot tell an empty
+        // network from one whose replies never reach us — the outcome tally
+        // is exactly that distinction, and the elapsed time says whether the
+        // window ran or something bailed early.
+        final heard = outcomes.where((o) => o == TransportOutcome.heard).length;
+        final failed =
+            outcomes.where((o) => o == TransportOutcome.failed).length;
+        Log.net
+            .info('network scan finished in ${formatElapsed(elapsed.elapsed)}: '
+                '${logFields({
+              'devices': coalescer.deviceCount,
+              'transports': outcomes.length,
+              'heard': heard,
+              'silent': outcomes.length - heard - failed,
+              'failed': failed,
+            })}');
       } catch (e, st) {
         if (!controller.isClosed) controller.addError(e, st);
       } finally {

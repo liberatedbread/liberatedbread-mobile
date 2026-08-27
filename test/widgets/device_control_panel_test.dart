@@ -177,6 +177,131 @@ void main() {
     expect(ble.subscriptions, hasLength(2));
   });
 
+  testWidgets('a family spec shows the model in front of you, not both',
+      (tester) async {
+    // seeblue-motorcycle-led is the shape this exists for: TWO lights, BOTH
+    // named "Motorcycle LEDs", one per command dialect, told apart only by the
+    // advertised name. Before variant narrowing both crossed the FFI and the
+    // panel's name dedupe kept whichever the spec declared first — so a
+    // LEDGlowV2 was driven with the Direct dialect's frames, silently.
+    //
+    // The name is deliberately the same on both here. A test using different
+    // names would pass against a narrowing keyed on names, which is the
+    // implementation that does not work.
+    const svcUuid = '0000ffe0-0000-1000-8000-00805f9b34fb';
+    const charUuid = '0000ffe1-0000-1000-8000-00805f9b34fb';
+    EntityDto light(String variant, String command) => EntityDto(
+          name: 'Motorcycle LEDs',
+          variants: [variant],
+          platform: 'light',
+          canNotify: false,
+          hasFormat: false,
+          onWhenNonzero: false,
+          options: const [],
+          actions: [
+            EntityActionDto(
+              role: 'turn_on',
+              commandName: command,
+              serviceUuid: svcUuid,
+              characteristicUuid: charUuid,
+              userParams: const [],
+            ),
+          ],
+        );
+
+    final spec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallbackTypes: const [],
+      txtMatchGroups: const [],
+      hiddenEntityNames: const [],
+      deviceName: 'SeeBlue Motorcycle LEDs',
+      manufacturer: 'SeeBlue',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: 'light',
+      localNamePrefixes: const ['LEDGlow'],
+      localNames: const [],
+      serviceUuids: const [svcUuid],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceTypes: const [],
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      defaultPort: null,
+      entities: [light('Direct', 'direct_on'), light('LEDGlow-V2', 'v2_on')],
+      services: const [
+        ServiceDto(uuid: svcUuid, name: 'Control', characteristics: [
+          CharacteristicDto(
+            uuid: charUuid,
+            name: 'Write',
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+            commands: [],
+            formatFields: [],
+          ),
+        ]),
+      ],
+    );
+
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(
+      spec: spec,
+      matches: [
+        MatchResult(
+          spec: spec,
+          matchedByNamePrefix: true,
+          matchedServiceUuids: const [svcUuid],
+          confidence: MatchConfidence.strong,
+        ),
+      ],
+    )
+      // What the real narrowing answers for a device advertising LEDGlowV2.
+      ..bleVariantNames = (name, uuids) => const ['LEDGlow-V2'];
+
+    await tester.pumpWidget(await _wrap(
+      const DeviceControlPanel(
+        deviceId: 'AA:BB',
+        deviceName: 'LEDGlowV2',
+        services: [
+          BleDiscoveredService(uuid: svcUuid, characteristics: [
+            BleDiscoveredCharacteristic(
+              uuid: charUuid,
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+            ),
+          ]),
+        ],
+      ),
+      ble: ble,
+      codec: codec,
+      specs: const {'seeblue': 'yaml'},
+    ));
+    await tester.pumpAndSettle();
+
+    // One light — but the count alone proves nothing, because the panel's name
+    // dedupe collapses the two anyway. WHICH dialect is on screen is the whole
+    // question, so press it and read what the codec was asked to encode.
+    expect(find.text('Motorcycle LEDs'), findsOneWidget);
+    await tester.tap(find.widgetWithText(OutlinedButton, 'On'));
+    await tester.pumpAndSettle();
+
+    final sent = codec.encodeCalls.map((c) => c.commandName).toList();
+    expect(sent, contains('v2_on'));
+    expect(
+      sent,
+      isNot(contains('direct_on')),
+      reason: 'the Direct dialect belongs to the other model',
+    );
+
+    // And the other model's light is not counted as a missing control either:
+    // an entity belonging to another model does not exist here, it is not
+    // hidden. Counting it would put a permanent "1 control is not available"
+    // on every family device.
+    expect(find.textContaining('not available on this device'), findsNothing);
+  });
+
   testWidgets('renders typed controls for a matched characteristic',
       (tester) async {
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
@@ -185,7 +310,7 @@ void main() {
     // no const form.
     final spec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Example Smart Bulb',
@@ -198,7 +323,7 @@ void main() {
       serviceUuids: const [svcUuid],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -398,7 +523,7 @@ void main() {
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Example Smart Bulb',
@@ -411,7 +536,7 @@ void main() {
       serviceUuids: const [svcUuid],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -455,7 +580,7 @@ void main() {
     const charUuid = '0000fe02-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Test Walking Pad',
@@ -468,7 +593,7 @@ void main() {
       serviceUuids: const [svcUuid],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -562,22 +687,22 @@ void main() {
       String? unit,
     }) =>
         EntityDto(
-          options: const [],
-          name: name,
-          platform: 'sensor',
-          deviceClass: deviceClass,
-          unit: unit,
-          stateCharacteristic: stateChar,
-          canNotify: false,
-          hasFormat: true,
-          valueField: 'v',
-          onWhenNonzero: false,
-          actions: const [],
-        );
+            options: const [],
+            name: name,
+            platform: 'sensor',
+            deviceClass: deviceClass,
+            unit: unit,
+            stateCharacteristic: stateChar,
+            canNotify: false,
+            hasFormat: true,
+            valueField: 'v',
+            onWhenNonzero: false,
+            actions: const [],
+            variants: const []);
 
     DeviceSpecDto airSpec({String category = 'sensor'}) => DeviceSpecDto(
           nameMatchers: const [],
-          platformFallback: false,
+          platformFallbackTypes: const [],
           txtMatchGroups: const [],
           hiddenEntityNames: const [],
           deviceName: 'Acme Air Monitor',
@@ -590,7 +715,7 @@ void main() {
           serviceUuids: const [svcUuid],
           companyIds: Uint16List(0),
           macPrefixes: const [],
-          mdnsServiceType: null,
+          mdnsServiceTypes: const [],
           ssdpSearchTargets: const [],
           lanProtocols: const [],
           defaultPort: null,
@@ -809,7 +934,7 @@ void main() {
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     final spec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Legacy Device',
@@ -821,7 +946,7 @@ void main() {
       serviceUuids: const [svcUuid],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: null,
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
@@ -864,7 +989,7 @@ const _tieCharUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 final _brandA = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Brand A Lights',
@@ -875,7 +1000,7 @@ final _brandA = DeviceSpecDto(
   localNames: const [],
   companyIds: Uint16List(0),
   macPrefixes: [],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: [],
   lanProtocols: const [],
   defaultPort: null,
@@ -908,7 +1033,7 @@ final _brandA = DeviceSpecDto(
 
 final _brandB = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Brand B Lights',
@@ -919,7 +1044,7 @@ final _brandB = DeviceSpecDto(
   localNames: const [],
   companyIds: Uint16List(0),
   macPrefixes: [],
-  mdnsServiceType: null,
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: [],
   lanProtocols: const [],
   defaultPort: null,

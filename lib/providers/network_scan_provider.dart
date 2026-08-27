@@ -43,6 +43,17 @@ class NetworkIdentity {
   /// the TXT records are the only thing that says WHICH device this is.
   final Map<String, String> txt;
 
+  /// The hardware address the device published, when it published one.
+  ///
+  /// Part of the identity for the same reason the TXT records are: it is
+  /// evidence the matcher weighs. Unlike everything else here it does not move
+  /// — an IP is a lease, a hostname is whatever the owner typed, and the OUI
+  /// names the company that built the thing. Read through
+  /// [NetworkDevice.advertisedMac], which knows which TXT keys are a real
+  /// address and which are HomeKit's random accessory id wearing the shape of
+  /// one.
+  final String? mac;
+
   const NetworkIdentity({
     required this.name,
     required this.hostname,
@@ -51,6 +62,7 @@ class NetworkIdentity {
     required this.ssdpTargets,
     required this.answeredLanProtocols,
     this.txt = const {},
+    this.mac,
   });
 
   NetworkIdentity.of(NetworkDevice device)
@@ -60,7 +72,8 @@ class NetworkIdentity {
         serviceTypes = device.serviceTypes,
         ssdpTargets = device.ssdpTargets,
         answeredLanProtocols = device.answeredLanProtocols,
-        txt = device.txt;
+        txt = device.txt,
+        mac = device.advertisedMac;
 
   @override
   bool operator ==(Object other) =>
@@ -68,6 +81,7 @@ class NetworkIdentity {
       other.name == name &&
       other.hostname == hostname &&
       other.port == port &&
+      other.mac == mac &&
       listEquals(other.serviceTypes, serviceTypes) &&
       listEquals(other.ssdpTargets, ssdpTargets) &&
       listEquals(other.answeredLanProtocols, answeredLanProtocols) &&
@@ -78,6 +92,7 @@ class NetworkIdentity {
       name,
       hostname,
       port,
+      mac,
       Object.hashAll(serviceTypes),
       Object.hashAll(ssdpTargets),
       Object.hashAll(answeredLanProtocols));
@@ -105,6 +120,7 @@ final networkGuessProvider = FutureProvider.autoDispose
         answeredLanProtocols: identity.answeredLanProtocols,
         port: identity.port,
         txt: identity.txt,
+        mac: identity.mac,
       ),
     );
   } catch (e) {

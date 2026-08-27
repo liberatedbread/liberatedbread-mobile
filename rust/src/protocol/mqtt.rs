@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 
 use crate::protocol::ProtocolError;
-use crate::spec::types::{scalar_to_string, DeviceSpec, SpecCommand};
+use crate::spec::types::{DeviceSpec, SpecCommand};
 
 // ── MQTT 3.1.1 ───────────────────────────────────────────────────────────────
 
@@ -525,15 +525,7 @@ fn resolve(
     param: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    if let Some(value) = values.get(param) {
-        return Ok(value.clone());
-    }
-    command
-        .parameters
-        .get(param)
-        .and_then(|p| p.default.as_ref())
-        .and_then(scalar_to_string)
-        .ok_or_else(|| ProtocolError::ParameterMissing(format!("{command_name}.{param}")))
+    crate::protocol::resolve_parameter(command, command_name, param, values)
 }
 
 /// Render a command by name out of a spec.

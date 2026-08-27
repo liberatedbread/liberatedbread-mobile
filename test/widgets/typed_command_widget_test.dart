@@ -40,7 +40,12 @@ const _charDto = CharacteristicDto(
       unsupportedEncoding: null,
       advanced: false,
       parameters: [
-        ParameterDto(name: 'brightness', valueType: 'uint8', min: 0, max: 100),
+        ParameterDto(
+            name: 'brightness',
+            valueType: 'uint8',
+            min: 0,
+            max: 100,
+            userSettable: true),
       ],
     ),
   ],
@@ -64,7 +69,7 @@ const _stringParamChar = CharacteristicDto(
       unsupportedEncoding: null,
       advanced: false,
       parameters: [
-        ParameterDto(name: 'label', valueType: 'string'),
+        ParameterDto(name: 'label', valueType: 'string', userSettable: true),
       ],
     ),
   ],
@@ -88,7 +93,12 @@ const _malformedChar = CharacteristicDto(
       unsupportedEncoding: null,
       advanced: false,
       parameters: [
-        ParameterDto(name: 'level', valueType: 'uint8', min: 200, max: 50),
+        ParameterDto(
+            name: 'level',
+            valueType: 'uint8',
+            min: 200,
+            max: 50,
+            userSettable: true),
       ],
     ),
   ],
@@ -115,12 +125,17 @@ final _allowedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-          name: 'value',
-          valueType: 'int32',
-          allowed: Int64List.fromList([0, 200, 400, 1000]),
-          labels: const ['OFF', 'Low', 'Mid', 'High'],
-        ),
-        const ParameterDto(name: 'speed', valueType: 'uint8', min: 0, max: 100),
+            name: 'value',
+            valueType: 'int32',
+            allowed: Int64List.fromList([0, 200, 400, 1000]),
+            labels: const ['OFF', 'Low', 'Mid', 'High'],
+            userSettable: true),
+        const ParameterDto(
+            name: 'speed',
+            valueType: 'uint8',
+            min: 0,
+            max: 100,
+            userSettable: true),
       ],
     ),
   ],
@@ -145,14 +160,19 @@ final _defaultedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-          name: 'mode',
-          valueType: 'int32',
-          allowed: Int64List.fromList([0, 200, 400]),
-          labels: const ['OFF', 'Low', 'Mid'],
-          default_: 400,
-        ),
+            name: 'mode',
+            valueType: 'int32',
+            allowed: Int64List.fromList([0, 200, 400]),
+            labels: const ['OFF', 'Low', 'Mid'],
+            default_: 400,
+            userSettable: false),
         const ParameterDto(
-            name: 'level', valueType: 'uint8', min: 0, max: 100, default_: 42),
+            name: 'level',
+            valueType: 'uint8',
+            min: 0,
+            max: 100,
+            default_: 42,
+            userSettable: false),
       ],
     ),
   ],
@@ -179,10 +199,10 @@ final _unlabeledAllowedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-          name: 'level',
-          valueType: 'uint16',
-          allowed: Int64List.fromList([5, 10]),
-        ),
+            name: 'level',
+            valueType: 'uint16',
+            allowed: Int64List.fromList([5, 10]),
+            userSettable: true),
       ],
     ),
     CommandDto(
@@ -194,11 +214,11 @@ final _unlabeledAllowedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-          name: 'mode',
-          valueType: 'uint8',
-          allowed: Int64List.fromList([7, 9]),
-          labels: const ['Only'],
-        ),
+            name: 'mode',
+            valueType: 'uint8',
+            allowed: Int64List.fromList([7, 9]),
+            labels: const ['Only'],
+            userSettable: true),
       ],
     ),
   ],
@@ -223,11 +243,11 @@ final _boolAllowedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-          name: 'enabled',
-          valueType: 'bool',
-          allowed: Int64List.fromList([0, 1]),
-          labels: const ['Off', 'On'],
-        ),
+            name: 'enabled',
+            valueType: 'bool',
+            allowed: Int64List.fromList([0, 1]),
+            labels: const ['Off', 'On'],
+            userSettable: true),
       ],
     ),
   ],
@@ -253,14 +273,18 @@ const _scaledAutoChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-          name: 'speed',
-          valueType: 'uint8',
-          min: 0,
-          max: 60,
-          scale: 0.1,
-          unit: 'km/h',
-        ),
-        ParameterDto(name: 'checksum', valueType: 'uint8', auto: 'checksum'),
+            name: 'speed',
+            valueType: 'uint8',
+            min: 0,
+            max: 60,
+            scale: 0.1,
+            unit: 'km/h',
+            userSettable: true),
+        ParameterDto(
+            name: 'checksum',
+            valueType: 'uint8',
+            auto: 'checksum',
+            userSettable: false),
       ],
     ),
   ],
@@ -424,20 +448,85 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('a declared default seeds the slider and the dropdown',
-      (tester) async {
+  testWidgets(
+      'a defaulted parameter gets no control and is never sent — the '
+      'encoder fills it', (tester) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
     await tester
         .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _defaultedChar));
 
-    // The slider starts at the spec's default, not the bottom of its range,
-    // and the dropdown at the defaulted allowed value, not the first.
-    final slider = tester.widget<Slider>(find.byType(Slider));
-    expect(slider.value, 42.0);
-    expect(find.text('Level: 42'), findsOneWidget);
+    // This command's every parameter is defaulted, so it has no blanks the
+    // user owns and draws no inputs at all. It used to draw both, seeded at
+    // their defaults, which invited the user to write over values the spec
+    // had already answered — the same mistake as a "checksum" slider, one
+    // field along. (The whole surface offered 150 of these across eight
+    // shipped specs; SmartDawn's fixed "turn on" drew four.)
+    expect(find.byType(Slider), findsNothing);
+    expect(find.byType(DropdownButtonFormField<int>), findsNothing);
+    expect(find.textContaining('Level'), findsNothing);
+    expect(find.textContaining('Mid'), findsNothing);
+
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+
+    // And nothing crosses the FFI for them: the encoder resolves supplied
+    // value, then the spec's default, so the bytes on the wire are the same
+    // ones the seeded controls used to produce.
+    final call =
+        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_mode');
+    expect(call.params, isEmpty);
+  });
+
+  testWidgets(
+      'a defaulted parameter is one tap away, seeded where the spec '
+      'put it', (tester) async {
+    // Off the default surface, not gone. Most defaulted parameters are
+    // protocol filler nobody should be handed, but some are the second axis of
+    // a real command — the Urevo's incline beside its speed, the LIFX strip's
+    // kelvin beside its colour — and this is the only place they can be set.
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _defaultedChar));
+
+    await tester.tap(find.text('2 values the spec fills in'));
+    await tester.pumpAndSettle();
+
+    // Seeded at the spec's own answer, so revealing one and sending without
+    // touching it puts the same bytes on the wire as leaving it hidden.
+    expect(tester.widget<Slider>(find.byType(Slider)).value, 42.0);
     expect(find.text('Mid (400)'), findsOneWidget);
-    expect(find.text('OFF (0)'), findsNothing);
+
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+    final call =
+        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_mode');
+    expect(call.params['level'], 42.0);
+    expect(call.params['mode'], 400.0);
+  });
+
+  testWidgets('collapsing the defaults takes their values off the wire too',
+      (tester) async {
+    // Otherwise the label lies: it says the spec fills these in while an
+    // edited value rides along with no control anywhere to see or undo it.
+    // Collapsed, the encoder resolves each default itself, which puts exactly
+    // the bytes on the wire the label promises.
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _defaultedChar));
+
+    await tester.tap(find.text('2 values the spec fills in'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Hide the spec\'s defaults'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+    final call =
+        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_mode');
+    expect(call.params, isEmpty);
   });
 
   testWidgets('selecting an allowed entry sends its value, not label or index',

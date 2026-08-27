@@ -52,7 +52,7 @@ companion app `xfkj.fitpro`). `m6-fitness-band.yaml` was re-targeted accordingly
 keeps the Veryfit analysis only as a clearly-labeled mis-attribution note. See
 `research/m6-fitness-band/CONFIRMATION.md` §C.
 
-## Validation: 137/137 passing (136 device specs + 1 example)
+## Validation: 200/200 passing (199 device specs + 1 example)
 
 Pinned by `test_gaps_md_states_the_real_spec_count` in
 `scripts/test_device_specs.py`: this line said 92/92 for a fortnight after

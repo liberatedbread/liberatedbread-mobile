@@ -59,31 +59,45 @@
 	     no spec for; the rest are the types this app's device specs name. -->
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_services._dns-sd._udp</string>
-		<string>_miio._udp</string>
-		<string>_hue._tcp</string>
-		<string>_leap._tcp</string>
-		<string>_lap._tcp</string>
-		<string>_lutron._tcp</string>
-		<string>_hap._tcp</string>
-		<string>_http._tcp</string>
-		<string>_ipp._tcp</string>
 		<string>_adb-tls-connect._tcp</string>
-		<string>_wled._tcp</string>
-		<string>_enphase-envoy._tcp</string>
-		<string>_home-assistant._tcp</string>
-		<string>_smartthings._tcp</string>
+		<string>_adb-tls-pairing._tcp</string>
+		<string>_adb._tcp</string>
 		<string>_airplay._tcp</string>
-		<string>_dyson_mqtt._tcp</string>
-		<string>_ankivector._tcp</string>
-		<string>_rabbitair._udp</string>
-		<string>_philipstv_rpc._tcp</string>
-		<string>_viziocast._tcp</string>
 		<string>_androidtvremote2._tcp</string>
+		<string>_ankivector._tcp</string>
+		<string>_arsdk._udp</string>
+		<string>_dyson_mqtt._tcp</string>
+		<string>_enphase-envoy._tcp</string>
 		<string>_esphomelib._tcp</string>
-		<string>_snapmaker._tcp</string>
+		<string>_googlecast._tcp</string>
+		<string>_hap._tcp</string>
+		<string>_home-assistant._tcp</string>
+		<string>_http._tcp</string>
+		<string>_hue._tcp</string>
+		<string>_ipp._tcp</string>
+		<string>_ipps._tcp</string>
+		<string>_leap._tcp</string>
+		<string>_lutron._tcp</string>
 		<string>_matter._tcp</string>
 		<string>_matterc._udp</string>
+		<string>_miio._udp</string>
+		<string>_moonraker._tcp</string>
+		<string>_osc._udp</string>
+		<string>_pdl-datastream._tcp</string>
+		<string>_philipstv_rpc._tcp</string>
+		<string>_philipstv_s_rpc._tcp</string>
+		<string>_printer._tcp</string>
+		<string>_rabbitair._udp</string>
+		<string>_raop._tcp</string>
+		<string>_services._dns-sd._udp</string>
+		<string>_slimprotocol._tcp</string>
+		<string>_smartthings-hedge._tcp</string>
+		<string>_smartthings._tcp</string>
+		<string>_snapmaker._tcp</string>
+		<string>_soundtouch._tcp</string>
+		<string>_spotify-connect._tcp</string>
+		<string>_viziocast._tcp</string>
+		<string>_wled._tcp</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

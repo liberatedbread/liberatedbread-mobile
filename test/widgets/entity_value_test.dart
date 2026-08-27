@@ -30,17 +30,17 @@ EntityDto _entity({
   String? stateCharacteristic = _stateChar,
 }) =>
     EntityDto(
-      options: const [],
-      name: 'Temperature',
-      platform: 'sensor',
-      deviceClass: 'temperature',
-      unit: 'C',
-      stateCharacteristic: stateCharacteristic,
-      canNotify: canNotify,
-      hasFormat: hasFormat,
-      onWhenNonzero: false,
-      actions: const [],
-    );
+        options: const [],
+        name: 'Temperature',
+        platform: 'sensor',
+        deviceClass: 'temperature',
+        unit: 'C',
+        stateCharacteristic: stateCharacteristic,
+        canNotify: canNotify,
+        hasFormat: hasFormat,
+        onWhenNonzero: false,
+        actions: const [],
+        variants: const []);
 
 /// A discovered characteristic, so `_seed` can consult the real
 /// read/notify flags the way it does on hardware.

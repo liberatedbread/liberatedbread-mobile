@@ -1,0 +1,168 @@
+# VESC (open motor controller) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; open-by-design project):
+#   - vedderb/bldc (datatypes.h, comm/packet.c) — the COMM packet protocol.
+#   - vedderb/vesc_express (main/comm_ble.c) — the BLE (Nordic UART) bridge.
+
+device:
+  name: "VESC (open-source motor controller)"
+  manufacturer: "Benjamin Vedder & community"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The COMM packet framing and
+      command ids are from vedderb/bldc (comm/packet.c, datatypes.h); the BLE
+      Nordic-UART UUIDs from vedderb/vesc_express (comm_ble.c).
+  protocol: "ble"
+  category: "motor"
+  notes: >
+    VESC is the open-source motor-controller firmware (bldc) that powers a huge
+    number of DIY e-skateboards, EUCs and scooters, plus the VESC Express BLE
+    add-on. The COMM packet protocol and the BLE bridge are the vendor's own
+    open-source project — nothing was reverse-engineered.
+
+    BLE (VESC Express) uses the Nordic UART Service: service
+    6e400001-b5a3-f393-e0a9-e50e24dcca9e, RX/write 6e400002-..., TX/notify
+    6e400003-... (the same NUS UUIDs as the M365 family, so generic NUS tooling
+    works). The advertised BLE name is configurable; the same COMM payload runs
+    over UART too.
+
+    COMM PACKET FRAMING (comm/packet.c): start byte 0x02 (payload <=255, 1-byte
+    length), 0x03 (<=65535, 2-byte length), 0x04 (>65535, 3-byte length); then
+    the payload; then a 2-byte big-endian CRC16 over the payload; then stop byte
+    0x03. Short form: 02 | LEN | PAYLOAD | CRC_HI | CRC_LO | 03. Zero-length
+    payloads are rejected.
+
+    COMM_PACKET_ID (datatypes.h): COMM_FW_VERSION 0, COMM_GET_VALUES 4,
+    COMM_SET_DUTY 5, COMM_SET_CURRENT 6, COMM_SET_CURRENT_BRAKE 7, COMM_SET_RPM 8,
+    COMM_SET_POS 9, COMM_REBOOT 29, COMM_ALIVE 30, COMM_FORWARD_CAN 34 (relay a
+    packet to another VESC over CAN), up to COMM_MOTOR_ESTOP 159. GET_VALUES (4)
+    returns the live telemetry block (voltage/current/RPM/duty/temps).
+
+    SAFETY: the COMM/BLE channel has NO authentication by design — anyone in BLE
+    range who knows the protocol can command duty/current/RPM. Restrict BLE range
+    / set a BLE PIN at the vehicle-integrator level.
+
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    source_code: "https://github.com/vedderb/bldc"
+    upstream_docs:
+      - url: "https://github.com/vedderb/bldc/blob/master/comm/packet.c"
+        title: "vedderb/bldc — packet.c"
+        covers: "The COMM packet start/length/CRC16/stop framing."
+      - url: "https://github.com/vedderb/vesc_express/blob/main/main/comm_ble.c"
+        title: "vedderb/vesc_express — comm_ble.c"
+        covers: "The BLE Nordic-UART service/characteristic UUIDs for the VESC Express bridge."
+    notes: >
+      Fully open: firmware, protocol and BLE bridge are the project's own source.
+      Upstream is authoritative; this file normalises the published protocol.
+
+  identification:
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        notes: >
+          VESC Express advertises the Nordic UART service; the name is user-set.
+          Confirm with a COMM_FW_VERSION (id 0) exchange.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Flash/configure via VESC Tool over USB or BLE; the BLE name and an optional
+      PIN are configurable in VESC Express. For control, connect, subscribe to the
+      TX characteristic, and write COMM packets to RX.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Connect to the VESC Express NUS device, subscribe to 6e400003, and write
+          COMM packets to 6e400002 (e.g. COMM_GET_VALUES id 4 for telemetry,
+          COMM_SET_CURRENT id 6 to command current).
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Connect and subscribe to the TX characteristic (6e400003)."
+            actor: "client"
+          - action: "Write a COMM_GET_VALUES (id 4) packet to 6e400002 and parse the telemetry reply."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Configuration is managed via VESC Tool; there is no single BLE
+        factory-reset command documented here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; a new BLE client connects independently."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Motor/app configuration (via VESC Tool)"
+        - "Optional BLE PIN (VESC Express)"
+      issued_to_client: []
+      notes: >
+        The COMM/BLE channel is unauthenticated by default (an optional BLE PIN
+        exists in VESC Express). No Wi-Fi on the base controller. SAFETY: commands
+        drive a motor — treat set-duty/current/RPM as advanced.
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART (VESC Express)"
+    notes: >
+      Carries COMM packets. Write to 6e400002, read notifications on 6e400003.
+      Framing: 02/03/04 start, length, payload, CRC16 (big-endian), 0x03 stop.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "RX (write)"
+        properties: ["write_without_response"]
+        notes: "COMM packets written here (COMM_GET_VALUES, COMM_SET_CURRENT, ...)."
+        commands:
+          get_values:
+            description: "COMM_GET_VALUES (id 4): request the live telemetry block. Payload id byte 0x04, wrapped in the COMM frame."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x02, 0x01, 0x04, 0x40, 0x84, 0x03]
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "TX (notify)"
+        properties: ["notify"]
+        notes: "COMM packet replies (telemetry, fw version)."
+
+entities:
+  - platform: "sensor"
+    name: "Input Voltage"
+    device_class: "voltage"
+    unit: "V"
+    notes: "From COMM_GET_VALUES."
+  - platform: "sensor"
+    name: "Motor Current"
+    device_class: "current"
+    unit: "A"
+    notes: "From COMM_GET_VALUES."
+  - platform: "sensor"
+    name: "ERPM"
+    unit: "rpm"
+    notes: "Electrical RPM from COMM_GET_VALUES."
+
+helpful_urls:
+  - title: "vedderb/bldc"
+    url: "https://github.com/vedderb/bldc"
+    description: "The VESC firmware: COMM packet protocol (comm/packet.c) and command ids (datatypes.h)."
+  - title: "vedderb/vesc_express"
+    url: "https://github.com/vedderb/vesc_express"
+    description: "The BLE (Nordic UART) bridge — comm_ble.c has the service/characteristic UUIDs."

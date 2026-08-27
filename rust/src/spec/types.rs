@@ -1072,6 +1072,88 @@ impl DeviceInfo {
             })
             .collect()
     }
+
+    /// Every mDNS/DNS-SD service type this spec names, identification block
+    /// first and then the discovery methods in declaration order.
+    ///
+    /// The schema puts a service type in TWO places — `identification
+    /// .mdns_service_type` and each `discovery.methods[].mdns.service_type` —
+    /// and reading only the first lost every spec that uses only the second.
+    /// That is 34 of the vendored 187, including every `_miio._udp` Xiaomi,
+    /// every `_arsdk._udp` Parrot, and the sixteen whose only type is
+    /// `_http._tcp`: the scan's DNS-SD meta-query found them on the wire, no
+    /// spec claimed them, and they listed as unrecognised hosts with no
+    /// controls. A spec that writes its type where the schema puts it has to
+    /// be findable there.
+    ///
+    /// Deduplicated on the [`normalize_service_type`] stem, because the two
+    /// blocks usually restate the same type and `_hue._tcp.local.` and
+    /// `_hue._tcp` are one type spelled two ways. What comes back is the
+    /// DECLARED spelling of the first occurrence: consumers echo these into an
+    /// mDNS query and into "what matched", where the fully qualified form the
+    /// catalogue writes is the useful one.
+    pub fn mdns_service_types(&self) -> Vec<String> {
+        let declared = self
+            .identification
+            .as_ref()
+            .and_then(|i| i.mdns_service_type.as_deref())
+            .into_iter()
+            .chain(
+                self.discovery_methods()
+                    .filter(|m| m.get("type").and_then(|t| t.as_str()) == Some("mdns"))
+                    .filter_map(|m| m.get("mdns")?.get("service_type")?.as_str()),
+            );
+        let mut types: Vec<String> = Vec::new();
+        let mut stems: Vec<String> = Vec::new();
+        for service_type in declared {
+            let stem = normalize_service_type(service_type);
+            // An empty type would be a claim on nothing, and carrying it would
+            // put a meaningless query on the wire when a consumer seeds its
+            // scan from this list.
+            if stem.is_empty() || stems.contains(&stem) {
+                continue;
+            }
+            stems.push(stem);
+            types.push(service_type.to_string());
+        }
+        types
+    }
+}
+
+/// Whether `value` starts with `prefix`, ASCII-case-insensitively.
+///
+/// The one prefix test both matchers use. Case-insensitive because BLE local
+/// names and DNS names are ASCII and vendors are not consistent about casing
+/// across firmware revisions (SmartDawn units advertise DN*-style names and the
+/// vendor app itself filters them case-insensitively) — and DNS names are
+/// case-insensitive by definition anyway. `get(..len)` rather than slicing so a
+/// multi-byte value can't panic mid-char; a `None` there cannot equal an ASCII
+/// prefix.
+///
+/// An empty prefix is treated as absent, not as a wildcard: an empty prefix
+/// matches every name, so a spec carrying `local_name_prefix: ""` would
+/// otherwise claim every scanned device.
+pub fn name_has_prefix(value: &str, prefix: &str) -> bool {
+    !prefix.is_empty()
+        && value
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+}
+
+/// Reduce a DNS-SD service type to a comparable stem: lowercase, no trailing
+/// dot, no `.local` suffix.
+///
+/// Specs write `_hue._tcp.local.`, `_hue._tcp.local` and `_hue._tcp`
+/// interchangeably, and so do devices. Every comparison of two service types
+/// goes through this — here, in the scan matcher, and mirrored in
+/// `scripts/regen-bonjour-services.sh` — because a mismatch in either
+/// direction is a device that never appears.
+pub fn normalize_service_type(raw: &str) -> String {
+    let lower = raw.trim().trim_end_matches('.').to_ascii_lowercase();
+    lower
+        .strip_suffix(".local")
+        .map(str::to_owned)
+        .unwrap_or(lower)
 }
 
 /// A named security problem with a device, for the app to warn about rather
@@ -1217,6 +1299,11 @@ pub struct Identification {
     #[serde(default)]
     pub mac_prefixes: Option<Vec<MacPrefix>>,
     /// mDNS/Bonjour service type for WiFi discovery (e.g. `_http._tcp`).
+    ///
+    /// One of the two places the schema puts a service type, and never read on
+    /// its own: [`DeviceInfo::mdns_service_types`] unions it with the ones the
+    /// discovery methods name, because most of the catalogue states its type
+    /// only there.
     #[serde(default)]
     pub mdns_service_type: Option<String>,
     /// SSDP/UPnP search targets the device answers to, e.g.
@@ -1250,6 +1337,21 @@ pub struct Identification {
     /// never publicly verifiable.
     #[serde(default)]
     pub default_scheme: Option<String>,
+    /// What to do about that certificate. See [`TlsPolicy`].
+    #[serde(default)]
+    pub tls: Option<TlsPolicy>,
+    /// The port the device ADVERTISES is not the port its API answers on, so
+    /// a consumer uses [`Self::default_port`] instead of what discovery
+    /// captured.
+    ///
+    /// Two devices are like this and both were reached at the wrong port by
+    /// anything that trusted the announcement: the Envoy's mDNS answer still
+    /// says 80 while firmware 8.x serves the API only over HTTPS on 443, and a
+    /// Roku serves its control paths only on 8060 whatever its SSDP LOCATION
+    /// carried. The Roku half used to be a consumer-side branch on "is this a
+    /// Roku", which is a fact about the device living in code.
+    #[serde(default)]
+    pub advertised_port_unreliable: bool,
     /// Other discovery hints (e.g. admore's `local_name_dfu`,
     /// `local_name_armband*`), parsed and preserved but not yet interpreted.
     #[serde(flatten)]
@@ -1507,6 +1609,22 @@ pub struct Command {
     /// Kept as free text because the right warning is device-specific.
     #[serde(default)]
     pub advanced_reason: Option<String>,
+    /// Total bytes on the wire for a command whose frame is a fixed width
+    /// whatever the payload, so the encoder zero-pads up to it.
+    ///
+    /// An ENCODING instruction, not documentation, and it was read by nothing:
+    /// four specs declare it and the encoder emitted the template's own length,
+    /// so a Veryfit `bind` went out as six bytes where the band expects twenty
+    /// and a ProGlow colour packet as seven. The device drops a short frame
+    /// without answering, which reaches the user as a button that does nothing
+    /// — the encoder having reported the command perfectly encodable.
+    ///
+    /// Trailing zeros, because that is what every declaring spec's own
+    /// `packet_layout` says the padding is. A frame that ALREADY exceeds the
+    /// width is a spec error and refused rather than truncated: half a command
+    /// on the wire is worse than none.
+    #[serde(default)]
+    pub fixed_length: Option<usize>,
 }
 
 /// What a locator command does to make the device noticeable.
@@ -1721,6 +1839,24 @@ pub struct Parameter {
     /// having to.
     #[serde(default)]
     pub auto: Option<AutoRole>,
+    /// Where the CLIENT obtains this value when it is not one the user sets:
+    /// `credential:<name>`, a secret stored at pairing time.
+    ///
+    /// The BLE sibling of [`SpecCommandParameter::source`], and it shares that
+    /// field's contract exactly: obtaining the value is part of the send, so a
+    /// client reaching the wire without it must fail visibly rather than
+    /// substitute anything — which is why a `source` parameter carries no
+    /// `default` and is never a control.
+    ///
+    /// Parsed here so it cannot become one. The struct had no such field and
+    /// no extensions bag, so `source:` on a BLE parameter was discarded at
+    /// parse and the generic command surface would have drawn it as a free
+    /// slider seeded at its minimum — a device's stored password rendered as a
+    /// knob, and a wrong secret sent instead of an honest "not paired yet".
+    /// No vendored spec declares one today; the point is that the first one
+    /// will not have to discover this.
+    #[serde(default)]
+    pub source: Option<String>,
     /// First frame byte an `auto: checksum` sums over, counting from the
     /// start of the encoded frame. Defaults to 1 when absent: treadmills like
     /// the KingSmith WalkingPad checksum everything after their fixed header
@@ -1813,6 +1949,7 @@ impl Default for Parameter {
             unit: None,
             notes: None,
             endianness: None,
+            source: None,
             auto: None,
             checksum_start: None,
             checksum_xor: None,
@@ -1821,6 +1958,27 @@ impl Default for Parameter {
 }
 
 impl Parameter {
+    /// Whether a generic control surface should draw a control for this
+    /// parameter — the schema's rule, in one place.
+    ///
+    /// The schema states it on both the BLE and the network parameter:
+    /// "a consumer building a generic control surface draws controls only for
+    /// parameters that are none of `auto`, `default`, `source`". Each of the
+    /// three answers the same question — what happens when the caller supplies
+    /// nothing — and answers it without the user: the encoder computes an
+    /// `auto`, substitutes a `default`, and fetches a `source`.
+    ///
+    /// Written here rather than at each call site because it was written at
+    /// each call site and they disagreed. The entity resolver tested
+    /// `default || auto`; the raw command browser tested `auto` alone, so 150
+    /// defaulted parameters across eight specs drew knobs — SmartDawn's
+    /// `power_on`, a fixed "turn on", offered four sliders for DDP filler,
+    /// one of them a 0..4294967295 range over a connection id. Neither tested
+    /// `source`, which nothing parsed.
+    pub fn is_user_settable(&self) -> bool {
+        self.auto.is_none() && self.default.is_none() && self.source.is_none()
+    }
+
     /// Whether this parameter states the meaning of its value rather than
     /// only its width — i.e. carries a transform worth inverting.
     pub fn has_number_semantics(&self) -> bool {
@@ -1836,6 +1994,35 @@ impl Parameter {
         }
         Some(((value - self.value_offset.unwrap_or(0.0)) / scale).round())
     }
+}
+
+/// The trust policy for a `default_scheme: https` LAN device's certificate.
+///
+/// A LAN device's certificate is almost never publicly verifiable — the chain
+/// ends at a self-signed leaf or a vendor CA no platform store carries — so
+/// every client has to make a decision the platform cannot make for it. This
+/// block is the spec making that decision explicit instead of leaving each
+/// consumer to invent one.
+///
+/// It was parsed by nothing. Two specs (the Envoy and SmartCast) declare
+/// `verification: trust_on_first_use`, and what they got was every TLS client
+/// in the consumer accepting any certificate from anyone — the exact policy
+/// `none` names, applied to devices that asked for pinning.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TlsPolicy {
+    /// The certificate will never validate against a public chain, so the
+    /// consumer's trust decision is its own to make and to state.
+    #[serde(default)]
+    pub self_signed: bool,
+    /// `standard` | `trust_on_first_use` | `vendor_ca` | `none`.
+    ///
+    /// Untyped for the usual tolerance reason: a policy this build has not
+    /// heard of must read as "unknown" — which a consumer treats as its most
+    /// cautious known behaviour — rather than failing the whole spec.
+    #[serde(default)]
+    pub verification: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
 }
 
 /// Binary format field for parsing readable/notifiable characteristic values.

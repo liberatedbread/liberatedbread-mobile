@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `governs_own_type`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -100,6 +100,34 @@ Future<NetworkEntitySurfaceDto> networkEntitiesForStateKeys(
         required Map<String, Map<String, String>> stateKeys}) =>
     RustLib.instance.api.crateApiDeviceApiNetworkEntitiesForStateKeys(
         specYaml: specYaml, ssdpTargets: ssdpTargets, stateKeys: stateKeys);
+
+/// Which of a spec's `device.variants[]` the BLE device in front of us could be.
+///
+/// Separate from [`load_device_spec`] rather than folded into it, and that is
+/// the whole design: that function is cached by spec string and called from
+/// everywhere, so a device-dependent answer there would serve one device's
+/// narrowing to the next. The spec DTO stays device-independent; this is the
+/// device-aware half, and what crosses is the matched variant NAMES, which the
+/// caller checks against each entity's own [`EntityDto::variants`].
+///
+/// Not the surviving entity names, which was the obvious shape and is wrong:
+/// seeblue's two dialects are BOTH called "Motorcycle LEDs", so a name is not
+/// an identity here and filtering by one keeps both — the very failure this
+/// exists to fix.
+///
+/// `device_name` is the advertised local name and `service_uuids` the services
+/// actually discovered on the connection — the richer list, and the one that
+/// tells an Airthings Wave Plus from a Wave Mini.
+///
+/// Empty means DO NOT NARROW: narrowing a device we cannot identify would
+/// blank it, and the honest fallback is what shipped before this existed. See
+/// `bindings::matched_ble_variant_names` for the matching rule.
+Future<List<String>> bleVariantNamesForDevice(
+        {required String specYaml,
+        required String deviceName,
+        required List<String> serviceUuids}) =>
+    RustLib.instance.api.crateApiDeviceApiBleVariantNamesForDevice(
+        specYaml: specYaml, deviceName: deviceName, serviceUuids: serviceUuids);
 
 /// Read [`NetworkCapabilitiesDto`] out of a spec.
 Future<NetworkCapabilitiesDto> networkCapabilities(
@@ -490,6 +518,18 @@ Future<List<NetworkRoleReadingDto>> readNetworkInstance(
         entityName: entityName,
         stateReply: stateReply,
         instanceId: instanceId);
+
+/// Every credential this spec refers to, by name.
+///
+/// Answered for the whole device rather than per action, because that is the
+/// question a client actually has: "what do I need before this screen works?"
+/// A per-action answer forces the caller to union them itself and gets the
+/// issued-but-unconsumed case (Hue's `clientkey`) wrong, since no action
+/// mentions it at all.
+Future<List<NetworkCredentialDto>> credentialsForDevice(
+        {required String specYaml}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiCredentialsForDevice(specYaml: specYaml);
 
 /// The UDP port every LIFX device listens on. Exposed so the Dart client need
 /// not hardcode it separately from the protocol module.
@@ -1292,9 +1332,13 @@ class DeviceSpecDto {
   /// [`MacPrefixConfidence`] for how much any one of them is worth.
   final List<MacPrefixDto> macPrefixes;
 
-  /// mDNS/DNS-SD service type this device announces itself under, e.g.
+  /// Every mDNS/DNS-SD service type this device announces itself under, e.g.
   /// `_hue._tcp`. The network counterpart of a vendor service UUID.
-  final String? mdnsServiceType;
+  ///
+  /// Plural because the schema states a type in two places and most of the
+  /// catalogue uses only the second; `DeviceInfo::mdns_service_types` unions
+  /// them and states why. Empty on a spec that names none.
+  final List<String> mdnsServiceTypes;
 
   /// SSDP/UPnP search targets this device answers to.
   final List<String> ssdpSearchTargets;
@@ -1312,12 +1356,13 @@ class DeviceSpecDto {
   /// express. See [`NameMatchDto`].
   final List<NameMatchDto> nameMatchers;
 
-  /// TXT-record conditions narrowing this spec's mDNS service type from a
-  /// platform to this device. See [`TxtMatchGroupDto`].
+  /// TXT-record conditions narrowing one of this spec's mDNS service types
+  /// from a platform to this device. See [`TxtMatchGroupDto`].
   final List<TxtMatchGroupDto> txtMatchGroups;
 
-  /// Whether this spec is its service type's catch-all.
-  final bool platformFallback;
+  /// The service types this spec is the catch-all for, as
+  /// `normalize_service_type` stems. See [`SpecIdentityDto`].
+  final List<String> platformFallbackTypes;
   final List<ServiceDto> services;
 
   /// Named consumer-side protocol handler (`daniao_ddp`, `rabbit_air`,
@@ -1366,13 +1411,13 @@ class DeviceSpecDto {
     required this.serviceUuids,
     required this.companyIds,
     required this.macPrefixes,
-    this.mdnsServiceType,
+    required this.mdnsServiceTypes,
     required this.ssdpSearchTargets,
     required this.lanProtocols,
     this.defaultPort,
     required this.nameMatchers,
     required this.txtMatchGroups,
-    required this.platformFallback,
+    required this.platformFallbackTypes,
     required this.services,
     this.protocolHandler,
     required this.entities,
@@ -1398,13 +1443,13 @@ class DeviceSpecDto {
       serviceUuids.hashCode ^
       companyIds.hashCode ^
       macPrefixes.hashCode ^
-      mdnsServiceType.hashCode ^
+      mdnsServiceTypes.hashCode ^
       ssdpSearchTargets.hashCode ^
       lanProtocols.hashCode ^
       defaultPort.hashCode ^
       nameMatchers.hashCode ^
       txtMatchGroups.hashCode ^
-      platformFallback.hashCode ^
+      platformFallbackTypes.hashCode ^
       services.hashCode ^
       protocolHandler.hashCode ^
       entities.hashCode ^
@@ -1432,13 +1477,13 @@ class DeviceSpecDto {
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
           macPrefixes == other.macPrefixes &&
-          mdnsServiceType == other.mdnsServiceType &&
+          mdnsServiceTypes == other.mdnsServiceTypes &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
           lanProtocols == other.lanProtocols &&
           defaultPort == other.defaultPort &&
           nameMatchers == other.nameMatchers &&
           txtMatchGroups == other.txtMatchGroups &&
-          platformFallback == other.platformFallback &&
+          platformFallbackTypes == other.platformFallbackTypes &&
           services == other.services &&
           protocolHandler == other.protocolHandler &&
           entities == other.entities &&
@@ -1547,6 +1592,16 @@ class EntityActionDto {
 class EntityDto {
   final String name;
 
+  /// The `device.variants[]` this entity belongs to, empty when it applies
+  /// to every model.
+  ///
+  /// Carried because a name is not an identity: a family spec declares one
+  /// entity per model and two of them can share a name — seeblue's Direct
+  /// and LEDGlow-V2 lights are both "Motorcycle LEDs", on different command
+  /// dialects. Checked against `ble_variant_names_for_device`, which is the
+  /// half that knows which model is in front of us.
+  final List<String> variants;
+
   /// Machine-stable semantic token from the spec's documented vocabulary
   /// (`ok`, `volume_up`, `start`, `stop`, …), so a curated layout — a
   /// remote grid, a treadmill card — can place this entity without
@@ -1642,6 +1697,7 @@ class EntityDto {
 
   const EntityDto({
     required this.name,
+    required this.variants,
     this.key,
     this.platform,
     this.deviceClass,
@@ -1670,6 +1726,7 @@ class EntityDto {
   @override
   int get hashCode =>
       name.hashCode ^
+      variants.hashCode ^
       key.hashCode ^
       platform.hashCode ^
       deviceClass.hashCode ^
@@ -1700,6 +1757,7 @@ class EntityDto {
       other is EntityDto &&
           runtimeType == other.runtimeType &&
           name == other.name &&
+          variants == other.variants &&
           key == other.key &&
           platform == other.platform &&
           deviceClass == other.deviceClass &&
@@ -2532,6 +2590,27 @@ class NetworkCapabilitiesDto {
   /// `None` meaning plain http.
   final String? defaultScheme;
 
+  /// The trust policy for that scheme's certificate, from
+  /// `identification.tls.verification`: `standard`, `trust_on_first_use`,
+  /// `vendor_ca` or `none`. `None` when the spec states none.
+  ///
+  /// Carried because a LAN certificate is almost never publicly verifiable,
+  /// so a client must decide something, and this is the spec deciding it.
+  /// Two specs ask for `trust_on_first_use` and every TLS client in the app
+  /// was excusing any certificate from anyone — `none`'s behaviour, applied
+  /// to devices that asked to be pinned.
+  final String? tlsVerification;
+
+  /// `identification.tls.self_signed` — the certificate will never validate
+  /// against a public chain, so refusing it outright is not an option and
+  /// the client owes the user a real policy instead.
+  final bool tlsSelfSigned;
+
+  /// `identification.advertised_port_unreliable` — use [`Self::default_port`]
+  /// rather than the port discovery captured, because this device's
+  /// announcement does not describe where its API is.
+  final bool advertisedPortUnreliable;
+
   /// The spec's `protocol_handler`, when it names one — `roomba_mqtt`,
   /// `rabbit_air_lan`, `lifx_lan`.
   ///
@@ -2546,6 +2625,9 @@ class NetworkCapabilitiesDto {
     this.signedSession,
     this.defaultPort,
     this.defaultScheme,
+    this.tlsVerification,
+    required this.tlsSelfSigned,
+    required this.advertisedPortUnreliable,
     this.protocolHandler,
   });
 
@@ -2554,6 +2636,9 @@ class NetworkCapabilitiesDto {
       signedSession.hashCode ^
       defaultPort.hashCode ^
       defaultScheme.hashCode ^
+      tlsVerification.hashCode ^
+      tlsSelfSigned.hashCode ^
+      advertisedPortUnreliable.hashCode ^
       protocolHandler.hashCode;
 
   @override
@@ -2564,7 +2649,98 @@ class NetworkCapabilitiesDto {
           signedSession == other.signedSession &&
           defaultPort == other.defaultPort &&
           defaultScheme == other.defaultScheme &&
+          tlsVerification == other.tlsVerification &&
+          tlsSelfSigned == other.tlsSelfSigned &&
+          advertisedPortUnreliable == other.advertisedPortUnreliable &&
           protocolHandler == other.protocolHandler;
+}
+
+/// One value a client must hold to drive this device.
+class NetworkCredentialDto {
+  /// The name it is referred to and stored under.
+  final String name;
+
+  /// The spec's own words for what this is and where a person gets it —
+  /// what a client shows when it has to ask, so no per-device UI copy is
+  /// written for a device the catalogue already describes.
+  final String? description;
+
+  /// Commands that cannot be sent without it.
+  final List<String> neededBy;
+
+  /// The flow that issues it, or absent when it comes from outside every
+  /// flow this spec describes.
+  final NetworkCredentialIssuanceDto? issuedBy;
+
+  /// Whether a client should ask a person for this value: something needs
+  /// it and no declared flow can mint it.
+  final bool mustBeAskedFor;
+
+  const NetworkCredentialDto({
+    required this.name,
+    this.description,
+    required this.neededBy,
+    this.issuedBy,
+    required this.mustBeAskedFor,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      description.hashCode ^
+      neededBy.hashCode ^
+      issuedBy.hashCode ^
+      mustBeAskedFor.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkCredentialDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          description == other.description &&
+          neededBy == other.neededBy &&
+          issuedBy == other.issuedBy &&
+          mustBeAskedFor == other.mustBeAskedFor;
+}
+
+/// The setup flow that mints a credential, when the spec declares one.
+class NetworkCredentialIssuanceDto {
+  /// The setup method's `type` — which flow to run.
+  final String method;
+
+  /// The command whose reply carries the value, when the spec names one.
+  final String? command;
+
+  /// Dotted path with bracketed indices into that reply.
+  final String replyPath;
+
+  /// A request argument that must be set for the field to appear at all.
+  final String? requestCondition;
+
+  const NetworkCredentialIssuanceDto({
+    required this.method,
+    this.command,
+    required this.replyPath,
+    this.requestCondition,
+  });
+
+  @override
+  int get hashCode =>
+      method.hashCode ^
+      command.hashCode ^
+      replyPath.hashCode ^
+      requestCondition.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkCredentialIssuanceDto &&
+          runtimeType == other.runtimeType &&
+          method == other.method &&
+          command == other.command &&
+          replyPath == other.replyPath &&
+          requestCondition == other.requestCondition;
 }
 
 /// What a scanner saw about one device on the local network.
@@ -2600,6 +2776,21 @@ class NetworkDeviceDto {
   /// every board it ever flashed.
   final Map<String, String> txt;
 
+  /// The device's hardware address, when discovery recovered one.
+  ///
+  /// The one thing on the network side that does not move: an IP is a DHCP
+  /// lease and a hostname is whatever the owner typed, while the OUI names
+  /// the company that built the thing. Twelve specs declare `mac_prefixes`
+  /// and the network matcher had no axis to spend them on — the Ubiquiti and
+  /// MikroTik transports were parsing a real address out of the wire and
+  /// leaving it in the TXT map, where nothing looked.
+  ///
+  /// The CALLER decides what counts as one; on the Dart side that is
+  /// `NetworkDevice.advertisedMac`, which deliberately declines HomeKit's
+  /// `id` record — MAC-shaped, randomly generated, and worth a confident lie
+  /// about who made the device.
+  final String? mac;
+
   const NetworkDeviceDto({
     required this.name,
     this.hostname,
@@ -2608,6 +2799,7 @@ class NetworkDeviceDto {
     required this.answeredLanProtocols,
     this.port,
     required this.txt,
+    this.mac,
   });
 
   @override
@@ -2618,7 +2810,8 @@ class NetworkDeviceDto {
       ssdpTargets.hashCode ^
       answeredLanProtocols.hashCode ^
       port.hashCode ^
-      txt.hashCode;
+      txt.hashCode ^
+      mac.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2631,7 +2824,8 @@ class NetworkDeviceDto {
           ssdpTargets == other.ssdpTargets &&
           answeredLanProtocols == other.answeredLanProtocols &&
           port == other.port &&
-          txt == other.txt;
+          txt == other.txt &&
+          mac == other.mac;
 }
 
 /// A spec-declared control or reading on a network device: what to draw,
@@ -3049,6 +3243,23 @@ class ParameterDto {
   /// is why this field exists. `None` for ordinary caller-owned parameters.
   final String? auto;
 
+  /// Where the client fetches this value: `credential:<name>`, a secret
+  /// stored at pairing. Never a control, and never defaulted — a send that
+  /// reaches the wire without it must fail visibly.
+  final String? source;
+
+  /// Whether a generic control surface should draw a control for this
+  /// parameter at all — the schema's own rule (`auto`, `default` and
+  /// `source` each answer "what if the caller supplies nothing?" without
+  /// the user), already applied.
+  ///
+  /// The DECISION crosses the FFI, not just the three fields it is made
+  /// from, because it was made twice in Rust and once more in Dart and the
+  /// three disagreed: the raw command surface tested `auto` alone and drew
+  /// knobs for 150 defaulted parameters across eight specs. A consumer
+  /// renders what this says and holds no rule of its own.
+  final bool userSettable;
+
   const ParameterDto({
     required this.name,
     required this.valueType,
@@ -3061,6 +3272,8 @@ class ParameterDto {
     this.unit,
     this.default_,
     this.auto,
+    this.source,
+    required this.userSettable,
   });
 
   @override
@@ -3075,7 +3288,9 @@ class ParameterDto {
       valueOffset.hashCode ^
       unit.hashCode ^
       default_.hashCode ^
-      auto.hashCode;
+      auto.hashCode ^
+      source.hashCode ^
+      userSettable.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -3092,7 +3307,9 @@ class ParameterDto {
           valueOffset == other.valueOffset &&
           unit == other.unit &&
           default_ == other.default_ &&
-          auto == other.auto;
+          auto == other.auto &&
+          source == other.source &&
+          userSettable == other.userSettable;
 }
 
 /// The framed writes that set a looping playlist of stored effects — the
@@ -3805,8 +4022,12 @@ class SpecIdentityDto {
   final Uint16List companyIds;
   final List<MacPrefixDto> macPrefixes;
 
-  /// mDNS service type, for the Wi-Fi scan path. Absent on a BLE-only spec.
-  final String? mdnsServiceType;
+  /// Every mDNS service type this spec claims, for the Wi-Fi scan path.
+  /// Empty on a BLE-only spec. Plural because the schema states a type in
+  /// two blocks and 34 vendored specs use only the discovery one; a consumer
+  /// also seeds its DNS-SD queries from this, so a type missing here is a
+  /// device the scan never even asks for.
+  final List<String> mdnsServiceTypes;
 
   /// SSDP search targets, for the Wi-Fi scan path.
   final List<String> ssdpSearchTargets;
@@ -3826,16 +4047,23 @@ class SpecIdentityDto {
   /// known by. Matched alongside those two, into the same name axis.
   final List<NameMatchDto> nameMatchers;
 
-  /// TXT-record conditions that narrow this spec's mDNS service type from a
-  /// PLATFORM to this device. Any group holding admits the service type;
+  /// TXT-record conditions that narrow an mDNS service type from a PLATFORM
+  /// to this device. Any group governing that type and holding admits it;
   /// declaring groups that all fail withholds it — which is what stops
   /// ratgdo claiming every ESPHome node on the LAN.
   final List<TxtMatchGroupDto> txtMatchGroups;
 
-  /// This spec is its service type's catch-all: it claims the type only
-  /// when no narrowed spec did (esphome-device). See
+  /// The service types this spec is the catch-all for, as
+  /// `normalize_service_type` stems: it claims one of these only when no
+  /// narrowed spec did (esphome-device on `_esphomelib._tcp`). See
   /// [`match_network_device`].
-  final bool platformFallback;
+  ///
+  /// A list rather than a flag because a spec can hold both roles at once:
+  /// esphome-device is the catch-all for `_esphomelib._tcp` and, on the very
+  /// same spec, a NARROWED claimant of `_http._tcp` (a `config_hash` record
+  /// is what separates an API-less node from every other web server). One
+  /// flag would have made it stand aside from a claim it had earned.
+  final List<String> platformFallbackTypes;
 
   const SpecIdentityDto({
     required this.deviceName,
@@ -3850,13 +4078,13 @@ class SpecIdentityDto {
     required this.serviceUuids,
     required this.companyIds,
     required this.macPrefixes,
-    this.mdnsServiceType,
+    required this.mdnsServiceTypes,
     required this.ssdpSearchTargets,
     required this.lanProtocols,
     this.defaultPort,
     required this.nameMatchers,
     required this.txtMatchGroups,
-    required this.platformFallback,
+    required this.platformFallbackTypes,
   });
 
   @override
@@ -3873,13 +4101,13 @@ class SpecIdentityDto {
       serviceUuids.hashCode ^
       companyIds.hashCode ^
       macPrefixes.hashCode ^
-      mdnsServiceType.hashCode ^
+      mdnsServiceTypes.hashCode ^
       ssdpSearchTargets.hashCode ^
       lanProtocols.hashCode ^
       defaultPort.hashCode ^
       nameMatchers.hashCode ^
       txtMatchGroups.hashCode ^
-      platformFallback.hashCode;
+      platformFallbackTypes.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -3898,13 +4126,13 @@ class SpecIdentityDto {
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
           macPrefixes == other.macPrefixes &&
-          mdnsServiceType == other.mdnsServiceType &&
+          mdnsServiceTypes == other.mdnsServiceTypes &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
           lanProtocols == other.lanProtocols &&
           defaultPort == other.defaultPort &&
           nameMatchers == other.nameMatchers &&
           txtMatchGroups == other.txtMatchGroups &&
-          platformFallback == other.platformFallback;
+          platformFallbackTypes == other.platformFallbackTypes;
 }
 
 /// The single play-by-cid write for RE-triggering an already stored item.
@@ -4160,23 +4388,42 @@ class TxtMatchDto {
           value == other.value;
 }
 
-/// One AND-group of TXT conditions. A spec is satisfied when ANY group holds;
-/// a struct rather than a bare `Vec<Vec<_>>` because the FFI has no nesting.
+/// One AND-group of TXT conditions, and the mDNS service types it narrows. A
+/// spec is satisfied for a type when ANY group governing that type holds; a
+/// struct rather than a bare `Vec<Vec<_>>` because the FFI has no nesting.
 class TxtMatchGroupDto {
+  /// The service types these conditions govern, as `normalize_service_type`
+  /// stems.
+  ///
+  /// Narrowing is PER SERVICE TYPE and pooling it is a real bug, not a
+  /// simplification: esphome-device conditions `_http._tcp` on a
+  /// `config_hash` record while claiming `_esphomelib._tcp` outright, so a
+  /// pooled group would apply the web server's condition to the native API's
+  /// service and drop every ESPHome node that publishes `config_hash` on the
+  /// other one. Denon is the same shape three ways over — a `deviceid` OUI
+  /// on `_airplay._tcp`, an `am` model prefix on `_raop._tcp`, a `cpath` on
+  /// `_spotify-connect._tcp`.
+  ///
+  /// Empty means the group governs nothing, which only happens on a spec
+  /// that declares no service types at all — there is nothing for it to
+  /// narrow either way.
+  final List<String> serviceTypes;
   final List<TxtMatchDto> conditions;
 
   const TxtMatchGroupDto({
+    required this.serviceTypes,
     required this.conditions,
   });
 
   @override
-  int get hashCode => conditions.hashCode;
+  int get hashCode => serviceTypes.hashCode ^ conditions.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is TxtMatchGroupDto &&
           runtimeType == other.runtimeType &&
+          serviceTypes == other.serviceTypes &&
           conditions == other.conditions;
 }
 

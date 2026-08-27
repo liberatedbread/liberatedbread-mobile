@@ -97,7 +97,11 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
   _ResolvedVerb? pause,
   _ResolvedVerb? stop,
   _ResolvedSpeed? speed,
-})? _resolve(DeviceSpecDto spec, List<BleDiscoveredService> services) {
+})? _resolve(
+  DeviceSpecDto spec,
+  List<BleDiscoveredService> services,
+  List<EntityDto> entities,
+) {
   final commands = _encodableCommands(spec, services);
 
   // The spec's entity layer wins when it declares the card's verbs: a
@@ -106,7 +110,7 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
   // set_value action did. The command-name lists below stay as the fallback
   // for specs that predate the entity bindings.
   final entityIndex = EntityKeyIndex<EntityDto>(
-    spec.entities,
+    entities,
     keyOf: (e) => e.key,
     nameOf: (e) => e.name,
   );
@@ -132,7 +136,7 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     return _ResolvedVerb(c.serviceUuid, c.charUuid, c.command, const {});
   }
 
-  final speedEntity = entityIndex.take('speed');
+  final speedEntity = entityIndex.take(EntityKeyIndex.speedSlot);
   final speedAction =
       speedEntity?.actions.where((a) => a.role == 'set_value').firstOrNull;
   final entitySpeedEntry = discovered(speedAction);
@@ -153,7 +157,7 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     return null;
   }
 
-  final start = verbFromEntity('start') ??
+  final start = verbFromEntity(EntityKeyIndex.startSlot) ??
       byName(const [
         'start_belt',
         'start_or_resume',
@@ -165,9 +169,9 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
         'ur_training_continue',
         'ft_prepared',
       ]);
-  var pause = verbFromEntity('pause') ??
+  var pause = verbFromEntity(EntityKeyIndex.pauseSlot) ??
       byName(const ['pause', 'training_pause', 'ur_training_pause']);
-  var stop = verbFromEntity('stop') ??
+  var stop = verbFromEntity(EntityKeyIndex.stopSlot) ??
       byName(const [
         'stop',
         'training_stop',
@@ -210,8 +214,17 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     // speed — unit km/h when the spec says so, else the first caller-owned
     // numeric parameter. Encoder-filled parameters (auto: checksum, ...) are
     // never candidates: they carry no user intent.
+    // `userSettable`, not `auto == null`: the spec fills an `auto`, a
+    // `default` AND a `source`, and the whole reason that predicate lives in
+    // one place is that it was written at each call site and they disagreed.
+    // This was the site that got left behind. urevo's
+    // `ur_set_speed_and_slope` declares speed, a defaulted slope and an auto
+    // checksum, so the old test left slope in the running for "which parameter
+    // is the speed" — right only because `firstOrNull` happens to pick the
+    // first-declared one, and wrong the moment a spec declares its filler
+    // first.
     final candidates = speedEntry.command.parameters.where(
-      (p) => p.auto == null && isNumericValueType(p.valueType),
+      (p) => p.userSettable && isNumericValueType(p.valueType),
     );
     final parameter = (entitySpeedEntry != null
             ? candidates.where((p) => p.name == entitySpeedParam).firstOrNull
@@ -270,12 +283,31 @@ class TreadmillControlCard extends ConsumerStatefulWidget {
   final DeviceSpecDto spec;
   final List<BleDiscoveredService> services;
 
+  /// The spec's entities NARROWED to the model in front of us.
+  ///
+  /// Separate from `spec.entities`, and that is the whole point. A walking-pad
+  /// spec covers two protocol generations — KingSmith's `WiLink` (private
+  /// 0xFE00 service) and `FTMS` (the standard Fitness Machine Service) — and
+  /// declares a Start, a Stop and a Target Speed for EACH, under the same
+  /// names. Indexing all of them takes whichever the spec listed first, so an
+  /// FTMS belt was driven from WiLink's entity: its characteristic is not on
+  /// the device, the verb resolved to nothing, and the card fell back to
+  /// matching command names out of a hardcoded list. Where that list happened
+  /// to be wrong the button simply was not drawn — a treadmill with no
+  /// controller, on a spec that fully describes one.
+  ///
+  /// The caller narrows because it is the one that knows what the device is;
+  /// `bleVariantNamesProvider` judges the advertised service UUIDs, which is
+  /// exactly the axis these two generations differ on.
+  final List<EntityDto> entities;
+
   const TreadmillControlCard({
     super.key,
     required this.deviceId,
     required this.specYaml,
     required this.spec,
     required this.services,
+    required this.entities,
   });
 
   @override
@@ -533,7 +565,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
 
   @override
   Widget build(BuildContext context) {
-    final resolved = _resolve(widget.spec, widget.services);
+    final resolved = _resolve(widget.spec, widget.services, widget.entities);
     if (resolved == null) return const SizedBox.shrink();
 
     final scheme = Theme.of(context).colorScheme;

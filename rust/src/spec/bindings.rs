@@ -16,11 +16,12 @@
 //! toggle until the spec pins that byte down.
 
 use super::types::{
-    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, Service, SpecCommand,
-    TemplateElement, ValueType,
+    name_has_prefix, Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, Service,
+    SpecCommand, TemplateElement, ValueType,
 };
 use crate::codec::types::unsupported_encoding_kind;
 use crate::protocol::{http, kasa, mqtt, rabbit_air, soap, websocket};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// Whether a characteristic's payloads must pass through a byte transform
@@ -226,6 +227,25 @@ const fn bound_role(
 /// A light's effect/animation picker — valued, the effect id.
 const SET_EFFECT: RoleSpec = bound_role("set_effect", &["set_effect"], true);
 
+/// A white light's colour temperature — valued, in whatever unit the bound
+/// command's parameter declares (Kelvin for the Yeelight, mireds elsewhere).
+///
+/// The role name was already in use on both sides and resolved on neither: the
+/// LIFX handler synthesises an action called `set_color_temperature` from the
+/// entity's `features`, and the network light card looks that name up — so
+/// LIFX got a white slider and every spec that BOUND the role got nothing,
+/// because the shared table had no row for it. Same name, two answers.
+const SET_COLOR_TEMPERATURE: RoleSpec =
+    bound_role("set_color_temperature", &["set_color_temperature"], true);
+
+/// A climate machine's mode pickers — valued, the mode id.
+///
+/// Bound-only, like every role added after the fallback lists' lesson: guessing
+/// which command sets an air conditioner's mode from its name is the kind of
+/// inference that turns the heat on.
+const SET_HVAC_MODE: RoleSpec = bound_role("set_hvac_mode", &["set_hvac_mode"], true);
+const SET_FAN_MODE: RoleSpec = bound_role("set_fan_mode", &["set_fan_mode"], true);
+
 /// The role a heat-level picker needs, and the one nothing in the catalogue
 /// could resolve before a Crock-Pot turned up: its modes are 0/50/51/52,
 /// which is a choice from a list and not a number anybody can slide between.
@@ -279,6 +299,7 @@ const PLATFORM_ROLES: &[(&str, &[&RoleSpec])] = &[
             &TOGGLE,
             &SET_BRIGHTNESS,
             &SET_COLOR,
+            &SET_COLOR_TEMPERATURE,
             &SET_EFFECT,
         ],
     ),
@@ -291,7 +312,24 @@ const PLATFORM_ROLES: &[(&str, &[&RoleSpec])] = &[
     // cannot delete.
     ("text", &[&SUBMIT, &PRESS]),
     ("number", &[&SET_VALUE]),
-    ("climate", &[&SET_VALUE]),
+    // A climate entity is a setpoint AND a machine. Both Frigidaire units bind
+    // power and two mode pickers beside their temperature, and this row held
+    // only the setpoint — so an air conditioner rendered a thermostat dial and
+    // no way to turn it on. Power carries its usual name fallbacks (this is the
+    // same `turn_on` a switch offers, and it means the same thing); the mode
+    // pickers are bound-only, because guessing which command sets a mode from
+    // its name is the kind of inference that turns the heat on.
+    (
+        "climate",
+        &[
+            &SET_VALUE,
+            &TURN_ON,
+            &TURN_OFF,
+            &TOGGLE,
+            &SET_HVAC_MODE,
+            &SET_FAN_MODE,
+        ],
+    ),
     (
         "fan",
         &[
@@ -307,6 +345,30 @@ const PLATFORM_ROLES: &[(&str, &[&RoleSpec])] = &[
         &[&OPEN_COVER, &CLOSE_COVER, &STOP_COVER, &SET_COVER_POSITION],
     ),
 ];
+
+/// Every role spelling a spec may bind on `platform`, as the resolver matches
+/// them.
+///
+/// The vocabulary, readable from outside. `entities[].commands` is declared in
+/// the schema as a bare `{"type": "object"}` — any key at all is legal YAML and
+/// legal against the schema — while the resolver here matches a closed set of
+/// aliases and passes over everything else in silence. That asymmetry is how
+/// ten role names across seven specs came to bind nothing at all with no
+/// error anywhere: the spec said `set_rgb`, the table says `set_color`, and
+/// the control simply did not appear.
+///
+/// Exported so a test can hold the catalogue against the table. It cannot make
+/// the two agree, but it can make a disagreement loud.
+pub fn known_role_aliases(platform: &str) -> Vec<&'static str> {
+    platform_roles(Some(platform))
+        .map(|roles| {
+            roles
+                .iter()
+                .flat_map(|r| r.aliases.iter().copied())
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 /// The table row for one platform, or none for a reading platform.
 fn platform_roles(platform: Option<&str>) -> Option<&'static [&'static RoleSpec]> {
@@ -465,10 +527,11 @@ fn qualify_valued<'a>(
             .parameters
             .as_ref()
             .and_then(|set| set.params.get(param_name.as_str()));
-        // A default fills the parameter, and so does `auto`: the encoder
-        // computes checksums, sequence numbers and packet lengths itself,
-        // so neither shape leaves a blank the user must own.
-        if declared.is_some_and(|p| p.default.is_some() || p.auto.is_some()) {
+        // Anything the spec fills is not a blank the user must own: the
+        // encoder computes an `auto`, substitutes a `default`, and fetches a
+        // `source`. One predicate for all three, shared with the raw command
+        // surface, so the two cannot answer differently again.
+        if declared.is_some_and(|p| !p.is_user_settable()) {
             continue;
         }
         match value_param {
@@ -773,13 +836,13 @@ fn qualify<'a>(
             user_params.push(param_name);
             continue;
         }
-        // Spec-supplied either way: a default is a stated value, `auto` is a
-        // value the encoder computes (checksum, sequence, packet_length).
+        // Spec-supplied one way or another: a stated `default`, a value the
+        // encoder computes (`auto`), or one the client fetches (`source`).
         let supplied = command
             .parameters
             .as_ref()
             .and_then(|set| set.params.get(param_name.as_str()))
-            .is_some_and(|p| p.default.is_some() || p.auto.is_some());
+            .is_some_and(|p| !p.is_user_settable());
         if !supplied {
             return None;
         }
@@ -849,6 +912,18 @@ pub struct NetworkAction<'a> {
     pub role: &'static str,
     pub command_name: &'a str,
     pub command: &'a SpecCommand,
+    /// The transport this action was ADMITTED on — [`effective_transport`],
+    /// already resolved, not `command.transport` raw.
+    ///
+    /// Carried rather than re-derived because the two answers differ whenever a
+    /// spec states its transport once on the device and omits it on every
+    /// command, which is exactly how both WebSocket TV specs are written. The
+    /// DTO builders used to recompute it from `command.transport` alone and
+    /// fell through to SOAP, so seventy commands across those two sets were
+    /// labelled `soap`, routed to the SOAP sender, and blocked the whole screen
+    /// on fetching a UPnP description neither TV serves. Admission and dispatch
+    /// now read the same string by construction; they cannot disagree.
+    pub transport: &'a str,
     /// The one value this control supplies, when it has one. Empty for a
     /// fixed action like `turn_off`.
     pub user_params: Vec<&'a str>,
@@ -901,18 +976,25 @@ pub fn resolve_network_actions<'a>(
     };
 
     let mut actions = resolve_network_roles(spec, roles, entity);
-    if !has_state_binding(entity) {
+    if !has_state_binding(spec, entity) {
         actions.retain(|action| action.role != TOGGLE.role);
     }
     actions
 }
 
-/// Whether an entity says where a reading of its own comes from — the poll
-/// (`state_command`) or the push (`state_topic`) a client would establish
-/// state with. Both spellings count: which one a spec uses is the device's
-/// transport speaking, not a statement about whether the state exists.
-fn has_state_binding(entity: &Entity) -> bool {
-    entity.state_command.is_some() || entity.state_topic.is_some()
+/// Whether an entity says where a reading of its own comes from.
+///
+/// Asked of [`state_binding`], which is the one place that decides it — and
+/// that is the fix rather than a tidy-up. This used to read the raw
+/// `state_command`/`state_topic` fields, so once the resolver started refusing
+/// a location with no `state_mapping` (an address with no statement of which
+/// field is the reading) the two gave OPPOSITE answers for the same entity.
+/// The toggle contract requires establishing state before sending, so the
+/// entities in that gap kept a toggle that is unsendable by policy: a Hisense
+/// set's Power binds `toggle` and nothing else, so its whole surface was an
+/// action the rule meant to strip, drawn as a live button.
+fn has_state_binding(spec: &DeviceSpec, entity: &Entity) -> bool {
+    state_binding(spec, entity).is_some()
 }
 
 /// The role-map half of [`resolve_network_actions`], with no admission
@@ -950,16 +1032,38 @@ fn resolve_network_roles<'a>(
 /// otherwise SOAP, the default from when SOAP was the only network transport
 /// and still what a Wemo spec means by saying nothing.
 fn effective_transport<'a>(spec: &'a DeviceSpec, command: &'a SpecCommand) -> &'a str {
-    command
-        .transport
-        .as_deref()
-        .or_else(|| {
-            spec.device
-                .extensions
-                .get("transport")
-                .and_then(|t| t.as_str())
-        })
-        .unwrap_or(soap::TRANSPORT)
+    declared_transport(spec, command).unwrap_or(soap::TRANSPORT)
+}
+
+/// The same chain without the SOAP default: what the spec actually SAYS this
+/// command rides, or nothing.
+///
+/// Separate from [`effective_transport`] because two callers want two different
+/// answers to "and if nobody said?". Admitting a control has to pick something,
+/// and SOAP is the historical answer. Reporting a pure reading's transport must
+/// not: the consumer reads `null` there as "the SOAP path" already, and
+/// inventing the string would only move the same assumption one layer up while
+/// making it look like the spec's own words.
+///
+/// Both callers get the inheritance, which is the half that was missing.
+pub fn declared_transport<'a>(spec: &'a DeviceSpec, command: &'a SpecCommand) -> Option<&'a str> {
+    command.transport.as_deref().or_else(|| {
+        spec.device
+            .extensions
+            .get("transport")
+            .and_then(|t| t.as_str())
+    })
+}
+
+/// The transport a named top-level command rides, inheritance included.
+///
+/// For the callers that hold a command NAME rather than the command — an
+/// entity's `state_command`, which is resolved through the spec's `commands`
+/// map. Exists so the fallback chain has exactly one definition: the DTO
+/// builder used to re-spell `command.transport` itself and dropped the
+/// device-level half every time.
+pub fn transport_of_command<'a>(spec: &'a DeviceSpec, command_name: &str) -> Option<&'a str> {
+    declared_transport(spec, spec.commands.get(command_name)?)
 }
 
 /// Decide whether a command can serve a network role.
@@ -970,19 +1074,22 @@ fn effective_transport<'a>(spec: &'a DeviceSpec, command: &'a SpecCommand) -> &'
 /// belongs in — Wemo's `SetCrockpotState` would be exactly that if the spec
 /// did not default the argument the control is not changing.
 fn qualify_network<'a>(
-    spec: &DeviceSpec,
+    spec: &'a DeviceSpec,
     role: &'static str,
     command_name: &'a str,
     command: &'a SpecCommand,
     takes_value: bool,
 ) -> Option<NetworkAction<'a>> {
     let protocol_handler = spec.protocol_handler.as_deref();
+    // Resolved once and carried on the action, so the string a command is
+    // ADMITTED on is the string a caller later dispatches on.
+    let transport = effective_transport(spec, command);
     // Renderable at all: a command missing its transport's address, or one for
     // a transport this crate does not speak, resolves to nothing rather than
     // to a control that errors when pressed. Each transport is whole on its
     // own terms — SOAP needs the service URN and action its envelope is built
     // from, plain HTTP needs the method and path that ARE the request.
-    match effective_transport(spec, command) {
+    match transport {
         soap::TRANSPORT => {
             if command.service.is_none() || command.action.is_none() {
                 return None;
@@ -1011,7 +1118,20 @@ fn qualify_network<'a>(
                 return None;
             }
         }
-        kasa::TRANSPORT => {
+        // `tcp-json` names a shape — JSON down a raw socket — that several
+        // vendors share and none of them frame alike. TP-Link wraps it in a
+        // length prefix and an XOR autokey, Yeelight terminates it with CRLF in
+        // plaintext, Tuya wraps it in 0x55aa and AES. So the transport alone
+        // cannot say what to put on the wire, and admitting on it alone drew
+        // live controls on four non-Kasa specs whose every press shipped
+        // Kasa-ciphered bytes at a device speaking something else — a control
+        // that lies, which is worse than one that is missing.
+        //
+        // The handler is what names the framing, exactly as it does for the
+        // `udp` arm below and for every BLE image handler. Until a spec's
+        // handler is registered here its entity is hidden and counted, which
+        // is the honest answer the surface DTO was built to give.
+        t if t == kasa::TRANSPORT && protocol_handler == Some(kasa::HANDLER_NAME) => {
             // The invocation IS the JSON body; a Kasa command without one has
             // nothing to send, exactly as a SOAP command without its service
             // or an HTTP command without its path does.
@@ -1064,6 +1184,7 @@ fn qualify_network<'a>(
         role,
         command_name,
         command,
+        transport,
         min: bounds.and_then(|p| p.min),
         max: bounds.and_then(|p| p.max),
         user_params,
@@ -1103,21 +1224,19 @@ fn qualify_network<'a>(
 /// by policy — admitting a switch on its strength alone would list a
 /// control the client must then refuse to operate.
 fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
-    // A `state_topic` is the same promise as a `state_command` where readings
-    // are pushed rather than polled: the entity says where its reading comes
-    // from, which is the whole of the honesty rule. Without it an MQTT set's
-    // Power switch — a toggle whose state arrives on a subscribed broadcast
-    // topic — is hidden as though it had no reading, and only the momentary
-    // buttons survive.
+    // "Says where its reading comes from" is asked of [`state_binding`], which
+    // is the one place that reads a `state_topic` and decides what kind of
+    // location it is. Both spellings are the same promise: a Hisense set's
+    // Power switch reads its state off a subscribed topic and a WLED
+    // controller's light reads it out of `/json/state`, and neither names a
+    // command because neither has one to name.
     //
-    // Narrowed to devices that actually speak MQTT, and that is not
-    // pedantry: the Hue bridge stores an HTTP path in `state_topic` for a
-    // sensor family its spec deliberately leaves unbound, and reading that as
-    // a subscription would put a control on screen that can never update.
-    // Where the field means a topic, it is a binding; elsewhere it means
-    // whatever the author meant and this does not guess.
-    entity.state_command.is_some()
-        || (entity.state_topic.is_some() && speaks_mqtt(spec))
+    // What the resolver refuses is the whole point of routing through it. A
+    // `udp://`/`homekit://` location names a transport this crate cannot read,
+    // and the Hue bridge's `/api/{username}/sensors/{id}` needs a credential
+    // nothing stores — both stay off the surface and are counted as hidden,
+    // rather than drawing a card that can never update.
+    state_binding(spec, entity).is_some()
         || matches!(entity.platform.as_deref(), Some("button") | Some("text"))
         || entity
             .options_source
@@ -1125,6 +1244,102 @@ fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
             .is_some_and(|source| http::endpoint_request(spec, &source.command).is_some())
         || is_assumed_state_switch(spec, entity)
         || is_assumed_state_cover(spec, entity)
+}
+
+/// Where one entity's reading comes from, resolved once from the spec.
+///
+/// The schema gives an entity two ways to say it: `state_command`, which NAMES
+/// something (an `http_endpoints` entry, a command), and `state_topic`, which
+/// is a LOCATION — "MQTT topic or HTTP endpoint", in the schema's own words.
+/// A location has to be read to know which, and that reading is here rather
+/// than in each transport, so the surface rule, the DTO's transport and the
+/// renderer all answer the same way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StateBinding<'a> {
+    /// `state_command`: a name in the spec's own endpoint/command vocabulary.
+    Command(&'a str),
+    /// `state_topic` holding a path on this device's own HTTP API —
+    /// `/json/state`, `/query/active-app`. Read with a GET of it.
+    HttpPath(&'a str),
+    /// `state_topic` holding a topic on this device's broker. Read by
+    /// subscribing; there is no request whose reply is the value.
+    MqttTopic(&'a str),
+}
+
+impl StateBinding<'_> {
+    /// The location itself — the command name, path or topic. This is what
+    /// rides the DTO's `state_command` field, whichever kind it is.
+    pub fn location(&self) -> &str {
+        match self {
+            StateBinding::Command(name) => name,
+            StateBinding::HttpPath(path) => path,
+            StateBinding::MqttTopic(topic) => topic,
+        }
+    }
+}
+
+/// Resolve where `entity`'s reading comes from, or `None` when the spec
+/// declares none this crate can act on.
+///
+/// The order matters and each step is a fact the spec states, not a guess:
+///
+/// 1. `state_command` names something. That vocabulary is closed and the
+///    renderer owns it.
+/// 2. Otherwise `state_topic` is a location, and the DEVICE decides what kind:
+///    on a device that speaks MQTT it is a topic, whatever it looks like. A
+///    Hisense set's `/remoteapp/mobile/broadcast/ui_service/state` opens with a
+///    slash and is a topic all the same, so shape must not be asked first.
+/// 3. A location carrying a URI scheme names a transport rather than a place
+///    on this device — `udp://{host}:56700`, `homekit://{hap_id}`,
+///    `ssap://audio/getVolume`. None of those is a read this crate can issue,
+///    so the entity is left off the surface and counted as hidden, which is
+///    the honest state rather than an invisible one.
+/// 4. What is left that opens with `/` is a path on the device's HTTP API —
+///    the only other thing the schema says the field can be.
+///
+/// A path whose placeholders the spec cannot fill on its own is not a binding:
+/// see [`crate::protocol::http::path_renderable_from_spec`].
+///
+/// Nor is a location with no `state_mapping`. A `state_command` names
+/// something the spec describes elsewhere, and the reply may simply BE the
+/// value; a location describes nothing — it is an address, and without a
+/// mapping there is no statement of which field at that address is the
+/// reading. A Roku's `/query/active-app` is the case: the path is right, the
+/// reply is real, and the spec never says what to take out of it. Admitting
+/// that draws a sensor whose value is permanently blank, which is what the
+/// surface rule exists to prevent.
+pub fn state_binding<'a>(spec: &'a DeviceSpec, entity: &'a Entity) -> Option<StateBinding<'a>> {
+    if let Some(command) = entity.state_command.as_deref() {
+        return Some(StateBinding::Command(command));
+    }
+    let topic = entity.state_topic.as_deref()?;
+    if entity.state_mapping.is_empty() {
+        return None;
+    }
+    if speaks_mqtt(spec) {
+        return Some(StateBinding::MqttTopic(topic));
+    }
+    if has_uri_scheme(topic) || !topic.starts_with('/') {
+        return None;
+    }
+    crate::protocol::http::path_renderable_from_spec(spec, topic)
+        .then_some(StateBinding::HttpPath(topic))
+}
+
+/// Whether a location opens with a `scheme://` — the RFC 3986 shape, so a
+/// path carrying a colon later on (`/printer/objects/query?a:b`) is not
+/// mistaken for one.
+fn has_uri_scheme(location: &str) -> bool {
+    let Some(scheme) = location
+        .split("://")
+        .next()
+        .filter(|s| s.len() < location.len())
+    else {
+        return false;
+    };
+    let mut chars = scheme.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
 }
 
 /// Whether this device's readings arrive over MQTT — the spec's declared
@@ -1400,13 +1615,148 @@ fn matched_variant_names(spec: &DeviceSpec, ssdp_targets: &[String]) -> Vec<Stri
         .collect()
 }
 
+/// Which of a spec's variants a BLE device in front of us could be.
+///
+/// `device.variants[]` lets a family spec say which model an entity belongs to,
+/// and variant selection had exactly two axes: an SSDP `device_type`, and a
+/// `state_probe` against a reply. A BLE device has neither, so a BLE family
+/// spec narrowed to nothing and every model's entities were handed over at
+/// once. That is not a cosmetic problem: seeblue-motorcycle-led and
+/// leds2rave4-lunchbox-led each declare TWO lights with the SAME NAME speaking
+/// DIFFERENT COMMAND DIALECTS, and the panel's name dedupe keeps whichever the
+/// spec declared first — so a LEDGlowV2 was being driven with the Direct
+/// dialect's frames, silently.
+///
+/// # The rule
+///
+/// A variant is a CANDIDATE when it declares at least one axis this function
+/// can judge and EVERY axis it declares matches. Conjunction, not disjunction:
+/// a variant that names both a name prefix and a service is claiming both, and
+/// honouring only one of them would let it claim hardware it has never seen.
+///
+/// Then the most specific candidates win — the ones that matched the most
+/// axes. This is the half that the obvious implementation gets wrong.
+/// leds2rave4's SP110E declares ONLY service `ffe0`, which its SP107E sibling
+/// also carries alongside a name prefix; under plain conjunction an SP107E
+/// device matches both, and the two dialects are back. Counting matched axes
+/// separates them, and a genuine tie keeps every tied variant, because a spec
+/// that cannot tell two models apart should not have this function pretend
+/// otherwise.
+///
+/// # When nothing matches
+///
+/// Empty. NOT "no variants", which would drop every scoped entity and blank a
+/// device whose scan simply did not carry a name or a service list. The caller
+/// treats empty as "do not narrow" and shows what it always showed, so the
+/// worst case here is the behaviour that shipped before it existed.
+pub fn matched_ble_variant_names(
+    spec: &DeviceSpec,
+    device_name: &str,
+    service_uuids: &[String],
+) -> Vec<String> {
+    let Some(variants) = spec.device.variants.as_ref().and_then(|v| v.as_sequence()) else {
+        return Vec::new();
+    };
+
+    // Both sides normalized, because the two sides spell the same UUID
+    // differently and comparing the raw strings silently never matched.
+    //
+    // A spec writes the full 128-bit form (`0000ffe0-0000-1000-8000-
+    // 00805f9b34fb`); the Dart caller folds every discovered service through
+    // `normalizeUuid` before it crosses the FFI, so what arrives is `ffe0`.
+    // `eq_ignore_ascii_case` between those is false, so the service axis
+    // matched nothing, every variant was rejected for having a declared axis
+    // it could not satisfy, and the empty result read as "do not narrow" —
+    // which is the behaviour that shipped before any of this existed. Both
+    // features built on this were therefore inert in the app while their
+    // tests, which hand-fed the long form, stayed green.
+    let found: Vec<Cow<'_, str>> = service_uuids
+        .iter()
+        .map(|u| crate::protocol::profiles::normalize_uuid(u))
+        .collect();
+    let has_service = |declared: &str| {
+        let wanted = crate::protocol::profiles::normalize_uuid(declared);
+        found.iter().any(|f| f.eq_ignore_ascii_case(&wanted))
+    };
+
+    let mut scored: Vec<(usize, String)> = Vec::new();
+    for variant in variants {
+        let Some(identification) = variant.get("identification") else {
+            continue;
+        };
+        let mut declared = 0usize;
+        let mut matched = 0usize;
+
+        // The advertised name. `local_name_prefix` is the spelling every
+        // variant in the catalogue uses; the plural is accepted because the
+        // identification block one level up allows it and a spec author
+        // reasonably expects the same word to mean the same thing.
+        let mut prefixes: Vec<&str> = identification
+            .get("local_name_prefix")
+            .and_then(|p| p.as_str())
+            .into_iter()
+            .collect();
+        if let Some(list) = identification
+            .get("local_name_prefixes")
+            .and_then(|p| p.as_sequence())
+        {
+            prefixes.extend(list.iter().filter_map(|p| p.as_str()));
+        }
+        if !prefixes.is_empty() {
+            declared += 1;
+            if prefixes.iter().any(|p| name_has_prefix(device_name, p)) {
+                matched += 1;
+            }
+        }
+
+        // The services the device actually carries. Discovered rather than
+        // advertised, because that is what the caller has after connecting
+        // and it is the richer list.
+        if let Some(uuids) = identification
+            .get("service_uuids")
+            .and_then(|u| u.as_sequence())
+        {
+            let declared_uuids: Vec<&str> = uuids.iter().filter_map(|u| u.as_str()).collect();
+            if !declared_uuids.is_empty() {
+                declared += 1;
+                if declared_uuids.iter().any(|u| has_service(u)) {
+                    matched += 1;
+                }
+            }
+        }
+
+        if declared == 0 || matched != declared {
+            continue;
+        }
+        // Display name first, `model` second — the same order
+        // [`matched_variant_names`] uses, because entity `variants` lists cite
+        // whichever the spec wrote.
+        if let Some(name) = variant
+            .get("name")
+            .or_else(|| variant.get("model"))
+            .and_then(|n| n.as_str())
+        {
+            scored.push((matched, name.to_string()));
+        }
+    }
+
+    let Some(best) = scored.iter().map(|(score, _)| *score).max() else {
+        return Vec::new();
+    };
+    scored
+        .into_iter()
+        .filter(|(score, _)| *score == best)
+        .map(|(_, name)| name)
+        .collect()
+}
+
 /// An entity's `variants` scoping list, or `None` when it is unscoped.
 ///
 /// `Some(vec![])` and `None` are different on purpose, mirroring the schema:
 /// an empty list would claim "applies to no model at all", and the schema
 /// forbids writing one (`minItems: 1`) precisely because it always means a
 /// half-deleted edit rather than an intention.
-fn entity_variants(entity: &Entity) -> Option<Vec<String>> {
+pub fn entity_variants(entity: &Entity) -> Option<Vec<String>> {
     let value = entity.extensions.get("variants")?;
     let list = value.as_sequence()?;
     Some(
@@ -2735,6 +3085,113 @@ entities:
 "#;
         let spec = parse_device_spec(NAMED_ONLY).expect("test spec should parse");
         assert!(resolve_network_actions(&spec, &spec.entities[0]).is_empty());
+        assert!(network_entities(&spec).is_empty());
+    }
+
+    /// The `state_topic` resolver, whose whole job is that a LOCATION is not
+    /// self-describing: the same string means different things on different
+    /// devices, and only the spec can say which.
+    #[test]
+    fn a_state_topic_resolves_by_what_the_device_speaks_then_by_shape() {
+        const TEMPLATE: &str = r#"
+device:
+  name: Test Device
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+TRANSPORT
+commands:
+  ping:
+    description: Something to make the device speak a transport.
+    transport: TRANSPORT_NAME
+    method: GET
+    path: /ping
+entities:
+  - name: Reading
+    platform: sensor
+    state_topic: "TOPIC"
+    state_mapping:
+      value: field
+"#;
+        let resolve = |transport: &str, topic: &str| -> Option<String> {
+            let yaml = TEMPLATE
+                .replace("TRANSPORT_NAME", transport)
+                .replace(
+                    "TRANSPORT",
+                    if transport == "mqtt" {
+                        "transport: mqtt"
+                    } else {
+                        ""
+                    },
+                )
+                .replace("TOPIC", topic);
+            let spec = parse_device_spec(&yaml).expect("test spec should parse");
+            state_binding(&spec, &spec.entities[0]).map(|b| format!("{b:?}"))
+        };
+
+        // The device decides first. A Hisense set's topic opens with a slash
+        // and is a topic all the same, so shape must not be asked first.
+        assert_eq!(
+            resolve("mqtt", "/remoteapp/mobile/broadcast/ui_service/state").as_deref(),
+            Some("MqttTopic(\"/remoteapp/mobile/broadcast/ui_service/state\")")
+        );
+        // Only then shape: a path on the device's own HTTP API.
+        assert_eq!(
+            resolve("http", "/json/state").as_deref(),
+            Some("HttpPath(\"/json/state\")")
+        );
+        // A scheme names a transport rather than a place on this device.
+        for elsewhere in [
+            "udp://{host}:56700",
+            "homekit://{hap_id}",
+            "ssap://audio/getVolume",
+        ] {
+            assert_eq!(
+                resolve("http", elsewhere),
+                None,
+                "{elsewhere} is not a path here"
+            );
+        }
+        // Neither a topic nor a path: nothing to resolve, and nothing guessed.
+        assert_eq!(resolve("http", "appliance/{device_id}/state"), None);
+        // A path whose placeholder the spec cannot fill can never be issued.
+        assert_eq!(resolve("http", "/api/{username}/sensors"), None);
+    }
+
+    /// A colon inside a path is not a scheme. `://` is the whole test, and the
+    /// scheme before it has to look like one.
+    #[test]
+    fn only_an_rfc_shaped_scheme_counts_as_one() {
+        assert!(has_uri_scheme("udp://host"));
+        assert!(has_uri_scheme("smartthings://hub"));
+        assert!(!has_uri_scheme("/printer/objects/query?a:b"));
+        assert!(!has_uri_scheme("/goform/formMainZone_MainZoneXml.xml"));
+        assert!(!has_uri_scheme("appliance/{id}/state"));
+        // A digit cannot start a scheme, so a path that happens to contain
+        // "://" after a numeric segment is still a path.
+        assert!(!has_uri_scheme("8080://nope"));
+    }
+
+    /// A location with no `state_mapping` says where the reading lives and not
+    /// what it is. The Dyson purifier is the case: its spec records that the
+    /// state keys were never recovered, and a card admitted on the topic alone
+    /// would be permanently blank.
+    #[test]
+    fn a_location_with_nothing_to_read_out_of_it_is_not_a_binding() {
+        const UNMAPPED: &str = r#"
+device:
+  name: Test Purifier
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+  transport: mqtt
+entities:
+  - name: Air Quality
+    platform: sensor
+    state_topic: "{productType}/{serial}/status/current"
+"#;
+        let spec = parse_device_spec(UNMAPPED).expect("test spec should parse");
+        assert_eq!(state_binding(&spec, &spec.entities[0]), None);
         assert!(network_entities(&spec).is_empty());
     }
 }

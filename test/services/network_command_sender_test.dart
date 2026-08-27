@@ -44,8 +44,14 @@ void main() {
 
   // The ecp2 capability as the resolver hands it over for a real Roku:
   // the spec's own block plus its declared 8060.
-  const rokuCapabilities =
-      NetworkCapabilitiesDto(signedSession: 'ecp2', defaultPort: 8060);
+  const rokuCapabilities = NetworkCapabilitiesDto(
+    signedSession: 'ecp2',
+    defaultPort: 8060,
+    tlsSelfSigned: false,
+    // As roku-ecp.yaml declares: a Roku serves its control paths only on 8060
+    // whatever its SSDP LOCATION carried.
+    advertisedPortUnreliable: true,
+  );
 
   NetworkCommandSender sender({
     MockClient? httpClient,
@@ -55,7 +61,7 @@ void main() {
     NetworkCapabilitiesDto? capabilities = rokuCapabilities,
     int? devicePort,
     MqttConnect? mqttConnect,
-    Map<String, String> mqttCredentials = const {},
+    Map<String, String> storedCredentials = const {},
     WsConnect? wsConnect,
     String? wsCredential,
     void Function(String)? onWsCredential,
@@ -63,7 +69,6 @@ void main() {
   }) =>
       NetworkCommandSender(
         mqttConnect: mqttConnect,
-        mqttCredentials: mqttCredentials,
         wsConnect: wsConnect,
         wsCredential: wsCredential,
         onWsCredential: onWsCredential,
@@ -86,7 +91,7 @@ void main() {
             Ecp2ControlService(
                 connector: (host, port) async =>
                     throw const Ecp2Exception('no ECP2 in this test')),
-      );
+      )..useCredentials(() async => storedCredentials);
 
   test('an http action renders through the codec and posts the result',
       () async {
@@ -141,8 +146,32 @@ void main() {
     await s.close();
   });
 
-  test('a roku pins control to 8060 whatever LOCATION advertised', () {
+  test('a spec that says its announcement lies is pinned to the declared port',
+      () {
+    // A Roku advertised 7250 in the field and serves control only on 8060.
     expect(sender(discoveredControlPort: 7250).controlPort, 8060);
+
+    // The Envoy is the same fact without the Roku: its mDNS answer still says
+    // 80 while firmware 8.x serves the API only over 443 and refuses 80
+    // outright. Expressing this as "is this a Roku" is what left the one
+    // HTTPS device in the catalogue connecting to a closed port.
+    expect(
+      sender(
+        discoveredControlPort: 80,
+        ssdpTargets: const [],
+        capabilities: const NetworkCapabilitiesDto(
+          defaultPort: 443,
+          defaultScheme: 'https',
+          advertisedPortUnreliable: true,
+          tlsSelfSigned: true,
+          tlsVerification: 'trust_on_first_use',
+        ),
+      ).controlPort,
+      443,
+    );
+
+    // And a device whose announcement is trustworthy — the normal case — is
+    // still reached where it said it is.
     expect(
       sender(
               discoveredControlPort: 7250,
@@ -150,7 +179,6 @@ void main() {
               capabilities: null)
           .controlPort,
       7250,
-      reason: 'only a Roku is pinned',
     );
   });
 
@@ -194,6 +222,45 @@ void main() {
     );
   });
 
+  test('the spec\'s port is the fallback when discovery carried none',
+      () async {
+    // 67 specs declare `identification.default_port`, and it was read for
+    // nothing but the Roku pin. A device added by hand, or found by a
+    // transport that carries an address and no port, failed every send with
+    // "did not advertise a control port" while its own spec said which port to
+    // use. Discovery still wins where it has an answer — the assertion below —
+    // because a device that told us where it is knows better than a default.
+    Uri? sent;
+    final s = sender(
+      httpClient: MockClient((request) async {
+        sent = request.url;
+        return http.Response('', 200);
+      }),
+      discoveredControlPort: null,
+      ssdpTargets: const [],
+      capabilities: const NetworkCapabilitiesDto(
+          defaultPort: 8081,
+          tlsSelfSigned: false,
+          advertisedPortUnreliable: false),
+    );
+    await s.sendAction(action('turn_off', 'press_power_off'), {});
+    expect(sent?.port, 8081);
+  });
+
+  test('a discovered port still beats the spec on a non-roku', () {
+    expect(
+      sender(
+        discoveredControlPort: 7250,
+        ssdpTargets: const [],
+        capabilities: const NetworkCapabilitiesDto(
+            defaultPort: 80,
+            tlsSelfSigned: false,
+            advertisedPortUnreliable: false),
+      ).controlPort,
+      7250,
+    );
+  });
+
   test('a soap action without a fetched description fails visibly', () async {
     final s = sender();
     await expectLater(
@@ -225,6 +292,56 @@ void main() {
     await sender().close();
   });
 
+  // ── Credentials ───────────────────────────────────────────────────────────
+  // A `credential:` parameter is a value the client was given, not one the
+  // user picks and not one the device answers. These went to the MQTT render
+  // and nowhere else, so the same parameter on any of the four other
+  // transports silently had nothing to fill it.
+
+  test('stored credentials reach every transport, not just mqtt', () async {
+    final s = sender(storedCredentials: const {'username': 'nUP9k2sQ'});
+    addTearDown(s.close);
+
+    await s.sendAction(action('turn_off', 'press_power_off'), {});
+
+    // `.last`, not `.single`: the fake codec is shared across this file's
+    // tests and records every render.
+    expect(codec.renderNetworkHttpCommandCalls.last.values,
+        containsPair('username', 'nUP9k2sQ'));
+  });
+
+  test('the caller wins over the store for the same name', () async {
+    // A read-back value the send just fetched is more current than anything a
+    // store holds, and a value the user typed into a control is the point of
+    // the control.
+    final s = sender(storedCredentials: const {'level': 'stored'});
+    addTearDown(s.close);
+
+    await s.sendAction(
+        action('set_brightness', 'set_level'), const {'level': 'picked'});
+
+    expect(codec.renderNetworkHttpCommandCalls.last.values,
+        containsPair('level', 'picked'));
+  });
+
+  test('a credential entered after the sender was built is used', () async {
+    // The reason this is a reader and not a map: a person types the serial off
+    // their printer's touchscreen, and the very next press has to use it. A
+    // map captured at construction would fail on a value the app is holding.
+    final held = <String, String>{};
+    final s = sender(storedCredentials: held);
+    addTearDown(s.close);
+
+    await s.sendAction(action('turn_off', 'press_power_off'), {});
+    expect(codec.renderNetworkHttpCommandCalls.last.values,
+        isNot(contains('serial')));
+
+    held['serial'] = '01P00A123456789';
+    await s.sendAction(action('turn_off', 'press_power_off'), {});
+    expect(codec.renderNetworkHttpCommandCalls.last.values,
+        containsPair('serial', '01P00A123456789'));
+  });
+
   // ── MQTT ──────────────────────────────────────────────────────────────────
   // A device whose control surface is its own broker: a Hisense set's remote.
   // The session is the device's, not the request's — a broker serving one
@@ -253,7 +370,7 @@ void main() {
         sender(
           withCodec: mqttCodec,
           devicePort: 36669,
-          mqttCredentials: credentials,
+          storedCredentials: credentials,
           mqttConnect: (host, port, timeout) async {
             scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
             return broker;

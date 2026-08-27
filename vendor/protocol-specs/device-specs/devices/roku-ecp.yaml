@@ -54,6 +54,11 @@ device:
     # signal; this one only says "something here speaks AirPlay".
     # The `discovery` block below still records it.
     default_port: 8060
+    # A Roku serves /keypress, /query, /launch and /ecp-session only on
+    # 8060, whatever port its SSDP LOCATION carried — a field TV
+    # advertised 7250. Consumers had been expressing this as a Roku
+    # branch of their own; it is a fact about the device.
+    advertised_port_unreliable: true
     identity_keys:
       primary: "serial"
       secondary: "device_id"

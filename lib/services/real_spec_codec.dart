@@ -18,6 +18,18 @@ class RealSpecCodec implements SpecCodec {
       rust.loadDeviceSpec(yaml: yaml);
 
   @override
+  Future<List<String>> bleVariantNamesForDevice({
+    required String yaml,
+    required String deviceName,
+    required List<String> serviceUuids,
+  }) =>
+      rust.bleVariantNamesForDevice(
+        specYaml: yaml,
+        deviceName: deviceName,
+        serviceUuids: serviceUuids,
+      );
+
+  @override
   Future<List<MatchResult>> matchDeviceToSpec({
     required List<DeviceSpecDto> specs,
     required String deviceName,
@@ -154,6 +166,10 @@ class RealSpecCodec implements SpecCodec {
     required String specYaml,
   }) =>
       rust.networkCapabilities(specYaml: specYaml);
+
+  @override
+  Future<List<NetworkCredentialDto>> credentialsForDevice(String specYaml) =>
+      rust.credentialsForDevice(specYaml: specYaml);
 
   @override
   Future<SoapRequestDto> renderNetworkCommand({

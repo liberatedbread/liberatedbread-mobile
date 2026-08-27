@@ -11,6 +11,14 @@ import '../providers/spec_codec_provider.dart';
 import '../core/entity_icon.dart';
 import '../services/spec_codec.dart';
 import 'entity_value.dart';
+import 'unclaimed_actions.dart';
+
+/// The role this card draws itself, in the vocabulary the resolver emits.
+const _setpointRole = 'set_value';
+
+/// What this card is responsible for presenting. A spec that resolves only
+/// the setpoint leaves nothing over, and [UnclaimedActions] draws nothing.
+const _claimedRoles = {_setpointRole};
 
 /// A spec-declared `number` or `climate` entity as a working setpoint: what
 /// the device reads now, and a control to change it.
@@ -27,6 +35,11 @@ import 'entity_value.dart';
 /// no control that would send the wrong thing. An entity that can be written
 /// but not read (no `format:` block) gets the control and says the current
 /// value is unknown.
+///
+/// The setpoint is the only role this card knows how to shape a control for.
+/// Anything else the entity resolved — a `climate` that also binds power, as
+/// frigidaire's does — goes to [UnclaimedActions], so a role this card was
+/// never taught still reaches the screen instead of vanishing.
 class SetpointControlCard extends ConsumerStatefulWidget {
   final String deviceId;
 
@@ -50,7 +63,11 @@ class SetpointControlCard extends ConsumerStatefulWidget {
 }
 
 class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
-  bool _sending = false;
+  /// The role in flight, which holds every control on the card inert until
+  /// the write lands — one BLE write at a time, whichever control began it.
+  String? _sendingRole;
+  bool get _sending => _sendingRole != null;
+
   String? _errorText;
 
   /// The value the user is dialling in, in decoded units. Null until they
@@ -61,10 +78,22 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
   /// The last value successfully sent, shown until the device reports back.
   double? _sent;
 
-  EntityActionDto? get _action =>
-      widget.entity.actions.where((a) => a.role == 'set_value').firstOrNull;
+  EntityActionDto? _action(String role) =>
+      widget.entity.actions.where((a) => a.role == role).firstOrNull;
 
-  bool get _writable => _action != null;
+  bool get _writable => _action(_setpointRole) != null;
+
+  /// Every action the entity resolved, in the shape [UnclaimedActions] reads.
+  List<({String role, bool takesValue})> get _resolvedActions => [
+        for (final action in widget.entity.actions)
+          (role: action.role, takesValue: action.userParams.isNotEmpty),
+      ];
+
+  /// Whether anything is left over for [UnclaimedActions]. The spacing above
+  /// it is gated on this, so an entity whose only action is its setpoint lays
+  /// out exactly as it did before that widget existed.
+  bool get _hasUnclaimed =>
+      widget.entity.actions.any((a) => !_claimedRoles.contains(a.role));
 
   double? get _min => widget.entity.setpointMin;
   double? get _max => widget.entity.setpointMax;
@@ -82,17 +111,27 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
   /// "60" rather than "60.0".
   int get _decimals => decimalsForStep(_step);
 
-  Future<void> _send(double value) async {
+  /// One write, with the busy flag, error line and snackbar this card already
+  /// shows. Everything it sends comes through here — the setpoint and any
+  /// action it does not draw a control for — so a role the card was never
+  /// taught cannot acquire error handling that drifts from the slider's.
+  ///
+  /// [encode] runs inside the guarded section because a spec that cannot
+  /// build the bytes fails the send just as surely as a refused write, and
+  /// the user is owed the same message either way.
+  Future<void> _write({
+    required String role,
+    required String attempt,
+    required String fallback,
+    required Future<EntityWriteDto> Function() encode,
+    double? applied,
+  }) async {
     setState(() {
-      _sending = true;
+      _sendingRole = role;
       _errorText = null;
     });
     try {
-      final write = await ref.read(specCodecProvider).encodeEntityValue(
-            specYaml: widget.specYaml,
-            entityName: widget.entity.name,
-            value: value,
-          );
+      final write = await encode();
       await ref.read(bleServiceProvider).writeCharacteristic(
             widget.deviceId,
             write.serviceUuid,
@@ -101,23 +140,58 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
           );
       if (!mounted) return;
       setState(() {
-        _sending = false;
-        _sent = value;
+        _sendingRole = null;
+        if (applied != null) _sent = applied;
       });
     } catch (e) {
       if (!mounted) return;
-      final text = friendlyErrorText(
-        e,
-        context: 'set ${widget.entity.name}',
-        fallback: 'The device did not accept that value.',
-      );
+      final text = friendlyErrorText(e, context: attempt, fallback: fallback);
       setState(() {
-        _sending = false;
+        _sendingRole = null;
         _errorText = text;
       });
       ScaffoldMessenger.maybeOf(context)
           ?.showSnackBar(SnackBar(content: Text(text)));
     }
+  }
+
+  Future<void> _send(double value) => _write(
+        role: _setpointRole,
+        attempt: 'set ${widget.entity.name}',
+        fallback: 'The device did not accept that value.',
+        applied: value,
+        encode: () => ref.read(specCodecProvider).encodeEntityValue(
+              specYaml: widget.specYaml,
+              entityName: widget.entity.name,
+              value: value,
+            ),
+      );
+
+  /// Send an action this card draws no control for, exactly as a spec-driven
+  /// command goes out anywhere else in the app.
+  Future<void> _sendRole(String role) async {
+    final action = _action(role);
+    final commandName = action?.commandName;
+    // Only a setpoint action can be a bare value write with no command behind
+    // it, and a value is the one thing an unclaimed fixed action has no way
+    // to supply. Guarding rather than asserting keeps a malformed remote spec
+    // from crashing the panel.
+    if (action == null || commandName == null) return;
+    await _write(
+      role: role,
+      attempt: 'send $commandName',
+      fallback: 'The device did not accept that command.',
+      encode: () async => EntityWriteDto(
+        serviceUuid: action.serviceUuid,
+        characteristicUuid: action.characteristicUuid,
+        bytes: await ref.read(specCodecProvider).encodeCommand(
+          specYaml: widget.specYaml,
+          charUuid: action.characteristicUuid,
+          commandName: commandName,
+          params: const {},
+        ),
+      ),
+    );
   }
 
   /// The entity's unit, spelled for a reader (see [displayUnit]) — the
@@ -224,6 +298,18 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ),
+          // Whatever else the entity resolved. A climate that binds power
+          // beside its target temperature resolved those actions all along;
+          // nothing here asked for them, so nothing put them on screen.
+          if (_hasUnclaimed) const SizedBox(height: 10),
+          UnclaimedActions(
+            actions: _resolvedActions,
+            claimed: _claimedRoles,
+            onSend: _sendRole,
+            // The only thing this card blocks on is its own write, and
+            // `sendingRole` already disables the row for that.
+            sendingRole: _sendingRole,
+          ),
         ],
       ),
     );

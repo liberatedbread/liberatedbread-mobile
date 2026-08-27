@@ -59,6 +59,95 @@ class EntityKeyIndex<E> {
   /// still renders.
   List<E> get leftovers => _entities.where((e) => !_taken.contains(e)).toList();
 
+  /// Whether some curated layout in this app has a slot for [key].
+  ///
+  /// The layouts themselves are the answer, so [remoteSlots] and
+  /// [treadmillSlots] below are what the cards actually consume — declared
+  /// here rather than inline so a test can ask the question. Upstream's
+  /// vocabulary and this side's layouts are written down in two repositories
+  /// and nothing bound them: four tokens (`exit`, `menu`, `info`, `keyboard`)
+  /// had already drifted apart, and because an unplaced control still renders
+  /// in the leftover wrap, the drift had no symptom at all.
+  static bool knowsKey(String key) =>
+      remoteSlots.contains(key) || treadmillSlots.contains(key);
+
+  /// The remote card's rows, in the order it fills them. `_remoteCard` builds
+  /// each row from the list beside it, so these ARE the layout rather than a
+  /// second copy of it — which is what lets [knowsKey] answer honestly.
+  static const List<String> powerSlots = ['power', 'power_on', 'power_off'];
+
+  /// Back and Home are the pair every remote has; Exit sits with them because
+  /// it is the same gesture one level further out.
+  static const List<String> navSlots = ['back', 'home', 'exit'];
+
+  /// The D-pad. Named one cell at a time because that is how the layout takes
+  /// them — each goes into its own square of the grid — and the list is
+  /// composed from the same names, so [knowsKey] cannot answer for a key no
+  /// cell actually asks for.
+  static const String upSlot = 'up';
+  static const String leftSlot = 'left';
+  static const String okSlot = 'ok';
+  static const String rightSlot = 'right';
+  static const String downSlot = 'down';
+  static const List<String> padSlots = [
+    upSlot,
+    leftSlot,
+    okSlot,
+    rightSlot,
+    downSlot,
+  ];
+
+  /// Under the pad: the keys that act on what is on screen right now.
+  static const List<String> underPadSlots = [
+    'replay',
+    'options',
+    'menu',
+    'info',
+  ];
+  static const List<String> transportSlots = [
+    'rewind',
+    'play_pause',
+    'fast_forward',
+  ];
+  static const List<String> volumeSlots = ['volume_up', 'mute', 'volume_down'];
+  static const List<String> channelSlots = ['channel_up', 'channel_down'];
+  static const List<String> miscSlots = ['search', 'find_remote'];
+  static const List<String> inputSlots = [
+    'input_hdmi1',
+    'input_hdmi2',
+    'input_hdmi3',
+    'input_hdmi4',
+    'input_av',
+    'input_tuner',
+  ];
+
+  /// Every key the remote places, for [knowsKey].
+  static const List<String> remoteSlots = [
+    ...powerSlots,
+    ...navSlots,
+    ...padSlots,
+    ...underPadSlots,
+    ...transportSlots,
+    ...volumeSlots,
+    ...channelSlots,
+    ...miscSlots,
+    ...inputSlots,
+  ];
+
+  /// The treadmill card's slots. Named individually for the same reason as the
+  /// D-pad's: the card resolves each verb on its own, against its own fallback
+  /// list of command names, so a shared `takeAll` would not describe it.
+  static const String startSlot = 'start';
+  static const String pauseSlot = 'pause';
+  static const String stopSlot = 'stop';
+  static const String speedSlot = 'speed';
+  static const List<String> treadmillSlots = [
+    startSlot,
+    pauseSlot,
+    stopSlot,
+    speedSlot,
+  ];
+
   /// Display names each key historically matched — the remote card's rows,
   /// verbatim, plus the treadmill card's. Additive-only.
   static const Map<String, Set<String>> _fallbackNames = {
@@ -67,6 +156,9 @@ class EntityKeyIndex<E> {
     'power_off': {'Power Off'},
     'back': {'Back'},
     'home': {'Home'},
+    'exit': {'Exit'},
+    'menu': {'Menu'},
+    'info': {'Info'},
     'up': {'Up'},
     'down': {'Down'},
     'left': {'Left'},

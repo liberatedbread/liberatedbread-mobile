@@ -70,16 +70,40 @@ class DeviceControlPanel extends ConsumerWidget {
     // its drawn frames) before the fresh result lands. valueOrNull keeps the
     // previous outcome through the reload; a first load still starts null,
     // showing the raw browser until the match resolves.
-    final outcome = ref
-        .watch(matchedDeviceSpecProvider(
-          SpecMatchRequest.forServices(
-            deviceId: deviceId,
-            deviceName: deviceName,
-            services: services,
-          ),
-        ))
-        .valueOrNull;
+    final request = SpecMatchRequest.forServices(
+      deviceId: deviceId,
+      deviceName: deviceName,
+      services: services,
+    );
+    final outcome = ref.watch(matchedDeviceSpecProvider(request)).valueOrNull;
     final match = outcome?.chosen;
+
+    // Which of a family spec's entities belong to THIS model. A spec declares
+    // one per model — seeblue and leds2rave4 each declare two lights with the
+    // same name on different command dialects — and the BLE path used to hand
+    // every model's across at once, leaving the dedupe below to keep whichever
+    // came first. That is how a LEDGlowV2 got driven with the Direct dialect's
+    // frames.
+    //
+    // Null while it resolves and for a device matching no variant, and BOTH
+    // mean "do not narrow": showing everything is what shipped before this,
+    // and narrowing a device we cannot identify would blank it.
+    final matchedVariants = match == null
+        ? null
+        : ref
+            .watch(bleVariantNamesProvider(
+              (request: request, yaml: match.yaml),
+            ))
+            .valueOrNull;
+
+    /// Whether [entity] belongs to the model in front of us. An unscoped
+    /// entity always does; a scoped one does when the narrowing picked one of
+    /// its variants. A null or empty narrowing means show everything.
+    bool forThisDevice(EntityDto entity) =>
+        matchedVariants == null ||
+        matchedVariants.isEmpty ||
+        entity.variants.isEmpty ||
+        entity.variants.any(matchedVariants.contains);
 
     // A Rabbit Air purifier matched over BLE: its spec's entities ride the
     // encrypted envelope protocol, not the typed GATT command model — the
@@ -120,6 +144,10 @@ class DeviceControlPanel extends ConsumerWidget {
     final readings = <({EntityDto entity, String serviceUuid})>[];
     final controls = <({EntityDto entity, String? stateServiceUuid})>[];
     for (final entity in match?.spec.entities ?? const <EntityDto>[]) {
+      // An entity scoped to a model this device is NOT does not exist here —
+      // it is not hidden, and it is not counted below. bindings.rs states that
+      // rule where variant scoping is decided; this is the BLE end of it.
+      if (!forThisDevice(entity)) continue;
       // The discovered service owning the entity's state characteristic,
       // when it has one and this device carries it.
       final stateChar = entity.stateCharacteristic;
@@ -188,6 +216,10 @@ class DeviceControlPanel extends ConsumerWidget {
     final hiddenNames = <String>{
       ...?match?.spec.hiddenEntityNames,
       ...?match?.spec.entities
+          // Another model's entity is not "not available on this device yet",
+          // it is not this device's at all. Counting it would put a permanent
+          // "2 controls are not available" on every family device.
+          .where(forThisDevice)
           .map((e) => e.name)
           .where((name) => !shownNames.contains(name)),
     }.toList();
@@ -256,6 +288,11 @@ class DeviceControlPanel extends ConsumerWidget {
           specYaml: match.yaml,
           spec: match.spec,
           services: services,
+          // Narrowed by the same rule the cards below use. A walking-pad spec
+          // declares a Start, a Stop and a Target Speed per protocol
+          // GENERATION, all under the same names, so handing the card every
+          // entity made it drive whichever generation the spec listed first.
+          entities: match.spec.entities.where(forThisDevice).toList(),
         ),
       if (controls.isNotEmpty)
         _ControlsSection(

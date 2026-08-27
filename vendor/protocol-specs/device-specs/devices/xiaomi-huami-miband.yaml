@@ -1,0 +1,185 @@
+# Xiaomi Mi Band / Amazfit (Huami) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - Gadgetbridge (Freeyourgadget, GPLv3) — the definitive multi-generation
+#     documentation and implementation.
+#   - leojrfs Mi Band 2 auth writeup; bgloh Mi Band 1 UUID gist.
+
+device:
+  name: "Xiaomi Mi Band / Amazfit (Huami/Zepp) Bands"
+  manufacturer: "Xiaomi / Huami (Zepp Health)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The Mi Band 2+ auth
+      characteristic and three-step handshake are from the leojrfs writeup; the
+      server-key extraction and per-generation notes are from Gadgetbridge's
+      pairing documentation.
+  protocol: "ble"
+  category: "wearable"
+  notes: >
+    Xiaomi/Huami (now Zepp) bands and watches — Mi Band 2/3/4/5/6/7 and the
+    Amazfit Bip/GTR/GTS/T-Rex family — speak BLE and can be driven locally with
+    no cloud once an auth key is known. Gadgetbridge is the definitive
+    documentation and implementation (the largest wearable-protocol RE project).
+
+    AUTH: older Mi Band 1/1S/2 pair with a client-chosen key. From ~Mi Band 4 /
+    Amazfit Bip Lite onward the auth key is SERVER-generated — it must be
+    extracted once from the official app (Mi Fit / Zepp), after which local
+    control works offline. Unpairing in the official app invalidates the key.
+
+    GATT (Mi Band 2+): auth characteristic 00000009-0000-3512-2118-0009af100700
+    on the custom base 0000xxxx-0000-3512-2118-0009af100700. Three-step
+    handshake on the auth characteristic:
+      1. send key:      { 0x01, 0x08, <16-byte secret key> }
+      2. request random:{ 0x02, 0x08 }
+      3. send response: { 0x03, 0x08, <AES-ECB(random) with the key> }
+    Encryption is AES/ECB/NoPadding, 16-byte key; success responses are
+    { 0x10, <command byte>, 0x01 }.
+
+    OLDER Mi Band 1/1S (service FEE0): device info FF01, name FF02, notification
+    FF03, user info FF04, control point FF05, realtime steps FF06, activity data
+    FF07, battery FF0C.
+
+    Per-generation characteristic maps beyond auth are best taken from
+    Gadgetbridge source for the exact model.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://codeberg.org/Freeyourgadget/Gadgetbridge"
+    license: "GPL-3.0"
+    upstream_docs:
+      - url: "https://codeberg.org/Freeyourgadget/Gadgetbridge/wiki/Huami-Server-Pairing"
+        title: "Gadgetbridge — Huami server pairing"
+        covers: "Why newer devices need a server-generated key and how to extract it."
+    notes: >
+      Not officially documented; Gadgetbridge is the authoritative RE. The
+      leojrfs writeup documents the Mi Band 2 auth handshake used here.
+
+  identification:
+    service_uuids:
+      - "0000fee0-0000-1000-8000-00805f9b34fb"
+    local_name_prefixes:
+      - "Mi Band"
+      - "Amazfit"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Mi Band"
+          service_uuids:
+            - "0000fee0-0000-1000-8000-00805f9b34fb"
+        notes: >
+          Older bands advertise the FEE0 service; the family spans many names
+          ("Mi Band", "Amazfit ..."). Gadgetbridge matches per model.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Older bands (1/1S/2) pair with a client-chosen key and need no cloud.
+      Server-key devices (Mi Band 4/5/6/7, Amazfit Bip Lite, GTR, ...) require a
+      one-time extraction of the auth key from the official app, after which
+      control is offline. The extraction is an app/data step, not a wire step.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Connect over BLE and run the three-step auth handshake on the auth
+          characteristic with the 16-byte key. For server-key devices, extract
+          the key once from the official app (e.g. from the app database / logs)
+          before connecting.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "For server-key bands (Mi Band 4+), pair once in the official app and extract the auth key."
+            actor: "user"
+          - action: "Connect, send {0x01,0x08,<key>} to the auth characteristic, request a random, and return AES-ECB(random)."
+            actor: "client"
+            expect: "A {0x10,0x03,0x01} success response authorises the session."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A reset (via the band's own menu or the official app) unbinds the band
+        and rotates the auth key. Gestures vary by generation and are not
+        transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; re-authenticate with the key (or re-extract it after an app unpair)."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "16-byte auth key (client-chosen on old bands, server-generated on newer)"
+      issued_to_client:
+        - "The auth key (extracted from the official app on server-key devices)"
+      notes: >
+        The 16-byte auth key gates control; on newer devices it is server-
+        generated and must be extracted once from the official app. There is no
+        Wi-Fi.
+
+services:
+  - uuid: "0000fee1-0000-1000-8000-00805f9b34fb"
+    name: "Huami vendor service (Mi Band 2+)"
+    notes: >
+      Auth and control live on the custom base 0000xxxx-0000-3512-2118-
+      0009af100700. The auth characteristic below runs the three-step handshake;
+      per-model control/notification characteristics are in Gadgetbridge source.
+    characteristics:
+      - uuid: "00000009-0000-3512-2118-0009af100700"
+        name: "Auth (Mi Band 2+)"
+        properties: ["write", "notify"]
+        notes: >
+          Three-step handshake: {0x01,0x08,<key>} then {0x02,0x08} then
+          {0x03,0x08,AES-ECB(random)}; success is {0x10,<cmd>,0x01}.
+        commands:
+          auth_send_key:
+            description: "Step 1: send the 16-byte key ({0x01,0x08,<key>})."
+            encoding: "bytes"
+            verification: "reported"
+            template: [0x01, 0x08, "{key}"]
+            parameters:
+              key:
+                type: "bytes"
+                min_length: 16
+                max_length: 16
+                description: "The 16-byte auth key (client-chosen on old bands, extracted from the app on new)."
+          auth_request_random:
+            description: "Step 2: request the random challenge ({0x02,0x08})."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x02, 0x08]
+
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: "Battery level (per-model characteristic; see Gadgetbridge)."
+  - platform: "sensor"
+    name: "Heart Rate"
+    unit: "bpm"
+    notes: "Heart-rate measurement (standard HR service 0x180D or the vendor characteristic per model)."
+
+helpful_urls:
+  - title: "Gadgetbridge (Freeyourgadget)"
+    url: "https://codeberg.org/Freeyourgadget/Gadgetbridge"
+    description: "GPLv3 — the authoritative multi-generation Mi Band / Amazfit protocol implementation."
+  - title: "Gadgetbridge — Huami server pairing"
+    url: "https://codeberg.org/Freeyourgadget/Gadgetbridge/wiki/Huami-Server-Pairing"
+    description: "Why newer bands need a server-generated key and how it is extracted."
+  - title: "leojrfs — Mi Band 2 auth writeup"
+    url: "https://leojrfs.github.io/writing/miband2-part1-auth/"
+    description: "The three-step AES-ECB auth handshake and the auth characteristic UUID."

@@ -37,19 +37,19 @@ EntityActionDto _action(
 /// elk-bledom's resolved shape: brightness (bounded 0..100) and color, no
 /// power.
 EntityDto _stripEntity() => EntityDto(
-      options: const [],
-      name: 'LED Strip',
-      platform: 'light',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        _action('set_brightness', 'set_brightness',
-            userParams: const ['brightness'], min: 0, max: 100),
-        _action('set_color', 'set_rgb_color',
-            userParams: const ['red', 'green', 'blue']),
-      ],
-    );
+    options: const [],
+    name: 'LED Strip',
+    platform: 'light',
+    canNotify: false,
+    hasFormat: false,
+    onWhenNonzero: false,
+    actions: [
+      _action('set_brightness', 'set_brightness',
+          userParams: const ['brightness'], min: 0, max: 100),
+      _action('set_color', 'set_rgb_color',
+          userParams: const ['red', 'green', 'blue']),
+    ],
+    variants: const []);
 
 Widget _wrap(
   EntityDto entity, {
@@ -141,17 +141,17 @@ void main() {
     // brightness. Committing the slider before any color is known must NOT
     // invent a color to send.
     final entity = EntityDto(
-      options: const [],
-      name: 'LED',
-      platform: 'light',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        _action('set_color', 'set_led_color',
-            userParams: const ['red', 'green', 'blue', 'brightness']),
-      ],
-    );
+        options: const [],
+        name: 'LED',
+        platform: 'light',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [
+          _action('set_color', 'set_led_color',
+              userParams: const ['red', 'green', 'blue', 'brightness']),
+        ],
+        variants: const []);
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0]));
     final ble = FakeBleService();
     await tester.pumpWidget(_wrap(entity, codec: codec, ble: ble));
@@ -183,17 +183,17 @@ void main() {
   testWidgets('power toggle sends and reports the assumed state',
       (tester) async {
     final entity = EntityDto(
-      options: const [],
-      name: 'Bulb',
-      platform: 'light',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        _action('turn_on', 'power_on'),
-        _action('turn_off', 'power_off'),
-      ],
-    );
+        options: const [],
+        name: 'Bulb',
+        platform: 'light',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [
+          _action('turn_on', 'power_on'),
+          _action('turn_off', 'power_off'),
+        ],
+        variants: const []);
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xCC]));
     final ble = FakeBleService();
     await tester.pumpWidget(_wrap(entity, codec: codec, ble: ble));
@@ -213,27 +213,27 @@ void main() {
     // example-bulb's shape: readable power/brightness/color. The card must
     // open showing what the device reports, not defaults.
     final entity = EntityDto(
-      options: const [],
-      name: 'Bulb',
-      platform: 'light',
-      stateCharacteristic: _stateChar,
-      canNotify: false,
-      hasFormat: true,
-      isOnField: 'power_state',
-      brightnessField: 'brightness',
-      colorRedField: 'red',
-      colorGreenField: 'green',
-      colorBlueField: 'blue',
-      onWhenNonzero: false,
-      actions: [
-        _action('turn_on', 'power_on'),
-        _action('turn_off', 'power_off'),
-        _action('set_brightness', 'set_brightness',
-            userParams: const ['brightness'], min: 0, max: 255),
-        _action('set_color', 'set_color',
-            userParams: const ['red', 'green', 'blue']),
-      ],
-    );
+        options: const [],
+        name: 'Bulb',
+        platform: 'light',
+        stateCharacteristic: _stateChar,
+        canNotify: false,
+        hasFormat: true,
+        isOnField: 'power_state',
+        brightnessField: 'brightness',
+        colorRedField: 'red',
+        colorGreenField: 'green',
+        colorBlueField: 'blue',
+        onWhenNonzero: false,
+        actions: [
+          _action('turn_on', 'power_on'),
+          _action('turn_off', 'power_off'),
+          _action('set_brightness', 'set_brightness',
+              userParams: const ['brightness'], min: 0, max: 255),
+          _action('set_color', 'set_color',
+              userParams: const ['red', 'green', 'blue']),
+        ],
+        variants: const []);
     final codec = FakeSpecCodec(decoded: const [
       DecodedValueDto(
         name: 'power_state',
@@ -275,17 +275,17 @@ void main() {
     // hands the choice to the encoder: the spec's own default, or a visible
     // ParameterMissing.
     final entity = EntityDto(
-      options: const [],
-      name: 'Tunable Strip',
-      platform: 'light',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        _action('set_color', 'set_rgb_color',
-            userParams: const ['red', 'green', 'blue', 'warmth']),
-      ],
-    );
+        options: const [],
+        name: 'Tunable Strip',
+        platform: 'light',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [
+          _action('set_color', 'set_rgb_color',
+              userParams: const ['red', 'green', 'blue', 'warmth']),
+        ],
+        variants: const []);
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
     await tester.pumpWidget(_wrap(entity, codec: codec, ble: FakeBleService()));
     await tester.pumpAndSettle();

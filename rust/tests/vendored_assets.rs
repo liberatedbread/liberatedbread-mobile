@@ -1239,6 +1239,96 @@ fn the_shining_glasses_sibling_declares_no_pixel_surface_to_encode() {
     );
 }
 
+/// The two places the schema puts an mDNS service type, held together.
+///
+/// `device.identification.mdns_service_type` and every
+/// `device.discovery.methods[].mdns.service_type` state the same kind of fact,
+/// and the matcher used to read only the first. Most of the catalogue writes
+/// only the second: the scan's DNS-SD meta-query found those devices on the
+/// wire, nothing matched them to a spec, and they listed as unrecognised hosts
+/// with no controls — a Xiaomi on `_miio._udp`, a Parrot drone on
+/// `_arsdk._udp`, a Caséta bridge on `_lutron._tcp`, sixteen more whose only
+/// type is `_http._tcp`. A spec that follows the schema and writes its type
+/// where the schema puts it got nothing for it.
+///
+/// This walks the raw YAML rather than the parsed spec deliberately. It is the
+/// only assertion that can catch the two blocks drifting apart again, because
+/// it re-derives what the FILES say and holds the DTO to exactly that — no
+/// more (a type nobody declared would be a query on the wire for nothing) and
+/// no less.
+#[test]
+fn every_vendored_spec_reports_the_mdns_types_from_both_blocks() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+    use liberated_bread_core::spec::types::normalize_service_type;
+
+    let stems = |types: Vec<&str>| -> BTreeSet<String> {
+        types
+            .into_iter()
+            .map(normalize_service_type)
+            .filter(|stem| !stem.is_empty())
+            .collect()
+    };
+
+    let mut gained: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let name = path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let Some(device) = doc.get("device") else {
+            continue;
+        };
+
+        let from_identification: Vec<&str> = device
+            .get("identification")
+            .and_then(|i| i.get("mdns_service_type"))
+            .and_then(|t| t.as_str())
+            .into_iter()
+            .collect();
+        let from_discovery: Vec<&str> = device
+            .get("discovery")
+            .and_then(|d| d.get("methods"))
+            .and_then(|m| m.as_sequence())
+            .into_iter()
+            .flatten()
+            .filter(|method| method.get("type").and_then(|t| t.as_str()) == Some("mdns"))
+            .filter_map(|method| method.get("mdns")?.get("service_type")?.as_str())
+            .collect();
+
+        let declared = stems(
+            from_identification
+                .iter()
+                .chain(from_discovery.iter())
+                .copied()
+                .collect(),
+        );
+        let dto = load_device_spec(text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let reported = stems(dto.mdns_service_types.iter().map(String::as_str).collect());
+        assert_eq!(
+            reported, declared,
+            "{name} must report every mDNS type it declares, from either block"
+        );
+
+        if declared.len() > stems(from_identification).len() {
+            gained.push(name);
+        }
+    }
+
+    // A floor, not an exact list — the catalogue arrives by subtree pull and
+    // grows. It is here so the assertion above cannot pass vacuously: an
+    // implementation that read the identification block alone would still
+    // satisfy `reported == declared` on every spec that names its type there,
+    // and only this count notices that a third of the catalogue went missing.
+    assert!(
+        gained.len() >= 30,
+        "the discovery block should be carrying the type for ~34 specs, got {}: {gained:?}",
+        gained.len()
+    );
+}
+
 /// The discovery matchers, against the real catalogue: a platform's service
 /// type belongs to whichever spec the device's TXT records name, and to the
 /// catch-all only when none of them does.
@@ -1273,6 +1363,7 @@ fn vendored_specs_narrow_a_platform_service_type_by_its_txt_records() {
         answered_lan_protocols: vec![],
         port: Some(6053),
         txt: HashMap::from([("project_name".to_string(), project.to_string())]),
+        mac: None,
     };
     let named = |device: NetworkDeviceDto| -> Vec<String> {
         match_network_device(catalogue.clone(), device)
@@ -1372,12 +1463,24 @@ fn the_vendored_hisense_spec_resolves_a_remote_over_mqtt() {
     let surface =
         network_entities_for_device(yaml.clone(), vec![]).expect("hisense resolves a surface");
     let names: BTreeSet<&str> = surface.entities.iter().map(|e| e.name.as_str()).collect();
-    for expected in ["Power", "Up", "Down", "Left", "Right", "OK"] {
+    for expected in ["Power Key", "Up", "Down", "Left", "Right", "OK"] {
         assert!(
             names.contains(expected),
             "{expected:?} should be on the surface, got {names:?}"
         );
     }
+    // The remote's keys are what this set can actually be driven by. Its
+    // `Power` SWITCH is a different entity and is deliberately not drawn: its
+    // one binding is `toggle`, whose contract requires reading the state
+    // first, and its `state_topic` carries no `state_mapping` saying which
+    // field of that topic is the power state (the spec puts it in prose). A
+    // switch that can neither be read nor operated is the dead control the
+    // surface rule exists to keep off screen — the momentary key beside it
+    // works, which is the honest surface for this set.
+    assert!(
+        !names.contains("Power"),
+        "the toggle-only, mapping-less Power switch is not drivable, got {names:?}"
+    );
 
     let values = std::collections::HashMap::from([(
         "client_id".to_string(),
@@ -1405,34 +1508,475 @@ fn the_vendored_hisense_spec_resolves_a_remote_over_mqtt() {
     );
 }
 
-/// The Dyson purifier is the read-only end of the same transport: its spec
-/// records that the STATE-SET key names were never recovered, so it declares
-/// no commands at all — and its sensors still have to reach the screen, on
-/// the strength of the topic they arrive on.
+/// `state_topic` is a LOCATION, and a location is a binding only when the
+/// reading there can be both reached and read.
 ///
-/// The pair with the Hue bridge is the point. Hue stores an HTTP path in
-/// `state_topic` for a sensor family it deliberately leaves unbound, so
-/// reading every `state_topic` as a subscription would put a control on
-/// screen that can never update. One is a topic and the other is not, and
-/// what tells them apart is whether the device speaks MQTT.
+/// Twenty specs declare the field and no two of them mean quite the same
+/// thing by it, which is why this is resolved in one place
+/// (`bindings::state_binding`) rather than re-derived per transport. The four
+/// cases below are the whole rule:
+///
+/// - A Hisense set's `/remoteapp/mobile/broadcast/ui_service/state` opens with
+///   a slash and is an MQTT TOPIC all the same, because the device speaks
+///   MQTT. Shape must not be asked before transport.
+/// - A WLED controller's `/json/state` is a path on its own HTTP API. It names
+///   no command because there is none to name: the reading is a resource, and
+///   reading a resource is a GET of it.
+/// - The Dyson purifier is reachable and unreadable. Its spec records that the
+///   STATE-SET key names were never recovered, so it declares no
+///   `state_mapping` — nothing says which field at that topic is the reading,
+///   and a card admitted on the topic alone is permanently blank.
+/// - The Hue bridge is readable and unreachable: `/api/{username}/sensors/{id}`
+///   wants a credential this app does not store and a child id nothing
+///   enumerates.
+///
+/// The last two stay off the surface and are counted as hidden, which is what
+/// the honesty rule asks for — an absent control over a dead one.
 #[test]
-fn a_state_topic_is_a_binding_only_where_the_device_speaks_mqtt() {
-    use liberated_bread_core::api::device_api::network_entities_for_device;
+fn a_state_topic_binds_only_where_it_can_be_reached_and_read() {
+    use liberated_bread_core::api::device_api::{
+        network_entities_for_device, render_network_http_state_request,
+    };
 
-    let dyson = fs::read_to_string(spec_path("dyson-air-purifier.yaml")).expect("spec reads");
-    let surface = network_entities_for_device(dyson, vec![]).expect("dyson resolves a surface");
-    let names: BTreeSet<&str> = surface.entities.iter().map(|e| e.name.as_str()).collect();
-    assert!(
-        names.contains("Air Quality") && names.contains("Filter Life"),
-        "a purifier's sensors arrive on a subscribed topic, got {names:?}"
+    let entities = |file: &str| {
+        let yaml = fs::read_to_string(spec_path(file)).expect("spec reads");
+        network_entities_for_device(yaml, vec![])
+            .unwrap_or_else(|e| panic!("{file} should resolve a surface: {e}"))
+            .entities
+    };
+    let surfaced =
+        |file: &str| -> BTreeSet<String> { entities(file).into_iter().map(|e| e.name).collect() };
+
+    // A topic, because the device speaks MQTT — despite opening with a slash.
+    //
+    // Asserted on the TRANSPORT the DTO reports, not merely on the entity
+    // reaching the surface. That is what routes the read, and it is the half
+    // that fails silently: resolve this by shape before asking what the device
+    // speaks and the select still draws, while the screen polls a television's
+    // MQTT topic over HTTP and every read 404s.
+    let input = entities("hisense-vidaa.yaml")
+        .into_iter()
+        .find(|e| e.name == "Input")
+        .expect("a Hisense input select reads its state off a subscribed topic");
+    assert_eq!(
+        input.transport.as_deref(),
+        Some("mqtt"),
+        "the set's own transport decides what its state_topic means"
+    );
+    assert_eq!(
+        input.state_command, "/remoteapp/mobile/broadcast/ui_service/state",
+        "the topic itself rides the state binding's field"
     );
 
-    let hue = fs::read_to_string(spec_path("hue-bridge.yaml")).expect("spec reads");
-    let surface = network_entities_for_device(hue, vec![]).expect("hue resolves a surface");
-    let names: BTreeSet<&str> = surface.entities.iter().map(|e| e.name.as_str()).collect();
+    // A path on the device's own HTTP API, which is the whole of its surface:
+    // before this resolved, a WLED controller drew nothing at all.
+    let wled = surfaced("wled-controller.yaml");
     assert!(
-        !names.contains("Hue Sensor"),
-        "hue's state_topic is an HTTP path for an unbound family, got {names:?}"
+        wled.contains("WLED"),
+        "a WLED light reads its state out of /json/state, got {wled:?}"
+    );
+    let yaml = fs::read_to_string(spec_path("wled-controller.yaml")).expect("spec reads");
+    let request =
+        render_network_http_state_request(yaml, "/json/state".to_string(), Default::default())
+            .expect("a bare path renders as the GET it is");
+    assert_eq!(
+        (request.method.as_str(), request.path.as_str()),
+        ("GET", "/json/state")
+    );
+
+    // Reachable, unreadable: no state_mapping, so nothing says what to take
+    // out of what arrives.
+    let dyson = surfaced("dyson-air-purifier.yaml");
+    assert!(
+        dyson.is_empty(),
+        "a purifier whose state keys were never recovered has nothing to draw, got {dyson:?}"
+    );
+
+    // Readable, unreachable: the path wants a credential nothing stores.
+    let hue = surfaced("hue-bridge.yaml");
+    assert!(
+        !hue.contains("Hue Sensor"),
+        "hue's sensor path needs a credential this app has no store for, got {hue:?}"
+    );
+}
+
+/// Every `state_topic` the catalogue declares either resolves to a binding
+/// this crate can act on, or fails for one of the reasons below — and a NEW
+/// reason fails this test rather than making an entity quietly vanish.
+///
+/// This is the drift guard this project keeps needing: a closed table in code
+/// facing an open field in the schema, with no symptom when they disagree.
+/// The field's own description is "MQTT topic or HTTP endpoint", which is
+/// exactly the kind of open sentence a spec author will reasonably write a
+/// `coap://` or an `mqtts://` into one day. When that happens the entity would
+/// simply stop being drawn, on every device, with nothing said. So the
+/// unreadable locations are enumerated by the SCHEME they carry, and an
+/// unlisted scheme is a failure.
+#[test]
+fn every_state_topic_in_the_catalogue_resolves_or_is_a_known_backlog_item() {
+    use liberated_bread_core::spec::bindings::state_binding;
+
+    /// Location schemes no transport here can read, with what each would take.
+    /// Not a wish-list — every entry is a real entity on a real spec that the
+    /// surface is currently, deliberately, honest about not drawing.
+    const UNREADABLE_SCHEMES: &[(&str, &str)] = &[
+        (
+            "udp",
+            "a binary datagram exchange (LIFX, Mi-Light) — the reading is a decode, not a path",
+        ),
+        (
+            "ssap",
+            "an LG WebSocket request; the session exists, the read side is not wired",
+        ),
+        ("homekit", "HAP, which this app does not speak"),
+        ("smartthings", "a hub's own cloud-adjacent API"),
+        ("matter", "Matter, which this app does not speak"),
+    ];
+
+    /// Specs whose `state_topic` names a place on the VENDOR'S CLOUD rather
+    /// than on the device. Listed per spec, not waved through by shape, so
+    /// that a schemeless location on a spec that is not here still fails.
+    ///
+    /// Both Frigidaire units are the whole list, and their own `device.notes`
+    /// are the evidence: a static-analysis pass over three versions of the
+    /// Electrolux app found provisioning-only local paths and "no usable
+    /// post-pairing LAN discovery/control path". The schema has a way to say
+    /// this — `state_endpoint: "cloud"` — and these specs predate it; the
+    /// placeholder is also spelled `device_id` here while every command
+    /// parameter spells it `applianceId`, so nothing could fill it either way.
+    const CLOUD_ONLY_STATE: &[(&str, &str)] = &[
+        (
+            "frigidaire-portable-ac.yaml",
+            "Electrolux OCP cloud; no LAN control path exists",
+        ),
+        (
+            "frigidaire-window-ac.yaml",
+            "Electrolux OCP cloud; no LAN control path exists",
+        ),
+    ];
+
+    let mut unresolved: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let yaml = fs::read_to_string(&path).expect("spec reads");
+        let Ok(spec) = parse_device_spec(&yaml) else {
+            continue;
+        };
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        for entity in &spec.entities {
+            let Some(topic) = entity.state_topic.as_deref() else {
+                continue;
+            };
+            if state_binding(&spec, entity).is_some() {
+                continue;
+            }
+            // A location with no `state_mapping` is unreadable by declaration,
+            // and the spec saying so is the point — Dyson records that its
+            // state keys were never recovered.
+            if entity.state_mapping.is_empty() {
+                continue;
+            }
+            if CLOUD_ONLY_STATE.iter().any(|(spec, _)| *spec == file) {
+                continue;
+            }
+            // A scheme names a transport rather than a place on this device.
+            if let Some(scheme) = topic.split("://").next().filter(|s| s.len() < topic.len()) {
+                if UNREADABLE_SCHEMES.iter().any(|(known, _)| *known == scheme) {
+                    continue;
+                }
+                unresolved.push(format!(
+                    "{file}: {} — unknown location scheme '{scheme}://'",
+                    entity.name
+                ));
+                continue;
+            }
+            unresolved.push(format!("{file}: {} — {topic}", entity.name));
+        }
+    }
+    assert!(
+        unresolved.is_empty(),
+        "these state_topic locations resolve to no binding and match no known \
+         backlog reason. Either wire the transport, or — if it is genuinely \
+         out of reach — add its scheme to UNREADABLE_SCHEMES with what it \
+         would take:\n  {}",
+        unresolved.join("\n  ")
+    );
+}
+
+/// A parameter name means one thing within a spec.
+///
+/// This is what makes `http::spec_wide_default` sound. A `{placeholder}` in a
+/// bare `state_topic` has no owning command to read a default from — Philips's
+/// `/{api_version}/powerstate` names a version the spec declares fifty-four
+/// times, once per command, always as `6`. Resolving it by name across the
+/// spec is reading the spec; it would be GUESSING if one name could mean two
+/// things, and this is what keeps that from becoming true silently.
+#[test]
+fn a_parameter_name_means_one_thing_within_a_spec() {
+    let mut conflicts: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let yaml = fs::read_to_string(&path).expect("spec reads");
+        let Ok(spec) = parse_device_spec(&yaml) else {
+            continue;
+        };
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let mut seen: std::collections::BTreeMap<&str, BTreeSet<String>> = Default::default();
+        for command in spec.commands.values() {
+            for (name, parameter) in &command.parameters {
+                if let Some(default) = parameter.default.as_ref() {
+                    seen.entry(name).or_default().insert(format!("{default:?}"));
+                }
+            }
+        }
+        for (name, defaults) in seen {
+            if defaults.len() > 1 {
+                conflicts.push(format!("{file}: {name} defaults to {defaults:?}"));
+            }
+        }
+    }
+    assert!(
+        conflicts.is_empty(),
+        "one parameter name, two declared defaults — a path placeholder can no \
+         longer be resolved by name, and http::spec_wide_default has to become \
+         a per-command question:\n  {}",
+        conflicts.join("\n  ")
+    );
+}
+
+/// A name is either a credential or the user's to set — never both within one
+/// spec.
+///
+/// The sender merges the stored credentials under every render's values, so a
+/// name that means "the whitelist username" on one command and "a value the
+/// user picks" on another would have the store quietly answering for the user
+/// on the second. Nothing in the catalogue does this today; the merge is only
+/// safe while that holds, and this is what says so if it stops.
+#[test]
+fn a_credential_name_is_not_also_a_user_settable_parameter() {
+    let mut conflicts: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let yaml = fs::read_to_string(&path).expect("spec reads");
+        let Ok(spec) = parse_device_spec(&yaml) else {
+            continue;
+        };
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let credentials: BTreeSet<&str> = spec
+            .commands
+            .values()
+            .flat_map(|command| command.parameters.values())
+            .filter_map(|parameter| parameter.source.as_deref())
+            .filter_map(|source| source.strip_prefix("credential:"))
+            .collect();
+        for (command_name, command) in &spec.commands {
+            // `user_params` is the resolver's own answer to "what does the UI
+            // supply", so this asks the same question the send path asks.
+            for name in command.user_params() {
+                if credentials.contains(name) {
+                    conflicts.push(format!("{file}: {command_name}.{name}"));
+                }
+            }
+        }
+    }
+    assert!(
+        conflicts.is_empty(),
+        "these parameters are a stored credential on one command and the \
+         user's to set on another, so the sender's credential merge would \
+         answer for the user:\n  {}",
+        conflicts.join("\n  ")
+    );
+}
+
+/// Every credential the catalogue names is reachable — a client can either run
+/// a declared flow to get it, or show a person a sentence saying where to find
+/// it.
+///
+/// The drift this guards is a spec author adding `source: credential:token`
+/// with no `description` and no `issues_credentials` entry. Nothing breaks
+/// visibly: the commands resolve, the controls draw, and every press fails on
+/// a value the app has no way to obtain and no words to ask for. The prompt is
+/// built entirely from the spec — that is what makes it generic — so a
+/// credential the spec does not describe is a prompt with a blank in it.
+#[test]
+fn every_credential_the_catalogue_names_can_be_obtained() {
+    use liberated_bread_core::spec::credentials::required_credentials;
+
+    /// Credentials this rule already caught, fixed UPSTREAM, and still
+    /// present in the vendored copy because the subtree has not been
+    /// refreshed since. Each entry disappears with the next
+    /// `update-specs.sh`, and the guard fails again if one does not.
+    ///
+    /// This is not a permanent-exception list. An entry that survives a
+    /// refresh means the upstream fix did not land, which is worth a failing
+    /// test in its own right — so keep the list to what has genuinely been
+    /// written upstream, and delete each line the moment vendoring makes it
+    /// unnecessary.
+    const FIXED_UPSTREAM_NOT_YET_VENDORED: &[(&str, &str, &str)] = &[(
+        "hisense-vidaa.yaml",
+        "mqtt_client_id",
+        "described on all 39 parameters upstream ('A credential says where \
+         its value comes from'); pending an update-specs.sh refresh",
+    )];
+
+    let mut unobtainable: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let yaml = fs::read_to_string(&path).expect("spec reads");
+        let Ok(spec) = parse_device_spec(&yaml) else {
+            continue;
+        };
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        for requirement in required_credentials(&spec) {
+            if !requirement.must_be_asked_for() {
+                continue;
+            }
+            let described = requirement
+                .description
+                .as_deref()
+                .is_some_and(|d| !d.trim().is_empty());
+            if described {
+                assert!(
+                    !FIXED_UPSTREAM_NOT_YET_VENDORED
+                        .iter()
+                        .any(|(spec, name, _)| *spec == file && *name == requirement.name),
+                    "{file}: {} is described now — the upstream fix has been \
+                     vendored, so delete its FIXED_UPSTREAM_NOT_YET_VENDORED \
+                     line",
+                    requirement.name
+                );
+                continue;
+            }
+            if FIXED_UPSTREAM_NOT_YET_VENDORED
+                .iter()
+                .any(|(spec, name, _)| *spec == file && *name == requirement.name)
+            {
+                continue;
+            }
+            {
+                unobtainable.push(format!(
+                    "{file}: {} — needed by {:?}, issued by no declared flow, \
+                     and described nowhere",
+                    requirement.name, requirement.needed_by
+                ));
+            }
+        }
+    }
+    assert!(
+        unobtainable.is_empty(),
+        "a client can neither obtain nor ask for these. Give the parameter a \
+         `description` saying where a person finds the value, or declare the \
+         setup method that issues it in `issues_credentials`:\n  {}",
+        unobtainable.join("\n  ")
+    );
+}
+
+/// A stored credential fills the parameter it is sourced into, even when the
+/// two are spelled differently — which in most of the catalogue they are.
+///
+/// A client stores what `issues_credentials` NAMES, so the store is keyed by
+/// the credential's name. A renderer fills by the PARAMETER's name. Three of
+/// the five specs that use credentials spell those differently — Frigidaire's
+/// `applianceId` from `credential:appliance_id`, Hisense's `client_id` from
+/// `credential:mqtt_client_id` — so a renderer that only looked up the
+/// parameter name failed on a value the app was holding, and reported a name
+/// the person who typed it had never seen.
+#[test]
+fn a_stored_credential_fills_the_parameter_it_is_sourced_into() {
+    use liberated_bread_core::api::device_api::{
+        render_network_http_command, render_network_mqtt_command,
+    };
+    use std::collections::HashMap;
+
+    // Frigidaire: parameter `applianceId`, credential `appliance_id`.
+    let yaml = fs::read_to_string(spec_path("frigidaire-window-ac.yaml")).expect("spec reads");
+    let stored = HashMap::from([("appliance_id".to_string(), "OCP-12345".to_string())]);
+    let request = render_network_http_command(yaml, "turn_on".to_string(), stored)
+        .expect("the stored credential fills applianceId");
+    assert!(
+        request.path.contains("OCP-12345"),
+        "the appliance id belongs in the path, got {}",
+        request.path
+    );
+
+    // Hisense: parameter `client_id`, credential `mqtt_client_id`. The topic
+    // IS the address here, so a miss publishes nowhere useful.
+    let yaml = fs::read_to_string(spec_path("hisense-vidaa.yaml")).expect("spec reads");
+    let stored = HashMap::from([(
+        "mqtt_client_id".to_string(),
+        "56:b8:88:4e:f7:19$normal".to_string(),
+    )]);
+    let request = render_network_mqtt_command(yaml, "press_power".to_string(), stored)
+        .expect("the stored credential fills client_id");
+    assert_eq!(
+        request.topic,
+        "/remoteapp/tv/remote_service/56:b8:88:4e:f7:19$normal/actions/sendkey"
+    );
+
+    // And a bare state path, which has no owning command to read `source:`
+    // off and resolves the same correspondence across the spec instead.
+    let yaml = fs::read_to_string(spec_path("hue-bridge.yaml")).expect("spec reads");
+    let stored = HashMap::from([("username".to_string(), "nUP9k2sQ".to_string())]);
+    let request = liberated_bread_core::api::device_api::render_network_http_state_request(
+        yaml,
+        "/api/{username}/sensors".to_string(),
+        stored,
+    )
+    .expect("a bare path fills from the store too");
+    assert_eq!(request.path, "/api/nUP9k2sQ/sensors");
+}
+
+/// The two ends of the credential join, on the two vendored specs that make
+/// it: a value a pairing flow mints, and a value only a person can supply.
+///
+/// The coupling is the NAME and nothing else — `issues_credentials` keys its
+/// entries by the same spelling a `credential:<name>` parameter refers to —
+/// which is what lets a client pair, store, and fill a later request with no
+/// per-device table in between. This pins that the join actually happens over
+/// the vendored files rather than only over a fixture.
+#[test]
+fn a_vendored_credential_joins_its_flow_to_its_consumers() {
+    use liberated_bread_core::api::device_api::credentials_for_device;
+
+    // Hue: the link-button flow issues `username`, and every later request
+    // embeds it. Nothing should ask a person for it.
+    let yaml = fs::read_to_string(spec_path("hue-bridge.yaml")).expect("spec reads");
+    let hue = credentials_for_device(yaml).expect("hue resolves its credentials");
+    let username = hue
+        .iter()
+        .find(|c| c.name == "username")
+        .expect("the bridge names a username credential");
+    let issued = username
+        .issued_by
+        .as_ref()
+        .expect("the link-button flow issues it");
+    assert_eq!(issued.method, "button_pairing");
+    assert!(!username.needed_by.is_empty(), "requests embed it");
+    assert!(
+        !username.must_be_asked_for,
+        "a pairing mints it; prompting teaches people to paste what a button \
+         press was about to hand over"
+    );
+
+    // Bambu: the serial is read off the printer's own touchscreen, and no
+    // setup method in the spec can mint it. This is the ask-for case, and the
+    // spec's own sentence is what a client shows.
+    let yaml = fs::read_to_string(spec_path("bambu-lab-lan.yaml")).expect("spec reads");
+    let bambu = credentials_for_device(yaml).expect("bambu resolves its credentials");
+    let serial = bambu
+        .iter()
+        .find(|c| c.name == "serial")
+        .expect("the printer names a serial credential");
+    assert!(serial.issued_by.is_none());
+    assert!(serial.must_be_asked_for);
+    assert!(
+        serial
+            .description
+            .as_deref()
+            .is_some_and(|d| d.contains("touchscreen")),
+        "the prompt's words are the spec's: {:?}",
+        serial.description
+    );
+    assert_eq!(
+        serial.needed_by,
+        vec!["pause", "pushall", "resume", "stop"],
+        "every command publishes to a topic the serial addresses"
     );
 }
 
@@ -1545,4 +2089,580 @@ fn the_vendored_lg_spec_renders_both_of_its_channels() {
     .expect("a button renders");
     assert_eq!(button.channel, "pointer");
     assert_eq!(button.text, "type:button\nname:HOME\n\n");
+}
+
+/// Every resolved action reports the transport the SPEC says it rides —
+/// its own `transport:`, else the device's, else SOAP.
+///
+/// The invariant that was missing, and the reason seventy commands across the
+/// two WebSocket TV specs spent a release labelled `soap`. Both sets declare
+/// `device.transport: websocket` once and deliberately omit it on every
+/// command; the admission gate resolved that correctly while the DTO builder
+/// re-spelled `command.transport` on its own and fell through to the SOAP
+/// default. Two derivations of one rule, and only one of them was tested.
+///
+/// So this asserts the rule over the whole catalogue rather than over the spec
+/// that happened to break: any future spec written the same way, on any
+/// transport, is covered the day it lands.
+#[test]
+fn every_resolved_action_reports_the_transport_its_spec_declares() {
+    use liberated_bread_core::api::device_api::network_entities_for_device;
+
+    let mut checked = 0usize;
+    for path in vendored_yaml_paths() {
+        let text = fs::read_to_string(&path).expect("spec reads");
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let Ok(spec) = parse_device_spec(&text) else {
+            continue;
+        };
+        let Ok(surface) = network_entities_for_device(text, vec![]) else {
+            continue;
+        };
+        // Two handlers SYNTHESISE their surface from `features` rather than
+        // resolving it from the commands map — LIFX because its binary UDP
+        // frames are not spec commands at all, the Roomba because its readings
+        // are pushed and there is no poll to name. Their actions carry the
+        // handler's own transport on purpose, so the commands map is not the
+        // right thing to compare them against. Every other spec goes through
+        // the resolver this test exists to pin.
+        if matches!(
+            spec.protocol_handler.as_deref(),
+            Some("lifx_lan_udp") | Some("roomba_mqtt")
+        ) {
+            continue;
+        }
+        // The spec's own answer, derived here independently of the resolver.
+        let device_transport = spec
+            .device
+            .extensions
+            .get("transport")
+            .and_then(|t| t.as_str());
+
+        for entity in &surface.entities {
+            for action in &entity.actions {
+                // Only actions RESOLVED FROM A DECLARED COMMAND. LIFX's are
+                // synthesised from an entity's `features` rather than from the
+                // commands map, and carry the `lifx` transport on purpose so
+                // the UI dispatches them to the UDP client; there is no spec
+                // command to compare them against.
+                let Some(command) = spec.commands.get(&action.command_name) else {
+                    continue;
+                };
+                let declared = command
+                    .transport
+                    .as_deref()
+                    .or(device_transport)
+                    .unwrap_or("soap");
+                assert_eq!(
+                    action.transport, declared,
+                    "{file}: action {:?} on {:?} reports transport {:?}, but the spec \
+                     says {declared:?}. A consumer routes the send on this string.",
+                    action.command_name, entity.name, action.transport,
+                );
+                checked += 1;
+            }
+        }
+    }
+    // A silent zero would make the assertions above decorative.
+    assert!(
+        checked > 100,
+        "only {checked} actions resolved across the catalogue — this test is \
+         reading the wrong thing"
+    );
+}
+
+/// The two WebSocket sets resolve their remotes ON the websocket.
+///
+/// Named separately from the catalogue-wide invariant because these are the
+/// specs the invariant was written for, and a regression here should say
+/// "the TV remotes are broken" rather than "some spec somewhere disagrees".
+#[test]
+fn the_websocket_tv_remotes_report_the_websocket_transport() {
+    use liberated_bread_core::api::device_api::network_entities_for_device;
+
+    for file in ["samsung-tizen-tv.yaml", "lg-webos.yaml"] {
+        let text = fs::read_to_string(spec_path(file)).expect("spec reads");
+        let surface = network_entities_for_device(text, vec![]).expect("resolves a surface");
+        let actions: Vec<&str> = surface
+            .entities
+            .iter()
+            .flat_map(|e| e.actions.iter())
+            .map(|a| a.transport.as_str())
+            .collect();
+        assert!(
+            !actions.is_empty(),
+            "{file} resolves no actions at all — the remote is gone"
+        );
+        // `launch_app` on the Samsung genuinely declares http; everything else
+        // inherits the device's websocket. Nothing may say soap: neither set
+        // ships a UPnP service, and the SOAP arm is what blocked the screen.
+        assert!(
+            !actions.contains(&"soap"),
+            "{file}: {} of {} actions report soap",
+            actions.iter().filter(|t| **t == "soap").count(),
+            actions.len()
+        );
+        assert!(
+            actions.contains(&"websocket"),
+            "{file} resolves no websocket action"
+        );
+    }
+}
+
+/// `tcp-json` is admitted only for the handler that owns the framing.
+///
+/// The transport names a shape — JSON down a raw socket — that ten vendored
+/// specs share and four of them frame incompatibly. Admitting on the string
+/// alone gave Yeelight, Tuya, Roborock and the iKettle live controls whose
+/// every press shipped TP-Link's XOR-autokey cipher at a device speaking
+/// something else. A control that lies is worse than one that is missing, so
+/// they are declined and counted until their handler is registered.
+#[test]
+fn tcp_json_resolves_only_for_the_handler_that_owns_the_framing() {
+    use liberated_bread_core::api::device_api::network_entities_for_device;
+
+    let kasa = fs::read_to_string(spec_path("tplink-kasa-smart-plug.yaml")).expect("spec reads");
+    let surface = network_entities_for_device(kasa, vec![]).expect("kasa resolves a surface");
+    assert!(
+        surface
+            .entities
+            .iter()
+            .any(|e| e.actions.iter().any(|a| a.transport == "tcp-json")),
+        "the spec that declares tplink_smarthome must keep its controls"
+    );
+
+    // Every other tcp-json spec: no action may claim the transport, and the
+    // entity has to be COUNTED rather than quietly dropped.
+    for path in vendored_yaml_paths() {
+        let text = fs::read_to_string(&path).expect("spec reads");
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let Ok(spec) = parse_device_spec(&text) else {
+            continue;
+        };
+        if spec.protocol_handler.as_deref() == Some("tplink_smarthome") {
+            continue;
+        }
+        let declares_tcp_json = spec
+            .commands
+            .values()
+            .any(|c| c.transport.as_deref() == Some("tcp-json"))
+            || spec
+                .device
+                .extensions
+                .get("transport")
+                .and_then(|t| t.as_str())
+                == Some("tcp-json");
+        if !declares_tcp_json {
+            continue;
+        }
+        let Ok(surface) = network_entities_for_device(text, vec![]) else {
+            continue;
+        };
+        for entity in &surface.entities {
+            for action in &entity.actions {
+                assert_ne!(
+                    action.transport, "tcp-json",
+                    "{file}: {:?} resolved a tcp-json action ({:?}) without declaring \
+                     a handler that says how to frame it — it would be sent with \
+                     TP-Link's cipher",
+                    entity.name, action.command_name,
+                );
+            }
+        }
+    }
+
+    // The four the gate was written for, named so a regression reads as "the
+    // Yeelight is mis-sending again" rather than as an abstract invariant.
+    // Zero sendable actions each: every command they declare is tcp-json, and
+    // none of them says how it is framed. An entity that still names a
+    // `state_command` survives as a reading, which is the existing rule for a
+    // stateful entity that resolves no action and is not this test's business.
+    for file in [
+        "yeelight-cube-lamp.yaml",
+        "tuya-wifi-gas-sensor.yaml",
+        "roborock-local.yaml",
+        "smarter-ikettle.yaml",
+    ] {
+        let text = fs::read_to_string(spec_path(file)).expect("spec reads");
+        let surface = network_entities_for_device(text, vec![]).expect("resolves");
+        let actions: Vec<&str> = surface
+            .entities
+            .iter()
+            .flat_map(|e| e.actions.iter())
+            .map(|a| a.command_name.as_str())
+            .collect();
+        assert!(
+            actions.is_empty(),
+            "{file} still offers {actions:?} — these would be sent with TP-Link's cipher"
+        );
+    }
+}
+
+/// Every role a spec binds is a role the resolver knows.
+///
+/// `entities[].commands` is declared in the schema as a bare
+/// `{"type": "object"}`: any key is legal, and the resolver matches a closed
+/// alias table and passes over the rest without a word. So a spec can spell a
+/// role `set_rgb` where the table says `set_color`, and the control does not
+/// appear — no error, no hidden-entities line if the entity resolved something
+/// else, nothing. Ten role names across seven specs were in exactly that state.
+///
+/// This is the guard that makes the disagreement loud. It cannot decide which
+/// side is wrong — sometimes the spec has a typo, sometimes the app owes the
+/// catalogue a role — but it stops the answer being silence.
+#[test]
+fn every_role_the_catalogue_binds_is_one_the_resolver_knows() {
+    use liberated_bread_core::spec::bindings::known_role_aliases;
+
+    let mut unknown: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let text = fs::read_to_string(&path).expect("spec reads");
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let Ok(spec) = parse_device_spec(&text) else {
+            continue;
+        };
+        for entity in &spec.entities {
+            // Reading platforms have no roles by design; an entity with no
+            // platform at all is a sensor by the same default the panels use.
+            let Some(platform) = entity.platform.as_deref() else {
+                continue;
+            };
+            let known = known_role_aliases(platform);
+            if known.is_empty() {
+                // A platform the resolver has no roles for. Two very different
+                // things land here and the guard used to skip BOTH, which made
+                // it blind to the one drift case with no other symptom.
+                //
+                // A reading platform legitimately has no controls; the
+                // catalogue's own rule (upstream's
+                // `test_entity_roles_come_from_the_documented_vocabulary`) is
+                // that it may bind `poll` and nothing else. Anything else on a
+                // platform this resolver does not know — a typo, a platform
+                // added upstream and not here — is a binding that resolves to
+                // nothing, silently, on every device with that spec.
+                let stray: Vec<&str> = entity
+                    .commands
+                    .keys()
+                    .map(String::as_str)
+                    .filter(|role| *role != "poll")
+                    .collect();
+                if !stray.is_empty() {
+                    unknown.push(format!(
+                        "{file}: {:?} is on platform {platform:?}, which this                          resolver has no roles for at all, and binds {stray:?}",
+                        entity.name
+                    ));
+                }
+                continue;
+            }
+            for role in entity.commands.keys() {
+                if known.contains(&role.as_str()) {
+                    continue;
+                }
+                unknown.push(format!(
+                    "{file}: {:?} ({platform}) binds {role:?}, which no role on \
+                     that platform accepts — known: {known:?}",
+                    entity.name
+                ));
+            }
+        }
+    }
+    assert!(
+        unknown.is_empty(),
+        "roles bound by the catalogue that resolve to nothing:\n  {}",
+        unknown.join("\n  ")
+    );
+}
+
+/// The TLS policy a spec declares reaches the consumer that opens the socket.
+///
+/// `identification.tls` was parsed by nothing. Two specs — the Envoy and
+/// SmartCast, both `default_scheme: https` on a LAN address — ask for
+/// `trust_on_first_use`, and what they got was a client excusing any
+/// certificate from any host a caller had named. That is `none`'s behaviour
+/// applied to devices that asked to be pinned, and it looks identical to
+/// working right up until somebody is between you and the device.
+///
+/// Asserted over the whole catalogue rather than over the two: any spec that
+/// declares the block should have it carried, and the second half of the test
+/// is the half that would have caught the original bug — a scheme of `https`
+/// with no policy behind it is a device whose trust decision nobody made.
+#[test]
+fn a_declared_tls_policy_reaches_the_capabilities_dto() {
+    use liberated_bread_core::api::device_api::network_capabilities;
+
+    let mut declared = 0usize;
+    for path in vendored_yaml_paths() {
+        let text = fs::read_to_string(&path).expect("spec reads");
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let Ok(spec) = parse_device_spec(&text) else {
+            continue;
+        };
+        let Some(policy) = spec
+            .device
+            .identification
+            .as_ref()
+            .and_then(|i| i.tls.as_ref())
+        else {
+            continue;
+        };
+        declared += 1;
+
+        let caps = network_capabilities(text).expect("capabilities resolve");
+        assert_eq!(
+            caps.tls_verification, policy.verification,
+            "{file}: the spec states a TLS policy the consumer never sees"
+        );
+        assert_eq!(caps.tls_self_signed, policy.self_signed, "{file}");
+
+        // A LAN certificate that will never validate is exactly the case where
+        // a client has to be told what to do, so saying `self_signed` and
+        // nothing else leaves the decision where it was: invented downstream.
+        if policy.self_signed {
+            assert!(
+                policy.verification.is_some(),
+                "{file}: declares a self-signed certificate and no policy for \
+                 it, so every consumer invents one"
+            );
+        }
+    }
+    assert!(
+        declared >= 2,
+        "only {declared} spec(s) declare identification.tls — this test is \
+         reading the wrong place"
+    );
+}
+
+/// A bare web server on the LAN is not twenty-one smart devices.
+///
+/// `_http._tcp` is answered by every router admin page, NAS and printer web UI
+/// there is, and seventeen vendored specs mention it inside a discovery method.
+/// When the matcher started reading those methods, all seventeen began claiming
+/// every web server on the link at `Possible` — the same failure the absent
+/// port axis was removed for, arriving by a different door.
+///
+/// The rule that fixes it is not "never trust a shared type", because that
+/// would also throw away the specs that say WHICH one they mean: ESPHome
+/// narrows `_http._tcp` to nodes publishing a `config_hash` TXT record. So a
+/// shared type counts as evidence only where the spec narrowed it, and this
+/// pins both halves against the real catalogue.
+#[test]
+fn a_bare_shared_service_type_claims_nothing_in_the_catalogue() {
+    use liberated_bread_core::api::device_api::{
+        load_device_spec, match_network_device, NetworkDeviceDto, SpecIdentityDto,
+    };
+
+    let identities: Vec<SpecIdentityDto> = vendored_yaml_paths()
+        .into_iter()
+        .filter_map(|path| load_device_spec(fs::read_to_string(path).ok()?).ok())
+        .map(|spec| SpecIdentityDto::from(&spec))
+        .collect();
+    assert!(identities.len() > 100, "the catalogue did not load");
+
+    let bare = NetworkDeviceDto {
+        name: String::new(),
+        hostname: None,
+        service_types: vec!["_http._tcp.local.".into()],
+        ssdp_targets: Vec::new(),
+        answered_lan_protocols: Vec::new(),
+        txt: Default::default(),
+        port: Some(80),
+        mac: None,
+    };
+    let matches = match_network_device(identities.clone(), bare);
+    assert!(
+        matches.is_empty(),
+        "a host whose only signal is `_http._tcp` was claimed by {} spec(s): {:?}",
+        matches.len(),
+        matches.iter().map(|m| &m.device_name).collect::<Vec<_>>()
+    );
+
+    // The half that must keep working: the same host, publishing what ESPHome
+    // publishes, is an ESPHome node.
+    let node = NetworkDeviceDto {
+        name: String::new(),
+        hostname: None,
+        service_types: vec!["_http._tcp.local.".into()],
+        ssdp_targets: Vec::new(),
+        answered_lan_protocols: Vec::new(),
+        txt: std::collections::HashMap::from([
+            ("config_hash".to_string(), "0123abcd".to_string()),
+            ("version".to_string(), "2026.1.0".to_string()),
+        ]),
+        port: Some(80),
+        mac: None,
+    };
+    let named = match_network_device(identities, node);
+    assert!(
+        !named.is_empty(),
+        "a narrowed shared type must still name its device"
+    );
+}
+
+/// A BLE family spec narrows to the model in front of it.
+///
+/// `device.variants[]` had two axes, SSDP and a state probe, and a BLE device
+/// has neither — so a family spec narrowed to nothing and every model's
+/// entities came across at once. seeblue-motorcycle-led and
+/// leds2rave4-lunchbox-led each declare TWO lights with the SAME NAME speaking
+/// DIFFERENT command dialects, and the consumer's name dedupe kept whichever
+/// the spec declared first: a LEDGlowV2 driven with the Direct dialect's
+/// frames, silently and always.
+#[test]
+fn a_ble_family_spec_narrows_to_the_device_in_front_of_it() {
+    use liberated_bread_core::api::device_api::ble_variant_names_for_device;
+
+    let spec = |file: &str| fs::read_to_string(spec_path(file)).expect("spec reads");
+    let matched = |file: &str, name: &str, uuids: &[&str]| {
+        ble_variant_names_for_device(
+            spec(file),
+            name.to_string(),
+            uuids.iter().map(|u| u.to_string()).collect(),
+        )
+        .expect("narrowing resolves")
+    };
+
+    // Two dialects, told apart only by the advertised name. Exactly one
+    // variant survives, and it is the right one — which matters because the
+    // two ENTITIES share a name, so the variant is the only thing that
+    // distinguishes them.
+    assert_eq!(
+        matched("seeblue-motorcycle-led.yaml", "LEDGlowV2", &[]),
+        vec!["LEDGlow-V2"]
+    );
+    assert_eq!(
+        matched("seeblue-motorcycle-led.yaml", "LEDGlowMoto", &[]),
+        vec!["Direct"]
+    );
+
+    // The trap. SP110E declares ONLY service ffe0, which SP107E also carries
+    // alongside its name prefix — so a rule that merely required every
+    // DECLARED axis to match would hand an SP107E device both dialects again.
+    // The most specific match wins: two axes beat one.
+    const FFE0: &str = "0000ffe0-0000-1000-8000-00805f9b34fb";
+    assert_eq!(
+        matched("leds2rave4-lunchbox-led.yaml", "SP107e_ABC", &[FFE0]),
+        vec!["SP107E"],
+        "SP107E must not also claim SP110E"
+    );
+    assert_eq!(
+        matched("leds2rave4-lunchbox-led.yaml", "unnamed-strip", &[FFE0]),
+        vec!["SP110E"]
+    );
+
+    // A treadmill's verbs come from the service it actually carries.
+    const FTMS: &str = "00001826-0000-1000-8000-00805f9b34fb";
+    const FT: &str = "0000fff0-0000-1000-8000-00805f9b34fb";
+    assert_eq!(matched("urevo-walking-pad.yaml", "", &[FTMS]), vec!["FTMS"]);
+    assert_eq!(matched("urevo-walking-pad.yaml", "", &[FT]), vec!["FT"]);
+
+    // THE SPELLING THE APP ACTUALLY SENDS.
+    //
+    // Everything above hands over the full 128-bit form a spec is written in.
+    // Dart does not: `SpecMatchRequest.forServices` folds every discovered
+    // service through `normalizeUuid` first, so what crosses the FFI is
+    // `1826`, `ffe0`. Comparing that to the spec's raw string is false, so the
+    // service axis matched nothing, every variant was rejected for failing a
+    // declared axis, and the empty result read as "do not narrow" — the
+    // behaviour that shipped before any of this existed. Both features built
+    // on this narrowing were inert in the app for as long as this test only
+    // spoke the long form.
+    //
+    // So both spellings, on every spec that narrows by service. A test that
+    // agrees with the code instead of with its caller is worth nothing, and
+    // this is what that looks like when it happens.
+    for (spec_file, name, short, long, expected) in [
+        ("urevo-walking-pad.yaml", "", "1826", FTMS, "FTMS"),
+        ("urevo-walking-pad.yaml", "", "fff0", FT, "FT"),
+        ("kingsmith-walkingpad.yaml", "", "1826", FTMS, "FTMS"),
+        (
+            "kingsmith-walkingpad.yaml",
+            "",
+            "fe00",
+            "0000fe00-0000-1000-8000-00805f9b34fb",
+            "WiLink",
+        ),
+        (
+            "leds2rave4-lunchbox-led.yaml",
+            "unnamed-strip",
+            "ffe0",
+            FFE0,
+            "SP110E",
+        ),
+    ] {
+        assert_eq!(
+            matched(spec_file, name, &[short]),
+            vec![expected],
+            "{spec_file} must narrow on the short form Dart sends ({short})"
+        );
+        assert_eq!(
+            matched(spec_file, name, &[short]),
+            matched(spec_file, name, &[long]),
+            "{spec_file}: the two spellings of one UUID must agree"
+        );
+    }
+
+    // The negative that matters most: a device matching NO variant narrows to
+    // nothing, which the consumer reads as "show everything". Narrowing a
+    // device we cannot identify would blank it.
+    assert!(matched("urevo-walking-pad.yaml", "", &[]).is_empty());
+    assert!(matched("seeblue-motorcycle-led.yaml", "SomethingElse", &[]).is_empty());
+
+    // And the specs that narrow by service alone must still narrow: a real
+    // Airthings carries one family's services.
+    let airthings = parse_device_spec(&spec("airthings-wave-family.yaml")).expect("parses");
+    let variants = airthings
+        .device
+        .variants
+        .as_ref()
+        .and_then(|v| v.as_sequence())
+        .expect("airthings declares variants");
+    let first: Vec<&str> = variants
+        .iter()
+        .filter_map(|v| {
+            v.get("identification")?
+                .get("service_uuids")?
+                .as_sequence()?
+                .first()?
+                .as_str()
+        })
+        .take(1)
+        .collect();
+    assert!(
+        !first.is_empty(),
+        "airthings variants declare service uuids"
+    );
+    let one_model = matched("airthings-wave-family.yaml", "", &first);
+    assert_eq!(
+        one_model.len(),
+        1,
+        "one model's services identify one model: {one_model:?}"
+    );
+}
+
+/// Every entity that scopes itself to a variant carries that scoping across
+/// the FFI, or the consumer cannot apply the narrowing above.
+#[test]
+fn a_scoped_entity_carries_its_variants_across_the_ffi() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    let dto = load_device_spec(
+        fs::read_to_string(spec_path("seeblue-motorcycle-led.yaml")).expect("reads"),
+    )
+    .expect("parses");
+    let lights: Vec<&Vec<String>> = dto
+        .entities
+        .iter()
+        .filter(|e| e.name == "Motorcycle LEDs")
+        .map(|e| &e.variants)
+        .collect();
+    assert_eq!(
+        lights.len(),
+        2,
+        "both dialects still cross; narrowing picks"
+    );
+    assert_ne!(
+        lights[0], lights[1],
+        "the variants are the ONLY thing telling these two apart — they share a name"
+    );
+    assert!(lights.iter().all(|v| !v.is_empty()));
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod bindings;
+pub mod credentials;
 pub mod parser;
 pub mod setup;
 pub mod types;

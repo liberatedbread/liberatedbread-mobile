@@ -11,6 +11,13 @@ import 'ws_control_service.dart';
 import 'rabbit_air_control_service.dart';
 import 'soap_control_service.dart';
 import 'spec_codec.dart';
+import 'tls_trust.dart';
+
+/// Reads the credentials stored for one device, name → value.
+///
+/// Asked per send rather than captured once — see
+/// [NetworkCommandSender.credentials] for why that matters.
+typedef CredentialReader = Future<Map<String, String>> Function();
 
 /// Sends spec-resolved actions to one network device, over whichever of the
 /// six transports each action declares — the send half of what
@@ -33,6 +40,13 @@ import 'spec_codec.dart';
 /// first where there is one, plain ECP otherwise.
 class NetworkCommandSender {
   final String host;
+
+  /// The device's hardware address, when discovery recovered one.
+  ///
+  /// Used for one thing: keying the certificate pin to something that is not
+  /// a DHCP lease. Null for a device that published none, which falls back to
+  /// the host and says so in the key.
+  final String? deviceMac;
 
   /// The SOAP/HTTP control port discovery established. Null for a device
   /// that advertised none — Kasa and Rabbit Air sends still work (their
@@ -79,15 +93,44 @@ class NetworkCommandSender {
   /// Opens the WebSocket. Injected so a test answers from canned frames.
   final WsConnect? _wsConnect;
 
-  /// Values for the `credential:`-sourced parameters a spec's MQTT commands
-  /// declare — the client id the session connects under, and whatever login
-  /// the broker wants. Empty when the device has not been paired: the render
-  /// then fails by name, which is the honest answer, rather than publishing
-  /// to a half-addressed topic.
-  final Map<String, String> mqttCredentials;
+  /// Values for the `credential:`-sourced parameters this spec declares,
+  /// name → value, as [DeviceCredentialStore] holds them.
+  ///
+  /// Spec-named throughout: `serial` on a Bambu printer, `username` on a Hue
+  /// bridge, `client_id` on a Hisense set. Empty when the device has not been
+  /// paired or told, and the render then fails BY NAME — which is the honest
+  /// answer, rather than putting a request with a brace in it on the wire.
+  ///
+  /// One map for every transport, not a per-transport one. This was
+  /// `mqttCredentials` and applied to exactly the MQTT send, so a `credential:`
+  /// parameter on any of the four other transports silently had nothing to
+  /// fill it — the same one-path-treated-and-not-its-siblings bug this file
+  /// has now been bitten by three times.
+  ///
+  /// The MQTT session's own login rides here too, under the names the broker
+  /// wants (`client_id`, `username`, `password`). Those are not `credential:`
+  /// parameters of any command, but they are the same kind of thing — a value
+  /// a client was given for one device — and giving them a second store would
+  /// mean two places to forget when a device is removed.
+  ///
+  /// A reader rather than a map because the answer CHANGES while this sender
+  /// lives: a person types the serial off their printer's touchscreen and the
+  /// very next press has to use it. A map captured at construction would make
+  /// that press fail on a value the app is already holding, and the screen
+  /// would have to rebuild its sender — dropping the signed session and the
+  /// broker connection with it — to pick the value up.
+  ///
+  /// Handed over by [useCredentials] rather than taken at construction,
+  /// because whether this device needs any is the SPEC's answer and reading
+  /// the spec is asynchronous. Absent — the case for all but a handful of the
+  /// catalogue — means the store is never opened at all, which is the point:
+  /// a device that names no credential must not touch the platform keychain
+  /// on every send.
+  CredentialReader? _credentials;
 
   NetworkCommandSender({
     required this.host,
+    this.deviceMac,
     required this.discoveredControlPort,
     required this.devicePort,
     required this.ssdpTargets,
@@ -100,7 +143,6 @@ class NetworkCommandSender {
     required RabbitAirControlClient rabbitAir,
     required Ecp2ControlService ecp2,
     MqttConnect? mqttConnect,
-    this.mqttCredentials = const {},
     this.wsCredential,
     this.onWsCredential,
     WsConnect? wsConnect,
@@ -112,6 +154,87 @@ class NetworkCommandSender {
         _kasa = kasa,
         _rabbitAir = rabbitAir,
         _ecp2Service = ecp2;
+
+  /// The credentials read from the store, held once read.
+  ///
+  /// Memoized because the callers are a four-second state poll and every
+  /// button press, and the store is the platform keychain — asking it per
+  /// poll is a lot of keychain traffic for an answer that changes when a
+  /// person types something and at no other time. [refreshCredentials] is
+  /// that moment.
+  Future<Map<String, String>>? _credentialsRead;
+
+  /// The stored credentials, or an empty map when this sender was built
+  /// without a reader (a fixture, a device whose spec names none).
+  ///
+  /// A store that cannot be read means "nothing stored", not a failed send.
+  /// The keychain being briefly unreadable must not break a device that needs
+  /// no credential at all — which is most of the catalogue — and one that does
+  /// still fails visibly, by name, at the render.
+  Future<Map<String, String>> _storedCredentials() {
+    final reader = _credentials;
+    if (reader == null) return Future.value(const {});
+    // NOT latched on failure. `catchError` returns a future that COMPLETES
+    // successfully with the empty map, so memoizing it cached the failure: one
+    // PlatformException from a locked keystore and every later send from this
+    // sender rendered with no credentials, failing forever while the card
+    // showed the value as held. The memo is cleared in the handler, the way
+    // `_tlsReady`'s sibling does, so the next send asks again.
+    return _credentialsRead ??= reader().catchError((Object e) {
+      Log.net.debug('credential store unreadable for $host: $e');
+      _credentialsRead = null;
+      return const <String, String>{};
+    });
+  }
+
+  /// The values a render would be given, for a caller that has to decide
+  /// whether an action is sendable BEFORE trying it — the screen asking what
+  /// it still has to ask a person for.
+  Future<Map<String, String>> currentCredentials() => _storedCredentials();
+
+  /// The value for one of a command's parameters, resolved the way a renderer
+  /// resolves it: the caller's own first, then the stored credential the
+  /// action says fills it, then a credential of that literal name.
+  ///
+  /// Exists because the MQTT session needs two of them (`client_id`, and
+  /// whatever login the broker wants) BEFORE it has a rendered request to read
+  /// them out of, and the mapping between a parameter and the credential that
+  /// fills it lives in the spec — carried here as `action.credentials`, the
+  /// `{param, name}` pairs Rust parsed out of `source:`.
+  static String? _credentialFor(
+    NetworkActionDto action,
+    String param,
+    Map<String, String> credentials,
+    Map<String, String> values,
+  ) {
+    final supplied = values[param];
+    if (supplied != null && supplied.isNotEmpty) return supplied;
+    for (final declared in action.credentials) {
+      if (declared.param != param) continue;
+      final stored = credentials[declared.name];
+      if (stored != null && stored.isNotEmpty) return stored;
+    }
+    // A spec that names the credential exactly as the parameter (Hue's
+    // `username`) needs no mapping, and a broker login that is not a command
+    // parameter at all has none to find.
+    return credentials[param];
+  }
+
+  /// Forget what was read, so the next send asks the store again. Called when
+  /// a person supplies a credential: the value that was missing is now held,
+  /// and the very next press has to use it.
+  void refreshCredentials() => _credentialsRead = null;
+
+  /// Give this sender the store to read its device's credentials from.
+  ///
+  /// Called once the caller knows the spec declares any — which it learns
+  /// asynchronously, after this sender was built. Idempotent, and calling it
+  /// again with a new reader drops what the old one had been read to say.
+  void useCredentials(CredentialReader reader) {
+    if (identical(_credentials, reader)) return;
+    _credentials = reader;
+    _credentialsRead = null;
+  }
 
   /// The Kasa transport constant, matched as a bare string exactly as
   /// `'http'` is — one spec's actions are all one transport.
@@ -137,14 +260,29 @@ class NetworkCommandSender {
   /// discovery-string guess.
   bool get isRoku => capabilities?.signedSession == 'ecp2';
 
-  /// The port a control request goes to. A device whose spec declares a
-  /// control port is pinned to it — Roku serves /keypress, /query, /launch
-  /// and /ecp-session only on its declared 8060, whatever port the SSDP
-  /// LOCATION carried (a field TV advertised 7250). Every other device uses
-  /// the port discovery captured.
-  int? get controlPort => isRoku
+  /// The port a control request goes to.
+  ///
+  /// Discovery wins, because a device that told us where it is knows better
+  /// than a catalogue default — unless the SPEC says its announcement lies.
+  /// `identification.advertised_port_unreliable` is that statement, and two
+  /// devices make it: a Roku serves /keypress, /query, /launch and
+  /// /ecp-session only on 8060 whatever its SSDP LOCATION carried (a field TV
+  /// advertised 7250), and the Envoy's mDNS answer still says 80 while
+  /// firmware 8.x serves the API only over HTTPS on 443 and refuses 80
+  /// outright.
+  ///
+  /// This used to read `isRoku ? spec : discovered`, which got the Roku right
+  /// and left the Envoy connecting to a port that refuses connections — the
+  /// one HTTPS device the TLS work above exists for. The difference between
+  /// them was never "is this a Roku"; it is a fact about the announcement,
+  /// and it belongs to the spec.
+  ///
+  /// Either way the spec's port is the fallback when discovery captured none:
+  /// 67 specs declare one, and a device added by hand used to fail every send
+  /// with "did not advertise a control port" while its spec said which.
+  int? get controlPort => (capabilities?.advertisedPortUnreliable ?? false)
       ? (capabilities?.defaultPort ?? discoveredControlPort)
-      : discoveredControlPort;
+      : (discoveredControlPort ?? capabilities?.defaultPort);
 
   int get _kasaHostPort => devicePort ?? kasaPort;
 
@@ -157,6 +295,9 @@ class NetworkCommandSender {
   Ecp2Session? _ecp2;
   Future<Ecp2Session?>? _ecp2Opening;
   bool _ecp2Unavailable = false;
+
+  /// The one-time TLS policy handover to the HTTP client, memoized.
+  Future<void>? _tlsReady;
 
   /// The MQTT session, for a device whose control surface rides one, and the
   /// connect in flight that every concurrent send waits on.
@@ -175,6 +316,22 @@ class NetworkCommandSender {
   /// Release the signed session, if one was opened. Safe to call twice.
   Future<void> close() async {
     _closed = true;
+    // The HTTP client outlives this sender — it is a Provider, shared by every
+    // surface — so what this sender taught it about this host has to go back
+    // with the sender. Otherwise both its maps grow for the life of the
+    // process, and a host stays on the blanket-trust fallback list forever on
+    // the strength of one request made once.
+    //
+    // Only if this sender REGISTERED, which `_tlsReady` is the record of. The
+    // client refcounts registrations per host, and forgetting unconditionally
+    // decremented a count this sender had never incremented: a second sender
+    // on the same host that never made an https send would, on close, drop a
+    // live sender's pinned policy to zero and remove it. That sender's own
+    // registration is memoized here, so it never re-registered, and its next
+    // request fell through to blanket trust — an impostor accepted on a device
+    // that was correctly pinned a moment earlier.
+    if (_tlsReady != null) _http.forgetHost(host);
+    _tlsReady = null;
     final session = _ecp2;
     _ecp2 = null;
     _ecp2Opening = null;
@@ -213,10 +370,24 @@ class NetworkCommandSender {
   /// action, whose every exchange is encrypted under the per-device key.
   Future<void> sendAction(
     NetworkActionDto action,
-    Map<String, String> values, {
+    Map<String, String> rawValues, {
     SoapDeviceDescription? description,
     String? rabbitAirKey,
   }) async {
+    // Merged once, here, so every transport's renderer sees the same values.
+    // The caller's own first: a spec that names a parameter the caller also
+    // set means the caller (a read-back value the send just fetched is more
+    // current than anything a store holds).
+    //
+    // Keyed by the CREDENTIAL's name, which is usually not the parameter's:
+    // Frigidaire's `applianceId` is sourced from `credential:appliance_id`.
+    // The remap is Rust's (`protocol::resolve_parameter`), because the spec
+    // states the correspondence and doing it here would mean this side parsing
+    // `source:` strings the renderers already understand.
+    final values = <String, String>{
+      ...await _storedCredentials(),
+      ...rawValues
+    };
     switch (action.transport) {
       case 'http':
         await _sendHttp(action, values);
@@ -260,9 +431,9 @@ class NetworkCommandSender {
       commandName: action.commandName,
       // The user's values first, then the stored credentials — a spec that
       // names a parameter the caller also set means the caller.
-      values: {...mqttCredentials, ...values},
+      values: values,
     );
-    final session = await _openMqtt();
+    final session = await _openMqtt(action, values);
     await session.publish(request.topic, request.payload);
   }
 
@@ -271,7 +442,8 @@ class NetworkCommandSender {
   /// Unlike the ECP2 session there is no fallback path: a device whose control
   /// surface is MQTT has no second way in, so a failure to connect is the
   /// caller's to report rather than something to latch and route around.
-  Future<MqttSession> _openMqtt() {
+  Future<MqttSession> _openMqtt(
+      NetworkActionDto action, Map<String, String> values) {
     final existing = _mqtt;
     if (existing != null && existing.isConnected) return Future.value(existing);
     // One connect in flight, shared by every caller waiting on it. MQTT is an
@@ -280,12 +452,13 @@ class NetworkCommandSender {
     // the second overwriting the first's handle so its socket never closes —
     // and on a broker that serves one client at a time, the second CONNECT
     // evicts the first. The ECP2 path guards the same way for the same reason.
-    return _mqttOpening ??= _connectMqtt().whenComplete(() {
+    return _mqttOpening ??= _connectMqtt(action, values).whenComplete(() {
       _mqttOpening = null;
     });
   }
 
-  Future<MqttSession> _connectMqtt() async {
+  Future<MqttSession> _connectMqtt(
+      NetworkActionDto action, Map<String, String> values) async {
     if (_closed) {
       throw const MqttConnectionException('This device screen has closed.');
     }
@@ -294,7 +467,15 @@ class NetworkCommandSender {
       throw const MqttConnectionException(
           'the device did not advertise a broker port');
     }
-    final clientId = mqttCredentials['client_id'];
+    final credentials = await _storedCredentials();
+    // The session must connect under the very id its topics are addressed to,
+    // so the id is read the way the topic reads it: through the action's own
+    // declared `credential:` mapping. Asking the store for `client_id`
+    // directly is what this used to do, and on the one set in the catalogue
+    // that pairs, the credential is named `mqtt_client_id` — so the lookup
+    // always missed and every send reported the device as unpaired moments
+    // after the user typed exactly what the card asked for.
+    final clientId = _credentialFor(action, 'client_id', credentials, values);
     if (clientId == null || clientId.isEmpty) {
       // Every topic is addressed to it, so there is no useful session without
       // one. Named rather than improvised: a generated id would connect and
@@ -319,8 +500,8 @@ class NetworkCommandSender {
       host,
       port,
       clientId: clientId,
-      username: mqttCredentials['username'],
-      password: mqttCredentials['password'],
+      username: _credentialFor(action, 'username', credentials, values),
+      password: _credentialFor(action, 'password', credentials, values),
     );
     // Published only once it is authenticated, and only if the screen is still
     // open: close() ran while this was in flight would have seen a null _mqtt
@@ -412,6 +593,36 @@ class NetworkCommandSender {
         // fallback stays cheap and the keyboard watch keeps owning the session.
       }
     }
+    // The device's own TLS policy, before the first handshake. Once per
+    // sender: the pin has to be in the client's hand synchronously when
+    // `badCertificateCallback` fires, and reading the store on every send
+    // would be work for an answer that cannot change.
+    // Keyed through the shared rule, because the forget-device flow has to
+    // compute the same string to erase what this writes. Neither spec that
+    // asks to be pinned declares a `protocol_handler`, so the earlier
+    // expression resolved to a bare `device@<ip>` for both of them — the
+    // DHCP-lease keying its own comment said it was avoiding.
+    final identity = identityFor(mac: deviceMac, host: host);
+    // Memoized so the pin is read once, but NOT latched on failure: the read
+    // goes to the platform keychain, and one PlatformException (a locked
+    // keystore on a backgrounded app, a missing keyring on desktop) would
+    // otherwise complete this future with an error that every later send on
+    // this sender awaits and rethrows — every button on the screen dead over a
+    // storage blip. `_policies[host]` is written before the read anyway, so
+    // the send can proceed. Same shape as `_ecp2Opening` below, which clears
+    // itself in both arms.
+    _tlsReady ??= _http
+        .useTlsPolicy(
+      host: host,
+      identity: identity,
+      policy: TlsPolicy.parse(capabilities?.tlsVerification),
+    )
+        .catchError((Object e) {
+      Log.net.warning('could not load the certificate pin for $host', error: e);
+      _tlsReady = null;
+    });
+    await _tlsReady;
+
     final port = controlPort;
     if (port == null) {
       // The same wording the screen's load path raises for a portless

@@ -689,7 +689,15 @@ services:
             verification: "confirmed"
             observed: true
             fixed_length: 20
-            template: [0x33, 0x01, "{first}", "{last}"]
+            # The nine pad bytes and the checksum are LISTED, not left to
+            # `fixed_length`: a consumer that pads a short frame pads at the
+            # END, which would bury the checksum at byte 10 and leave byte 19
+            # zero. `packet_layout` below has always said where they go; the
+            # template now says it in the form an encoder reads. Same shape as
+            # the H5080 plug's `authenticate`.
+            template: [0x33, 0x01, "{first}", "{last}",
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       "{checksum}"]
             packet_layout:
               "0": "0x33, set prefix"
               "1": "0x01, history request"
@@ -710,6 +718,11 @@ services:
                 endianness: "little"
                 default: 0
                 notes: "No effect that survived repetition across the trials."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
 
       - uuid: "494e5445-4c4c-495f-524f-434b535f2013"
         name: "History Download Response"

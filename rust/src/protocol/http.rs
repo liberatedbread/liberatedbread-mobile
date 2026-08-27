@@ -258,15 +258,7 @@ fn resolve_param(
     param: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    if let Some(value) = values.get(param) {
-        return Ok(value.clone());
-    }
-    command
-        .parameters
-        .get(param)
-        .and_then(|p| p.default.as_ref())
-        .and_then(scalar_to_string)
-        .ok_or_else(|| ProtocolError::ParameterMissing(format!("{command_name}.{param}")))
+    crate::protocol::resolve_parameter(command, command_name, param, values)
 }
 
 /// The request an `http_endpoints` entry describes: its method and path.
@@ -291,11 +283,107 @@ pub fn endpoint_request(spec: &DeviceSpec, name: &str) -> Option<(String, String
     Some((method.to_string(), path.to_string()))
 }
 
+/// The value the spec itself declares for a placeholder that has no owning
+/// command — the one inside a bare path.
+///
+/// A `state_topic` is a LOCATION, not a name, so there is no command whose
+/// `parameters` block a `{placeholder}` in it could be read from. The spec
+/// still declares what the name means: Philips writes `api_version` with
+/// `default: '6'` on all fifty-four of its commands, and the state path
+/// `/{api_version}/powerstate` means that same version. So the answer is read
+/// from the spec's own parameter declarations, by name.
+///
+/// This is only sound because a name means one thing per spec: no spec in the
+/// catalogue declares one parameter name with two different defaults, which
+/// `a_parameter_name_means_one_thing_within_a_spec` pins. If that stops being
+/// true the resolution has to become a per-command question again, and the
+/// guard is what says so rather than a silently wrong path.
+pub fn spec_wide_default(spec: &DeviceSpec, param: &str) -> Option<String> {
+    spec.commands
+        .values()
+        .filter_map(|command| command.parameters.get(param))
+        .find_map(|p| p.default.as_ref().and_then(scalar_to_string))
+}
+
+/// The credential a placeholder is sourced from, read across the spec by name.
+///
+/// The sibling of [`spec_wide_default`] and needed for the same reason: a bare
+/// `state_topic` has no owning command, so a `{applianceId}` in one has nothing
+/// to read a `source:` off. The spec still says what the name means — every
+/// Frigidaire command declares `applianceId: {source: credential:appliance_id}`
+/// — and a stored credential is filed under the CREDENTIAL's name, so without
+/// this the read fails on a value the app is holding.
+///
+/// Sound for the same reason and pinned by the same guard: a parameter name
+/// means one thing within a spec.
+pub fn spec_wide_credential<'a>(spec: &'a DeviceSpec, param: &str) -> Option<&'a str> {
+    spec.commands
+        .values()
+        .filter_map(|command| command.parameters.get(param))
+        .filter_map(|p| p.source.as_deref())
+        .find_map(|source| source.strip_prefix("credential:"))
+        .filter(|name| !name.is_empty())
+}
+
+/// Fill the `{...}` placeholders in a path from `values`, then from what the
+/// spec declares the name means.
+///
+/// `label` names the thing being rendered in the failure — a command name, or
+/// the path itself for a bare `state_topic` — so a missing placeholder says
+/// which read could not be issued.
+pub fn fill_path(
+    spec: &DeviceSpec,
+    path: &str,
+    values: &BTreeMap<String, String>,
+    label: &str,
+) -> Result<String, ProtocolError> {
+    let mut out = String::with_capacity(path.len());
+    let mut rest = path;
+    while let Some(start) = rest.find('{') {
+        let (literal, tail) = rest.split_at(start);
+        out.push_str(literal);
+        let Some(end) = tail.find('}') else {
+            // An unclosed brace is the spec author's literal; emit as written.
+            out.push_str(tail);
+            rest = "";
+            break;
+        };
+        let param = &tail[1..end];
+        let value = values
+            .get(param)
+            .cloned()
+            // A stored credential is filed under the credential's name, which
+            // is usually NOT the placeholder's — see [`spec_wide_credential`].
+            .or_else(|| {
+                spec_wide_credential(spec, param).and_then(|name| values.get(name).cloned())
+            })
+            .or_else(|| spec_wide_default(spec, param))
+            .ok_or_else(|| ProtocolError::ParameterMissing(format!("{label}.{param}")))?;
+        out.push_str(&percent_encode(&value));
+        rest = &tail[end + 1..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// Whether every placeholder in `path` can be filled from the spec ALONE — no
+/// stored credential, no instance id, nothing a caller has to supply.
+///
+/// This is the admission question for a `state_topic` that names a path: an
+/// entity whose reading can never be requested is the dead control the surface
+/// rule exists to keep off screen. The Hue bridge's `/api/{username}/sensors/
+/// {id}` is exactly that today — a credential this app does not yet store and
+/// a child id nothing enumerates — so it stays off, and the screen counts it
+/// among the controls it is honest about not drawing.
+pub fn path_renderable_from_spec(spec: &DeviceSpec, path: &str) -> bool {
+    fill_path(spec, path, &BTreeMap::new(), path).is_ok()
+}
+
 /// Render the request that reads a state command's values over HTTP — on an
 /// instanced entity, the one GET that enumerates every child and carries all
 /// their state.
 ///
-/// Two vocabularies can name the poll, tried in order. A hub's state command
+/// Three vocabularies can name the poll, tried in order. A hub's state command
 /// names an `http_endpoints` catalogue entry (the Hue bridge's `Lights`), its
 /// path placeholders filled from `values` — a placeholder with no value fails
 /// the render, the same fail-visibly rule a command's `source` gets, because
@@ -304,43 +392,38 @@ pub fn endpoint_request(spec: &DeviceSpec, name: &str) -> Option<(String, String
 /// `get_production_v1`), which renders exactly as it would for a send —
 /// including the transport check, so a SOAP command handed here is still
 /// declined.
+///
+/// The third is a bare path, which is what an entity's `state_topic` holds on
+/// a device that answers over HTTP: `/json/state` on a WLED controller,
+/// `/query/active-app` on a Roku. It names no command because there is none to
+/// name — the reading is a resource, and reading a resource is a GET of it.
+/// See [`crate::spec::bindings::state_binding`], which is what decides that a
+/// given `state_topic` means this rather than an MQTT subscription.
 pub fn render_state_request(
     spec: &DeviceSpec,
     state_command: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<HttpRequest, ProtocolError> {
-    let Some((method, path)) = endpoint_request(spec, state_command) else {
-        let command =
-            spec.commands
-                .get(state_command)
-                .ok_or_else(|| ProtocolError::CommandNotFound {
-                    uuid: "http_endpoints".to_string(),
-                    command: state_command.to_string(),
-                })?;
-        return render_command(state_command, command, values);
-    };
-    let mut out = String::with_capacity(path.len());
-    let mut rest = path.as_str();
-    while let Some(start) = rest.find('{') {
-        let (literal, tail) = rest.split_at(start);
-        out.push_str(literal);
-        let Some(end) = tail.find('}') else {
-            out.push_str(tail);
-            rest = "";
-            break;
-        };
-        let param = &tail[1..end];
-        let value = values
-            .get(param)
-            .ok_or_else(|| ProtocolError::ParameterMissing(format!("{state_command}.{param}")))?;
-        out.push_str(&percent_encode(value));
-        rest = &tail[end + 1..];
+    if let Some((method, path)) = endpoint_request(spec, state_command) {
+        return Ok(HttpRequest {
+            method,
+            path: fill_path(spec, &path, values, state_command)?,
+            body: String::new(),
+        });
     }
-    out.push_str(rest);
-    Ok(HttpRequest {
-        method,
-        path: out,
-        body: String::new(),
+    if let Some(command) = spec.commands.get(state_command) {
+        return render_command(state_command, command, values);
+    }
+    if state_command.starts_with('/') {
+        return Ok(HttpRequest {
+            method: "GET".to_string(),
+            path: fill_path(spec, state_command, values, state_command)?,
+            body: String::new(),
+        });
+    }
+    Err(ProtocolError::CommandNotFound {
+        uuid: "http_endpoints".to_string(),
+        command: state_command.to_string(),
     })
 }
 
@@ -618,6 +701,16 @@ commands:
     transport: "http"
     method: "GET"
     path: "/api/v1/summary"
+  press_standby:
+    description: "A versioned path — the Philips shape, where the version is
+      declared on every command and a bare state path names the same one."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    parameters:
+      api_version:
+        type: "string"
+        default: "6"
 "#;
 
     fn spec() -> DeviceSpec {
@@ -901,6 +994,81 @@ entities:
 
         let err = render_state_request(&spec(), "no_such_command", &values(&[])).unwrap_err();
         assert!(err.to_string().contains("no_such_command"));
+    }
+
+    #[test]
+    fn a_bare_path_renders_as_the_get_it_is() {
+        // What an entity's `state_topic` holds on a device that answers over
+        // HTTP. It names no command because there is none to name.
+        let request = render_state_request(&spec(), "/json/state", &values(&[])).unwrap();
+        assert_eq!(
+            (request.method.as_str(), request.path.as_str()),
+            ("GET", "/json/state")
+        );
+        assert!(request.body.is_empty());
+    }
+
+    #[test]
+    fn a_bare_path_is_the_last_resort_not_the_first() {
+        // A name that is BOTH an endpoint and path-shaped resolves as the
+        // endpoint: the declared vocabularies come first, and the bare-path
+        // branch only catches what neither claimed. Otherwise an
+        // `http_endpoints` entry whose name began with a slash would quietly
+        // lose its declared method.
+        let mut spec = hub();
+        if let Some(endpoints) = spec
+            .extensions
+            .get_mut("http_endpoints")
+            .and_then(|e| e.as_sequence_mut())
+        {
+            endpoints
+                .push(serde_yaml::from_str("name: /probe\nmethod: POST\npath: /real").unwrap());
+        }
+        let request = render_state_request(&spec, "/probe", &values(&[])).unwrap();
+        assert_eq!(
+            (request.method.as_str(), request.path.as_str()),
+            ("POST", "/real")
+        );
+    }
+
+    #[test]
+    fn a_path_placeholder_falls_back_to_what_the_spec_says_the_name_means() {
+        // The Philips case: `/{api_version}/powerstate` has no owning command
+        // to read a default from, and the spec declares `api_version` on its
+        // commands. A caller's own value still wins.
+        assert_eq!(
+            spec_wide_default(&spec(), "api_version").as_deref(),
+            Some("6")
+        );
+        let request = render_state_request(&spec(), "/{api_version}/powerstate", &values(&[]))
+            .expect("the spec's own declaration fills it");
+        assert_eq!(request.path, "/6/powerstate");
+
+        let request = render_state_request(
+            &spec(),
+            "/{api_version}/powerstate",
+            &values(&[("api_version", "1")]),
+        )
+        .unwrap();
+        assert_eq!(request.path, "/1/powerstate");
+
+        // A placeholder the spec never declares fails visibly, naming the path
+        // that could not be issued rather than sending one with a brace in it.
+        let err =
+            render_state_request(&spec(), "/api/{username}/sensors", &values(&[])).unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::ParameterMissing(name)
+                if name == "/api/{username}/sensors.username"),
+            "unexpected error: {err}"
+        );
+        assert!(!path_renderable_from_spec(
+            &spec(),
+            "/api/{username}/sensors"
+        ));
+        assert!(path_renderable_from_spec(
+            &spec(),
+            "/{api_version}/powerstate"
+        ));
     }
 
     #[test]

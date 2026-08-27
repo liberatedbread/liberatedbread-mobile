@@ -45,20 +45,20 @@ EntityDto _entity(
   String? unit,
 }) =>
     EntityDto(
-      options: const [],
-      name: name,
-      platform: platform,
-      deviceClass: deviceClass,
-      stateCharacteristic: stateCharacteristic,
-      canNotify: false,
-      hasFormat: hasFormat,
-      valueField: valueField,
-      valueScale: valueScale,
-      precision: precision,
-      unit: unit,
-      onWhenNonzero: false,
-      actions: actions,
-    );
+        options: const [],
+        name: name,
+        platform: platform,
+        deviceClass: deviceClass,
+        stateCharacteristic: stateCharacteristic,
+        canNotify: false,
+        hasFormat: hasFormat,
+        valueField: valueField,
+        valueScale: valueScale,
+        precision: precision,
+        unit: unit,
+        onWhenNonzero: false,
+        actions: actions,
+        variants: const []);
 
 DeviceSpecDto _spec({
   List<EntityDto> entities = const [],
@@ -66,7 +66,7 @@ DeviceSpecDto _spec({
 }) =>
     DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Test Device',
@@ -78,6 +78,7 @@ DeviceSpecDto _spec({
       serviceUuids: const [_svc],
       companyIds: Uint16List(0),
       macPrefixes: const [],
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       services: services,

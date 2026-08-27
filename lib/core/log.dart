@@ -119,6 +119,46 @@ class Logger {
   void error(String message, {Object? error, StackTrace? stackTrace}) =>
       _emit(LogLevel.error, message, error: error, stackTrace: stackTrace);
 
+  /// Whether a call at [level] would be emitted for this category right now.
+  ///
+  /// For the one case the level check cannot cover: a message whose *argument*
+  /// is expensive to compute (a hex dump of a notify payload, a JSON re-encode
+  /// for readability). The threshold below suppresses the emit, not the
+  /// interpolation the caller already did, so a caller doing real work to build
+  /// a string should ask first.
+  bool isEnabled(LogLevel level) =>
+      level.index >= Log.effectiveLevelFor(category).index;
+
+  /// Run [body], and log how long it took.
+  ///
+  /// The pattern this replaces is hand-rolled in the adoption service and
+  /// nowhere else, which is the problem: "how long did the probe take" is the
+  /// first question about every network exchange in this app and only one of
+  /// them can answer it. A failure is logged too, at [LogLevel.warning] with
+  /// its elapsed time, and then rethrown — the caller's error handling is
+  /// unchanged, and the timing line is not lost to the throw.
+  ///
+  /// The clock starts before [body] is called and stops when its future
+  /// completes, so it measures what a person waited for rather than what the
+  /// CPU did.
+  Future<T> timed<T>(
+    String what,
+    Future<T> Function() body, {
+    LogLevel level = LogLevel.debug,
+  }) async {
+    final watch = Stopwatch()..start();
+    try {
+      final result = await body();
+      _emit(level, '$what took ${formatElapsed(watch.elapsed)}');
+      return result;
+    } catch (e) {
+      _emit(LogLevel.warning,
+          '$what failed after ${formatElapsed(watch.elapsed)}',
+          error: e);
+      rethrow;
+    }
+  }
+
   void _emit(
     LogLevel level,
     String message, {
@@ -127,8 +167,9 @@ class Logger {
   }) {
     // Filter before building anything, so a suppressed level costs one
     // comparison. (The message string itself is still built by the caller's
-    // interpolation — hence the rule against logging in tight loops.)
-    if (level.index < Log.effectiveMinLevel.index) return;
+    // interpolation — hence the rule against logging in tight loops, and
+    // [isEnabled] for the cases where the argument is the expensive part.)
+    if (!isEnabled(level)) return;
     Log._dispatch(LogRecord(
       time: DateTime.now(),
       level: level,
@@ -139,6 +180,29 @@ class Logger {
     ));
   }
 }
+
+/// A duration as `1.2s`, or `840ms` below a second.
+///
+/// One spelling, because these are read by eye next to each other: a probe
+/// that answered in 140ms and one that took 12.0s should be visibly different
+/// at a glance, which `0.1s` and `12.0s` are not.
+String formatElapsed(Duration elapsed) {
+  final ms = elapsed.inMilliseconds;
+  return ms < 1000 ? '${ms}ms' : '${(ms / 1000).toStringAsFixed(1)}s';
+}
+
+/// `key=value` pairs in the order given: `name=Wemo firmware=2.00 rtos=<none>`.
+///
+/// The convention several call sites already write by hand. Worth one helper
+/// because the rendering of an ABSENT value is the part that matters and the
+/// part that drifts: a field printed as empty (`firmware=`) reads as "the
+/// device said its firmware is the empty string", which is a different fact
+/// from "the device did not say". [absent] is what null renders as.
+///
+/// Values are rendered with `toString()` and are the caller's responsibility:
+/// pass a secret through [redact] before it gets here.
+String logFields(Map<String, Object?> fields, {String absent = '<none>'}) =>
+    fields.entries.map((e) => '${e.key}=${e.value ?? absent}').join(' ');
 
 /// The app's loggers, level threshold, and output plumbing.
 ///
@@ -260,11 +324,61 @@ class Log {
   }) =>
       releaseMode && level.index < releaseFloor.index ? releaseFloor : level;
 
+  /// Per-category thresholds, overriding [minLevel] where present.
+  static final Map<String, LogLevel> _categoryLevels = {};
+
+  /// Turn one category up or down without touching the others.
+  ///
+  /// The threshold used to be a single knob, and the two useful positions were
+  /// both wrong during a hardware session: `info` hides the datagram-level
+  /// detail that is the whole diagnosis, and `debug` buries it under the
+  /// unrelated chatter of nine other categories. Passing `null` clears the
+  /// override and returns the category to [minLevel].
+  ///
+  /// The release floor still applies — this can raise a category above it and
+  /// cannot lower one below it.
+  static void setCategoryLevel(Logger logger, LogLevel? level) {
+    if (level == null) {
+      _categoryLevels.remove(logger.category);
+    } else {
+      _categoryLevels[logger.category] = level;
+    }
+  }
+
+  /// The override in force for [logger], or null when it follows [minLevel].
+  static LogLevel? categoryLevel(Logger logger) =>
+      _categoryLevels[logger.category];
+
+  /// The threshold a call in [category] is actually filtered against.
+  static LogLevel effectiveLevelFor(String category) => clampToReleaseFloor(
+        _categoryLevels[category] ?? minLevel,
+        releaseMode: kReleaseMode,
+      );
+
+  /// The last few hundred records, for the in-app diagnostics view and the
+  /// text a bug report carries. Null disables recording entirely.
+  ///
+  /// Separate from [sink], which REPLACES the output; this observes it. A
+  /// record reaches the buffer whether it went to the console, to a test's
+  /// capture list, or nowhere — because what the buffer is for is answering
+  /// "what just happened" after the fact, and a build that routes its output
+  /// somewhere else has not stopped needing that answer.
+  static LogBuffer? buffer = LogBuffer();
+
   /// Test hook. When set, records go here INSTEAD of the console and DevTools,
   /// which keeps test output clean and assertions structural. Install it with
   /// [captureRecords] and undo it with [reset].
   @visibleForTesting
-  static LogSink? sink;
+  static LogSink? sink = defaultSink;
+
+  /// What [reset] restores [sink] to.
+  ///
+  /// Null in the app — records go to the console. `test/flutter_test_config.dart`
+  /// sets it to a discarding sink, which is what keeps a thousand app log lines
+  /// out of every test run; without this hook a `tearDown(Log.reset)` in any one
+  /// test would turn the console back on for every test after it.
+  @visibleForTesting
+  static LogSink? defaultSink;
 
   /// Route records into the returned (initially empty) list.
   @visibleForTesting
@@ -277,11 +391,14 @@ class Log {
   /// Restore the shipped defaults. Call from `tearDown`.
   @visibleForTesting
   static void reset() {
-    sink = null;
+    sink = defaultSink;
     minLevel = _defaultMinLevel;
+    _categoryLevels.clear();
+    buffer?.clear();
   }
 
   static void _dispatch(LogRecord record) {
+    buffer?.add(record);
     final installed = sink;
     if (installed != null) {
       installed(record);
@@ -297,6 +414,52 @@ class Log {
       stackTrace: record.stackTrace,
     );
   }
+}
+
+/// The most recent records, kept in memory so the app can show what just
+/// happened and a bug report can carry it.
+///
+/// This exists because [debugPrint] reaches a desktop console and nothing
+/// else. The failures this app is actually about — a device that answers
+/// discovery and refuses control, a scan that comes back empty on a segment
+/// that provably has robots on it — happen on somebody's phone, on their LAN,
+/// and every line explaining why has been going nowhere.
+///
+/// Bounded and oldest-dropped: a scan emits tens of lines and a long session
+/// would otherwise grow without limit. [capacity] is records, not bytes, which
+/// is the unit a reader thinks in.
+class LogBuffer {
+  final int capacity;
+  final List<LogRecord> _records = [];
+
+  LogBuffer({this.capacity = 500}) : assert(capacity > 0);
+
+  /// Oldest first — reading order, and the order [export] writes.
+  List<LogRecord> get records => List.unmodifiable(_records);
+
+  int get length => _records.length;
+
+  void add(LogRecord record) {
+    _records.add(record);
+    if (_records.length > capacity) {
+      _records.removeRange(0, _records.length - capacity);
+    }
+  }
+
+  void clear() => _records.clear();
+
+  /// The buffer as text, one record per line (plus indented continuation lines
+  /// for a stack trace), newest LAST.
+  ///
+  /// [minLevel] and [categories] narrow it the same way the viewer's filters
+  /// do, so what someone copies is what they were looking at rather than
+  /// everything — a report of thirty relevant lines gets read, and one of five
+  /// hundred does not.
+  String export({LogLevel? minLevel, Set<String>? categories}) => _records
+      .where((r) => minLevel == null || r.level.index >= minLevel.index)
+      .where((r) => categories == null || categories.contains(r.category))
+      .map((r) => r.format())
+      .join('\n');
 }
 
 /// What a redacted secret renders as.

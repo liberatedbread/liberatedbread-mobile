@@ -411,11 +411,71 @@ check_index_covers_specs() {
   return 1
 }
 
+# The catalogue has to be valid against its OWN schema, and this is the only
+# place that can notice.
+#
+# The Rust parser is deliberately tolerant — it ignores keys it has not heard
+# of, so that a spec using a construct this app predates still loads rather than
+# taking the whole device down. That tolerance is right, and it means the app
+# cannot tell a forward-compatible spec from a broken one. The proof arrived
+# whole: the wave that added fifty specs was vendored while nineteen of them
+# failed upstream's own `validate_specs.py`, and every mobile-side signal was
+# green — cargo parsed all 188, `flutter analyze` was clean, this script's other
+# three checks passed. Sixteen of the nineteen had a bespoke block sitting at
+# the top level where the schema had since closed it, so their protocol facts
+# were somewhere no reader would look for them; three carried a `websocket:`
+# block in a shape the schema had replaced, so nothing could execute it.
+#
+# Upstream CI does run this, which is what makes the gap a WINDOW rather than a
+# hole: a spec branch, a local checkout, or a main whose CI has not finished can
+# all be vendored here in the meantime. Running the vendored validator against
+# the vendored specs closes it — the validator ships in the subtree, so it is
+# always the one that matches the catalogue beside it.
+#
+# Skipped, with a warning, when the interpreter cannot import PyYAML and
+# jsonschema: this script's other checks need no interpreter at all and work on
+# a shallow clone, and that is worth keeping. CI installs both (see the
+# "Check the vendored protocol-specs subtree" job), so the gate is real where it
+# is enforced.
+check_specs_validate() {
+  if [ ! -f "$PREFIX/scripts/validate_specs.py" ]; then
+    warn "no validator in the subtree; skipping the schema check."
+    return 0
+  fi
+  local python
+  if ! python="$(python_for_specs)"; then
+    warn "no python3 with pyyaml + jsonschema; skipping the schema check."
+    warn "CI runs it. Here: python3 -m pip install -r $PREFIX/requirements.txt"
+    return 0
+  fi
+
+  local output
+  if output="$(cd "$PREFIX" && "$python" scripts/validate_specs.py 2>&1)"; then
+    log "$(printf '%s\n' "$output" | tail -n 1)"
+    return 0
+  fi
+
+  # Each failure is a `FAIL <path>` line followed by its indented reasons, and
+  # the validator prints a PASS line for everything else. Reproduce exactly the
+  # failing stanzas: `grep -A n` guesses a stanza length and trails whatever
+  # PASSed next into the error output.
+  printf '%s\n' "$output" |
+    awk '/^FAIL/ {p=1} /^PASS/ {p=0} p' |
+    sed 's/^/::error::  /' >&2
+  echo "::error::The vendored catalogue does not validate against its own schema." >&2
+  echo "::error::These specs are broken UPSTREAM, not here — the app loads them anyway" >&2
+  echo "::error::(the Rust parser ignores keys it does not know), so the damage is a" >&2
+  echo "::error::construct that silently does nothing rather than a visible failure." >&2
+  echo "::error::Fix them in liberatedbread-protocol-specs and refresh again." >&2
+  return 1
+}
+
 run_checks() {
   local rc=0
   check_bundled_assets || rc=1
   check_index_covers_specs || rc=1
   check_subtree_pristine || rc=1
+  check_specs_validate || rc=1
   return "$rc"
 }
 
@@ -589,7 +649,26 @@ run_checks || exit 1
 source "$(dirname "$0")/regen-spec-index.sh"
 regen_spec_index
 
+# Rewrite the iOS Bonjour allow-list from the catalogue. Unlike the index this
+# output is COMMITTED — it ships in the iOS bundle — so it lands in the working
+# tree beside the subtree squash and goes into the same commit. Doing it here is
+# what makes a new Wi-Fi spec discoverable on iOS without anyone remembering to
+# edit a plist. See scripts/regen-bonjour-services.sh.
+# shellcheck source=regen-bonjour-services.sh
+source "$(dirname "$0")/regen-bonjour-services.sh"
+# `|| exit 1` like every other generated artefact here, and for the reason that
+# function's own header states: this script runs under `set -uo pipefail` with
+# no `-e`, so a bare call discards the status. A malformed spec, a permissions
+# error on the temp plist or a renamed NSBonjourServices key all made the
+# heredoc print a traceback that scrolled past inside a subtree pull, the
+# success trailer print anyway, and the run exit 0 — leaving the committed
+# allow-list silently behind the catalogue, which is the exact iOS invisibility
+# this mechanism exists to prevent. `--check` cannot catch it either: it does
+# not re-derive the plist.
+regen_bonjour_services || exit 1
+
 if [ "$changed" -eq 1 ]; then
   log "Now run ./scripts/test.sh — the catalogue feeds the matcher, the iOS"
   log "Bonjour list and the registries, and each has a test that reads it."
+  log "If the Bonjour list above changed, commit ios/Runner/Info.plist too."
 fi

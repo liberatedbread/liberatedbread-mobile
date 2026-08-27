@@ -147,7 +147,7 @@ void main() {
     // expected to do the matching.
     final identity = SpecIdentityDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       deviceName: 'Philips Hue Bridge',
       manufacturer: 'Signify',
@@ -156,7 +156,7 @@ void main() {
       serviceUuids: const [],
       companyIds: Uint16List(0),
       macPrefixes: const [],
-      mdnsServiceType: '_hue._tcp.local.',
+      mdnsServiceTypes: const ['_hue._tcp.local.'],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: 80,

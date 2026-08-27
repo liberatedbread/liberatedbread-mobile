@@ -45,6 +45,8 @@ export '../src/rust/api/device_api.dart'
         NetworkEntityDto,
         NetworkEntitySurfaceDto,
         NetworkCapabilitiesDto,
+        NetworkCredentialDto,
+        NetworkCredentialIssuanceDto,
         NetworkActionDto,
         NetworkOptionDto,
         NetworkReadBackDto,
@@ -108,6 +110,24 @@ export 'package:flutter_rust_bridge/flutter_rust_bridge.dart' show Int64List;
 abstract class SpecCodec {
   /// Parse a device-spec YAML string into a [DeviceSpecDto].
   Future<DeviceSpecDto> loadDeviceSpec(String yaml);
+
+  /// Which of the spec's `device.variants[]` the BLE device in front of us
+  /// could be, from what it advertised and what it carries.
+  ///
+  /// Checked against each entity's own `variants`. Not the surviving entity
+  /// NAMES, which was the obvious shape and is wrong: a family spec can
+  /// declare two entities with one name on different command dialects, so a
+  /// name is not an identity here.
+  ///
+  /// Separate from [loadDeviceSpec] because that one is cached by spec string
+  /// and must stay device-independent — a device-dependent answer there would
+  /// serve one unit's narrowing to the next. Empty means DO NOT NARROW:
+  /// narrowing a device we cannot identify would blank it.
+  Future<List<String>> bleVariantNamesForDevice({
+    required String yaml,
+    required String deviceName,
+    required List<String> serviceUuids,
+  });
 
   /// Find every spec matching a device we are already connected to, with the
   /// reasons it matched. Expects discovered GATT service UUIDs.
@@ -237,6 +257,16 @@ abstract class SpecCodec {
   Future<NetworkCapabilitiesDto> networkCapabilities({
     required String specYaml,
   });
+
+  /// What this spec says a client must HOLD before it can drive the device —
+  /// every `credential:<name>` its commands refer to, joined to the setup
+  /// method that issues it where the spec declares one.
+  ///
+  /// Answered for the device rather than per action: "what do I need before
+  /// this screen works" is the question, and a per-action answer misses the
+  /// credential no action mentions (Hue's `clientkey`, issued at pairing and
+  /// obtainable at no other time).
+  Future<List<NetworkCredentialDto>> credentialsForDevice(String specYaml);
 
   /// Render a named command from the spec's `commands` block into a POSTable
   /// SOAP request. [values] carries what the user picked plus any read-back

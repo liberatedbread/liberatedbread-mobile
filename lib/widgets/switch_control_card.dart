@@ -8,6 +8,7 @@ import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
 import 'entity_value.dart';
+import 'unclaimed_actions.dart';
 
 /// A spec-declared `switch` entity as a working control.
 ///
@@ -22,6 +23,12 @@ import 'entity_value.dart';
 /// - No sendable actions (ember's temperature-control switch binds prose):
 ///   the card shows live state with no way to change it, which is exactly
 ///   what the spec supports today.
+///
+/// A `switch` also resolves `toggle`, which none of the controls above can
+/// present — a single-channel power role says nothing about which way it
+/// leaves the device. That one, and anything a later `PLATFORM_ROLES` gains,
+/// goes to [UnclaimedActions] beneath the controls, so no resolved action
+/// ends up drawn by nobody.
 class SwitchControlCard extends ConsumerStatefulWidget {
   final String deviceId;
 
@@ -56,8 +63,28 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
   bool? _assumed;
   List<DecodedValueDto>? _assumedBaseline;
 
+  /// The roles this card takes responsibility for: on/off reaches the device
+  /// through the toggle or the On/Off pair, and `press` is the momentary
+  /// button. Listed once so what the card draws and what it hands on can
+  /// never disagree.
+  static const _claimedRoles = {'turn_on', 'turn_off', 'press'};
+
   EntityActionDto? _action(String role) =>
       widget.entity.actions.where((a) => a.role == role).firstOrNull;
+
+  /// Send an unclaimed role through the controls' own path, so it shares the
+  /// codec, the busy state and the error handling rather than growing a
+  /// second sender that drifts from this one.
+  Future<void> _sendRole(String role) async {
+    final action = _action(role);
+    if (action == null) return;
+    // An unclaimed role promises nothing about the resulting position —
+    // `toggle` inverts whatever the device holds — so an assumption left by
+    // an earlier tap would keep reporting "On (sent)" for a switch that this
+    // send may have just turned off.
+    setState(() => _assumed = null);
+    await _send(action);
+  }
 
   Future<void> _send(EntityActionDto action, {bool? assume}) async {
     // Only a setpoint action can be a direct write with no command behind it;
@@ -142,6 +169,14 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
     // and undecodable ones get On/Off buttons, which promise nothing.
     final canReadState = value != null && widget.entity.hasFormat;
     final hasToggle = turnOn != null && turnOff != null && canReadState;
+
+    // Every role the resolver produced, so one this card does not draw still
+    // reaches the screen instead of falling between the two role lists.
+    final resolved = [
+      for (final action in widget.entity.actions)
+        (role: action.role, takesValue: action.userParams.isNotEmpty),
+    ];
+    final hasUnclaimed = resolved.any((a) => !_claimedRoles.contains(a.role));
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -236,6 +271,19 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                       label: const Text('Press'),
                     ),
                 ],
+              ),
+            ),
+          // Guarded here rather than left to the widget's own empty case: a
+          // card that draws all of its roles would otherwise carry this
+          // row's spacing below its last control forever.
+          if (hasUnclaimed)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: UnclaimedActions(
+                actions: resolved,
+                claimed: _claimedRoles,
+                onSend: _sendRole,
+                sendingRole: _sendingRole,
               ),
             ),
         ],

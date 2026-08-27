@@ -73,6 +73,17 @@ nav:
           - AUTOBABA LED Backpack: devices/autobaba-led-backpack.md
           - Nyan BT Image Controller: devices/nyan-bt-image-controller.md
           - LED space Wi-Fi LED Screen: devices/led-space.md
+          - SP105E Magic LED Controller: devices/sp105e-magic-led.md
+          - BanlanX SP6xxE LED Controllers: devices/banlanx-sp6xxe.md
+          - duoCo StripX / Lotus Lantern Pixel Strips: devices/wl-smartled-pixel-strips.md
+          - LotusLamp X (MELK/ELK/ELBU): devices/lotuslamp-x.md
+          - iDeal LED Pixel Strings: devices/ideal-led.md
+          - Hello Fairy String/Curtain Lights: devices/hello-fairy.md
+          - CHEMION LED Glasses & Hat: devices/chemion-glasses.md
+          - Aurora LED Shoes: devices/aurora-led-shoes.md
+          - EmazingLights Spectra Gloves: devices/emazinglights-spectra.md
+          - Ignis Pixel Flow Props: devices/ignis-pixel.md
+          - Astral Hoops Atomic V AF: devices/astral-hoops.md
           - MoTool Slacker: devices/motool-slacker.md
           - AdMore Light Bar Pro: devices/admore-light-bar.md
           - ProGlow Motorcycle LED: devices/proglow-motorcycle-led.md
@@ -109,6 +120,26 @@ nav:
           - Govee H6101/H6104 TV Backlight: devices/govee-h6101-backlight.md
           - Govee RGB Lights (classic): devices/govee-rgb-light.md
           - Govee RGBIC / DreamColor Lights: devices/govee-rgbic-light.md
+          - eQ-3 Eqiva Radiator Thermostat (TRV): devices/eqiva-eq3-ble-trv.md
+          - Concept2 PM5 (rowing/ski/bike): devices/concept2-pm5.md
+          - Xiaomi Mi Band / Amazfit: devices/xiaomi-huami-miband.md
+          - Pebble Smartwatch: devices/pebble-smartwatch.md
+          - openScale BLE Body Scales: devices/openscale-body-scales.md
+          - Victron Instant Readout (BLE): devices/victron-instant-readout-ble.md
+          - JBD / Xiaoxiang Smart BMS: devices/jbd-xiaoxiang-bms-ble.md
+          - Renogy BT-1 / BT-2 Solar Controllers: devices/renogy-bt-ble.md
+          - Anki Overdrive / Drive Cars: devices/anki-overdrive-ble.md
+          - TTLock / Sciener BLE Locks: devices/ttlock-sciener-ble.md
+          - SESAME (CANDY HOUSE) Locks: devices/sesame-candyhouse-ble.md
+          - Yale Access / August Locks: devices/yale-august-ble.md
+          - Xiaomi M365 E-Scooter: devices/xiaomi-m365-ble.md
+          - Ninebot / Segway E-Scooter: devices/ninebot-segway-ble.md
+          - Electric Unicycles (WheelLog): devices/euc-wheellog-ble.md
+          - Onewheel: devices/onewheel-ble.md
+          - VESC Motor Controller: devices/vesc-ble-uart.md
+          - RuuviTag Sensor: devices/ruuvitag-ble.md
+          - b-parasite Soil Sensor: devices/b-parasite-ble.md
+          - Mopeka Pro Check Tank Sensor: devices/mopeka-pro-check-ble.md
       - WiFi Devices:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
           - Anki Vector Robot: devices/vector-robot.md
@@ -121,6 +152,7 @@ nav:
           - Samsung Tizen TVs: devices/samsung-tizen-tv.md
           - Sony Bravia TVs: devices/sony-bravia.md
           - Vizio SmartCast TVs: devices/vizio-smartcast.md
+          - Denon AVR-S720W: devices/denon-avr-s720w.md
           - Philips Hue Bridge: devices/hue-bridge.md
           - Enphase Envoy: devices/enphase-envoy.md
           - Dyson Air Purifier: devices/dyson-air-purifier.md
@@ -153,6 +185,33 @@ nav:
           - Vevor VT256 Thermal Imager: devices/vevor-vt256-thermal-imager.md
           - LimitlessLED / Mi-Light Bridge: devices/limitlessled-milight-bridge.md
           - Brother QL-1110NWB Label Printer: devices/brother-ql-1110nwb.md
+          - Logitech Squeezebox (SlimProto): devices/squeezebox-slimproto.md
+          - Bose SoundTouch Speakers: devices/bose-soundtouch.md
+          - Logitech Harmony Hub: devices/logitech-harmony-hub.md
+          - Google Chromecast (CASTv2): devices/chromecast-castv2.md
+          - Magic Home / Zengge LED Controller: devices/magic-home-zengge-wifi.md
+          - SP108E LED Shop WiFi Controller: devices/led-shop-sp108e.md
+          - WiZ Wi-Fi Lights: devices/wiz-wifi-light.md
+          - Twinkly Smart Lights: devices/twinkly-lights.md
+          - OSRAM Lightify Gateway: devices/osram-lightify-gateway.md
+          - Yeelight Wi-Fi Lights (LAN): devices/yeelight-wifi.md
+          - Gree Air Conditioner (LAN): devices/gree-ac-lan.md
+          - Midea Air Conditioner (LAN): devices/midea-ac-lan.md
+          - Radio Thermostat CT30/CT50/CT80: devices/radiothermostat-ct50.md
+          - Smarter iKettle / Coffee: devices/smarter-ikettle.md
+          - WeatherFlow Tempest: devices/weatherflow-tempest-udp.md
+          - Fronius Solar Inverter (Solar API): devices/fronius-solar-api.md
+          - OpenEVSE Charging Station: devices/openevse.md
+          - Xiaomi miIO Protocol: devices/xiaomi-miio.md
+          - Roborock Robot Vacuum (local): devices/roborock-local.md
+          - Valetudo (rooted vacuum): devices/valetudo.md
+          - Parrot Drones (AR.Drone / ARSDK): devices/parrot-arsdk-drone.md
+          - Reolink IP Camera: devices/reolink-camera.md
+          - Amcrest / Dahua IP Camera: devices/amcrest-dahua-camera.md
+          - Hikvision IP Camera (ISAPI): devices/hikvision-isapi-camera.md
+          - Wyze Cam (docker-wyze-bridge): devices/wyze-bridge-camera.md
+          - Bambu Lab 3D Printer (LAN): devices/bambu-lab-lan.md
+          - PrusaLink (Prusa MK4 / XL / Mini): devices/prusalink-local-api.md
       - Zigbee Devices:
           - Zigbee Soil Tester (TS0601 family): devices/zigbee-soil-tester.md
       - Z-Wave Devices:

@@ -9,6 +9,8 @@ import '../services/device_group_store.dart';
 import '../services/group_runner.dart';
 import '../services/saved_device_store.dart';
 import '../services/saved_network_device_store.dart';
+import '../services/device_credential_store.dart';
+import '../services/tls_trust.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
 import 'network_control_provider.dart';
@@ -114,9 +116,32 @@ Future<void> forgetNetworkDevice({
   required SavedNetworkDevicesNotifier savedDevices,
   required DeviceGroupsNotifier groups,
   required String deviceId,
+  TlsTrust? trust,
+  DeviceCredentialStore? credentials,
+  String? deviceMac,
+  String? host,
 }) async {
   await groups.pruneDevice(networkMemberId(deviceId));
   await savedDevices.remove(deviceId);
+  // And the certificate pin, which is the half that has no other way out.
+  //
+  // A pin is deliberately never replaced silently: a changed certificate on a
+  // device that already showed us one is either a reset, new firmware, or
+  // somebody in the middle, and the app cannot tell which. That rule is right
+  // and it made forgetting the device the ONLY recovery — so it has to
+  // actually be one. Without this, a user who factory-resets an Envoy has a
+  // device that refuses every connection with a generic "did not accept that",
+  // no re-pair anywhere, and nothing short of wiping app data to fix it.
+  if (trust != null) {
+    await trust.forget(identityFor(mac: deviceMac, host: host), host: host);
+  }
+  // And whatever the device's spec said it needed — a printer's serial, a
+  // set's client id. Same reasoning, one layer up: forgetting a device has to
+  // mean forgetting it, or re-adding one leaves it half-remembered under
+  // secrets the person can no longer see to correct.
+  if (credentials != null) {
+    await credentials.forget(identityFor(mac: deviceMac, host: host));
+  }
 }
 
 /// How a network device's id is spelled inside [DeviceGroup.deviceIds].
@@ -363,6 +388,7 @@ final groupMembersProvider = FutureProvider.autoDispose
       category: device.category,
       record: device,
       specYaml: controls?.specYaml,
+      capabilities: controls?.capabilities,
       entities: controls?.entities ?? const [],
     ));
   }
@@ -377,6 +403,11 @@ final networkGroupRunnerProvider = Provider<NetworkGroupRunner>((ref) {
     codec: ref.watch(specCodecProvider),
     soap: ref.watch(soapControlClientProvider),
     senderFor: ref.watch(networkCommandSenderFactoryProvider),
+    // Keyed the way the device screen and the certificate pin key it, so one
+    // physical device is one set of secrets wherever it is driven from.
+    credentialsFor: (device) => () => ref
+        .read(deviceCredentialStoreProvider)
+        .credentials(identityFor(mac: device.advertisedMac, host: device.host)),
   );
 });
 

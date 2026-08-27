@@ -23,6 +23,7 @@ import '../widgets/black_hat_icon.dart';
 import '../widgets/device_list_tile.dart';
 import '../widgets/radar_scanner.dart';
 import 'device_screen.dart';
+import 'diagnostics_screen.dart';
 import 'ha_settings_screen.dart';
 import 'security_warning_screen.dart';
 import 'spec_pack_settings_screen.dart';
@@ -464,6 +465,15 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute<void>(builder: (_) => const HaSettingsScreen()),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.bug_report_outlined),
+            tooltip: 'Diagnostics',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                  builder: (_) => const DiagnosticsScreen()),
             ),
           ),
           if (isMockMode) const _MockBadge(),

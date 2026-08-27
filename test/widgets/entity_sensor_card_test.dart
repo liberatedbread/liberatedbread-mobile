@@ -21,19 +21,19 @@ const _tempChar = 'fc540002-236c-4c94-8fa9-944a3e5353fa';
 EntityDto _tempEntity(
         {double? scale, String? valueField, bool canNotify = false}) =>
     EntityDto(
-      options: const [],
-      name: 'Current Temperature',
-      platform: 'sensor',
-      deviceClass: 'temperature',
-      unit: 'C',
-      stateCharacteristic: _tempChar,
-      canNotify: canNotify,
-      hasFormat: true,
-      valueField: valueField ?? 'current_temp_raw',
-      valueScale: scale,
-      onWhenNonzero: false,
-      actions: const [],
-    );
+        options: const [],
+        name: 'Current Temperature',
+        platform: 'sensor',
+        deviceClass: 'temperature',
+        unit: 'C',
+        stateCharacteristic: _tempChar,
+        canNotify: canNotify,
+        hasFormat: true,
+        valueField: valueField ?? 'current_temp_raw',
+        valueScale: scale,
+        onWhenNonzero: false,
+        actions: const [],
+        variants: const []);
 
 Widget _wrap(EntityDto entity, FakeSpecCodec codec) => ProviderScope(
       overrides: [
@@ -240,19 +240,19 @@ void main() {
     // describes. That is a spec gap, and saying so is more useful than an
     // empty tile that looks broken.
     const entity = EntityDto(
-      options: [],
-      name: 'Probe Temperature',
-      platform: 'sensor',
-      deviceClass: 'temperature',
-      unit: 'F',
-      stateCharacteristic: _tempChar,
-      canNotify: true,
-      hasFormat: false,
-      valueField: null,
-      valueScale: null,
-      onWhenNonzero: false,
-      actions: [],
-    );
+        options: [],
+        name: 'Probe Temperature',
+        platform: 'sensor',
+        deviceClass: 'temperature',
+        unit: 'F',
+        stateCharacteristic: _tempChar,
+        canNotify: true,
+        hasFormat: false,
+        valueField: null,
+        valueScale: null,
+        onWhenNonzero: false,
+        actions: [],
+        variants: []);
 
     await tester.pumpWidget(_wrap(entity, _codecReturning(0)));
     await tester.pumpAndSettle();
@@ -295,19 +295,19 @@ void main() {
   testWidgets('falls back to the format field unit when the entity has none',
       (tester) async {
     const entity = EntityDto(
-      options: [],
-      name: 'Temperature',
-      platform: 'sensor',
-      deviceClass: 'temperature',
-      unit: null,
-      stateCharacteristic: _tempChar,
-      canNotify: false,
-      hasFormat: true,
-      valueField: 'current_temp_raw',
-      valueScale: null,
-      onWhenNonzero: false,
-      actions: [],
-    );
+        options: [],
+        name: 'Temperature',
+        platform: 'sensor',
+        deviceClass: 'temperature',
+        unit: null,
+        stateCharacteristic: _tempChar,
+        canNotify: false,
+        hasFormat: true,
+        valueField: 'current_temp_raw',
+        valueScale: null,
+        onWhenNonzero: false,
+        actions: [],
+        variants: []);
 
     await tester.pumpWidget(
       _wrap(entity, _codecReturning(2350, scale: 0.01, unit: '°C')),
@@ -332,18 +332,18 @@ void main() {
 
   group('verdict chips', () {
     EntityDto entity({String? deviceClass, String? unit}) => EntityDto(
-          options: const [],
-          name: 'Reading',
-          platform: 'sensor',
-          deviceClass: deviceClass,
-          unit: unit,
-          stateCharacteristic: _tempChar,
-          canNotify: false,
-          hasFormat: true,
-          valueField: 'current_temp_raw',
-          onWhenNonzero: false,
-          actions: const [],
-        );
+        options: const [],
+        name: 'Reading',
+        platform: 'sensor',
+        deviceClass: deviceClass,
+        unit: unit,
+        stateCharacteristic: _tempChar,
+        canNotify: false,
+        hasFormat: true,
+        valueField: 'current_temp_raw',
+        onWhenNonzero: false,
+        actions: const [],
+        variants: const []);
 
     testWidgets('a radon reading past the red line says Poor', (tester) async {
       // 180 Bq/m³ is past Airthings' own red default (150) and the number
@@ -431,18 +431,18 @@ void main() {
     testWidgets('carries the same reading, unit and verdict as the row',
         (tester) async {
       const entity = EntityDto(
-        options: [],
-        name: 'Radon 24h Average',
-        platform: 'sensor',
-        deviceClass: null,
-        unit: 'Bq/m³',
-        stateCharacteristic: _tempChar,
-        canNotify: true,
-        hasFormat: true,
-        valueField: 'current_temp_raw',
-        onWhenNonzero: false,
-        actions: [],
-      );
+          options: [],
+          name: 'Radon 24h Average',
+          platform: 'sensor',
+          deviceClass: null,
+          unit: 'Bq/m³',
+          stateCharacteristic: _tempChar,
+          canNotify: true,
+          hasFormat: true,
+          valueField: 'current_temp_raw',
+          onWhenNonzero: false,
+          actions: [],
+          variants: []);
 
       await tester.pumpWidget(ProviderScope(
         overrides: [

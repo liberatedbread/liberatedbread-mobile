@@ -4,6 +4,7 @@ import 'dart:async';
 
 import '../core/error_text.dart';
 import '../core/group_actions.dart';
+import '../core/hex.dart';
 import '../core/log.dart';
 import '../core/stop_signal.dart';
 import '../models/ble_discovered_service.dart';
@@ -57,6 +58,13 @@ class NetworkGroupMember {
   final SavedNetworkDevice record;
   final String? specYaml;
   final List<NetworkEntityDto> entities;
+
+  /// What the spec says about the control path — the declared port, the URL
+  /// scheme, the TLS policy, the protocol handler. Carried because the sender
+  /// needs it to reach the device the same way the device screen does; a group
+  /// run that leaves it out is not the same exchange, whatever the wiring
+  /// comment says.
+  final NetworkCapabilitiesDto? capabilities;
   final Set<GroupOp> ops;
 
   NetworkGroupMember({
@@ -65,6 +73,7 @@ class NetworkGroupMember {
     required this.record,
     this.category,
     this.specYaml,
+    this.capabilities,
     this.entities = const [],
   }) : ops = supportedNetworkGroupOps(entities);
 }
@@ -240,6 +249,29 @@ class GroupRunner {
     }
   }
 
+  /// The variants this member matched, or null when the question cannot be
+  /// answered — a codec failure, a spec that declares none.
+  ///
+  /// Null and empty both read as "do not narrow" downstream, which is the
+  /// behaviour that shipped before variant scoping: a device we cannot
+  /// identify keeps every control rather than losing all of them.
+  Future<List<String>?> _matchedVariants(
+    GroupMember member,
+    String specYaml,
+    List<BleDiscoveredService> services,
+  ) async {
+    try {
+      return await _codec.bleVariantNamesForDevice(
+        yaml: specYaml,
+        deviceName: member.name,
+        serviceUuids: [for (final s in services) normalizeUuid(s.uuid)],
+      );
+    } catch (e) {
+      Log.ble.debug('variant narrowing unavailable for ${member.id}: $e');
+      return null;
+    }
+  }
+
   Future<GroupRunEvent> _runCommands(
     GroupOp op,
     GroupMember member,
@@ -255,11 +287,18 @@ class GroupRunner {
         detail: 'No spec matched this device',
       );
     }
+    // Which model this member actually is, judged on what it advertised —
+    // the same narrowing the device screen and the treadmill card apply. A
+    // family spec can declare two same-named entities on two dialects sharing
+    // one writable characteristic, and without this a single "turn on" writes
+    // BOTH dialects' frames back to back.
+    final matchedVariants = await _matchedVariants(member, specYaml, services);
     final writes = resolveGroupWrites(
       op: op,
       spec: spec,
       services: services,
       brightnessPercent: brightnessPercent,
+      matchedVariants: matchedVariants,
     );
     if (writes.isEmpty) {
       // The spec promised the verb but this unit doesn't carry the
@@ -268,7 +307,8 @@ class GroupRunner {
       return GroupRunEvent(
         deviceId: member.id,
         status: GroupDeviceStatus.skipped,
-        detail: supportedGroupOps(spec).contains(op)
+        detail: supportedGroupOps(spec, matchedVariants: matchedVariants)
+                .contains(op)
             ? 'Not found on this device'
             : "Not supported by this device's spec",
       );
@@ -389,9 +429,24 @@ class GroupRunner {
 class NetworkGroupRunner {
   final SpecCodec _codec;
   final SoapControlClient _soap;
+
+  /// The same factory the device screen uses — INCLUDING `capabilities`,
+  /// which this type used to omit.
+  ///
+  /// Dropping an optional argument from a function type is silent: the call
+  /// compiled, and every sender a group built came out with
+  /// `capabilities == null`. Three things followed. The spec's `default_port`
+  /// stopped being the fallback, so the fix that made a hand-added device
+  /// sendable was a no-op here. A Roku in a group sent to whatever port its
+  /// SSDP LOCATION advertised instead of the 8060 its spec pins, and opened no
+  /// signed session. And the TLS policy registered on the app-wide HTTP client
+  /// as `policy: null`, overwriting the device screen's pinned registration
+  /// and downgrading the Envoy and the SmartCast to blanket trust for the rest
+  /// of the session.
   final NetworkCommandSender Function({
     required NetworkDevice device,
     required String specYaml,
+    NetworkCapabilitiesDto? capabilities,
   }) _senderFor;
 
   /// A ceiling over one member's whole turn — resolve, state read, sends —
@@ -404,15 +459,23 @@ class NetworkGroupRunner {
   /// enough not to burst-flood a home AP with simultaneous TCP opens.
   static const concurrency = 4;
 
+  /// The credentials stored for one device, for the members whose spec names
+  /// any. Null in a fixture, which reads as "none stored" — the same thing a
+  /// device that needs none gets.
+  final CredentialReader Function(NetworkDevice device)? _credentialsFor;
+
   NetworkGroupRunner({
     required SpecCodec codec,
     required SoapControlClient soap,
     required NetworkCommandSender Function({
       required NetworkDevice device,
       required String specYaml,
+      NetworkCapabilitiesDto? capabilities,
     }) senderFor,
+    CredentialReader Function(NetworkDevice device)? credentialsFor,
   })  : _codec = codec,
         _soap = soap,
+        _credentialsFor = credentialsFor,
         _senderFor = senderFor;
 
   Stream<GroupRunEvent> run(
@@ -522,10 +585,23 @@ class NetworkGroupRunner {
     );
     if (plan.isEmpty) return skip('Not found on this device');
 
+    final device = member.record.toNetworkDevice();
     final sender = _senderFor(
-      device: member.record.toNetworkDevice(),
+      device: device,
       specYaml: specYaml,
+      capabilities: member.capabilities,
     );
+    // A group-built sender never had these, so its state reads rendered with
+    // an empty map and a Hue bridge's `/api/{username}/lights` failed on a
+    // value the app was holding. Wired only when this member's spec names a
+    // credential, for the reason the device screen gives: the store is the
+    // platform keychain and most of the catalogue needs nothing from it.
+    final credentialsFor = _credentialsFor;
+    if (credentialsFor != null &&
+        member.entities
+            .any((e) => e.actions.any((a) => a.credentials.isNotEmpty))) {
+      sender.useCredentials(credentialsFor(device));
+    }
     try {
       // The description, only if something in the plan rides SOAP — the
       // same rule the control screen applies: asking a Roku for setup.xml
@@ -533,7 +609,12 @@ class NetworkGroupRunner {
       SoapDeviceDescription? description;
       if (_needsDescription(plan)) {
         final device = member.record;
-        final port = device.toNetworkDevice().controlPort;
+        // The sender's rule, not the device's: discovery first, then the port
+        // the spec declares. Asking `toNetworkDevice().controlPort` here meant
+        // the discovered one alone, so a device added by hand worked from its
+        // own screen and was skipped in a group — the same fact, answered two
+        // ways, which is what putting the rule on the sender was for.
+        final port = sender.controlPort;
         if (port == null) {
           return skip('No control port is known for this device');
         }
@@ -600,8 +681,17 @@ class NetworkGroupRunner {
   }
 
   bool _needsDescription(GroupNetworkPlan plan) {
+    // Asked of the sender, which owns the list. This was a fourth copy of it
+    // and the stalest: it treated websocket and mqtt as SOAP, so a television
+    // or a Bambu in a group sent the runner off to fetch a /setup.xml the
+    // device does not serve, burning the whole 10s HTTP timeout before any
+    // send happened. Two other copies were retired to this same call in the
+    // change that introduced it; this one is two lines above the hunk that did
+    // it. (`lifx` differs from the sender's list too, but inertly: a LIFX
+    // action cannot reach a group plan — `kGroupSendableTransports` excludes
+    // it — and a LIFX send from the device screen bypasses the sender.)
     bool soap(NetworkActionDto action) =>
-        action.transport != 'http' && action.transport != 'tcp-json';
+        !NetworkCommandSender.isIndependentTransport(action);
     return plan.direct.any((send) => soap(send.action)) ||
         plan.gated.any((toggle) =>
             soap(toggle.action) ||
@@ -625,9 +715,12 @@ class NetworkGroupRunner {
         final request = await _codec.renderNetworkHttpStateRequest(
           specYaml: specYaml,
           stateCommand: entity.stateCommand,
-          values: const {},
+          // The screen's sibling read passes these too; a group row that
+          // silently could not render its poll would report every paired
+          // device as state-unknown.
+          values: await sender.currentCredentials(),
         );
-        returned = jsonStateFields(await sender.sendHttpRequest(request));
+        returned = httpStateFields(await sender.sendHttpRequest(request));
       } else {
         final desc = description;
         if (desc == null) return null;

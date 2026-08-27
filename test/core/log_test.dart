@@ -30,8 +30,19 @@ List<String> _captureConsole() {
 }
 
 void main() {
-  setUp(Log.reset);
-  tearDown(Log.reset);
+  // `Log.reset()` deliberately does NOT reset `defaultSink` — it is the thing
+  // reset restores TO. So the tests below that install one have to put back
+  // what the suite's own flutter_test_config set, or every test after them
+  // runs with the console on.
+  late LogSink? suiteDefaultSink;
+  setUp(() {
+    suiteDefaultSink = Log.defaultSink;
+    Log.reset();
+  });
+  tearDown(() {
+    Log.defaultSink = suiteDefaultSink;
+    Log.reset();
+  });
 
   group('levels', () {
     test('everything at or above minLevel is emitted', () {
@@ -259,6 +270,11 @@ void main() {
   group('output plumbing', () {
     test('without a sink, the formatted line goes to the console', () {
       final printed = _captureConsole();
+      // The app's configuration. Under `flutter test` the default sink is the
+      // discarding one this suite installs (see test/flutter_test_config.dart),
+      // so the console path has to be asked for explicitly to be tested.
+      Log.defaultSink = null;
+      Log.sink = null;
 
       Log.ble.info('scan started');
 
@@ -279,11 +295,26 @@ void main() {
     test('reset() restores the shipped defaults', () {
       Log.captureRecords();
       Log.minLevel = LogLevel.error;
+      Log.setCategoryLevel(Log.net, LogLevel.debug);
 
       Log.reset();
 
-      expect(Log.sink, isNull);
+      expect(Log.sink, same(Log.defaultSink));
       expect(Log.minLevel, kDebugMode ? LogLevel.debug : LogLevel.info);
+      expect(Log.categoryLevel(Log.net), isNull);
+    });
+
+    test('reset() restores the installed default, not null', () {
+      // The hook the test suite depends on: any tearDown(Log.reset) must not
+      // turn the console back on for every test that runs after it.
+      final swallowed = <LogRecord>[];
+      Log.defaultSink = swallowed.add;
+      Log.captureRecords();
+
+      Log.reset();
+      Log.ble.info('after reset');
+
+      expect(swallowed.single.message, 'after reset');
     });
 
     test('a filtered-out line reaches neither sink nor console', () {
@@ -293,6 +324,231 @@ void main() {
       Log.ble.info('dropped');
 
       expect(printed, isEmpty);
+    });
+  });
+
+  group('per-category levels', () {
+    test('one category can be turned up while the rest stay quiet', () {
+      // The knob that used to not exist: during a hardware session `net` at
+      // debug is the diagnosis, and `debug` everywhere buries it under nine
+      // other categories.
+      final records = Log.captureRecords();
+      Log.minLevel = LogLevel.info;
+      Log.setCategoryLevel(Log.net, LogLevel.debug);
+
+      Log.net.debug('datagram from 10.0.0.4');
+      Log.ads.debug('config fetch returned HTTP 400');
+      Log.ble.info('scan started');
+
+      expect(records.map((r) => r.message),
+          ['datagram from 10.0.0.4', 'scan started']);
+    });
+
+    test('a category can also be turned DOWN below the global level', () {
+      final records = Log.captureRecords();
+      Log.minLevel = LogLevel.debug;
+      Log.setCategoryLevel(Log.ads, LogLevel.warning);
+
+      Log.ads.debug('config fetch returned HTTP 400');
+      Log.ads.warning('banner config unreadable');
+      Log.ble.debug('kept');
+
+      expect(
+          records.map((r) => r.message), ['banner config unreadable', 'kept']);
+    });
+
+    test('clearing an override returns the category to minLevel', () {
+      final records = Log.captureRecords();
+      Log.minLevel = LogLevel.info;
+      Log.setCategoryLevel(Log.net, LogLevel.debug);
+      Log.setCategoryLevel(Log.net, null);
+
+      Log.net.debug('dropped');
+
+      expect(Log.categoryLevel(Log.net), isNull);
+      expect(records, isEmpty);
+    });
+
+    test('the release floor still applies to a category override', () {
+      // A category turned down in a release build must not become a hole in
+      // the rule that verbose logging does not ship.
+      expect(
+        Log.clampToReleaseFloor(LogLevel.debug, releaseMode: true),
+        LogLevel.warning,
+      );
+    });
+
+    test('isEnabled answers for the category, not the global level', () {
+      Log.minLevel = LogLevel.info;
+      Log.setCategoryLevel(Log.net, LogLevel.debug);
+
+      expect(Log.net.isEnabled(LogLevel.debug), isTrue);
+      expect(Log.ble.isEnabled(LogLevel.debug), isFalse);
+      expect(Log.ble.isEnabled(LogLevel.warning), isTrue);
+    });
+  });
+
+  group('timed', () {
+    test('logs the elapsed time and returns the value', () async {
+      final records = Log.captureRecords();
+      Log.minLevel = LogLevel.debug;
+
+      final result = await Log.net.timed('mDNS probe', () async => 7);
+
+      expect(result, 7);
+      expect(records.single.level, LogLevel.debug);
+      expect(records.single.category, 'net');
+      expect(records.single.message, startsWith('mDNS probe took '));
+    });
+
+    test('a failure is logged with its elapsed time and rethrown', () async {
+      // The timing line must survive the throw: "it failed" and "it took nine
+      // seconds to fail" are different diagnoses, and the second one is the
+      // one that says the socket was hanging.
+      final records = Log.captureRecords();
+      Log.minLevel = LogLevel.debug;
+
+      await expectLater(
+        Log.net.timed('mDNS probe', () async => throw StateError('no route')),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(records.single.level, LogLevel.warning);
+      expect(records.single.message, startsWith('mDNS probe failed after '));
+      expect(records.single.error, isA<StateError>());
+    });
+
+    test('the level is the caller\'s to choose', () async {
+      final records = Log.captureRecords();
+      await Log.adopt.timed('join poll', () async {}, level: LogLevel.info);
+      expect(records.single.level, LogLevel.info);
+    });
+  });
+
+  group('formatElapsed', () {
+    test('sub-second durations read in milliseconds', () {
+      // 140ms and 12.0s should be visibly different at a glance, which "0.1s"
+      // and "12.0s" are not.
+      expect(formatElapsed(const Duration(milliseconds: 140)), '140ms');
+      expect(formatElapsed(Duration.zero), '0ms');
+      expect(formatElapsed(const Duration(milliseconds: 999)), '999ms');
+    });
+
+    test('a second and over reads in seconds, to one decimal', () {
+      expect(formatElapsed(const Duration(milliseconds: 1000)), '1.0s');
+      expect(formatElapsed(const Duration(milliseconds: 1249)), '1.2s');
+      expect(formatElapsed(const Duration(seconds: 12)), '12.0s');
+    });
+  });
+
+  group('logFields', () {
+    test('renders key=value in the order given', () {
+      expect(
+        logFields({'name': 'Wemo', 'firmware': '2.00', 'port': 49153}),
+        'name=Wemo firmware=2.00 port=49153',
+      );
+    });
+
+    test('an absent value is marked, never rendered as empty', () {
+      // "firmware=" reads as "the device said its firmware is the empty
+      // string", which is a different fact from "the device did not say".
+      expect(logFields({'firmware': null}), 'firmware=<none>');
+      expect(logFields({'rtos': null}, absent: '<absent>'), 'rtos=<absent>');
+      expect(logFields({'firmware': ''}), 'firmware=');
+    });
+
+    test('a secret is the caller\'s to redact first', () {
+      expect(logFields({'token': redact('s3cret')}), 'token=<redacted>');
+    });
+  });
+
+  group('LogBuffer', () {
+    LogRecord record(String message) => LogRecord(
+          time: DateTime(2026, 1, 2, 14, 2, 11, 482),
+          level: LogLevel.info,
+          category: 'ble',
+          message: message,
+        );
+
+    test('keeps records oldest-first', () {
+      final buffer = LogBuffer(capacity: 10)
+        ..add(record('first'))
+        ..add(record('second'));
+      expect(buffer.records.map((r) => r.message), ['first', 'second']);
+    });
+
+    test('drops the oldest past capacity', () {
+      // A long session must not grow without limit; a scan alone emits tens of
+      // lines.
+      final buffer = LogBuffer(capacity: 3);
+      for (var i = 0; i < 5; i++) {
+        buffer.add(record('line $i'));
+      }
+      expect(buffer.length, 3);
+      expect(
+          buffer.records.map((r) => r.message), ['line 2', 'line 3', 'line 4']);
+    });
+
+    test('export renders one record per line, newest last', () {
+      final buffer = LogBuffer()
+        ..add(record('first'))
+        ..add(record('second'));
+      expect(buffer.export(),
+          '14:02:11.482 INFO  [ble] first\n14:02:11.482 INFO  [ble] second');
+    });
+
+    test('export narrows by level and category', () {
+      // So a bug report carries the thirty lines someone was looking at rather
+      // than five hundred, which is the difference between read and skimmed.
+      final buffer = LogBuffer()
+        ..add(LogRecord(
+            time: DateTime(2026),
+            level: LogLevel.debug,
+            category: 'ble',
+            message: 'chatter'))
+        ..add(LogRecord(
+            time: DateTime(2026),
+            level: LogLevel.warning,
+            category: 'ble',
+            message: 'kept'))
+        ..add(LogRecord(
+            time: DateTime(2026),
+            level: LogLevel.error,
+            category: 'net',
+            message: 'other category'));
+
+      final exported =
+          buffer.export(minLevel: LogLevel.warning, categories: {'ble'});
+
+      expect(exported, contains('kept'));
+      expect(exported, isNot(contains('chatter')));
+      expect(exported, isNot(contains('other category')));
+    });
+
+    test('the buffer observes output rather than replacing it', () {
+      // A record reaches the buffer whether it went to the console, a test's
+      // capture list, or nowhere: what the buffer answers is "what just
+      // happened", and a build routing its output elsewhere still needs that.
+      final buffer = LogBuffer();
+      Log.buffer = buffer;
+      addTearDown(() => Log.buffer = null);
+      final records = Log.captureRecords();
+
+      Log.ble.info('scan started');
+
+      expect(records, hasLength(1));
+      expect(buffer.records.single.message, 'scan started');
+    });
+
+    test('a filtered-out line does not reach the buffer either', () {
+      final buffer = LogBuffer();
+      Log.buffer = buffer;
+      addTearDown(() => Log.buffer = null);
+      Log.minLevel = LogLevel.error;
+
+      Log.ble.info('dropped');
+
+      expect(buffer.records, isEmpty);
     });
   });
 

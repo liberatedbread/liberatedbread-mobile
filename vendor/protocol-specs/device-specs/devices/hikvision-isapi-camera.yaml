@@ -1,0 +1,169 @@
+# Hikvision IP Camera / NVR (ISAPI) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - maciej-or/hikvision_next (HA integration); hikvisionapi (PyPI).
+
+device:
+  name: "Hikvision IP Camera / NVR (ISAPI)"
+  manufacturer: "Hangzhou Hikvision"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The ISAPI paths, the RTSP
+      channel URL, ports and auth are from maciej-or/hikvision_next and the
+      hikvisionapi PyPI client.
+  protocol: "wifi"
+  category: "camera"
+  pictogram: "ip-camera"
+  transport: "rtsp"
+  notes: >
+    Hikvision cameras and NVRs expose ISAPI — a REST/XML HTTP API — plus RTSP,
+    controllable locally with no Hik-Connect cloud (relevant given Hikvision's
+    US NDAA restrictions).
+
+    PORTS: HTTP 80 (default), RTSP 554. AUTH: Basic and Digest.
+
+    ISAPI (REST/XML over HTTP, resources under /ISAPI/...):
+      /ISAPI/System/deviceInfo                          device info
+      /ISAPI/Streaming/channels                         channel list
+      /ISAPI/Streaming/channels/102/picture             per-channel still (1xx
+                                                        main, 1x2 sub)
+      /ISAPI/System/Video/inputs/channels/1/motionDetection   motion config
+      /ISAPI/Event/notification/alertStream             long-lived event stream
+
+    RTSP live: rtsp://{ip}:554/Streaming/Channels/101 (channel 1, last digit 1 =
+    main / 2 = sub).
+
+    Discovery: ONVIF (Profile S/T) WS-Discovery (see onvif.yaml), Hikvision's own
+    SADP, or a direct ISAPI probe on port 80.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://github.com/maciej-or/hikvision_next"
+        title: "maciej-or/hikvision_next (HA integration)"
+        covers: "The ISAPI resource paths, the alertStream event channel and the RTSP channel URL."
+    notes: >
+      ISAPI is Hikvision's documented (if partly gated) REST/XML API; the full
+      resource tree is large and only the cited subset is documented here. See
+      onvif.yaml for ONVIF discovery/streaming.
+
+  identification:
+    default_port: 80
+    ssdp_search_targets:
+      - "urn:schemas-onvif-org:service:Media"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_http._tcp.local."
+          port: 80
+          identity_mapping:
+            stable_keys:
+              - source: "http:/ISAPI/System/deviceInfo#serialNumber"
+                key: "serial"
+            display:
+              source: "http:/ISAPI/System/deviceInfo#deviceName"
+        notes: >
+          Discover via ONVIF WS-Discovery (onvif.yaml) or SADP, or probe
+          GET /ISAPI/System/deviceInfo. Identity is the device serial.
+    identity:
+      stable_keys: ["serial"]
+      display: "deviceName"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      The camera is activated with a strong admin password on first use (via SADP
+      or the web UI); local ISAPI over Digest thereafter, no cloud. Provisioning
+      wire steps are not documented here.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Activate the camera (set a strong admin password) via SADP or the web
+          UI, then use ISAPI over HTTP Digest and pull RTSP from port 554.
+        steps:
+          - action: "Activate the camera and set an admin password (SADP or web UI)."
+            actor: "user"
+          - action: "Use ISAPI (Digest) and read RTSP from /Streaming/Channels/101."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Clears config and the admin password, returning the camera to the
+        unactivated state. Performed by holding the reset button; the hold time is
+        model-specific.
+      procedures:
+        - name: "Reset button hold"
+          verified: false
+          basis: "Hikvision documents a reset-button hold per model; not replayed here."
+          steps:
+            - action: "Hold the camera's reset button until it reboots into the unactivated state."
+              actor: "user"
+              expect: "The camera returns to first-boot (requires re-activation)."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Network settings are changed from the camera UI / ISAPI while reachable."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Local admin password"
+      issued_to_client: []
+      notes: >
+        Local control uses the camera's admin credential over Basic/Digest.
+        Activation/onboarding is via SADP/web UI and not documented here.
+
+camera:
+  enable_required: false
+  enable_notes: >
+    ISAPI and RTSP are available by default once the camera is activated with an
+    admin password. ONVIF may need enabling on some models.
+  feed_host_source: "device"
+  streams:
+    - name: "Main stream (RTSP)"
+      transport: "rtsp"
+      url_template: "rtsp://{user}:{password}@{address}:554/Streaming/Channels/101"
+      default_port: 554
+      served_by: "device"
+      auth: "user"
+      notes: "Channel 1 main stream (…/101). NVRs number channels 1..N (…/N01)."
+    - name: "Sub stream (RTSP)"
+      transport: "rtsp"
+      url_template: "rtsp://{user}:{password}@{address}:554/Streaming/Channels/102"
+      default_port: 554
+      served_by: "device"
+      auth: "user"
+      notes: "Channel 1 sub stream (…/102)."
+
+http_endpoints:
+  - method: "GET"
+    path: "/ISAPI/System/deviceInfo"
+    name: "Device info"
+    description: "XML device info (model, serial, firmware) — the identity check (Digest)."
+  - method: "GET"
+    path: "/ISAPI/Streaming/channels"
+    name: "Channel list"
+    description: "The streaming channels the device exposes."
+  - method: "GET"
+    path: "/ISAPI/Event/notification/alertStream"
+    name: "Event stream"
+    description: "Long-lived multipart event stream (motion, tamper, line-crossing, etc.)."
+
+helpful_urls:
+  - title: "maciej-or/hikvision_next"
+    url: "https://github.com/maciej-or/hikvision_next"
+    description: "HA integration; ISAPI paths, alertStream, RTSP channel URL."
+  - title: "hikvisionapi (PyPI)"
+    url: "https://pypi.org/project/hikvisionapi/"
+    description: "Python ISAPI client (deviceInfo, streaming channels, motionDetection, alertStream)."

@@ -10,6 +10,7 @@ import '../core/error_text.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
+import 'unclaimed_actions.dart';
 
 /// Preset swatches, matching the BLE light card so a colour means the same on
 /// either screen. Plain RGB, sent verbatim; the device's gamma is its business.
@@ -93,6 +94,11 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   bool _sending = false;
   String? _errorText;
 
+  /// Which role is in flight. `_sending` says a send is running but not which
+  /// one, and the unclaimed row needs the difference: it spins the button that
+  /// was pressed instead of every button at once.
+  String? _sendingRole;
+
   /// Assumed power position after a send, until a live read reports truth.
   bool? _assumedOn;
 
@@ -122,6 +128,20 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   NetworkActionDto? get _setColorTemperature =>
       _action('set_color_temperature');
   NetworkActionDto? get _setZoneColor => _action('set_zone_color');
+
+  /// The roles the getters above look up — what this card answers for, even
+  /// where it draws nothing: a strip that never reported its zones shows no
+  /// zone row, and `set_zone_color` is still this card's to handle. Everything
+  /// else the entity resolved goes to [UnclaimedActions], so a role added to
+  /// the table cannot land on a light card and be drawn by nobody.
+  static const _claimedRoles = <String>{
+    'turn_on',
+    'turn_off',
+    'set_color',
+    'set_brightness',
+    'set_color_temperature',
+    'set_zone_color',
+  };
 
   bool get _hasBrightness =>
       _setBrightness != null ||
@@ -189,6 +209,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   }) async {
     setState(() {
       _sending = true;
+      _sendingRole = action;
       _errorText = null;
     });
     try {
@@ -222,6 +243,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       if (!mounted) return;
       setState(() {
         _sending = false;
+        _sendingRole = null;
         if (assumeOn != null) _assumedOn = assumeOn;
       });
     } catch (e) {
@@ -233,6 +255,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       );
       setState(() {
         _sending = false;
+        _sendingRole = null;
         _errorText = text;
       });
     }
@@ -310,6 +333,14 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     final turnOff = _turnOff;
     final hasToggle = turnOn != null && turnOff != null;
     final shownOn = _assumedOn;
+    final resolved = <({String role, bool takesValue})>[
+      for (final action in widget.entity.actions)
+        (role: action.role, takesValue: action.userParams.isNotEmpty),
+    ];
+    // Asked here rather than left to the widget so the gap above it appears
+    // only when there is something to separate: a light that draws every role
+    // it resolved must be the same height it always was.
+    final hasUnclaimed = resolved.any((a) => !_claimedRoles.contains(a.role));
 
     return Card(
       margin: EdgeInsets.zero,
@@ -446,6 +477,26 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                       },
                     ),
                 ],
+              ),
+            ],
+            if (hasUnclaimed) ...[
+              const SizedBox(height: 10),
+              UnclaimedActions(
+                actions: resolved,
+                claimed: _claimedRoles,
+                // The card's own sender, so an unclaimed role rides the same
+                // codec, the same error text and the same busy state as a
+                // swatch or a slider does — but NOT the same assumed position.
+                // An unclaimed role says nothing about where it leaves the
+                // light: `toggle` inverts whatever the device holds, and an
+                // assumption left by an earlier On tap would keep the card
+                // reading "On (sent)" for a light this send just turned off.
+                onSend: (role) {
+                  setState(() => _assumedOn = null);
+                  return _send(role, const {});
+                },
+                sendingRole: _sendingRole,
+                enabled: !_sending,
               ),
             ],
           ],

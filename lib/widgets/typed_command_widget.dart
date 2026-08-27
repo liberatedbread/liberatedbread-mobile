@@ -149,23 +149,45 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   /// spec flags as able to change how the hardware behaves.
   bool _advancedConfirmed = false;
 
+  /// Whether the defaulted parameters are on screen. See [_defaulted].
+  bool _showDefaulted = false;
+
   @override
   void initState() {
     super.initState();
     for (final p in widget.command.parameters) {
-      // Parameters the encoder fills itself (checksum, sequence,
-      // packet_length) get no control and no seed value: offering a
-      // "checksum" slider lets the user write over a byte the protocol
-      // computes, and seeding a value would send exactly that.
-      if (p.auto != null) continue;
+      // A parameter the SPEC fills gets no control and no seed value. Which
+      // ones those are is the spec's answer, not this widget's: `userSettable`
+      // is the schema's own rule ("none of auto, default, source") applied in
+      // Rust, where the entity resolver reads the same predicate. This loop
+      // used to test `auto` alone, so 150 defaulted parameters across eight
+      // specs drew knobs the user could write over — SmartDawn's `power_on`,
+      // which is a fixed "turn on", offered four sliders for DDP filler, one
+      // of them a 0..4294967295 range over a connection id.
+      //
+      // Omitting the value is safe on the wire: the encoder resolves supplied
+      // value, then the spec's `default`, then a visible failure, so a
+      // defaulted parameter still encodes to its default. A `source` one has
+      // no default and fails visibly, which is the contract.
+      if (!p.userSettable) continue;
+      _seed(p);
+    }
+  }
+
+  /// The starting value for one parameter's control.
+  void _seed(ParameterDto p) {
+    {
       final allowed = p.allowed;
       final isDropdown = allowed != null &&
           allowed.isNotEmpty &&
           isNumericValueType(p.valueType);
-      // The spec's own default seeds the control when it declares one — in
-      // raw device units, like everything in _values. A default outside the
-      // dropdown's allowed set is ignored rather than fed to a widget that
-      // has no item for it.
+      // Enumerated parameters start at the first allowed value and everything
+      // else at the bottom of its range. The condition mirrors _buildParam:
+      // only numeric non-bool parameters get the dropdown treatment.
+      // A defaulted parameter starts where the spec put it, so revealing one
+      // and sending without touching it puts the same bytes on the wire as
+      // leaving it hidden. A user-owned one starts at the bottom of its range,
+      // which is what it has always done.
       final declared = p.default_;
       if (declared != null &&
           (!isDropdown ||
@@ -174,17 +196,50 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         _values[p.name] = isDropdown
             ? declared.toDouble()
             : declared.toDouble().clamp(range.min, range.max).toDouble();
-        continue;
+        return;
       }
-      // Otherwise enumerated parameters start at the first allowed value and
-      // everything else at the bottom of its range. The condition mirrors
-      // _buildParam: only numeric non-bool parameters get the dropdown
-      // treatment.
       _values[p.name] = isDropdown
           ? allowed.first.toDouble()
           : rangeFor(p.valueType, p.min, p.max).min;
     }
   }
+
+  /// Whether [name]'s value crosses the FFI on a send.
+  ///
+  /// A user-owned parameter always does. A defaulted one does only while its
+  /// section is open: the encoder resolves supplied value, then the spec's
+  /// `default`, so omitting it puts exactly the bytes on the wire that the
+  /// collapsed label promises.
+  bool _isSendable(String name) {
+    if (_showDefaulted) return true;
+    return widget.command.parameters
+        .where((p) => p.name == name)
+        .every((p) => p.userSettable);
+  }
+
+  /// Parameters the spec DEFAULTS but does not compute — a value the device
+  /// will accept from the caller, with an answer already supplied.
+  ///
+  /// These are the awkward middle of the schema's rule. Most are protocol
+  /// filler that no user should be handed (SmartDawn's `power_on` defaults
+  /// four DDP header fields), and drawing them was the bug. But some are real
+  /// knobs whose command needs a value for a second axis the caller usually
+  /// does not care about: the Urevo's `slope` beside its speed, the LIFX
+  /// strip's `kelvin` beside its colour, the Govee thermometer's history
+  /// window — and hiding those outright takes away the only place they can be
+  /// set at all.
+  ///
+  /// Nothing in the spec distinguishes the two, and guessing from the shape of
+  /// a range is the kind of inference this codebase does not do. So neither is
+  /// on the default surface and both are one tap away, seeded at the value the
+  /// spec chose.
+  ///
+  /// `auto` and `source` are NOT here: the encoder computes the first and the
+  /// client fetches the second, so there is nothing for a user to set.
+  List<ParameterDto> get _defaulted => [
+        for (final p in widget.command.parameters)
+          if (!p.userSettable && p.auto == null && p.source == null) p,
+      ];
 
   Future<void> _send() async {
     // Advanced commands ask once before their first send, showing the spec's
@@ -208,8 +263,16 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         specYaml: widget.specYaml,
         charUuid: widget.charUuid,
         commandName: widget.command.name,
+        // Only what is on screen. A defaulted parameter is sent when the
+        // user has opened the section and can see it; collapsed, it goes back
+        // to being the encoder's to fill — which is what the collapsed label
+        // says it is. Without this, expanding SmartDawn's `power_on`, dragging
+        // its DDP connection-id slider and collapsing again put the edited
+        // filler on the wire under a label promising the spec filled it in,
+        // with no control anywhere to see or undo it.
         params: {
-          for (final e in _values.entries) e.key: e.value.roundToDouble(),
+          for (final e in _values.entries)
+            if (_isSendable(e.key)) e.key: e.value.roundToDouble(),
         },
       );
       await ble.writeCharacteristic(
@@ -304,10 +367,37 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
                 ),
               ),
             const SizedBox(height: 8),
-            // Encoder-filled parameters (auto: checksum/sequence/…) are
-            // excluded here exactly as in initState — no control, no value.
+            // Spec-filled parameters are excluded here exactly as in
+            // initState, and by the same one-word question, so the controls on
+            // screen and the values in `_values` cannot disagree.
             for (final p in command.parameters)
-              if (p.auto == null) _buildParam(p),
+              if (p.userSettable) _buildParam(p),
+            if (_defaulted.isNotEmpty) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  style: TextButton.styleFrom(minimumSize: const Size(0, 40)),
+                  onPressed: () => setState(() {
+                    _showDefaulted = !_showDefaulted;
+                    if (_showDefaulted) {
+                      // Seeded on reveal rather than at mount, so a command
+                      // nobody expands sends exactly what it sent before: the
+                      // encoder fills each default itself.
+                      for (final p in _defaulted) {
+                        if (!_values.containsKey(p.name)) _seed(p);
+                      }
+                    }
+                  }),
+                  child: Text(
+                    _showDefaulted
+                        ? 'Hide the spec\'s defaults'
+                        : '${_defaulted.length} value${_defaulted.length == 1 ? '' : 's'} the spec fills in',
+                  ),
+                ),
+              ),
+              if (_showDefaulted)
+                for (final p in _defaulted) _buildParam(p),
+            ],
             Row(
               children: [
                 Expanded(

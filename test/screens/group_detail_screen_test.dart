@@ -34,7 +34,7 @@ const _chr = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 final _bulbSpec = DeviceSpecDto(
   nameMatchers: const [],
-  platformFallback: false,
+  platformFallbackTypes: const [],
   txtMatchGroups: const [],
   hiddenEntityNames: const [],
   deviceName: 'Example Smart Bulb',
@@ -47,34 +47,35 @@ final _bulbSpec = DeviceSpecDto(
   serviceUuids: const [_svc],
   companyIds: Uint16List(0),
   macPrefixes: const [],
+  mdnsServiceTypes: const [],
   ssdpSearchTargets: const [],
   lanProtocols: const [],
   services: const [],
   entities: const [
     EntityDto(
-      options: [],
-      name: 'Bulb',
-      platform: 'light',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        EntityActionDto(
-          role: 'turn_on',
-          serviceUuid: _svc,
-          characteristicUuid: _chr,
-          commandName: 'power_on',
-          userParams: [],
-        ),
-        EntityActionDto(
-          role: 'turn_off',
-          serviceUuid: _svc,
-          characteristicUuid: _chr,
-          commandName: 'power_off',
-          userParams: [],
-        ),
-      ],
-    ),
+        options: [],
+        name: 'Bulb',
+        platform: 'light',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        actions: [
+          EntityActionDto(
+            role: 'turn_on',
+            serviceUuid: _svc,
+            characteristicUuid: _chr,
+            commandName: 'power_on',
+            userParams: [],
+          ),
+          EntityActionDto(
+            role: 'turn_off',
+            serviceUuid: _svc,
+            characteristicUuid: _chr,
+            commandName: 'power_off',
+            userParams: [],
+          ),
+        ],
+        variants: []),
   ],
 );
 
@@ -365,7 +366,7 @@ void main() {
 
     final wifiSpec = DeviceSpecDto(
       nameMatchers: const [],
-      platformFallback: false,
+      platformFallbackTypes: const [],
       txtMatchGroups: const [],
       hiddenEntityNames: const [],
       deviceName: 'Wifi Strip',
@@ -378,6 +379,7 @@ void main() {
       serviceUuids: const [],
       companyIds: Uint16List(0),
       macPrefixes: const [],
+      mdnsServiceTypes: const [],
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       services: const [],

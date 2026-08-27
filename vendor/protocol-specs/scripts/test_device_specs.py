@@ -623,6 +623,197 @@ def test_entity_keys_are_declared_in_the_schema(specs):
             )
 
 
+# The role vocabulary `entities[].commands` draws from, per platform. Same
+# shape and same reasoning as ENTITY_KEY_VOCABULARY below: a pytest-owned list
+# rather than a schema enum, so growth stays additive and a typo is caught.
+#
+# Why per platform and not one flat set: a role is a promise about what the
+# control DOES, and the platform is what makes it meaningful. `set_brightness`
+# on a cover, or `open_cover` on a light, is exactly as wrong as a misspelling
+# and just as silent — a consumer looks up the roles its light card knows and
+# never asks the question the spec answered.
+#
+# Spellings a consumer accepts as synonyms are listed beside their canonical
+# form rather than collapsed, because the catalogue uses both and this file's
+# job is to say what is legal, not to prefer.
+ENTITY_ROLE_VOCABULARY = {
+    "switch": {"turn_on", "power_on", "turn_off", "power_off",
+               "toggle", "power_toggle", "press"},
+    "light": {"turn_on", "power_on", "turn_off", "power_off",
+              "toggle", "power_toggle", "set_brightness", "set_color",
+              "set_color_temperature", "set_effect"},
+    "button": {"press"},
+    "select": {"select_option", "set_option"},
+    "text": {"submit", "type", "press"},
+    "number": {"set_value", "set_temperature", "set_target"},
+    # A climate entity is a setpoint AND a machine: it turns on and off, and
+    # its mode pickers are as much part of the control as the temperature.
+    "climate": {"set_value", "set_temperature", "set_target",
+                "turn_on", "power_on", "turn_off", "power_off",
+                "toggle", "power_toggle", "set_hvac_mode", "set_fan_mode"},
+    "fan": {"turn_on", "power_on", "turn_off", "power_off",
+            "toggle", "power_toggle", "set_percentage", "set_speed",
+            "set_value", "set_oscillating"},
+    "cover": {"open_cover", "close_cover", "stop_cover",
+              "set_cover_position", "set_position"},
+}
+
+
+def test_entity_roles_come_from_the_documented_vocabulary(specs):
+    """Every key in an `entities[].commands` map is a role a consumer matches.
+
+    The failure this catches has no other symptom. `commands` was declared as a
+    bare `{"type": "object"}`, so any key validated; consumers match a closed
+    set of role names and pass over the rest without a word. A binding outside
+    the set therefore reads as wired, resolves nothing, and produces no error,
+    no warning and no missing-control note — the entity resolved its OTHER
+    roles, so nothing reports it.
+
+    Eighteen bindings across seven specs had drifted out that way before this
+    test existed: openevse's amp setpoint bound `turn_on`, the Yeelight cube
+    spelled its colour roles `set_rgb` and `set_color_temp`, a name badge bound
+    `set_text` to a bitmap chunk write, and both Frigidaire units bound modes
+    and power on a platform whose vocabulary had only the setpoint.
+    """
+    for device_id, spec in specs.items():
+        for entity in spec.get("entities") or []:
+            platform = entity.get("platform")
+            allowed = ENTITY_ROLE_VOCABULARY.get(platform)
+            # A reading platform (sensor, binary_sensor, or no platform at all)
+            # has no CONTROLS, but it may still have to ask for its value:
+            # astral-hoops' battery gauge answers a `get_battery_level` write
+            # with an `&L<n>` record, and without naming that command the
+            # reading is one a consumer can display and never obtain. `poll` is
+            # the BLE analogue of the network side's `state_command`, and it is
+            # the only thing a reading may bind — anything else on a platform
+            # with no controls is a control nothing will send.
+            if allowed is None:
+                stray = sorted(set(entity.get("commands") or {}) - {"poll"})
+                assert not stray, (
+                    f"{device_id}: entity {entity.get('name')!r} has platform "
+                    f"{platform!r}, which has no controls, but binds {stray}. "
+                    "Nothing will send them. A reading may bind `poll` — the "
+                    "command that fetches its value — and nothing else."
+                )
+                continue
+            for role in entity.get("commands") or {}:
+                assert role in allowed, (
+                    f"{device_id}: entity {entity.get('name')!r} ({platform}) "
+                    f"binds the role {role!r}, which is not in the documented "
+                    f"vocabulary for that platform. A consumer matches these "
+                    f"names, so this binding reaches nothing and says nothing. "
+                    f"Use one of {sorted(allowed)}, move the binding into "
+                    f"`notes` if no role describes it, or add the role to "
+                    f"ENTITY_ROLE_VOCABULARY (and the schema description) in "
+                    f"the same change that teaches a consumer to draw it."
+                )
+
+
+# Specs that describe a control surface no entity binds. Each is a spec whose
+# commands or endpoints a consumer can read but cannot draw, because the entity
+# layer is what every renderer consumes; naming them here is the difference
+# between a backlog and an oversight.
+#
+# A camera spec is NOT in this state and is exempted below: its surface is the
+# `camera:` block, which a viewer consumes directly.
+ENTITYLESS_CONTROL_SURFACES = {
+    "chromecast-castv2": "CASTV2 is a TLS protobuf session, not a request per "
+                         "command; the five commands are the vocabulary, and "
+                         "what binds them is a session a renderer cannot open "
+                         "yet.",
+    "logitech-harmony-hub": "The local WebSocket envelope is unconfirmed "
+                            "(the spec says so), so binding entities to it "
+                            "would promise a control nobody has driven.",
+    "parrot-arsdk-drone": "ARSDK is a binary UDP protocol after a TCP "
+                          "handshake; the commands document it, and no "
+                          "generic renderer reaches it.",
+    "pebble-smartwatch": "Pebble Protocol over a BT Classic serial link — "
+                         "outside both transports this catalogue's consumers "
+                         "speak.",
+    "squeezebox-slimproto": "SlimProto is a persistent binary TCP session; "
+                            "the four commands name CLI verbs that ride it.",
+    "vevor-vt256-thermal-imager": "Its fifteen commands ride the vendor's own "
+                                  "TCP session beside the MJPEG stream; the "
+                                  "stream is bindable through `camera:`, the "
+                                  "commands are not bindable at all yet.",
+    "xiaomi-miio": "miIO is an encrypted UDP protocol keyed by a token the "
+                   "spec cannot carry; the commands document the method "
+                   "names, not a surface a renderer can drive.",
+}
+
+
+def test_a_control_surface_is_bound_to_an_entity_or_named_as_a_backlog(specs):
+    """A spec with commands and no entities draws nothing, and says nothing.
+
+    `entities` is what every consumer renders from: a command nothing binds is
+    documentation, however complete. That is a legitimate state — several
+    protocols here are documented long before anything can speak them — but it
+    is indistinguishable from an entity layer nobody got round to writing, and
+    the reader who could tell them apart is the author who moved on.
+
+    So the state is allowed and named. A new spec in it fails until somebody
+    decides which of the two it is.
+    """
+    unbound = []
+    for device_id, spec in specs.items():
+        if spec.get("entities"):
+            continue
+        device = spec["device"]
+        # Nothing to bind: a standards reference, a device the catalogue only
+        # recognises, or one whose surface is a camera stream.
+        if is_reference(spec) or device.get("integration") == "identify_only":
+            continue
+        # A camera's surface IS the `camera:` block, which a viewer consumes
+        # directly. Only when that is the WHOLE surface, though: the Vevor
+        # imager declares a camera and fifteen commands, and those fifteen
+        # reach nothing, which is precisely the state being named here.
+        if spec.get("camera") and not spec.get("commands"):
+            continue
+        if not (spec.get("commands") or spec.get("http_endpoints")):
+            continue
+        if device_id in ENTITYLESS_CONTROL_SURFACES:
+            continue
+        unbound.append(device_id)
+
+    assert not unbound, (
+        f"these specs declare commands or endpoints and no entities, so a "
+        f"consumer has nothing to draw: {sorted(unbound)}. Give each an "
+        f"`entities` block binding its roles, or add it to "
+        f"ENTITYLESS_CONTROL_SURFACES with the reason no entity can bind it."
+    )
+
+
+def test_the_entityless_backlog_names_only_real_specs(specs):
+    """An exemption for a spec that gained entities is an exemption nobody
+    notices has stopped applying — and the list is how the backlog is read."""
+    stale = sorted(
+        device_id
+        for device_id in ENTITYLESS_CONTROL_SURFACES
+        if device_id not in specs or specs[device_id].get("entities")
+    )
+    assert not stale, (
+        f"ENTITYLESS_CONTROL_SURFACES names {stale}, which no longer need the "
+        f"exemption (gained entities, or left the catalogue). Remove them."
+    )
+
+
+def test_an_unreliable_advertised_port_states_the_real_one(specs):
+    """`advertised_port_unreliable` without `default_port` says nothing.
+
+    The flag's whole content is "use the declared port instead of the
+    announced one". A spec that raises it and declares no port has told a
+    consumer to ignore the only port it has, which leaves it with none.
+    """
+    for device_id, spec in specs.items():
+        ident = spec["device"].get("identification") or {}
+        if not ident.get("advertised_port_unreliable"):
+            continue
+        assert ident.get("default_port"), (
+            f"{device_id}: says its advertised port is unreliable and declares "
+            "no `default_port`, so a consumer is left with no port at all"
+        )
+
+
 def test_entity_names_are_unique_per_variant(specs):
     """Two controls with one name are indistinguishable on screen and in a
     consumer's send-in-flight bookkeeping, which keys on the name.
@@ -1765,6 +1956,12 @@ def test_every_ble_spec_can_be_matched_by_something(specs):
         device_id
         for device_id, spec in specs.items()
         if spec["device"].get("protocol") == "ble"
+        # A reference spec documents a published profile other specs cite --
+        # FTMS is service 0x1826, not a product -- so there is no scan result
+        # to bind it to, the same reason references carry no `testing` block.
+        # Worse than pointless: giving it the profile's own service UUID as an
+        # axis would enter it in the matcher against every real FTMS treadmill.
+        and not is_reference(spec)
         and not any(
             (spec["device"].get("identification") or {}).get(axis) for axis in axes
         )
@@ -1948,9 +2145,26 @@ def test_a_runtime_channel_names_the_command_that_finds_it(specs):
             )
 
 
+def _is_send_channel(channel):
+    """Whether a client writes frames on this channel.
+
+    `direction: receive` is a socket the DEVICE pushes on — the SoundTouch
+    emits `<updates>` wrappers on one whose control surface is the port-8090
+    HTTP API. A client subscribes and sends nothing, so the rules below about
+    what a frame is built from have nothing to apply to.
+    """
+    return channel.get("direction", "send") == "send"
+
+
 def test_a_channel_carries_the_frame_its_encoding_needs(specs):
     for spec_name, _, ws in _websocket_specs(specs):
         for channel in ws["channels"]:
+            if not _is_send_channel(channel):
+                assert not (channel.get("frame") or channel.get("frame_template")), (
+                    f"{spec_name}: receive channel {channel['name']!r} declares a "
+                    "frame, which nothing will ever send"
+                )
+                continue
             if channel["encoding"] == "json":
                 assert channel.get("frame"), (
                     f"{spec_name}: json channel {channel['name']!r} declares no "
@@ -1988,9 +2202,17 @@ def test_websocket_pairing_says_what_it_issues_and_where(specs):
 def test_a_websocket_spec_declares_the_transport_its_commands_ride(specs):
     # The block describes a surface; `device.transport` is what makes the
     # commands route to it. A spec with one and not the other is half-migrated.
-    for spec_name, spec, _ in _websocket_specs(specs):
+    #
+    # Unless nothing rides it. A spec whose channels are ALL `receive` has
+    # declared a socket the device pushes on, not one its commands travel over:
+    # the SoundTouch emits state on 8080 and takes commands on the 8090 HTTP
+    # API, and `device.transport: http` is the true answer for it. Requiring
+    # `websocket` there would make the spec lie about where its commands go.
+    for spec_name, spec, ws in _websocket_specs(specs):
+        if not any(_is_send_channel(c) for c in ws["channels"]):
+            continue
         transport = spec["device"].get("transport")
         assert transport == "websocket", (
-            f"{spec_name}: declares a `websocket` block but "
+            f"{spec_name}: declares a sendable `websocket` channel but "
             f"device.transport is {transport!r}"
         )

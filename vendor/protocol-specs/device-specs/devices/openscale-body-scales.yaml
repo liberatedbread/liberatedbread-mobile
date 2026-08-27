@@ -1,0 +1,207 @@
+# openScale-documented BLE Body Scales — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - openScale (oliexdev, GPLv3) wiki — per-scale BLE protocol pages.
+#
+# Covers three families openScale documents that are NOT already in this repo:
+# Beurer/Sanitas, Medisana BS444, and Trisa Body Analyze 4.0.
+
+device:
+  name: "openScale-documented BLE Body Scales (Beurer/Sanitas, Medisana BS444, Trisa)"
+  manufacturer: "Beurer / Sanitas / SilverCrest, Medisana, Trisa (openScale documents 85 scales)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The service/characteristic
+      UUIDs, command bytes and record layouts are from the openScale wiki pages
+      for each family.
+  protocol: "ble"
+  category: "scale"
+  notes: >
+    openScale (GPLv3) documents dozens of Bluetooth body-composition scales whose
+    vendor apps are cloud/account-oriented; this spec captures three families
+    openScale documents that are not already in this registry. All are local BLE
+    reads (some need a one-time user register / time-set write) — no cloud.
+
+    BEURER / SANITAS / SilverCrest (shared platform): service 0xFFE0,
+    characteristic 0xFFE1 (writes AND notifications). Frames start with e7/f7.
+    Command bytes: user-ID query 0x4F, set unit 0x4D, add user 0x31, request user
+    list 0x33, perform measurement 0x40, request saved measurements 0x41. A
+    measurement record is 22 bytes: <timestamp><weight><impedance><fat><water>
+    <muscle><bone><BMR><AMR><BMI>; weight = 2 bytes big-endian in g/50; impedance
+    2 bytes BE; unix timestamp 4 bytes.
+
+    MEDISANA BS444: weight service 000078b2-...; weight-measurement
+    00008a21-... (indicate), body-composition 00008a22-... (indicate), command
+    00008a81-... (write). Weight packet (0x8a21): byte0 flags (bits for unit
+    kg/lb/st), bytes1-2 weight little-endian /100, bytes5-8 unix timestamp
+    (epoch = 2010) LE, byte13 user-ID (1-8, 0xFF unset). Body-comp packet
+    (0x8a22): bytes6-7 kCal LE, bytes8-9 fat% /10 (mask 0xF0), 10-11 water%,
+    12-13 muscle%, 14-15 bone mass. TRIGGER: write 02 7b 7b f6 0d to the command
+    characteristic.
+
+    TRISA Body Analyze 4.0: Weight Scale Service 0x7802 (distinct from Medisana's
+    0x78b2); chars 0x8a20 (feature),
+    0x8a21 (measurement indicate), 0x8a81 (download/command write), 0x8a82
+    (upload indicate). Challenge-response pairing: device sends a0AABBCCDD
+    (32-bit password) on 0x8a82; client writes 21AABBCCDD (set broadcast id) then
+    22 (disconnect) to 0x8a81. For reads: device sends a1AABBCCDD challenge;
+    client replies 20<challenge XOR password> then 02<seconds since 2010-01-01
+    UTC, LE32>. Weight = 24-bit LE mantissa x 10^(signed 8-bit exponent).
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/oliexdev/openScale"
+    license: "GPL-3.0"
+    upstream_docs:
+      - url: "https://github.com/oliexdev/openScale/wiki/Supported-scales-in-openScale"
+        title: "openScale — supported scales"
+        covers: "The full catalogue (85 scales / 59 handlers) and links to each family's protocol page."
+    notes: >
+      The vendors do not document these; openScale reverse-engineered them and
+      its wiki is the authoritative per-scale reference. Credit openScale — it
+      documents dozens of scale families.
+
+  identification:
+    service_uuids:
+      - "0000ffe0-0000-1000-8000-00805f9b34fb"   # Beurer / Sanitas
+      - "000078b2-0000-1000-8000-00805f9b34fb"   # Medisana BS444
+      - "00007802-0000-1000-8000-00805f9b34fb"   # Trisa Body Analyze 4.0
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000ffe0-0000-1000-8000-00805f9b34fb"
+            - "000078b2-0000-1000-8000-00805f9b34fb"
+            - "00007802-0000-1000-8000-00805f9b34fb"
+        notes: >
+          Beurer/Sanitas advertise the 0xFFE0 service; Medisana BS444 advertises
+          the 0x78b2 weight service; Trisa Body Analyze 4.0 advertises 0x7802.
+          Local names vary; openScale
+          matches per model.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Local BLE read; some families need a one-time on-device write: Beurer/
+      Sanitas and Medisana register a user and (Medisana) require the trigger
+      magic; Trisa uses the XOR challenge-response with a password captured during
+      a pairing handshake. No cloud.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Connect over BLE, subscribe to the family's measurement/indicate
+          characteristic, and (per family) register a user, send the trigger
+          magic, or complete the challenge-response before measurements arrive.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Connect and subscribe to the measurement/indicate characteristic for the family."
+            actor: "client"
+          - action: "Beurer/Sanitas: register a user (0x31) / request measurements (0x41). Medisana: write 02 7b 7b f6 0d. Trisa: complete the challenge-response."
+            actor: "client"
+          - action: "Step on the scale; read the measurement record."
+            actor: "user"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Per-scale user-management resets exist (clearing stored users) but are
+        not uniform across the families and are not transcribed here. No network
+        or cloud state is stored on the device.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership; a new BLE client connects (and re-registers a user) independently."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Registered user profiles"
+        - "Trisa: a broadcast-id / password bound during pairing"
+      issued_to_client: []
+      notes: >
+        No Wi-Fi. Trisa binds a 32-bit password during pairing used in its XOR
+        challenge-response; the others are unauthenticated local reads.
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "Beurer / Sanitas scale service"
+    notes: >
+      Writes and notifications both on 0xFFE1. Frames start e7/f7. Commands:
+      0x4F user-ID query, 0x4D set unit, 0x31 add user, 0x33 request users, 0x40
+      perform measurement, 0x41 request saved measurements. 22-byte record:
+      timestamp, weight (BE, g/50), impedance, fat, water, muscle, bone, BMR,
+      AMR, BMI.
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Command / measurement"
+        properties: ["write", "notify"]
+        notes: "Both the command write channel and the measurement notification channel."
+  - uuid: "000078b2-0000-1000-8000-00805f9b34fb"
+    name: "Medisana BS444 weight service (0x78b2)"
+    notes: >
+      Medisana BS444 (service 0x78b2): weight 0x8a21 (indicate), body-comp 0x8a22
+      (indicate), command 0x8a81 (write; trigger 02 7b 7b f6 0d).
+      NOTE: the Trisa Body Analyze 4.0 exposes the SAME 0x8a2x characteristic
+      UUIDs (feature 0x8a20, measurement 0x8a21 indicate, command 0x8a81 write,
+      upload 0x8a82 indicate; challenge-response) but under its own weight service
+      0x7802, NOT 0x78b2 — resolve the characteristics by UUID. Timestamps use
+      epoch 2010.
+    characteristics:
+      - uuid: "00008a21-0000-1000-8000-00805f9b34fb"
+        name: "Weight measurement (indicate)"
+        properties: ["indicate"]
+        notes: >
+          Medisana: byte0 flags (unit), bytes1-2 weight LE /100, bytes5-8 unix
+          timestamp (epoch 2010) LE, byte13 user-ID. Trisa: weight = 24-bit LE
+          mantissa x 10^(signed 8-bit exponent).
+      - uuid: "00008a22-0000-1000-8000-00805f9b34fb"
+        name: "Body composition (indicate, Medisana)"
+        properties: ["indicate"]
+        notes: "bytes6-7 kCal LE, 8-9 fat% /10 (mask 0xF0), 10-11 water%, 12-13 muscle%, 14-15 bone mass."
+      - uuid: "00008a81-0000-1000-8000-00805f9b34fb"
+        name: "Command (write)"
+        properties: ["write"]
+        notes: >
+          Medisana trigger: write 02 7b 7b f6 0d. Trisa: 21AABBCCDD set
+          broadcast-id, 22 disconnect, 20<challenge XOR password>,
+          02<seconds since 2010 LE32>.
+        commands:
+          medisana_trigger:
+            description: "Medisana BS444: start/handshake write (02 7b 7b f6 0d)."
+            encoding: "bytes"
+            verification: "reported"
+            value: [0x02, 0x7B, 0x7B, 0xF6, 0x0D]
+
+entities:
+  - platform: "sensor"
+    name: "Weight"
+    unit: "kg"
+    notes: "Weight from the family's measurement characteristic (see per-family scaling)."
+  - platform: "sensor"
+    name: "Body Fat"
+    unit: "%"
+    notes: "Body-fat percentage (Beurer 22-byte record; Medisana 0x8a22)."
+
+helpful_urls:
+  - title: "openScale — supported scales"
+    url: "https://github.com/oliexdev/openScale/wiki/Supported-scales-in-openScale"
+    description: "GPLv3 — catalogue of 85 scales and links to each family's BLE protocol page."
+  - title: "openScale — Medisana BS444 protocol"
+    url: "https://github.com/oliexdev/openScale/wiki/Medisana-BS444"
+    description: "The 0x78b2 service, indicate characteristics and the 02 7b 7b f6 0d trigger."
+  - title: "openScale — Trisa Body Analyze protocol"
+    url: "https://github.com/oliexdev/openScale/wiki/Trisa-Body-Analyze"
+    description: "The challenge-response pairing and weight mantissa/exponent encoding."
