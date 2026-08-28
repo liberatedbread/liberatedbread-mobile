@@ -38,6 +38,47 @@ void main() {
     expect((value as String? ?? '').trim(), isNotEmpty, reason: reason);
   }
 
+  group('iOS Info.plist grants location', () {
+    // The radio subsystem asks for a position to find nearby repeaters, and
+    // geolocator's iOS side goes straight to .denied without this string --
+    // no prompt, no error the user can act on, just an empty result list.
+    // That is the only reason the key exists: iOS BLE needs no location, and
+    // the key was deliberately absent until the Radio tab asked for one.
+    test('NSLocationWhenInUseUsageDescription is present and non-empty', () {
+      expectNonEmptyString(
+        'NSLocationWhenInUseUsageDescription',
+        reason: 'NSLocationWhenInUseUsageDescription must be a non-empty '
+            'string in $_plistPath. Without it iOS never prompts for '
+            'location: CoreLocation reports .denied, the GPS button on the '
+            'radio suggestion screen fails every time. Apple also rejects '
+            'the build at submission.',
+      );
+    });
+
+    test('the string covers repeater search, not only BLE scanning', () {
+      // Apple requires the purpose string to describe what the app actually
+      // does with the position, and here that is one thing: finding repeaters.
+      final value =
+          (plistValue(plist, ['NSLocationWhenInUseUsageDescription']) as String)
+              .toLowerCase();
+      expect(value, contains('repeater'),
+          reason: 'the purpose string must name the repeater search, which is '
+              'the reason the app asks for a position at all');
+    });
+
+    test('the string does not claim Bluetooth needs location', () {
+      // It used to, and on iOS that is false: CoreBluetooth scans without a
+      // location grant. A purpose string naming a use the app does not make
+      // is a Guideline 5.1.1 review flag, and misleads the person reading the
+      // prompt about what saying no would cost them.
+      final value =
+          (plistValue(plist, ['NSLocationWhenInUseUsageDescription']) as String)
+              .toLowerCase();
+      expect(value, isNot(contains('bluetooth')),
+          reason: 'iOS BLE scanning needs no location permission');
+    });
+  });
+
   group('iOS Info.plist grants Bluetooth', () {
     // After this session's fix, RealBleService.requestPermissions() returns
     // true on iOS and lets CoreBluetooth raise the system prompt natively
