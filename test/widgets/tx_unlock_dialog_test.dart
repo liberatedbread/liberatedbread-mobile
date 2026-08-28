@@ -37,23 +37,16 @@ Future<bool?> _show(WidgetTester tester, RadioProfile profile) async {
 }
 
 void main() {
-  testWidgets('a radio with no software path never gets asked',
-      (tester) async {
-    const locked = RadioProfile(
-      id: 'test-locked',
-      displayName: 'Test',
-      rxRanges: [FreqRange(136000000, 174000000)],
-      factoryTxRanges: [FreqRange(144000000, 148000000)],
-      channelCapacity: 16,
-      nameLength: 6,
-      programmingFamily: ProgrammingFamily.serialUv5r,
-    );
-    await _show(tester, locked);
+  testWidgets('a radio with no software path never gets asked', (tester) async {
+    // Not hypothetical: the whole UV-17Pro family is like this. Its transmit
+    // range lives in firmware, so there is nothing to acknowledge.
+    expect(uv5rMiniProfile.txUnlock.supported, isFalse);
+    await _show(tester, uv5rMiniProfile);
     expect(find.byType(AlertDialog), findsNothing);
   });
 
   testWidgets('names the ranges the radio would reach', (tester) async {
-    await _show(tester, uv5rMiniProfile);
+    await _show(tester, uv5rProfile);
     expect(find.byType(AlertDialog), findsOneWidget);
     // The expanded VHF span, in MHz, so the operator can see what they are
     // agreeing to rather than a word like "expanded".
@@ -62,7 +55,7 @@ void main() {
 
   testWidgets('says who is responsible and what the ranges contain',
       (tester) async {
-    await _show(tester, uv5rMiniProfile);
+    await _show(tester, uv5rProfile);
     expect(find.textContaining('public safety'), findsOneWidget);
     expect(find.textContaining('solely responsible'), findsOneWidget);
     expect(find.textContaining('MARS'), findsOneWidget);
@@ -70,7 +63,7 @@ void main() {
 
   testWidgets('cannot be confirmed until the box is ticked', (tester) async {
     // A dialog whose confirm button works regardless is a dialog nobody read.
-    await _show(tester, uv5rMiniProfile);
+    await _show(tester, uv5rProfile);
 
     final enable = find.widgetWithText(FilledButton, 'Enable');
     expect(tester.widget<FilledButton>(enable).onPressed, isNull);
@@ -86,7 +79,7 @@ void main() {
         body: Builder(
           builder: (context) => TextButton(
             onPressed: () async {
-              answer = await showTxUnlockDialog(context, uv5rMiniProfile);
+              answer = await showTxUnlockDialog(context, uv5rProfile);
             },
             child: const Text('open'),
           ),
@@ -109,7 +102,7 @@ void main() {
         body: Builder(
           builder: (context) => TextButton(
             onPressed: () async {
-              answer = await showTxUnlockDialog(context, uv5rMiniProfile);
+              answer = await showTxUnlockDialog(context, uv5rProfile);
             },
             child: const Text('open'),
           ),
@@ -127,9 +120,10 @@ void main() {
   });
 
   testWidgets('says when a radio\'s limits are unconfirmed', (tester) async {
-    // The UV-32 is same-family inference, not a capture. Saying so is the
-    // difference between a considered choice and a surprise.
-    await _show(tester, uv32Profile);
+    // The AR-152 programs as a BF-F8HP, so its band-limit fields are inferred
+    // from a sibling rather than read off one. Saying so is the difference
+    // between a considered choice and a surprise.
+    await _show(tester, ar152Profile);
     expect(find.textContaining('not been confirmed'), findsOneWidget);
     expect(find.textContaining('backup'), findsOneWidget);
   });
@@ -146,7 +140,7 @@ void main() {
       expect(profile.txUnlock.verified, isFalse, reason: profile.id);
     }
 
-    await _show(tester, uv5rMiniProfile);
+    await _show(tester, uv5rProfile);
     expect(find.textContaining('not been confirmed'), findsOneWidget);
   });
 }

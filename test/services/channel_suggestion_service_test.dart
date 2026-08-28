@@ -77,8 +77,7 @@ void main() {
 
   group('the offline tier', () {
     test('answers with presets even when nothing is enabled', () async {
-      final result =
-          await service([]).suggest(request(sources: const {}));
+      final result = await service([]).suggest(request(sources: const {}));
       expect(result.presets, isNotEmpty);
       expect(result.weather, isNotEmpty);
       expect(result.repeaters, isEmpty);
@@ -205,8 +204,8 @@ void main() {
               name: 'HAM', rxHz: 146940000, txHz: 146340000, at: _hartford),
         ],
       });
-      final result = await service([source])
-          .suggest(request(profile: uv5gMiniProfile));
+      final result =
+          await service([source]).suggest(request(profile: uv5gMiniProfile));
       expect(result.repeaters.single.txAllowed, isFalse);
     });
   });
@@ -219,15 +218,15 @@ void main() {
         });
 
     test('is listen-only with the unlock off', () async {
-      final result = await service([marsBand()])
-          .suggest(request(profile: uv5rMiniProfile));
+      final result =
+          await service([marsBand()]).suggest(request(profile: uv5rProfile));
       expect(result.repeaters.single.txAllowed, isFalse);
       expect(result.repeaters.single.requiresTxUnlock, isFalse);
     });
 
     test('becomes transmittable, and badged, with the unlock on', () async {
       final result = await service([marsBand()])
-          .suggest(request(profile: uv5rMiniProfile, unlock: true));
+          .suggest(request(profile: uv5rProfile, unlock: true));
       final channel = result.repeaters.single;
       expect(channel.txAllowed, isTrue);
       expect(channel.requiresTxUnlock, isTrue);
@@ -241,7 +240,7 @@ void main() {
         ],
       });
       final result = await service([source])
-          .suggest(request(profile: uv5rMiniProfile, unlock: true));
+          .suggest(request(profile: uv5rProfile, unlock: true));
       expect(result.repeaters.single.txAllowed, isTrue);
       expect(result.repeaters.single.requiresTxUnlock, isFalse);
     });
@@ -297,8 +296,8 @@ void main() {
         ],
       });
 
-      final result = await service([near, far])
-          .suggest(request(sources: {'near', 'far'}));
+      final result =
+          await service([near, far]).suggest(request(sources: {'near', 'far'}));
 
       expect(result.repeaters, hasLength(1));
       // The nearer listing wins, which is the one whose distance is right.
@@ -354,8 +353,7 @@ void main() {
   });
 
   group('failures never sink the search', () {
-    test('a failing source leaves the others and the presets intact',
-        () async {
+    test('a failing source leaves the others and the presets intact', () async {
       final broken = FakeRepeaterSource(
         id: 'broken',
         displayName: 'Broken',
@@ -447,7 +445,10 @@ void main() {
       await cache.write(
         'test',
         'CT',
-        [_repeater(name: 'CACHED', rxHz: 146940000, txHz: 146340000, at: _hartford)],
+        [
+          _repeater(
+              name: 'CACHED', rxHz: 146940000, txHz: 146340000, at: _hartford)
+        ],
         now: DateTime.now().subtract(const Duration(days: 30)),
       );
       final broken = FakeRepeaterSource(

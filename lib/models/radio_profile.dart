@@ -279,12 +279,26 @@ const _gmrsHigh = FreqRange(467550000, 467725000);
 
 /// The soft band limits an unlocked UV-5R-family radio accepts.
 ///
-/// These are the spans the codeplug's band-limit fields can express, not a
-/// promise the PA is happy across them — a widened radio transmits poorly at
-/// the edges. Confirm against the radio's own fields before the first write;
-/// [TxUnlock.verified] records whether anyone has.
+/// These are the spans that family's settings-memory band-limit fields can
+/// express, not a promise the PA is happy across them — a widened radio
+/// transmits poorly at the edges.
+///
+/// THE UV-17Pro FAMILY HAS NO SUCH FIELD. The band-limit pair (a lower, an
+/// upper and an enable flag, per band) exists in the *older* UV-5R serial
+/// codeplug and is what a software MARS/CAP modification edits. The newer
+/// family — the Minis, the UV-32, the UV-17R Plus — does not expose one, so
+/// those profiles say the unlock is unsupported rather than offering a switch
+/// that could not do anything. This was the assumption the plan got wrong,
+/// and it is the wrong way round from convenient: the radios this build can
+/// program over Bluetooth are exactly the ones with no unlock.
 const _uv5rExpandedVhf = FreqRange(130000000, 179995000);
 const _uv5rExpandedUhf = FreqRange(400000000, 520000000);
+
+/// Why the UV-17Pro family's profiles carry no unlock.
+const _noBandLimitField =
+    'This radio stores no adjustable band limits. Its transmit range is set '
+    'in firmware, so no programming software — this app, CHIRP or the '
+    'manufacturer\'s own — can widen it.';
 
 /// UV-5R family: UV-5R itself, and the variants that program identically.
 const RadioProfile uv5rProfile = RadioProfile(
@@ -382,18 +396,14 @@ const RadioProfile uv5rMiniProfile = RadioProfile(
     FreqRange(144000000, 148000000),
     FreqRange(420000000, 450000000),
   ],
-  channelCapacity: 128,
-  // The UV-17Pro codeplug holds longer names than the UV-5R's. Verify on
-  // hardware before raising this: a name the radio truncates is cosmetic, a
-  // name that overruns the next channel's record is not.
-  nameLength: 10,
+  channelCapacity: 999,
+  nameLength: 12,
   programmingFamily: ProgrammingFamily.bleUv17Pro,
   programmerSupport: ProgrammerSupport.verified,
   txUnlock: TxUnlock(
-    supported: true,
-    mechanism: TxUnlockMechanism.codeplugBandLimit,
-    expandedTxRanges: [_uv5rExpandedVhf, _uv5rExpandedUhf],
-    notes: 'Configurable frequency-range fields in the settings block.',
+    supported: false,
+    mechanism: TxUnlockMechanism.unsupported,
+    notes: _noBandLimitField,
   ),
 );
 
@@ -404,18 +414,14 @@ const RadioProfile uv5gMiniProfile = RadioProfile(
   rxRanges: [_fmBroadcast, _vhfRx, _uhfRx],
   factoryTxRanges: [_gmrsLow, _gmrsHigh],
   gmrsLocked: true,
-  channelCapacity: 128,
-  nameLength: 10,
+  channelCapacity: 999,
+  nameLength: 12,
   programmingFamily: ProgrammingFamily.bleUv17Pro,
   programmerSupport: ProgrammerSupport.verified,
   txUnlock: TxUnlock(
-    supported: true,
-    mechanism: TxUnlockMechanism.gmrsUnlock,
-    expandedTxRanges: [
-      FreqRange(144000000, 148000000),
-      FreqRange(420000000, 450000000),
-    ],
-    notes: 'GMRS lock flag, as on the UV-5G.',
+    supported: false,
+    mechanism: TxUnlockMechanism.unsupported,
+    notes: _noBandLimitField,
   ),
 );
 
@@ -429,16 +435,14 @@ const RadioProfile uv32Profile = RadioProfile(
     FreqRange(144000000, 148000000),
     FreqRange(420000000, 450000000),
   ],
-  channelCapacity: 128,
-  nameLength: 10,
+  channelCapacity: 999,
+  nameLength: 12,
   programmingFamily: ProgrammingFamily.bleUv17Pro,
   programmerSupport: ProgrammerSupport.unverified,
   txUnlock: TxUnlock(
-    supported: true,
-    mechanism: TxUnlockMechanism.codeplugBandLimit,
-    expandedTxRanges: [_uv5rExpandedVhf, _uv5rExpandedUhf],
-    notes: 'Inferred from the UV-17Pro family. Nothing here has been read off '
-        'a UV-32.',
+    supported: false,
+    mechanism: TxUnlockMechanism.unsupported,
+    notes: _noBandLimitField,
   ),
 );
 
@@ -451,15 +455,13 @@ const RadioProfile uv17rPlusProfile = RadioProfile(
     FreqRange(144000000, 148000000),
     FreqRange(420000000, 450000000),
   ],
-  channelCapacity: 128,
-  nameLength: 10,
+  channelCapacity: 1000,
+  nameLength: 12,
   programmingFamily: ProgrammingFamily.serialUv17Pro,
   txUnlock: TxUnlock(
-    supported: true,
-    mechanism: TxUnlockMechanism.codeplugBandLimit,
-    expandedTxRanges: [_uv5rExpandedVhf, _uv5rExpandedUhf],
-    notes: 'Configurable frequency-range fields, as on the Mini. Needs a '
-        'cable, which this build does not have yet.',
+    supported: false,
+    mechanism: TxUnlockMechanism.unsupported,
+    notes: _noBandLimitField,
   ),
 );
 

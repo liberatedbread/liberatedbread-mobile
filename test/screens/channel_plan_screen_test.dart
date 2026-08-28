@@ -107,7 +107,7 @@ void main() {
     expect(find.text('CH0'), findsOneWidget);
     expect(find.text('1'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
-    expect(find.textContaining('3 of 128 channels'), findsOneWidget);
+    expect(find.textContaining('3 of 999 channels'), findsOneWidget);
   });
 
   testWidgets('shows each channel\'s frequency, offset and mode',
@@ -194,7 +194,7 @@ void main() {
 
       expect(find.widgetWithText(TextField, 'CH0'), findsOneWidget);
       expect(find.widgetWithText(TextField, '146.940'), findsOneWidget);
-      expect(find.textContaining('shows 10 characters'), findsOneWidget);
+      expect(find.textContaining('shows 12 characters'), findsOneWidget);
     });
 
     testWidgets('saves an edit back to the plan', (tester) async {

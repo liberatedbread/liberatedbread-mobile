@@ -127,21 +127,25 @@ void main() {
   });
 
   group('the transmit-range switch', () {
-    testWidgets('is hidden for a radio with no software path',
+    testWidgets('is hidden for a radio whose family has no band limits',
         (tester) async {
-      // The catalogue has none today, so this is asserted through the model
-      // rather than the screen -- but the screen's condition is the same one.
-      for (final profile in radioProfiles) {
-        if (profile.txUnlock.supported) continue;
-        expect(profile.txUnlock.expandedTxRanges, isEmpty);
-      }
+      // The default radio is a Mini, and the whole UV-17Pro family stores its
+      // transmit range in firmware. Offering a switch that could not do
+      // anything would be worse than not offering one.
+      expect(defaultRadioProfile.txUnlock.supported, isFalse);
       await _pump(tester);
-      expect(defaultRadioProfile.txUnlock.supported, isTrue);
-      expect(find.text('Widen transmit range'), findsOneWidget);
+      expect(find.text('Widen transmit range'), findsNothing);
     });
 
-    testWidgets('starts off', (tester) async {
+    testWidgets('appears once a radio that can be widened is selected',
+        (tester) async {
       await _pump(tester);
+      await tester.tap(find.text(defaultRadioProfile.displayName));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(uv5rProfile.displayName).last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Widen transmit range'), findsOneWidget);
       final tile = tester.widget<SwitchListTile>(
           find.widgetWithText(SwitchListTile, 'Widen transmit range'));
       expect(tile.value, isFalse);
@@ -150,7 +154,9 @@ void main() {
 
     testWidgets('turning it on opens the acknowledgement first',
         (tester) async {
-      await _pump(tester);
+      await _pump(tester, settings: {
+        SelectedRadioProfileNotifier.key: uv5rProfile.id,
+      });
       await tester
           .tap(find.widgetWithText(SwitchListTile, 'Widen transmit range'));
       await tester.pumpAndSettle();
@@ -158,9 +164,9 @@ void main() {
       expect(find.text('Widen the transmit range?'), findsOneWidget);
     });
 
-    testWidgets('cancelling the acknowledgement leaves it off',
-        (tester) async {
-      final store = InMemorySettingsStore();
+    testWidgets('cancelling the acknowledgement leaves it off', (tester) async {
+      final store = InMemorySettingsStore(
+          {SelectedRadioProfileNotifier.key: uv5rProfile.id});
       SharedPreferences.setMockInitialValues({});
       final sharedPrefs = await SharedPreferences.getInstance();
       await tester.pumpWidget(ProviderScope(
@@ -186,7 +192,8 @@ void main() {
     });
 
     testWidgets('confirming turns it on and persists it', (tester) async {
-      final store = InMemorySettingsStore();
+      final store = InMemorySettingsStore(
+          {SelectedRadioProfileNotifier.key: uv5rProfile.id});
       SharedPreferences.setMockInitialValues({});
       final sharedPrefs = await SharedPreferences.getInstance();
       await tester.pumpWidget(ProviderScope(
@@ -211,8 +218,7 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Enable'));
       await tester.pumpAndSettle();
 
-      expect(store.values[TxUnlockNotifier.key],
-          contains(defaultRadioProfile.id));
+      expect(store.values[TxUnlockNotifier.key], contains(uv5rProfile.id));
       expect(find.textContaining('On for this radio'), findsOneWidget);
     });
   });

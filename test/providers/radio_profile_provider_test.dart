@@ -76,24 +76,22 @@ void main() {
       await container.read(txUnlockProvider.future);
       final notifier = container.read(txUnlockProvider.notifier);
 
-      await notifier.setEnabled(uv5rMiniProfile, true);
+      await notifier.setEnabled(uv5rProfile, true);
 
-      expect(notifier.isEnabledFor(uv5rMiniProfile), isTrue);
-      expect(notifier.isEnabledFor(uv17rPlusProfile), isFalse);
+      expect(notifier.isEnabledFor(uv5rProfile), isTrue);
+      expect(notifier.isEnabledFor(bfF8hpProfile), isFalse);
     });
 
     test('persists across containers', () async {
       final store = InMemorySettingsStore();
       final first = _container(store);
       await first.read(txUnlockProvider.future);
-      await first
-          .read(txUnlockProvider.notifier)
-          .setEnabled(uv5rMiniProfile, true);
+      await first.read(txUnlockProvider.notifier).setEnabled(uv5rProfile, true);
 
       final second = _container(store);
       await second.read(txUnlockProvider.future);
-      expect(second.read(txUnlockProvider.notifier)
-          .isEnabledFor(uv5rMiniProfile), isTrue);
+      expect(second.read(txUnlockProvider.notifier).isEnabledFor(uv5rProfile),
+          isTrue);
     });
 
     test('cannot be turned on for a radio with no software path', () async {
@@ -130,8 +128,9 @@ void main() {
         nameLength: 6,
         programmingFamily: ProgrammingFamily.serialUv5r,
       );
-      final store = InMemorySettingsStore(
-          {TxUnlockNotifier.key: jsonEncode({'test-locked': true})});
+      final store = InMemorySettingsStore({
+        TxUnlockNotifier.key: jsonEncode({'test-locked': true})
+      });
       final container = _container(store);
       await container.read(txUnlockProvider.future);
       expect(container.read(txUnlockProvider.notifier).isEnabledFor(locked),
@@ -144,8 +143,7 @@ void main() {
         final container = _container(store);
         await container.read(txUnlockProvider.future);
         expect(
-            container.read(txUnlockProvider.notifier)
-                .isEnabledFor(uv5rMiniProfile),
+            container.read(txUnlockProvider.notifier).isEnabledFor(uv5rProfile),
             isFalse,
             reason: corrupt);
       }
@@ -157,15 +155,13 @@ void main() {
       await container.read(txUnlockProvider.future);
       final notifier = container.read(txUnlockProvider.notifier);
 
-      await notifier.setEnabled(uv5rMiniProfile, true);
-      await notifier.setEnabled(uv5rMiniProfile, false);
+      await notifier.setEnabled(uv5rProfile, true);
+      await notifier.setEnabled(uv5rProfile, false);
 
-      expect(notifier.isEnabledFor(uv5rMiniProfile), isFalse);
+      expect(notifier.isEnabledFor(uv5rProfile), isFalse);
       final reread = _container(store);
       await reread.read(txUnlockProvider.future);
-      expect(
-          reread.read(txUnlockProvider.notifier)
-              .isEnabledFor(uv5rMiniProfile),
+      expect(reread.read(txUnlockProvider.notifier).isEnabledFor(uv5rProfile),
           isFalse);
     });
   });
@@ -173,8 +169,8 @@ void main() {
   group('txUnlockEnabledProvider', () {
     test('follows the selected radio', () async {
       final store = InMemorySettingsStore({
-        SelectedRadioProfileNotifier.key: uv5rMiniProfile.id,
-        TxUnlockNotifier.key: jsonEncode({uv5rMiniProfile.id: true}),
+        SelectedRadioProfileNotifier.key: uv5rProfile.id,
+        TxUnlockNotifier.key: jsonEncode({uv5rProfile.id: true}),
       });
       final container = _container(store);
       await container.read(selectedRadioProfileProvider.future);
@@ -182,9 +178,11 @@ void main() {
 
       expect(container.read(txUnlockEnabledProvider), isTrue);
 
+      // Switching to a radio whose family has no band limits turns it off,
+      // whatever is stored for the previous one.
       await container
           .read(selectedRadioProfileProvider.notifier)
-          .select(uv17rPlusProfile);
+          .select(uv5rMiniProfile);
       expect(container.read(txUnlockEnabledProvider), isFalse);
     });
 

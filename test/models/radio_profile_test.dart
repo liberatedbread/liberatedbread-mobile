@@ -97,6 +97,16 @@ void main() {
       expect(defaultRadioProfile.isProgrammable, isTrue);
     });
 
+    test('the UV-17Pro family holds far more channels than the UV-5R', () {
+      // 999 twelve-character names, not 128 seven-character ones. Getting
+      // this wrong caps a plan at an eighth of the radio and truncates every
+      // name.
+      expect(uv5rMiniProfile.channelCapacity, 999);
+      expect(uv5rMiniProfile.nameLength, 12);
+      expect(uv5rProfile.channelCapacity, 128);
+      expect(uv5rProfile.nameLength, 7);
+    });
+
     test('lookup by id finds every profile and nothing else', () {
       for (final profile in radioProfiles) {
         expect(radioProfileById(profile.id), profile);
@@ -126,13 +136,25 @@ void main() {
     });
 
     test('widen with the unlock on', () {
-      final widened = uv5rMiniProfile.effectiveTxRanges(unlockEnabled: true);
-      expect(
-          widened.length, greaterThan(uv5rMiniProfile.factoryTxRanges.length));
-      expect(uv5rMiniProfile.canTransmit(140000000, unlockEnabled: false),
-          isFalse);
-      expect(
-          uv5rMiniProfile.canTransmit(140000000, unlockEnabled: true), isTrue);
+      final widened = uv5rProfile.effectiveTxRanges(unlockEnabled: true);
+      expect(widened.length, greaterThan(uv5rProfile.factoryTxRanges.length));
+      expect(uv5rProfile.canTransmit(140000000, unlockEnabled: false), isFalse);
+      expect(uv5rProfile.canTransmit(140000000, unlockEnabled: true), isTrue);
+    });
+
+    test('the radios this build can program are not the unlockable ones', () {
+      // Awkward, and worth stating rather than discovering. The band-limit
+      // fields live in the older UV-5R serial codeplug; the UV-17Pro family,
+      // which is what the Bluetooth driver speaks, has none. So the unlock is
+      // modelled for radios this build cannot yet write to, and the radios it
+      // can write to have nothing to unlock.
+      for (final profile in radioProfiles) {
+        if (!profile.isProgrammable) continue;
+        expect(profile.txUnlock.supported, isFalse,
+            reason: '${profile.id} claims an unlock its family does not have');
+      }
+      expect(uv5rProfile.txUnlock.supported, isTrue);
+      expect(uv5rProfile.isProgrammable, isFalse);
     });
 
     test('do not widen for a radio that cannot unlock, flag or no flag', () {
@@ -155,11 +177,13 @@ void main() {
 
     test('needsUnlockToTransmit marks exactly the widened band', () {
       // Inside the factory range: no badge.
-      expect(uv5rMiniProfile.needsUnlockToTransmit(146520000), isFalse);
+      expect(uv5rProfile.needsUnlockToTransmit(146520000), isFalse);
       // Inside the expanded range only: badge.
-      expect(uv5rMiniProfile.needsUnlockToTransmit(140000000), isTrue);
+      expect(uv5rProfile.needsUnlockToTransmit(140000000), isTrue);
       // Outside both: not a badge, just unreachable.
-      expect(uv5rMiniProfile.needsUnlockToTransmit(900000000), isFalse);
+      expect(uv5rProfile.needsUnlockToTransmit(900000000), isFalse);
+      // And never for a radio whose family has no band-limit field at all.
+      expect(uv5rMiniProfile.needsUnlockToTransmit(140000000), isFalse);
     });
 
     test('a GMRS radio can hear far more than it can transmit on', () {

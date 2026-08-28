@@ -10,6 +10,7 @@
 
 import 'api/device_api.dart';
 import 'api/mock_api.dart';
+import 'api/radio_api.dart';
 import 'api/spec_handle.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -230,6 +231,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CharacteristicDto dco_decode_characteristic_dto(dynamic raw);
 
   @protected
+  CodeplugBlockDto dco_decode_codeplug_block_dto(dynamic raw);
+
+  @protected
   CommandDto dco_decode_command_dto(dynamic raw);
 
   @protected
@@ -261,6 +265,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FormatFieldDto dco_decode_format_field_dto(dynamic raw);
+
+  @protected
+  HandshakeStepDto dco_decode_handshake_step_dto(dynamic raw);
 
   @protected
   HttpHeaderDto dco_decode_http_header_dto(dynamic raw);
@@ -325,6 +332,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<CharacteristicDto> dco_decode_list_characteristic_dto(dynamic raw);
 
   @protected
+  List<CodeplugBlockDto> dco_decode_list_codeplug_block_dto(dynamic raw);
+
+  @protected
   List<CommandDto> dco_decode_list_command_dto(dynamic raw);
 
   @protected
@@ -349,6 +359,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<FormatFieldDto> dco_decode_list_format_field_dto(dynamic raw);
+
+  @protected
+  List<HandshakeStepDto> dco_decode_list_handshake_step_dto(dynamic raw);
 
   @protected
   List<HttpHeaderDto> dco_decode_list_http_header_dto(dynamic raw);
@@ -432,6 +445,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ProfileInfoDto> dco_decode_list_profile_info_dto(dynamic raw);
+
+  @protected
+  List<RadioChannelDto> dco_decode_list_radio_channel_dto(dynamic raw);
+
+  @protected
+  List<RadioModelDto> dco_decode_list_radio_model_dto(dynamic raw);
 
   @protected
   List<(String, double)> dco_decode_list_record_string_f_64(dynamic raw);
@@ -712,6 +731,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RabbitAirRequestDto dco_decode_rabbit_air_request_dto(dynamic raw);
 
   @protected
+  RadioChannelDto dco_decode_radio_channel_dto(dynamic raw);
+
+  @protected
+  RadioModelDto dco_decode_radio_model_dto(dynamic raw);
+
+  @protected
   (String, double) dco_decode_record_string_f_64(dynamic raw);
 
   @protected
@@ -790,6 +815,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredUploadPlanDto dco_decode_stored_upload_plan_dto(dynamic raw);
+
+  @protected
+  ToneDto dco_decode_tone_dto(dynamic raw);
 
   @protected
   TroubleshootingDto dco_decode_troubleshooting_dto(dynamic raw);
@@ -1093,6 +1121,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CharacteristicDto sse_decode_characteristic_dto(SseDeserializer deserializer);
 
   @protected
+  CodeplugBlockDto sse_decode_codeplug_block_dto(SseDeserializer deserializer);
+
+  @protected
   CommandDto sse_decode_command_dto(SseDeserializer deserializer);
 
   @protected
@@ -1126,6 +1157,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FormatFieldDto sse_decode_format_field_dto(SseDeserializer deserializer);
+
+  @protected
+  HandshakeStepDto sse_decode_handshake_step_dto(SseDeserializer deserializer);
 
   @protected
   HttpHeaderDto sse_decode_http_header_dto(SseDeserializer deserializer);
@@ -1204,6 +1238,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<CodeplugBlockDto> sse_decode_list_codeplug_block_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<CommandDto> sse_decode_list_command_dto(SseDeserializer deserializer);
 
   @protected
@@ -1236,6 +1275,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<FormatFieldDto> sse_decode_list_format_field_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<HandshakeStepDto> sse_decode_list_handshake_step_dto(
     SseDeserializer deserializer,
   );
 
@@ -1347,6 +1391,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ProfileInfoDto> sse_decode_list_profile_info_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<RadioChannelDto> sse_decode_list_radio_channel_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<RadioModelDto> sse_decode_list_radio_model_dto(
     SseDeserializer deserializer,
   );
 
@@ -1707,6 +1761,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  RadioChannelDto sse_decode_radio_channel_dto(SseDeserializer deserializer);
+
+  @protected
+  RadioModelDto sse_decode_radio_model_dto(SseDeserializer deserializer);
+
+  @protected
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer);
 
   @protected
@@ -1807,6 +1867,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   StoredUploadPlanDto sse_decode_stored_upload_plan_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  ToneDto sse_decode_tone_dto(SseDeserializer deserializer);
 
   @protected
   TroubleshootingDto sse_decode_troubleshooting_dto(
@@ -2183,6 +2246,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_codeplug_block_dto(
+    CodeplugBlockDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_command_dto(CommandDto self, SseSerializer serializer);
 
   @protected
@@ -2233,6 +2302,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_format_field_dto(
     FormatFieldDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_handshake_step_dto(
+    HandshakeStepDto self,
     SseSerializer serializer,
   );
 
@@ -2336,6 +2411,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_codeplug_block_dto(
+    List<CodeplugBlockDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_command_dto(
     List<CommandDto> self,
     SseSerializer serializer,
@@ -2380,6 +2461,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_format_field_dto(
     List<FormatFieldDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_handshake_step_dto(
+    List<HandshakeStepDto> self,
     SseSerializer serializer,
   );
 
@@ -2527,6 +2614,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_profile_info_dto(
     List<ProfileInfoDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_radio_channel_dto(
+    List<RadioChannelDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_radio_model_dto(
+    List<RadioModelDto> self,
     SseSerializer serializer,
   );
 
@@ -2987,6 +3086,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_radio_channel_dto(
+    RadioChannelDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_radio_model_dto(RadioModelDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_record_string_f_64(
     (String, double) self,
     SseSerializer serializer,
@@ -3123,6 +3231,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     StoredUploadPlanDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_tone_dto(ToneDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_troubleshooting_dto(
