@@ -406,8 +406,7 @@ void main() {
       rxFreqHz: 140000000,
       txFreqHz: 140000000,
     );
-    expect(encodeChirpCsv(const [channel]),
-        encodeChirpCsv(const [channel]));
+    expect(encodeChirpCsv(const [channel]), encodeChirpCsv(const [channel]));
     expect(encodeChirpCsv(const [channel]), isNot(contains('limit')));
     expect(encodeChirpCsv(const [channel]), isNot(contains('unlock')));
   });

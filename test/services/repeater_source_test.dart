@@ -90,8 +90,7 @@ void main() {
     });
 
     test('reads as the source plus the reason', () {
-      expect(failure(SourceFailureKind.network).toString(),
-          'Test: something');
+      expect(failure(SourceFailureKind.network).toString(), 'Test: something');
     });
   });
 
@@ -104,6 +103,7 @@ void main() {
     ));
     expect(exception, isA<UserFacingException>());
     expect(exception.message, 'Needs a token.');
-    expect(friendlyErrorText(exception, fallback: 'fallback'), 'Needs a token.');
+    expect(
+        friendlyErrorText(exception, fallback: 'fallback'), 'Needs a token.');
   });
 }

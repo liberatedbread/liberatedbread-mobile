@@ -79,8 +79,7 @@ void main() {
       expect(await _answering('{}').isConfigured(), isTrue);
     });
 
-    test('without a token it explains rather than failing obscurely',
-        () async {
+    test('without a token it explains rather than failing obscurely', () async {
       final failure = await _failureFrom(
           () => _answering(fixture, token: null).fetchByState('CT'));
       expect(failure.kind, SourceFailureKind.auth);
@@ -113,10 +112,10 @@ void main() {
     });
 
     test('a state with no known FIPS code fails clearly', () async {
-      final failure = await _failureFrom(
-          () => _client(MockClient((_) async => http.Response('{}', 200)),
-                  stateId: null)
-              .fetchByState('ZZ'));
+      final failure = await _failureFrom(() => _client(
+              MockClient((_) async => http.Response('{}', 200)),
+              stateId: null)
+          .fetchByState('ZZ'));
       expect(failure.kind, SourceFailureKind.parse);
       expect(failure.message, contains('ZZ'));
     });
@@ -167,8 +166,7 @@ void main() {
       expect(listings, hasLength(3));
     });
 
-    test('carries landmark, county, use and status into the details',
-        () async {
+    test('carries landmark, county, use and status into the details', () async {
       final listings = await _answering(fixture).fetchByState('CT');
       final closed = listings.firstWhere((l) => l.callsign == 'WT2EST');
       expect(closed.details, contains('Sea View'));
@@ -202,8 +200,8 @@ void main() {
     test('reads column names regardless of case and spacing', () async {
       const row = '{"frequency": "146.94", "input_freq": "146.34", '
           '"latitude": 41.7, "longitude": -72.7, "call": "WT8EST"}';
-      final listings = await _answering('{"results": [$row]}')
-          .fetchByState('CT');
+      final listings =
+          await _answering('{"results": [$row]}').fetchByState('CT');
       expect(listings.single.channel.txFreqHz, 146340000);
       expect(listings.single.callsign, 'WT8EST');
     });
@@ -225,26 +223,26 @@ void main() {
     });
 
     test('a working token is valid', () async {
-      expect(await check('{"results": []}', 200, 'rbuapp_good'),
-          TokenCheck.valid);
+      expect(
+          await check('{"results": []}', 200, 'rbuapp_good'), TokenCheck.valid);
     });
 
     test('tells "not a token" apart from "not your token"', () async {
       // RepeaterBook distinguishes these itself, and they are very different
       // problems to be stuck on: one is a bad paste, the other an expired
       // credential.
-      expect(await check(_badHeaderFormat, 401, 'garbage'),
-          TokenCheck.malformed);
+      expect(
+          await check(_badHeaderFormat, 401, 'garbage'), TokenCheck.malformed);
       expect(await check(_badUserTokenFormat, 401, 'rbuapp_short'),
           TokenCheck.malformed);
-      expect(await check(_rejected, 401, 'rbuapp_unknown'),
-          TokenCheck.rejected);
+      expect(
+          await check(_rejected, 401, 'rbuapp_unknown'), TokenCheck.rejected);
       expect(await check(_authMissing, 401, 'anything'), TokenCheck.missing);
     });
 
     test('a rate limit is not a verdict on the token', () async {
-      expect(await check('slow down', 429, 'rbuapp_good'),
-          TokenCheck.rateLimited);
+      expect(
+          await check('slow down', 429, 'rbuapp_good'), TokenCheck.rateLimited);
     });
 
     test('an unreachable service is not a verdict either', () async {
@@ -287,9 +285,8 @@ void main() {
 
     test('a malformed stored token says to check it, not to renew it',
         () async {
-      final failure = await _failureFrom(
-          () => _answering(_badUserTokenFormat, status: 401)
-              .fetchByState('CT'));
+      final failure = await _failureFrom(() =>
+          _answering(_badUserTokenFormat, status: 401).fetchByState('CT'));
       expect(failure.message.toLowerCase(), contains('did not recognise'));
     });
 
@@ -328,8 +325,8 @@ void main() {
               .kind,
           SourceFailureKind.parse);
       expect(
-          (await _failureFrom(() => _answering('{"ok":true}')
-              .fetchByState('CT')))
+          (await _failureFrom(
+                  () => _answering('{"ok":true}').fetchByState('CT')))
               .kind,
           SourceFailureKind.parse);
     });

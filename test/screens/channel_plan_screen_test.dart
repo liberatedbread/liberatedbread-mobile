@@ -34,8 +34,7 @@ class _RecordingExportService implements PlanExportService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Map<String, Object> _seed({
@@ -179,7 +178,8 @@ void main() {
       await _pump(tester, prefs: _seed(channels: 0));
       expect(
         tester
-            .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.checklist))
+            .widget<IconButton>(
+                find.widgetWithIcon(IconButton, Icons.checklist))
             .onPressed,
         isNull,
       );
@@ -202,13 +202,18 @@ void main() {
       await tester.tap(find.text('CH0'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(
-          find.widgetWithText(TextField, 'CH0'), 'Renamed');
+      await tester.enterText(find.widgetWithText(TextField, 'CH0'), 'Renamed');
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
 
-      expect(harness.container.read(channelPlansProvider).single.channels
-          .single.name, 'Renamed');
+      expect(
+          harness.container
+              .read(channelPlansProvider)
+              .single
+              .channels
+              .single
+              .name,
+          'Renamed');
     });
 
     testWidgets('refuses a frequency that is not one', (tester) async {
@@ -265,8 +270,7 @@ void main() {
     });
 
     testWidgets('says so when it fails', (tester) async {
-      await _pump(tester,
-          prefs: _seed(), exportError: StateError('disk full'));
+      await _pump(tester, prefs: _seed(), exportError: StateError('disk full'));
       await tester.tap(find.byIcon(Icons.ios_share));
       await tester.pumpAndSettle();
 

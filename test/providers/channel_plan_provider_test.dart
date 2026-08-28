@@ -79,8 +79,8 @@ void main() {
       final notifier = c.read(channelPlansProvider.notifier);
       final plan = await notifier.create(name: 'A', radioProfileId: 'uv5r');
 
-      final outcome = await notifier
-          .appendChannels(plan.id, _channels(3), profile: _small);
+      final outcome =
+          await notifier.appendChannels(plan.id, _channels(3), profile: _small);
 
       expect(outcome.added, 3);
       expect(outcome.rejected, 0);
@@ -95,8 +95,8 @@ void main() {
       final notifier = c.read(channelPlansProvider.notifier);
       final plan = await notifier.create(name: 'A', radioProfileId: 'uv5r');
 
-      final outcome = await notifier
-          .appendChannels(plan.id, _channels(7), profile: _small);
+      final outcome =
+          await notifier.appendChannels(plan.id, _channels(7), profile: _small);
 
       expect(outcome.added, 4);
       expect(outcome.rejected, 3);
@@ -111,8 +111,8 @@ void main() {
       final plan = await notifier.create(name: 'A', radioProfileId: 'uv5r');
       await notifier.appendChannels(plan.id, _channels(4), profile: _small);
 
-      final outcome = await notifier
-          .appendChannels(plan.id, _channels(2), profile: _small);
+      final outcome =
+          await notifier.appendChannels(plan.id, _channels(2), profile: _small);
 
       expect(outcome.added, 0);
       expect(outcome.rejected, 2);
@@ -156,8 +156,8 @@ void main() {
     test('appending to a plan that is gone is a no-op', () async {
       final c = await container();
       final notifier = c.read(channelPlansProvider.notifier);
-      final outcome = await notifier
-          .appendChannels('ghost', _channels(2), profile: _small);
+      final outcome =
+          await notifier.appendChannels('ghost', _channels(2), profile: _small);
       expect(outcome.added, 0);
     });
   });
@@ -189,8 +189,8 @@ void main() {
     test('removes several slots at once', () async {
       final s = await withFour();
       await s.n.removeMany(s.id, {0, 2});
-      expect([for (final ch in s.n.byId(s.id)!.channels) ch.name],
-          ['CH1', 'CH3']);
+      expect(
+          [for (final ch in s.n.byId(s.id)!.channels) ch.name], ['CH1', 'CH3']);
     });
 
     test('an empty multi-select removal changes nothing', () async {

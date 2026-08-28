@@ -34,20 +34,20 @@ void main() {
     });
 
     test('invents a label rather than showing a blank one', () {
-      final decoded = SavedLocation.fromJson(
-          const {'lat': 47.6062, 'lon': -122.3321});
+      final decoded =
+          SavedLocation.fromJson(const {'lat': 47.6062, 'lon': -122.3321});
       expect(decoded!.label, '47.6062, -122.3321');
       expect(
         SavedLocation.fromJson(
-            const {'lat': 47.6062, 'lon': -122.3321, 'label': '   '})!.label,
+                const {'lat': 47.6062, 'lon': -122.3321, 'label': '   '})!
+            .label,
         isNotEmpty,
       );
     });
 
     test('rejects a record with no usable position', () {
       expect(SavedLocation.fromJson(const {'label': 'nowhere'}), isNull);
-      expect(
-          SavedLocation.fromJson(const {'lat': 'north', 'lon': 0}), isNull);
+      expect(SavedLocation.fromJson(const {'lat': 'north', 'lon': 0}), isNull);
     });
   });
 
@@ -73,8 +73,8 @@ void main() {
       // is a location nobody had.
       for (final corrupt in ['not json', '[]', '{}', '{"lat": "north"}']) {
         final store = InMemorySettingsStore({key: corrupt});
-        expect(await _container(store).read(lastLocationProvider.future),
-            isNull,
+        expect(
+            await _container(store).read(lastLocationProvider.future), isNull,
             reason: corrupt);
       }
     });
@@ -90,8 +90,8 @@ void main() {
       expect(container.read(lastLocationProvider).value, location);
       expect(store.values[key], isNotNull);
       // ...and survives a fresh container reading the same store.
-      expect(await _container(store).read(lastLocationProvider.future),
-          location);
+      expect(
+          await _container(store).read(lastLocationProvider.future), location);
     });
 
     test('forget clears both the state and the store', () async {
@@ -144,8 +144,8 @@ void main() {
     test('models a platform with no backend', () async {
       final fake = FakeLocationService.unavailable();
       expect(await fake.gpsAvailable(), isFalse);
-      await expectLater(fake.currentPosition(),
-          throwsA(isA<LocationUnavailableException>()));
+      await expectLater(
+          fake.currentPosition(), throwsA(isA<LocationUnavailableException>()));
     });
   });
 }

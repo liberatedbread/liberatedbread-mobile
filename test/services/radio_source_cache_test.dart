@@ -107,7 +107,8 @@ void main() {
 
   test('a listing with no location survives the round trip as one', () async {
     const placeless = RepeaterListing(
-      channel: RadioChannel(name: 'X', rxFreqHz: 146520000, txFreqHz: 146520000),
+      channel:
+          RadioChannel(name: 'X', rxFreqHz: 146520000, txFreqHz: 146520000),
       category: SuggestionCategory.gmrs,
     );
     await cache.write('mygmrs', 'WY', [placeless]);

@@ -45,7 +45,8 @@ void main() {
     return container;
   }
 
-  FakeRepeaterSource sourceWithOne() => FakeRepeaterSource(id: 'test', byState: {
+  FakeRepeaterSource sourceWithOne() =>
+      FakeRepeaterSource(id: 'test', byState: {
         'CT': [
           const RepeaterListing(
             channel: RadioChannel(

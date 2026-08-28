@@ -62,8 +62,8 @@ void main() {
     await _pump(
       tester,
       const SuggestedChannel(
-        channel: RadioChannel(
-            name: 'FAR', rxFreqHz: 146940000, txFreqHz: 146340000),
+        channel:
+            RadioChannel(name: 'FAR', rxFreqHz: 146940000, txFreqHz: 146340000),
         category: SuggestionCategory.repeater,
         sourceId: 'x',
         distanceKm: 42.7,

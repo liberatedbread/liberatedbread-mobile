@@ -99,8 +99,7 @@ void main() {
     expect(states, isEmpty);
   });
 
-  test('the answer is stable, so a request key built from it is too',
-      () async {
+  test('the answer is stable, so a request key built from it is too', () async {
     const point = GeoPoint(39.1, -94.6);
     final first = await statesNear(data, point, radiusKm: 100);
     final second = await statesNear(data, point, radiusKm: 100);
@@ -143,6 +142,5 @@ class _EmptyBundleData implements RadioBundledData {
   Future<List<StateBounds>> stateBounds() async => const [];
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

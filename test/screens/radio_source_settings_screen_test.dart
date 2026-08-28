@@ -51,8 +51,8 @@ void _stubClipboard(WidgetTester tester) {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   messenger.setMockMethodCallHandler(
       SystemChannels.platform, (call) async => null);
-  addTearDown(() => messenger.setMockMethodCallHandler(
-      SystemChannels.platform, null));
+  addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null));
 }
 
 Future<_Harness> _pump(
@@ -107,8 +107,8 @@ void main() {
     await tester.tap(find.widgetWithText(ChoiceChip, '160 km').first);
     await tester.pumpAndSettle();
 
-    expect(harness.prefs.values[RadioSourceSettingsNotifier.key],
-        contains('160'));
+    expect(
+        harness.prefs.values[RadioSourceSettingsNotifier.key], contains('160'));
   });
 
   group('the token walkthrough', () {
@@ -134,8 +134,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(harness.opened, hasLength(1));
-      expect(harness.opened.single.toString(),
-          RepeaterBookClient.tokenRequestUrl);
+      expect(
+          harness.opened.single.toString(), RepeaterBookClient.tokenRequestUrl);
     });
 
     testWidgets('says so when the page cannot be opened', (tester) async {
@@ -165,8 +165,7 @@ void main() {
       );
     });
 
-    testWidgets('an empty field is refused before any request',
-        (tester) async {
+    testWidgets('an empty field is refused before any request', (tester) async {
       var requests = 0;
       await _pump(tester, client: MockClient((_) async {
         requests++;
@@ -182,16 +181,16 @@ void main() {
 
     testWidgets('a working token is saved and confirmed', (tester) async {
       final harness = await _pump(tester,
-          client: MockClient(
-              (_) async => http.Response('{"results": []}', 200)));
+          client:
+              MockClient((_) async => http.Response('{"results": []}', 200)));
 
       await tester.enterText(
           find.widgetWithText(TextField, 'Access token'), 'rbuapp_good');
       await tester.tap(find.widgetWithText(FilledButton, 'Save and check'));
       await tester.pumpAndSettle();
 
-      expect(harness.secure.values[RepeaterBookTokenNotifier.key],
-          'rbuapp_good');
+      expect(
+          harness.secure.values[RepeaterBookTokenNotifier.key], 'rbuapp_good');
       expect(find.textContaining('That token works'), findsOneWidget);
     });
 
@@ -199,8 +198,7 @@ void main() {
       // RepeaterBook distinguishes these itself, and they are very different
       // problems: one is a bad copy, the other an expired credential.
       await _pump(tester,
-          client:
-              MockClient((_) async => http.Response(_authInvalid, 401)));
+          client: MockClient((_) async => http.Response(_authInvalid, 401)));
 
       await tester.enterText(
           find.widgetWithText(TextField, 'Access token'), 'rbuapp_short');
@@ -213,8 +211,7 @@ void main() {
 
     testWidgets('a refused token says to request a new one', (tester) async {
       await _pump(tester,
-          client:
-              MockClient((_) async => http.Response(_authUnknown, 401)));
+          client: MockClient((_) async => http.Response(_authUnknown, 401)));
 
       await tester.enterText(
           find.widgetWithText(TextField, 'Access token'), 'rbuapp_stale');
@@ -230,8 +227,8 @@ void main() {
       // Losing a pasted token because a train went into a tunnel would be its
       // own small disaster, so the save happens before the check.
       final harness = await _pump(tester,
-          client: MockClient(
-              (_) async => throw http.ClientException('offline')));
+          client:
+              MockClient((_) async => throw http.ClientException('offline')));
 
       await tester.enterText(
           find.widgetWithText(TextField, 'Access token'), 'rbuapp_offline');
@@ -250,8 +247,7 @@ void main() {
       await tester.tap(find.widgetWithText(TextButton, 'Remove'));
       await tester.pumpAndSettle();
 
-      expect(
-          harness.secure.values.containsKey(RepeaterBookTokenNotifier.key),
+      expect(harness.secure.values.containsKey(RepeaterBookTokenNotifier.key),
           isFalse);
       expect(find.text('Saved'), findsNothing);
     });

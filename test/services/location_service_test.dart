@@ -24,8 +24,7 @@ void main() {
       expect(failure.toString(), failure.message);
       // friendlyErrorText passes UserFacingException messages through
       // untouched; anything else would reach the user as fallback text.
-      expect(friendlyErrorText(failure, fallback: 'fallback'),
-          failure.message);
+      expect(friendlyErrorText(failure, fallback: 'fallback'), failure.message);
     }
   });
 
@@ -48,7 +47,6 @@ void main() {
   });
 
   test('messages can be overridden for a caller with more context', () {
-    expect(const LocationPermissionDeniedException('custom').message,
-        'custom');
+    expect(const LocationPermissionDeniedException('custom').message, 'custom');
   });
 }

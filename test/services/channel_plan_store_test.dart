@@ -28,7 +28,8 @@ ChannelPlan _plan(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<ChannelPlanStore> store([Map<String, Object> initial = const {}]) async {
+  Future<ChannelPlanStore> store(
+      [Map<String, Object> initial = const {}]) async {
     SharedPreferences.setMockInitialValues(initial);
     return ChannelPlanStore(await SharedPreferences.getInstance());
   }
@@ -53,8 +54,7 @@ void main() {
     expect(loaded.single.channels.single, channel);
   });
 
-  test('replaces a plan with the same id rather than duplicating it',
-      () async {
+  test('replaces a plan with the same id rather than duplicating it', () async {
     final s = await store();
     await s.save(_plan('a', name: 'First'));
     await s.save(_plan('a', name: 'Second'));
@@ -96,7 +96,8 @@ void main() {
         _plan('also-good').toJson(),
       ]),
     });
-    expect([for (final p in s.load()) p.id], containsAll(['good', 'also-good']));
+    expect(
+        [for (final p in s.load()) p.id], containsAll(['good', 'also-good']));
     expect(s.load(), hasLength(2));
   });
 

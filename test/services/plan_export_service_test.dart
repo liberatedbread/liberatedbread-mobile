@@ -31,7 +31,8 @@ void main() {
   });
 
   test('writes a CSV under a radio_exports directory', () async {
-    final exported = await service.exportChirpCsv(_plan('Local', channels: const [
+    final exported =
+        await service.exportChirpCsv(_plan('Local', channels: const [
       RadioChannel(name: 'W1AW', rxFreqHz: 146940000, txFreqHz: 146340000),
     ]));
 
@@ -86,8 +87,7 @@ void main() {
     });
 
     test('a hostile name still lands inside the export directory', () async {
-      final exported =
-          await service.exportChirpCsv(_plan('../../escape'));
+      final exported = await service.exportChirpCsv(_plan('../../escape'));
       expect(exported.file.parent.path, endsWith('radio_exports'));
     });
   });

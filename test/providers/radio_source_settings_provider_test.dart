@@ -19,8 +19,7 @@ ProviderContainer _container({
   final container = ProviderContainer(overrides: [
     prefsSettingsStoreProvider
         .overrideWith((ref) async => prefs ?? InMemorySettingsStore()),
-    settingsStoreProvider
-        .overrideWithValue(secure ?? InMemorySettingsStore()),
+    settingsStoreProvider.overrideWithValue(secure ?? InMemorySettingsStore()),
   ]);
   addTearDown(container.dispose);
   return container;
@@ -46,8 +45,8 @@ void main() {
       expect(off.toJson()['disabled'], ['mygmrs']);
       expect(off.isEnabled('mygmrs'), isFalse);
       expect(off.isEnabled('repeaterbook'), isTrue);
-      expect(off.withSource('mygmrs', enabled: true).isEnabled('mygmrs'),
-          isTrue);
+      expect(
+          off.withSource('mygmrs', enabled: true).isEnabled('mygmrs'), isTrue);
     });
 
     test('round-trips through JSON', () {
@@ -85,8 +84,8 @@ void main() {
 
     test('a corrupt blob reads as defaults', () async {
       for (final corrupt in ['not json', '[]', '7']) {
-        final prefs = InMemorySettingsStore(
-            {RadioSourceSettingsNotifier.key: corrupt});
+        final prefs =
+            InMemorySettingsStore({RadioSourceSettingsNotifier.key: corrupt});
         expect(
             await _container(prefs: prefs)
                 .read(radioSourceSettingsProvider.future),
@@ -104,8 +103,12 @@ void main() {
           .read(radioSourceSettingsProvider.notifier)
           .setSourceEnabled('mygmrs', false);
 
-      expect(container.read(radioSourceSettingsProvider).value!
-          .isEnabled('mygmrs'), isFalse);
+      expect(
+          container
+              .read(radioSourceSettingsProvider)
+              .value!
+              .isEnabled('mygmrs'),
+          isFalse);
       expect(
           (await _container(prefs: prefs)
                   .read(radioSourceSettingsProvider.future))
@@ -118,7 +121,8 @@ void main() {
       final container = _container(prefs: prefs);
       await container.read(radioSourceSettingsProvider.future);
 
-      await container.read(radioSourceSettingsProvider.notifier)
+      await container
+          .read(radioSourceSettingsProvider.notifier)
           .setRadiusKm(160);
 
       expect(
@@ -131,8 +135,7 @@ void main() {
 
   group('repeaterBookTokenProvider', () {
     test('is null until a token is saved', () async {
-      expect(await _container().read(repeaterBookTokenProvider.future),
-          isNull);
+      expect(await _container().read(repeaterBookTokenProvider.future), isNull);
     });
 
     test('saves to the secure store, not to preferences', () async {
@@ -153,8 +156,8 @@ void main() {
     });
 
     test('an empty token clears rather than storing whitespace', () async {
-      final secure = InMemorySettingsStore(
-          {RepeaterBookTokenNotifier.key: 'rbuapp_old'});
+      final secure =
+          InMemorySettingsStore({RepeaterBookTokenNotifier.key: 'rbuapp_old'});
       final container = _container(secure: secure);
       await container.read(repeaterBookTokenProvider.future);
 
@@ -167,8 +170,10 @@ void main() {
     test('whitespace stored by an older build reads as no token', () async {
       final secure =
           InMemorySettingsStore({RepeaterBookTokenNotifier.key: '   '});
-      expect(await _container(secure: secure)
-          .read(repeaterBookTokenProvider.future), isNull);
+      expect(
+          await _container(secure: secure)
+              .read(repeaterBookTokenProvider.future),
+          isNull);
     });
   });
 

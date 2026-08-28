@@ -33,8 +33,7 @@ void main() {
     test('marks 8-14 as the low-power channels', () {
       final channels = frsGmrsChannels();
       for (var i = 0; i < channels.length; i++) {
-        final expected =
-            (i >= 7 && i <= 13) ? PowerLevel.low : PowerLevel.high;
+        final expected = (i >= 7 && i <= 13) ? PowerLevel.low : PowerLevel.high;
         expect(channels[i].power, expected, reason: channels[i].name);
       }
     });

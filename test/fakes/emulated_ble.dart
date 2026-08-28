@@ -166,6 +166,15 @@ class EmulatedCharacteristic {
   /// Answered instead of an ack when set.
   EmulatedGattError? writeError;
 
+  /// Called after each accepted write, with the peripheral it belongs to.
+  ///
+  /// Recording writes is enough for a device that only listens. It is not
+  /// enough for a GATT UART carrying a request/response protocol -- a radio
+  /// being programmed answers every command, and a peripheral that cannot
+  /// answer can only be tested one direction at a time. A responder pushes
+  /// its reply with [EmulatedPeripheral.pushNotification].
+  void Function(EmulatedPeripheral peripheral, List<int> value)? onWrite;
+
   /// True once the central has subscribed. Notifications pushed with
   /// [EmulatedPeripheral.pushNotification] are dropped when this is false, as
   /// on real hardware.
@@ -1120,6 +1129,10 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
         value: List<int>.of(request.value),
       ));
       char.value = List<int>.of(request.value);
+      // After the write is recorded, so a responder sees the same history a
+      // test would. Reply delivery still goes through _later(), which is what
+      // keeps a notification from arriving before the write completes.
+      char.onWrite?.call(peripheral, List<int>.of(request.value));
     }
     _later(() {
       if (_charWrittenController.isClosed) return;

@@ -127,8 +127,7 @@ void main() {
 
   testWidgets('a GPS fix names the place and enables the search',
       (tester) async {
-    await _pump(tester,
-        location: FakeLocationService(position: _hartford));
+    await _pump(tester, location: FakeLocationService(position: _hartford));
 
     await tester.tap(find.text('Use my location'));
     await tester.pumpAndSettle();
@@ -207,10 +206,8 @@ void main() {
 
       await tester.tap(find.text('Enter by hand'));
       await tester.pumpAndSettle();
-      await tester.enterText(
-          find.widgetWithText(TextField, 'Latitude'), '200');
-      await tester.enterText(
-          find.widgetWithText(TextField, 'Longitude'), '0');
+      await tester.enterText(find.widgetWithText(TextField, 'Latitude'), '200');
+      await tester.enterText(find.widgetWithText(TextField, 'Longitude'), '0');
       await tester.tap(find.widgetWithText(FilledButton, 'Use this'));
       await tester.pumpAndSettle();
 
