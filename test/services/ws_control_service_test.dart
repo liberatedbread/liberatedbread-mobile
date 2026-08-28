@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/services/ws_control_service.dart';
 
@@ -50,14 +51,19 @@ void main() {
 
   // ── Samsung: one socket, a token the TV issues unprompted ────────────────
 
+  // The REAL vendored path shape, not an invented one: the spec spells
+  // `{client_name}` and `{token}`, while naming its credential
+  // `samsung_token`. The earlier fixture wrote `{samsung_token}` into the
+  // path, so these tests passed against a fill rule the actual catalogue
+  // never exercised — and the literal braces went to the TV.
   const samsungSurface = WebSocketSurfaceDto(
     port: 8002,
     scheme: 'wss',
     path:
-        '/api/v2/channels/samsung.remote.control?name=abc&token={samsung_token}',
+        '/api/v2/channels/samsung.remote.control?name={client_name}&token={token}',
     fallbackPort: 8001,
     fallbackScheme: 'ws',
-    fallbackPath: '/api/v2/channels/samsung.remote.control?name=abc',
+    fallbackPath: '/api/v2/channels/samsung.remote.control?name={client_name}',
     headers: [],
     tlsSelfSigned: true,
     tlsVerification: 'none',
@@ -94,9 +100,18 @@ void main() {
     await session.open();
 
     expect(urls.single, startsWith('wss://10.0.0.4:8002/api/v2/channels/'));
-    // No token yet on a first connection, so the placeholder resolves empty
-    // rather than reaching the TV as the literal "{samsung_token}".
-    expect(urls.single, endsWith('token='));
+    // No placeholder survives to the wire: the pairing keys on the client
+    // NAME in the URL, and a literal "{client_name}" is a client the viewer
+    // never approved.
+    expect(urls.single, isNot(contains('{')));
+    // The name rides as standard base64 of the UTF-8 display name.
+    expect(
+      urls.single,
+      contains('name=${base64.encode(utf8.encode(AppConstants.appName))}'),
+    );
+    // No token yet on a first connection: the pair is DROPPED, not sent
+    // empty — some sets read `token=` as a key and refuse it.
+    expect(urls.single, isNot(contains('token')));
     // And the issued one is now available for the caller to store.
     expect(session.credential, '12345678');
   });

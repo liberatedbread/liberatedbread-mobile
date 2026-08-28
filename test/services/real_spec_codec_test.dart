@@ -4,12 +4,16 @@
 // Exercises the real flutter_rust_bridge path through [RealSpecCodec] against
 // the bundled example spec. Requires the host-target Rust library (cargo build
 // + LD_LIBRARY_PATH, same as CI); the group is skipped if it isn't loaded.
+import 'dart:async';
+import 'dart:convert' show base64, jsonEncode, utf8;
 import 'dart:typed_data' show Uint16List;
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/services/ws_control_service.dart';
 
 import '../helpers/host_rust_lib.dart';
 
@@ -27,6 +31,53 @@ void main() {
     rustReady = await initHostRustLib();
     yaml = await rootBundle.loadString(
         'vendor/protocol-specs/device-specs/examples/example-bulb.yaml');
+  });
+
+  test('the real Samsung surface fills its connect path end to end', () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    // The whole point of this test is the REAL spec: its path spells
+    // {client_name} and {token} while credential_name says samsung_token,
+    // and only the vendored bytes can prove the fill rule covers that.
+    final samsungYaml = await rootBundle.loadString(
+        'vendor/protocol-specs/device-specs/devices/samsung-tizen-tv.yaml');
+    final surface = await codec.websocketSurface(samsungYaml);
+    expect(surface, isNotNull, reason: 'samsung declares a websocket surface');
+
+    final tv = _ScriptedTvSocket();
+    final urls = <String>[];
+    final session = WsSession(
+      codec: codec,
+      specYaml: samsungYaml,
+      host: '10.0.0.9',
+      surface: surface!,
+      connect: (url, headers) async {
+        urls.add(url);
+        scheduleMicrotask(() => tv.send(jsonEncode({
+              'event': 'ms.channel.connect',
+              'data': {'token': 'issued-by-tv'},
+            })));
+        return tv;
+      },
+    );
+    addTearDown(session.dispose);
+    await session.open();
+
+    final url = urls.single;
+    // Nothing brace-shaped survives to the wire.
+    expect(url, isNot(contains('{')));
+    expect(url, isNot(contains('}')));
+    // The client name rides as standard base64 of the UTF-8 display name —
+    // the encoding the spec's own protocol_details records — and the empty
+    // token pair is dropped on a first pairing rather than sent as `token=`.
+    expect(
+      url,
+      contains('name=${base64.encode(utf8.encode(AppConstants.appName))}'),
+    );
+    expect(url, isNot(contains('token')));
+    expect(session.credential, 'issued-by-tv');
   });
 
   test('loadDeviceSpec parses the bundled bulb spec', () async {
@@ -312,4 +363,21 @@ void main() {
       throwsA(anything),
     );
   });
+}
+
+/// A scripted socket for driving [WsSession] against the REAL vendored
+/// Samsung surface — the invented-fixture version of this test is what let
+/// the literal `{client_name}`/`{token}` reach the wire unnoticed.
+class _ScriptedTvSocket implements WsSocket {
+  final _out = StreamController<dynamic>();
+  @override
+  Stream<dynamic> get stream => _out.stream;
+  @override
+  void add(String frame) {}
+  @override
+  Future<void> close() async {
+    if (!_out.isClosed) await _out.close();
+  }
+
+  void send(String frame) => _out.add(frame);
 }

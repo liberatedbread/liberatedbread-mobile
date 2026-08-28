@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../core/constants.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import 'spec_codec.dart';
@@ -262,18 +263,51 @@ class WsSession {
     }
   }
 
-  /// Fill the connect path's placeholders. The only one this layer knows is
-  /// the credential the spec named; anything else is the caller's to have put
-  /// in the path already.
+  /// The name this client authorises under, in the encoding the catalogue's
+  /// sets expect: standard base64 of the UTF-8 display name (samsungtvws
+  /// precedent, recorded in the spec's own protocol_details). The whole
+  /// Samsung flow keys on this string — a client that changes it is a new
+  /// stranger and the TV prompts again — so it is a constant, not a setting.
+  static final String _clientName =
+      base64.encode(utf8.encode(AppConstants.appName));
+
+  /// Fill the connect path's placeholders and query-encode what goes in.
+  ///
+  /// Three placeholders exist in the catalogue: the one the spec names as its
+  /// `credential_name` (`{samsung_token}`), and the two well-known ones the
+  /// Samsung paths actually spell — `{token}` (the same credential) and
+  /// `{client_name}` (this client's name, base64 of the UTF-8 display name).
+  /// The spec's path writes `{token}` while its credential_name says
+  /// `samsung_token`, so filling ONLY `{credentialName}` — as this used to —
+  /// sent the literal braces to the TV and pairing could never succeed.
   String _fillPath(String path) {
-    final name = _surface.credentialName;
+    final credential = _credential ?? '';
     var filled = path;
+    final name = _surface.credentialName;
     if (name != null) {
-      filled = filled.replaceAll('{$name}', _credential ?? '');
+      filled =
+          filled.replaceAll('{$name}', Uri.encodeQueryComponent(credential));
     }
-    // `{token}` and `{client_name}` are the two the Samsung path uses; the
-    // credential above covers the first when the spec names it that way.
-    return filled;
+    filled = filled
+        .replaceAll('{token}', Uri.encodeQueryComponent(credential))
+        .replaceAll('{client_name}', Uri.encodeQueryComponent(_clientName));
+    return _dropEmptyQueryPairs(filled);
+  }
+
+  /// Remove query parameters whose value resolved empty — the first pairing,
+  /// before any token exists. `token=` is not "no token" to every set: some
+  /// read the empty string as a key and refuse it, where an absent parameter
+  /// raises the Allow prompt the first connection is for.
+  static String _dropEmptyQueryPairs(String path) {
+    final question = path.indexOf('?');
+    if (question < 0) return path;
+    final kept = path
+        .substring(question + 1)
+        .split('&')
+        .where((pair) => !pair.endsWith('=') || !pair.contains('='))
+        .toList();
+    final base = path.substring(0, question);
+    return kept.isEmpty ? base : '$base?${kept.join('&')}';
   }
 
   /// Begin becoming authorised, by whichever mode the spec declares.
