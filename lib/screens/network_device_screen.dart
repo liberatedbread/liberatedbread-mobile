@@ -1415,7 +1415,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               ],
               for (final entity
                   in _drawableEntities.where((e) => e.isInstanced))
-                for (final child in _instances[entity.name] ?? const []) ...[
+                for (final child in _instances[entity.name] ??
+                    const <NetworkInstanceDto>[]) ...[
                   _instanceSwitchCard(entity, child),
                   const SizedBox(height: 12),
                 ],

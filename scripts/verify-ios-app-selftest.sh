@@ -383,13 +383,17 @@ fi
 
 c="$WORK/c6"; mkdir -p "$c"; app="$(make_app "$c")"
 mf="$(manifest "$c" liberated_bread_core=entry)"
-sed -i 's|^\(NSAppTransportSecurity:NSAllowsLocalNetworking\t\).*|\1false|' "$app/Info.plist.kv"
+# -i.bak, not bare -i: BSD sed takes the next word as the backup suffix, and
+# the header says "on any machine" — a Mac is where the tool under test runs.
+sed -i.bak 's|^\(NSAppTransportSecurity:NSAllowsLocalNetworking\t\).*|\1false|' "$app/Info.plist.kv"
+rm -f "$app/Info.plist.kv.bak"
 out="$(NM_MANIFEST="$mf" run_verify "$app")"; st=$?
 want_fail "$st" "NSAllowsLocalNetworking=false fails the run"
 
 c="$WORK/c7"; mkdir -p "$c"; app="$(make_app "$c")"
 mf="$(manifest "$c" liberated_bread_core=entry)"
-sed -i 's|^\(CFBundleIdentifier\t\).*|\1com.example.wrong|' "$app/Info.plist.kv"
+sed -i.bak 's|^\(CFBundleIdentifier\t\).*|\1com.example.wrong|' "$app/Info.plist.kv"
+rm -f "$app/Info.plist.kv.bak"
 out="$(NM_MANIFEST="$mf" run_verify "$app")"; st=$?
 want_fail "$st" "a drifted CFBundleIdentifier fails the run"
 

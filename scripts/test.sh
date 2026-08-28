@@ -92,8 +92,10 @@ log "ci-versions.sh --strict (toolchain pins still readable from ci.yml?)"
 log "update-specs.sh --check (vendored protocol-specs still intact?)"
 ./scripts/update-specs.sh --check > /dev/null
 
-log "flutter pub get"
-flutter pub get
+log "flutter pub get --enforce-lockfile"
+# --enforce-lockfile, as CI's gate runs it: a pubspec.lock drifted from
+# pubspec.yaml resolved silently here and failed only on the runner.
+flutter pub get --enforce-lockfile
 
 log "dart format (tracked Dart files)"
 ./scripts/ci-format.sh
@@ -119,6 +121,12 @@ fi
 # way that logic gets exercised outside a real iOS CI failure.
 log "ci-ios-tests.sh self-test"
 ./scripts/ci-ios-tests-selftest.sh
+
+# The bundle-verifier's own selftest, exactly as CI's gate runs it. It was
+# CI-only, which is how the gate went red on a commit this script had
+# blessed — the one gap this mirror exists to close.
+log "verify-ios-app selftest"
+./scripts/verify-ios-app-selftest.sh
 
 # BEFORE the build, not after. `generate` rewrites rust/src/frb_generated.rs,
 # which is an input to the crate — running it second leaves the freshly built
@@ -162,10 +170,12 @@ fi
 log "cargo fmt --all -- --check"
 (cd rust && cargo fmt --all -- --check)
 
-log "cargo clippy --all-targets --all-features -- -D warnings"
-(cd rust && cargo clippy --all-targets --all-features -- -D warnings)
+# --locked on both cargo runs, as CI passes it: an edited Cargo.toml whose
+# lock was not regenerated is green here without it and red there.
+log "cargo clippy --locked --all-targets --all-features -- -D warnings"
+(cd rust && cargo clippy --locked --all-targets --all-features -- -D warnings)
 
-log "cargo test --all-features"
-(cd rust && cargo test --all-features)
+log "cargo test --locked --all-features"
+(cd rust && cargo test --locked --all-features)
 
 log "All checks passed."

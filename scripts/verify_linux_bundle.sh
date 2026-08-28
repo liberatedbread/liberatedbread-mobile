@@ -284,7 +284,8 @@ if [[ -f "$EXE" ]]; then
     # shellcheck disable=SC2016  # $ORIGIN below is a literal dynamic-linker token, not a shell variable
     if [[ -z "$runpath" ]]; then
       fail "$BINARY_NAME declares no RUNPATH/RPATH — it cannot find lib/$RUST_LIB at runtime. CMAKE_INSTALL_RPATH in linux/CMakeLists.txt should be \$ORIGIN/lib."
-    elif printf '%s' "$runpath" | grep -q '\$ORIGIN/lib'; then
+    # Herestring for the same SIGPIPE reason the symbol check above gives.
+    elif grep -q '\$ORIGIN/lib' <<<"$runpath"; then
       log "  ok  RUNPATH includes \$ORIGIN/lib"
     else
       fail "$BINARY_NAME RUNPATH does not include \$ORIGIN/lib (got: $(printf '%s' "$runpath" | tr -s ' ')) — the bundled libraries would not be found at runtime."
