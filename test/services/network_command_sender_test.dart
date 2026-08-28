@@ -623,6 +623,10 @@ class _ScriptedBroker implements MqttSocket {
 
 /// A scripted television behind the sender's WebSocket seam.
 class _ScriptedTv implements WsSocket {
+  Duration? pings;
+  @override
+  set pingInterval(Duration? interval) => pings = interval;
+
   final _out = StreamController<dynamic>();
   final List<String> written = [];
   final List<String> urls = [];

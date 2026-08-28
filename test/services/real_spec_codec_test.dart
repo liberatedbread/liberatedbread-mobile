@@ -369,6 +369,10 @@ void main() {
 /// Samsung surface — the invented-fixture version of this test is what let
 /// the literal `{client_name}`/`{token}` reach the wire unnoticed.
 class _ScriptedTvSocket implements WsSocket {
+  Duration? pings;
+  @override
+  set pingInterval(Duration? interval) => pings = interval;
+
   final _out = StreamController<dynamic>();
   @override
   Stream<dynamic> get stream => _out.stream;
