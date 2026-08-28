@@ -18,6 +18,7 @@ import '../models/radio_profile.dart';
 import '../providers/channel_plan_provider.dart';
 import '../providers/radio_profile_provider.dart';
 import '../services/plan_export_service.dart';
+import 'radio_program_screen.dart';
 
 /// Provides the exporter. Overridden in tests with a temp directory.
 final planExportServiceProvider = Provider<PlanExportService>((ref) {
@@ -99,6 +100,21 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
               icon: const Icon(Icons.ios_share),
               onPressed: plan.isEmpty ? null : () => _export(plan),
             ),
+            if (profile.isProgrammable)
+              IconButton(
+                tooltip: 'Program radio',
+                icon: const Icon(Icons.settings_input_antenna),
+                onPressed: plan.isEmpty
+                    ? null
+                    : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => RadioProgramScreen(
+                              plan: plan,
+                              profile: profile,
+                            ),
+                          ),
+                        ),
+              ),
           ],
         ],
       ),
