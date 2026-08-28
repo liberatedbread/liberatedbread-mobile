@@ -1328,7 +1328,7 @@ pub struct Identification {
     /// Conditions on the TXT records of `mdns_service_type` that narrow it
     /// from a platform to THIS device (ANDed). `_esphomelib._tcp` finds every
     /// ESPHome node; `project_name` starting `ratgdo.` is what makes one a
-    /// garage-door controller. See [`DeviceInfo::txt_match_groups`].
+    /// garage-door controller. See [`DeviceInfo::mdns_txt_groups`].
     #[serde(default)]
     pub mdns_txt_match: Option<Vec<TxtMatch>>,
     /// URL scheme of the local API at `default_port` — absent means `http`.

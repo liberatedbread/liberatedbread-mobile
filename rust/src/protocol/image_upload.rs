@@ -361,6 +361,21 @@ pub(crate) fn printhead_row_bytes(spec: &DeviceSpec) -> Result<usize, ProtocolEr
             reason: format!("paper width {width} is not a whole number of 8-dot bytes"),
         });
     }
+    // Bounded because the row length rides one-byte fields on the wire (the
+    // cat printer's 0xA2 payload length, the D11's GS v 0 row count), and
+    // `as u8` past 255 would truncate SILENTLY into a frame the printer
+    // obeys wrongly. 2040 dots is 255 bytes — several times any real
+    // printhead — so the bound never binds legitimate hardware, only a
+    // malformed or hostile spec. Debug asserts guarded this before, which is
+    // no guard at all in the release build that ships.
+    if width > 2040 {
+        return Err(ProtocolError::ImageUploadUnsupported {
+            reason: format!(
+                "paper width {width} exceeds the 2040 dots a one-byte row \
+                 length can carry"
+            ),
+        });
+    }
     Ok(width as usize / 8)
 }
 

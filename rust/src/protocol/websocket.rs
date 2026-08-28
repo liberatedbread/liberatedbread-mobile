@@ -285,9 +285,25 @@ pub fn render_command(
             let Some(template) = channel.frame_template.as_deref() else {
                 return Err(ProtocolError::EmptyCommand);
             };
-            template
+            let mut text = template
                 .replace("{action}", action)
-                .replace("{request_id}", &request_id.to_string())
+                .replace("{request_id}", &request_id.to_string());
+            // The command's declared parameters substitute too — resolved the
+            // way every renderer resolves them: the caller's value, then the
+            // declared default, then a visible failure by name. A text
+            // template carrying {name} used to render with the braces intact,
+            // which the device reads as a value: silently the wrong
+            // instruction. No vendored spec hits it today; the first that
+            // does now works or errors instead of lying on the wire.
+            for name in command.parameters.keys() {
+                let placeholder = format!("{{{name}}}");
+                if text.contains(&placeholder) {
+                    let value =
+                        crate::protocol::resolve_parameter(command, command_name, name, values)?;
+                    text = text.replace(&placeholder, &value);
+                }
+            }
+            text
         }
         other => {
             return Err(ProtocolError::UnsupportedCommandEncoding(format!(

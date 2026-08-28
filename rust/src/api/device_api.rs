@@ -3685,11 +3685,39 @@ fn regex_for(pattern: &str) -> Option<std::sync::Arc<regex::Regex>> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<HashMap<String, Option<Arc<regex::Regex>>>>> = OnceLock::new();
+    /// Remote spec packs can feed a stream of never-repeating patterns, so
+    /// the map is bounded the way the spec cache is — clear-on-full, tiny
+    /// against hostility, generous for a catalogue's worth of matchers.
+    const CACHE_MAX_ENTRIES: usize = 64;
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut cache = cache.lock().ok()?;
+    // Poisoning is taken back, not swallowed: `.ok()?` here meant one panic
+    // anywhere while the lock was held silently disabled EVERY regex matcher
+    // for the life of the process — and a matcher that exists to EXCLUDE
+    // devices then excluded nothing. The map is plain data; the same rule
+    // dispatch.rs applies to its cache.
+    let mut cache = match cache.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if cache.len() >= CACHE_MAX_ENTRIES && !cache.contains_key(pattern) {
+        cache.clear();
+    }
     cache
         .entry(pattern.to_string())
-        .or_insert_with(|| regex::Regex::new(pattern).ok().map(Arc::new))
+        .or_insert_with(|| {
+            // Bounded compilation: a hostile pattern may otherwise allocate
+            // regex's 10 MB default before failing. A megabyte covers every
+            // matcher shape the catalogue writes (short anchored
+            // alternations) many times over; one that will not fit fails
+            // closed into the cached None — matches nothing, like any other
+            // uncompilable pattern.
+            regex::RegexBuilder::new(pattern)
+                .size_limit(1 << 20)
+                .dfa_size_limit(1 << 20)
+                .build()
+                .ok()
+                .map(Arc::new)
+        })
         .clone()
 }
 

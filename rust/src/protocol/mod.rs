@@ -118,6 +118,13 @@ pub struct EncodedWrite {
 /// index by [`Self::packets`], not by 1: a frame that splits into P packets
 /// uses P serials, and advancing by less would make the next frame reuse
 /// them, corrupting fragment reassembly on the device.
+///
+/// "Packet" here means whatever unit the HANDLER's wire protocol numbers,
+/// and today that genuinely differs: the thermal printers count logical
+/// ESC/POS frames, while the badge and Magic Display count BLE writes.
+/// Nothing observes the difference — none of the four uses a serial — but a
+/// handler that starts numbering fragments must pick the unit ITS device
+/// sequences, not copy a sibling's.
 #[derive(Debug)]
 pub struct EncodedFrame {
     pub writes: Vec<EncodedWrite>,

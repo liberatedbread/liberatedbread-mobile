@@ -51,7 +51,12 @@ serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 # in declared order — a BTreeMap-backed Map would alphabetize the keys and diff
 # against nothing.
 serde_json = { version = "1", features = ["preserve_order"] }
-regex = "1"
+# default-features off: the catalogue's matcher patterns are short ASCII
+# alternations, and the unicode tables are ~1 MB of binary a phone app ships
+# to every user for `\p{...}` classes no spec writes. A pattern that needs
+# them fails closed — regex_for caches the compile failure and the matcher
+# matches nothing, the same as any other uncompilable pattern.
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
 thiserror = "2"
 anyhow = "1"
 # The Rabbit Air LAN protocol's wire crypto: AES-128-CBC with PKCS7 padding,

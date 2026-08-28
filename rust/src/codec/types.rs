@@ -234,6 +234,18 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
             let mut shift = 0u32;
             let mut terminated = false;
             for &b in slice {
+                // The tenth byte has room for exactly ONE value bit — the
+                // shift below discards the rest silently, and a
+                // terminated-but-oversized varint would decode to a
+                // plausible wrong number: the exact failure this decoder
+                // errors on everywhere else.
+                if shift == 63 && (b & 0x7E) != 0 {
+                    return Err(ProtocolError::MalformedReply(format!(
+                        "field '{}' is a varint that overflows a u64: its \
+                         tenth byte carries more than one value bit",
+                        field.name
+                    )));
+                }
                 v |= u64::from(b & 0x7F) << shift;
                 if b & 0x80 == 0 {
                     terminated = true;
@@ -621,7 +633,9 @@ fn pad_to_fixed_length(mut bytes: Vec<u8>, command: &Command) -> Result<Vec<u8>,
             name: "fixed_length".to_string(),
             value: width as f64,
             reason: format!(
-                "declared fixed_length of {width} exceeds the {MAX_FIXED_LENGTH}-byte                  ceiling; no framed command is this wide and padding to it would                  allocate that much on the device"
+                "declared fixed_length of {width} exceeds the {MAX_FIXED_LENGTH}-byte \
+                 ceiling; no framed command is this wide and padding to it \
+                 would allocate that much on the device"
             ),
         });
     }

@@ -38,7 +38,7 @@ static SPEC_CACHE: LazyLock<Mutex<HashMap<String, Arc<DeviceSpec>>>> =
 /// the workload is not the one the cache serves, and a documented clear is
 /// simpler than an eviction policy (or an LRU dependency) — the cost of a
 /// miss is one re-parse.
-const SPEC_CACHE_MAX_ENTRIES: usize = 32;
+const SPEC_CACHE_MAX_ENTRIES: usize = 64;
 
 /// Parse `yaml`, or hand back the [`SPEC_CACHE`] entry for it.
 ///
@@ -70,7 +70,16 @@ pub(crate) fn parse_or_cached(yaml: &str) -> Result<Arc<DeviceSpec>, ProtocolErr
         return Ok(existing.clone());
     }
     if cache.len() >= SPEC_CACHE_MAX_ENTRIES {
-        cache.clear();
+        // Evict ONE arbitrary entry, never the whole map. Clear-on-full made
+        // sense when only the BLE screens fed this; now sixteen per-poll
+        // network entry points route through it, and a group run over more
+        // distinct specs than the bound turned every insert into a full
+        // clear — a 0% hit rate that cost the lock AND the parse, which is
+        // strictly worse than no cache. One arbitrary eviction keeps the hot
+        // entries hot with no bookkeeping a hostile stream could bloat.
+        if let Some(evict) = cache.keys().next().cloned() {
+            cache.remove(&evict);
+        }
     }
     cache.insert(yaml.to_string(), spec.clone());
     Ok(spec)
@@ -254,22 +263,11 @@ services: []
     /// SPEC_CACHE_MAX_ENTRIES fresh inserts — i.e. the map cannot grow
     /// without limit.
     #[test]
-    fn cache_clears_when_capacity_is_reached() {
+    fn cache_stays_bounded_and_evicts_one_at_a_time() {
         let _guard = CACHE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let base = "
-device:
-  name: \"cap-test-base\"
-  manufacturer: x
-  manufacturer_status: abandoned
-  protocol: ble
-services: []
-";
-        let before = parse_or_cached(base).unwrap();
-
-        // Whatever the cache held beforehand, inserting MAX distinct specs
-        // after `base` guarantees at least one clear happens after `base`
-        // was cached (base + MAX fresh entries > MAX).
-        for i in 0..SPEC_CACHE_MAX_ENTRIES {
+        // A storm of distinct specs — twice the bound — must not grow the
+        // map past it.
+        for i in 0..(SPEC_CACHE_MAX_ENTRIES * 2) {
             let yaml = format!(
                 "
 device:
@@ -282,12 +280,29 @@ services: []
             );
             parse_or_cached(&yaml).unwrap();
         }
-
-        let after = parse_or_cached(base).unwrap();
+        let len = SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner()).len();
         assert!(
-            !Arc::ptr_eq(&before, &after),
-            "base entry should have been evicted by the capacity clear; \
-             an identity hit here would mean the cache grew past its bound"
+            len <= SPEC_CACHE_MAX_ENTRIES,
+            "cache holds {len} entries past its bound of {SPEC_CACHE_MAX_ENTRIES}"
+        );
+        // And the storm did not take everyone else's entries with it: a spec
+        // filed mid-storm is still served by identity on the next ask. The
+        // old clear-everything rule failed exactly this — sixteen per-poll
+        // network entry points shared a cache that a group run over enough
+        // distinct specs reduced to a 0% hit rate.
+        let hot = "
+device:
+  name: \"cap-test-hot\"
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services: []
+";
+        let first = parse_or_cached(hot).unwrap();
+        let second = parse_or_cached(hot).unwrap();
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "a just-filed entry must be served by identity, not re-parsed"
         );
     }
 
