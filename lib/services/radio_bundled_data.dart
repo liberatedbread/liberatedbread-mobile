@@ -16,7 +16,15 @@ import '../core/log.dart';
 /// single box for Alaska spans nearly every longitude, which would make it a
 /// candidate from anywhere on earth.
 class StateBounds {
+  /// Postal abbreviation — what myGMRS's `state` parameter takes.
   final String code;
+
+  /// FIPS numeric code — what RepeaterBook's `state_id` parameter takes.
+  ///
+  /// Both are carried so neither client needs a lookup table of its own that
+  /// could drift from the other's.
+  final String fips;
+
   final String name;
   final List<({double minLat, double minLon, double maxLat, double maxLon})>
       boxes;
@@ -25,6 +33,7 @@ class StateBounds {
     required this.code,
     required this.name,
     required this.boxes,
+    this.fips = '',
   });
 
   /// Whether any part of this state falls inside the given latitude/longitude
@@ -78,8 +87,10 @@ class StateBounds {
       ));
     }
     if (boxes.isEmpty) return null;
+    final fips = json['fips'];
     return StateBounds(
       code: code,
+      fips: fips is String ? fips : '',
       name: name is String && name.isNotEmpty ? name : code,
       boxes: boxes,
     );

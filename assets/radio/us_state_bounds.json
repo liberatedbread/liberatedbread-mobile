@@ -6,6 +6,7 @@
   "states": [
     {
       "code": "AK",
+      "fips": "02",
       "name": "Alaska",
       "boxes": [
         {
@@ -24,6 +25,7 @@
     },
     {
       "code": "AL",
+      "fips": "01",
       "name": "Alabama",
       "boxes": [
         {
@@ -36,6 +38,7 @@
     },
     {
       "code": "AR",
+      "fips": "05",
       "name": "Arkansas",
       "boxes": [
         {
@@ -48,6 +51,7 @@
     },
     {
       "code": "AZ",
+      "fips": "04",
       "name": "Arizona",
       "boxes": [
         {
@@ -60,6 +64,7 @@
     },
     {
       "code": "CA",
+      "fips": "06",
       "name": "California",
       "boxes": [
         {
@@ -72,6 +77,7 @@
     },
     {
       "code": "CO",
+      "fips": "08",
       "name": "Colorado",
       "boxes": [
         {
@@ -84,6 +90,7 @@
     },
     {
       "code": "CT",
+      "fips": "09",
       "name": "Connecticut",
       "boxes": [
         {
@@ -96,6 +103,7 @@
     },
     {
       "code": "DC",
+      "fips": "11",
       "name": "District of Columbia",
       "boxes": [
         {
@@ -108,6 +116,7 @@
     },
     {
       "code": "DE",
+      "fips": "10",
       "name": "Delaware",
       "boxes": [
         {
@@ -120,6 +129,7 @@
     },
     {
       "code": "FL",
+      "fips": "12",
       "name": "Florida",
       "boxes": [
         {
@@ -132,6 +142,7 @@
     },
     {
       "code": "GA",
+      "fips": "13",
       "name": "Georgia",
       "boxes": [
         {
@@ -144,6 +155,7 @@
     },
     {
       "code": "HI",
+      "fips": "15",
       "name": "Hawaii",
       "boxes": [
         {
@@ -156,6 +168,7 @@
     },
     {
       "code": "IA",
+      "fips": "19",
       "name": "Iowa",
       "boxes": [
         {
@@ -168,6 +181,7 @@
     },
     {
       "code": "ID",
+      "fips": "16",
       "name": "Idaho",
       "boxes": [
         {
@@ -180,6 +194,7 @@
     },
     {
       "code": "IL",
+      "fips": "17",
       "name": "Illinois",
       "boxes": [
         {
@@ -192,6 +207,7 @@
     },
     {
       "code": "IN",
+      "fips": "18",
       "name": "Indiana",
       "boxes": [
         {
@@ -204,6 +220,7 @@
     },
     {
       "code": "KS",
+      "fips": "20",
       "name": "Kansas",
       "boxes": [
         {
@@ -216,6 +233,7 @@
     },
     {
       "code": "KY",
+      "fips": "21",
       "name": "Kentucky",
       "boxes": [
         {
@@ -228,6 +246,7 @@
     },
     {
       "code": "LA",
+      "fips": "22",
       "name": "Louisiana",
       "boxes": [
         {
@@ -240,6 +259,7 @@
     },
     {
       "code": "MA",
+      "fips": "25",
       "name": "Massachusetts",
       "boxes": [
         {
@@ -252,6 +272,7 @@
     },
     {
       "code": "MD",
+      "fips": "24",
       "name": "Maryland",
       "boxes": [
         {
@@ -264,6 +285,7 @@
     },
     {
       "code": "ME",
+      "fips": "23",
       "name": "Maine",
       "boxes": [
         {
@@ -276,6 +298,7 @@
     },
     {
       "code": "MI",
+      "fips": "26",
       "name": "Michigan",
       "boxes": [
         {
@@ -288,6 +311,7 @@
     },
     {
       "code": "MN",
+      "fips": "27",
       "name": "Minnesota",
       "boxes": [
         {
@@ -300,6 +324,7 @@
     },
     {
       "code": "MO",
+      "fips": "29",
       "name": "Missouri",
       "boxes": [
         {
@@ -312,6 +337,7 @@
     },
     {
       "code": "MS",
+      "fips": "28",
       "name": "Mississippi",
       "boxes": [
         {
@@ -324,6 +350,7 @@
     },
     {
       "code": "MT",
+      "fips": "30",
       "name": "Montana",
       "boxes": [
         {
@@ -336,6 +363,7 @@
     },
     {
       "code": "NC",
+      "fips": "37",
       "name": "North Carolina",
       "boxes": [
         {
@@ -348,6 +376,7 @@
     },
     {
       "code": "ND",
+      "fips": "38",
       "name": "North Dakota",
       "boxes": [
         {
@@ -360,6 +389,7 @@
     },
     {
       "code": "NE",
+      "fips": "31",
       "name": "Nebraska",
       "boxes": [
         {
@@ -372,6 +402,7 @@
     },
     {
       "code": "NH",
+      "fips": "33",
       "name": "New Hampshire",
       "boxes": [
         {
@@ -384,6 +415,7 @@
     },
     {
       "code": "NJ",
+      "fips": "34",
       "name": "New Jersey",
       "boxes": [
         {
@@ -396,6 +428,7 @@
     },
     {
       "code": "NM",
+      "fips": "35",
       "name": "New Mexico",
       "boxes": [
         {
@@ -408,6 +441,7 @@
     },
     {
       "code": "NV",
+      "fips": "32",
       "name": "Nevada",
       "boxes": [
         {
@@ -420,6 +454,7 @@
     },
     {
       "code": "NY",
+      "fips": "36",
       "name": "New York",
       "boxes": [
         {
@@ -432,6 +467,7 @@
     },
     {
       "code": "OH",
+      "fips": "39",
       "name": "Ohio",
       "boxes": [
         {
@@ -444,6 +480,7 @@
     },
     {
       "code": "OK",
+      "fips": "40",
       "name": "Oklahoma",
       "boxes": [
         {
@@ -456,6 +493,7 @@
     },
     {
       "code": "OR",
+      "fips": "41",
       "name": "Oregon",
       "boxes": [
         {
@@ -468,6 +506,7 @@
     },
     {
       "code": "PA",
+      "fips": "42",
       "name": "Pennsylvania",
       "boxes": [
         {
@@ -480,6 +519,7 @@
     },
     {
       "code": "PR",
+      "fips": "72",
       "name": "Puerto Rico",
       "boxes": [
         {
@@ -492,6 +532,7 @@
     },
     {
       "code": "RI",
+      "fips": "44",
       "name": "Rhode Island",
       "boxes": [
         {
@@ -504,6 +545,7 @@
     },
     {
       "code": "SC",
+      "fips": "45",
       "name": "South Carolina",
       "boxes": [
         {
@@ -516,6 +558,7 @@
     },
     {
       "code": "SD",
+      "fips": "46",
       "name": "South Dakota",
       "boxes": [
         {
@@ -528,6 +571,7 @@
     },
     {
       "code": "TN",
+      "fips": "47",
       "name": "Tennessee",
       "boxes": [
         {
@@ -540,6 +584,7 @@
     },
     {
       "code": "TX",
+      "fips": "48",
       "name": "Texas",
       "boxes": [
         {
@@ -552,6 +597,7 @@
     },
     {
       "code": "UT",
+      "fips": "49",
       "name": "Utah",
       "boxes": [
         {
@@ -564,6 +610,7 @@
     },
     {
       "code": "VA",
+      "fips": "51",
       "name": "Virginia",
       "boxes": [
         {
@@ -576,6 +623,7 @@
     },
     {
       "code": "VT",
+      "fips": "50",
       "name": "Vermont",
       "boxes": [
         {
@@ -588,6 +636,7 @@
     },
     {
       "code": "WA",
+      "fips": "53",
       "name": "Washington",
       "boxes": [
         {
@@ -600,6 +649,7 @@
     },
     {
       "code": "WI",
+      "fips": "55",
       "name": "Wisconsin",
       "boxes": [
         {
@@ -612,6 +662,7 @@
     },
     {
       "code": "WV",
+      "fips": "54",
       "name": "West Virginia",
       "boxes": [
         {
@@ -624,6 +675,7 @@
     },
     {
       "code": "WY",
+      "fips": "56",
       "name": "Wyoming",
       "boxes": [
         {

@@ -134,10 +134,17 @@ def main(argv: list[str]) -> int:
     for row, points in zip(rows, shapes):
         code = row.get("STUSPS", "")
         name = row.get("NAME", "")
+        # The FIPS code is carried because RepeaterBook's export API keys on
+        # it (state_id), while myGMRS uses the postal abbreviation. Having
+        # both here means neither client has to hold a lookup table of its
+        # own that could drift from the other's.
+        fips = row.get("STATEFP", "")
         boxes = boxes_for(points)
         if not code or not boxes:
             continue
-        states.append({"code": code, "name": name, "boxes": boxes})
+        states.append(
+            {"code": code, "fips": fips, "name": name, "boxes": boxes}
+        )
     states.sort(key=lambda s: s["code"])
 
     doc = {
