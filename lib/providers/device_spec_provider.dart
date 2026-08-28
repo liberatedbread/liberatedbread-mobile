@@ -67,13 +67,13 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
     // [_bundledAssetKeys]). The sync script keeps index and bundle in step;
     // this guards a hand-edited index.
     if (bundled != null && !bundled.contains(path)) {
-      debugPrint('Spec listed in manifest but not bundled: $path');
+      Log.spec.warning('spec listed in manifest but not bundled: $path');
       return null;
     }
     try {
       return (path: path, yaml: await rootBundle.loadString(path));
     } on FlutterError {
-      debugPrint('Spec listed in manifest but not bundled: $path');
+      Log.spec.warning('spec listed in manifest but not bundled: $path');
       return null;
     } catch (e, st) {
       Log.spec.warning('failed to load bundled spec $path',

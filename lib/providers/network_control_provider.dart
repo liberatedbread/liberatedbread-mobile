@@ -219,11 +219,9 @@ final rabbitAirProvisionServiceProvider =
 /// as the member finishes. A family-cached instance would share one signed
 /// session between surfaces that outlive each other, and nobody would know
 /// who closes it.
-typedef NetworkCommandSenderFactory = NetworkCommandSender Function({
-  required NetworkDevice device,
-  required String specYaml,
-  NetworkCapabilitiesDto? capabilities,
-});
+// The factory TYPE lives beside the sender's constructor
+// (NetworkCommandSenderFactory in network_command_sender.dart) so this
+// provider and the group runner share one declaration that cannot drift.
 
 final networkCommandSenderFactoryProvider =
     Provider<NetworkCommandSenderFactory>((ref) {

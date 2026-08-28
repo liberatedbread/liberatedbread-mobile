@@ -35,7 +35,15 @@ String friendlyErrorText(
   String? context,
   Logger? log,
 }) {
-  if (error is UserFacingException) return error.message;
+  if (error is UserFacingException) {
+    // Logged too, at info: the message is for the person on the screen, the
+    // log line is for whoever reads the diagnostics capture later. Routing a
+    // failure through here used to UNLOG it — the adopt screen swapped an
+    // explicit warning for this helper and its most common failure went
+    // nowhere.
+    (log ?? Log.ui).info(context ?? 'operation failed', error: error);
+    return error.message;
+  }
   (log ?? Log.ui).warning(context ?? 'operation failed', error: error);
   return fallback;
 }

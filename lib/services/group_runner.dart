@@ -443,11 +443,7 @@ class NetworkGroupRunner {
   /// as `policy: null`, overwriting the device screen's pinned registration
   /// and downgrading the Envoy and the SmartCast to blanket trust for the rest
   /// of the session.
-  final NetworkCommandSender Function({
-    required NetworkDevice device,
-    required String specYaml,
-    NetworkCapabilitiesDto? capabilities,
-  }) _senderFor;
+  final NetworkCommandSenderFactory _senderFor;
 
   /// A ceiling over one member's whole turn — resolve, state read, sends —
   /// so a device that blackholes traffic fails its own row, not the run.
@@ -467,11 +463,7 @@ class NetworkGroupRunner {
   NetworkGroupRunner({
     required SpecCodec codec,
     required SoapControlClient soap,
-    required NetworkCommandSender Function({
-      required NetworkDevice device,
-      required String specYaml,
-      NetworkCapabilitiesDto? capabilities,
-    }) senderFor,
+    required NetworkCommandSenderFactory senderFor,
     CredentialReader Function(NetworkDevice device)? credentialsFor,
   })  : _codec = codec,
         _soap = soap,
@@ -532,9 +524,25 @@ class NetworkGroupRunner {
           memberStop.stop();
         });
 
-        _runMember(op, member, brightnessPercent, memberStop)
-            .then(report)
-            .whenComplete(() {
+        _runMember(op, member, brightnessPercent, memberStop).then(report,
+            onError: (Object e, StackTrace st) {
+          // Without this, a throw anywhere in the member — plan resolution,
+          // sender construction, a credential reader — became an unhandled
+          // zone error while the row rendered "running" forever: report
+          // never fired, and whenComplete below had already cancelled the
+          // deadline that was the only other way out.
+          Log.net.warning('group member ${member.memberId} failed',
+              error: e, stackTrace: st);
+          report(GroupRunEvent(
+            deviceId: member.memberId,
+            status: GroupDeviceStatus.failed,
+            detail: friendlyErrorText(
+              e,
+              fallback: 'Something went wrong driving this device.',
+              log: Log.net,
+            ),
+          ));
+        }).whenComplete(() {
           deadline.cancel();
           live--;
           pump();
@@ -597,10 +605,17 @@ class NetworkGroupRunner {
     // credential, for the reason the device screen gives: the store is the
     // platform keychain and most of the catalogue needs nothing from it.
     final credentialsFor = _credentialsFor;
-    if (credentialsFor != null &&
-        member.entities
-            .any((e) => e.actions.any((a) => a.credentials.isNotEmpty))) {
-      sender.useCredentials(credentialsFor(device));
+    if (credentialsFor != null) {
+      // The SPEC's answer, the same question the device screen asks. Reads
+      // count too — the Hue bridge's /api/{username}/sensors needs the value
+      // with no ACTION declaring it — so the old action-level gate left
+      // exactly those reads rendering from an empty map. Still spec-gated,
+      // for the reason the screen gives: the store is the platform keychain
+      // and most of the catalogue must never touch it.
+      final declared = await _codec.credentialsForDevice(specYaml);
+      if (declared.isNotEmpty) {
+        sender.useCredentials(credentialsFor(device));
+      }
     }
     try {
       // The description, only if something in the plan rides SOAP — the

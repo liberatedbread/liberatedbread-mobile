@@ -95,7 +95,13 @@ class NetworkIdentity {
       mac,
       Object.hashAll(serviceTypes),
       Object.hashAll(ssdpTargets),
-      Object.hashAll(answeredLanProtocols));
+      Object.hashAll(answeredLanProtocols),
+      // Unordered, to agree with mapEquals above. txt joined == without
+      // joining hashCode, which parked every ESPHome node on a LAN in one
+      // hash bucket as a Riverpod family key — the exact fan-out the txt
+      // comparison exists to disambiguate.
+      Object.hashAllUnordered(
+          txt.entries.map((e) => Object.hash(e.key, e.value))));
 }
 
 /// What the catalogue makes of one device on the network, or null when nothing

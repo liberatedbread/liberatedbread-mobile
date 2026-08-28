@@ -151,7 +151,19 @@ class SocketAdapter implements MqttSocket {
   void add(List<int> bytes) => _socket.add(bytes);
 
   @override
-  Future<void> close() async => _socket.destroy();
+  Future<void> close() async {
+    try {
+      // flush() before destroy(): destroy discards unsent output, and the
+      // packet queued right before every close is the DISCONNECT — on a
+      // broker that serves one local client at a time, the difference
+      // between releasing the slot now and holding it until keepalive
+      // expiry locks the owner's own app out.
+      await _socket.flush();
+    } catch (_) {
+      // Already gone; nothing to flush.
+    }
+    _socket.destroy();
+  }
 }
 
 /// An open MQTT session.
@@ -333,7 +345,19 @@ class MqttSession {
     _pump = _pump.then((_) => _onBytes(chunk)).catchError(_fail);
   }
 
+  /// Ceiling on unparsed bytes. The packet length prefix is device-declared
+  /// — a 4-byte varint can announce 268 MB — so accumulating until a packet
+  /// completes is a remote-controlled allocation. A megabyte holds any
+  /// reading these devices push many times over; a stream that outgrows it
+  /// has lost framing as surely as one that fails to parse.
+  static const int _maxBufferedBytes = 1 << 20;
+
   Future<void> _onBytes(Uint8List chunk) async {
+    if (_buffer.length + chunk.length > _maxBufferedBytes) {
+      _fail(const MqttConnectionException(
+          'The MQTT stream exceeded its 1 MiB receive bound.'));
+      return;
+    }
     _buffer.addAll(chunk);
     final MqttParsedDto parsed;
     try {

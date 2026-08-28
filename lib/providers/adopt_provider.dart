@@ -1,7 +1,10 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async' show Timer;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/log.dart';
 import '../services/adopt_service.dart';
 import '../services/spec_codec.dart';
 import '../services/wifi_network_scanner.dart';
@@ -51,9 +54,20 @@ final adoptableDevicesProvider =
     FutureProvider<List<AdoptableDevice>>((ref) async {
   final codec = ref.watch(specCodecProvider);
   final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  final byName = <String, String>{
-    for (final entry in parsed) entry.spec.deviceName: entry.yaml,
-  };
+  final byName = <String, String>{};
+  for (final entry in parsed) {
+    final name = entry.spec.deviceName;
+    if (byName.containsKey(name)) {
+      // The join is by display name because the profile DTO carries nothing
+      // else; two specs sharing one would silently shadow each other here
+      // (the resolver demoted names to fallback for exactly this). Until the
+      // profile carries a spec key, keep the first and say so loudly.
+      Log.spec.warning(
+          'two specs share device name "$name"; adopt keeps the first');
+      continue;
+    }
+    byName[name] = entry.yaml;
+  }
   final profiles =
       await codec.softApProfiles(parsed.map((p) => p.yaml).toList());
 
@@ -112,13 +126,17 @@ final bleAdoptableDevicesProvider =
     FutureProvider<List<BleAdoptableDevice>>((ref) async {
   final codec = ref.watch(specCodecProvider);
   final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  final byName = <String, ({String yaml, String? handler})>{
-    for (final entry in parsed)
-      entry.spec.deviceName: (
-        yaml: entry.yaml,
-        handler: entry.spec.protocolHandler
-      ),
-  };
+  final byName = <String, ({String yaml, String? handler})>{};
+  for (final entry in parsed) {
+    final name = entry.spec.deviceName;
+    if (byName.containsKey(name)) {
+      // Same shadowing rule as the softap join above: first wins, loudly.
+      Log.spec.warning(
+          'two specs share device name "$name"; adopt keeps the first');
+      continue;
+    }
+    byName[name] = (yaml: entry.yaml, handler: entry.spec.protocolHandler);
+  }
   final profiles =
       await codec.bleProvisioningProfiles(parsed.map((p) => p.yaml).toList());
 
@@ -146,16 +164,20 @@ final bleAdoptableDevicesProvider =
 /// the BLE device screen and the setup screen's own scan agree, and neither
 /// spells a product's advertised name in Dart.
 ///
-/// Deliberately NOT autoDispose. The setup screen asks this per scan
-/// advertisement with `ref.read(...future)` and no lasting listener, and an
-/// autoDispose family entry can be torn down while its future is still in
-/// flight — the future is then never delivered and the peripheral silently
-/// never joins the found list, which reads as "the app cannot see my
-/// purifier". What is retained instead is one small record per distinct
-/// advertised name seen in a session.
-final bleSetupModeMatchProvider =
-    FutureProvider.family<BleAdoptableDevice?, String>(
-        (ref, advertisedName) async {
+/// autoDispose WITH a grace hold, which is the shape that gets both halves
+/// right. A plain autoDispose entry can be torn down while its future is
+/// still in flight — the setup screen asks per scan advertisement with
+/// `ref.read(...future)` and no lasting listener, so the answer was never
+/// delivered and the peripheral silently never joined the found list. But
+/// keeping every entry forever retains one record per DISTINCT advertised
+/// name, and a name-rotating advertiser makes that unbounded for the life
+/// of the process. The keepAlive link holds each entry long past any
+/// in-flight read and a scan's worth of re-asks, then lets it go.
+final bleSetupModeMatchProvider = FutureProvider.autoDispose
+    .family<BleAdoptableDevice?, String>((ref, advertisedName) async {
+  final link = ref.keepAlive();
+  final expiry = Timer(const Duration(minutes: 5), link.close);
+  ref.onDispose(expiry.cancel);
   final devices = await ref.watch(bleAdoptableDevicesProvider.future);
   if (devices.isEmpty) return null;
   final index = await ref.watch(specCodecProvider).matchBleProvisioningName(

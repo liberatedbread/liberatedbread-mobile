@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import '../core/log.dart';
+import '../models/network_device.dart';
 import 'ecp2_control_service.dart';
 import 'http_control_service.dart';
 import 'kasa_control_service.dart';
@@ -18,6 +19,18 @@ import 'tls_trust.dart';
 /// Asked per send rather than captured once — see
 /// [NetworkCommandSender.credentials] for why that matters.
 typedef CredentialReader = Future<Map<String, String>> Function();
+
+/// Builds one sender for one device — the shape the device screen's factory
+/// provider and the group runner must AGREE on. It lives here, next to the
+/// constructor it mirrors, because the group runner used to re-declare it
+/// inline and the two copies drifted: dropping an optional argument from a
+/// function type is silent, and the group's copy lost `capabilities` for a
+/// whole release of consequences (see NetworkGroupRunner's field note).
+typedef NetworkCommandSenderFactory = NetworkCommandSender Function({
+  required NetworkDevice device,
+  required String specYaml,
+  NetworkCapabilitiesDto? capabilities,
+});
 
 /// Sends spec-resolved actions to one network device, over whichever of the
 /// six transports each action declares — the send half of what
