@@ -324,14 +324,19 @@ class WsSession {
   /// before any token exists. `token=` is not "no token" to every set: some
   /// read the empty string as a key and refuse it, where an absent parameter
   /// raises the Allow prompt the first connection is for.
+  ///
+  /// "Empty" means the pair's FIRST `=` is also its last character.
+  /// Classifying by a trailing `=` alone — as this used to — deleted any
+  /// literal value that merely ENDS in one, which is every base64 payload
+  /// with padding; filled credentials only escaped because the query
+  /// encoding turns their padding into `%3D`.
   static String _dropEmptyQueryPairs(String path) {
     final question = path.indexOf('?');
     if (question < 0) return path;
-    final kept = path
-        .substring(question + 1)
-        .split('&')
-        .where((pair) => !pair.endsWith('=') || !pair.contains('='))
-        .toList();
+    final kept = path.substring(question + 1).split('&').where((pair) {
+      final equals = pair.indexOf('=');
+      return equals == -1 || equals != pair.length - 1;
+    }).toList();
     final base = path.substring(0, question);
     return kept.isEmpty ? base : '$base?${kept.join('&')}';
   }
@@ -489,7 +494,14 @@ class WsSession {
   /// use and held, because asking for a new one per button press is what the
   /// address exists to avoid.
   Future<WsSocket> _socketFor(String channelName) async {
-    final main = _socket!;
+    // Re-read across send()'s render await rather than trusting its entry
+    // guard: a hang-up lands exactly in that window, onDone's close() nulls
+    // the field, and a bare `!` here turned "the device closed the
+    // connection" into a raw null-check TypeError that no catch knows.
+    final main = _socket;
+    if (main == null) {
+      throw const WsConnectionException('The device closed the connection.');
+    }
     final channel = _surface.channels.firstWhere(
       (c) => c.name == channelName,
       // The renderer already refused an undeclared channel, so reaching here
@@ -549,28 +561,57 @@ class WsSession {
       // be THIS device, on a WebSocket scheme. The value is device-supplied:
       // taken verbatim, a compromised or spoofed set could point the app at
       // an arbitrary endpoint off the LAN and have it connect under the
-      // session's certificate posture.
+      // session's certificate posture. The host compares case-insensitively
+      // because Uri.parse lowercases it while `_host` is whatever discovery
+      // recorded ("LGwebOSTV.local"); everything else stays DELIBERATELY
+      // strict — an address on any other host, the set's own second
+      // interface included, is refused rather than followed.
       final uri = Uri.tryParse(url);
       if (uri == null ||
           (uri.scheme != 'ws' && uri.scheme != 'wss') ||
-          uri.host != _host) {
+          uri.host != _host.toLowerCase()) {
         throw WsConnectionException(
           'The device offered its "$channelName" socket at "$url" — not a '
           'WebSocket address on $_host, so it is refused.',
         );
       }
       final socket = await _connect(url, const {}).timeout(connectTimeout);
+      if (_socket == null) {
+        // close() ran while this connect was in flight. A socket cached now
+        // would repopulate the maps on a spent session and hold its TCP
+        // connection to the device for the life of the process — nothing
+        // would ever close it.
+        socket.stream.listen((_) {}, onError: (_) {}, cancelOnError: false);
+        unawaited(socket.close().then((_) {}, onError: (_) {}));
+        throw const WsConnectionException(
+            'The session closed while the socket was being opened.');
+      }
       // Drained even though nothing reads it: a socket whose stream has no
       // listener never delivers its done event, so closing it later would
       // hang, and any error it reports would go unobserved. LG's button
       // socket answers nothing useful — what matters is that it is a socket
-      // like any other.
+      // like any other. Its onDone EVICTS the cache entry: the set
+      // idle-closes this socket, and a cached corpse would be served to
+      // every later press with add() silently dropping, every button on the
+      // channel dead until the whole session died.
       _channelSubscriptions.add(socket.stream.listen(
         (_) {},
         onError: (Object e) =>
             Log.net.debug('ws $_host "$channelName" socket: $e'),
+        onDone: () {
+          if (identical(_channelSockets[channelName], socket)) {
+            _channelSockets.remove(channelName);
+          }
+        },
         cancelOnError: false,
       ));
+      // The protocol keepalive the main socket gets, for the same reason:
+      // an idle button socket a set would otherwise time out.
+      final heartbeat = _surface.heartbeatSeconds;
+      if (heartbeat != null && heartbeat > 0) {
+        socket.pingInterval =
+            Duration(milliseconds: (heartbeat * 1000).round());
+      }
       _channelSockets[channelName] = socket;
       return socket;
     } on TimeoutException {
