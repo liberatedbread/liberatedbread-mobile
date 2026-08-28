@@ -1,6 +1,5 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:async' show unawaited;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -237,7 +236,7 @@ final networkCommandSenderFactoryProvider =
     // discarded on dispose, and each screen open raised the set's Allow
     // prompt again — the parameters existed and were passed only by tests.
     final store = ref.read(deviceCredentialStoreProvider);
-    final identity = identityFor(mac: device.advertisedMac, host: device.host);
+    final identity = device.credentialIdentity;
     return NetworkCommandSender(
       host: device.host,
       // The one handle that survives a DHCP lease, for the certificate pin.
@@ -253,8 +252,11 @@ final networkCommandSenderFactoryProvider =
       kasa: ref.read(kasaControlClientProvider),
       rabbitAir: ref.read(rabbitAirControlClientProvider),
       ecp2: ref.read(ecp2ControlServiceProvider),
-      onCredentialIssued: (name, value) =>
-          unawaited(store.save(identity, name, value)),
+      // Returned, not fire-and-forgotten: the sender awaits the save before
+      // re-reading the store (so the token it just filed is findable) and
+      // logs a keystore failure instead of letting it become an unhandled
+      // zone error that also silently loses the freshly issued token.
+      onCredentialIssued: (name, value) => store.save(identity, name, value),
     );
   };
 });

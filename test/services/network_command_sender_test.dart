@@ -64,15 +64,13 @@ void main() {
     Map<String, String> storedCredentials = const {},
     WsConnect? wsConnect,
     String? wsCredential,
-    void Function(String)? onWsCredential,
-    void Function(String, String)? onCredentialIssued,
+    Future<void> Function(String, String)? onCredentialIssued,
     SpecCodec? withCodec,
   }) =>
       NetworkCommandSender(
         mqttConnect: mqttConnect,
         wsConnect: wsConnect,
         wsCredential: wsCredential,
-        onWsCredential: onWsCredential,
         onCredentialIssued: onCredentialIssued,
         host: '192.0.2.9',
         discoveredControlPort: discoveredControlPort,
@@ -555,14 +553,12 @@ void main() {
 
     NetworkCommandSender wsSender({
       String? credential = 'stored',
-      void Function(String)? onIssued,
-      void Function(String, String)? onNamedIssue,
+      Future<void> Function(String, String)? onNamedIssue,
       Map<String, String> storedCredentials = const {},
     }) =>
         sender(
           withCodec: wsCodec,
           wsCredential: credential,
-          onWsCredential: onIssued,
           onCredentialIssued: onNamedIssue,
           storedCredentials: storedCredentials,
           wsConnect: (url, headers) async {
@@ -613,7 +609,9 @@ void main() {
 
     test('a newly issued credential is handed back to be stored', () async {
       final issued = <String>[];
-      final s = wsSender(credential: null, onIssued: issued.add);
+      final s = wsSender(
+          credential: null,
+          onNamedIssue: (name, value) async => issued.add(value));
       addTearDown(s.close);
 
       await s.sendAction(
@@ -644,7 +642,7 @@ void main() {
       final named = <(String, String)>[];
       final s = wsSender(
         credential: null,
-        onNamedIssue: (name, value) => named.add((name, value)),
+        onNamedIssue: (name, value) async => named.add((name, value)),
       );
       addTearDown(s.close);
 
@@ -653,11 +651,52 @@ void main() {
       expect(named, [('samsung_token', 'issued-1')]);
     });
 
+    /// The save is AWAITED before the send returns (and before the memoized
+    /// store read resets), so the very next read cannot race a write still
+    /// in flight and memoize the pre-save map — a token "stored" but never
+    /// found, and the Allow prompt back on the next open.
+    test('the issued credential is saved before the send completes', () async {
+      var saved = false;
+      final s = wsSender(
+        credential: null,
+        onNamedIssue: (name, value) async {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          saved = true;
+        },
+      );
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+      expect(saved, isTrue,
+          reason: 'the send must not resolve ahead of the store write');
+    });
+
+    /// A locked keystore costs the NEXT open its token — never this press
+    /// its session, and never the zone its stability.
+    test('a failing save is logged, not fatal to the session', () async {
+      final s = wsSender(
+        credential: null,
+        onNamedIssue: (name, value) async => throw Exception('keystore locked'),
+      );
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+      // The session survived the failed save: the next press rides it.
+      await s
+          .sendAction(action('press', 'press_up', transport: 'websocket'), {});
+      expect(tv.urls, hasLength(1));
+      expect(tv.written, hasLength(2));
+    });
+
     /// A pairing that reissued the same key is not news, and a store write per
     /// connect is a write per screen open.
     test('an unchanged credential is not reported again', () async {
       final issued = <String>[];
-      final s = wsSender(credential: 'issued-1', onIssued: issued.add);
+      final s = wsSender(
+          credential: 'issued-1',
+          onNamedIssue: (name, value) async => issued.add(value));
       addTearDown(s.close);
 
       await s.sendAction(

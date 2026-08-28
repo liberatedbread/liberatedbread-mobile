@@ -12,6 +12,7 @@ import 'package:http/testing.dart';
 import 'package:liberated_bread_mobile/core/group_actions.dart';
 import 'package:liberated_bread_mobile/core/stop_signal.dart';
 import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
+import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/services/group_runner.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
@@ -72,10 +73,12 @@ NetworkGroupMember _member(List<NetworkEntityDto> entities,
 void main() {
   NetworkGroupRunner runner(
     FakeSpecCodec codec,
-    MockClient httpClient,
-  ) =>
+    MockClient httpClient, {
+    CredentialReader Function(NetworkDevice device)? credentialsFor,
+  }) =>
       NetworkGroupRunner(
         codec: codec,
+        credentialsFor: credentialsFor,
         soap: SoapControlClient(
             httpClient: MockClient(
                 (request) async => fail('no SOAP exchange in this test'))),
@@ -128,6 +131,39 @@ void main() {
     expect(last.status, GroupDeviceStatus.ok);
     expect(last.detail, '1 command sent');
     expect(received.single.url.path, '/fake/cmd_turn_off');
+  });
+
+  /// The store is wired whenever the spec DECLARES a credential — including
+  /// one no command consumes, like a television's pairing token, which
+  /// required_credentials now reports itself. The screen used to carry a
+  /// websocket-only carve-out this runner lacked, so a group run re-paired
+  /// (Allow prompt and all) a TV whose token was sitting in the store.
+  test('a member whose spec declares only a pairing token wires the store',
+      () async {
+    final codec = FakeSpecCodec(networkCredentials: const [
+      NetworkCredentialDto(
+        name: 'samsung_token',
+        neededBy: [],
+        mustBeAskedFor: false,
+      ),
+    ]);
+    final events = runner(
+      codec,
+      MockClient((request) async => http.Response('', 200)),
+      credentialsFor: (_) => () async => {'samsung_token': 'stored-token'},
+    ).run(
+        GroupOp.turnOff,
+        [
+          _member([_powerEntity()])
+        ],
+        stop: StopSignal());
+
+    final last = await lastEventOf(events);
+    expect(last.status, GroupDeviceStatus.ok);
+    // The stored token reached the render's value map — proof the reader was
+    // wired for a spec whose only credential is the pairing-issued one.
+    expect(codec.renderNetworkHttpCommandCalls.last.values,
+        containsPair('samsung_token', 'stored-token'));
   });
 
   test('a gated toggle sends only when the reading says on', () async {

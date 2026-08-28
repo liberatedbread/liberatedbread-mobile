@@ -608,8 +608,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// The device's own identity in the credential store — the same handle the
   /// certificate pin is keyed by, for the same reason: a DHCP lease is not a
   /// device, and a value filed under one would be lost on the next renewal.
-  String get _credentialIdentity =>
-      identityFor(mac: widget.device.advertisedMac, host: widget.device.host);
+  String get _credentialIdentity => widget.device.credentialIdentity;
 
   /// Work out what this device still needs from a person: the credentials its
   /// spec says must be asked for, minus whatever is already stored.
@@ -625,11 +624,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           .credentialsForDevice(widget.controls.specYaml);
       // A device that names none never opens the credential store. Most of
       // the catalogue is that device, and the store is the platform keychain.
-      // A WebSocket device is the exception even with no `credential:`
-      // parameters: its pairing TOKEN lives in the same store under the
-      // spec's credential_name, and without the reader the sender re-pairs —
-      // raising the television's Allow prompt — on every screen open.
-      if (declared.isEmpty && !_speaksWebsocket) {
+      // A WebSocket TV is no longer a carve-out here: required_credentials
+      // reports its pairing token itself now, which is what wires the reader
+      // for the group runner too — the screen-only exception this used to
+      // carry left group runs re-pairing (Allow prompt and all) a set the
+      // screen drove fine.
+      if (declared.isEmpty) {
         if (mounted && _missingCredentials.isNotEmpty) {
           setState(() => _missingCredentials = const []);
         }

@@ -98,22 +98,19 @@ class NetworkCommandSender {
   /// on both televisions raises a prompt the viewer must accept.
   final String? wsCredential;
 
-  /// Called with the credential a pairing issues, so the caller can store it
-  /// and skip the prompt next time. Absent means "do not persist", which is
-  /// the honest default for a sender that does not own a store.
-  final void Function(String credential)? onWsCredential;
-
   /// Called with the NAME and value of a credential the device issued at
   /// runtime — a WebSocket pairing's token today. The name is the spec's own
   /// (`websocket.pairing.credential_name`), the same key the [useCredentials]
   /// map serves it back under on the next connect, so a caller can persist it
   /// in [DeviceCredentialStore] without knowing which transport issued it.
   ///
-  /// This is the half [onWsCredential] could not carry: that callback hands
-  /// over a bare value, and a store needs to know what to file it as. The
-  /// production factory wires this; the older callback stays for callers
-  /// that hold exactly one credential by construction.
-  final void Function(String name, String value)? onCredentialIssued;
+  /// AWAITED by the sender before its memoized credential read resets, so
+  /// the very next read sees the store after the write — fired-and-forgotten,
+  /// a re-read racing the save could memoize the pre-save map and the token
+  /// would be "stored" but never found. A throw from the callback is logged
+  /// and swallowed: the session in hand is authorised either way, and only
+  /// the next open pays for the failed save.
+  final Future<void> Function(String name, String value)? onCredentialIssued;
 
   /// Opens the WebSocket. Injected so a test answers from canned frames.
   final WsConnect? _wsConnect;
@@ -169,7 +166,6 @@ class NetworkCommandSender {
     required Ecp2ControlService ecp2,
     MqttConnect? mqttConnect,
     this.wsCredential,
-    this.onWsCredential,
     this.onCredentialIssued,
     WsConnect? wsConnect,
   })  : _wsConnect = wsConnect,
@@ -633,11 +629,19 @@ class NetworkCommandSender {
     // pairing that reissued the same key is not news, and a store write per
     // connect is a write per screen open.
     final issued = session.credential;
-    if (issued != null && issued != given) {
-      onWsCredential?.call(issued);
-      if (credentialName != null) {
-        onCredentialIssued?.call(credentialName, issued);
-        // The store just changed under the memoized read.
+    if (issued != null && issued != given && credentialName != null) {
+      final persist = onCredentialIssued;
+      if (persist != null) {
+        try {
+          // Awaited so the refresh below cannot memoize a pre-save read;
+          // caught so a locked keystore costs the NEXT open its token, not
+          // this press its session (or the zone its stability).
+          await persist(credentialName, issued);
+        } catch (e) {
+          Log.net
+              .warning('storing issued "$credentialName" for $host failed: $e');
+        }
+        // The store just changed (or tried to) under the memoized read.
         refreshCredentials();
       }
     }

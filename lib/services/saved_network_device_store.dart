@@ -69,6 +69,18 @@ class SavedNetworkDevice {
   /// sat in the store.
   final Map<String, String> txt;
 
+  /// The credential-store identity the LIVE device carried when this record
+  /// was written — `mac:…` or `host:…`, exactly as [identityFor] spells it.
+  ///
+  /// Recorded because forgetting must clear what saving pinned: the forget
+  /// path used to re-derive the identity from this record's own view of the
+  /// mac, which can lag the live device's (a record saved from an SSDP-only
+  /// sighting, controlled from a mac-bearing scan) — leaving a `mac:`-keyed
+  /// pin nothing could erase. Null on records written before this field
+  /// existed; the forget path then falls back to clearing both derived
+  /// forms, as it always has.
+  final String? credentialIdentity;
+
   const SavedNetworkDevice({
     required this.id,
     required this.name,
@@ -87,6 +99,7 @@ class SavedNetworkDevice {
     this.txt = const {},
     this.category,
     this.specKey,
+    this.credentialIdentity,
   });
 
   /// The stable identity for [device] — see the class doc for the ladder.
@@ -151,6 +164,8 @@ class SavedNetworkDevice {
         if (txt.isNotEmpty) 'txt': txt,
         if (category != null) 'category': category,
         if (specKey != null) 'specKey': specKey,
+        if (credentialIdentity != null)
+          'credentialIdentity': credentialIdentity,
       };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
@@ -209,6 +224,10 @@ class SavedNetworkDevice {
       txt: txt,
       category: category is String && category.isNotEmpty ? category : null,
       specKey: specKey is String && specKey.isNotEmpty ? specKey : null,
+      credentialIdentity: json['credentialIdentity'] is String &&
+              (json['credentialIdentity'] as String).isNotEmpty
+          ? json['credentialIdentity'] as String
+          : null,
     );
   }
 

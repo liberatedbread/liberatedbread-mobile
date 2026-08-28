@@ -226,12 +226,16 @@ class _MethodSection extends StatelessWidget {
 
   /// What a `role` means to the reader. `primary` (and absent) get no label:
   /// the first card needs no qualifier, and a label saying "the normal way"
-  /// would only make people look for a catch.
+  /// would only make people look for a catch. A role this build has never
+  /// heard of shows the spec's own word — unlabeled is what primary looks
+  /// like, and a route the catalogue deliberately ranked below primary must
+  /// not dress as it.
   static String? roleLabel(String? role) => switch (role) {
+        null || 'primary' => null,
         'alternative' => 'Also works',
         'variant' => 'Depends on the hardware',
         'historical' => 'No longer current',
-        _ => null,
+        final other => other,
       };
 
   @override

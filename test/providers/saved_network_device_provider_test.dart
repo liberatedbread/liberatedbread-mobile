@@ -246,6 +246,72 @@ void main() {
     expect(await credentials.credentials(identityFor(host: host)), isEmpty);
   });
 
+  /// The record now REMEMBERS the identity its pins were written under, so
+  /// Remove clears the mac-keyed pin even when the saved record itself never
+  /// captured the mac — the direction the both-forms fallback cannot reach.
+  test('forgetting clears the pin under the identity recorded at write time',
+      () async {
+    final c = await container();
+    final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
+    final groups = c.read(deviceGroupsProvider.notifier);
+    final record = await savedNetwork.touch(_sighting(), category: 'tv');
+
+    final settings = InMemorySettingsStore();
+    final pins = CertificatePinStore(settings);
+    final credentials = DeviceCredentialStore(settings);
+    // The live sender pinned under a mac the SAVED record does not know
+    // (an SSDP-only record, a mac-bearing scan): only the recorded identity
+    // can name it at forget time.
+    const liveIdentity = 'mac:aa:bb:cc:dd:ee:ff';
+    await pins.save(liveIdentity, 'fp-live');
+    await credentials.save(liveIdentity, 'samsung_token', 't');
+
+    await forgetNetworkDevice(
+      savedDevices: savedNetwork,
+      groups: groups,
+      deviceId: record.id,
+      trust: TlsTrust(pins),
+      credentials: credentials,
+      host: record.host,
+      recordedIdentity: liveIdentity,
+    );
+
+    expect(await pins.pin(liveIdentity), isNull,
+        reason: 'the write-time identity is the one Remove must clear');
+    expect(await credentials.credentials(liveIdentity), isEmpty);
+  });
+
+  /// touch() records the sighting's own store identity, and a later thin
+  /// sighting must not downgrade a `mac:` identity to `host:` — the
+  /// mac-keyed pin would outlive the record's memory of it.
+  test('touch records the credential identity, strongest form winning',
+      () async {
+    final c = await container();
+    final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
+
+    // A mac-bearing sighting: the identity the sender pins under.
+    final rich = await savedNetwork.touch(NetworkDevice(
+      host: '192.168.1.20',
+      name: 'Living Room TV',
+      hostname: 'tv.local',
+      txt: const {'mac': 'AA:BB:CC:DD:EE:FF'},
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    ));
+    expect(rich.credentialIdentity, 'mac:aa:bb:cc:dd:ee:ff');
+
+    // A thin re-sighting: same device, no TXT (so no mac to derive).
+    final thin = await savedNetwork.touch(NetworkDevice(
+      host: '192.168.1.20',
+      name: 'Living Room TV',
+      hostname: 'tv.local',
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026, 2),
+    ));
+    expect(thin.credentialIdentity, 'mac:aa:bb:cc:dd:ee:ff',
+        reason: 'a mac: identity is never downgraded by a thin sighting');
+  });
+
   test('member id namespace round-trips and never collides with bare ids', () {
     final memberId = networkMemberId('hn:tv.local');
     expect(isNetworkMemberId(memberId), isTrue);
