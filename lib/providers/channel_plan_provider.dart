@@ -157,24 +157,24 @@ class ChannelPlansNotifier extends StateNotifier<List<ChannelPlan>> {
     await _replace(plan.copyWith(channels: channels));
   }
 
-  /// Move the channel at [oldIndex] to [newIndex].
+  /// Move the channel at [from] to sit at index [to].
   ///
-  /// Takes ReorderableListView's indices as given, including its convention
-  /// that a downward move reports a target one past where the item lands --
-  /// because the item is still in the list when the index is computed.
-  Future<void> reorder(String id, int oldIndex, int newIndex) async {
+  /// A plain move: [to] is where the channel ends up, not where the list said
+  /// to drop it. `ReorderableListView.onReorderItem` already adjusts for the
+  /// item still being in the list when the index is computed, so doing it
+  /// again here would send every downward drag one slot short.
+  Future<void> reorder(String id, int from, int to) async {
     final plan = byId(id);
     if (plan == null) return;
-    if (oldIndex < 0 || oldIndex >= plan.channels.length) return;
+    if (from < 0 || from >= plan.channels.length) return;
 
-    var target = newIndex;
-    if (target > oldIndex) target -= 1;
+    var target = to;
     if (target < 0) target = 0;
     if (target >= plan.channels.length) target = plan.channels.length - 1;
-    if (target == oldIndex) return;
+    if (target == from) return;
 
     final channels = [...plan.channels];
-    channels.insert(target, channels.removeAt(oldIndex));
+    channels.insert(target, channels.removeAt(from));
     await _replace(plan.copyWith(channels: channels));
   }
 

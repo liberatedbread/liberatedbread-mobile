@@ -199,26 +199,26 @@ void main() {
       expect(s.n.byId(s.id)!.channels, hasLength(4));
     });
 
-    test('reorders, following ReorderableListView index conventions',
+    test('reorders as a plain move, because the list already adjusted',
         () async {
-      // Dragging downward reports a target one past where the item lands,
-      // because the item is still in the list when the index is computed.
+      // `ReorderableListView.onReorderItem` hands over the index the item
+      // ends up at, having already accounted for it still being in the list
+      // when the drop index was computed. Adjusting again here would send
+      // every downward drag one slot short.
       final s = await withFour();
       await s.n.reorder(s.id, 0, 2);
       expect([for (final ch in s.n.byId(s.id)!.channels) ch.name],
-          ['CH1', 'CH0', 'CH2', 'CH3']);
+          ['CH1', 'CH2', 'CH0', 'CH3']);
 
-      // Dragging upward needs no adjustment.
       await s.n.reorder(s.id, 3, 0);
       expect([for (final ch in s.n.byId(s.id)!.channels) ch.name],
-          ['CH3', 'CH1', 'CH0', 'CH2']);
+          ['CH3', 'CH1', 'CH2', 'CH0']);
     });
 
     test('a reorder that goes nowhere changes nothing', () async {
       final s = await withFour();
       final before = s.n.byId(s.id)!.channels;
       await s.n.reorder(s.id, 1, 1);
-      await s.n.reorder(s.id, 1, 2);
       expect(s.n.byId(s.id)!.channels, before);
     });
 
@@ -227,6 +227,10 @@ void main() {
       await s.n.reorder(s.id, 0, 99);
       expect(s.n.byId(s.id)!.channels.last.name, 'CH0');
       await s.n.reorder(s.id, 3, -5);
+      expect(s.n.byId(s.id)!.channels.first.name, 'CH0');
+      // Out-of-range sources are ignored rather than clamped: there is no
+      // channel there to move.
+      await s.n.reorder(s.id, 99, 0);
       expect(s.n.byId(s.id)!.channels.first.name, 'CH0');
     });
 

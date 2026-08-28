@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 
 import 'groups_screen.dart';
+import 'radio_screen.dart';
 import 'saved_devices_screen.dart';
 import 'scan_screen.dart';
 import 'wifi_scan_screen.dart';
@@ -47,6 +48,7 @@ class _HomeShellState extends State<HomeShell> {
           const SavedDevicesScreen(),
           const GroupsScreen(),
           const WifiScanScreen(),
+          const RadioScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -72,6 +74,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.wifi_find_outlined),
             selectedIcon: Icon(Icons.wifi_find),
             label: 'Wi-Fi',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_input_antenna_outlined),
+            selectedIcon: Icon(Icons.settings_input_antenna),
+            label: 'Radio',
           ),
         ],
       ),
