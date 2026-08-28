@@ -429,6 +429,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       e.transport == roombaTransport ||
       e.actions.any((a) => a.transport == roombaTransport));
 
+  /// Whether this device's commands ride the spec-declared WebSocket surface
+  /// — a Samsung or LG set. Like [_speaksMqtt]: no description to fetch and
+  /// nothing to poll, and nothing to open either — the sender opens and
+  /// pairs the session on the first send, so a screen the user only looks at
+  /// never raises the television's Allow prompt.
+  bool get _speaksWebsocket => _entities.any((e) =>
+      e.transport == NetworkCommandSender.websocketTransport ||
+      e.actions
+          .any((a) => a.transport == NetworkCommandSender.websocketTransport));
+
   /// Whether this device is specifically a Roomba, which has a bespoke load
   /// path — credentials, an HA route, a controller holding the robot's one
   /// client slot — that no other MQTT device wants.
@@ -523,6 +533,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // send, so a screen the user only looks at never touches the broker.
         // Without this arm the else below demands a UPnP control port these
         // devices never advertise, and a working set loads as an error.
+      } else if (_speaksWebsocket) {
+        // A television driven over its WebSocket surface. Nothing to fetch
+        // (no UPnP description), nothing to poll, nothing to open here — the
+        // sender opens and pairs the session on the first send. Without this
+        // arm the else below demands a control port and, when the spec
+        // declares one as a fallback, tries to fetch /setup.xml from a set
+        // that serves no such document.
       } else if (_isRabbitAir) {
         // No description either — and the whole encrypted exchange (key,
         // clock sync, poll) is the shared panel's job. Forward the refresh;
@@ -599,13 +616,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           .credentialsForDevice(widget.controls.specYaml);
       // A device that names none never opens the credential store. Most of
       // the catalogue is that device, and the store is the platform keychain.
-      if (declared.isEmpty) {
+      // A WebSocket device is the exception even with no `credential:`
+      // parameters: its pairing TOKEN lives in the same store under the
+      // spec's credential_name, and without the reader the sender re-pairs —
+      // raising the television's Allow prompt — on every screen open.
+      if (declared.isEmpty && !_speaksWebsocket) {
         if (mounted && _missingCredentials.isNotEmpty) {
           setState(() => _missingCredentials = const []);
         }
         return;
       }
-      // This spec names some, so the sends need them: hand the sender the
+      // This spec names some (or pairs at runtime), so the sends need the
       // store. Idempotent, and it is the only route by which this screen's
       // sender ever reads one.
       final store = ref.read(deviceCredentialStoreProvider);
@@ -677,6 +698,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // this device never had, and every SUCCESSFUL command ends in an error
     // banner.
     if (_speaksMqtt) return;
+    // A WebSocket device is push-shaped the same way: state, where a spec
+    // declares any, arrives on the session's frames, and there is no request
+    // whose reply is a reading.
+    if (_speaksWebsocket) return;
     final codec = ref.read(specCodecProvider);
     final client = ref.read(soapControlClientProvider);
 

@@ -65,6 +65,7 @@ void main() {
     WsConnect? wsConnect,
     String? wsCredential,
     void Function(String)? onWsCredential,
+    void Function(String, String)? onCredentialIssued,
     SpecCodec? withCodec,
   }) =>
       NetworkCommandSender(
@@ -72,6 +73,7 @@ void main() {
         wsConnect: wsConnect,
         wsCredential: wsCredential,
         onWsCredential: onWsCredential,
+        onCredentialIssued: onCredentialIssued,
         host: '192.0.2.9',
         discoveredControlPort: discoveredControlPort,
         devicePort: devicePort,
@@ -512,11 +514,15 @@ void main() {
     NetworkCommandSender wsSender({
       String? credential = 'stored',
       void Function(String)? onIssued,
+      void Function(String, String)? onNamedIssue,
+      Map<String, String> storedCredentials = const {},
     }) =>
         sender(
           withCodec: wsCodec,
           wsCredential: credential,
           onWsCredential: onIssued,
+          onCredentialIssued: onNamedIssue,
+          storedCredentials: storedCredentials,
           wsConnect: (url, headers) async {
             tv.urls.add(url);
             scheduleMicrotask(() => tv.send('{"data":{"token":"issued-1"}}'));
@@ -571,6 +577,38 @@ void main() {
       await s.sendAction(
           action('press', 'press_power', transport: 'websocket'), {});
       expect(issued, ['issued-1']);
+    });
+
+    test("a stored credential is read from the store by the spec's name",
+        () async {
+      // No constructor value: the production factory passes none, and the
+      // token a past pairing issued lives in the ONE store map under the
+      // spec's credential_name. Before this lookup existed, a stored token
+      // was unreachable and every screen open re-raised the Allow prompt.
+      final s = wsSender(
+        credential: null,
+        storedCredentials: const {'samsung_token': 'from-store'},
+      );
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+      expect(tv.urls.single, contains('token=from-store'));
+    });
+
+    test("an issued credential is reported under the spec's name", () async {
+      // The (name, value) pair is what a store can file: the bare-value
+      // callback alone left the factory nothing to save it AS.
+      final named = <(String, String)>[];
+      final s = wsSender(
+        credential: null,
+        onNamedIssue: (name, value) => named.add((name, value)),
+      );
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+      expect(named, [('samsung_token', 'issued-1')]);
     });
 
     /// A pairing that reissued the same key is not news, and a store write per

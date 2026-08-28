@@ -3297,6 +3297,64 @@ void main() {
           findsNothing);
     });
 
+    testWidgets('a websocket TV loads without demanding a control port',
+        (tester) async {
+      // Samsung-shaped: every action rides the spec's websocket surface. The
+      // load path used to fall through to the SOAP else, demand a UPnP
+      // control port, and try to fetch /setup.xml from a set that serves no
+      // such document — the sender opens and pairs the session on the first
+      // send, so loading has nothing to do at all.
+      const wsEntities = [
+        NetworkEntityDto(
+          isInstanced: false,
+          name: 'Power',
+          platform: 'button',
+          stateCommand: '',
+          options: [],
+          actions: [
+            NetworkActionDto(
+              credentials: [],
+              instanceParams: [],
+              role: 'press',
+              transport: 'websocket',
+              commandName: 'press_power',
+              userParams: [],
+              readBack: [],
+            ),
+          ],
+        ),
+      ];
+      final television = NetworkDevice(
+        host: '10.0.0.9',
+        name: 'Samsung TV',
+        sources: const {NetworkDiscoverySource.ssdp},
+        discoveredAt: DateTime.utc(2026),
+      );
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+        ],
+        child: MaterialApp(
+          home: NetworkDeviceScreen(
+            device: television,
+            controls: const NetworkControls(
+              specYaml: 'yaml',
+              entities: wsEntities,
+              capabilities: NetworkCapabilitiesDto(
+                  tlsSelfSigned: true, advertisedPortUnreliable: false),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Power'), findsOneWidget);
+      expect(find.textContaining('did not advertise a control port'),
+          findsNothing);
+    });
+
     /// The half the load test could not see. Loading cleanly proved the screen
     /// did not open a robot session; it said nothing about where a PRESS goes,
     /// and the press was the broken half — `_send` forked on the transport

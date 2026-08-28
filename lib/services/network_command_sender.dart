@@ -90,6 +90,18 @@ class NetworkCommandSender {
   /// the honest default for a sender that does not own a store.
   final void Function(String credential)? onWsCredential;
 
+  /// Called with the NAME and value of a credential the device issued at
+  /// runtime — a WebSocket pairing's token today. The name is the spec's own
+  /// (`websocket.pairing.credential_name`), the same key the [useCredentials]
+  /// map serves it back under on the next connect, so a caller can persist it
+  /// in [DeviceCredentialStore] without knowing which transport issued it.
+  ///
+  /// This is the half [onWsCredential] could not carry: that callback hands
+  /// over a bare value, and a store needs to know what to file it as. The
+  /// production factory wires this; the older callback stays for callers
+  /// that hold exactly one credential by construction.
+  final void Function(String name, String value)? onCredentialIssued;
+
   /// Opens the WebSocket. Injected so a test answers from canned frames.
   final WsConnect? _wsConnect;
 
@@ -145,6 +157,7 @@ class NetworkCommandSender {
     MqttConnect? mqttConnect,
     this.wsCredential,
     this.onWsCredential,
+    this.onCredentialIssued,
     WsConnect? wsConnect,
   })  : _wsConnect = wsConnect,
         _mqttConnect = mqttConnect,
@@ -548,12 +561,25 @@ class NetworkCommandSender {
     _ws = null;
     await (stale?.dispose() ?? Future<void>.value());
 
+    // The pairing credential rides the same store map every other credential
+    // does, under the spec's own name (`samsung_token`, `webos_client_key`).
+    // The constructor value wins when a caller pinned one — tests, mostly —
+    // and a device with no reader wired simply pairs afresh, exactly as an
+    // unpaired one would. Before this lookup the production factory passed
+    // nothing at all, so every screen open re-ran pairing and raised the
+    // television's Allow prompt again.
+    final credentialName = surface.credentialName;
+    var given = wsCredential;
+    if (given == null && credentialName != null) {
+      given = (await _storedCredentials())[credentialName];
+    }
+
     final session = WsSession(
       codec: _codec,
       specYaml: specYaml,
       host: host,
       surface: surface,
-      credential: wsCredential,
+      credential: given,
       connect: _wsConnect,
     );
     await session.open();
@@ -565,8 +591,13 @@ class NetworkCommandSender {
     // pairing that reissued the same key is not news, and a store write per
     // connect is a write per screen open.
     final issued = session.credential;
-    if (issued != null && issued != wsCredential) {
+    if (issued != null && issued != given) {
       onWsCredential?.call(issued);
+      if (credentialName != null) {
+        onCredentialIssued?.call(credentialName, issued);
+        // The store just changed under the memoized read.
+        refreshCredentials();
+      }
     }
     return _ws = session;
   }

@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -229,23 +231,34 @@ final networkCommandSenderFactoryProvider =
     required NetworkDevice device,
     required String specYaml,
     NetworkCapabilitiesDto? capabilities,
-  }) =>
-      NetworkCommandSender(
-        host: device.host,
-        // The one handle that survives a DHCP lease, for the certificate pin.
-        deviceMac: device.advertisedMac,
-        discoveredControlPort: device.controlPort,
-        devicePort: device.port,
-        ssdpTargets: device.ssdpTargets,
-        specYaml: specYaml,
-        capabilities: capabilities,
-        codec: ref.read(specCodecProvider),
-        http: ref.read(httpControlClientProvider),
-        soap: ref.read(soapControlClientProvider),
-        kasa: ref.read(kasaControlClientProvider),
-        rabbitAir: ref.read(rabbitAirControlClientProvider),
-        ecp2: ref.read(ecp2ControlServiceProvider),
-      );
+  }) {
+    // What a pairing issues at runtime is persisted HERE, in the factory,
+    // because the sender is the only thing that knows the credential's
+    // spec-given name and the store is the only thing that survives the
+    // screen. Without this wiring every value a television issued was
+    // discarded on dispose, and each screen open raised the set's Allow
+    // prompt again — the parameters existed and were passed only by tests.
+    final store = ref.read(deviceCredentialStoreProvider);
+    final identity = identityFor(mac: device.advertisedMac, host: device.host);
+    return NetworkCommandSender(
+      host: device.host,
+      // The one handle that survives a DHCP lease, for the certificate pin.
+      deviceMac: device.advertisedMac,
+      discoveredControlPort: device.controlPort,
+      devicePort: device.port,
+      ssdpTargets: device.ssdpTargets,
+      specYaml: specYaml,
+      capabilities: capabilities,
+      codec: ref.read(specCodecProvider),
+      http: ref.read(httpControlClientProvider),
+      soap: ref.read(soapControlClientProvider),
+      kasa: ref.read(kasaControlClientProvider),
+      rabbitAir: ref.read(rabbitAirControlClientProvider),
+      ecp2: ref.read(ecp2ControlServiceProvider),
+      onCredentialIssued: (name, value) =>
+          unawaited(store.save(identity, name, value)),
+    );
+  };
 });
 
 /// Identity of one network device the control layer is asked about.
