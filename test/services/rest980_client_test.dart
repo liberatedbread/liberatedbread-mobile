@@ -90,6 +90,30 @@ void main() {
       expect(viaRest['state.reported.bin.full'], '0');
     });
 
+    test('a reply that is not a state object is refused, not spliced',
+        () async {
+      // The body used to be interpolated raw into {"state":{"reported":BODY}}
+      // — a proxy's error page of `null},"x":{` built a valid document with
+      // injected siblings. Parsed first, such a reply fails by name.
+      final client = Rest980Client(
+        codec: codec,
+        client: MockClient((_) async => http.Response('null},"x":{', 200)),
+      );
+      await expectLater(
+        client.state('http://pi.local:3000'),
+        throwsA(isA<Rest980Exception>()),
+      );
+
+      final nonObject = Rest980Client(
+        codec: codec,
+        client: MockClient((_) async => http.Response('"just a string"', 200)),
+      );
+      await expectLater(
+        nonObject.state('http://pi.local:3000'),
+        throwsA(isA<Rest980Exception>()),
+      );
+    });
+
     test('normalizes the address people actually type', () {
       expect(Rest980Client.normalizeBaseUrl('pi.local:3000'),
           'http://pi.local:3000');

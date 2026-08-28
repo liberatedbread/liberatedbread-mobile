@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -107,7 +108,28 @@ class Rest980Client {
     // publishes it wrapped in {"state":{"reported":{...}}}. Re-wrapping here
     // rather than teaching the codec two shapes keeps one decoder and one set
     // of entity paths — the whole reason both transports share a screen.
-    final wrapped = '{"state":{"reported":${response.body}}}';
+    //
+    // Parsed FIRST, never interpolated raw: the body is a server's answer,
+    // and splicing it into a template means a reply of `null},"x":{` (a
+    // proxy's error page, a truncation, a hostile LAN peer) builds a valid
+    // document with injected siblings — the same defect class the Rust
+    // renderers escape at their boundary. jsonEncode of the parsed object
+    // cannot change the tree's meaning.
+    final Object? reported;
+    try {
+      reported = jsonDecode(response.body);
+    } on FormatException {
+      throw const Rest980Exception(
+          'The server did not answer robot state with JSON.');
+    }
+    if (reported is! Map<String, dynamic>) {
+      throw const Rest980Exception(
+          'The server answered robot state with something other than a '
+          'state document.');
+    }
+    final wrapped = jsonEncode({
+      'state': {'reported': reported}
+    });
     return _codec.roombaStateFields(payload: wrapped);
   }
 

@@ -153,7 +153,14 @@ fn placeholder(value: &str) -> Option<&str> {
 
 /// Coerce a substituted string to the JSON type its parameter declares. An
 /// undeclared type is a string, which is the YAML default reading.
-fn typed_json(
+///
+/// `pub(crate)` because the Kasa/Rabbit Air substitution needs the same
+/// answer for the same reason: a placeholder in NUMERIC position takes its
+/// value verbatim, and "verbatim" is an injection when the value is
+/// device-supplied or user-typed. Validating against the declared type is
+/// how a `1},"system":{"reboot":{}` dies as ParameterInvalid instead of
+/// rendering as valid JSON with an extra command in it.
+pub(crate) fn typed_json(
     parameter: Option<&SpecCommandParameter>,
     name: &str,
     raw: &str,

@@ -138,17 +138,18 @@ pub fn render_state_request(
 /// visible failure. No Phase-1 command carries a placeholder; the machinery
 /// is here for the per-outlet `child_id` a power strip will thread through.
 ///
-/// Values are JSON-escaped on the way in, and that matters because the ones
-/// that fill these placeholders are not the author's: a strip's `child_id`
-/// is whatever the device's own `get_sysinfo` reply said. A reply carrying a
-/// quote or a backslash — corrupt, truncated mid-string, or hostile on a
-/// LAN where the plug is not the only thing answering — would otherwise
-/// close the string it landed in and turn the rest of the template into
-/// syntax. The plug would refuse the malformed document, so the visible
-/// failure is a control that stops working, but the shape of the bug is
-/// injection and it is fixed the way injection is fixed: escape at the
-/// boundary. Placeholders in numeric position (`"brightness":{brightness}`)
-/// are unaffected — escaping only touches characters no number contains.
+/// Values are substituted by their DECLARED type, and that matters because
+/// the ones that fill these placeholders are not the author's: a strip's
+/// `child_id` is whatever the device's own `get_sysinfo` reply said, and a
+/// brightness may be a stored credential or a user-typed string. A string
+/// parameter is JSON-escaped — a reply carrying a quote or backslash would
+/// otherwise close the string it landed in and turn the rest of the
+/// template into syntax. A numeric or boolean parameter is VALIDATED
+/// against its declared type (the HTTP renderer's own `typed_json`), which
+/// is the half escaping could not cover: `"brightness":{brightness}` filled
+/// with `1},"system":{"reboot":{}` contains none of the characters
+/// `json_escape` touches and used to render as a perfectly valid document
+/// carrying an injected command. It now dies as ParameterInvalid, by name.
 ///
 /// `pub(crate)` because Rabbit Air's envelope bodies carry the same `{name}`
 /// placeholders with the same semantics — one substitution rule, one home.
@@ -159,11 +160,17 @@ pub(crate) fn substitute(
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
     let mut out = template.to_string();
-    for name in command.parameters.keys() {
+    for (name, parameter) in &command.parameters {
         let placeholder = format!("{{{name}}}");
         if out.contains(&placeholder) {
             let value = resolve_param(command, command_name, name, values)?;
-            out = out.replace(&placeholder, &json_escape(&value));
+            let rendered = match parameter.value_type.as_deref() {
+                Some("integer") | Some("number") | Some("boolean") => {
+                    crate::protocol::http::typed_json(Some(parameter), name, &value)?.to_string()
+                }
+                _ => json_escape(&value),
+            };
+            out = out.replace(&placeholder, &rendered);
         }
     }
     Ok(out)
@@ -389,13 +396,31 @@ entities:
     /// only characters no number contains, so the brightness body renders as
     /// it always did.
     #[test]
-    fn a_numeric_placeholder_is_untouched_by_escaping() {
+    fn a_numeric_placeholder_renders_as_its_declared_type() {
         let request = render_request(&spec(), "set_brightness", &values(&[("brightness", "50")]))
             .expect("renders");
         assert!(
             request.json.contains(r#""brightness":50"#),
             "{}",
             request.json
+        );
+    }
+
+    #[test]
+    fn a_numeric_placeholder_refuses_a_value_that_is_not_a_number() {
+        // `json_escape` touches none of `{ } , :` — this value used to render
+        // as a perfectly valid document with an injected `system.reboot`
+        // beside the brightness. The declared type is the guard: not an
+        // integer, not sent, named in the error.
+        let err = render_request(
+            &spec(),
+            "set_brightness",
+            &values(&[("brightness", r#"1},"system":{"reboot":{}"#)]),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::ParameterInvalid { name, .. } if name == "brightness"),
+            "unexpected error: {err}"
         );
     }
 
