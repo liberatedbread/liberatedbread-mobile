@@ -17,6 +17,7 @@ import '../providers/roomba_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/http_control_service.dart';
 import '../services/json_fields.dart';
+import '../services/mqtt_session.dart' show MqttMessage;
 import '../services/kasa_control_service.dart';
 import '../services/network_command_sender.dart';
 import '../services/query_source_reader.dart';
@@ -148,6 +149,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// successful load, only for devices that actually expose state. [_polling]
   /// guards against a slow tick stacking on the one before it.
   Timer? _statePoll;
+
+  /// The pushed-state stream of a non-Roomba MQTT device, held so dispose
+  /// stops listening when the screen goes.
+  StreamSubscription<MqttMessage>? _mqttStateSub;
   bool _polling = false;
 
   /// Bumped on every write to [_keyboardFocused]. A poll captures it before its
@@ -221,6 +226,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     _keyboardPoll?.cancel();
     _statePoll?.cancel();
     unawaited(_keyboardSub?.cancel());
+    unawaited(_mqttStateSub?.cancel());
     unawaited(_sender.close());
     // Letting go is part of the Roomba protocol, not tidiness: the slot stays
     // occupied until this happens, and the owner's app stays locked out.
@@ -528,11 +534,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         await _refreshState();
       } else if (_speaksMqtt) {
         // Any other device that pushes over MQTT — a Hisense set, a Dyson
-        // purifier. Nothing to fetch and nothing to poll, and unlike a robot
-        // nothing to open either: the sender opens the session on the first
-        // send, so a screen the user only looks at never touches the broker.
-        // Without this arm the else below demands a UPnP control port these
-        // devices never advertise, and a working set loads as an error.
+        // purifier. Nothing to fetch and nothing to poll — but the pushed
+        // readings only exist if someone SUBSCRIBES, so that is what loading
+        // means here. Refused quietly when the device is unpaired: the
+        // credentials card is the ask, and a screen the user only looks at
+        // must not become an error page over a reading. Without this arm the
+        // else below demands a UPnP control port these devices never
+        // advertise, and a working set loads as an error.
+        await _subscribeMqttState();
       } else if (_speaksWebsocket) {
         // A television driven over its WebSocket surface. Nothing to fetch
         // (no UPnP description), nothing to poll, nothing to open here — the
@@ -692,11 +701,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       return;
     }
     // An MQTT device PUSHES. There is no request whose reply is the battery
-    // level, so there is nothing to poll and nothing to do here — the state
-    // stream fills the cards. Without this branch the spec's state topic
-    // falls through to the SOAP path below, which dereferences a description
-    // this device never had, and every SUCCESSFUL command ends in an error
-    // banner.
+    // level, so there is nothing to poll here — [_subscribeMqttState]'s
+    // stream fills the cards once the device is paired, and until then the
+    // readings are honestly unknown. Without this branch the spec's state
+    // topic falls through to the SOAP path below, which dereferences a
+    // description this device never had, and every SUCCESSFUL command ends
+    // in an error banner.
     if (_speaksMqtt) return;
     // A WebSocket device is push-shaped the same way: state, where a spec
     // declares any, arrives on the session's frames, and there is no request
@@ -1005,6 +1015,44 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// Decode every entity from whatever `_stateByCommand` currently holds — the
   /// step shared by both transports' state refresh, so a reading means the
   /// same thing whichever socket carried it.
+  /// The pushed readings a non-Roomba MQTT device serves, routed into the
+  /// shared decode. Subscribes to every distinct state topic the entities
+  /// bind — `stateCommand` IS the topic for an MQTT binding — through the
+  /// sender's session, so state and sends share one broker connection and
+  /// one client identity.
+  Future<void> _subscribeMqttState() async {
+    final topics = <String>{
+      for (final entity in _entities)
+        if (!entity.isInstanced &&
+            entity.stateCommand.isNotEmpty &&
+            entity.transport == roombaTransport)
+          entity.stateCommand,
+    };
+    if (topics.isEmpty) return;
+    // Any MQTT action carries the session's credential mapping; without one
+    // there is no way to know what identity the broker wants.
+    final action = _entities
+        .expand((e) => e.actions)
+        .where((a) => a.transport == roombaTransport)
+        .firstOrNull;
+    if (action == null) return;
+    try {
+      final stream = await _sender.subscribeMqttState(action, topics.toList());
+      await _mqttStateSub?.cancel();
+      _mqttStateSub = stream.listen((message) {
+        if (!topics.contains(message.topic) || !mounted) return;
+        _stateByCommand[message.topic] = httpStateFields(message.payload);
+        unawaited(_decodeEntities());
+      }, onError: (Object e) {
+        Log.net.debug('mqtt state stream on ${widget.device.host}: $e');
+      });
+    } on Exception catch (e) {
+      // Unpaired (no client id yet) or unreachable. The credentials card is
+      // the ask; the readings stay honestly unknown until it is answered.
+      Log.net.debug('mqtt state unavailable on ${widget.device.host}: $e');
+    }
+  }
+
   Future<void> _decodeEntities() async {
     await _refineSurface();
     final codec = ref.read(specCodecProvider);

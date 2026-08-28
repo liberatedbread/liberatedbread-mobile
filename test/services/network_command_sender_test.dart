@@ -433,6 +433,26 @@ void main() {
       expect(broker.connects, 1);
     });
 
+    test('subscribing to state topics rides the one session', () async {
+      final s = mqttSender();
+      addTearDown(s.close);
+
+      const topic = '/remoteapp/mobile/broadcast/ui_service/state';
+      final stream = await s.subscribeMqttState(
+          action('press', 'press_power', transport: 'mqtt'), const [topic]);
+
+      // The SUBSCRIBE reached the broker on the SAME session a send would
+      // use — one connection, one client identity for state and commands.
+      expect(broker.connects, 1);
+      expect(
+        broker.written.last,
+        await mqttCodec.mqttSubscribePacket(topic: topic, packetId: 1),
+      );
+      await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});
+      expect(broker.connects, 1, reason: 'the send reuses the session');
+      expect(stream, isA<Stream<MqttMessage>>());
+    });
+
     /// Every topic is addressed to the client id, so an unpaired device has no
     /// useful session. Refused by name rather than connecting under a
     /// generated id, which would be silently unauthorised on a set that pairs.

@@ -450,6 +450,28 @@ class NetworkCommandSender {
     await session.publish(request.topic, request.payload);
   }
 
+  /// Open (or reuse) the device's MQTT session, subscribe to [topics], and
+  /// hand back the session's message stream for the caller to read state
+  /// from.
+  ///
+  /// The other half of admitting `state_topic` entities to the network
+  /// surface: the binding resolved, the cards drew — and nothing ever
+  /// subscribed, so a Hisense set's power state and a Dyson's sensors
+  /// rendered permanently unknown while a comment upstairs claimed a stream
+  /// was filling them. [action] can be ANY of the device's MQTT actions: it
+  /// carries the credential mapping the session's login rides, exactly as a
+  /// send's does.
+  Future<Stream<MqttMessage>> subscribeMqttState(
+    NetworkActionDto action,
+    List<String> topics,
+  ) async {
+    final session = await _openMqtt(action, const {});
+    for (final topic in topics) {
+      await session.subscribe(topic);
+    }
+    return session.messages;
+  }
+
   /// The MQTT session, opened once and reused.
   ///
   /// Unlike the ECP2 session there is no fallback path: a device whose control
