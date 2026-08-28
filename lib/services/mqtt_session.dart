@@ -142,7 +142,15 @@ Future<MqttSocket> plainConnect(String host, int port, Duration timeout) async {
 /// Adapts a `dart:io` socket to the narrow [MqttSocket] surface.
 class SocketAdapter implements MqttSocket {
   final Socket _socket;
-  SocketAdapter(this._socket);
+
+  /// How long [close] will wait for the flush before destroying anyway.
+  /// Overridable so a test of the deadline does not take two seconds.
+  final Duration flushDeadline;
+
+  SocketAdapter(
+    this._socket, {
+    this.flushDeadline = const Duration(seconds: 2),
+  });
 
   @override
   Stream<Uint8List> get incoming => _socket;
@@ -158,9 +166,17 @@ class SocketAdapter implements MqttSocket {
       // broker that serves one local client at a time, the difference
       // between releasing the slot now and holding it until keepalive
       // expiry locks the owner's own app out.
-      await _socket.flush();
+      //
+      // Bounded, because a wedged peer advertising a zero receive window
+      // never drains the flush: unbounded, this await sat on connect()'s
+      // ack-timeout path (swallowing the exception the caller was owed),
+      // on _connectMqtt's stale-session dispose, and on the group runner's
+      // finally — a hang in a tidy-up, everywhere the tidy-up runs. The
+      // DISCONNECT is best-effort by its own doc; two seconds is more
+      // courtesy than a wedged broker has earned.
+      await _socket.flush().timeout(flushDeadline);
     } catch (_) {
-      // Already gone; nothing to flush.
+      // Already gone, or not draining; either way we are done waiting.
     }
     _socket.destroy();
   }
@@ -251,6 +267,7 @@ class MqttSession {
 
     final socket = await _connect(host, port, connectTimeout);
     _socket = socket;
+    _failed = false;
     _connected = Completer<void>();
 
     Log.hub.debug('$_label: connected to $host:$port, sending CONNECT');
@@ -391,7 +408,24 @@ class MqttSession {
     }
   }
 
+  /// One failure has been reported for the current socket. Everything after
+  /// the first is aftermath — queued chunks draining, the close racing the
+  /// stream's own onDone — and a screen that shows one banner per aftermath
+  /// event is a screen nobody reads. Reset by the next [connect].
+  bool _failed = false;
+
   void _fail(Object error) {
+    if (_failed) return;
+    _failed = true;
+    // Tear down FIRST: the session is spent the moment anything fails — a
+    // hang-up, lost framing, a refused CONNACK, the receive bound. close()
+    // nulls the socket synchronously, so isConnected is already false for
+    // whoever reacts to the error and the next send REOPENS instead of
+    // publishing into a corpse; it also cancels the keepalive and the
+    // subscription, so a dead broker stops being pinged and a flooding one
+    // stops being read. The WebSocket sibling learned this in its onDone;
+    // this session had kept the dead socket cached for the screen's life.
+    unawaited(close());
     final pending = _connected;
     if (pending != null && !pending.isCompleted) {
       pending.completeError(error);
