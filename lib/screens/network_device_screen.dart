@@ -657,9 +657,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// state poll that failed on it can succeed, and the card that asked for it
   /// can leave.
   Future<void> _saveCredential(String name, String value) async {
+    // A failed write (a locked keystore) propagates: the credentials card
+    // catches it and tells the person, which nothing here used to.
     await ref
         .read(deviceCredentialStoreProvider)
         .save(_credentialIdentity, name, value);
+    // The screen can be gone by the time the keychain answers, and the
+    // refresh below reads providers through a ref that death disposed.
+    if (!mounted) return;
     // The sender holds what it read; this is the moment that changed.
     _sender.refreshCredentials();
     await _refreshMissingCredentials();

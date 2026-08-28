@@ -335,8 +335,14 @@ class Log {
   /// unrelated chatter of nine other categories. Passing `null` clears the
   /// override and returns the category to [minLevel].
   ///
-  /// The release floor still applies — this can raise a category above it and
-  /// cannot lower one below it.
+  /// The release floor does NOT apply to these: the override is set by a
+  /// person, on the diagnostics screen, for one named category, and lives
+  /// only until the process ends — that is consent to capture, not verbose
+  /// logging shipping silently, which is what the floor exists to stop. It
+  /// used to be clamped anyway, which made the screen's promise ("record its
+  /// finest detail, whatever the level above says") a silent no-op in the
+  /// one build the feature exists for: a field session on a release install,
+  /// where the chip rendered selected and nothing was recorded.
   static void setCategoryLevel(Logger logger, LogLevel? level) {
     if (level == null) {
       _categoryLevels.remove(logger.category);
@@ -350,10 +356,22 @@ class Log {
       _categoryLevels[logger.category];
 
   /// The threshold a call in [category] is actually filtered against.
-  static LogLevel effectiveLevelFor(String category) => clampToReleaseFloor(
-        _categoryLevels[category] ?? minLevel,
-        releaseMode: kReleaseMode,
-      );
+  static LogLevel effectiveLevelFor(String category) =>
+      effectiveLevelIn(category, releaseMode: kReleaseMode);
+
+  /// The threshold rule as a pure function, testable for the release case
+  /// the same way [clampToReleaseFloor] is. An explicit category override is
+  /// honoured as set — see [setCategoryLevel] for why the floor does not
+  /// apply to it; the global [minLevel] is still floored.
+  @visibleForTesting
+  static LogLevel effectiveLevelIn(
+    String category, {
+    required bool releaseMode,
+  }) {
+    final override = _categoryLevels[category];
+    if (override != null) return override;
+    return clampToReleaseFloor(minLevel, releaseMode: releaseMode);
+  }
 
   /// The last few hundred records, for the in-app diagnostics view and the
   /// text a bug report carries. Null disables recording entirely.

@@ -116,10 +116,10 @@ Future<void> forgetNetworkDevice({
   required SavedNetworkDevicesNotifier savedDevices,
   required DeviceGroupsNotifier groups,
   required String deviceId,
-  TlsTrust? trust,
-  DeviceCredentialStore? credentials,
+  required TlsTrust trust,
+  required DeviceCredentialStore credentials,
   String? deviceMac,
-  String? host,
+  required String host,
 }) async {
   await groups.pruneDevice(networkMemberId(deviceId));
   await savedDevices.remove(deviceId);
@@ -132,15 +132,29 @@ Future<void> forgetNetworkDevice({
   // actually be one. Without this, a user who factory-resets an Envoy has a
   // device that refuses every connection with a generic "did not accept that",
   // no re-pair anywhere, and nothing short of wiping app data to fix it.
-  if (trust != null) {
-    await trust.forget(identityFor(mac: deviceMac, host: host), host: host);
-  }
-  // And whatever the device's spec said it needed — a printer's serial, a
-  // set's client id. Same reasoning, one layer up: forgetting a device has to
-  // mean forgetting it, or re-adding one leaves it half-remembered under
-  // secrets the person can no longer see to correct.
-  if (credentials != null) {
-    await credentials.forget(identityFor(mac: deviceMac, host: host));
+  //
+  // The stores are REQUIRED, and both identity forms are cleared. Required,
+  // because an optional store made "forget" quietly forget nothing — the
+  // very hole this exists to close. Both forms, because the pin was WRITTEN
+  // under the LIVE device's identity (mac when the scan had captured one,
+  // host when it had not) while this caller derives its identity from the
+  // SAVED record, whose view of the mac can lag — a record saved before TXT
+  // capture, an SSDP-only source. Forgetting is idempotent and this is the
+  // recovery path the user reached by pressing Remove: over-forgetting costs
+  // at most the re-pair they were asking for, while under-forgetting leaves
+  // a pin nothing can erase.
+  final identities = <String>{
+    identityFor(mac: deviceMac, host: host),
+    identityFor(host: host),
+  };
+  for (final identity in identities) {
+    await trust.forget(identity, host: host);
+    // And whatever the device's spec said it needed — a printer's serial, a
+    // set's client id, a television's pairing token. Same reasoning, one
+    // layer up: forgetting a device has to mean forgetting it, or re-adding
+    // one leaves it half-remembered under secrets the person can no longer
+    // see to correct.
+    await credentials.forget(identity);
   }
 }
 

@@ -112,58 +112,101 @@ class _CredentialRow extends StatelessWidget {
   }
 
   Future<void> _prompt(BuildContext context) async {
-    final controller = TextEditingController();
+    // Captured BEFORE the awaits: the card can be gone by the time the save
+    // fails, and the messenger outlives it.
+    final messenger = ScaffoldMessenger.of(context);
     final entered = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(credential.name),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (credential.description?.isNotEmpty ?? false) ...[
-              Text(credential.description!.trim()),
-              const SizedBox(height: 12),
-            ],
-            TextField(
-              controller: controller,
-              autofocus: true,
-              autocorrect: false,
-              decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (value) {
-                final trimmed = value.trim();
-                if (trimmed.isNotEmpty) Navigator.of(context).pop(trimmed);
-              },
-            ),
+      builder: (_) => _CredentialDialog(credential: credential),
+    );
+    if (entered == null) return;
+    try {
+      await onSave(entered);
+    } catch (e) {
+      // A locked keystore — the platform keychain refusing while the device
+      // is locked — used to escape this chain as an unhandled async error:
+      // the card still said the value was missing and nothing told the
+      // person why. The value they typed is not echoed back; it may be a
+      // secret.
+      messenger.showSnackBar(SnackBar(
+        content: Text('Could not store ${credential.name} — $e'),
+      ));
+    }
+  }
+}
+
+/// The entry dialog, stateful so it OWNS its controller: the State outlives
+/// the pop animation, so by the time the framework calls dispose the caret
+/// frame a focused field schedules has already run — which is the sequencing
+/// the old "deliberately not disposed" comment was hand-rolling, minus the
+/// ChangeNotifier leaked per prompt.
+class _CredentialDialog extends StatefulWidget {
+  final NetworkCredentialDto credential;
+  const _CredentialDialog({required this.credential});
+
+  @override
+  State<_CredentialDialog> createState() => _CredentialDialogState();
+}
+
+class _CredentialDialogState extends State<_CredentialDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final credential = widget.credential;
+    return AlertDialog(
+      title: Text(credential.name),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (credential.description?.isNotEmpty ?? false) ...[
+            Text(credential.description!.trim()),
+            const SizedBox(height: 12),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final value = controller.text.trim();
-              // An empty value is not a credential: stored, it would render a
-              // path with a blank segment and reach the device as a request
-              // for somebody else's resource. Refused by doing nothing, the
-              // way the field being untouched does.
-              if (value.isEmpty) return;
-              Navigator.of(context).pop(value);
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            autocorrect: false,
+            // What lands here is a serial, a client id, a token: the
+            // keyboard's suggestion model must not learn it and offer it
+            // back in other apps' text fields.
+            enableSuggestions: false,
+            decoration: const InputDecoration(
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (value) {
+              final trimmed = value.trim();
+              if (trimmed.isNotEmpty) Navigator.of(context).pop(trimmed);
             },
-            child: const Text('Save'),
           ),
         ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final value = _controller.text.trim();
+            // An empty value is not a credential: stored, it would render a
+            // path with a blank segment and reach the device as a request
+            // for somebody else's resource. Refused by doing nothing, the
+            // way the field being untouched does.
+            if (value.isEmpty) return;
+            Navigator.of(context).pop(value);
+          },
+          child: const Text('Save'),
+        ),
+      ],
     );
-    // Deliberately not disposed: the pop animation still builds the TextField
-    // for a few frames, and a focused field schedules a caret frame that would
-    // touch a disposed controller. Dialog-scoped, collected with the tree.
-    if (entered == null) return;
-    await onSave(entered);
   }
 }
