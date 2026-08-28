@@ -195,8 +195,10 @@ Stream<Uint8List> _socketReplies(
   RawDatagramSocket? socket;
   StreamSubscription<RawSocketEvent>? subscription;
   Timer? window;
+  var cancelled = false;
 
   Future<void> close() async {
+    cancelled = true;
     window?.cancel();
     await subscription?.cancel();
     socket?.close();
@@ -211,17 +213,36 @@ Stream<Uint8List> _socketReplies(
         await controller.close();
         return;
       }
-      subscription = socket!.listen((event) {
-        if (event != RawSocketEvent.read) return;
-        final received = socket!.receive();
-        if (received == null || received.address.address != host) return;
-        controller.add(Uint8List.fromList(received.data));
-      });
-      socket!.send(datagram, InternetAddress(host), port);
-      window = Timer(timeout, () async {
+      // The listener may have cancelled while the bind was in flight, in
+      // which case onCancel's close ran against a null socket and this one
+      // belongs to nobody — an open UDP socket holding the radio awake for
+      // the life of the process.
+      if (cancelled) {
+        socket?.close();
+        return;
+      }
+      try {
+        subscription = socket!.listen((event) {
+          if (event != RawSocketEvent.read) return;
+          final received = socket!.receive();
+          if (received == null || received.address.address != host) return;
+          controller.add(Uint8List.fromList(received.data));
+        });
+        socket!.send(datagram, InternetAddress(host), port);
+        window = Timer(timeout, () async {
+          await close();
+          await controller.close();
+        });
+      } catch (e, st) {
+        // InternetAddress() on a hostname, send() on a downed interface:
+        // either used to escape this async callback as an unhandled zone
+        // error, with the window Timer never created — so the stream neither
+        // erred nor closed, and the `await for` upstairs waited forever on a
+        // reply that structurally could not arrive.
+        if (!controller.isClosed) controller.addError(e, st);
         await close();
-        await controller.close();
-      });
+        if (!controller.isClosed) await controller.close();
+      }
     },
     onCancel: close,
   );

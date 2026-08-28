@@ -235,4 +235,21 @@ void main() {
       expect(rabbitAirReplyId('not json'), isNull);
     });
   });
+
+  test('a hostname instead of an address fails the exchange, never hangs',
+      () async {
+    // Exercises the REAL default reply stream: InternetAddress() on a
+    // hostname throws INSIDE its async onListen, and that error used to
+    // escape as an unhandled zone error — the timeout window Timer was never
+    // created, so the await-for upstairs waited forever on a stream that
+    // would neither err nor close. The outer .timeout is the hang detector.
+    final c = RabbitAirControlClient(codec, random: Random(7));
+    final rendered = await request(c);
+    await expectLater(
+      c
+          .send('rabbitair.invalid.hostname', 1447, rendered, userKey: key)
+          .timeout(const Duration(seconds: 8)),
+      throwsA(isNot(isA<TimeoutException>())),
+    );
+  });
 }
