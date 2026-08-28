@@ -329,6 +329,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<SetupMethodDto> dco_decode_list_setup_method_dto(dynamic raw);
 
   @protected
+  List<SetupStageDto> dco_decode_list_setup_stage_dto(dynamic raw);
+
+  @protected
   List<SetupStepDto> dco_decode_list_setup_step_dto(dynamic raw);
 
   @protected
@@ -569,6 +572,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SetupMethodDto dco_decode_setup_method_dto(dynamic raw);
+
+  @protected
+  SetupStageDto dco_decode_setup_stage_dto(dynamic raw);
 
   @protected
   SetupStepDto dco_decode_setup_step_dto(dynamic raw);
@@ -994,6 +1000,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<SetupStageDto> sse_decode_list_setup_stage_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<SetupStepDto> sse_decode_list_setup_step_dto(
       SseDeserializer deserializer);
 
@@ -1270,6 +1280,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SetupMethodDto sse_decode_setup_method_dto(SseDeserializer deserializer);
+
+  @protected
+  SetupStageDto sse_decode_setup_stage_dto(SseDeserializer deserializer);
 
   @protected
   SetupStepDto sse_decode_setup_step_dto(SseDeserializer deserializer);
@@ -1727,6 +1740,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<SetupMethodDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_setup_stage_dto(
+      List<SetupStageDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_setup_step_dto(
       List<SetupStepDto> self, SseSerializer serializer);
 
@@ -2018,6 +2035,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_setup_method_dto(
       SetupMethodDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_setup_stage_dto(SetupStageDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_setup_step_dto(SetupStepDto self, SseSerializer serializer);

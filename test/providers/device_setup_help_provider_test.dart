@@ -42,6 +42,7 @@ const _instructions = SetupInstructionsDto(
     SetupMethodDto(
       methodType: 'ble_direct',
       description: 'Pair over BLE.',
+      stages: [],
       steps: [
         SetupStepDto(action: 'Hold the button.', actor: 'user', expect: null),
       ],

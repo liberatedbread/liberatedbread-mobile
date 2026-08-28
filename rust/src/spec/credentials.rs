@@ -161,41 +161,65 @@ fn issued_credentials(spec: &DeviceSpec) -> Vec<(String, CredentialIssuance)> {
             .and_then(|t| t.as_str())
             .unwrap_or_default()
             .to_string();
-        let Some(issues) = method
-            .get("issues_credentials")
-            .and_then(|issues| issues.as_mapping())
-        else {
-            continue;
-        };
-        for (name, body) in issues {
-            let Some(name) = name.as_str() else { continue };
-            // `reply_path` is the schema's one required field: without it the
-            // block says a credential exists and not how to read it, which is
-            // an issuance a client cannot run.
-            let Some(reply_path) = body.get("reply_path").and_then(|p| p.as_str()) else {
-                continue;
-            };
-            if out.iter().any(|(seen, _)| seen == name) {
-                continue;
+        collect_issuances(method, &method_type, &mut out);
+        // A multi-phase route files its issuance on the stage that performs
+        // it — hue-bridge's username is minted by the button_pairing stage,
+        // not by the route as a whole. Missing these would turn a
+        // button-issued credential into one the client asks a person to type.
+        if let Some(stages) = method.get("stages").and_then(|s| s.as_sequence()) {
+            for stage in stages {
+                let stage_type = stage
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .map_or_else(|| method_type.clone(), str::to_string);
+                collect_issuances(stage, &stage_type, &mut out);
             }
-            out.push((
-                name.to_string(),
-                CredentialIssuance {
-                    method: method_type.clone(),
-                    command: body
-                        .get("command")
-                        .and_then(|c| c.as_str())
-                        .map(str::to_string),
-                    reply_path: reply_path.to_string(),
-                    request_condition: body
-                        .get("request_condition")
-                        .and_then(|c| c.as_str())
-                        .map(str::to_string),
-                },
-            ));
         }
     }
     out
+}
+
+/// Read one method-shaped block's `issues_credentials` into `out`, first
+/// declaration of a name winning — the spec lists the flow it expects a
+/// client to run first, and a stage inherits that ordering.
+fn collect_issuances(
+    block: &serde_yaml::Value,
+    method_type: &str,
+    out: &mut Vec<(String, CredentialIssuance)>,
+) {
+    let Some(issues) = block
+        .get("issues_credentials")
+        .and_then(|issues| issues.as_mapping())
+    else {
+        return;
+    };
+    for (name, body) in issues {
+        let Some(name) = name.as_str() else { continue };
+        // `reply_path` is the schema's one required field: without it the
+        // block says a credential exists and not how to read it, which is
+        // an issuance a client cannot run.
+        let Some(reply_path) = body.get("reply_path").and_then(|p| p.as_str()) else {
+            continue;
+        };
+        if out.iter().any(|(seen, _)| seen == name) {
+            continue;
+        }
+        out.push((
+            name.to_string(),
+            CredentialIssuance {
+                method: method_type.to_string(),
+                command: body
+                    .get("command")
+                    .and_then(|c| c.as_str())
+                    .map(str::to_string),
+                reply_path: reply_path.to_string(),
+                request_condition: body
+                    .get("request_condition")
+                    .and_then(|c| c.as_str())
+                    .map(str::to_string),
+            },
+        ));
+    }
 }
 
 #[cfg(test)]
@@ -300,6 +324,63 @@ commands:
             !found[1].must_be_asked_for(),
             "a pairing mints the username"
         );
+    }
+
+    #[test]
+    fn a_credential_issued_by_a_stage_is_still_issued() {
+        // The hue-bridge shape after the catalogue's setup restructure: the
+        // route is one method, and `issues_credentials` lives on the
+        // button_pairing STAGE. A client that misses it would prompt a person
+        // to type the very value the button press was about to hand over.
+        const STAGED_BRIDGE: &str = r#"
+device:
+  name: Test Bridge
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+  setup:
+    required: true
+    methods:
+      - type: wired
+        name: "Ethernet, then the link button"
+        role: primary
+        description: Two phases, both required.
+        stages:
+          - type: wired
+            name: "Get the bridge onto the LAN"
+            steps:
+              - action: Plug the bridge into the router.
+          - type: button_pairing
+            name: "Authorize this client at the link button"
+            issues_credentials:
+              username:
+                command: create_user
+                reply_path: "[0].success.username"
+commands:
+  create_user:
+    description: Mint a whitelist entry.
+    transport: http
+    method: POST
+    path: /api
+  get_lights:
+    description: Read light state.
+    transport: http
+    method: GET
+    path: /api/{username}/lights
+    parameters:
+      username:
+        type: string
+        source: credential:username
+        description: The whitelist username the link-button flow issued.
+"#;
+        let spec = parse_device_spec(STAGED_BRIDGE).expect("test spec should parse");
+        let found = required_credentials(&spec);
+        assert_eq!(found.len(), 1);
+        let username = &found[0];
+        let issued = username.issued_by.as_ref().expect("the stage issues it");
+        assert_eq!(issued.method, "button_pairing", "the stage's own type");
+        assert_eq!(issued.command.as_deref(), Some("create_user"));
+        assert!(!username.must_be_asked_for());
     }
 
     #[test]

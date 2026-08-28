@@ -80,6 +80,7 @@ export '../src/rust/api/device_api.dart'
         SecurityAdvisoryDto,
         SetupInstructionsDto,
         SetupMethodDto,
+        SetupStageDto,
         SetupStepDto,
         TroubleshootingDto,
         FactoryResetDto,

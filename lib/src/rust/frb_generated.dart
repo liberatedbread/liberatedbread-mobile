@@ -4116,6 +4116,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<SetupStageDto> dco_decode_list_setup_stage_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_setup_stage_dto).toList();
+  }
+
+  @protected
   List<SetupStepDto> dco_decode_list_setup_step_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_setup_step_dto).toList();
@@ -4936,13 +4942,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SetupMethodDto dco_decode_setup_method_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return SetupMethodDto(
       methodType: dco_decode_opt_String(arr[0]),
-      description: dco_decode_opt_String(arr[1]),
-      steps: dco_decode_list_setup_step_dto(arr[2]),
-      troubleshooting: dco_decode_list_troubleshooting_dto(arr[3]),
+      name: dco_decode_opt_String(arr[1]),
+      role: dco_decode_opt_String(arr[2]),
+      description: dco_decode_opt_String(arr[3]),
+      steps: dco_decode_list_setup_step_dto(arr[4]),
+      stages: dco_decode_list_setup_stage_dto(arr[5]),
+      troubleshooting: dco_decode_list_troubleshooting_dto(arr[6]),
+    );
+  }
+
+  @protected
+  SetupStageDto dco_decode_setup_stage_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return SetupStageDto(
+      name: dco_decode_opt_String(arr[0]),
+      methodType: dco_decode_opt_String(arr[1]),
+      description: dco_decode_opt_String(arr[2]),
+      steps: dco_decode_list_setup_step_dto(arr[3]),
+      troubleshooting: dco_decode_list_troubleshooting_dto(arr[4]),
     );
   }
 
@@ -6439,6 +6463,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<SetupStageDto> sse_decode_list_setup_stage_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SetupStageDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_setup_stage_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<SetupStepDto> sse_decode_list_setup_step_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -7445,10 +7482,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SetupMethodDto sse_decode_setup_method_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_methodType = sse_decode_opt_String(deserializer);
+    var var_name = sse_decode_opt_String(deserializer);
+    var var_role = sse_decode_opt_String(deserializer);
+    var var_description = sse_decode_opt_String(deserializer);
+    var var_steps = sse_decode_list_setup_step_dto(deserializer);
+    var var_stages = sse_decode_list_setup_stage_dto(deserializer);
+    var var_troubleshooting = sse_decode_list_troubleshooting_dto(deserializer);
+    return SetupMethodDto(
+        methodType: var_methodType,
+        name: var_name,
+        role: var_role,
+        description: var_description,
+        steps: var_steps,
+        stages: var_stages,
+        troubleshooting: var_troubleshooting);
+  }
+
+  @protected
+  SetupStageDto sse_decode_setup_stage_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_opt_String(deserializer);
+    var var_methodType = sse_decode_opt_String(deserializer);
     var var_description = sse_decode_opt_String(deserializer);
     var var_steps = sse_decode_list_setup_step_dto(deserializer);
     var var_troubleshooting = sse_decode_list_troubleshooting_dto(deserializer);
-    return SetupMethodDto(
+    return SetupStageDto(
+        name: var_name,
         methodType: var_methodType,
         description: var_description,
         steps: var_steps,
@@ -8711,6 +8770,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_setup_stage_dto(
+      List<SetupStageDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_setup_stage_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_setup_step_dto(
       List<SetupStepDto> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -9498,6 +9567,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_setup_method_dto(
       SetupMethodDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.methodType, serializer);
+    sse_encode_opt_String(self.name, serializer);
+    sse_encode_opt_String(self.role, serializer);
+    sse_encode_opt_String(self.description, serializer);
+    sse_encode_list_setup_step_dto(self.steps, serializer);
+    sse_encode_list_setup_stage_dto(self.stages, serializer);
+    sse_encode_list_troubleshooting_dto(self.troubleshooting, serializer);
+  }
+
+  @protected
+  void sse_encode_setup_stage_dto(
+      SetupStageDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.name, serializer);
     sse_encode_opt_String(self.methodType, serializer);
     sse_encode_opt_String(self.description, serializer);
     sse_encode_list_setup_step_dto(self.steps, serializer);

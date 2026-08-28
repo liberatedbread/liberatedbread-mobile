@@ -5056,13 +5056,37 @@ pub struct TroubleshootingDto {
     pub causes: Vec<String>,
 }
 
-/// One `setup.methods[]` entry as human-readable prose.
+/// One phase of a multi-phase route — `setup.methods[].stages[]`. Not a
+/// choice: every stage of its method happens, in order. Deliberately flat
+/// (the schema forbids nesting), so the DTO cannot recurse.
 #[derive(Debug, Clone)]
-pub struct SetupMethodDto {
-    /// `ble_direct`, `button_pairing`, … — labels the method.
+pub struct SetupStageDto {
+    /// What the phase is called — "Get the bridge onto the LAN".
+    pub name: Option<String>,
+    /// `wired`, `button_pairing`, … — the phase's own mechanism.
     pub method_type: Option<String>,
     pub description: Option<String>,
     pub steps: Vec<SetupStepDto>,
+    pub troubleshooting: Vec<TroubleshootingDto>,
+}
+
+/// One `setup.methods[]` entry as human-readable prose.
+#[derive(Debug, Clone)]
+pub struct SetupMethodDto {
+    /// `ble_direct`, `button_pairing`, … — labels the method's mechanism.
+    pub method_type: Option<String>,
+    /// What a person chooses by ("HomeKit pairing with the app's 8-digit
+    /// code"). Present whenever the spec lists more than one route.
+    pub name: Option<String>,
+    /// `primary` / `alternative` / `variant` / `historical`. Methods arrive
+    /// already sorted into that reading order; the role is here so a UI can
+    /// label a route that only applies to older hardware or a dead cloud.
+    pub role: Option<String>,
+    pub description: Option<String>,
+    /// The single-phase body — empty when the route is staged.
+    pub steps: Vec<SetupStepDto>,
+    /// The multi-phase body — consecutive phases of this one route.
+    pub stages: Vec<SetupStageDto>,
     pub troubleshooting: Vec<TroubleshootingDto>,
 }
 
@@ -5119,8 +5143,28 @@ impl From<crate::spec::setup::SetupInstructions> for SetupInstructionsDto {
                 .into_iter()
                 .map(|m| SetupMethodDto {
                     method_type: m.method_type,
+                    name: m.name,
+                    role: m.role,
                     description: m.description,
                     steps: m.steps.into_iter().map(Into::into).collect(),
+                    stages: m
+                        .stages
+                        .into_iter()
+                        .map(|stage| SetupStageDto {
+                            name: stage.name,
+                            method_type: stage.method_type,
+                            description: stage.description,
+                            steps: stage.steps.into_iter().map(Into::into).collect(),
+                            troubleshooting: stage
+                                .troubleshooting
+                                .into_iter()
+                                .map(|t| TroubleshootingDto {
+                                    symptom: t.symptom,
+                                    causes: t.causes,
+                                })
+                                .collect(),
+                        })
+                        .collect(),
                     troubleshooting: m
                         .troubleshooting
                         .into_iter()

@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -3813,13 +3813,75 @@ class SetupInstructionsDto {
 
 /// One `setup.methods[]` entry as human-readable prose.
 class SetupMethodDto {
-  /// `ble_direct`, `button_pairing`, … — labels the method.
+  /// `ble_direct`, `button_pairing`, … — labels the method's mechanism.
+  final String? methodType;
+
+  /// What a person chooses by ("HomeKit pairing with the app's 8-digit
+  /// code"). Present whenever the spec lists more than one route.
+  final String? name;
+
+  /// `primary` / `alternative` / `variant` / `historical`. Methods arrive
+  /// already sorted into that reading order; the role is here so a UI can
+  /// label a route that only applies to older hardware or a dead cloud.
+  final String? role;
+  final String? description;
+
+  /// The single-phase body — empty when the route is staged.
+  final List<SetupStepDto> steps;
+
+  /// The multi-phase body — consecutive phases of this one route.
+  final List<SetupStageDto> stages;
+  final List<TroubleshootingDto> troubleshooting;
+
+  const SetupMethodDto({
+    this.methodType,
+    this.name,
+    this.role,
+    this.description,
+    required this.steps,
+    required this.stages,
+    required this.troubleshooting,
+  });
+
+  @override
+  int get hashCode =>
+      methodType.hashCode ^
+      name.hashCode ^
+      role.hashCode ^
+      description.hashCode ^
+      steps.hashCode ^
+      stages.hashCode ^
+      troubleshooting.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SetupMethodDto &&
+          runtimeType == other.runtimeType &&
+          methodType == other.methodType &&
+          name == other.name &&
+          role == other.role &&
+          description == other.description &&
+          steps == other.steps &&
+          stages == other.stages &&
+          troubleshooting == other.troubleshooting;
+}
+
+/// One phase of a multi-phase route — `setup.methods[].stages[]`. Not a
+/// choice: every stage of its method happens, in order. Deliberately flat
+/// (the schema forbids nesting), so the DTO cannot recurse.
+class SetupStageDto {
+  /// What the phase is called — "Get the bridge onto the LAN".
+  final String? name;
+
+  /// `wired`, `button_pairing`, … — the phase's own mechanism.
   final String? methodType;
   final String? description;
   final List<SetupStepDto> steps;
   final List<TroubleshootingDto> troubleshooting;
 
-  const SetupMethodDto({
+  const SetupStageDto({
+    this.name,
     this.methodType,
     this.description,
     required this.steps,
@@ -3828,6 +3890,7 @@ class SetupMethodDto {
 
   @override
   int get hashCode =>
+      name.hashCode ^
       methodType.hashCode ^
       description.hashCode ^
       steps.hashCode ^
@@ -3836,8 +3899,9 @@ class SetupMethodDto {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is SetupMethodDto &&
+      other is SetupStageDto &&
           runtimeType == other.runtimeType &&
+          name == other.name &&
           methodType == other.methodType &&
           description == other.description &&
           steps == other.steps &&

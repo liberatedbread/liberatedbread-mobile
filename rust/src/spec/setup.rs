@@ -68,6 +68,21 @@ pub fn soft_ap_profiles<'a>(specs: impl IntoIterator<Item = &'a DeviceSpec>) -> 
     specs.into_iter().flat_map(profiles_for_spec).collect()
 }
 
+/// A method and its stages, flattened. A stage is method-shaped, and a spec
+/// is free to put the softap or BLE half of a multi-phase route on the stage
+/// that performs it — no stage in today's catalogue does, but reading them
+/// costs nothing, and not reading them would silently drop that route the day
+/// one appears.
+fn method_and_stages(method: &serde_yaml::Value) -> impl Iterator<Item = &serde_yaml::Value> {
+    std::iter::once(method).chain(
+        method
+            .get("stages")
+            .and_then(|s| s.as_sequence())
+            .into_iter()
+            .flatten(),
+    )
+}
+
 fn profiles_for_spec(spec: &DeviceSpec) -> Vec<SoftApProfile> {
     let Some(setup) = spec.device.extensions.get("setup") else {
         return Vec::new();
@@ -86,6 +101,7 @@ fn profiles_for_spec(spec: &DeviceSpec) -> Vec<SoftApProfile> {
 
     methods
         .iter()
+        .flat_map(method_and_stages)
         .filter_map(|method| {
             let method_type = method.get("type")?.as_str()?;
             if !method_type.starts_with("softap_") {
@@ -205,6 +221,10 @@ impl BleProvisioningProfile {
 /// empty prefix is a claim on every peripheral in the air.
 pub fn advertised_name_matches(declared: &str, rule: NameMatch, advertised: &str) -> bool {
     let advertised = advertised.trim();
+    // Trim the declared side too: a trailing space in a spec's
+    // `advertised_name` would otherwise make the profile match nothing, ever,
+    // with no error anywhere.
+    let declared = declared.trim();
     if declared.is_empty() {
         return false;
     }
@@ -237,6 +257,7 @@ fn ble_profiles_for_spec(spec: &DeviceSpec) -> Vec<BleProvisioningProfile> {
 
     methods
         .iter()
+        .flat_map(method_and_stages)
         .filter_map(|method| {
             if method.get("type")?.as_str()? != "ble_provisioning" {
                 return None;
@@ -251,14 +272,14 @@ fn ble_profiles_for_spec(spec: &DeviceSpec) -> Vec<BleProvisioningProfile> {
                 .and_then(|b| b.get("advertised_name_match"))
                 .and_then(|m| m.as_str())
             {
-                Some("exact") => NameMatch::Exact,
-                // Anything else — "prefix", absent, or a value a newer schema
-                // grew — reads as the catalogue-wide default. A stricter rule
-                // we do not understand must not silently become a looser one,
-                // and prefix IS the looser one, so this stays the fallback
-                // only because an unmatched setup device is invisible while a
-                // wrongly-matched one sends a stranger's Wi-Fi password.
-                _ => NameMatch::Prefix,
+                Some("prefix") => NameMatch::Prefix,
+                // Absent, "exact", or a value a newer schema grew: all read as
+                // exact. Absent because the schema's own default is "exact";
+                // unknown because a rule this build does not implement must
+                // not silently become a looser one — an unmatched setup device
+                // is invisible, while a wrongly-matched one is sent a
+                // stranger's Wi-Fi password.
+                _ => NameMatch::Exact,
             };
             let uuid = |key: &str| {
                 ble.and_then(|b| b.get(key))
@@ -308,21 +329,74 @@ pub struct Troubleshooting {
     pub causes: Vec<String>,
 }
 
-/// One `setup.methods[]` entry, reduced to what a human needs to read.
+/// One phase of a multi-phase route — `setup.methods[].stages[]`. A stage is
+/// method-shaped (its own type, prose and steps) but is not a choice: every
+/// stage of its method happens, in order. The schema forbids a stage carrying
+/// a `role` or further `stages`, so this is deliberately not [`SetupMethod`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SetupMethod {
-    /// `ble_direct`, `button_pairing`, `softap_http`, … — labels the method.
+pub struct SetupStage {
+    /// What the phase is called — "Get the bridge onto the LAN". Required by
+    /// the schema; a stage parsed without one falls back to its type.
+    pub name: Option<String>,
+    /// `wired`, `button_pairing`, … — the phase's own mechanism.
     pub method_type: Option<String>,
     pub description: Option<String>,
     pub steps: Vec<SetupStep>,
     pub troubleshooting: Vec<Troubleshooting>,
 }
 
-impl SetupMethod {
-    /// A method with no prose at all is dropped — a bare `type:` teaches a
-    /// reader nothing and would render as an empty card.
+impl SetupStage {
     fn is_empty(&self) -> bool {
         self.description.is_none() && self.steps.is_empty() && self.troubleshooting.is_empty()
+    }
+}
+
+/// One `setup.methods[]` entry, reduced to what a human needs to read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupMethod {
+    /// `ble_direct`, `button_pairing`, `softap_http`, … — labels the method's
+    /// mechanism. Not a label for a person: both Rachio generations are
+    /// `softap_http`, which is why `name` exists.
+    pub method_type: Option<String>,
+    /// What a person chooses by, when the spec names the route ("HomeKit
+    /// pairing with the app's 8-digit code"). Required upstream once a spec
+    /// lists two or more methods.
+    pub name: Option<String>,
+    /// `primary` / `alternative` / `variant` / `historical` — what kind of
+    /// choice this route is. Drives ordering and lets a UI label a route that
+    /// only applies to older hardware.
+    pub role: Option<String>,
+    pub description: Option<String>,
+    /// The single-phase body. Mutually exclusive with `stages` upstream.
+    pub steps: Vec<SetupStep>,
+    /// The multi-phase body: consecutive phases of ONE route, not
+    /// alternatives. A method has `steps` or `stages`, never both.
+    pub stages: Vec<SetupStage>,
+    pub troubleshooting: Vec<Troubleshooting>,
+}
+
+impl SetupMethod {
+    /// A method with no prose at all is dropped — a bare `type:` teaches a
+    /// reader nothing and would render as an empty card. A staged method is
+    /// prose: its phases carry the steps.
+    fn is_empty(&self) -> bool {
+        self.description.is_none()
+            && self.steps.is_empty()
+            && self.troubleshooting.is_empty()
+            && self.stages.iter().all(SetupStage::is_empty)
+    }
+
+    /// Where `role` sorts: the reading order the catalogue documents —
+    /// primary and its alternatives first, then hardware variants, then
+    /// anything defunct. A missing role sorts with primary so a legacy
+    /// single-role catalogue keeps its file order (the sort is stable).
+    fn role_rank(&self) -> u8 {
+        match self.role.as_deref() {
+            Some("alternative") => 1,
+            Some("variant") => 2,
+            Some("historical") => 3,
+            _ => 0,
+        }
     }
 }
 
@@ -393,6 +467,55 @@ fn parse_steps(value: Option<&serde_yaml::Value>) -> Vec<SetupStep> {
         .unwrap_or_default()
 }
 
+fn parse_troubleshooting(value: Option<&serde_yaml::Value>) -> Vec<Troubleshooting> {
+    value
+        .and_then(|t| t.as_sequence())
+        .map(|ts| {
+            ts.iter()
+                .filter_map(|t| {
+                    let symptom = t.get("symptom")?.as_str()?.to_string();
+                    let causes = t
+                        .get("causes")
+                        .and_then(|c| c.as_sequence())
+                        .map(|cs| {
+                            cs.iter()
+                                .filter_map(|c| c.as_str().map(str::to_string))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    Some(Troubleshooting { symptom, causes })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_stage(stage: &serde_yaml::Value) -> SetupStage {
+    SetupStage {
+        name: opt_str(stage.get("name")),
+        method_type: opt_str(stage.get("type")),
+        description: opt_str(stage.get("description")),
+        steps: parse_steps(stage.get("steps")),
+        troubleshooting: parse_troubleshooting(stage.get("troubleshooting")),
+    }
+}
+
+fn parse_method(method: &serde_yaml::Value) -> SetupMethod {
+    SetupMethod {
+        method_type: opt_str(method.get("type")),
+        name: opt_str(method.get("name")),
+        role: opt_str(method.get("role")),
+        description: opt_str(method.get("description")),
+        steps: parse_steps(method.get("steps")),
+        stages: method
+            .get("stages")
+            .and_then(|s| s.as_sequence())
+            .map(|seq| seq.iter().map(parse_stage).collect())
+            .unwrap_or_default(),
+        troubleshooting: parse_troubleshooting(method.get("troubleshooting")),
+    }
+}
+
 /// Lift one spec's `device.setup` block into renderable instructions, or `None`
 /// when the block is absent or carries no prose a user could act on. Reaches
 /// into the untyped `extensions` map by hand, the same way [`profiles_for_spec`]
@@ -401,41 +524,21 @@ fn parse_steps(value: Option<&serde_yaml::Value>) -> Vec<SetupStep> {
 pub fn setup_instructions(spec: &DeviceSpec) -> Option<SetupInstructions> {
     let setup = spec.device.extensions.get("setup")?;
 
-    let methods: Vec<SetupMethod> = setup
+    let mut methods: Vec<SetupMethod> = setup
         .get("methods")
         .and_then(|m| m.as_sequence())
         .map(|seq| {
             seq.iter()
-                .map(|m| SetupMethod {
-                    method_type: opt_str(m.get("type")),
-                    description: opt_str(m.get("description")),
-                    steps: parse_steps(m.get("steps")),
-                    troubleshooting: m
-                        .get("troubleshooting")
-                        .and_then(|t| t.as_sequence())
-                        .map(|ts| {
-                            ts.iter()
-                                .filter_map(|t| {
-                                    let symptom = t.get("symptom")?.as_str()?.to_string();
-                                    let causes = t
-                                        .get("causes")
-                                        .and_then(|c| c.as_sequence())
-                                        .map(|cs| {
-                                            cs.iter()
-                                                .filter_map(|c| c.as_str().map(str::to_string))
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-                                    Some(Troubleshooting { symptom, causes })
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                })
+                .map(parse_method)
                 .filter(|m| !m.is_empty())
                 .collect()
         })
         .unwrap_or_default();
+    // The catalogue documents method order as an instruction — primary and its
+    // alternatives first, variants after, anything defunct last — and enforces
+    // it upstream. Sorting here (stably, so file order breaks ties) means a
+    // vendored tree that predates that rule still renders in reading order.
+    methods.sort_by_key(SetupMethod::role_rank);
 
     let factory_reset = setup.get("factory_reset").and_then(|fr| {
         let effect = opt_str(fr.get("effect"));
@@ -576,13 +679,80 @@ device:
     }
 
     #[test]
-    fn an_unstated_match_rule_falls_back_to_prefix() {
+    fn an_unstated_match_rule_falls_back_to_exact() {
+        // The schema's own default is "exact", and exact is also the safe
+        // reading for a rule this build does not implement: what this flow
+        // does with a match is send it the home Wi-Fi passphrase.
         let yaml =
             BLE_PROVISIONED_DEVICE.replace("          advertised_name_match: \"exact\"\n", "");
-        let spec = spec(&yaml);
-        let p = &ble_provisioning_profiles([&spec])[0];
+        let parsed = spec(&yaml);
+        let p = &ble_provisioning_profiles([&parsed])[0];
+        assert_eq!(p.name_match, NameMatch::Exact);
+        assert!(!p.matches_name("TestSetup-2"));
+
+        let yaml = BLE_PROVISIONED_DEVICE.replace(
+            "advertised_name_match: \"exact\"",
+            "advertised_name_match: \"regex\"",
+        );
+        let p = &ble_provisioning_profiles([&spec(&yaml)])[0];
+        assert_eq!(p.name_match, NameMatch::Exact, "unknown rules read strict");
+    }
+
+    #[test]
+    fn a_declared_prefix_rule_still_reads_as_prefix() {
+        let yaml = BLE_PROVISIONED_DEVICE.replace(
+            "advertised_name_match: \"exact\"",
+            "advertised_name_match: \"prefix\"",
+        );
+        let p = &ble_provisioning_profiles([&spec(&yaml)])[0];
         assert_eq!(p.name_match, NameMatch::Prefix);
         assert!(p.matches_name("TestSetup-2"));
+    }
+
+    #[test]
+    fn a_trailing_space_in_the_declared_name_does_not_unmatch_everything() {
+        // The advertised side was always trimmed; a spec typo on the declared
+        // side used to make the profile match nothing, silently.
+        assert!(advertised_name_matches(
+            "TestSetup ",
+            NameMatch::Exact,
+            "testsetup"
+        ));
+        assert!(advertised_name_matches(
+            " Plug",
+            NameMatch::Prefix,
+            "plug.mini"
+        ));
+    }
+
+    #[test]
+    fn a_ble_provisioning_stage_still_drives_a_card() {
+        // A future spec may put the provisioning half of a multi-phase route
+        // on a stage; the profile must not vanish because the route grew a
+        // phase in front of it.
+        let yaml = r#"
+device:
+  name: "Test Purifier"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "fan"
+  setup:
+    methods:
+      - type: "ble_provisioning"
+        name: "Pair over Bluetooth"
+        stages:
+          - type: "device_ui"
+            name: "Put the unit in setup mode"
+          - type: "ble_provisioning"
+            name: "Hand over the Wi-Fi credentials"
+            ble:
+              advertised_name: "TestSetup"
+              advertised_name_match: "exact"
+"#;
+        let profiles = ble_provisioning_profiles([&spec(yaml)]);
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].advertised_name, "TestSetup");
     }
 
     #[test]
@@ -749,6 +919,132 @@ device:
         assert_eq!(r.in_place_supported, Some(true));
         assert_eq!(r.requires_factory_reset, Some(false));
         assert!(r.notes.is_some());
+    }
+
+    #[test]
+    fn a_staged_route_keeps_every_phase_and_its_steps() {
+        // The hue-bridge shape after the catalogue's setup restructure: one
+        // route, two consecutive phases, each phase carrying its own type and
+        // steps. Losing the stages here is losing the entire procedure.
+        let yaml = r#"
+device:
+  name: "Test Bridge"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  setup:
+    methods:
+      - type: "wired"
+        name: "Ethernet, then the link button"
+        role: "primary"
+        description: "Two things have to happen and neither is a choice."
+        stages:
+          - type: "wired"
+            name: "Get the bridge onto the LAN"
+            steps:
+              - action: "Plug the bridge into the router."
+                actor: "user"
+          - type: "button_pairing"
+            name: "Authorize this client at the link button"
+            steps:
+              - action: "Press the link button."
+                actor: "user"
+              - action: "POST /api to create a user."
+                actor: "client"
+                expect: "A username in the reply."
+"#;
+        let s = setup_instructions(&spec(yaml)).expect("has instructions");
+        assert_eq!(s.methods.len(), 1);
+        let m = &s.methods[0];
+        assert_eq!(m.name.as_deref(), Some("Ethernet, then the link button"));
+        assert_eq!(m.role.as_deref(), Some("primary"));
+        assert!(m.steps.is_empty(), "a staged method carries no flat steps");
+        assert_eq!(m.stages.len(), 2);
+        assert_eq!(
+            m.stages[0].name.as_deref(),
+            Some("Get the bridge onto the LAN")
+        );
+        assert_eq!(m.stages[0].method_type.as_deref(), Some("wired"));
+        assert_eq!(m.stages[0].steps.len(), 1);
+        assert_eq!(m.stages[1].steps.len(), 2);
+        assert_eq!(
+            m.stages[1].steps[1].expect.as_deref(),
+            Some("A username in the reply.")
+        );
+    }
+
+    #[test]
+    fn a_staged_method_with_no_description_is_not_empty() {
+        // is_empty must see through to the stages: a method whose prose lives
+        // entirely in its phases would otherwise be dropped whole.
+        let yaml = r#"
+device:
+  name: "Test Bridge"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  setup:
+    methods:
+      - type: "wired"
+        name: "Ethernet, then the link button"
+        stages:
+          - type: "wired"
+            name: "Get the bridge onto the LAN"
+            steps:
+              - action: "Plug the bridge into the router."
+"#;
+        let s = setup_instructions(&spec(yaml)).expect("has instructions");
+        assert_eq!(s.methods.len(), 1);
+        assert_eq!(s.methods[0].stages.len(), 1);
+    }
+
+    #[test]
+    fn methods_render_in_role_order_whatever_the_file_order() {
+        let yaml = r#"
+device:
+  name: "Test Controller"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  setup:
+    methods:
+      - type: "cloud_account"
+        name: "The dead cloud flow"
+        role: "historical"
+        description: "Stopped working with the cloud."
+      - type: "softap_http"
+        name: "Gen 3 setup AP"
+        role: "variant"
+        description: "Gen 3 units."
+      - type: "hub_pairing"
+        name: "HomeKit pairing"
+        role: "primary"
+        description: "The account-free route."
+"#;
+        let s = setup_instructions(&spec(yaml)).expect("has instructions");
+        let roles: Vec<Option<&str>> = s.methods.iter().map(|m| m.role.as_deref()).collect();
+        assert_eq!(
+            roles,
+            vec![Some("primary"), Some("variant"), Some("historical")]
+        );
+        // And a catalogue that predates roles keeps its file order: the sort
+        // is stable and every unroled method ranks alike.
+        let legacy = r#"
+device:
+  name: "Test Legacy"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  setup:
+    methods:
+      - type: "softap_http"
+        description: "First."
+      - type: "ble_direct"
+        description: "Second."
+"#;
+        let s = setup_instructions(&spec(legacy)).expect("has instructions");
+        assert_eq!(s.methods[0].description.as_deref(), Some("First."));
+        assert_eq!(s.methods[1].description.as_deref(), Some("Second."));
     }
 
     #[test]

@@ -6,6 +6,7 @@ import '../services/spec_codec.dart'
     show
         SetupInstructionsDto,
         SetupMethodDto,
+        SetupStageDto,
         SetupStepDto,
         TroubleshootingDto,
         FactoryResetDto,
@@ -41,7 +42,10 @@ class SetupInstructionsScreen extends StatelessWidget {
     // "why won't it connect" answers are the reason they opened this, above the
     // from-scratch pairing steps.
     final troubleshooting = [
-      for (final m in instructions.methods) ...m.troubleshooting,
+      for (final m in instructions.methods) ...[
+        ...m.troubleshooting,
+        for (final stage in m.stages) ...stage.troubleshooting,
+      ],
     ];
     final rejoin = instructions.rejoin;
 
@@ -81,7 +85,9 @@ class SetupInstructionsScreen extends StatelessWidget {
                     style: text.bodyMedium?.copyWith(height: 1.4)),
               ),
             for (final method in instructions.methods)
-              if (method.description != null || method.steps.isNotEmpty)
+              if (method.description != null ||
+                  method.steps.isNotEmpty ||
+                  method.stages.isNotEmpty)
                 _MethodSection(method: method),
             if (instructions.factoryReset != null)
               _FactoryResetSection(reset: instructions.factoryReset!),
@@ -218,22 +224,97 @@ class _MethodSection extends StatelessWidget {
   final SetupMethodDto method;
   const _MethodSection({required this.method});
 
+  /// What a `role` means to the reader. `primary` (and absent) get no label:
+  /// the first card needs no qualifier, and a label saying "the normal way"
+  /// would only make people look for a catch.
+  static String? roleLabel(String? role) => switch (role) {
+        'alternative' => 'Also works',
+        'variant' => 'Depends on the hardware',
+        'historical' => 'No longer current',
+        _ => null,
+      };
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    // The spec's own name for the route ("HomeKit pairing with the app's
+    // 8-digit code") beats a generic heading — with several routes on the
+    // page, "How to pair" four times over is unchoosable.
+    final title = (method.name ?? '').trim().isNotEmpty
+        ? method.name!.trim()
+        : 'How to pair';
+    final role = roleLabel(method.role);
     return _Section(
       icon: Icons.bluetooth_searching,
-      title: 'How to pair',
+      title: title,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (role != null) ...[
+            Text(role,
+                style: text.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.4)),
+            const SizedBox(height: 6),
+          ],
           if ((method.description ?? '').trim().isNotEmpty) ...[
             Text(method.description!.trim(),
                 style: text.bodyMedium?.copyWith(height: 1.4)),
-            if (method.steps.isNotEmpty) const SizedBox(height: 10),
+            if (method.steps.isNotEmpty || method.stages.isNotEmpty)
+              const SizedBox(height: 10),
           ],
           for (var i = 0; i < method.steps.length; i++)
             _Step(index: i + 1, step: method.steps[i]),
+          // A staged route renders every phase, in order, under its own
+          // subhead — the phases are consecutive halves of ONE procedure, and
+          // a reader who stops after the first has not set the device up.
+          for (var i = 0; i < method.stages.length; i++)
+            _StageBlock(
+                index: i + 1,
+                total: method.stages.length,
+                stage: method.stages[i]),
+        ],
+      ),
+    );
+  }
+}
+
+class _StageBlock extends StatelessWidget {
+  final int index;
+  final int total;
+  final SetupStageDto stage;
+  const _StageBlock(
+      {required this.index, required this.total, required this.stage});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final name = (stage.name ?? '').trim();
+    final description = (stage.description ?? '').trim();
+    return Padding(
+      padding: EdgeInsets.only(top: index == 1 ? 2 : 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            name.isNotEmpty
+                ? '$index of $total — $name'
+                : 'Stage $index of $total',
+            style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          if (description.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(description,
+                  style: text.bodySmall
+                      ?.copyWith(color: scheme.onSurfaceVariant, height: 1.4)),
+            ),
+          const SizedBox(height: 8),
+          for (var i = 0; i < stage.steps.length; i++)
+            _Step(index: i + 1, step: stage.steps[i]),
         ],
       ),
     );
