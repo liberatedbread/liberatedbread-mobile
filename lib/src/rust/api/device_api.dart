@@ -392,6 +392,25 @@ Future<MqttRequestDto> renderNetworkMqttCommand(
     RustLib.instance.api.crateApiDeviceApiRenderNetworkMqttCommand(
         specYaml: specYaml, commandName: commandName, values: values);
 
+/// Fill an MQTT state topic's `{name}` placeholders from stored values.
+///
+/// State topics are subscribed rather than rendered from a command, so their
+/// placeholders (`{serial}`, `{productType}` — names the spec's own prose
+/// defines) resolve against what the app already holds: stored credentials
+/// and any device facts the caller knows, keyed by exactly those names. The
+/// splice is the same single-pass discipline every other template fill in
+/// this crate uses — a value is data, never template.
+///
+/// A placeholder nothing fills STAYS in the text, and the caller must treat
+/// a returned topic still carrying `{` as unsubscribable: a literal
+/// `{serial}` on the wire is a topic no broker publishes on, and
+/// subscribing to it is how an entity renders forever-Unknown while the
+/// code claims a stream is filling it.
+Future<String> fillMqttStateTopic(
+        {required String topic, required Map<String, String> values}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiFillMqttStateTopic(topic: topic, values: values);
+
 /// MQTT CONNECT for a spec-declared broker.
 ///
 /// The generic sibling of [`roomba_connect_packet`]. Username and password are

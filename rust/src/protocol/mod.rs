@@ -58,6 +58,38 @@ pub fn top_level_command<'a>(
         })
 }
 
+/// Fill `{name}` placeholders in one left-to-right pass.
+///
+/// Every template byte is read exactly once and every value is written as
+/// opaque text — never re-scanned for further placeholders, so data cannot
+/// become template. A brace pair naming nothing in `fills` passes through
+/// untouched, as does a lone `{` with no closing brace: what the caller did
+/// not fill is the template's own prose. The websocket text frames and the
+/// MQTT state-topic fill share this discipline through this one definition;
+/// a second scanner would be a second chance for data to become template.
+pub(crate) fn fill_placeholders_once(template: &str, fills: &[(String, String)]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    loop {
+        let Some(open) = rest.find('{') else {
+            out.push_str(rest);
+            return out;
+        };
+        out.push_str(&rest[..open]);
+        let brace_on = &rest[open..];
+        let Some(close) = brace_on.find('}') else {
+            out.push_str(brace_on);
+            return out;
+        };
+        let key = &brace_on[..=close];
+        match fills.iter().find(|(placeholder, _)| placeholder == key) {
+            Some((_, value)) => out.push_str(value),
+            None => out.push_str(key),
+        }
+        rest = &brace_on[close + 1..];
+    }
+}
+
 /// Resolve one command parameter's value for a render.
 ///
 /// The order is the contract, and every network transport shares it because

@@ -328,7 +328,7 @@ pub fn render_command(
                 }
                 fills.push((placeholder, value));
             }
-            fill_text_template(template, &fills)
+            crate::protocol::fill_placeholders_once(template, &fills)
         }
         other => {
             return Err(ProtocolError::UnsupportedCommandEncoding(format!(
@@ -361,37 +361,6 @@ fn splice_json(template: &str, action: &str, arguments: &str, request_id: i64) -
         )
         .replace("\"{request_id}\"", &request_id.to_string())
         .replace("\"{arguments}\"", arguments)
-}
-
-/// Fill a text frame template in one left-to-right pass.
-///
-/// Every template byte is read exactly once and every resolved value is
-/// written as opaque text — never re-scanned for further placeholders, so
-/// caller data cannot become template. A brace pair naming nothing in `fills`
-/// passes through untouched (the caller has already errored for any DECLARED
-/// parameter, so what remains is the template's own prose); a lone `{` with
-/// no closing brace is likewise literal.
-fn fill_text_template(template: &str, fills: &[(String, String)]) -> String {
-    let mut out = String::with_capacity(template.len());
-    let mut rest = template;
-    loop {
-        let Some(open) = rest.find('{') else {
-            out.push_str(rest);
-            return out;
-        };
-        out.push_str(&rest[..open]);
-        let brace_on = &rest[open..];
-        let Some(close) = brace_on.find('}') else {
-            out.push_str(brace_on);
-            return out;
-        };
-        let key = &brace_on[..=close];
-        match fills.iter().find(|(placeholder, _)| placeholder == key) {
-            Some((_, value)) => out.push_str(value),
-            None => out.push_str(key),
-        }
-        rest = &brace_on[close + 1..];
-    }
 }
 
 #[cfg(test)]

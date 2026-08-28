@@ -2793,6 +2793,30 @@ pub fn render_network_mqtt_command(
     })
 }
 
+/// Fill an MQTT state topic's `{name}` placeholders from stored values.
+///
+/// State topics are subscribed rather than rendered from a command, so their
+/// placeholders (`{serial}`, `{productType}` — names the spec's own prose
+/// defines) resolve against what the app already holds: stored credentials
+/// and any device facts the caller knows, keyed by exactly those names. The
+/// splice is the same single-pass discipline every other template fill in
+/// this crate uses — a value is data, never template.
+///
+/// A placeholder nothing fills STAYS in the text, and the caller must treat
+/// a returned topic still carrying `{` as unsubscribable: a literal
+/// `{serial}` on the wire is a topic no broker publishes on, and
+/// subscribing to it is how an entity renders forever-Unknown while the
+/// code claims a stream is filling it.
+pub fn fill_mqtt_state_topic(topic: String, values: HashMap<String, String>) -> String {
+    let mut fills: Vec<(String, String)> = values
+        .into_iter()
+        .map(|(name, value)| (format!("{{{name}}}"), value))
+        .collect();
+    // Deterministic order even though exact-key lookup makes ties impossible.
+    fills.sort();
+    crate::protocol::fill_placeholders_once(&topic, &fills)
+}
+
 /// MQTT CONNECT for a spec-declared broker.
 ///
 /// The generic sibling of [`roomba_connect_packet`]. Username and password are
@@ -6751,6 +6775,39 @@ device:
         assert!(matched("HC-06"));
         assert!(!matched("HC-05Foo"), "the spec anchored the end");
         assert!(!matched("MyHC-05"), "the spec anchored the start");
+    }
+
+    /// A state topic fills from stored values by exact placeholder name, one
+    /// pass, and what nothing fills survives verbatim so the caller can see
+    /// the topic is not subscribable yet.
+    #[test]
+    fn a_state_topic_fills_from_stored_values_and_keeps_what_it_cannot_fill() {
+        let values: HashMap<String, String> = [
+            ("serial".to_string(), "NN2-EU-ABC1234D".to_string()),
+            ("productType".to_string(), "455".to_string()),
+        ]
+        .into();
+        assert_eq!(
+            fill_mqtt_state_topic(
+                "{productType}/{serial}/status/current".into(),
+                values.clone()
+            ),
+            "455/NN2-EU-ABC1234D/status/current"
+        );
+        // A placeholder the store cannot answer stays visible — the caller's
+        // signal to badge the entity instead of subscribing to a literal.
+        assert_eq!(
+            fill_mqtt_state_topic("{productType}/{unknown}/x".into(), values),
+            "455/{unknown}/x"
+        );
+        // A value is data: one containing braces lands verbatim and is never
+        // re-scanned as template.
+        let sneaky: HashMap<String, String> = [
+            ("a".to_string(), "{b}".to_string()),
+            ("b".to_string(), "2".to_string()),
+        ]
+        .into();
+        assert_eq!(fill_mqtt_state_topic("{a}/{b}".into(), sneaky), "{b}/2");
     }
 
     /// The pattern vocabulary upstream validates with Python `re` must
