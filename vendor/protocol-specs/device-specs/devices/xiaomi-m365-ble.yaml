@@ -119,11 +119,52 @@ device:
           - action: "Write a 55 AA read of register 0xB4 to 6e400002 to get battery %."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        No documented BLE factory reset; the PIN and settings are register writes,
-        not a single reset. Not transcribed here.
+        Clears the scooter's Bluetooth pairing state along with other stored
+        settings, after which it accepts a fresh connection from any client.
+        The register-level configuration this spec documents — including the
+        PIN at ESC register 0x17 — is stored on the controller and is what the
+        reset returns to defaults.
+      description: >
+        A three-input gesture on hardware that has no reset button: power,
+        throttle and brake together for more than three seconds from the off
+        state, confirmed by a short run of beeps.
+
+        Two lesser routes exist and are worth knowing because they are less
+        destructive. The vendor app carries an unpair/remove-device action, and
+        some app versions expose a Bluetooth-clear action directly. And when
+        the symptom is simply that a phone will not reconnect, the fix is
+        usually on the phone: forget the scooter in the OS Bluetooth settings
+        and scan again.
+      procedures:
+        - name: "Power, throttle and brake held together from off"
+          verified: false
+          basis: >
+            Community reset documentation for the M365 and M365 Pro. Not
+            performed here; the scooter's own manual documents the power
+            button but not this combination.
+          hold_seconds: 3
+          power_state: "off"
+          glyph: "generic/press-two-buttons.svg"
+          indicator: "A few short beeps from the scooter."
+          steps:
+            - action: "Hold the power key until the display goes dark."
+              actor: "user"
+            - action: "Press and hold the power button, the throttle and the brake lever together for more than three seconds."
+              actor: "user"
+              expect: "A few short beeps; Bluetooth and other settings are reset."
+        - name: "Unpair from the vendor app"
+          verified: false
+          basis: "The vendor app's own device menu, as documented by community guides."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "In the vendor app, open the scooter's settings and choose unpair or remove device."
+              actor: "user"
+            - action: "Forget the scooter in the phone's own Bluetooth settings as well."
+              actor: "user"
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -138,6 +179,19 @@ device:
         The PIN gates the official app only, not the BLE bus (see the
         security_advisory). There is no Wi-Fi.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    notes: >
+      The BLE module is a stock Nordic UART port onto the scooter's internal
+      UART bus, and it bridges without authenticating anything. The scooter's
+      own PIN is not a pairing secret at all — it lives at ESC register 0x17
+      and can be read and rewritten over the same open bus, which is the
+      security finding rather than an obstacle to one.
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     name: "Nordic UART serial bridge"
@@ -191,3 +245,8 @@ helpful_urls:
   - title: "Zimperium — Xiaomi scooter BLE advisory"
     url: "https://www.zimperium.com/blog/dont-give-me-a-brake-xiaomi-scooter-hack-enables-dangerous-accelerations-and-stops-for-unsuspecting-riders/"
     description: "The unauthenticated-BLE-command issue recorded in the security_advisory."
+  - title: "Xiaomi Mi Electric Scooter M365 user manual"
+    url: "https://www.manualslib.com/manual/1690418/Xiaomi-Mi-Electric-Scooter-M365.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the M365. It documents the power button but not the three-input reset combination this spec records from community sources.

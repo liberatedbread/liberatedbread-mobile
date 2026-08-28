@@ -111,6 +111,13 @@ device:
       notes: >
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 # Custom consumer-side handler: JSON command serialization into the popled 0xAA55
 # framed binary-TLV transport (shared with the AUTOBABA LED Backpack). Declarative.
 protocol_handler: "popled_json"

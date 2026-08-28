@@ -116,15 +116,54 @@ device:
               The lock returns an authorization ID. Store it with the keypair —
               losing it means re-pairing.
     factory_reset:
-      applicable: "unknown"
+      applicable: true
       confidence: low
       effect: >
-        A factory reset exists and clears authorizations, the security PIN and
-        calibration — the lock must be re-taught its door afterwards. The exact
-        button sequence is not established here: it is documented by Nuki per
-        hardware generation and differs between Smart Lock 1.0-4.0 and Pro, and
-        a guessed sequence on a door lock can leave someone locked out of their
-        home. Consult Nuki's documentation for the specific model.
+        Clears every authorization, the security PIN and the door calibration.
+        The lock must be re-taught its door afterwards and every client
+        re-paired — including yours, so do not do this to a door you need to
+        use in the next half hour.
+      description: >
+        Nuki documents a reset in their own support portal and the shape of it
+        is consistent across the summaries available here: a recessed button
+        reached with a straightened paperclip, held until the ring LED flashes
+        red and blue alternately, after which the lock erases its
+        configuration and finally settles to a steady blue — pairing mode,
+        ready to be set up again. Allow a further quarter of a minute or so for
+        the motor to recalibrate.
+
+        Confidence is deliberately LOW. The detail above comes from
+        third-party reproductions of Nuki's support article rather than from
+        the article itself, which could not be retrieved directly, and hold
+        times differ between generations. On a door lock that is the
+        difference between a procedure and a guess: read Nuki's own page for
+        the exact model before starting, and treat the LED as the authority
+        rather than any number quoted here.
+      procedures:
+        - name: "Recessed reset button held until the ring LED alternates red and blue"
+          verified: false
+          basis: >
+            Third-party guides reproducing Nuki's support article on resetting
+            the Smart Lock; Nuki's own page is the authority and should be
+            checked for the specific generation. Not replayed against a lock.
+          hold_seconds: 10
+          power_state: "on"
+          glyph: "generic/pinhole-reset.svg"
+          indicator: "Ring LED flashing red and blue alternately, then steady blue when the lock reaches pairing mode."
+          indicator_glyph: "devices/nuki-smart-lock/ring-led-pairing.svg"
+          steps:
+            - action: "Straighten a paperclip and press the recessed reset button on the lock body."
+              actor: "user"
+            - action: "Hold until the ring LED starts flashing red and blue alternately, then release — continuing to hold can interrupt the sequence."
+              actor: "user"
+              expect: "Alternating red/blue flashing."
+            - action: "Leave the lock alone while it erases its configuration."
+              actor: "device"
+              timeout_seconds: 120
+              expect: "The LED settles to steady blue: the lock is in pairing mode."
+            - action: "Allow a further fifteen to twenty seconds for the motor to recalibrate before setting it up again."
+              actor: "device"
+              timeout_seconds: 60
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -150,6 +189,83 @@ device:
         the separate WiFi bridge handles network credentials on its own. The
         security PIN is user-chosen and verified over the encrypted channel
         established by the key exchange.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    # The transport pairs trivially; the authorisation that matters is the
+    # public-key exchange documented under setup.methods and command_protocol.
+    # Recorded as app_layer so a reader who finds no link-layer security knows
+    # it was looked for, and knows where the security actually lives.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "user_chosen"
+      length: 4
+      notes: >
+        The security PIN is set by the owner at first setup and verified over
+        the channel the key exchange established (CMD 32), not by the BLE
+        pairing procedure. Four digits on Smart Lock 1.0-4.0; six on
+        Ultra/5th-gen/Go/Pro, so a client must not hardcode the length. There
+        is a factory default on an unconfigured lock; it is not reproduced
+        here because a working default PIN for a door lock is a key, and the
+        owner sets their own during setup in any case.
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Close the vendor app and any other client before connecting. The lock
+        serves one central at a time, but it stores many authorizations — a
+        new client does not evict an existing one, which is the point of the
+        per-client keypair.
+      notes: >
+        Authorizations accumulate rather than replace, so a lock that has been
+        paired before is still pairable; revoking an old client is an app-side
+        operation on the authorization list, not a re-pairing.
+    enter_pairing_mode:
+      required: true
+      indicator: "The ring LED lights to show the lock is discoverable and will accept a new pairing."
+      indicator_glyph: "devices/nuki-smart-lock/ring-led-pairing.svg"
+      notes: >
+        Pairing mode is entered at the hardware, by holding the lock's button.
+        That is a deliberate design choice rather than an inconvenience: it
+        makes possession of the door, not proximity to it, the thing that
+        authorises a new client. A consumer should say so when it asks the
+        user to go and press the button.
+      procedures:
+        - name: "Hold the lock button until the ring LED indicates it is discoverable"
+          verified: false
+          basis: >
+            Nuki's public BLE API documentation and the vendor app's own
+            instructions. Hold time is not restated here because it differs by
+            hardware generation and the ring LED is the authoritative signal;
+            not replayed against a lock here.
+          power_state: "on"
+          glyph: "devices/nuki-smart-lock/pairing-button-hold.svg"
+          indicator: "Ring LED indicates the lock is discoverable."
+          indicator_glyph: "devices/nuki-smart-lock/ring-led-pairing.svg"
+          steps:
+            - action: "Press and hold the button on the face of the lock."
+              actor: "user"
+              glyph: "devices/nuki-smart-lock/pairing-button-hold.svg"
+            - action: "Keep holding until the ring LED changes to the discoverable pattern, then release."
+              actor: "user"
+              expect: "The ring LED indicates the lock is discoverable."
+            - action: "Scan and connect while the lock is in this state."
+              actor: "client"
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: >
+        One client's authorization, leaving the lock's calibration, security
+        PIN and every other client's authorization intact.
+      notes: >
+        Revoking an authorization is an operation on the lock's authorization
+        list rather than a physical procedure, which is why there are no steps
+        here — it is done by an already-authorised client, and the commands
+        for it live in the command protocol below. The physical route, for a
+        lock nobody can still authorise against, is the factory reset in
+        `setup.factory_reset`, which is not established here.
 
 ble:
   connection:
@@ -956,3 +1072,13 @@ helpful_urls:
   - title: "NCC Group advisory: multiple vulnerabilities in Nuki smart locks (July 2022)"
     url: "https://www.nccgroup.com/us/research-blog/technical-advisory-multiple-vulnerabilities-in-nuki-smart-locks-cve-2022-32509-cve-2022-32504-cve-2022-32502-cve-2022-32507-cve-2022-32503-cve-2022-32510-cve-2022-32506-cve-2022-32508-cve-2022-32505/"
     description: "Source for the 11 CVEs cited in device.notes, including the BLE protocol access-control and DoS findings."
+  - title: "Nuki Smart Lock 3.0 Pro installation manual"
+    url: "https://www.manualslib.com/manual/2623006/Nuki-Smart-Lock-3-0-Pro.html"
+    kind: "manual"
+    description: >
+      Vendor installation manual for the 3.0 Pro.
+  - title: "Nuki support: how can I reset my Smart Lock (Internet Archive)"
+    url: "https://web.archive.org/web/20251010130815/https://help.nuki.io/hc/en-001/articles/4407665100177-How-can-I-reset-my-Smart-Lock"
+    kind: "vendor_support"
+    description: >
+      The authoritative reset article. Archived because Nuki's live help site refuses automated requests; read this before resetting a lock, since hold times differ by generation and this spec's procedure is low confidence.

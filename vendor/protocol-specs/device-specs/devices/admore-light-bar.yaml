@@ -124,6 +124,13 @@ device:
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:
@@ -795,3 +802,15 @@ entities:
     commands:
       turn_on: "set_tipover_on"
       turn_off: "set_tipover_off"
+
+helpful_urls:
+  - title: "AdMore Light Bar installation instructions (PDF)"
+    url: "https://d1l4i7f87txqmq.cloudfront.net/Installation%20Instructions/AdMoreLighting/AML.LED5420.T.TS.pdf"
+    kind: "manual"
+    description: >
+      Vendor installation instructions, distributor-hosted — AdMore's own server refuses automated requests.
+  - title: "AdMore Light Bar Premium installation instructions (PDF)"
+    url: "https://www.revzilla.com/assets/0001/8275/ad_more_high_output_premium_led_light_bar.pdf"
+    kind: "manual"
+    description: >
+      The Premium variant's instructions, retailer-hosted.

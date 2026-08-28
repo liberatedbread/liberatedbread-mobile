@@ -362,3 +362,10 @@ entities:
     features: ["brightness"]
     commands:
       set_brightness: "set_brightness"
+
+helpful_urls:
+  - title: "LOY SPACE app (Google Play)"
+    url: "https://play.google.com/store/apps/details?id=com.yskd.loywf"
+    kind: "vendor_support"
+    description: >
+      The vendor app's listing. These YSP-001-family screens are sold unbranded with no manual; the app store page is the only vendor-published description of what the display does.

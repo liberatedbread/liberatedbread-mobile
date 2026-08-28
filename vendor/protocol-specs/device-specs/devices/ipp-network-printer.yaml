@@ -187,3 +187,8 @@ helpful_urls:
   - url: "https://datatracker.ietf.org/doc/html/rfc8010"
     title: "RFC 8010 — IPP/1.1 Encoding and Transport"
     description: "IPP over HTTP; the default IPP port 631 and the ipp:// resource model."
+  - title: "PWG 5100.14-2020: IPP Everywhere v1.1 (PDF)"
+    url: "https://ftp.pwg.org/pub/pwg/candidates/cs-ippeve11-20200515-5100.14.pdf"
+    kind: "standard"
+    description: >
+      The normative specification. For a driverless printer there is no vendor manual worth linking — the standard IS the documentation, and every conforming printer implements it.

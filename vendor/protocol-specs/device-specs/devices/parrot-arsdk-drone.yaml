@@ -102,11 +102,34 @@ device:
           - action: "AR.Drone: send AT commands on UDP 5556. ARSDK3: TCP 44444 handshake, then UDP 54321/43210."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Per-model reset (button combinations / battery cycles) exists but is not
-        transcribed here. The drone stores no cloud credential.
+        Deletes the drone's settings and preferences along with the photos and
+        videos held in its internal memory. There is no cloud credential to
+        clear — the media is the thing that is lost, and it is lost
+        irreversibly, so offload it first.
+      description: >
+        Both routes do the same thing, and the button route is the one that
+        matters here: it works with no vendor app at all, which is the whole
+        reason this hardware is documented. Ten seconds on the power button of
+        a drone that is already switched on.
+      procedures:
+        - name: "On/off button held for ten seconds"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            Parrot's Bebop 2 user guide, which gives this as the app-free
+            equivalent of the in-app factory reset.
+          hold_seconds: 10
+          power_state: "on"
+          applies_to: ["Parrot Bebop 2"]
+          steps:
+            - action: "Switch the drone on."
+              actor: "user"
+            - action: "Press and hold the on/off button for ten seconds."
+              actor: "user"
+              expect: "Settings, preferences and the internal photo and video memory are erased."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -170,3 +193,8 @@ helpful_urls:
   - title: "Parrot — Olympe / ARSDK (official open source)"
     url: "https://developer.parrot.com/docs/olympe/overview.html"
     description: "The official ARSDK3 Python controller and SDK for the Anafi family."
+  - title: "Parrot Bebop 2 drone user manual"
+    url: "https://www.manualslib.com/manual/1065534/Parrot-Bebop-2-Drone.html"
+    kind: "manual"
+    description: >
+      Source for the ten-second power-button factory reset in this spec.

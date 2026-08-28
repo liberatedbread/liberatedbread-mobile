@@ -134,6 +134,8 @@ device:
       simply open. Verify with hardware before writing a wizard from this.
     methods:
       - type: "ble_provisioning"
+        name: "Matter commissioning — no Yeelight account"
+        role: "primary"
         verified: false
         description: >
           Standard Matter commissioning: the controller (any Matter
@@ -150,6 +152,8 @@ device:
             expect: "The lamp joins the home Wi-Fi and appears as a Matter light."
             timeout_seconds: 120
       - type: "cloud_account"
+        name: "Yeelight app with a vendor account"
+        role: "alternative"
         verified: false
         description: >
           Vendor flow: pair through the Yeelight app with a Yeelight (or
@@ -167,45 +171,37 @@ device:
             caveat: whether some firmware gates 55443 behind a "LAN control"
             toggle that only the vendor app can set is an open question.
     factory_reset:
-      # No reset procedure was recovered (see notes); the schema's answer for
-      # "probably has one, nobody established it" is applicable: unknown.
-      applicable: "unknown"
-      confidence: "low"
+      applicable: true
+      confidence: medium
       effect: >
-        Expected (unverified): clears Wi-Fi credentials, Matter fabrics and
-        the device name, returning the lamp to its unprovisioned state.
-      notes: >
-        NOT RECOVERED. The user manual text available to this research did
-        not yield a reset procedure and the acquired app has no cube code to
-        read one from. Candidates, both unverified: a long-press on the
-        control-box touch button, and Matter's 'remove from all fabrics' from
-        the ecosystem app (which resets commissioning state but may leave
-        Wi-Fi credentials). Needs hardware.
+        Clears the WiFi credentials and the pairing, returning the fixture to
+        onboarding. Saved scenes and schedules live in the app and the cloud
+        rather than on the light.
+      description: >
+        The timing is the part people get wrong: roughly two seconds in each
+        state, not as fast as the switch will go. The light tells you when it
+        has taken — colour models cycle through colours, white models breathe
+        — and then restarts by itself after about five seconds and comes back
+        at plain white. That restart is the confirmation, not the flashing.
       procedures:
-        - name: "Long-press the control-box touch button (candidate)"
+        - name: "Switch on and off five times, two seconds each"
           verified: false
-          basis: >
-            Generic pattern for this class of lamp; the user manual available
-            to this research did not yield a reset procedure and the acquired
-            app build carries no cube code to read one from.
+          basis: "Yeelight's own reset FAQ, and Xiaomi's support article for the same fixtures."
+          press_count: 5
+          power_state: "on"
+          glyph: "generic/power-cycle.svg"
+          indicator: "Colour models cycle colours, white models breathe; then a restart to default white."
+          indicator_glyph: "generic/led-flashing.svg"
           steps:
-            - action: "Press and hold the touch button on the control box."
+            - action: "Switch the light on for about two seconds, then off for about two seconds."
               actor: "user"
-              expect: >
-                Unverified. Expect the lamp to return to its unprovisioned,
-                Matter-commissionable state.
-        - name: "Remove from all Matter fabrics (candidate)"
-          verified: false
-          basis: >
-            Standard Matter decommissioning, offered by every ecosystem app.
-            Resets commissioning state by definition; whether it also clears
-            the lamp's Wi-Fi credentials is untested here.
-          steps:
-            - action: >
-                In the Matter controller (Google Home, Apple Home, Home
-                Assistant), remove the lamp from the fabric.
+            - action: "Repeat until five on/off cycles have been done."
               actor: "user"
-              expect: "The lamp leaves the fabric and re-advertises for commissioning."
+              expect: "The light flashes, breathes or cycles colours."
+            - action: "Wait about five seconds for it to restart on its own."
+              actor: "device"
+              timeout_seconds: 15
+              expect: "The light comes back at default white — the reset is complete."
     rejoin:
       # Unverified; this is the conservative reading the notes argue for.
       # A Matter device moved to a new SSID generally has to be
@@ -736,3 +732,8 @@ helpful_urls:
   - title: "Home Assistant — Yeelight integration"
     url: "https://www.home-assistant.io/integrations/yeelight/"
     description: "Core integration covering basic on/off/colour for Yeelight LAN lights, including the cube at that level."
+  - title: "Yeelight: how to reset an LED bulb"
+    url: "https://www.yeelight.com/faq/app/reset/en_US/reset-color.html"
+    kind: "vendor_support"
+    description: >
+      Vendor FAQ giving the five-power-cycle reset and the visual confirmation for colour and white fixtures.

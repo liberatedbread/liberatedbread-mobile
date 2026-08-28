@@ -98,25 +98,39 @@ device:
       the service is retired — and there is precedent: Samsung shut down the
       hub v1 cloud on 2021-06-30, rendering those hubs useless.
     methods:
-      - type: "wired"
-        verified: false
-        description: "Ethernet to the router; the hub takes a DHCP lease and advertises _smartthings._tcp.local."
-        steps:
-          - action: "Connect Ethernet, insert the batteries if fitted, and apply power."
-            actor: "user"
-            expect: "Status LED settles to solid green once the hub reaches the service."
-            timeout_seconds: 300
       - type: "cloud_account"
+        name: "Ethernet, then redeem the welcome code"
+        role: "primary"
         verified: false
-        description: "The welcome code on the hub is redeemed in the vendor app, which binds the hub to a Samsung account and provisions its drivers."
-        cloud:
-          provider: "Samsung SmartThings"
-          local_alternative: >
-            None known. Edge drivers execute locally once installed, but the
-            claim step and driver distribution both require the cloud.
-        steps:
-          - action: "Redeem the welcome code printed on the underside of the hub in the vendor app."
-            actor: "user"
+        description: >
+          The hub reaches the LAN over Ethernet and is then bound to a
+          Samsung account with the welcome code printed on its underside,
+          receiving its identity and driver set from there. The second
+          phase is not optional and there is no documented way to skip it
+          — local Edge drivers run on the hub afterwards, but the hub has
+          to be claimed first.
+        stages:
+          - type: "wired"
+            name: "Get the hub onto the LAN"
+            verified: false
+            description: "Ethernet to the router; the hub takes a DHCP lease and advertises _smartthings._tcp.local."
+            steps:
+              - action: "Connect Ethernet, insert the batteries if fitted, and apply power."
+                actor: "user"
+                expect: "Status LED settles to solid green once the hub reaches the service."
+                timeout_seconds: 300
+          - type: "cloud_account"
+            name: "Redeem the welcome code into a Samsung account"
+            verified: false
+            description: "The welcome code on the hub is redeemed in the vendor app, which binds the hub to a Samsung account and provisions its drivers."
+            cloud:
+              provider: "Samsung SmartThings"
+              local_alternative: >
+                None known. Edge drivers execute locally once installed, but the
+                claim step and driver distribution both require the cloud.
+            steps:
+              - action: "Redeem the welcome code printed on the underside of the hub in the vendor app."
+                actor: "user"
     factory_reset:
       confidence: "low"
       effect: "Unclaims the hub and clears its ZigBee/Z-Wave networks; every paired radio device must be re-joined afterwards."
@@ -268,3 +282,13 @@ helpful_urls:
   - title: "Home Assistant SmartThings integration"
     url: "https://www.home-assistant.io/integrations/smartthings/"
     description: "HA core integration for the SmartThings platform (cloud API; not the local hub protocol documented here)."
+  - title: "SmartThings Hub quick start guide (PDF)"
+    url: "http://pdf.lowes.com/useandcareguides/887276268354_use.pdf"
+    kind: "manual"
+    description: >
+      Retailer-hosted copy of the vendor quick start.
+  - title: "Samsung SmartThings Hub manual"
+    url: "https://www.manualslib.com/manual/1315371/Samsung-Smartthings-Hub.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the STH-ETH-250 (v2).

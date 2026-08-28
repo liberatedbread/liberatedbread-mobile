@@ -130,13 +130,49 @@ device:
             actor: "user"
             expect: "The player connects to the server and appears in its player list."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Per-model reset procedures exist (front-panel key combos on the
-        Classic/Boom/Radio/Touch) but are not transcribed here. A reset returns
-        the player to first-boot network setup; it stores no cloud credential
-        once pointed at a local server.
+        Returns the player to factory defaults: network credentials and the
+        configured server go, and the player comes back to its first-run setup.
+        Music and playlists live on the server, not on the player.
+      description: >
+        Different hardware in this family, different gesture, and knowing which
+        one you have matters more than the timing. The Touch has a recessed
+        button on the back above the power inlet. The Radio has no reset button
+        at all and does it from the front panel during power-on instead — hold
+        More while power is applied, or power it off and hold More as it comes
+        back.
+
+        These are abandoned devices whose vendor support pages are the only
+        published source, so grab the procedure while Logitech's articles are
+        still up.
+      procedures:
+        - name: "Squeezebox Touch: recessed reset button on the back"
+          verified: false
+          basis: "Logitech's support article on resetting the Squeezebox Touch to factory defaults."
+          applies_to: ["Squeezebox Touch"]
+          hold_seconds: 3
+          power_state: "on"
+          glyph: "generic/pinhole-reset.svg"
+          steps:
+            - action: "Find the reset button on the back, above the AC power inlet."
+              actor: "user"
+            - action: "Press and hold it for three to five seconds."
+              actor: "user"
+        - name: "Squeezebox Radio: More button held during power-on"
+          verified: false
+          basis: "Logitech's support article on resetting the Squeezebox Radio to factory defaults."
+          applies_to: ["Squeezebox Radio"]
+          power_state: "booting"
+          glyph: "generic/hold-button-while-powering-on.svg"
+          indicator: "A factory-reset message on the screen."
+          steps:
+            - action: "Hold the Power button until the unit turns off, then touch Power to bring it back."
+              actor: "user"
+            - action: "Immediately press and hold the More button until the factory-reset message appears."
+              actor: "user"
+              notes: "Equivalently, hold More while plugging the Radio back in."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -295,3 +331,13 @@ helpful_urls:
   - title: "Lyrion — CLI / JSON-RPC reference"
     url: "https://lyrion.org/reference/cli/using-the-cli/"
     description: "The control API on TCP 9090 and HTTP /jsonrpc.js used by the commands here."
+  - title: "Squeezebox Radio quick start guide (PDF, Logitech-hosted)"
+    url: "https://download01.logitech.com/support/24377.1.0.pdf"
+    kind: "manual"
+    description: >
+      Still on Logitech's own download server despite the product's discontinuation.
+  - title: "Logitech Squeezebox Radio user manual (Internet Archive)"
+    url: "https://archive.org/details/manualzilla-id-7011262"
+    kind: "manual"
+    description: >
+      Full manual, preserved on the Internet Archive.

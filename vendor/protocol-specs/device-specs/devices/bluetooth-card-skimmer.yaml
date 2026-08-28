@@ -95,6 +95,15 @@ device:
       stored_on_device: []
       issued_to_client: []
       notes: "No credential crosses to this app; it never connects."
+  pairing:
+    required: "unknown"
+    confidence: "low"
+    notes: >
+      Nobody has established whether this device demands a bond before
+      its control surface answers. Recorded as unknown rather than
+      assumed open: the rest of this spec was derived without a
+      connection ever being made, so the absence of a pairing step in
+      it is not evidence that there is none.
   discovery:
     # Match the HC-05 / HC-06 module name (Classic modules, so BLE visibility is
     # module-dependent). We dropped HC-03 / HC-08 / FREE2MOVE and the "malicious"

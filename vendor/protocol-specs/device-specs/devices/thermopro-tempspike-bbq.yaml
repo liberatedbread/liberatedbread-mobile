@@ -163,11 +163,24 @@ device:
           - action: Exchange commands in the family's framing (0xAA|payload|checksum|0xFF only on TP9012; checksum-including-opcode on TP920; raw opcodes on TP940/TP960/TP980) — or, on TempSpike models, just parse the advertisements.
             actor: client
     factory_reset:
-      applicable: "unknown"
+      applicable: false
       confidence: low
       effect: >
-        No factory-reset button sequence was established from the app or any
-        public source. Consult the model's manual rather than guessing.
+        No factory reset is documented for the probe or its transmitter, and
+        there is little for one to clear: the pair holds no credentials and no
+        bond, and the probe is a sealed wireless unit that charges in its
+        transmitter. Removing the probe from the transmitter and re-seating it
+        is the only state change available.
+      description: >
+        `false` rather than `unknown`, but with low confidence, and the
+        distinction is worth stating: the answer here is that the vendor
+        documents no reset and the hardware exposes no control that could be
+        one, not that a reset was found and ruled out. If a TempSpike ever
+        turns out to have a service gesture, this should become `true`.
+
+        The pairing between the probe and its own transmitter is a separate
+        matter from the BLE link this spec documents, and re-seating the probe
+        in the transmitter is what re-establishes it.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -207,6 +220,13 @@ device:
         WiFi passphrase IS involved for those families, and TP980W is sold as
         a Wi-Fi model. No TP980 cloud broker endpoint is identifiable from
         static code; the binding rides the device did.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: TP9012
       description: Basic 2-probe BBQ thermometer (app code family — "TP9012" may be an internal/OEM designation; no retail page found)
@@ -504,3 +524,8 @@ helpful_urls:
       Home Assistant (HACS) integration for the active-BLE ThermoPro meat thermometers
       (TP902/TP920/TP960 incl. TempSpike, TP25W) built on this reverse-engineered protocol;
       the HA core thermopro integration covers only the passive-advertising climate sensors.
+  - title: "ThermoPro TP960 TempSpike manuals"
+    url: "https://www.manualslib.com/products/Thermopro-Tp960-13097163.html"
+    kind: "manual"
+    description: >
+      Vendor manuals for the TempSpike. They document setup and the probe-in-charger pairing, and no factory reset — which is the basis for this spec's `applicable: false`.

@@ -103,11 +103,44 @@ device:
           - action: "Consume the local stream at rtsp://{bridge-ip}:8554/{camera-name}."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Camera reset is done via the Wyze app / physical button (vendor cloud);
-        the bridge holds no camera state to reset. Not transcribed here.
+        Clears the camera's WiFi credentials and its account binding, putting
+        it back to first-run state. Footage on the microSD card is not
+        affected; anything in the vendor cloud is a separate matter.
+      description: >
+        One button, two meanings, separated only by how long it is held —
+        which is exactly the shape that catches people out. Three to five
+        seconds is setup mode, which is what someone changing WiFi networks
+        actually wants and which keeps the camera's identity. Ten seconds is
+        the factory reset. Overshooting the first turns a five-minute job into
+        re-adding the camera from scratch.
+      procedures:
+        - name: "Setup button held for 3-5 seconds (setup mode, not a reset)"
+          verified: false
+          basis: "Wyze's own support documentation for the Cam v3 and Pan v3."
+          hold_seconds: 3
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          indicator: "The camera announces that it is ready to connect and the status light flashes."
+          indicator_glyph: "generic/led-flashing.svg"
+          steps:
+            - action: "With the camera powered, press and hold the setup button on its base for three to five seconds."
+              actor: "user"
+              expect: "A spoken \"ready to connect\" prompt and a flashing status light."
+        - name: "Setup button held for ten seconds (factory reset)"
+          verified: false
+          basis: "Wyze's support article on factory resetting the Cam v1/v2/v3 and Pan v1."
+          hold_seconds: 10
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: "With the camera plugged in, press and hold the setup button on its base for ten seconds."
+              actor: "user"
+            - action: "Release and wait at least thirty seconds for the camera to come back."
+              actor: "device"
+              timeout_seconds: 60
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -148,3 +181,8 @@ helpful_urls:
   - title: "mrlt8/docker-wyze-bridge"
     url: "https://github.com/mrlt8/docker-wyze-bridge"
     description: "Community bridge: exposes Wyze cameras as local RTSP/RTMP/HLS/WebRTC; needs a Wyze API Key/ID."
+  - title: "Wyze: factory reset for Cam v1/v2/v3 and Pan v1 (Internet Archive)"
+    url: "https://web.archive.org/web/20260109203023/https://support.wyze.com/hc/en-us/articles/360031484511-How-to-factory-reset-your-Wyze-Cam-v1-v2-v3-or-Pan-v1"
+    kind: "vendor_support"
+    description: >
+      Source for the 3-5 second setup mode versus 10 second factory reset in this spec. Archived because Wyze's live support site refuses automated requests.

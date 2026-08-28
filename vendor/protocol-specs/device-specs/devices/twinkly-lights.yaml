@@ -116,11 +116,39 @@ device:
             actor: "client"
             expect: "The device reboots and joins the home Wi-Fi."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Returns the device to its AP/onboarding state. The reset gesture is not
-        documented in the sources used here.
+        Clears the stored WiFi credentials and returns the controller to its
+        own AP for onboarding. Effects on saved effects and mapping are not
+        stated by the vendor guides and were not tested.
+      description: >
+        One gesture across every generation of string, curtain and spritzer:
+        the button has to be held while power arrives, so a user pressing it
+        on a running set will see nothing happen. The colour the LEDs turn is
+        the confirmation, and it differs by edition — red on the standard
+        products, amber on the Gold Edition, which is the one detail likely to
+        make someone release the button too early.
+      procedures:
+        - name: "Controller button held while power is applied"
+          glyph: "generic/hold-button-while-powering-on.svg"
+          verified: false
+          basis: >
+            Twinkly's own quick-start guides for the LED string, curtain and
+            spritzer products, which give the same three steps in every
+            language edition examined.
+          power_state: "booting"
+          indicator: "All LEDs turn red — amber on the Gold Edition."
+          steps:
+            - action: "Unplug Twinkly from the power socket."
+              actor: "user"
+            - action: "Press and hold the controller button."
+              actor: "user"
+            - action: "While still holding the button, plug Twinkly back in."
+              actor: "user"
+            - action: "Keep holding until all LEDs turn red (amber on the Gold Edition), then release."
+              actor: "user"
+              expect: "Every LED lights red, or amber on the Gold Edition."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -217,3 +245,8 @@ helpful_urls:
   - title: "xled-docs — unofficial API documentation"
     url: "https://xled-docs.readthedocs.io/"
     description: "Endpoint-by-endpoint REST + UDP realtime protocol documentation."
+  - title: "Twinkly Strings instruction manual"
+    url: "https://www.manualslib.com/manual/2130528/Twinkly-Strings.html"
+    kind: "manual"
+    description: >
+      Vendor instructions, including the hold-while-powering-on reset in this spec and the red/amber LED confirmation that differs by edition.

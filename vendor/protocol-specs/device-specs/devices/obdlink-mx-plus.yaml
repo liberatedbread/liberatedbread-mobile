@@ -175,6 +175,13 @@ device:
     # the recovered OCTech.OBDLink.dll / OCTech.OBD2.dll — app-confirmed,
     # not hardware-tested.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "Serial Pipe (BLE)"
@@ -344,3 +351,13 @@ helpful_urls:
   - title: "OBDLink firmware API (device manifest endpoint)"
     url: "https://api.obdlink.com/devices"
     description: "Base URL the app downloads firmware manifests and v5 firmware files from (strings in OCTech.OBDLink.dll: /devices, /devices/{0}/{1}, /private/{0})."
+  - title: "OBDLink MX+ support: manuals and documents"
+    url: "https://www.obdlink.com/support/mxp/"
+    kind: "vendor_support"
+    description: >
+      Vendor support hub carrying the user manual and troubleshooting guide.
+  - title: "OBDLink MX+ quick start guide, iOS (PDF, vendor-hosted)"
+    url: "https://www.scantool.net/scantool/downloads/263/mxp_qsg_ios.pdf"
+    kind: "manual"
+    description: >
+      Vendor quick start, including the pairing behaviour this spec's family notes describe.

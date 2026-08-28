@@ -604,3 +604,10 @@ obd:
         location: "under dash near green connectors (2002–2005 only)"
         function: "flash-write enable (must join with green)"
         verification: "reported"
+
+helpful_urls:
+  - title: "2018 Subaru Impreza quick guide (PDF, vendor-hosted)"
+    url: "https://techinfo.subaru.com/stis/doc/ownerManual/MSA5B1801B_STIS.pdf"
+    kind: "manual"
+    description: >
+      From Subaru's own technical information site — the generation this spec's OBD-II and CAN notes were taken against.

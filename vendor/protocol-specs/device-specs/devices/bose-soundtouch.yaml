@@ -337,3 +337,8 @@ helpful_urls:
   - title: "thlucas1/bosesoundtouchapi"
     url: "https://github.com/thlucas1/bosesoundtouchapi"
     description: "MIT Python client; notes that the Home Speaker 300/500/700 do NOT use this API."
+  - title: "Bose SoundTouch 10 owner's manual"
+    url: "https://www.manualslib.com/manual/973928/Bose-Soundtouch-10.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the exemplar speaker. Bose has wound the SoundTouch platform down, so keep a copy.

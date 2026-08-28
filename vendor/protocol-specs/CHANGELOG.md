@@ -6,6 +6,232 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`name` and `role` on every setup method, where a device has more than
+  one.** `setup.methods` was described only as "first is preferred", and
+  preference turned out to be too weak a word for what the 25 multi-method
+  specs were putting in it. Three genuine ways to hand one purifier its Wi-Fi
+  credentials sat in the same shape as a flow that applies only to hardware
+  sold before 2019, and as one that has not worked since the cloud was
+  switched off. Rendered as a flat list, every one of those read as *pick one*.
+
+  `role` is now the field that says which kind each entry is — `primary`,
+  `alternative`, `variant`, `historical` — and `name` is what a reader chooses
+  by, because `type` answers "what protocol does it speak" and two methods on
+  one device routinely share it (both Rachio generations are `softap_http`).
+  The schema requires the pair once a spec lists two or more methods.
+
+- **`stages`, for a route that takes more than one phase.** "Plug in the
+  Ethernet" and "press the link button" are both required and happen in that
+  order; listed side by side as sibling methods they read as a choice, and a
+  reader does one of them and stops. Eight routes were shaped that way — the
+  Hue and Lutron bridges, the SmartThings hub, both ovens, the Bravia, the
+  Tuya soil tester and the Mi scale — and each is now a single method carrying
+  its phases in `stages`.
+
+  A stage is a method in miniature and `$ref`s the same definition, so it
+  keeps its own `type`, prose, detail block and steps: folding Hue's two
+  phases together does not lose that the first half is `wired`, or that the
+  second is the half that issues credentials. Stages do not nest, carry no
+  `role`, and a method has `steps` or `stages`, never both.
+
+### Changed
+
+- **Setup methods are ordered for a reader working down the list**, not by
+  when they were written: the recommended route and its alternatives easiest
+  first, then hardware-specific variants, and anything that cannot be
+  completed today last. Easiest means fewest obstacles — no vendor account
+  beats an account, and a replayed flow beats one nobody has run. Reordered
+  where that was wrong: the Denon leads with Ethernet rather than on-screen
+  Wi-Fi entry, the devolo migration route comes before the inclusion flow that
+  died with the cloud, and Rachio leads with the Gen 3 units still being sold.
+  `scripts/test_device_specs.py` enforces the mechanical parts of the rule.
+
+### Fixed
+
+- **mopeka-pro-check-ble: two procedures that were not factory resets.** The
+  block said `applicable: unknown` and `effect: no documented factory reset`
+  and then listed two procedures anyway — waking the sensor with the SYNC
+  button, and re-syncing a display monitor to a different sensor. Neither
+  clears anything on the sensor, and the second one is performed on a
+  different piece of hardware. Both moved to `pairing.enter_pairing_mode`,
+  which until now said `required: false` and nothing else while the
+  procedures a reader needed sat one block up under the wrong heading.
+
+- **Manual links on 177 of 199 device specs.** Every URL verified to resolve
+  before it was committed; `scripts/check_links.py` re-checks them, and it
+  now reports 822 of 886 links across the whole catalogue resolving, with the
+  remainder blocked-not-dead (403 from hosts that refuse bots) and nothing
+  genuinely gone.
+
+  The `kind` tag is what makes them useful: `manual` for a product manual,
+  `vendor_support` for a vendor's support article or app page, `standard`
+  where the specification IS the documentation (IPP Everywhere, Matter), so a
+  consumer can surface "the manual" instead of an undifferentiated list.
+
+  Vendor-hosted wherever one exists — Bosch, Segway, Victron, Subaru's
+  techinfo site, Fronius, Kwikset, Schlage, Reolink, Hikvision, TP-Link,
+  Prusa, Spider Farmer, Tapplock, Ignis Pixel, Chemion, AdMore, Astral Hoops.
+  Internet Archive where the vendor is gone or the host refuses automated
+  requests: Anki, Smarter, Brava, June, Pebble, Nuki's reset article, the
+  PeriPage and BIO-key manuals, an FCC filing for the Shining Mask.
+
+  For hardware that genuinely has no manual — unbranded ODM LED controllers,
+  the ELK-BLEDOM strip, iTag trackers, iDotMatrix panels, CoolLEDX signs —
+  the entry says what it actually is: a community protocol write-up, a
+  working driver, or the vendor's app-store listing, tagged `implementation`
+  or `vendor_support` rather than dressed up as vendor documentation. Twenty-
+  two specs still carry no such link, and for most of them the honest answer
+  is that no vendor ever published one.
+
+  Some links were already in the catalogue and simply had no `kind` — the
+  Android adb docs, MotoScan's vendor pages, VentureHeat's guide, tiro.cc.
+  Those were tagged in place rather than duplicated.
+
+
+- **Manual links, with a `kind` field so a consumer can find them.** An owner
+  holding abandoned hardware wants the manual, and once the vendor's site is
+  gone that is the one thing they cannot find. `helpful_urls` entries now take
+  an optional `kind` (`manual`, `vendor_support`, `teardown`,
+  `protocol_writeup`, `implementation`, `forum`, `standard`, `video`,
+  `other`), so an app can surface "the manual" instead of rendering an
+  undifferentiated list. 54 specs carry one so far, every URL verified to
+  resolve first — the schema's own rule is that a dead link is worse than no
+  link.
+
+  Where a site refuses automated requests or the vendor is gone, the link is
+  to the Internet Archive: Anki's support site, Smarter's, Brava's, June's,
+  Pebble's and Nuki's reset article resolve there and nowhere else we can
+  check. For dead-vendor hardware an archive link is not a fallback, it is the
+  only thing that will still resolve in five years.
+
+- **`scripts/check_links.py`**, which is how those get verified and re-checked.
+  Deliberately not in CI: it talks to the open internet, and a third-party site
+  having a bad afternoon must not fail a spec PR. It separates *gone* (404 —
+  replace it, and `--wayback` will look up a snapshot) from *blocked* (403 or a
+  timeout from a site that is alive but refuses bots), so nobody deletes a good
+  link to make the output green.
+
+### Fixed
+
+- **Sixteen dead `helpful_urls` across the catalogue**, found by the new
+  checker on its first run — four delisted Play Store pages, a switched-off
+  vendor OTA endpoint, a deleted discussion thread, and vendor documentation
+  that had simply moved. Nine were repointed at a live equivalent or an
+  archived snapshot; seven pointed at things that no longer exist in any form
+  and were dropped. One of them, UBPM, had not died at all — it moved from
+  GitHub to Codeberg.
+
+- **Two specs linked the same URL twice** with different titles, a merge
+  artefact rather than a second reference. Merged, with a convention test so
+  it stays that way.
+
+
+- **`device.pairing` — the layer the schema had no room for, on 115 specs.**
+  A device that answers a scan and then refuses to talk is the most common
+  first-contact failure in this registry, and until now nothing in the schema
+  could say why. The only pairing fields were `setup.methods[].ble
+  .pairing_required` and `pin_source`, reachable only from inside a
+  provisioning method — which put them out of reach of the 111 BLE specs, the
+  great majority of which have `setup.required: false` and no provisioning
+  method to hang anything off. So the facts an implementer is actually blocked
+  by survived as prose in research notes, or not at all.
+
+  The new block answers, per device: whether a client must pair, how the
+  pairing is authenticated (`security_mode`), whether the device *stores* the
+  bond (`bonding` — a separate question, and the one that predicts the failure
+  three weeks later), where a PIN comes from, who else may be holding the
+  device (`exclusivity`, with the `recovery` line a consumer puts on screen),
+  how to make the device pairable, and how to unpair without a factory reset.
+  A convention test requires the block on every BLE spec, because "nothing
+  pairs, connect and go" is the common answer and stating it is the point:
+  silence reads one way to an implementer who assumes the best and the
+  opposite way to one who assumes the worst.
+
+  Nothing was invented to fill it. 106 of the 110 specs already asserted their
+  pairing story somewhere in prose, so this is a structuring pass over facts
+  that were present but unfindable — Mi Scale's "no pairing/bonding; any
+  central can connect", Aranet4's firmware split where advertisements need
+  nothing and GATT needs a passkey off the e-ink display, Omron's single
+  overwriteable key slot where a second phone *replaces* the first, Ember's
+  trap where the one protected characteristic makes BlueZ start SMP on its own
+  and a headless host with no pairing agent then fails it and gets dropped.
+  Six Wi-Fi, Zigbee and Z-Wave specs with real pairing gained one too: Hue's
+  30-second link-button window, Lutron's CSR signed while the button is held,
+  Roomba's password disclosed over TLS during a button window and only while
+  no other client holds the robot.
+
+- **`glyphs/` — instruction glyphs, tracked with Git LFS, referenced from
+  specs.** Prose carries "hold for ten seconds" perfectly well. What it
+  carries badly is *which* unlabelled button, on a device the reader is
+  holding for the first time. Reset and pairing procedures, and any setup
+  step, may now carry a `glyph` and an `indicator_glyph`; 10 drawings cover 59
+  references. Six are generic gestures — hold a button, hold it *while power
+  arrives*, press two at once, a recessed pinhole, an on-screen menu, an
+  indicator that is flashing rather than steady — which is where most of the
+  value is, since those recur across dozens of devices.
+
+  Glyphs are advisory by construction: no field requires one, every step reads
+  correctly without it, and a consumer that ships none loses only the picture.
+  Paths are relative to `glyphs/` so a consumer vendoring this repo can rebase
+  the set by prepending its own root. `scripts/validate_glyphs.py` enforces
+  what the schema cannot — every reference resolves, every file is referenced,
+  every file has a manifest entry with alt text and a clean-room attestation,
+  and no glyph reaches outside itself with a script, a remote image or a font.
+
+  Clean-room: glyphs are **drawn, never derived**. Vendor artwork is
+  inadmissible in any processed form — not a manual crop, not a trace over a
+  product photo, not a recoloured app asset — and `origin: original_drawing`
+  is the only value the validator accepts. Reading a manual to learn where the
+  button is remains research; tracing its diagram is not.
+
+- **`$defs/physical_procedure`, shared by resets and pairing.** On most
+  devices the reset and the pairing-mode entry are the same button held for
+  different lengths of time, and describing them in two shapes is how one ends
+  up without a `basis`. The reset procedure shape was hoisted unchanged and
+  gained `press_count` (five presses is not a long hold, and a consumer draws
+  a tally rather than a countdown) and `power_state` — whose `booting` value
+  names the single most common reason a correct-looking reset does not take:
+  the user holds the button on a running device.
+
+- **New docs**: [Pairing, Bonding and Unpairing](docs/protocols/pairing.md)
+  and [Instruction Glyphs](docs/contributing/glyphs.md), both in the nav. The
+  "three things called setup" note is now four.
+
+### Changed
+
+- **Factory-reset data backfilled from 416 vendor manuals.** The reset
+  *structure* has been good for a while; the data was thin — 66 specs said
+  `applicable: unknown`, 85 carried no procedure at all, 130 were low
+  confidence. Mining the manuals for 71 of those devices produced real,
+  citable procedures for 23 of them: `unknown` is down to 53, specs with no
+  procedure down to 62, and medium confidence up from 34 to 51. Every added
+  procedure is `verified: false` with a `basis` naming the manual, because a
+  vendor document and a bench run are not the same evidence.
+
+  Some of what surfaced is the kind of thing that costs a person an afternoon.
+  MikroTik's one button means three different things depending on which LED
+  state you release on, and the third leaves a router that will not boot until
+  something feeds it an OS. Fronius deactivates the Solar API by default after
+  a factory reset on bundle 1.14.1 and up — reset the datalogger to fix
+  something else and the local API this spec documents is simply gone, with a
+  device that is plainly on the network and answers nothing. Victron's reset
+  does not take unless the unit loses power within ten seconds. Omron's is the
+  same two-button hold performed twice, with a flashing display between them
+  as the checkpoint.
+
+- **Four specs said a device has no factory reset when it has one.**
+  `applicable: false` was being used to mean "resetting it clears nothing *we*
+  store", which is a different claim — UniFi cameras, UniFi network gear,
+  MikroTik boards, Matter devices and Tuya devices all reset perfectly well.
+  The field is about the device. Corrected, with the "clears nothing of ours"
+  point kept where it belongs, in `effect`.
+
+- **ThermoPro's pairing block was wrong within an hour of being written**: the
+  vendor manual documents a two-second hold of the F/C button to enter pairing
+  status, which the block had said did not exist. Corrected from the manual.
+
 ### Fixed
 
 - **The catalogue validates against its own schema again — 188/188.** `main`

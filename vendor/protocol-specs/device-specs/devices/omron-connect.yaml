@@ -190,13 +190,47 @@ device:
             actor: client
             expect: "Monitor displays OK. Later sessions: write 01 || key, expect 8100, then start transmission (0000) and read EEPROM."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        No factory-reset procedure is documented in the RE sources. The
-        binding is a single overwriteable 16-byte key: putting the monitor
-        back into pairing mode and programming a new key replaces it, so
-        a reset is not needed to rebind. Stored measurements survive.
+        Deletes everything stored on the monitor — measurement history, user
+        settings and the bound client key — and returns it to defaults. The
+        clock is cleared with the rest, which is why the year starts flashing
+        as soon as the reset completes.
+      description: >
+        Note that a reset is NOT how you rebind this device. The client key is
+        a single overwriteable slot, so pairing a new phone only needs pairing
+        mode and a new key; a reset additionally destroys the measurement
+        history, which for a blood-pressure monitor is the part the owner
+        actually cares about. Use this when handing the monitor on, not when
+        changing phones.
+
+        The gesture is deliberately awkward — the same two-button hold twice
+        over — and the display flashing between the two is the checkpoint. If
+        it is not flashing, the first hold did not register.
+      procedures:
+        - name: "Both buttons held twice, from the off state"
+          glyph: "generic/press-two-buttons.svg"
+          verified: false
+          basis: >
+            Omron's instruction manual for the 7 Series (BP7350), section
+            'Restoring Your Monitor to the Default Settings'. Not replayed
+            against a monitor here.
+          hold_seconds: 3
+          press_count: 2
+          power_state: "off"
+          indicator: "The display flashes after the first hold, and stops flashing after the second."
+          steps:
+            - action: "Make sure the monitor is turned off."
+              actor: "user"
+            - action: "Holding the Bluetooth button on the rear of the monitor down, press and hold [START/STOP] for more than three seconds."
+              actor: "user"
+              expect: "The display flashes."
+            - action: "Holding the rear button down again, press and hold [START/STOP] for more than three seconds."
+              actor: "user"
+              expect: "The display stops flashing; the monitor is back to defaults."
+            - action: "Press [START/STOP] to turn the monitor off. The year will be flashing when it is next used — the clock has to be set again."
+              actor: "user"
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -218,6 +252,65 @@ device:
         readout itself is unencrypted on models listed as supported
         (HEM-7196T excepted — encrypted, unsupported).
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    pin:
+      source: "user_chosen"
+      length: 16
+      notes: >
+        Not a typed PIN: a 16-byte unlock key chosen by the pairing client and
+        programmed into the monitor while it is in pairing mode. It is the only
+        secret in the protocol, and every later session presents it instead of
+        re-pairing.
+    exclusivity:
+      single_connection: true
+      single_bond: true
+      recovery: >
+        The monitor holds exactly one client key — a hardware limit, not a
+        policy — so a second client does not join, it replaces. Re-enter
+        pairing mode and program the new client's key, and the previous one
+        stops working.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The single stored client key, by overwriting it. Measurements and settings are untouched."
+      notes: >
+        Rebinding is done by pairing again rather than by clearing anything:
+        the key is a single overwriteable slot, so putting the monitor back
+        into pairing mode and programming a new key is the whole procedure.
+        No reset is needed to hand the device to a new phone.
+    enter_pairing_mode:
+      required: true
+      indicator: "The display shows a blinking -P-."
+      procedures:
+        - name: "Hold the Bluetooth button until the display shows a blinking -P-"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            omblepy's documented flow and the vendor app's own instructions;
+            not replayed against a monitor here.
+          hold_seconds: 3
+          power_state: "on"
+          indicator: "Blinking -P- on the monitor's display."
+          steps:
+            - action: "Hold the monitor's Bluetooth button for 3-5 seconds."
+              actor: "user"
+              expect: "The display shows a blinking -P-."
+            - action: "Connect and enable notifications on RX channel 0, which triggers the monitor's SMP security request."
+              actor: "client"
+            - action: "Program the 16-byte key while the -P- is still blinking; the monitor accepts key programming in no other state."
+              actor: "client"
+    notes: >
+      Two layers, and the order between them is mandatory: OS-level bonding
+      happens first, triggered by the monitor's own security request when the
+      client enables notifications, and only then will it accept the key
+      programming that authorises later sessions. The monitor measures
+      perfectly well with no pairing at all — only syncing the stored readings
+      needs any of this — and the HEM-7380T1 and HEM-7377T1 support readout
+      without the key flow entirely.
   variants:
     - model: "HEM-7322T (M700 Intelli IT / BP786)"
       status: "readout + pairing verified (omblepy, hass-omron)"
@@ -398,10 +491,22 @@ helpful_urls:
   - title: "hass-omron: manifest.json"
     url: "https://github.com/eigger/hass-omron/blob/master/custom_components/omron/manifest.json"
     description: "The Bluetooth discovery matchers this spec's discovery section lists."
-  - title: "UBPM"
-    url: "https://github.com/LazyT/ubpm"
+  - title: "UBPM — Universal Blood Pressure Manager"
+    url: "https://codeberg.org/lazyt/ubpm"
     description: >-
       Desktop tool for Omron monitors, and the source of the multi-channel reception insight.
+      It moved from GitHub to Codeberg and the old URL is gone; its predecessor OBPM
+      (github.com/LazyT/obpm) is unmaintained and points here.
   - title: "Gadgetbridge issue #3656 (Omron)"
     url: "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/3656"
     description: "Upstream issue thread on Omron blood-pressure monitor support."
+  - title: "Omron HEM-7322 instruction manual"
+    url: "https://www.manualslib.com/manual/928334/Omron-Hem-7322.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the HEM-7322, whose EEPROM layout is the worked example in this spec.
+  - title: "Omron HEM-7322 user manual (PDF)"
+    url: "https://portalimages.blob.core.windows.net/products/pdfs/x3vjjm44_HEM-7322UserManual.pdf"
+    kind: "manual"
+    description: >
+      A vendor-distributed PDF of the same document.

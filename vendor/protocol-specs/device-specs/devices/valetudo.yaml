@@ -103,12 +103,59 @@ device:
             actor: "user"
             expect: "The robot serves Valetudo's web UI/REST on its own IP."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Reverting to stock firmware / re-rooting is model-specific and not
-        covered here. Valetudo config is stored on the robot; a firmware reflash
-        clears it.
+        Returns the robot to its stock first-run state: WiFi credentials and
+        configuration are cleared and it raises its own access point for
+        provisioning again.
+
+        The consequence this spec exists to warn about: a factory reset also
+        REMOVES VALETUDO. The rooted firmware is part of what the reset wipes,
+        so a robot that comes back from a reset is a cloud robot again, and the
+        rooting procedure has to be repeated before any of this spec applies.
+      description: >
+        That warning is the whole point of the block. Everywhere else a factory
+        reset is a recovery step; here it is the one operation that undoes the
+        work, and it is easy to reach for when a robot is misbehaving. Try
+        Valetudo's own WiFi reconfiguration first — it is reachable from the
+        web interface and costs nothing.
+
+        The gesture is the robot vendor's, not Valetudo's, and differs by
+        model: on the Roborock S5 it is the recharge button held while the
+        recessed reset button under the dustbin flap is pressed, and the robot
+        announces the reset and takes five to ten minutes. Other models reset
+        WiFi alone by holding the two outer buttons until the robot speaks.
+        After a reset the robot serves its provisioning interface on its own
+        network, commonly at 192.168.8.1.
+      procedures:
+        - name: "Vendor factory reset (removes Valetudo)"
+          verified: false
+          basis: >
+            Community documentation for rooting and running Valetudo on
+            Roborock and Dreame hardware. Model-specific; confirm against the
+            robot's own manual.
+          hold_seconds: 3
+          power_state: "on"
+          glyph: "generic/press-two-buttons.svg"
+          indicator: "The robot announces that it is performing a factory reset."
+          steps:
+            - action: "Press and hold the recharge button."
+              actor: "user"
+            - action: "While still holding, press the recessed reset button under the flap by the dustbin with a pin."
+              actor: "user"
+              expect: "The robot announces a factory reset; it takes five to ten minutes."
+            - action: "Re-root the robot and reinstall Valetudo before expecting any of this spec to apply again."
+              actor: "user"
+        - name: "WiFi reset only (keeps the firmware)"
+          verified: false
+          basis: "Community documentation for the same hardware; the button pair differs by model."
+          power_state: "on"
+          glyph: "generic/press-two-buttons.svg"
+          steps:
+            - action: "Hold the two outer buttons until the robot speaks."
+              actor: "user"
+              expect: "The robot raises its provisioning network, commonly reachable at 192.168.8.1."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -191,3 +238,13 @@ helpful_urls:
   - title: "dustbuilder (Dennis Giese)"
     url: "https://builder.dontvacuum.me/"
     description: "Builds rooted firmware images with Valetudo prepackaged and DNS patched."
+  - title: "Valetudo: rooting essentials"
+    url: "https://valetudo.cloud/pages/rooting-essentials/"
+    kind: "vendor_support"
+    description: >
+      Project documentation on how rooting works and what it costs — read before touching a robot, and before any factory reset, which removes Valetudo.
+  - title: "Valetudo: Roborock installation"
+    url: "https://valetudo.cloud/pages/installation/roborock/"
+    kind: "vendor_support"
+    description: >
+      Per-model install paths and exploit chains for the Roborock family.

@@ -47,7 +47,7 @@ device:
     status: "documented_api"
     reverse_engineered: false
     upstream_docs:
-      - url: "https://www.concept2.com/service/monitors/pm5/software"
+      - url: "https://www.concept2.com/service/monitors/pm5"
         title: "Concept2 — PM5 software / Bluetooth interface definition"
         covers: "The PM5 BLE interface definition (services, characteristics, CSAFE control) and the CSAFE command spec."
     notes: >
@@ -98,12 +98,39 @@ device:
           - action: "Connect, subscribe to Rowing notifications (0x0031/0x0032/0x0033), read Device Info."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Turning wireless off (or powering down) unpairs; there is no network or
-        cloud state to clear. No dedicated factory-reset procedure is documented
-        here.
+        Wipes every stored workout from the monitor's memory, including the
+        lifetime meters — which for a rower is usually the whole point of the
+        device's history and cannot be recovered afterwards. Settings return
+        to factory defaults.
+      description: >
+        A three-handed gesture: two buttons on the front held while a third,
+        recessed on the back, is pressed and released. Getting it wrong just
+        reboots the monitor, so the confirmation to watch for is the monitor
+        saying it is setting factory defaults — release only then.
+
+        Offload anything worth keeping first. The USB Logbook path can export
+        results to a flash drive before the reset removes them.
+      procedures:
+        - name: "Units and Display held while the rear reset button is pressed"
+          verified: false
+          basis: >
+            Concept2's community forum and the vendor's own PM5
+            troubleshooting pages, which give the same sequence. Not run
+            against a monitor here.
+          power_state: "any"
+          glyph: "generic/press-two-buttons.svg"
+          indicator: "The monitor displays that it is setting factory defaults."
+          steps:
+            - action: "Press and hold both the Units and the Display buttons on the front of the PM5."
+              actor: "user"
+            - action: "While still holding them, press and release the recessed reset button on the back, below and to the right of the battery door."
+              actor: "user"
+            - action: "Keep holding the two front buttons until the monitor says it is setting factory defaults, then release."
+              actor: "user"
+              expect: "Factory-defaults message on the display; all stored results and the lifetime meters are gone."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -114,6 +141,13 @@ device:
       issued_to_client: []
       notes: "No pairing secret; connection is by proximity/user-confirm on the monitor."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "ce060010-43e5-11e4-916c-0800200c9a66"
     name: "PM5 Device Information (0x0010)"
@@ -185,5 +219,10 @@ entities:
 
 helpful_urls:
   - title: "Concept2 — PM5 software / Bluetooth interface"
-    url: "https://www.concept2.com/service/monitors/pm5/software"
+    url: "https://www.concept2.com/service/monitors/pm5"
     description: "The vendor-published PM5 BLE interface definition and the CSAFE command spec."
+  - title: "Concept2: PM5 troubleshooting"
+    url: "https://www.concept2.com/support/monitors/pm5/troubleshooting"
+    kind: "vendor_support"
+    description: >
+      Vendor support hub for the PM5, including the factory-reset button sequence.

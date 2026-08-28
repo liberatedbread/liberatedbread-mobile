@@ -95,11 +95,28 @@ device:
       applicable: "unknown"
       confidence: low
       effect: >
-        Not established. No factory-reset command is documented for the
-        LT716/FitPro platform. CAUTION: the Telink OTA path is the dangerous
-        corner — issuing OTA-start (0x01FF) on the wrong handle can
-        soft-brick the band, recoverable only via SWS flashing. Not stated
-        rather than guessed.
+        Not established over the wire: no factory-reset command is documented
+        for the LT716/FitPro platform. The band's own menu offers a restore,
+        so something exists — but what it clears, and whether it drops the
+        bind state a client cares about, is unknown. CAUTION: the Telink OTA
+        path is the dangerous corner — issuing OTA-start (0x01FF) on the wrong
+        handle can soft-brick the band, recoverable only via SWS flashing. Not
+        stated rather than guessed.
+      procedures:
+        - name: "Restore factory settings from the band's own menu"
+          glyph: "generic/on-screen-menu.svg"
+          verified: false
+          basis: >
+            The V6 heart-rate smart bracelet instruction manual for this
+            hardware class. On-device only — it says nothing about what the
+            restore clears, and no equivalent BLE command has been identified.
+          power_state: "on"
+          steps:
+            - action: "Swipe to the More screen on the band."
+              actor: "user"
+            - action: "Select the restore-factory-settings entry and press the touch area to confirm."
+              actor: "user"
+              expect: "The band restores its factory settings. What that includes is not documented."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -114,6 +131,13 @@ device:
         BLE-only; no WiFi passphrase crosses the link. No authentication of any
         kind, so health data is readable by anyone in range.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9d"
     name: "Nordic UART Service (FitPro transport)"
@@ -207,9 +231,6 @@ helpful_urls:
   - title: "lcd-badge-ble"
     url: "https://github.com/DynamicDevices/lcd-badge-ble"
     description: "Another client for this Telink LCD-badge hardware family."
-  - title: "FitPro app on Google Play"
-    url: "https://play.google.com/store/apps/details?id=xfkj.fitpro"
-    description: "The vendor app the M6 is sold with, package xfkj.fitpro."
   - title: "Gadgetbridge: FitPro devices"
     url: "https://gadgetbridge.org/gadgets/wearables/fitpro/"
     description: "Gadgetbridge's support page for the FitPro protocol family."

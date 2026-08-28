@@ -452,6 +452,11 @@ helpful_urls:
     url: "https://gist.github.com/marcelrv/e81253c14053bcd78753554df1230dd3"
     description: "Collected open resources for thermal imagers; useful starting point for a clean-room HT-W01 client."
 
+  - title: "VEVOR YXP160 / YXP256 / VT256 mobile phone thermal imager manual (PDF)"
+    url: "https://images.thdstatic.com/catalog/pdfImages/17/1784eaf5-4373-4d67-a32b-4466c2a6e9f0.pdf"
+    kind: "manual"
+    description: >
+      Retailer-hosted copy of the vendor manual covering all three models in this family.
 evidence:
   artifacts:
     - type: "static_analysis"

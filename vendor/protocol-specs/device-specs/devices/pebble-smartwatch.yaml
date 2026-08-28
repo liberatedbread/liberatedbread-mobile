@@ -102,12 +102,43 @@ device:
           - action: "Connect via libpebble2 (Bluetooth serial, or the port-9000 WebSocket dev connection) and exchange Pebble Protocol packets."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        A factory reset (from the watch settings) clears apps and pairings and
-        returns the watch to first-run. The exact menu path varies by model and
-        is not transcribed here.
+        Erases everything held on the watch — installed watchapps, settings
+        and local data — and returns it to first-run state, so it must be
+        paired and set up again.
+      description: >
+        Two routes with different reach, and the button one is what matters for
+        abandoned hardware: it works on a watch that is frozen, unresponsive or
+        has no working phone app to drive the menu, which after the vendor's
+        shutdown is most of them.
+
+        Button combinations differ across the range. Back, Up and Select
+        together covers most models; the Steel is documented as Back and Select
+        held for about ten seconds. Hold until the Pebble logo appears.
+      procedures:
+        - name: "Factory Reset from the watch's own menu"
+          verified: false
+          basis: "Pebble's own help documentation, preserved by the Rebble archive."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "On the watch, open Settings, then System, then Factory Reset."
+              actor: "user"
+        - name: "Hard reset from the buttons (frozen or unresponsive watch)"
+          verified: false
+          basis: >
+            Pebble's help documentation and community troubleshooting guides.
+            Combinations differ by model; the Steel is documented separately.
+          hold_seconds: 10
+          power_state: "on"
+          glyph: "generic/press-two-buttons.svg"
+          indicator: "The Pebble logo appears."
+          steps:
+            - action: "Hold Back, Up and Select together until the Pebble logo appears. On the Pebble Steel, hold Back and Select for about ten seconds."
+              actor: "user"
+              expect: "The watch restarts to the Pebble logo."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -120,6 +151,23 @@ device:
       issued_to_client: []
       notes: "Standard Bluetooth pairing; no application-layer credential. No Wi-Fi on the watch itself."
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "unknown"
+    bonding: "required"
+    notes: >
+      Ordinary operating-system Bluetooth pairing: the Pebble Protocol rides a
+      serial link to an already-paired watch, so pairing is a precondition
+      handled by the host stack rather than a step a client implements. Which
+      association model the watch requests is not established here, and for a
+      client it does not much matter — the pairing is done in the OS settings
+      before any of this protocol starts.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        Watches advertise a "Pebble ..." name and pair as a standard Bluetooth
+        device; there is no separate mode to enter from the client side.
 # The Pebble Protocol application layer + libpebble2 transports. Bespoke
 # protocol material lives under `protocol_details` because the schema's top
 # level is closed; that block is the schema's namespace for single-spec
@@ -157,3 +205,8 @@ helpful_urls:
   - title: "The new Pebble is now 100% open source (2025)"
     url: "https://ericmigi.com/blog/pebble-watch-software-is-now-100percent-open-source/"
     description: "Context on the 2025 PebbleOS open-source release and Core Devices' new hardware."
+  - title: "Pebble help: Factory Reset (Rebble archive, Internet Archive)"
+    url: "https://web.archive.org/web/20250917113045/https://pebble-help-legacy.rebble.io/help.getpebble.com/customer/en/portal/articles/1774455-factory-reset02ff.html?b_id=8515"
+    kind: "vendor_support"
+    description: >
+      Pebble's own help article, preserved twice over — by Rebble and then by the Internet Archive. Source for the reset in this spec.

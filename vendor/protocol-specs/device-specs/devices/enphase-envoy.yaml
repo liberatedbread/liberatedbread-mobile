@@ -89,6 +89,8 @@ device:
       to be open or digest-authenticated.
     methods:
       - type: "wired"
+        name: "Ethernet or Enphase powerline"
+        role: "primary"
         verified: false
         description: "Ethernet or Enphase powerline (PLC) to the router; no wireless provisioning needed."
         steps:
@@ -97,6 +99,8 @@ device:
             expect: "Gateway answers _enphase-envoy._tcp.local. with TXT serialnum."
             timeout_seconds: 180
       - type: "softap_http"
+        name: "Installer AP and the gateway's own web UI"
+        role: "alternative"
         verified: false
         description: >
           For wireless installs the gateway hosts a temporary access point and
@@ -124,6 +128,8 @@ device:
           - action: "Select the home network and apply."
             actor: "user"
       - type: "ble_provisioning"
+        name: "BLE commissioning from the vendor app"
+        role: "alternative"
         verified: false
         description: >
           The Android app can also commission the gateway over BLE GATT using
@@ -343,3 +349,13 @@ helpful_urls:
   - title: "Home Assistant Enphase Envoy integration"
     url: "https://www.home-assistant.io/integrations/enphase_envoy/"
     description: "HA core integration over the local Envoy API (owner-token auth); the production consumer of the endpoints documented here."
+  - title: "Enphase IQ Envoy installation and operation manual (PDF, vendor-hosted)"
+    url: "https://media-store.enphase.com/productattach/i/q/iq_envoy_-_installation_operation_manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the IQ Envoy / IQ Gateway.
+  - title: "Enphase Envoy installation and operation manual (PDF, vendor-hosted)"
+    url: "https://enphase.com/sites/default/files/2021-06/Envoy_Installation_and_Operation_NA.pdf"
+    kind: "manual"
+    description: >
+      The earlier Envoy communications gateway, which this spec's family also covers.

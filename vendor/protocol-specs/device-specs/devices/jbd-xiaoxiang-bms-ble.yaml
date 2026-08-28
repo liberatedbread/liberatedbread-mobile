@@ -102,12 +102,44 @@ device:
           - action: "Write a 0x03 read to 0xFF02 to get basic info; parse the 0xDD..77 response."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
+      applicable: true
       confidence: low
       effect: >
-        No documented BLE 'factory reset' beyond EEPROM config writes in factory
-        mode (0x56 0x78 to register 0x00). Clearing/reconfiguring protection
-        parameters is done through those registers, not a single reset.
+        A firmware-level restore returns the BMS to factory defaults, including
+        clearing a Bluetooth password that has been set. Cell configuration and
+        protection parameters go with it — on a battery management system those
+        are safety settings, so this is not a casual operation.
+      description: >
+        The reason anyone needs this is almost always the same: somebody set a
+        Bluetooth password in the Xiaoxiang app and is now locked out, because
+        that app has no function to remove one. Two escape routes exist and
+        both leave the app behind. JBD's own desktop tool includes a
+        password-clearing function, and the open BMS-Tools desktop application
+        can send a password-reset command; either way a USB communication
+        module is needed, not Bluetooth.
+
+        A full factory restore via button presses on the PCB itself is also
+        described by the community, but no reliable sequence was established
+        here — hence low confidence and no steps for it. On a device whose
+        parameters decide whether a lithium pack is protected, a guessed button
+        sequence is not something to publish.
+
+        SAFETY: after any restore, verify the cell count, capacity and every
+        protection threshold before reconnecting the pack.
+      procedures:
+        - name: "Clear the Bluetooth password over USB"
+          verified: false
+          basis: >
+            JBD's desktop tool and the open BMS-Tools application, both
+            documented by the Xiaoxiang/Overkill Solar community as the way
+            out of a password lockout. Requires a USB communication module.
+          power_state: "on"
+          steps:
+            - action: "Connect a USB communication module to the BMS's UART port."
+              actor: "user"
+            - action: "From JBD's desktop tool or BMS-Tools, issue the password clear / password reset command."
+              actor: "client"
+              expect: "The Bluetooth password is removed and the app connects again."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -124,6 +156,13 @@ device:
         unauthenticated. SAFETY: writing FET-control or protection registers on a
         live pack is dangerous — treat writes as advanced.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000ff00-0000-1000-8000-00805f9b34fb"
     name: "JBD BMS service"
@@ -183,3 +222,13 @@ helpful_urls:
   - title: "kolins-cz/Smart-BMS-Bluetooth-ESP32"
     url: "https://github.com/kolins-cz/Smart-BMS-Bluetooth-ESP32"
     description: "ESP32 BLE client; source of the 0xFF00/0xFF01/0xFF02 UUIDs."
+  - title: "Overkill Solar / JBD BMS instruction manual (Internet Archive)"
+    url: "https://archive.org/details/overkill-solar-bms-instruction-manual"
+    kind: "manual"
+    description: >
+      The community-standard manual for these BMS boards, archived. Also carries JBD protocol notes and wiring diagrams.
+  - title: "Overkill Solar BMS series instruction manual"
+    url: "https://www.manualslib.com/manual/1933154/Overkill-Solar-Bms-Series.html"
+    kind: "manual"
+    description: >
+      Alternative copy covering the JBD-SP04S020, SP10S009 and SP25S003 models.

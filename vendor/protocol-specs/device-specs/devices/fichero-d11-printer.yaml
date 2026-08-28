@@ -143,6 +143,13 @@ device:
       issued_to_client: []
       notes: "BLE-only. No auth."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "D11s (Fichero)"
       identification:
@@ -258,3 +265,10 @@ entities:
   - platform: "sensor"
     name: "Battery Level"
     state_characteristic: "00002af0-0000-1000-8000-00805f9b34fb"
+
+helpful_urls:
+  - title: "NIIMBOT D11 wireless label printer manual (Internet Archive)"
+    url: "https://web.archive.org/web/20250316042638/https://manuals.plus/niimbot/d11-wireless-label-printer-manual"
+    kind: "manual"
+    description: >
+      Manual for the D11 platform this printer is built on — the Fichero is an AiYin D11s underneath. Archived because the live host refuses automated requests.

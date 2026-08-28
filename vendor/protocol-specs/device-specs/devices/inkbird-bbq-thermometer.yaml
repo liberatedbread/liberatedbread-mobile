@@ -153,14 +153,26 @@ device:
               Temperature readings. 0x7ffe, 0x7fff and 0x8000 mean the probe is
               disconnected or faulty, not a real temperature.
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: false
+      confidence: medium
       effect: >
-        Not established. No reset command was recovered from the vendor app,
-        and the BLE side holds no credential or binding that a reset would
-        clear — the handshake code is a fixed constant, not per-device state.
-        The IBBQ-4BW's WiFi side is provisioned through Tuya and is out of scope
-        for this spec, which documents the direct BLE protocol.
+        No factory reset, and nothing on the device that one would clear. The
+        thermometer holds no credentials and no bond — it takes a connection
+        from any central with no pairing code at all — and its alarm and unit
+        settings are pushed from the app each session rather than persisted as
+        state a user would need to wipe.
+      description: >
+        `false` rather than `unknown`: Inkbird's own documentation covers
+        pairing, charging and use, and describes no reset control on any of
+        these units; the sealed lithium battery on the IBT-4XS means there is
+        not even a battery to pull.
+
+        What people reach for a reset to fix is almost always the exclusivity
+        problem instead, and Inkbird are explicit about it: one phone talks to
+        one unit at a time, and a phone that has been paired with a different
+        Inkbird thermometer has to have that record deleted before it will
+        connect to this one. That is recorded in `pairing.exclusivity`, and it
+        is the actual fix.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -179,6 +191,13 @@ device:
         WiFi provisioning on the IBBQ-4BW goes through the Tuya SDK, which this
         spec does not document.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "IBT-2X / BG-BT1X"
       probes: 1
@@ -629,3 +648,13 @@ helpful_urls:
     url: "https://github.com/Bluetooth-Devices/inkbird-ble"
   - title: "Home Assistant Inkbird integration docs"
     url: "https://www.home-assistant.io/integrations/inkbird"
+  - title: "INKBIRD IBT-4XS user manual (PDF)"
+    url: "https://m.media-amazon.com/images/I/B1MeDqCdsHS.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual. Confirms no pairing code is needed and that one phone talks to one unit at a time.
+  - title: "INKBIRD: IBT-4XS product page"
+    url: "https://www.inkbird.com/products/bluetooth-grill-thermometer-ibt-4xs"
+    kind: "vendor_support"
+    description: >
+      Vendor product page with current documentation.

@@ -51,7 +51,7 @@ below), even *first-time setup* can be done cloud-free.
 | Property | Value |
 |----------|-------|
 | Setup required | Yes — one-time Wi-Fi provisioning |
-| Method | `ble_provisioning` (preferred, **verified against hardware 2026-08-15**), `softap_udp` AP mode (fallback, unreplayed), or WPS (unreplayed) — the first two fully documented below |
+| Method | Pick one: `ble_provisioning` — the BLE setup peripheral, **verified against hardware 2026-08-15** — or `softap_udp` AP mode (unreplayed), or router WPS (unreplayed). The first two are fully documented below |
 | Setup identity | BLE name `RabbitAirSetup` + service `366048ae-…`; AP mode: open `rabbitair_*` SSID, device at `192.168.10.1` (mDNS `rabbitair-setup.local`) |
 | Passphrase protection | none — setup commands are cleartext JSON; encryption starts only after the user key is pushed |
 | Confidence | high (BLE path replayed against a real MinusA2; AP-mode path still decompile-only) |

@@ -216,3 +216,13 @@ helpful_urls:
   - title: "UselessMnemonic/OpenWiz"
     url: "https://github.com/UselessMnemonic/OpenWiz"
     description: "MIT — documents the UDP 38899/38900 ports and the JSON method set."
+  - title: "Signify WiZ portable light operator's manual"
+    url: "https://www.manualslib.com/manual/3362650/Signify-Wiz-9290032117.html"
+    kind: "manual"
+    description: >
+      Vendor manual for a WiZ Wi-Fi/BLE fixture.
+  - title: "WiZ app setup instructions (PDF)"
+    url: "https://secure.img1-fg.wfcdn.com/docresources/0/206/2068391.pdf"
+    kind: "manual"
+    description: >
+      The onboarding flow this spec's local UDP control sits behind.

@@ -175,6 +175,8 @@ device:
       other local client will ask for.
     methods:
       - type: "button_pairing"
+        name: "HOME-button handshake, no account"
+        role: "primary"
         verified: false
         description: >
           The account-free route, and dorita980's `get-roomba-password`. With
@@ -256,6 +258,8 @@ device:
             actor: "client"
             notes: "A reply shorter than 8 bytes means disclosure mode was not active — retry from the button hold. A reply of f0 05 ef cc 3b 29 03 means the model cannot disclose locally."
       - type: "cloud_account"
+        name: "Read the same credential out of the vendor account"
+        role: "alternative"
         verified: false
         description: >
           The fallback when the button handshake will not complete, and
@@ -391,6 +395,51 @@ device:
         revoke one without resetting. Store it the way you would a password,
         not the way you would a device id.
 
+  pairing:
+    required: true
+    confidence: "high"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "derived"
+      notes: >
+        The robot discloses its own password over TLS during the button
+        window, in reply to a fixed 7-byte probe. Per-unit, so no value
+        appears here; the client stores what it is handed and presents it on
+        every later MQTT connection.
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Close the iRobot app on every phone before starting. The robot serves
+        one client at a time, and a phone that reconnects in the background is
+        the usual reason the password exchange times out on an otherwise
+        correct implementation.
+    enter_pairing_mode:
+      required: true
+      indicator: "The robot plays a series of tones."
+      procedures:
+        - name: "Hold HOME on the docked robot until it plays a series of tones"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            dorita980's get-roomba-password flow, the account-free route this
+            spec documents. Not replayed against a robot here.
+          hold_seconds: 2
+          power_state: "on"
+          indicator: "A series of tones from the robot."
+          steps:
+            - action: "Dock the robot, power it on, and close the vendor app everywhere."
+              actor: "user"
+            - action: "Hold the HOME button for about two seconds, until the robot plays a series of tones, then release."
+              actor: "user"
+            - action: "Open TLS to the robot on port 8883, accepting its self-signed certificate, and run the password-disclosure probe."
+              actor: "client"
+    notes: >
+      The password is disclosed only during a short window after the button
+      hold, and only while no other client holds the robot — two conditions
+      that fail independently and present identically as a timeout. Getting
+      the credential is the whole of the difficulty; once stored, local
+      control needs no account and no further pairing.
   variants:
     - model: "690, 890, 960, 980, e5, e6, i3–i8, j7, j9, s9, Braava jet m6"
       name: "Local-MQTT generation"
@@ -932,3 +981,8 @@ helpful_urls:
       boundary. The clearest public confirmation that both ports must reach the
       robot and that discovery is broadcast-scoped — useful for telling a robot
       that is asleep apart from one the scanner cannot route to.
+  - title: "iRobot Roomba i7 owner's manual"
+    url: "https://www.manualslib.com/manual/1951685/Irobot-Roomba-I7.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the i7. The HOME-button password disclosure this spec documents is a community route, not one iRobot describe.

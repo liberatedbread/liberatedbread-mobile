@@ -128,12 +128,56 @@ device:
             actor: user
             expect: "The board reports door status and can open/close; the physical wall button keeps working."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Clearing remotes is done at the opener (hold the learn button ~6 s to
-        wipe all paired remotes/panels), which also de-pairs the bridge — re-pair
-        afterward. Not a network operation.
+        Erases every paired remote control and keyless entry code from the
+        opener. On WiFi models the triple sequence additionally clears MyQ
+        accessories and the built-in gateway's settings. Everything erased has
+        to be reprogrammed, including remotes that were working fine.
+      description: >
+        Two operations behind one button, and the difference is how many times
+        you do it. A single hold erases the radio codes — the answer to "I sold
+        the house and want the previous owner's remotes dead". The triple
+        sequence is the full reset that also takes the network side with it.
+
+        Do the second one only if you mean it: every remote and keypad in the
+        household stops working at the same moment, and if the only way back
+        into the garage was one of them, that is a problem to solve before
+        pressing rather than after.
+      procedures:
+        - name: "LEARN button held once — erase all remotes and keypad codes"
+          verified: false
+          basis: >
+            Chamberlain/LiftMaster dealer and alarm-monitoring documentation
+            for the WiFi opener range, which give the same hold and the same
+            LED behaviour.
+          hold_seconds: 6
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          indicator: "The LEARN LED goes out."
+          steps:
+            - action: "Press and hold the LEARN button on the opener until the LEARN LED goes out — about six to ten seconds."
+              actor: "user"
+              expect: "All remote and keyless-entry codes are erased."
+        - name: "LEARN button held three times — full factory reset (WiFi models)"
+          verified: false
+          basis: >
+            Chamberlain/LiftMaster factory-reset instructions for the WiFi
+            garage door opener range.
+          hold_seconds: 6
+          press_count: 3
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          indicator: "Three quick beeps after the third hold."
+          steps:
+            - action: "Press and hold the LEARN button until the LEARN LED goes out."
+              actor: "user"
+            - action: "Immediately hold it again until the LED goes out."
+              actor: "user"
+            - action: "Immediately hold it a third time until the LED goes out."
+              actor: "user"
+              expect: "Three quick beeps — codes, MyQ accessories and the gateway settings are all erased."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -217,6 +261,16 @@ helpful_urls:
     title: "Konnected GDO blaQ"
     description: "Commercial Security+ bridge board; local HA/Hubitat/HomeKit, no cloud."
 
+  - title: "LiftMaster Wi-Fi garage door opener owner's manual (PDF)"
+    url: "https://static1.squarespace.com/static/61084be6010cdc16a11b5142/t/6191a8758aa3f027feacc8ff/1636935809109/114A5229EN.pdf"
+    kind: "manual"
+    description: >
+      The manual this spec's LEARN-button procedures were read from, covering the 8355W/8360W belt and chain drives.
+  - title: "myQ Wi-Fi garage door opener owner's manual (PDF)"
+    url: "https://images.thdstatic.com/catalog/pdfImages/45/45323402-c2ee-4fd9-872b-9c851d44e544.pdf"
+    kind: "manual"
+    description: >
+      A retailer-hosted copy covering the myQ accessory pairing and the Wi-Fi settings.
 evidence:
   artifacts:
     - type: "live_probe"

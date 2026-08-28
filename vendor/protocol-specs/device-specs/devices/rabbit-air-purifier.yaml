@@ -210,6 +210,8 @@ device:
       unit to the vendor cloud and is optional for local control.
     methods:
       - type: "ble_provisioning"
+        name: "BLE setup peripheral (replayed on hardware)"
+        role: "primary"
         verified: true
         verification_notes: >
           Replayed against hardware 2026-08-15 (MinusA2 gen2, mcu 2.2.8):
@@ -313,6 +315,8 @@ device:
               - "Give it minutes first — the verified join took ~4 minutes."
               - "Wrong passphrase or a 5 GHz-only BSSID; re-enter setup mode and re-run cmd 1 with the corrected credentials."
       - type: "softap_udp"
+        name: "Setup AP, same commands over UDP or TCP"
+        role: "alternative"
         verified: false
         description: >
           AP-mode fallback (the app's "local" connection method): the
@@ -342,6 +346,8 @@ device:
             actor: "client"
             expect: "cmd 2 leaves AP mode; the unit joins Wi-Fi and appears on the LAN advertising _rabbitair._udp.local."
       - type: "wps"
+        name: "Router WPS push-button"
+        role: "alternative"
         verified: false
         description: >
           Third connection method in the app: router push-button WPS join.
@@ -350,17 +356,36 @@ device:
           transport carries those commands in WPS mode has not been traced;
           recorded for completeness — prefer the BLE method.
     factory_reset:
-      # `unknown` rather than `true`: the effect below is believed, but no
-      # procedure has been established here, and `applicable: true` would
-      # oblige this spec to list steps it would have to invent.
-      applicable: "unknown"
-      confidence: "low"
+      applicable: true
+      confidence: medium
       effect: >
-        Clears Wi-Fi credentials and cloud binding, returning the unit to
-        its unprovisioned state (BLE advertising / setup AP). Exact button
-        procedure varies by model and is described in the printed manuals
-        (Wi-Fi/reset control on the unit's panel); not captured in this
-        project — stated at low confidence rather than guessed.
+        Clears the stored wireless configuration and restarts wireless setup.
+        The vendor describes it as resetting the WIRELESS settings rather than
+        the whole device, so filter counters and unit settings are not
+        documented as being affected.
+      description: >
+        No hold time is published — the vendor's instruction is simply to hold
+        the wireless button to initiate or reset wireless setup. Treat the
+        purifier's own wireless indicator as the signal and expect to
+        experiment a little.
+
+        Two things to have in place before starting, both of which the vendor
+        calls out and both of which fail silently: the phone's Bluetooth has to
+        be on, and the network has to be 2.4 GHz.
+      procedures:
+        - name: "Hold the wireless button on the unit"
+          verified: false
+          basis: >
+            Rabbit Air's wireless FAQ and the MinusA2 WiFi product page. No
+            hold time is given by the vendor.
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: "Press and hold the wireless button on the purifier."
+              actor: "user"
+              expect: "Wireless setup restarts and the unit is ready to be onboarded again."
+            - action: "Re-run setup from the vendor app with phone Bluetooth on and a 2.4 GHz network selected."
+              actor: "user"
     rejoin:
       in_place_supported: false
       requires_factory_reset: true
@@ -1064,3 +1089,8 @@ helpful_urls:
   - url: "https://github.com/yepher/RabbiteAirProtocol"
     title: "yepher/RabbiteAirProtocol"
     description: "Independent 2021 research on the earlier iOS app; corroborates the BLE service/characteristic UUID roles, the setup-AP address 192.168.10.1:9009, and the AES-CBC + appended-IV construction."
+  - title: "Rabbit Air: wireless FAQ (iOS and Android)"
+    url: "https://www.rabbitair.com/pages/wireless-faq"
+    kind: "vendor_support"
+    description: >
+      Vendor FAQ covering wireless setup and the wireless-reset button used in this spec.

@@ -264,6 +264,13 @@ device:
         BLE-only models exchange no credentials. The optional 8-byte BLE
         auth key (AA B1 / 33 B2) is static per device.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "00010203-0405-0607-0809-0a0b0c0d1910"
     name: "Govee Light Command Service"
@@ -446,3 +453,8 @@ helpful_urls:
     description: >-
       HA core integration for the firmware-side LAN API that WiFi models in this family can
       expose once enabled.
+  - title: "Govee H6199 RGBIC TV backlight user manual"
+    url: "https://www.manualslib.com/manual/2492115/Govee-H6199.html"
+    kind: "manual"
+    description: >
+      A vendor manual from the same generation, for the app pairing flow and the power-cycle reset shared across the Govee lighting range.

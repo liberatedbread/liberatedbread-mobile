@@ -174,51 +174,64 @@ device:
       Settings > Network > Home Network Setup > IP Control.
     methods:
       - type: "device_ui"
+        name: "First-run setup, then turn on IP control"
+        role: "primary"
         verified: false
         description: >
-          First-run network onboarding on the TV itself: language, Google
-          account (skippable), WiFi selection and passphrase on the
-          on-screen keyboard. No app-driven provisioning protocol exists to
-          reimplement.
-        steps:
-          - action: "Power on the TV and follow the on-screen setup with the remote."
-            actor: "user"
-          - action: "Select the WiFi network and enter the passphrase on the TV itself."
-            actor: "user"
-            expect: "TV reports a successful connection."
-      - type: "device_ui"
-        verified: false
-        description: >
-          Enable IP control and choose authentication. The client cannot do
-          any of this remotely — that is the point of the setting.
-        steps:
-          - action: >
-              On the TV: Settings > Network & Internet > Remote device
-              settings > Control remotely = On. (Older models: Settings >
-              Network > Home Network Setup > IP Control.)
-            actor: "user"
-          - action: >
-              EITHER set a pre-shared key: Remote device settings > IP
-              control > Pre-Shared Key, and hand the same string to the
-              client, which sends it as the X-Auth-PSK header on every
-              request. This is the flow Home Assistant recommends as the
-              more reliable one.
-            actor: "user"
-          - action: >
-              OR use PIN pairing: the client POSTs actRegister to
-              /sony/accessControl with HTTP Basic auth (empty username,
-              password "0000") to make the TV display a PIN, then repeats
-              the call with the shown PIN as the Basic-auth password; the
-              TV answers 200 with an auth cookie the client sends on every
-              later request. See bravia_common.authentication.
-            actor: "client"
-            expect: "actRegister returns 200 and a Set-Cookie: auth=... header."
-          - action: "Confirm the REST API is reachable and authenticated."
-            actor: "client"
-            request:
-              protocol: "http"
-              action: "POST /sony/system with getSystemInformation"
-            expect: "JSON result with product, model, serial, macAddr, name."
+          Two jobs, both on the TV's own screen and neither
+          reimplementable: get the set onto the network, then enable IP
+          control and choose its authentication. The second phase is the
+          one every client depends on, and it is OFF until a person turns
+          it on — which is the point of the setting.
+        stages:
+          - type: "device_ui"
+            name: "First-run network setup on the TV"
+            verified: false
+            description: >
+              First-run network onboarding on the TV itself: language, Google
+              account (skippable), WiFi selection and passphrase on the
+              on-screen keyboard. No app-driven provisioning protocol exists to
+              reimplement.
+            steps:
+              - action: "Power on the TV and follow the on-screen setup with the remote."
+                actor: "user"
+              - action: "Select the WiFi network and enter the passphrase on the TV itself."
+                actor: "user"
+                expect: "TV reports a successful connection."
+          - type: "device_ui"
+            name: "Turn on IP control and pick its authentication"
+            verified: false
+            description: >
+              Enable IP control and choose authentication. The client cannot do
+              any of this remotely — that is the point of the setting.
+            steps:
+              - action: >
+                  On the TV: Settings > Network & Internet > Remote device
+                  settings > Control remotely = On. (Older models: Settings >
+                  Network > Home Network Setup > IP Control.)
+                actor: "user"
+              - action: >
+                  EITHER set a pre-shared key: Remote device settings > IP
+                  control > Pre-Shared Key, and hand the same string to the
+                  client, which sends it as the X-Auth-PSK header on every
+                  request. This is the flow Home Assistant recommends as the
+                  more reliable one.
+                actor: "user"
+              - action: >
+                  OR use PIN pairing: the client POSTs actRegister to
+                  /sony/accessControl with HTTP Basic auth (empty username,
+                  password "0000") to make the TV display a PIN, then repeats
+                  the call with the shown PIN as the Basic-auth password; the
+                  TV answers 200 with an auth cookie the client sends on every
+                  later request. See bravia_common.authentication.
+                actor: "client"
+                expect: "actRegister returns 200 and a Set-Cookie: auth=... header."
+              - action: "Confirm the REST API is reachable and authenticated."
+                actor: "client"
+                request:
+                  protocol: "http"
+                  action: "POST /sony/system with getSystemInformation"
+                expect: "JSON result with product, model, serial, macAddr, name."
     factory_reset:
       confidence: "medium"
       effect: >
@@ -309,6 +322,16 @@ helpful_urls:
   - title: "Community IRCC code table incl. consumer-only keys (PowerOff, Exit, Rewind, Forward)"
     url: "https://github.com/cmos486/Bravia-REST-API/blob/main/COMMANDS.md"
 
+  - title: "Sony BRAVIA XR series reference manual"
+    url: "https://www.manualslib.com/manual/2602899/Sony-Bravia-Xr-Series.html"
+    kind: "manual"
+    description: >
+      Vendor reference manual for the current XR sets.
+  - title: "Sony BRAVIA series reference manual"
+    url: "https://www.manualslib.com/manual/899962/Sony-Bravia-Series.html"
+    kind: "manual"
+    description: >
+      Reference manual for the earlier sets, which are the ones still speaking IRCC-IP.
 evidence:
   documentation_review:
     date: "2026-08-11"

@@ -187,6 +187,13 @@ device:
       wifi_passphrase_protection: "not_applicable"
       notes: "No credentials of any kind: the panel is BLE-only and the command path carries no authentication."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
     name: "Helmet Display Command Service"
@@ -541,6 +548,7 @@ helpful_urls:
     description: "Vendor companion app — the app this spec's static analysis is based on."
   - title: "TIRO Innovation Technology"
     url: "https://www.tiro.cc/"
+    kind: "vendor_support"
     description: "OEM behind the panel and the Shining Display app (site live 2026-08-18)."
   - title: "GoneUp/mask-go"
     url: "https://github.com/GoneUp/mask-go"

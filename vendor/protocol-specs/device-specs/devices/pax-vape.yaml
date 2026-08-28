@@ -155,6 +155,13 @@ device:
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 helpful_urls:
   - title: "Reverse Engineering Bluetooth Vapes -- Part 1"
     url: "https://blraaz.me/reverse-engineering/2021/08/29/bluetooth-reverse-engineering.html"
@@ -166,6 +173,11 @@ helpful_urls:
     url: "https://github.com/varenc/pax-app-bluetooth-server"
     description: "Preserves the official PAX Web Bluetooth app bundle (captured April 2026 before the May 2026 shutdown); best public source for the Era Pro enrollment path."
 
+  - title: "PAX 3 quick start manual"
+    url: "https://www.manualslib.com/manual/1979624/Pax-3.html"
+    kind: "manual"
+    description: >
+      Vendor quick start for the PAX 3, the exemplar in this spec.
 # Custom consumer-side handler: derives the per-device OFB session key and
 # frames [ciphertext || IV]. Declarative — names a future Rust handler.
 protocol_handler: "pax_ofb"

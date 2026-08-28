@@ -194,6 +194,13 @@ device:
         formula is public, in this document) and issue commands. Physical
         proximity is the only access control — relevant for a wearable or
         vehicle installation, not a home ceiling.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "SP105E"
       identification:
@@ -487,3 +494,13 @@ helpful_urls:
       The vendor app (com.vengean.magicled) whose v2.2.1 build this protocol was
       recovered from. Fully local — no account, no cloud — so it remains usable as a
       fallback while it stays installable.
+  - title: "SP105E magic controller operating instructions (PDF)"
+    url: "https://suntechlite.com/wp-content/uploads/2023/05/SP105E-Magic-Controller-Suntech.pdf"
+    kind: "manual"
+    description: >
+      Distributor-hosted vendor instructions for the SP105E.
+  - title: "SP105E instructions (PDF)"
+    url: "https://ledlightscanada.com/wp-content/uploads/2020/10/SP105E-Instructions-LLC.pdf"
+    kind: "manual"
+    description: >
+      Another distributor's copy, covering the Magic-LED app pairing.

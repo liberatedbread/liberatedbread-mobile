@@ -115,6 +115,8 @@ device:
       frequently sold under the same listing.
     methods:
       - type: "ble_direct"
+        name: "BLE dongles: connect, usually with no pairing"
+        role: "variant"
         verified: false
         description: >
           BLE variants advertise as soon as they are powered from the connector
@@ -140,6 +142,8 @@ device:
               version it does not implement, so match the adapter_profile class
               rather than trusting this string.
       - type: "button_pairing"
+        name: "Bluetooth Classic dongles: OS pairing, fixed PIN"
+        role: "variant"
         verified: false
         description: >
           Bluetooth Classic (SPP/RFCOMM) variants pair with the host operating
@@ -197,6 +201,43 @@ device:
         radio range of a plugged-in adapter can reach the vehicle bus through
         it — worth knowing before leaving one in the connector.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "legacy_pin"
+    bonding: "optional"
+    pin:
+      source: "fixed_default"
+      notes: >
+        A fixed default per adapter family, and not a secret in any meaningful
+        sense: the PIN is proof that somebody is standing at the car with the
+        dongle in reach. Bluetooth Classic variants commonly take 1234, 0000
+        or 6789; the OBDLink CX uses 123456. No single value is stated here
+        because this spec covers a family, and the right one is whichever the
+        adapter in hand documents.
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Remove the old bond from the previous host as well as the new one.
+        Classic adapters accept one connection at a time, and a phone
+        reconnecting in the background is the usual cause of an adapter that
+        "stopped working" after a second device was introduced.
+    enter_pairing_mode:
+      required: false
+      window_seconds: 300
+      notes: >
+        Most BLE adapters advertise and accept connections whenever they have
+        power from the connector. The window applies to the OBDLink CX, which
+        is pairable only for the first five minutes after power-on — plug it
+        in, then pair, in that order, or cycle the ignition and start again.
+    notes: >
+      The adapter is the one part of an OBD-II stack that does need pairing,
+      which is why this block reads harder than the rest of the spec. Most BLE
+      adapters take a connection with no pairing at all; the exception is
+      family A, whose OBDLink CX exemplar bonds with a legacy PIN and always
+      encrypts the link. Bluetooth Classic SPP variants pair with the host
+      operating system first and are not reachable from an application until
+      they have.
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "Serial Pipe (family A)"
@@ -416,3 +457,10 @@ obd:
       name: "Active diagnostic session (standard UDS DID)"
       type: "uint8"
       verification: "reported"
+
+helpful_urls:
+  - title: "ELM327 Bluetooth OBD-II user manual (PDF)"
+    url: "https://www.seicane.com/media/installation/0/SC01/Seicane-SC01-OBDII-User-Instruction.pdf"
+    kind: "manual"
+    description: >
+      A representative vendor manual for the generic ELM327 Bluetooth adapters this spec's family covers. There is no single vendor: these are unbranded clones, which is why the pairing PIN in this spec is given as a family default rather than one value.

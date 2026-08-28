@@ -325,3 +325,8 @@ helpful_urls:
   - url: "https://www.home-assistant.io/integrations/dyson/"
     title: "Home Assistant Dyson integration"
     description: "HA core integration speaking this same local MQTT protocol to Dyson purifiers/fans once device credentials are known."
+  - title: "Dyson Pure Cool tower operating manual (PDF, vendor-hosted)"
+    url: "https://www.dyson.com/content/dam/dyson/maintenance/user-guides/en_anz/air-treatment/ANZ_Pure_Cool_Tower_OPMAN.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the tower form factor this spec's exemplar belongs to.

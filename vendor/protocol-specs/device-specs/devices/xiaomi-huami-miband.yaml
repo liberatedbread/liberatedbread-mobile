@@ -109,12 +109,50 @@ device:
             actor: "client"
             expect: "A {0x10,0x03,0x01} success response authorises the session."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        A reset (via the band's own menu or the official app) unbinds the band
-        and rotates the auth key. Gestures vary by generation and are not
-        transcribed here.
+        Clears the data held on the band and returns it to factory state, so
+        it can be bound again. Activity history synced to the vendor account
+        survives in the cloud; only the local copy goes.
+
+        The consequence that matters for local control: unbinding invalidates
+        the auth key. A client using an extracted key stops working the moment
+        the band is unpaired in the official app, and a fresh key has to be
+        extracted from a new binding.
+      description: >
+        Two routes to the same place. Unpairing in the vendor app (Mi Fitness
+        or Zepp Life — the bottom of the device screen) resets the band to
+        factory settings as part of unbinding, which is the tidy way. The
+        band's own menu carries a factory reset for a band that cannot reach
+        its phone.
+
+        Either way, finish by removing the band from the phone's Bluetooth
+        settings as well; the OS keeps its own record and a stale one is the
+        usual reason a re-bind will not find the band.
+      procedures:
+        - name: "Unpair from the vendor app"
+          verified: false
+          basis: >
+            Xiaomi's own support documentation on binding and unbinding the
+            Smart Band range, which states that unpairing resets the band to
+            factory settings.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "In Mi Fitness or Zepp Life, open the Device tab, scroll to the bottom and choose Unpair."
+              actor: "user"
+              expect: "The band disconnects and returns to factory settings, ready to be set up again."
+            - action: "Remove the band from the phone's own Bluetooth settings too."
+              actor: "user"
+        - name: "Factory reset from the band's own menu"
+          verified: false
+          basis: "Xiaomi's support documentation for the Smart Band range."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "On the band, open Settings or More, then System, then Factory reset, and confirm."
+              actor: "user"
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -130,6 +168,40 @@ device:
         generated and must be extracted once from the official app. There is no
         Wi-Fi.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # The transport bonds with nothing; the three-step handshake on the auth
+    # characteristic is what actually authorises a client.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        A 16-byte auth key, not a typed PIN. Bands up to Mi Band 2 let the
+        client choose it; from roughly Mi Band 4 and Amazfit Bip Lite onward
+        the key is generated server-side and has to be extracted once from Mi
+        Fit or Zepp. After that extraction control is entirely offline, which
+        is the whole point of recording it.
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Close the official app before connecting; it reconnects on its own in
+        the background and will hold the band.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: >
+        The auth key's validity, and with it local control — nothing else on
+        the band.
+      notes: >
+        Unpairing in the official app invalidates the extracted key, so a
+        local client that was working stops working with no change on its own
+        side. Worth surfacing to a user before they tidy up their phone: the
+        key must be extracted again from a fresh pairing.
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000fee1-0000-1000-8000-00805f9b34fb"
     name: "Huami vendor service (Mi Band 2+)"
@@ -183,3 +255,8 @@ helpful_urls:
   - title: "leojrfs — Mi Band 2 auth writeup"
     url: "https://leojrfs.github.io/writing/miband2-part1-auth/"
     description: "The three-step AES-ECB auth handshake and the auth characteristic UUID."
+  - title: "Xiaomi Smart Band 7 user manual (PDF)"
+    url: "https://m.media-amazon.com/images/I/A1np0xcy2RL.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the Band 7, including the on-device Settings, System, Factory reset path in this spec.

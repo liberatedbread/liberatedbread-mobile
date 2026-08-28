@@ -193,6 +193,13 @@ device:
         (SetPass/TestPass handles, default 6×0x00), so anyone in range can
         drive a factory-default display.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000a950-0000-1000-8000-00805f9b34fb"
     name: "iLEDColor LED Control Service"
@@ -280,4 +287,5 @@ helpful_urls:
       compatible with.
   - title: "iLEDColor app on Google Play"
     url: "https://play.google.com/store/apps/details?id=com.led.iledcolor"
+    kind: "vendor_support"
     description: "Distribution page for the analysed app."

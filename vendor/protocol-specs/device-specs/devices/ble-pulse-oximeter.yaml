@@ -97,6 +97,28 @@ device:
         or binding that a reset would clear, so a reset may not exist at all.
         Power-cycling by removing the batteries is the only state change
         observed, and whether it clears anything is untested.
+      description: >
+        The candidate below is a settings restore documented for fingertip
+        oximeters of this class, not for the F7 specifically. It restores
+        display parameters — brightness, beep, alarm limits — which is a
+        narrower thing than the reset this block is about, and it is recorded
+        because it is the only physical gesture any manual for this hardware
+        class documents. It should not be expected to clear a binding.
+      procedures:
+        - name: "Restore default parameters from the on-device menu (candidate)"
+          glyph: "generic/on-screen-menu.svg"
+          verified: false
+          basis: >
+            A fingertip pulse oximeter user manual for this hardware class,
+            not for the F7 by name. The menu vocabulary is shared across these
+            OEM units but the match is by family, not by model.
+          power_state: "on"
+          steps:
+            - action: "Open the Settings menu on the oximeter and select Reset."
+              actor: "user"
+            - action: "Press and hold the power button until 'Yes' appears."
+              actor: "user"
+              expect: "Display parameters return to their defaults. Nothing is documented about stored measurements or any binding."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -112,6 +134,13 @@ device:
         unauthenticated and unencrypted, so anyone in range can read
         measurements — a privacy consideration for a medical reading.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     name: "Nordic UART Service"
@@ -182,3 +211,8 @@ helpful_urls:
     description: >-
       Archived vendor product page. The live page is dead, so this is what remains of the
       manufacturer's own description of the hardware.
+  - title: "Fingertip pulse oximeter user manual, MD300CI218 (PDF)"
+    url: "https://www.medm.com/assets/files/MD300CI218usermanual.pdf"
+    kind: "manual"
+    description: >
+      Manual for a fingertip oximeter of this ODM class. There is no Manridy-branded manual published anywhere that resolves; this is the nearest documented relative and the control vocabulary matches.

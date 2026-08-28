@@ -116,12 +116,43 @@ device:
             actor: "client"
             expect: "The module reboots and joins the home Wi-Fi; TCP 5577 answers."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Returns the module to AP/setup mode and clears Wi-Fi credentials.
-        Per-controller reset gestures (power-cycle sequences) are not documented
-        in the sources used here.
+        Clears the stored WiFi credentials and returns the controller to
+        hosting its own access point, named LEDnetXXXX with the default
+        passphrase 88888888 — a product-wide vendor default, not a per-unit
+        secret.
+      description: >
+        Two gestures with different reach, and which one a user needs depends
+        on what is wrong. Power-cycling five times brings the AP back so the
+        controller can be given new credentials; that is the everyday case,
+        including a router replacement. The reset button, where the housing
+        exposes one, goes further and is what a forgotten device password
+        needs.
+      procedures:
+        - name: "Power-cycle five times to return to AP mode"
+          verified: false
+          basis: "The Magic Home controller instructions and the openHAB community's notes on the same hardware."
+          press_count: 5
+          power_state: "on"
+          glyph: "generic/power-cycle.svg"
+          steps:
+            - action: "Switch the controller off and on five times in quick succession."
+              actor: "user"
+              expect: "An open network named LEDnetXXXX appears; the default passphrase is 88888888."
+        - name: "Reset button held (units with an accessible button)"
+          verified: false
+          basis: "The Magic Home controller instructions; the two published hold times disagree, so watch the LEDs rather than the clock."
+          hold_seconds: 10
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: "With the controller powered, press and hold the reset button for at least eight to ten seconds."
+              actor: "user"
+            - action: "Wait a further ten seconds for the controller to come back."
+              actor: "user"
+              expect: "The controller returns to factory state and hosts LEDnetXXXX again."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -224,3 +255,8 @@ helpful_urls:
   - title: "vikstrous/zengge-lightcontrol"
     url: "https://github.com/vikstrous/zengge-lightcontrol"
     description: "Port-5577 + UDP-48899 protocol write-up, including the HF-A11ASSISTHREAD config handshake."
+  - title: "Zengge ZJ-MWIR-RGB Wi-Fi RGB controller manual"
+    url: "https://www.manualslib.com/manual/2035005/Zengge-Zj-Mwir-Rgb.html"
+    kind: "manual"
+    description: >
+      Manual for a Zengge controller of the family this spec covers. These ship under many retail names — Magic Home is the app, Zengge is the OEM.

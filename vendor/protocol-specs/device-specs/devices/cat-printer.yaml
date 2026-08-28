@@ -141,6 +141,13 @@ device:
       issued_to_client: []
       notes: "BLE-only. No auth. Physical proximity is the only access control."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "GB01"
       identification:
@@ -272,6 +279,11 @@ helpful_urls:
     url: "https://werwolv.net/blog/cat_printer"
     description: "Blog account of the reverse engineering behind that client."
 
+  - title: "PeriPage A6 mini thermal printer manual (Internet Archive)"
+    url: "https://web.archive.org/web/20220427083018/https://manuals.plus/peripage/a6-mini-portable-thermal-printer-manual"
+    kind: "manual"
+    description: >
+      Manual for a PeriPage sibling of the cat-printer hardware. Archived because the live host refuses automated requests.
 # Newer MXW01 model (outside this registry — no protocol section here):
 # a newer "cat printer" hardware revision with its own RE efforts —
 # https://github.com/MaikelChan/CatPrinterBLE ,

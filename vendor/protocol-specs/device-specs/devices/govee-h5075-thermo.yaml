@@ -314,6 +314,13 @@ device:
       issued_to_client: []
       notes: "BLE advertisement broadcast. No auth or pairing."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     # Only the H5075 row was tested. Every other row here is carried from the source
     # named against it and is not hardware confirmed.
@@ -853,3 +860,13 @@ helpful_urls:
     url: "https://fccid.io/2AQA6-H5075"
     description: >-
       FCC filing; confirms the Telink SoC and the grantee recorded in the hardware notes.
+  - title: "Govee H5075 user manual"
+    url: "https://www.manualslib.com/manual/4009393/Govee-H5075.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the H5075.
+  - title: "Govee: H5075 product page"
+    url: "https://us.govee.com/products/govee-bluetooth-hygrometer-thermometer-h5075"
+    kind: "vendor_support"
+    description: >
+      Vendor product page with current documentation.

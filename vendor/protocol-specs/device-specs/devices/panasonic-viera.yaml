@@ -136,6 +136,8 @@ device:
       credentials are lost or the TV is factory reset.
     methods:
       - type: "device_ui"
+        name: "First-run setup on the TV, then enable the remote"
+        role: "primary"
         verified: false
         description: >
           First-run setup on the TV with the bundled remote: language,
@@ -167,6 +169,8 @@ device:
               action: "X_DisplayPinCode, then X_RequestAuth with the on-screen PIN"
             expect: "Stored X_ApplicationId and X_Keyword (encryption key); TV shows a pairing-complete message."
       - type: "none"
+        name: "Pre-2019 sets: nothing further to do"
+        role: "variant"
         verified: false
         description: >
           Pre-2019 sets: nothing further — X_SendKey works from any LAN host
@@ -247,6 +251,16 @@ helpful_urls:
   - title: "uc-intg-panasonicviera — Unfolded Circle integration (second open consumer of this protocol)"
     url: "https://github.com/mase1981/uc-intg-panasonicviera"
 
+  - title: "Panasonic Viera AS610 operating instructions (PDF, vendor-hosted)"
+    url: "http://panasonic.ae/en/manuals/TH-32AS610.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the TH-32AS610, the model this spec's research used.
+  - title: "Panasonic Viera operating instructions"
+    url: "https://www.manualslib.com/manual/857700/Panasonic-Viera.html"
+    kind: "manual"
+    description: >
+      Operating instructions for the wider Viera range.
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:

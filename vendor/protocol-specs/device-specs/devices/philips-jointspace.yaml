@@ -231,6 +231,16 @@ helpful_urls:
   - title: "Home Assistant Philips TV integration docs (feature matrix per API version)"
     url: "https://www.home-assistant.io/integrations/philips_js/"
 
+  - title: "Philips TV user manual, 2023 (PDF, vendor-hosted)"
+    url: "https://www.documents.philips.com/assets/20230703/22fe76f2586a4f56b75eb0340023cfb8.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the 2023 sets.
+  - title: "Philips TV user manual"
+    url: "https://www.manualslib.com/manual/754489/Philips-Tv.html"
+    kind: "manual"
+    description: >
+      Manual for the wider range; the jointSPACE API predates most of these sets and is not documented in any of them.
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:

@@ -7,6 +7,20 @@
     "manufacturer": "AdMore Lighting Inc.",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "AdMore Light Bar installation instructions (PDF)",
+        "url": "https://d1l4i7f87txqmq.cloudfront.net/Installation%20Instructions/AdMoreLighting/AML.LED5420.T.TS.pdf",
+        "kind": "manual",
+        "description": "Vendor installation instructions, distributor-hosted — AdMore's own server refuses automated requests.\n"
+      },
+      {
+        "title": "AdMore Light Bar Premium installation instructions (PDF)",
+        "url": "https://www.revzilla.com/assets/0001/8275/ad_more_high_output_premium_led_light_bar.pdf",
+        "kind": "manual",
+        "description": "The Premium variant's instructions, retailer-hosted.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -18,6 +32,14 @@
     "manufacturer_status": "active",
     "testing_status": "untested",
     "testing_detail": "capture-verified",
+    "helpful_urls": [
+      {
+        "title": "Airthings Wave Plus user manual (PDF)",
+        "url": "https://www.airthings.com/hubfs/Website/Manuals/Wave%20Plus/Wave-Plus-manual-ENG.pdf?hsLang=en-ca",
+        "kind": "manual",
+        "description": "Vendor manual for the Wave Plus. Confirms the family has no reset control and that pairing is an in-app step.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -44,6 +66,18 @@
         "title": "tchellomello/python-amcrest",
         "url": "https://github.com/tchellomello/python-amcrest",
         "description": "Python client for Amcrest and Dahua cameras/NVRs."
+      },
+      {
+        "title": "Amcrest IP2M-841 user manual",
+        "url": "https://www.manualslib.com/manual/1159982/Amcrest-Ip2m-841.html",
+        "kind": "manual",
+        "description": "Vendor manual for the exemplar camera in this spec.\n"
+      },
+      {
+        "title": "Amcrest IP2M-841E user manual (PDF, vendor-hosted)",
+        "url": "https://s3.amazonaws.com/amcrest-files/Documentation/IP2M-841E+User+Manual.pdf",
+        "kind": "manual",
+        "description": "Vendor-hosted PDF for the PoE variant, covering the reset button this spec documents.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -65,6 +99,7 @@
       },
       {
         "url": "https://developer.android.com/tools/adb",
+        "kind": "vendor_support",
         "title": "Android Developers — Android Debug Bridge (adb)",
         "description": "User-facing wireless debugging (Android 11+): mDNS discovery, pairing code and the dynamic connect port."
       }
@@ -124,6 +159,18 @@
       {
         "title": "Android Developers — KeyEvent keycode reference",
         "url": "https://developer.android.com/reference/android/view/KeyEvent"
+      },
+      {
+        "title": "NVIDIA SHIELD TV user's guide (PDF)",
+        "url": "https://m.media-amazon.com/images/I/A1XxgNnyiqS.pdf",
+        "kind": "manual",
+        "description": "Vendor guide for the SHIELD, the exemplar Android TV device in this spec.\n"
+      },
+      {
+        "title": "NVIDIA SHIELD TV Pro get started guide",
+        "url": "https://www.manualslib.com/manual/1425793/Nvidia-Shield-Tv-Pro.html",
+        "kind": "manual",
+        "description": "Setup guide for the Pro.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -147,6 +194,12 @@
         "title": "anki/drive-sdk — vehicle_gatt_profile.h",
         "url": "https://github.com/anki/drive-sdk/blob/master/include/ankidrive/vehicle_gatt_profile.h",
         "description": "The service and read/write characteristic UUIDs used here."
+      },
+      {
+        "title": "Anki customer care: detecting and connecting to vehicles (Internet Archive)",
+        "url": "https://web.archive.org/web/20191213112527/https://support.anki.com/hc/en-us/articles/115000471367-Detecting-and-connecting-to-vehicles",
+        "kind": "vendor_support",
+        "description": "Source for the five-second vehicle reset. Anki is defunct; this snapshot is what survives of their support site.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -184,6 +237,18 @@
         "url": "https://www.home-assistant.io/integrations/aranet/",
         "title": "Home Assistant Aranet integration",
         "description": "Passive-only integration; documents the firmware v1.2.0 + integrations-enabled requirement."
+      },
+      {
+        "title": "Aranet4 HOME / PRO user guide (PDF)",
+        "url": "https://assets.aranet.com/documents/Aranet4_HOME_TDSPC0H3_User_Manual.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the Aranet4 Home.\n"
+      },
+      {
+        "title": "Aranet4 Home: FAQ",
+        "url": "https://help.aranet.com/aranet4/aranet4-home/faq",
+        "kind": "vendor_support",
+        "description": "Vendor FAQ. Note it does not cover bond clearing — that comes from Aranet's support material referenced in the pairing block.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -226,6 +291,18 @@
         "title": "Astral app on Google Play",
         "url": "https://play.google.com/store/apps/details?id=com.astral.astral",
         "description": "Vendor Android app (com.astral.astral, v2.0.16 analyzed). Local-only: no account, no analytics; network use limited to firmware and pattern downloads."
+      },
+      {
+        "title": "Astral Atomic V AF hoop manual (PDF, vendor-hosted)",
+        "url": "https://astralhoops.com/docs/AtomicV-AF-Hoop.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the AF hoop, the exemplar in this spec.\n"
+      },
+      {
+        "title": "Astral Atomic V Classic hoop manual (PDF, vendor-hosted)",
+        "url": "https://astralhoops.com/docs/manual-atomicv-hoop.pdf",
+        "kind": "manual",
+        "description": "The remote-control Classic variant.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -240,11 +317,6 @@
     "testing_status": "untested",
     "helpful_urls": [
       {
-        "title": "Aurora LED Shoes on Google Play",
-        "url": "https://play.google.com/store/apps/details?id=com.jtkj.auroraled",
-        "description": "Vendor app (com.jtkj.auroraled, v1.0.1 analyzed). BLE-only, no account, no backend — the app is a pure BLE remote for the shoes."
-      },
-      {
         "title": "FastBle (open-source BLE wrapper used by the vendor app)",
         "url": "https://github.com/Jasonchenlijian/FastBle",
         "description": "The Android BLE library the app's BLE layer is built on; explains the write-without-response + auto-split-at-MTU write behavior and the CCC notify-enable flow seen in this profile."
@@ -253,6 +325,12 @@
         "title": "CoolLED1248 (sibling jtkj app — different profile)",
         "url": "https://play.google.com/store/apps/details?id=com.jtkj.led1248",
         "description": "Same developer, same BLE wrapper, but a DIFFERENT GATT profile (0xFFE5/0xFFE9) and opcode set. Not interchangeable with this device."
+      },
+      {
+        "title": "LED shoes user manual",
+        "url": "https://brightledshoes.com/user-manual/",
+        "kind": "manual",
+        "description": "Generic manual for app-controlled LED shoes of this class. The Aurora hardware is unbranded ODM: there is no vendor manual, and the vendor app's Play listing is gone.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -266,6 +344,14 @@
     "manufacturer_status": "active",
     "protocol_handler": "popled_json",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "LOY SPACE app (Google Play)",
+        "url": "https://play.google.com/store/apps/details?id=com.yskd.loywf",
+        "kind": "vendor_support",
+        "description": "The vendor app's listing, which is the only vendor-published documentation this hardware has — the backpacks themselves ship with no manual and no brand.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -309,6 +395,12 @@
         "title": "OpenBafangTool UART motor API",
         "url": "https://github.com/andrey-pr/OpenBafangTool/blob/master/docs/Bafang%20UART%20motor%20API.md",
         "description": "Parameter block and command reference cited by the device page."
+      },
+      {
+        "title": "Bafang BBS02 user manual",
+        "url": "https://www.manualslib.com/manual/1399536/Bafang-Bbs02.html",
+        "kind": "manual",
+        "description": "Vendor manual for the BBS02 mid-drive whose UART protocol this spec documents.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -337,6 +429,12 @@
         "title": "Doridian/OpenBambuAPI — FTP",
         "url": "https://github.com/Doridian/OpenBambuAPI/blob/main/ftp.md",
         "description": "The FTPS (990) file access (gcode/3mf, timelapse, logs)."
+      },
+      {
+        "title": "Bambu Lab Wiki",
+        "url": "https://wiki.bambulab.com/en/home",
+        "kind": "vendor_support",
+        "description": "Vendor documentation hub. The factory-reset path and what it clears differ across the X1, P1 and A1 lines.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -371,9 +469,10 @@
         "description": "Vendor-hosted user documentation for the SP6xxE line (Wi-Fi config troubleshooting, manuals); linked from the app."
       },
       {
-        "title": "Vendor cloud base (firmware check / ELS endpoints)",
-        "url": "https://app.ledhue.com/spiot",
-        "description": "Base URL of the vendor cloud: /device/check-update returns OTA firmware info (the .bin URL pattern is unrecovered), /els/v1 backs the new authenticated channel. Reference only — local BLE control needs none of it; no firmware files are mirrored here."
+        "title": "SP110E Bluetooth LED controller operating instructions (PDF)",
+        "url": "https://m.media-amazon.com/images/I/81-vuGVbmgL.pdf",
+        "kind": "manual",
+        "description": "Manual for a Sperll/BanlanX sibling controller. The SP6xxE's own manuals are not published anywhere that resolves; this is the nearest documented relative and the app vocabulary matches.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -406,6 +505,18 @@
         "title": "Bluetooth SIG Pulse Oximeter profile (PLX, 0x1822)",
         "url": "https://www.bluetooth.com/specifications/specs/pulse-oximeter-service-1-0/",
         "description": "The standard profile the PO60 notably does NOT implement — listed so an implementer does not wait for PLX notifications that will never come."
+      },
+      {
+        "title": "Beurer PO 60 manual",
+        "url": "https://www.manualslib.com/manual/2178319/Beurer-Po-60.html",
+        "kind": "manual",
+        "description": "Vendor manual for the PO60. It documents the six-digit pairing PIN this spec's pairing block records, and — per Beurer's own support — no way to clear the stored measurements.\n"
+      },
+      {
+        "title": "Beurer PO 60 quick start manual",
+        "url": "https://www.manualslib.com/manual/1729747/Beurer-Po-60.html",
+        "kind": "manual",
+        "description": "The short-form guide for the same device.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -463,6 +574,12 @@
         "title": "Bluetooth SIG Blood Pressure Profile",
         "url": "https://www.bluetooth.com/specifications/specs/blood-pressure-profile-1-1-1/",
         "description": "The published profile this device implements; authoritative for the 0x1810/0x2A35/0x2A49 structure, subject to the Beurer quirks this spec documents on top."
+      },
+      {
+        "title": "Beurer BM 93 instructions for use",
+        "url": "https://www.manualslib.com/manual/2001931/Beurer-Bm-93.html",
+        "kind": "manual",
+        "description": "Vendor manual for one of the family this spec covers — the BM 93 is the model whose 0x2A35 payload tail remains an open question here.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -491,6 +608,12 @@
       {
         "title": "BIO-key International (company status; SEC filings)",
         "url": "https://www.bio-key.com"
+      },
+      {
+        "title": "BIO-key TouchLock XL instruction manual (Internet Archive)",
+        "url": "https://web.archive.org/web/20220507045155/https://manuals.plus/bio-key/touchlock-xl-manual",
+        "kind": "manual",
+        "description": "Manual for the TouchLock XL, one of the family this spec covers. Archived because the live host refuses automated requests and BIO-key's consumer lock line is abandoned.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -518,6 +641,12 @@
         "title": "Manridy SP001 product page (Internet Archive)",
         "url": "https://web.archive.org/web/20220528040458/http://www.manridy.com/en/product-19070-18734-169757.html",
         "description": "Archived vendor product page. The live page is dead, so this is what remains of the manufacturer's own description of the hardware."
+      },
+      {
+        "title": "Fingertip pulse oximeter user manual, MD300CI218 (PDF)",
+        "url": "https://www.medm.com/assets/files/MD300CI218usermanual.pdf",
+        "kind": "manual",
+        "description": "Manual for a fingertip oximeter of this ODM class. There is no Manridy-branded manual published anywhere that resolves; this is the nearest documented relative and the control vocabulary matches.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -541,6 +670,20 @@
     "manufacturer_status": "active",
     "protocol_handler": "ledbadge_bitmap",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "LED name badge with multiple functions user manual (PDF)",
+        "url": "https://docs.rs-online.com/07aa/0900766b80c044ee.pdf",
+        "kind": "manual",
+        "description": "Distributor-hosted manual for the badge platform, covering the PC software path.\n"
+      },
+      {
+        "title": "USB programmable LED badge user manual (Internet Archive)",
+        "url": "https://web.archive.org/web/20220117171411/http://ipsgproducts.com/products/electronics/support/LED_Badge_driver+manual/Led_Badge_User_Manual.pdf",
+        "kind": "manual",
+        "description": "Archived copy — the host now returns a server error.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -572,6 +715,12 @@
         "url": "https://github.com/mariolukas/Bluetti_ESP32_Bridge",
         "title": "mariolukas/Bluetti_ESP32_Bridge",
         "description": "ESP32 C++ bridge; third independent confirmation of service UUID, poll ranges and write registers 3007/3008."
+      },
+      {
+        "title": "BLUETTI user guides (all models)",
+        "url": "https://www.bluettipower.com/pages/user-guides",
+        "kind": "manual",
+        "description": "Vendor manual index. The reset button combination differs by model — take it from here rather than from this spec's AC200P example.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -588,6 +737,7 @@
       {
         "title": "MotoScan (WGSoft)",
         "url": "https://www.motoscan.de/",
+        "kind": "vendor_support",
         "description": "Vendor site for the app this spec is derived from, and the tool that covers the dealer-gated diagnostic surface on BMW motorcycles."
       },
       {
@@ -598,6 +748,7 @@
       {
         "title": "UniCarScan UCSI-2100 adapter",
         "url": "https://www.wgsoft.de/unicarscan-ucsi-2100",
+        "kind": "vendor_support",
         "description": "Vendor page for the adapter MotoScan classifies as an original; relevant to the 255-byte long-message mode this spec documents for coding and adaptation writes."
       },
       {
@@ -652,6 +803,18 @@
         "title": "Xunil99/ha-bosch-ebike (HACS)",
         "url": "https://github.com/Xunil99/ha-bosch-ebike",
         "description": "HACS integration for Bosch eBike Smart System bikes (Performance Line CX); ride/bike sensors via the Bosch Data Act API."
+      },
+      {
+        "title": "Bosch Kiox Online (BUI330) operating instructions, MY21 (PDF, vendor-hosted)",
+        "url": "https://www.bosch-ebike.com/fileadmin/EBC/Service/Downloads/Bedienungsanleitungen/MY2021/Kiox_Online_Manual/Bosch-eBike-Manual-Kiox-Online-MY21-EN_US.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the on-board computer, and the source of the display reset in this spec. Note it covers the Kiox only — the drive unit still has no owner-accessible reset.\n"
+      },
+      {
+        "title": "Bosch Kiox BUI330 original operating instructions",
+        "url": "https://www.manualslib.com/manual/1980078/Bosch-Kiox-Bui330.html",
+        "kind": "manual",
+        "description": "The MY19 edition of the same manual.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -680,6 +843,12 @@
         "title": "thlucas1/bosesoundtouchapi",
         "url": "https://github.com/thlucas1/bosesoundtouchapi",
         "description": "MIT Python client; notes that the Home Speaker 300/500/700 do NOT use this API."
+      },
+      {
+        "title": "Bose SoundTouch 10 owner's manual",
+        "url": "https://www.manualslib.com/manual/973928/Bose-Soundtouch-10.html",
+        "kind": "manual",
+        "description": "Vendor manual for the exemplar speaker. Bose has wound the SoundTouch platform down, so keep a copy.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -703,6 +872,12 @@
         "title": "Brava support site / shutdown notice",
         "url": "https://support.brava.com/",
         "description": "Vendor's cessation-of-operations notice (effective 2026-03-06): cloud and recipe library 'currently operational' but may be limited or discontinued at any time."
+      },
+      {
+        "title": "Brava support: resetting your Brava to factory settings (Internet Archive)",
+        "url": "https://web.archive.org/web/20250910210946/https://support.brava.com/hc/en-us/articles/1500013114561-Resetting-Your-Brava-to-Factory-Settings",
+        "kind": "vendor_support",
+        "description": "Source for the three reset levels in this spec, archived against the vendor's acquisition.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -747,6 +922,12 @@
         "url": "https://www.home-assistant.io/integrations/brother/",
         "title": "Home Assistant Brother integration",
         "description": "HA core integration monitoring Brother network printers over SNMP; covers the QL label-printer family."
+      },
+      {
+        "title": "Brother QL-1110NWB user's guide (PDF)",
+        "url": "https://www.ptouchdirect.com/content/UMQL1110NWB.pdf",
+        "kind": "manual",
+        "description": "Full vendor user's guide, including the network setup this spec's raster protocol sits behind.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -850,6 +1031,12 @@
         "title": "WerWolv: cat printer write-up",
         "url": "https://werwolv.net/blog/cat_printer",
         "description": "Blog account of the reverse engineering behind that client."
+      },
+      {
+        "title": "PeriPage A6 mini thermal printer manual (Internet Archive)",
+        "url": "https://web.archive.org/web/20220427083018/https://manuals.plus/peripage/a6-mini-portable-thermal-printer-manual",
+        "kind": "manual",
+        "description": "Manual for a PeriPage sibling of the cat-printer hardware. Archived because the live host refuses automated requests.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -877,6 +1064,18 @@
         "url": "https://konnected.io/products/smart-garage-door-opener-blaq-myq-alternative",
         "title": "Konnected GDO blaQ",
         "description": "Commercial Security+ bridge board; local HA/Hubitat/HomeKit, no cloud."
+      },
+      {
+        "title": "LiftMaster Wi-Fi garage door opener owner's manual (PDF)",
+        "url": "https://static1.squarespace.com/static/61084be6010cdc16a11b5142/t/6191a8758aa3f027feacc8ff/1636935809109/114A5229EN.pdf",
+        "kind": "manual",
+        "description": "The manual this spec's LEARN-button procedures were read from, covering the 8355W/8360W belt and chain drives.\n"
+      },
+      {
+        "title": "myQ Wi-Fi garage door opener owner's manual (PDF)",
+        "url": "https://images.thdstatic.com/catalog/pdfImages/45/45323402-c2ee-4fd9-872b-9c851d44e544.pdf",
+        "kind": "manual",
+        "description": "A retailer-hosted copy covering the myQ accessory pairing and the Wi-Fi settings.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -914,6 +1113,18 @@
         "title": "FCC ID 2A2YP-CQ60QPROBE filings (fcc.report)",
         "url": "https://fcc.report/FCC-ID/2A2YP-CQ60QPROBE",
         "description": "Probe grant (CHEF PROBE-V2, granted 2023-07-28) with user manual, internal photos and BLE test report; includes the 2024-12-18 C2PC adding probe models CQ60-PRC-01/02/03/04 (ISED IC 27740-CQ60QPROBE).\n"
+      },
+      {
+        "title": "CHEF iQ Sense probe and hub user manual",
+        "url": "https://www.manualslib.com/manual/3659271/Chef-Iq-Iq-Sense-Chef-Probe-V3.html",
+        "kind": "manual",
+        "description": "Vendor manual covering the probe and the CQ60 hub this spec documents.\n"
+      },
+      {
+        "title": "CHEF iQ Smart Hub user manual",
+        "url": "https://www.manualslib.com/manual/2643694/Chef-Iq-Smart-Hub.html",
+        "kind": "manual",
+        "description": "Manual for the hub form factor.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -941,6 +1152,18 @@
         "title": "CHEMION official site",
         "url": "https://www.chemionglasses.com/",
         "description": "Vendor product site for the glasses and HAT."
+      },
+      {
+        "title": "CHEMION LED glasses manual (PDF, vendor-hosted)",
+        "url": "https://image.chemi-on.com/CHEMION_manual_ENG.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the original CHEMION glasses this spec documents.\n"
+      },
+      {
+        "title": "CHEMION: manuals index",
+        "url": "https://www.chemionglasses.com/pages/manual",
+        "kind": "vendor_support",
+        "description": "Vendor index. Note the 2024 hardware uses a different app ('COLOR CHEMION') from the one this spec was derived from.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -969,6 +1192,18 @@
         "title": "home-assistant-libs/pychromecast",
         "url": "https://github.com/home-assistant-libs/pychromecast",
         "description": "MIT — reference Python client; discovery TXT keys and app IDs."
+      },
+      {
+        "title": "Google Chromecast with Google TV user manual",
+        "url": "https://www.manualslib.com/manual/4544349/Google-Chromecast-With-Google-Tv.html",
+        "kind": "manual",
+        "description": "Vendor manual for the Google TV generation.\n"
+      },
+      {
+        "title": "Chromecast with Google TV 4K instruction manual (PDF)",
+        "url": "https://argos-support.co.uk/instruction-manual/8834948-google-chromecast-with-google-tv-4k-and-voice-remote.pdf",
+        "kind": "manual",
+        "description": "Retailer-hosted copy of the same guide, including the voice remote.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -985,8 +1220,14 @@
     "helpful_urls": [
       {
         "title": "Concept2 — PM5 software / Bluetooth interface",
-        "url": "https://www.concept2.com/service/monitors/pm5/software",
+        "url": "https://www.concept2.com/service/monitors/pm5",
         "description": "The vendor-published PM5 BLE interface definition and the CSAFE command spec."
+      },
+      {
+        "title": "Concept2: PM5 troubleshooting",
+        "url": "https://www.concept2.com/support/monitors/pm5/troubleshooting",
+        "kind": "vendor_support",
+        "description": "Vendor support hub for the PM5, including the factory-reset button sequence.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -999,6 +1240,14 @@
     "manufacturer": "Juntong Technology",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "UpDryTwist/coolledx-driver",
+        "url": "https://github.com/UpDryTwist/coolledx-driver",
+        "kind": "implementation",
+        "description": "There is no vendor and no manual: these signs are unbranded AliExpress hardware sold to work with the CoolLED1248 app. This driver is the documentation.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1035,6 +1284,12 @@
       {
         "title": "librespot — open Spotify Connect implementation, incl. the zeroconf getInfo/addUser API",
         "url": "https://github.com/librespot-org/librespot"
+      },
+      {
+        "title": "Denon AVR-S720W owner's manual",
+        "url": "https://www.manualslib.com/manual/1133915/Denon-Avrs720w.html",
+        "kind": "manual",
+        "description": "Vendor owner's manual for the receiver.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1087,6 +1342,12 @@
       {
         "title": "HA community: Danfoss LC13 (aka POPP/devolo) temperature offset",
         "url": "https://community.home-assistant.io/t/danfoss-lc13-aka-popp-devolo-temperature-calibration-set-permanent-offset/971303"
+      },
+      {
+        "title": "devolo Home Control: first steps",
+        "url": "https://www.manualslib.com/manual/1641659/Devolo-Home-Control.html",
+        "kind": "manual",
+        "description": "Surviving copy of the setup documentation; devolo's Home Control cloud has shut down.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1100,6 +1361,12 @@
     "manufacturer_status": "active",
     "testing_status": "untested",
     "helpful_urls": [
+      {
+        "title": "Divoom Pixoo 64 quick start manual",
+        "url": "https://www.manualslib.com/manual/2462222/Divoom-Pixoo-64.html",
+        "kind": "manual",
+        "description": "Vendor quick start for the Pixoo 64.\n"
+      },
       {
         "title": "Divoom app on Google Play",
         "url": "https://play.google.com/store/apps/details?id=com.divoom.Divoom",
@@ -1157,6 +1424,12 @@
         "url": "https://www.home-assistant.io/integrations/dyson/",
         "title": "Home Assistant Dyson integration",
         "description": "HA core integration speaking this same local MQTT protocol to Dyson purifiers/fans once device credentials are known."
+      },
+      {
+        "title": "Dyson Pure Cool tower operating manual (PDF, vendor-hosted)",
+        "url": "https://www.dyson.com/content/dam/dyson/maintenance/user-guides/en_anz/air-treatment/ANZ_Pure_Cool_Tower_OPMAN.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the tower form factor this spec's exemplar belongs to.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1174,6 +1447,18 @@
         "title": "dave-code-ruiz/elkbledom (HACS)",
         "url": "https://github.com/dave-code-ruiz/elkbledom",
         "description": "Home Assistant (HACS) custom component controlling ELK-BLEDOM/MELK/LEDBLE strips over BLE; a production consumer of the command set documented here."
+      },
+      {
+        "title": "Controlling an ELK-BLEDOM strip: protocol write-up",
+        "url": "https://linuxthings.co.uk/blog/control-an-elk-bledom-bluetooth-led-strip",
+        "kind": "vendor_support",
+        "description": "There is no vendor and no manual for this hardware — it is an unbranded ODM controller. This write-up is the closest thing to documentation, and it records the plug/unplug-four-times reset.\n"
+      },
+      {
+        "title": "TheSylex/ELK-BLEDOM-bluetooth-led-strip-controller",
+        "url": "https://github.com/TheSylex/ELK-BLEDOM-bluetooth-led-strip-controller",
+        "kind": "implementation",
+        "description": "Working controller for the same hardware, useful as an executable reference where prose runs out.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1201,6 +1486,12 @@
         "title": "EmazingLights (vendor site)",
         "url": "https://www.emazinglights.com/",
         "description": "Vendor storefront; the Spectra app is delisted from Google Play and the Spectra firmware backend (facemeltcrew.com) is gone."
+      },
+      {
+        "title": "EmazingLights Spectra Evo instructions (PDF)",
+        "url": "https://www.scribd.com/document/619493635/Spectra-Evo-Instructions",
+        "kind": "manual",
+        "description": "Vendor instructions for the Spectra Evo gloves and Smart Hub, covering chip transfer and sync. EmazingLights has shut down; this is a surviving copy.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1324,6 +1615,12 @@
         "title": "Ember support: how to pair a mug",
         "url": "https://support.ember.com/en-US/ember-mug-how-to-pair-1757457",
         "description": "Vendor instructions for putting the mug into pairing mode, which is the physical step this spec's setup sequence starts from."
+      },
+      {
+        "title": "Ember Mug 2 user manual",
+        "url": "https://www.manua.ls/ember/mug-2/manual",
+        "kind": "manual",
+        "description": "Vendor manual. Note it gives a shorter hold than the fifteen seconds observed on hardware here — the LED sequence in this spec is the authority.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1342,6 +1639,18 @@
         "title": "Home Assistant Enphase Envoy integration",
         "url": "https://www.home-assistant.io/integrations/enphase_envoy/",
         "description": "HA core integration over the local Envoy API (owner-token auth); the production consumer of the endpoints documented here."
+      },
+      {
+        "title": "Enphase IQ Envoy installation and operation manual (PDF, vendor-hosted)",
+        "url": "https://media-store.enphase.com/productattach/i/q/iq_envoy_-_installation_operation_manual.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the IQ Envoy / IQ Gateway.\n"
+      },
+      {
+        "title": "Enphase Envoy installation and operation manual (PDF, vendor-hosted)",
+        "url": "https://enphase.com/sites/default/files/2021-06/Envoy_Installation_and_Operation_NA.pdf",
+        "kind": "manual",
+        "description": "The earlier Envoy communications gateway, which this spec's family also covers.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1361,6 +1670,18 @@
         "title": "Home Assistant Enphase Envoy integration",
         "url": "https://www.home-assistant.io/integrations/enphase_envoy/",
         "description": "HA core integration; exposes IQ Battery telemetry (state of charge, power) as reported through the site Envoy gateway — the production consumer of the data these BLE-commissioned units report."
+      },
+      {
+        "title": "Enphase IQ Battery 3/10 quick install guide (PDF, vendor-hosted)",
+        "url": "https://enphase.com/sites/default/files/2021-09/Encharge3-10-QIG-EN-US-Rev12-09-27-2021.pdf",
+        "kind": "manual",
+        "description": "Vendor install guide for the Encharge/IQ Battery hardware this spec's BLE interface belongs to.\n"
+      },
+      {
+        "title": "Enphase IQ Battery installation manual (PDF)",
+        "url": "https://ressupply.com/documents/enphase/IQ_Battery_Installation_Manual.pdf",
+        "kind": "manual",
+        "description": "The full installation manual, distributor-hosted.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1384,6 +1705,18 @@
         "title": "rytilahti/python-eq3bt",
         "url": "https://github.com/rytilahti/python-eq3bt",
         "description": "MIT Python client (bleak/bluepy/gattlib); GATT UUIDs and the FW-1.20+ pairing note."
+      },
+      {
+        "title": "eQ-3 Bluetooth Smart Radiator Thermostat operating manual (PDF, vendor-hosted)",
+        "url": "https://www.eq-3.com/downloads/download/eqiva/bda/CC-RT-M-BLE-EQ_UM_E_eqiva_180508.pdf",
+        "kind": "manual",
+        "description": "English manual from eQ-3's own download server, for the CC-RT-M-BLE-EQ. Covers the wheel-hold that this spec's firmware 1.20+ pairing procedure uses.\n"
+      },
+      {
+        "title": "eQ-3 CC-RT-N operating manual",
+        "url": "https://www.manualslib.com/manual/947780/Eq-3-Cc-Rt-N.html",
+        "kind": "manual",
+        "description": "A sibling model's manual, useful where the CC-RT-BLE's own is only available in German.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1427,6 +1760,18 @@
         "url": "https://esphome.io/components/captive_portal/",
         "title": "ESPHome captive portal",
         "description": "The fallback hotspot and its 192.168.4.1 setup page — the recovery path when a router changes."
+      },
+      {
+        "title": "ESPHome: getting started",
+        "url": "https://esphome.io/guides/getting_started_hassio/",
+        "kind": "vendor_support",
+        "description": "ESPHome is open firmware, so the project documentation is the manual — first flash over USB, everything after that over the air.\n"
+      },
+      {
+        "title": "ESPHome device configuration repository",
+        "url": "https://devices.esphome.io/",
+        "kind": "vendor_support",
+        "description": "Per-device configuration templates for hardware known to run ESPHome; the closest thing to a per-product manual this platform has.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1448,7 +1793,7 @@
       {
         "title": "ronnnnnnnnnnnnn/etekcity_fitness_scale_ble (HACS)",
         "url": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble",
-        "description": "Home Assistant (HACS) BLE integration for Etekcity fitness scales (ESF-551; ESF24 in beta) — same vendor family, active-connect path; does not decode the ESN00 kitchen-scale broadcast format."
+        "description": "Home Assistant (HACS) BLE integration for Etekcity fitness scales (ESF-551; ESF24 in beta) — same vendor family, decoding their advertisements locally over an active-connect path. It does not decode the ESN00 kitchen-scale broadcast format this spec documents."
       },
       {
         "title": "Hacking a BLE kitchen scale",
@@ -1471,9 +1816,16 @@
         "description": "FCC filing for the scale; the source of the FCC ID and variant recorded here."
       },
       {
-        "url": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble",
-        "title": "etekcity_fitness_scale_ble (HACS custom integration)",
-        "description": "HACS custom integration decoding Etekcity BLE scale advertisements locally."
+        "title": "Etekcity ESN00 series user manual",
+        "url": "https://www.manualslib.com/manual/2371463/Etekcity-Esn00-Series.html",
+        "kind": "manual",
+        "description": "Vendor manual for the ESN00 kitchen scale this spec decodes.\n"
+      },
+      {
+        "title": "Etekcity: user manuals",
+        "url": "https://etekcity.com/pages/user-manuals",
+        "kind": "vendor_support",
+        "description": "Vendor manual index for the wider range.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1492,6 +1844,12 @@
         "title": "Wheellog/Wheellog.Android",
         "url": "https://github.com/Wheellog/Wheellog.Android",
         "description": "Open-source EUC logger; the per-brand BLE frame decoders documented here."
+      },
+      {
+        "title": "KingSong KS-S18 user manual",
+        "url": "https://www.manualslib.com/manual/1940933/King-Song-Ks-S18.html",
+        "kind": "manual",
+        "description": "Vendor manual for the S18, one of the wheels this spec's BLE decoding covers.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1504,6 +1862,20 @@
     "manufacturer": "Nanjing Fardriver Controller Co.",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Fardriver controller manual (PDF, vendor-hosted)",
+        "url": "https://www.far-driver.com/wp-content/uploads/Fardriver-controller-Manual.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the ND-series controllers this spec covers.\n"
+      },
+      {
+        "title": "Fardriver: download centre",
+        "url": "https://www.far-driver.com/download/",
+        "kind": "vendor_support",
+        "description": "Vendor index. Note the vendor gates some downloads behind a password obtained from sales.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1515,6 +1887,14 @@
     "manufacturer_status": "unsupported",
     "protocol_handler": "fichero_d11",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "NIIMBOT D11 wireless label printer manual (Internet Archive)",
+        "url": "https://web.archive.org/web/20250316042638/https://manuals.plus/niimbot/d11-wireless-label-printer-manual",
+        "kind": "manual",
+        "description": "Manual for the D11 platform this printer is built on — the Fichero is an AiYin D11s underneath. Archived because the live host refuses automated requests.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1525,6 +1905,20 @@
     "manufacturer": "Flowtoys",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Flowtoys capsule light instructions",
+        "url": "https://www.manualslib.com/manual/2044501/Flowtoys-Capsule-Light.html",
+        "kind": "manual",
+        "description": "Vendor instructions for the capsule light, the core of the Connect prop system.\n"
+      },
+      {
+        "title": "Flowtoys: guides and manuals download folder",
+        "url": "https://flowtoys2.freshdesk.com/support/solutions/folders/6000008575",
+        "kind": "vendor_support",
+        "description": "Vendor support library — the same folder this project's research cache mirrors.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1540,6 +1934,12 @@
         "title": "bm1549/home-assistant-frigidaire (HACS)",
         "url": "https://github.com/bm1549/home-assistant-frigidaire",
         "description": "HACS custom component for Frigidaire ACs via the Electrolux cloud API; cloud fallback where the local path documented here is unavailable."
+      },
+      {
+        "title": "Frigidaire Gallery FGRC1244T100 use and care manual",
+        "url": "https://www.manualslib.com/manual/1834955/Frigidaire-Gallery-Fgrc1244t100.html",
+        "kind": "manual",
+        "description": "Vendor manual for the sibling window unit; the portable range shares the same Wi-Fi module and app flow.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1557,6 +1957,12 @@
         "title": "bm1549/home-assistant-frigidaire (HACS)",
         "url": "https://github.com/bm1549/home-assistant-frigidaire",
         "description": "HACS custom component for Frigidaire ACs via the Electrolux cloud API; cloud fallback where the local path documented here is unavailable."
+      },
+      {
+        "title": "Frigidaire Gallery FGRC1244T100 use and care manual",
+        "url": "https://www.manualslib.com/manual/1834955/Frigidaire-Gallery-Fgrc1244t100.html",
+        "kind": "manual",
+        "description": "Vendor manual for a Wi-Fi window unit of the generation this spec covers.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1573,13 +1979,19 @@
     "helpful_urls": [
       {
         "title": "Fronius — Solar API (JSON) documentation",
-        "url": "https://www.fronius.com/en/solar-energy/installers-partners/technical-data/all-products/system-monitoring/open-interfaces/fronius-solar-api-json-",
+        "url": "https://web.archive.org/web/20241007142028/https://www.fronius.com/en/solar-energy/installers-partners/technical-data/all-products/system-monitoring/open-interfaces/fronius-solar-api-json-",
         "description": "Official Solar API V1: endpoints, request model, response envelope, platform compatibility."
       },
       {
         "title": "mwittig/node-fronius-solar",
         "url": "https://github.com/mwittig/node-fronius-solar",
         "description": "Community Node client for the Solar API."
+      },
+      {
+        "title": "Fronius Solar API V1 operating instructions (PDF, vendor-hosted)",
+        "url": "https://www.fronius.com/~/downloads/Solar%20Energy/Operating%20Instructions/42,0410,2012.pdf",
+        "kind": "manual",
+        "description": "The normative document for the API this spec implements — including the warning that a factory reset leaves the Solar API deactivated on bundle 1.14.1 and later.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1627,8 +2039,20 @@
       },
       {
         "title": "Gerbing ThermoGauge 12V controller",
-        "url": "https://www.gerbing.com/products/gerbing-thermogauge-12v-bluetooth-temperature-controller",
+        "url": "https://web.archive.org/web/20250813042526/https://www.gerbing.com/products/gerbing-thermogauge-12v-bluetooth-temperature-controller",
         "description": "Vendor product page for the controller; model names and voltage variants."
+      },
+      {
+        "title": "Gerbing: user guides",
+        "url": "https://www.gerbing.com/pages/user-guides",
+        "kind": "vendor_support",
+        "description": "Vendor index of instruction manuals and setup guides for the 12V range, including the Bluetooth Thermogauge this spec documents.\n"
+      },
+      {
+        "title": "Gerbing 12V heated motorcycle clothing catalogue (PDF)",
+        "url": "https://alfresco-heating.com/content/product-pdfs/gerbing-heated-motorcycle-clothing-12-volt-catalog.pdf",
+        "kind": "manual",
+        "description": "Distributor-hosted catalogue covering the controller range and the 12V wiring rules.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1672,6 +2096,18 @@
         "title": "FCC ID 2AQA6-H5075",
         "url": "https://fccid.io/2AQA6-H5075",
         "description": "FCC filing; confirms the Telink SoC and the grantee recorded in the hardware notes."
+      },
+      {
+        "title": "Govee H5075 user manual",
+        "url": "https://www.manualslib.com/manual/4009393/Govee-H5075.html",
+        "kind": "manual",
+        "description": "Vendor manual for the H5075.\n"
+      },
+      {
+        "title": "Govee: H5075 product page",
+        "url": "https://us.govee.com/products/govee-bluetooth-hygrometer-thermometer-h5075",
+        "kind": "vendor_support",
+        "description": "Vendor product page with current documentation.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1699,6 +2135,12 @@
         "title": "LaggAt/hacs-govee (HACS)",
         "url": "https://github.com/LaggAt/hacs-govee",
         "description": "HACS Govee integration covering the cloud-API switches/plugs; no Home Assistant integration speaks this BLE protocol directly yet."
+      },
+      {
+        "title": "Govee H5080 smart plug manuals",
+        "url": "https://www.manualslib.com/products/Govee-H5080-11828283.html",
+        "kind": "manual",
+        "description": "Vendor manuals for the H5080. Note it gives no hold time for the reset, which is why this spec's procedure borrows the H5086's ten seconds and says so.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1746,6 +2188,12 @@
         "title": "Home Assistant Govee lights local integration",
         "url": "https://www.home-assistant.io/integrations/govee_light_local/",
         "description": "HA core LAN-API integration; the H6001 supports Govee's local Wi-Fi API alongside the BLE protocol documented here."
+      },
+      {
+        "title": "Govee H6001 LED bulb user manual (Internet Archive)",
+        "url": "https://web.archive.org/web/20220102191855/https://manuals.plus/govee/h6001-bluetooth-rgbww-led-bulb-manual",
+        "kind": "manual",
+        "description": "Archived copy — the live host refuses automated requests.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1773,6 +2221,12 @@
         "title": "Reverse-engineering Govee smart lights",
         "url": "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/",
         "description": "Write-up of the shared Govee BLE command protocol with an on-device GATT dump."
+      },
+      {
+        "title": "Govee H6199 RGBIC TV backlight user manual",
+        "url": "https://www.manualslib.com/manual/2492115/Govee-H6199.html",
+        "kind": "manual",
+        "description": "Vendor manual for the H6199, the closest documented sibling of the H6101/H6104 — same app, same power-cycle reset.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1805,6 +2259,12 @@
         "title": "Home Assistant Govee lights local integration",
         "url": "https://www.home-assistant.io/integrations/govee_light_local/",
         "description": "HA core integration for the firmware-side LAN API that WiFi models in this family can expose once enabled."
+      },
+      {
+        "title": "Govee H6199 RGBIC TV backlight user manual",
+        "url": "https://www.manualslib.com/manual/2492115/Govee-H6199.html",
+        "kind": "manual",
+        "description": "A vendor manual from the same generation, for the app pairing flow and the power-cycle reset shared across the Govee lighting range.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1837,6 +2297,12 @@
         "title": "Home Assistant Govee lights local integration",
         "url": "https://www.home-assistant.io/integrations/govee_light_local/",
         "description": "HA core integration for the firmware-side LAN API (UDP 4001/4002/4003) that WiFi models expose once the local-network-API function is enabled."
+      },
+      {
+        "title": "Govee H619A RGBIC LED strip user manual",
+        "url": "https://www.manualslib.com/manual/3231376/Govee-H619a.html",
+        "kind": "manual",
+        "description": "Vendor manual for the H619A, one of the segmented strips this spec covers.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1860,6 +2326,18 @@
         "title": "cmroche/greeclimate",
         "url": "https://github.com/cmroche/greeclimate",
         "description": "Python client with AES-GCM (encryption_version 2) support for newer firmware."
+      },
+      {
+        "title": "GREE+ app and universal WiFi installation and operation manual (PDF, vendor-hosted)",
+        "url": "https://www.greecomfort.com/assets/documents/resource-materials/wifi-info/gree-wifi-app-installation-and-operation.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the WiFi module and app.\n"
+      },
+      {
+        "title": "Gree universal Wi-Fi kit WSBEC02/WSBEE03 installation guide (PDF)",
+        "url": "https://hvacdirect.com/hvac/pdf/Gree-Wi-Fi-Installation-Guide.pdf",
+        "kind": "manual",
+        "description": "Module installation guide for the retrofit kits this spec's family includes.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1880,8 +2358,20 @@
       },
       {
         "title": "Hello Fairy on Google Play",
-        "url": "https://play.google.com/store/apps/details?id=com.lenzetech.hellofairy",
+        "url": "https://web.archive.org/web/20220804013543/https://play.google.com/store/apps/details?id=com.lenzetech.hellofairy",
         "description": "Vendor app (v3.3.3 analyzed for this spec). BLE-only; also fetches scene/UI resources and self-updates from vendor cloud buckets, none of which are needed for local control."
+      },
+      {
+        "title": "AvatarControls: Hello Fairy app and setup",
+        "url": "https://www.avatarcontrols.com/pages/hello-fairy-app",
+        "kind": "vendor_support",
+        "description": "Vendor setup page for the Hello Fairy app this spec's BLE protocol belongs to.\n"
+      },
+      {
+        "title": "AvatarControls: Hello Fairy outdoor string lights",
+        "url": "https://www.avatarcontrols.com/products/outdoor-string-lights-hello-fairy-app-control",
+        "kind": "vendor_support",
+        "description": "Vendor product page documenting the controller's button behaviour — short press to toggle, three-second hold to cycle modes.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1905,6 +2395,12 @@
         "title": "hikvisionapi (PyPI)",
         "url": "https://pypi.org/project/hikvisionapi/",
         "description": "Python ISAPI client (deviceInfo, streaming channels, motionDetection, alertStream)."
+      },
+      {
+        "title": "Hikvision network camera user manual (PDF, vendor-hosted)",
+        "url": "https://assets.hikvision.com/prd/public/all/doc/m000012235/UD16429B-B_Baseline_User-Manual-of-Network-Camera_V5.6.10_20221223.pdf",
+        "kind": "manual",
+        "description": "Vendor baseline manual for the network camera range, v5.6.10.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1958,6 +2454,18 @@
         "title": "Home Assistant community — Hisense TV Control thread",
         "url": "https://community.home-assistant.io/t/hisense-tv-control/97638",
         "description": "Six years of model-by-model reports: which sets need TLS, which need certs, channel_param changechannel payloads, bridge configs."
+      },
+      {
+        "title": "Hisense A6 series user manual",
+        "url": "https://www.manualslib.com/manual/2845830/Hisense-A6-Series.html",
+        "kind": "manual",
+        "description": "Vendor manual for the A6GV sets this spec's research used.\n"
+      },
+      {
+        "title": "Hisense 55K600GW VIDAA TV manual",
+        "url": "https://www.manualslib.com/manual/1026982/Hisense-55k600gw-Vidaa-Tv.html",
+        "kind": "manual",
+        "description": "An earlier VIDAA set, for comparison across platform versions.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -1989,6 +2497,7 @@
       {
         "title": "Venture Heat: motorcycle heated gear guide",
         "url": "https://www.ventureheat.com/pages/motorcycle-guide",
+        "kind": "vendor_support",
         "description": "Vendor guide to the 12V motorcycle garments this protocol drives."
       },
       {
@@ -2013,6 +2522,12 @@
         "title": "Home Assistant Philips Hue integration",
         "url": "https://www.home-assistant.io/integrations/hue/",
         "description": "HA core integration over the local Hue bridge API v2 (CLIP); where this protocol runs in production."
+      },
+      {
+        "title": "Philips Hue Bridge 2.0 user manual",
+        "url": "https://www.manualslib.com/manual/1361361/Philips-Hue-Bridge-2-0.html",
+        "kind": "manual",
+        "description": "Vendor manual for the v2 bridge, including the link button this spec's pairing block depends on.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2040,6 +2555,12 @@
         "title": "Hyperice on device.report",
         "url": "https://device.report/hyperice",
         "description": "Device database listing carrying the Hypervolt Plus model number 54020 001-00 (the page bot-blocks plain HTTP clients; open in a browser)."
+      },
+      {
+        "title": "Hyperice Hypervolt Plus operating instructions",
+        "url": "https://www.manualslib.com/manual/2175242/Hyperice-Hypervolt-Plus.html",
+        "kind": "manual",
+        "description": "Vendor manual for the Hypervolt Plus. It documents a single power/speed button and no reset control, which is the basis for this spec's `applicable: false`.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2052,6 +2573,20 @@
     "manufacturer": "Inkbird / Tenergy Solis / various OEMs",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "INKBIRD IBBQ-4T manual",
+        "url": "https://www.manualslib.com/manual/1910857/Inkbird-Ibbq-4t.html",
+        "kind": "manual",
+        "description": "Vendor manual for the IBBQ-4T, one of the exemplars in this spec.\n"
+      },
+      {
+        "title": "INKBIRD: IBBQ-4T manual page",
+        "url": "https://www.inkbird.com/pages/ibbq-4t-manual",
+        "kind": "vendor_support",
+        "description": "Vendor's own manual page, kept current.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2078,16 +2613,6 @@
         "title": "Bricked xmas lights writeup (8none1)",
         "url": "https://www.whizzy.org/2023-12-14-bricked-xmas/",
         "description": "The 8none1 author bricked a light set by sending out-of-family bytes during development — the reason this spec warns against guessing undecoded opcode payloads."
-      },
-      {
-        "title": "iDeal LED on Google Play",
-        "url": "https://play.google.com/store/apps/details?id=com.tech.idealled",
-        "description": "Vendor app (com.tech.idealled)."
-      },
-      {
-        "title": "Firmware info endpoint (OTA check)",
-        "url": "https://api.e-toys.cn/api/getFirmwareInfo",
-        "description": "Public vendor endpoint (POST) the app queries for .ufw firmware updates; referenced so firmware need not be harvested into this repo."
       }
     ],
     "schema_version": "2020-12"
@@ -2106,6 +2631,12 @@
         "title": "adriantukendorf/iDotMatrix-HomeAssistant (HACS)",
         "url": "https://github.com/adriantukendorf/iDotMatrix-HomeAssistant",
         "description": "HACS integration driving iDotMatrix BLE pixel boards locally (native adapter or Bluetooth proxy)."
+      },
+      {
+        "title": "derkalle4/python3-idotmatrix-client",
+        "url": "https://github.com/derkalle4/python3-idotmatrix-client",
+        "kind": "implementation",
+        "description": "No vendor manual is published anywhere that resolves — iDotMatrix ship a QR code to an app and nothing else. This reverse-engineered client is the working documentation for the protocol.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2149,6 +2680,18 @@
         "title": "Ignis Pixel on Google Play (com.ignispixel)",
         "url": "https://play.google.com/store/apps/details?id=com.ignispixel",
         "description": "The companion app this spec was recovered from (v2.29.9 analyzed). Qt6/QML shell; all protocol logic is in one symbol-rich native library, which is why the framing and header layouts here carry HIGH confidence."
+      },
+      {
+        "title": "Ignis Pixel manual for LED fans, buugengs and hoops (PDF)",
+        "url": "https://www.homeofpoi.com/pdf/Manual-for-Ignis-Pixel-Fans-Buugengs-Hoops-EN.pdf",
+        "kind": "manual",
+        "description": "English manual for the fan, buugeng and hoop props.\n"
+      },
+      {
+        "title": "Ignis Pixel BubblePoi manual (PDF, vendor-hosted)",
+        "url": "https://ignispixel.com/files/upload/manual/BubblePOI_manual.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the BubblePoi.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2190,6 +2733,7 @@
       {
         "title": "iLEDColor app on Google Play",
         "url": "https://play.google.com/store/apps/details?id=com.led.iledcolor",
+        "kind": "vendor_support",
         "description": "Distribution page for the analysed app."
       }
     ],
@@ -2223,6 +2767,18 @@
       {
         "title": "Home Assistant Inkbird integration docs",
         "url": "https://www.home-assistant.io/integrations/inkbird"
+      },
+      {
+        "title": "INKBIRD IBT-4XS user manual (PDF)",
+        "url": "https://m.media-amazon.com/images/I/B1MeDqCdsHS.pdf",
+        "kind": "manual",
+        "description": "Vendor manual. Confirms no pairing code is needed and that one phone talks to one unit at a time.\n"
+      },
+      {
+        "title": "INKBIRD: IBT-4XS product page",
+        "url": "https://www.inkbird.com/products/bluetooth-grill-thermometer-ibt-4xs",
+        "kind": "vendor_support",
+        "description": "Vendor product page with current documentation.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2265,6 +2821,18 @@
         "title": "Home Assistant: Inkbird integration",
         "url": "https://www.home-assistant.io/integrations/inkbird",
         "description": "Where the parser runs in production, and the supported-model list."
+      },
+      {
+        "title": "INKBIRD: IBS-TH1 Plus manual",
+        "url": "https://www.inkbird.com/pages/ibs-th1-plus-manual",
+        "kind": "vendor_support",
+        "description": "Vendor manual page for the exemplar sensor.\n"
+      },
+      {
+        "title": "INKBIRD: manual downloads",
+        "url": "https://www.inkbird.com/pages/download",
+        "kind": "vendor_support",
+        "description": "Vendor index covering the rest of the IBS range.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2302,6 +2870,7 @@
       {
         "title": "iPixel Color on Google Play",
         "url": "https://play.google.com/store/apps/details?id=com.wifiled.ipixels",
+        "kind": "vendor_support",
         "description": "Vendor companion app — the app this spec's static analysis is based on."
       },
       {
@@ -2336,6 +2905,12 @@
         "url": "https://datatracker.ietf.org/doc/html/rfc8010",
         "title": "RFC 8010 — IPP/1.1 Encoding and Transport",
         "description": "IPP over HTTP; the default IPP port 631 and the ipp:// resource model."
+      },
+      {
+        "title": "PWG 5100.14-2020: IPP Everywhere v1.1 (PDF)",
+        "url": "https://ftp.pwg.org/pub/pwg/candidates/cs-ippeve11-20200515-5100.14.pdf",
+        "kind": "standard",
+        "description": "The normative specification. For a driverless printer there is no vendor manual worth linking — the standard IS the documentation, and every conforming printer implements it.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2390,6 +2965,12 @@
         "title": "packetmischief.ca — 'Roomba Stuck at Verify password' (discovery and ports across subnets)",
         "url": "https://www.packetmischief.ca/2023/01/15/roomba-stuck-at-verify-password/",
         "description": "A real-world debugging write-up: the vendor app hangs at 'Verify password' when UDP 5678 discovery and TCP 8883 cannot reach the robot across a subnet boundary. The clearest public confirmation that both ports must reach the robot and that discovery is broadcast-scoped — useful for telling a robot that is asleep apart from one the scanner cannot route to.\n"
+      },
+      {
+        "title": "iRobot Roomba i7 owner's manual",
+        "url": "https://www.manualslib.com/manual/1951685/Irobot-Roomba-I7.html",
+        "kind": "manual",
+        "description": "Vendor manual for the i7. The HOME-button password disclosure this spec documents is a community route, not one iRobot describe.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2411,6 +2992,14 @@
     "manufacturer": "Unbranded / various OEMs",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "iTag user manual (Internet Archive)",
+        "url": "https://web.archive.org/web/20170308134043/http://manualzz.com:80/doc/6467956/itag-user-manual",
+        "kind": "manual",
+        "description": "Manual for the generic iTag tracker platform. Archived because the live host refuses automated requests; these are unbranded ODM devices with no vendor site to point at.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2437,6 +3026,18 @@
         "title": "kolins-cz/Smart-BMS-Bluetooth-ESP32",
         "url": "https://github.com/kolins-cz/Smart-BMS-Bluetooth-ESP32",
         "description": "ESP32 BLE client; source of the 0xFF00/0xFF01/0xFF02 UUIDs."
+      },
+      {
+        "title": "Overkill Solar / JBD BMS instruction manual (Internet Archive)",
+        "url": "https://archive.org/details/overkill-solar-bms-instruction-manual",
+        "kind": "manual",
+        "description": "The community-standard manual for these BMS boards, archived. Also carries JBD protocol notes and wiring diagrams.\n"
+      },
+      {
+        "title": "Overkill Solar BMS series instruction manual",
+        "url": "https://www.manualslib.com/manual/1933154/Overkill-Solar-Bms-Series.html",
+        "kind": "manual",
+        "description": "Alternative copy covering the JBD-SP04S020, SP10S009 and SP25S003 models.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2475,6 +3076,18 @@
         "title": "ImageMeter: supported Bluetooth laser distance meters",
         "url": "https://www.imagemeter.com/manual/bluetooth/devices/",
         "description": "Third-party app's catalogue of which meters it speaks to and how, useful for placing this Precaster OEM platform among the other vendors' protocols."
+      },
+      {
+        "title": "Johnson Level LDM330 instruction manual (PDF, vendor-hosted)",
+        "url": "https://www.johnsonlevel.com/Content/files/manuals/LDM330manual.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the LDM330.\n"
+      },
+      {
+        "title": "Johnson Level & Tool LDM330 instruction manual",
+        "url": "https://www.manualslib.com/manual/1294902/Johnson-Level-And-Tool-Ldm330.html",
+        "kind": "manual",
+        "description": "Alternative copy of the same document.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2528,6 +3141,12 @@
         "title": "sanjay900/igrill (adjacent Weber product, NOT this device)",
         "url": "https://github.com/sanjay900/igrill",
         "description": "BLE integration for the Weber iGrill probe. Shares no protocol surface with the June oven — the link is corporate, not technical. Listed only so nobody conflates the two."
+      },
+      {
+        "title": "June support: Factory Reset (Internet Archive)",
+        "url": "https://web.archive.org/web/20240724184405/https://support.juneoven.com/hc/en-us/articles/16093273236372-Factory-Reset",
+        "kind": "vendor_support",
+        "description": "The vendor's own factory-reset article, archived. Read it before resetting — a June that comes back asking for an account it cannot reach is worse than one that is merely offline.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2587,6 +3206,18 @@
         "url": "https://github.com/indiefan/king_smith",
         "title": "king_smith (HACS custom integration)",
         "description": "HACS custom integration controlling KingSmith WalkingPad treadmills over BLE."
+      },
+      {
+        "title": "KingSmith WalkingPad smart foldable treadmill user manual",
+        "url": "https://www.manualslib.com/manual/2045387/Kingsmith-Walkingpad-Smart-Foldable-Treadmill-Series.html",
+        "kind": "manual",
+        "description": "Vendor manual for the series, including the remote re-pairing procedure in this spec.\n"
+      },
+      {
+        "title": "KingSmith WalkingPad R1 user manual (PDF)",
+        "url": "https://s3.ap-southeast-2.amazonaws.com/product-instruction/90000123R1EnManual.pdf",
+        "kind": "manual",
+        "description": "Vendor-hosted PDF for the R1.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2604,6 +3235,18 @@
         "title": "gaggle331/home-assistant-kevo",
         "url": "https://github.com/gaggle331/home-assistant-kevo",
         "description": "Home Assistant custom component for Kevo locks via the Kevo Plus gateway cloud API (pykevoplus); CAPTCHA changes broke lock-id discovery, so a manual lock_id is required."
+      },
+      {
+        "title": "Kwikset Kevo 2nd generation installation and user guide (PDF)",
+        "url": "https://s7d5.scene7.com/is/content/BDHHI/Kwikset/Tech-Docs/5064452.pdf",
+        "kind": "manual",
+        "description": "Vendor-hosted guide for the 2nd-generation lock, including the ten-second Reset button hold used in this spec.\n"
+      },
+      {
+        "title": "Kwikset Kevo installation and user guide, 1st generation (PDF)",
+        "url": "https://s7d5.scene7.com/is/content/BDHHI/Kwikset/Website%20Content/Kevo/KwiksetKevo_InstallationUserGuide.pdf",
+        "kind": "manual",
+        "description": "First-generation guide, whose reset differs from the 2nd generation.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2626,6 +3269,7 @@
       {
         "title": "TIRO Innovation Technology",
         "url": "https://www.tiro.cc/",
+        "kind": "vendor_support",
         "description": "OEM behind the panel and the Shining Display app (site live 2026-08-18)."
       },
       {
@@ -2680,6 +3324,12 @@
         "title": "LED Shop on Google Play",
         "url": "https://play.google.com/store/apps/details?id=com.cdc.ledshop",
         "description": "The vendor app (com.cdc.ledshop) this spec replaces."
+      },
+      {
+        "title": "SP108E WiFi LED controller operating instructions (PDF)",
+        "url": "https://m.media-amazon.com/images/I/81Xi5n1Iz6L.pdf",
+        "kind": "manual",
+        "description": "Printed instructions for the controller, including the AP name and default pin.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2693,6 +3343,14 @@
     "manufacturer_status": "active",
     "protocol_handler": "popled_json",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "LOY SPACE app (Google Play)",
+        "url": "https://play.google.com/store/apps/details?id=com.yskd.loywf",
+        "kind": "vendor_support",
+        "description": "The vendor app's listing. These YSP-001-family screens are sold unbranded with no manual; the app store page is the only vendor-published description of what the display does.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -2708,6 +3366,24 @@
         "title": "monty68/uniled — UniLED (HACS)",
         "url": "https://github.com/monty68/uniled",
         "description": "HACS integration for SP LED / BanlanX-family BLE controllers (LED Chord / SP107E, LED Hue / SP110E); a production Home Assistant consumer of the SP107E command set this spec documents. Does not cover the later SPOTLED-app panel generation."
+      },
+      {
+        "title": "SP110E Bluetooth LED controller operating instructions (PDF)",
+        "url": "https://m.media-amazon.com/images/I/81-vuGVbmgL.pdf",
+        "kind": "manual",
+        "description": "Vendor instructions for the SP110E.\n"
+      },
+      {
+        "title": "SP107E Bluetooth LED music controller manual (PDF)",
+        "url": "https://www.ledbe.com/image/catalog/Sperll/sp107e-manual.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the SP107E, the music-reactive sibling this spec also covers.\n"
+      },
+      {
+        "title": "SP105E LED controller manual (PDF)",
+        "url": "https://www.ledbe.com/image/catalog/Sperll/sp105e-magic-controller-manual.pdf",
+        "kind": "manual",
+        "description": "Manual for the SP105E, a sibling of the SP107E/SP110E this spec covers.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2745,6 +3421,18 @@
       {
         "title": "pylgtv — the original Python client (archived 2019); where the open implementations converge",
         "url": "https://github.com/TheRealLink/pylgtv"
+      },
+      {
+        "title": "LG webOS TV user manual",
+        "url": "https://www.manualslib.com/manual/1992790/Lg-Webos-Tv.html",
+        "kind": "manual",
+        "description": "Vendor manual for the webOS platform this spec's second-screen protocol belongs to.\n"
+      },
+      {
+        "title": "LG OLED TV owner's manual",
+        "url": "https://www.manualslib.com/manual/2052512/Lg-Oled-Tv.html",
+        "kind": "manual",
+        "description": "Owner's manual for the OLED sets. On-set, the guide is under All Settings, Support (or Customer Support), User Manual.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2763,6 +3451,18 @@
         "title": "Home Assistant LIFX integration",
         "url": "https://www.home-assistant.io/integrations/lifx/",
         "description": "HA core integration speaking the LIFX LAN binary protocol documented here (UDP 56700)."
+      },
+      {
+        "title": "LIFX Z instructions manual",
+        "url": "https://www.manualslib.com/manual/2397784/Lifx-Z.html",
+        "kind": "manual",
+        "description": "Vendor instructions for the Z light strip.\n"
+      },
+      {
+        "title": "LIFX: Z LED strip manuals",
+        "url": "https://www.lifx.com.au/pages/z-led-strip-manuals",
+        "kind": "vendor_support",
+        "description": "Vendor manual index for the Z range.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2782,6 +3482,18 @@
         "url": "https://www.home-assistant.io/integrations/limitlessled/",
         "title": "Home Assistant LimitlessLED integration",
         "description": "HA core integration driving MiLight/LimitlessLED bridges with the UDP v6 protocol documented here."
+      },
+      {
+        "title": "NeonHorizon/milight — V6 bridge drivers and protocol notes",
+        "url": "https://github.com/NeonHorizon/milight",
+        "kind": "implementation",
+        "description": "Working implementation for the V6 iBox bridge, and the closest thing to documentation for hardware whose vendor published none.\n"
+      },
+      {
+        "title": "Mi-Light MiBoxer WL-Box2 instructions",
+        "url": "https://www.manualslib.com/manual/3029132/Mi-Light-Miboxer-Wl-Box2.html",
+        "kind": "manual",
+        "description": "Manual for the successor gateway. The original iBox/iBox2 bridges this spec documents have no surviving vendor manual; this is the nearest documented relative.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2810,6 +3522,18 @@
         "title": "Home Assistant — local API removal and restoration (2018)",
         "url": "https://www.home-assistant.io/blog/2018/12/17/logitech-harmony-removes-local-api/",
         "description": "Context on the firmware 4.15.206 local-API removal and its restoration in 4.15.250."
+      },
+      {
+        "title": "Logitech Harmony Hub setup manual",
+        "url": "https://www.manualslib.com/manual/837905/Logitech-Harmony-Hub.html",
+        "kind": "manual",
+        "description": "Vendor setup manual for the Hub.\n"
+      },
+      {
+        "title": "Harmony Ultimate user guide (PDF, vendor-hosted)",
+        "url": "https://www.logitech.com/assets/50282/harmony-ultimate-user-guide.pdf",
+        "kind": "manual",
+        "description": "Still on Logitech's own server despite the Harmony line being discontinued and the MyHarmony service wound down.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2836,6 +3560,7 @@
       {
         "title": "LotusLamp X on Google Play",
         "url": "https://play.google.com/store/apps/details?id=com.szelk.ledlamppro",
+        "kind": "vendor_support",
         "description": "Vendor app this spec was derived from (Shenzhen ELK). Note the app's telemetry endpoint lotus.elkled.com:8082 — unnecessary for local control."
       }
     ],
@@ -2855,6 +3580,12 @@
         "title": "Home Assistant Lutron Caséta integration",
         "url": "https://www.home-assistant.io/integrations/lutron_caseta/",
         "description": "HA core integration over the Smart Bridge LEAP/LAP protocol documented here."
+      },
+      {
+        "title": "Lutron Caseta Smart Bridge quick start guide",
+        "url": "https://www.alarmgrid.com/documents/caseta-smart-bridge-quick-start-guide",
+        "kind": "manual",
+        "description": "Quick start for the L-BDG2. Lutron's own document server refuses automated requests; this is a mirrored copy of the same guide.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2887,11 +3618,6 @@
         "title": "lcd-badge-ble",
         "url": "https://github.com/DynamicDevices/lcd-badge-ble",
         "description": "Another client for this Telink LCD-badge hardware family."
-      },
-      {
-        "title": "FitPro app on Google Play",
-        "url": "https://play.google.com/store/apps/details?id=xfkj.fitpro",
-        "description": "The vendor app the M6 is sold with, package xfkj.fitpro."
       },
       {
         "title": "Gadgetbridge: FitPro devices",
@@ -2936,6 +3662,12 @@
         "title": "vikstrous/zengge-lightcontrol",
         "url": "https://github.com/vikstrous/zengge-lightcontrol",
         "description": "Port-5577 + UDP-48899 protocol write-up, including the HF-A11ASSISTHREAD config handshake."
+      },
+      {
+        "title": "Zengge ZJ-MWIR-RGB Wi-Fi RGB controller manual",
+        "url": "https://www.manualslib.com/manual/2035005/Zengge-Zj-Mwir-Rgb.html",
+        "kind": "manual",
+        "description": "Manual for a Zengge controller of the family this spec covers. These ship under many retail names — Magic Home is the app, Zengge is the OEM.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2959,6 +3691,18 @@
         "url": "https://github.com/project-chip/connectedhomeip",
         "title": "Matter SDK (connectedhomeip)",
         "description": "Reference implementation; the DNS-SD service types (_matter._tcp / _matterc._udp) and TXT keys."
+      },
+      {
+        "title": "Matter 1.0 core specification (PDF, CSA-hosted)",
+        "url": "https://csa-iot.org/wp-content/uploads/2022/11/22-27349-001_Matter-1.0-Core-Specification.pdf",
+        "kind": "standard",
+        "description": "The normative specification, including section 13.4 on what a factory reset must achieve — the guarantee this spec's reset block rests on.\n"
+      },
+      {
+        "title": "Connectivity Standards Alliance: specification downloads",
+        "url": "https://csa-iot.org/developer-resource/specifications-download-request/",
+        "kind": "standard",
+        "description": "Index of current Matter specification versions.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -2982,6 +3726,18 @@
         "title": "nbogojevic/midea-beautiful-air",
         "url": "https://github.com/nbogojevic/midea-beautiful-air",
         "description": "MIT — covers dehumidifier rebadges and the token/key-from-cloud story."
+      },
+      {
+        "title": "Midea SK102 smart AC WiFi user manual",
+        "url": "https://www.manualslib.com/manual/1442163/Midea-Sk102.html",
+        "kind": "manual",
+        "description": "Vendor manual for the SK102 WiFi controller, including the AP-mode entry this spec's reset produces.\n"
+      },
+      {
+        "title": "Midea smart AC CS373U-APP (SK102) user manual (PDF, vendor-hosted)",
+        "url": "https://www.midea.com.ua/sites/default/files/downloadables-documents/pdf/wifi-manual-obm-16122000003074-cs373u-appsk102.pdf",
+        "kind": "manual",
+        "description": "Vendor-hosted PDF of the same document.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3010,6 +3766,18 @@
         "url": "https://www.home-assistant.io/integrations/mikrotik/",
         "title": "Home Assistant MikroTik integration",
         "description": "HA core integration (RouterOS API device tracker/presence) for this router family."
+      },
+      {
+        "title": "MikroTik quick guide G1-d (vendor documentation)",
+        "url": "https://help.mikrotik.com/docs/spaces/QG/pages/247169272/Quick+Guide+G1-d",
+        "kind": "manual",
+        "description": "Vendor quick guide covering the RouterBOOT reset button and its three release points.\n"
+      },
+      {
+        "title": "MikroTik RB750Gr3 (hEX) manuals",
+        "url": "https://www.manualslib.com/products/Mikrotik-Rb750gr3-11530423.html",
+        "kind": "manual",
+        "description": "Manuals for the hEX, the exemplar board in this spec.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3050,6 +3818,18 @@
         "title": "ESPHome — mopeka_pro_check",
         "url": "https://esphome.io/components/sensor/mopeka_pro_check.html",
         "description": "Passive BLE decode: level/distance/temperature/battery/quality and tank calibration."
+      },
+      {
+        "title": "Mopeka Pro Check quick start manual",
+        "url": "https://www.manualslib.com/manual/4121202/Mopeka-Pro-Check.html",
+        "kind": "manual",
+        "description": "Vendor manual for the Pro Check sensor, and the source of the SYNC-button wake in this spec.\n"
+      },
+      {
+        "title": "Mopeka Pro Check quick install guide (PDF)",
+        "url": "https://m.media-amazon.com/images/I/81IzQcwe5nL.pdf",
+        "kind": "manual",
+        "description": "The install guide, including the dielectric-grease step that makes readings accurate.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3062,6 +3842,14 @@
     "manufacturer": "Slacker LLC (formerly MoTool)",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Motool: Slacker product page and documentation",
+        "url": "https://getslacker.com/products/slacker",
+        "kind": "vendor_support",
+        "description": "Vendor page; the full PDF user guide and video guides are distributed through Motool's own service app rather than as a public download.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -3077,6 +3865,12 @@
         "title": "eigger/hass-niimbot (HACS)",
         "url": "https://github.com/eigger/hass-niimbot",
         "description": "HACS integration printing to Niimbot BLE label printers (D110 family) from Home Assistant."
+      },
+      {
+        "title": "NIIMBOT D110 quick start manual",
+        "url": "https://www.manualslib.com/manual/3027392/Niimbot-D110.html",
+        "kind": "manual",
+        "description": "Vendor quick start covering the indicator-light meanings this spec's status decoding relies on.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3100,6 +3894,18 @@
         "title": "CamiAlfa/M365-BLE-PROTOCOL",
         "url": "https://github.com/CamiAlfa/M365-BLE-PROTOCOL",
         "description": "The shared ESC/BMS register map (Xiaomi + Ninebot family)."
+      },
+      {
+        "title": "Segway KickScooter ES user manual (PDF, vendor-hosted)",
+        "url": "https://store.segway.com/media/wysiwyg/warranty/kickscooter-es-user-manual.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the ES range this spec covers.\n"
+      },
+      {
+        "title": "Segway KickScooter ES1 series user manual (PDF, vendor-hosted)",
+        "url": "https://support.segway.com/product_files/20230727035750_Segway%20KickScooter%20ES1%20series%20User%20Manual.pdf",
+        "kind": "manual",
+        "description": "The ES1-series manual from Segway's support file store.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3117,6 +3923,18 @@
         "title": "marcelwestrahome/home-assistant-niu-component (HACS)",
         "url": "https://github.com/marcelwestrahome/home-assistant-niu-component",
         "description": "HACS custom component surfacing NIU scooter telemetry in Home Assistant (cloud API)."
+      },
+      {
+        "title": "NIU NQi Sport user manual (PDF)",
+        "url": "https://files.scooterhacking.org/documents/manuals/scooters/Niu/NQi%20Sport%20Manual%20ENG.pdf",
+        "kind": "manual",
+        "description": "English manual for the NQi Sport, mirrored by the ScooterHacking community.\n"
+      },
+      {
+        "title": "NIU NQi GTS user manual",
+        "url": "https://www.manualslib.com/manual/2036845/Niu-Nqi-Gts.html",
+        "kind": "manual",
+        "description": "Vendor manual for the GTS.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3159,6 +3977,18 @@
         "title": "NCC Group advisory: multiple vulnerabilities in Nuki smart locks (July 2022)",
         "url": "https://www.nccgroup.com/us/research-blog/technical-advisory-multiple-vulnerabilities-in-nuki-smart-locks-cve-2022-32509-cve-2022-32504-cve-2022-32502-cve-2022-32507-cve-2022-32503-cve-2022-32510-cve-2022-32506-cve-2022-32508-cve-2022-32505/",
         "description": "Source for the 11 CVEs cited in device.notes, including the BLE protocol access-control and DoS findings."
+      },
+      {
+        "title": "Nuki Smart Lock 3.0 Pro installation manual",
+        "url": "https://www.manualslib.com/manual/2623006/Nuki-Smart-Lock-3-0-Pro.html",
+        "kind": "manual",
+        "description": "Vendor installation manual for the 3.0 Pro.\n"
+      },
+      {
+        "title": "Nuki support: how can I reset my Smart Lock (Internet Archive)",
+        "url": "https://web.archive.org/web/20251010130815/https://help.nuki.io/hc/en-001/articles/4407665100177-How-can-I-reset-my-Smart-Lock",
+        "kind": "vendor_support",
+        "description": "The authoritative reset article. Archived because Nuki's live help site refuses automated requests; read this before resetting a lock, since hold times differ by generation and this spec's procedure is low confidence.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3182,6 +4012,14 @@
     "manufacturer": "Generic (ELM327 clones), ScanTool.net, Vgate, LELink",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "ELM327 Bluetooth OBD-II user manual (PDF)",
+        "url": "https://www.seicane.com/media/installation/0/SC01/Seicane-SC01-OBDII-User-Instruction.pdf",
+        "kind": "manual",
+        "description": "A representative vendor manual for the generic ELM327 Bluetooth adapters this spec's family covers. There is no single vendor: these are unbranded clones, which is why the pairing PIN in this spec is given as a family default rather than one value.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -3231,6 +4069,18 @@
         "title": "OBDLink firmware API (device manifest endpoint)",
         "url": "https://api.obdlink.com/devices",
         "description": "Base URL the app downloads firmware manifests and v5 firmware files from (strings in OCTech.OBDLink.dll: /devices, /devices/{0}/{1}, /private/{0})."
+      },
+      {
+        "title": "OBDLink MX+ support: manuals and documents",
+        "url": "https://www.obdlink.com/support/mxp/",
+        "kind": "vendor_support",
+        "description": "Vendor support hub carrying the user manual and troubleshooting guide.\n"
+      },
+      {
+        "title": "OBDLink MX+ quick start guide, iOS (PDF, vendor-hosted)",
+        "url": "https://www.scantool.net/scantool/downloads/263/mxp_qsg_ios.pdf",
+        "kind": "manual",
+        "description": "Vendor quick start, including the pairing behaviour this spec's family notes describe.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3275,14 +4125,26 @@
         "description": "The Bluetooth discovery matchers this spec's discovery section lists."
       },
       {
-        "title": "UBPM",
-        "url": "https://github.com/LazyT/ubpm",
-        "description": "Desktop tool for Omron monitors, and the source of the multi-channel reception insight."
+        "title": "UBPM — Universal Blood Pressure Manager",
+        "url": "https://codeberg.org/lazyt/ubpm",
+        "description": "Desktop tool for Omron monitors, and the source of the multi-channel reception insight. It moved from GitHub to Codeberg and the old URL is gone; its predecessor OBPM (github.com/LazyT/obpm) is unmaintained and points here."
       },
       {
         "title": "Gadgetbridge issue #3656 (Omron)",
         "url": "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/3656",
         "description": "Upstream issue thread on Omron blood-pressure monitor support."
+      },
+      {
+        "title": "Omron HEM-7322 instruction manual",
+        "url": "https://www.manualslib.com/manual/928334/Omron-Hem-7322.html",
+        "kind": "manual",
+        "description": "Vendor manual for the HEM-7322, whose EEPROM layout is the worked example in this spec.\n"
+      },
+      {
+        "title": "Omron HEM-7322 user manual (PDF)",
+        "url": "https://portalimages.blob.core.windows.net/products/pdfs/x3vjjm44_HEM-7322UserManual.pdf",
+        "kind": "manual",
+        "description": "A vendor-distributed PDF of the same document.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3301,6 +4163,18 @@
         "title": "ponewheel/android-ponewheel",
         "url": "https://github.com/ponewheel/android-ponewheel",
         "description": "Community Onewheel app: the per-attribute GATT map and the firmware unlock handshake."
+      },
+      {
+        "title": "Onewheel: Pint and Pint X manuals",
+        "url": "https://onewheel.com/pages/manuals-pint",
+        "kind": "vendor_support",
+        "description": "Vendor manual index for the Pint family, in ten languages.\n"
+      },
+      {
+        "title": "Onewheel Pint / Pint X owner's manual (PDF)",
+        "url": "https://www.funshop.at/anleitungen/onewheel/onewheel-future-motion-pint-pintx-manual-v2-english.pdf",
+        "kind": "manual",
+        "description": "Distributor-hosted English PDF. Note it documents no factory reset, which is why this spec's block records that absence as unestablished rather than assumed.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3349,13 +4223,25 @@
       },
       {
         "title": "OpenEVSE WiFi v4 — HTTP API (Stoplight)",
-        "url": "https://openevse.stoplight.io/docs/openevse-wifi-v4/",
+        "url": "https://github.com/OpenEVSE/ESP32_WiFi_V4.x",
         "description": "The /status, /config and /override endpoints."
       },
       {
         "title": "lincomatic/open_evse — RAPI protocol",
         "url": "https://github.com/lincomatic/open_evse/blob/master/firmware/open_evse/rapi_proc.h",
         "description": "The controller RAPI serial command set and framing."
+      },
+      {
+        "title": "OpenEVSE EmonEVSE series manual",
+        "url": "https://www.manualslib.com/manual/1990323/Openevse-Emonevse-Series.html",
+        "kind": "manual",
+        "description": "Manual for the EmonEVSE builds, covering WiFi setup and the web interface this spec's API belongs to.\n"
+      },
+      {
+        "title": "OpenEnergyMonitor: EmonEVSE assembly and setup documentation",
+        "url": "https://docs.openenergymonitor.org/emonevse/assembly.html",
+        "kind": "vendor_support",
+        "description": "Project documentation — this is open hardware, so the build guide is also the reference.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3384,6 +4270,18 @@
         "title": "openScale — Trisa Body Analyze protocol",
         "url": "https://github.com/oliexdev/openScale/wiki/Trisa-Body-Analyze",
         "description": "The challenge-response pairing and weight mantissa/exponent encoding."
+      },
+      {
+        "title": "Medisana BS 444 connect instruction manual",
+        "url": "https://www.manualslib.com/manual/1922343/Medisana-Bs-444-Connect.html",
+        "kind": "manual",
+        "description": "Vendor manual for the Medisana family, including the eight user slots and the guest mode that stores nothing.\n"
+      },
+      {
+        "title": "Medisana: BS 444 connect product documents",
+        "url": "https://www.medisana.com/en/Docs/?artnum=40444",
+        "kind": "vendor_support",
+        "description": "Vendor document index for the same scale.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3416,6 +4314,18 @@
         "title": "Oral-B firmware host",
         "url": "https://fw.iot-dev.alchemy.codes",
         "description": "The official firmware host hardcoded in the vendor app."
+      },
+      {
+        "title": "Oral-B iO Series 9 user manual (PDF)",
+        "url": "https://m.media-amazon.com/images/I/81LQHI5cS6L.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the iO9 handle, covering the display settings menu where Bluetooth is disabled and the factory reset lives.\n"
+      },
+      {
+        "title": "Braun Oral-B iO 9S manuals",
+        "url": "https://www.manualslib.com/products/Braun-Oral-B-Io-9s-11430163.html",
+        "kind": "manual",
+        "description": "Manuals for the 9S variant.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3439,6 +4349,18 @@
         "title": "tfriedel/python-lightify",
         "url": "https://github.com/tfriedel/python-lightify",
         "description": "Apache-2.0 Python implementation; independent confirmation of port 4000 and the model."
+      },
+      {
+        "title": "OSRAM LIGHTIFY user guide (PDF, vendor-hosted)",
+        "url": "https://lightfiy-customer-service.s3.eu-central-1.amazonaws.com/Manuals/LIGHTIFY_User_Guide_EN_Version2.0.pdf",
+        "kind": "manual",
+        "description": "Vendor app and system guide, still on OSRAM's own storage despite the service shutdown.\n"
+      },
+      {
+        "title": "OSRAM LIGHTIFY onboarding procedure (PDF)",
+        "url": "https://fvdm.com/wp-content/uploads/2017/12/LIGHTIFY-Onboarding-Procedure-EN.pdf",
+        "kind": "manual",
+        "description": "Onboarding document — the flow a gateway returns to after the reset in this spec, and which the dead cloud may no longer complete.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3484,6 +4406,18 @@
       {
         "title": "uc-intg-panasonicviera — Unfolded Circle integration (second open consumer of this protocol)",
         "url": "https://github.com/mase1981/uc-intg-panasonicviera"
+      },
+      {
+        "title": "Panasonic Viera AS610 operating instructions (PDF, vendor-hosted)",
+        "url": "http://panasonic.ae/en/manuals/TH-32AS610.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the TH-32AS610, the model this spec's research used.\n"
+      },
+      {
+        "title": "Panasonic Viera operating instructions",
+        "url": "https://www.manualslib.com/manual/857700/Panasonic-Viera.html",
+        "kind": "manual",
+        "description": "Operating instructions for the wider Viera range.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3512,6 +4446,12 @@
         "title": "Parrot — Olympe / ARSDK (official open source)",
         "url": "https://developer.parrot.com/docs/olympe/overview.html",
         "description": "The official ARSDK3 Python controller and SDK for the Anafi family."
+      },
+      {
+        "title": "Parrot Bebop 2 drone user manual",
+        "url": "https://www.manualslib.com/manual/1065534/Parrot-Bebop-2-Drone.html",
+        "kind": "manual",
+        "description": "Source for the ten-second power-button factory reset in this spec.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3540,6 +4480,12 @@
         "title": "varenc/pax-app-bluetooth-server",
         "url": "https://github.com/varenc/pax-app-bluetooth-server",
         "description": "Preserves the official PAX Web Bluetooth app bundle (captured April 2026 before the May 2026 shutdown); best public source for the Era Pro enrollment path."
+      },
+      {
+        "title": "PAX 3 quick start manual",
+        "url": "https://www.manualslib.com/manual/1979624/Pax-3.html",
+        "kind": "manual",
+        "description": "Vendor quick start for the PAX 3, the exemplar in this spec.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3568,6 +4514,12 @@
         "title": "The new Pebble is now 100% open source (2025)",
         "url": "https://ericmigi.com/blog/pebble-watch-software-is-now-100percent-open-source/",
         "description": "Context on the 2025 PebbleOS open-source release and Core Devices' new hardware."
+      },
+      {
+        "title": "Pebble help: Factory Reset (Rebble archive, Internet Archive)",
+        "url": "https://web.archive.org/web/20250917113045/https://pebble-help-legacy.rebble.io/help.getpebble.com/customer/en/portal/articles/1774455-factory-reset02ff.html?b_id=8515",
+        "kind": "vendor_support",
+        "description": "Pebble's own help article, preserved twice over — by Rebble and then by the Internet Archive. Source for the reset in this spec.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3605,6 +4557,18 @@
       {
         "title": "Home Assistant Philips TV integration docs (feature matrix per API version)",
         "url": "https://www.home-assistant.io/integrations/philips_js/"
+      },
+      {
+        "title": "Philips TV user manual, 2023 (PDF, vendor-hosted)",
+        "url": "https://www.documents.philips.com/assets/20230703/22fe76f2586a4f56b75eb0340023cfb8.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the 2023 sets.\n"
+      },
+      {
+        "title": "Philips TV user manual",
+        "url": "https://www.manualslib.com/manual/754489/Philips-Tv.html",
+        "kind": "manual",
+        "description": "Manual for the wider range; the jointSPACE API predates most of these sets and is not documented in any of them.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3633,6 +4597,18 @@
         "title": "PrusaLink — OpenAPI spec",
         "url": "https://github.com/prusa3d/Prusa-Link-Web/blob/master/spec/openapi.yaml",
         "description": "The official /api/v1 endpoints, auth, and OctoPrint-compatible layer."
+      },
+      {
+        "title": "Original Prusa MK4 handbook",
+        "url": "https://www.manualslib.com/manual/3029382/Prusa-Research-Original-Prusa-Mk4.html",
+        "kind": "manual",
+        "description": "Vendor handbook; section 4.13 is the factory reset this spec documents.\n"
+      },
+      {
+        "title": "Prusa Knowledge Base: Original Prusa MK4",
+        "url": "https://help.prusa3d.com/manual/original-prusa-mk4-kit-assembly_1967",
+        "kind": "vendor_support",
+        "description": "Vendor documentation hub, kept current as firmware changes the menus.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3661,6 +4637,18 @@
         "url": "https://www.home-assistant.io/integrations/purpleair/",
         "title": "Home Assistant PurpleAir integration",
         "description": "HA core integration; can poll a sensor's local JSON API directly instead of the cloud."
+      },
+      {
+        "title": "PurpleAir installation guide (PDF)",
+        "url": "https://earthwatch.org/sites/default/files/2020-06/PurpleAir%20Installation%20Guide.pdf",
+        "kind": "manual",
+        "description": "Installation guide covering the sensor's own AP and the network configuration page.\n"
+      },
+      {
+        "title": "PurpleAir community: reset the WiFi network connection (Internet Archive)",
+        "url": "https://web.archive.org/web/20250114213820/https://community.purpleair.com/t/reset-the-wifi-network-connection/129",
+        "kind": "vendor_support",
+        "description": "Source for the AP-based reconfiguration in this spec.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3703,6 +4691,12 @@
         "title": "App Store: HappyLighting-life with smart (id1145694075)",
         "url": "https://apps.apple.com/app/id1145694075",
         "description": "iOS companion app listing (same vendor family)."
+      },
+      {
+        "title": "Bluetooth LED controller install guide (PDF)",
+        "url": "https://cdn.shopify.com/s/files/1/0518/0133/files/BluetoothControllerInstallGuide.pdf?4216",
+        "kind": "manual",
+        "description": "Retailer-hosted install guide for a Triones/HappyLighting controller. These ship under many brands on identical hardware with no vendor documentation.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3738,6 +4732,12 @@
         "url": "https://github.com/yepher/RabbiteAirProtocol",
         "title": "yepher/RabbiteAirProtocol",
         "description": "Independent 2021 research on the earlier iOS app; corroborates the BLE service/characteristic UUID roles, the setup-AP address 192.168.10.1:9009, and the AES-CBC + appended-IV construction."
+      },
+      {
+        "title": "Rabbit Air: wireless FAQ (iOS and Android)",
+        "url": "https://www.rabbitair.com/pages/wireless-faq",
+        "kind": "vendor_support",
+        "description": "Vendor FAQ covering wireless setup and the wireless-reset button used in this spec.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3756,6 +4756,18 @@
         "title": "Home Assistant Rachio integration",
         "url": "https://www.home-assistant.io/integrations/rachio/",
         "description": "HA core integration for Rachio irrigation controllers."
+      },
+      {
+        "title": "Rachio 3 smart sprinkler controller manual",
+        "url": "https://www.manualslib.com/manual/2862755/Rachio-3.html",
+        "kind": "manual",
+        "description": "Vendor manual for the Rachio 3.\n"
+      },
+      {
+        "title": "Rachio: manuals and resources",
+        "url": "https://support.rachio.com/en_us/rachio-manuals-and-resources-rkCSP81Yw",
+        "kind": "vendor_support",
+        "description": "Vendor index covering the other generations this spec's family spans.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3779,6 +4791,12 @@
         "title": "mhrivnak/radiotherm",
         "url": "https://github.com/mhrivnak/radiotherm",
         "description": "BSD-3 Python client for the local API."
+      },
+      {
+        "title": "Radio Thermostat CT50 operation manual",
+        "url": "https://www.manualslib.com/manual/951814/Radio-Thermostat-Ct50.html",
+        "kind": "manual",
+        "description": "Surviving copy of the operation manual; Radio Thermostat Company of America has shut down.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3816,6 +4834,12 @@
         "url": "https://ratgdo.github.io/esphome-ratgdo/",
         "title": "ratgdo ESPHome installer & docs",
         "description": "Web flasher and setup for the mainstream ratgdo firmware."
+      },
+      {
+        "title": "ESPHome: factory reset component",
+        "url": "https://esphome.io/components/factory_reset/",
+        "kind": "vendor_support",
+        "description": "The reset on a ratgdo is ESPHome's, not a vendor's: this documents the button, switch and power-cycle trigger.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3834,6 +4858,12 @@
         "title": "cyrils/renogy-bt",
         "url": "https://github.com/cyrils/renogy-bt",
         "description": "GPL-3.0 reference client: GATT UUIDs, Modbus-over-BLE framing, Rover register map, MQTT/HTTP republish."
+      },
+      {
+        "title": "Renogy BT-2 Bluetooth module manual",
+        "url": "https://www.manualslib.com/manual/2278484/Renogy-Bt-2.html",
+        "kind": "manual",
+        "description": "Vendor manual for the BT-2. Confirms the module is a transparent RJ45-to-BLE bridge with no state of its own, which is why this spec's factory reset says there is nothing to reset.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3862,6 +4892,18 @@
         "title": "thirtythreeforty/neolink",
         "url": "https://github.com/thirtythreeforty/neolink",
         "description": "RTSP bridge for Baichuan-only Reolink cameras; carries the port-9000 Wireshark dissector."
+      },
+      {
+        "title": "Reolink PoE camera user manual (PDF, vendor-hosted)",
+        "url": "https://home-cdn.reolink.us/wp-content/assets/multiple-languages/manual/Reolink_PoE_Camera_User_Manual.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the PoE camera range.\n"
+      },
+      {
+        "title": "Reolink PoE NVR user manual (PDF, vendor-hosted)",
+        "url": "https://home-cdn.reolink.us/wp-content/assets/multiple-languages/manual/Reolink_PoE_NVR_User_Manual.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the RLN8-410 and RLN16-410 recorders this spec's family includes.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3890,6 +4932,18 @@
         "title": "KonradIT/roborock-remote",
         "url": "https://github.com/KonradIT/roborock-remote",
         "description": "ESP32 local controller; documents the header layout and AES/key derivation."
+      },
+      {
+        "title": "Roborock S7 user manual",
+        "url": "https://www.manualslib.com/manual/2081030/Roborock-S7.html",
+        "kind": "manual",
+        "description": "Vendor manual for the S7 — the source of the WiFi reset and the restore-factory-settings recovery step in this spec.\n"
+      },
+      {
+        "title": "Roborock S7 Max Ultra series user manual",
+        "url": "https://www.manualslib.com/manual/3381590/Roborock-S7-Max-Ultra-Series.html",
+        "kind": "manual",
+        "description": "The later model whose manual gives the same two-button WiFi reset.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3929,6 +4983,18 @@
       {
         "title": "RoMote — open-source Android ECP remote",
         "url": "https://github.com/wseemann/RoMote"
+      },
+      {
+        "title": "Roku Streaming Stick user manual",
+        "url": "https://www.manualslib.com/manual/696105/Roku-Streaming-Stick.html",
+        "kind": "manual",
+        "description": "Vendor manual covering the reset button and status light on the stick form factor.\n"
+      },
+      {
+        "title": "Roku TV user guide (PDF, vendor-hosted)",
+        "url": "https://image.roku.com/c3VwcG9ydC1B/RokuTVUserGuide-11-5a-US.pdf",
+        "kind": "manual",
+        "description": "Vendor guide for the TV platform, which speaks the same ECP this spec documents.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3952,6 +5018,12 @@
         "title": "Ruuvi — Data Format 3 (RAWv1)",
         "url": "https://docs.ruuvi.com/communication/bluetooth-advertisements/data-format-3-rawv1",
         "description": "The 14-byte legacy DF3 payload layout."
+      },
+      {
+        "title": "Ruuvi: powering and resetting RuuviTag",
+        "url": "https://ruuvi.com/manuals/tag/powering-and-resetting-ruuvitag/",
+        "kind": "vendor_support",
+        "description": "Vendor page behind the reset procedure in this spec: the battery cycle is the whole of it.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -3979,6 +5051,12 @@
         "title": "Wayback Machine — safetechproducts.com",
         "url": "https://web.archive.org/web/2022/https://safetechproducts.com/",
         "description": "Last real captures late 2022; site parked/offline from ~Feb 2023. Vendor/product documentation survives only here."
+      },
+      {
+        "title": "The QuickLock padlock manual",
+        "url": "https://www.manualslib.com/manual/1383589/The-Quicklock-Padlock.html",
+        "kind": "manual",
+        "description": "Manual for the sibling QuickLock hardware this spec's candidate reset procedures come from. SafeTech has shut down.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4022,6 +5100,18 @@
         "title": "Samsung — TV model groups",
         "url": "https://developer.samsung.com/smarttv/develop/specifications/tv-model-groups.html",
         "description": "Official model-year ↔ Tizen version table; settles whether a given Samsung TV is Tizen (2016+, this spec) or Orsay (samsung_legacy_common)."
+      },
+      {
+        "title": "Samsung Q9FN series user manual (PDF, vendor-hosted)",
+        "url": "https://image-us.samsung.com/SamsungUS/tv-ci-resources/2018-user-manuals/2018_UserManual_Q9FNSeries.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the 2018 Q9FN, one of the sets this spec's family covers.\n"
+      },
+      {
+        "title": "Samsung QLED TV Q7F user manual",
+        "url": "https://www.manualslib.com/manual/1244665/Samsung-Qled-Tv-Q7f.html",
+        "kind": "manual",
+        "description": "Another Tizen-era set. On-set documentation lives in the embedded e-Manual under Settings, Support, Open e-Manual.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4040,6 +5130,18 @@
         "url": "https://www.home-assistant.io/integrations/schlage/",
         "title": "Home Assistant Schlage integration",
         "description": "HA core integration for Schlage Encode WiFi locks (cloud-based; no local API exists on these locks)."
+      },
+      {
+        "title": "Schlage Encode Plus quick start guide (PDF, vendor-hosted)",
+        "url": "https://www.schlage.ca/content/dam/sch-us/documents/pdf/installation-manuals/schlage-encode-plus-quick-start-guide-BE499WB.pdf",
+        "kind": "manual",
+        "description": "Vendor guide for the BE499WB. Note its warning to keep the backup codes: they are what a factory reset leaves you needing.\n"
+      },
+      {
+        "title": "Schlage Encode smart WiFi deadbolt quick start guide",
+        "url": "https://www.manualslib.com/manual/1577108/Schlage-Encode.html",
+        "kind": "manual",
+        "description": "Vendor guide for the original Encode.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4052,6 +5154,20 @@
     "manufacturer": "Seeblue / LEDGlow",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "LEDGlow Bluetooth installation and pairing instructions (PDF, vendor-hosted)",
+        "url": "https://www.ledglow.com/Instructions/Bluetooth_Installation_and_Pairing_Instructions.pdf",
+        "kind": "manual",
+        "description": "Vendor instructions for the LEDGlow Bluetooth controller, a sibling of this hardware. Includes the four-second power-button hold — red to yellow — that puts the controller into pairing mode.\n"
+      },
+      {
+        "title": "LEDGlow Advanced Million Color motorcycle kit instructions (PDF)",
+        "url": "https://www.motorcycleledlights.com/content/instructions/Advanced-Million-Color-Motorcycle-Kit-New-CB.pdf",
+        "kind": "manual",
+        "description": "Full kit installation guide for the same controller family.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -4082,6 +5198,12 @@
         "url": "https://github.com/cryptomcgrath/sensorpush-bleak",
         "title": "cryptomcgrath/sensorpush-bleak",
         "description": "Original community GATT client: V1 characteristic table, write-then-read pattern, bulk-history decode."
+      },
+      {
+        "title": "SensorPush: owner's manuals and user guides",
+        "url": "https://www.sensorpush.com/manuals",
+        "kind": "vendor_support",
+        "description": "Vendor manual index covering the HT1, HT.w and the G1 gateway.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4110,6 +5232,12 @@
         "title": "CANDY HOUSE developer docs",
         "url": "https://docs.candyhouse.co/",
         "description": "The overall SesameOS3 SDK / API documentation."
+      },
+      {
+        "title": "CANDY HOUSE: SESAME 5 product and documentation page",
+        "url": "https://candyhouse.co/products/sesame5",
+        "kind": "vendor_support",
+        "description": "Vendor page for the SESAME 5, including the QR-printed device secret this spec's pairing block records.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4144,6 +5272,12 @@
         "title": "GoneUp/mask-go",
         "url": "https://github.com/GoneUp/mask-go",
         "description": "Open-source implementation cited by the device page and notes."
+      },
+      {
+        "title": "Shining Mask user manual (FCC filing, Internet Archive)",
+        "url": "https://web.archive.org/web/20250109103726/https://fccid.io/2AOLN-16/User-Manual/User-Manual-5007895.pdf",
+        "kind": "manual",
+        "description": "The vendor manual as filed with the FCC by Shenzhen Shining Bright Technology — the only authoritative document for this hardware. Archived because fccid.io refuses automated requests.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4162,6 +5296,7 @@
       {
         "title": "SmartDawn store — smart lights collection",
         "url": "https://smartdawn.com/collections/smart-lights",
+        "kind": "vendor_support",
         "description": "Vendor storefront listing the product families this spec covers."
       },
       {
@@ -4201,6 +5336,12 @@
         "title": "jkellerer/iBrew",
         "url": "https://github.com/jkellerer/iBrew",
         "description": "iBrew fork — console/CLI/library for iKettle 2.0 and Smarter Coffee (tested against firmware v19)."
+      },
+      {
+        "title": "Smarter support: resetting the iKettle 3rd generation (Internet Archive)",
+        "url": "https://web.archive.org/web/20231202052316/https://support.smarter.am/hc/en-us/articles/115005044805-How-do-I-reset-the-iKettle-3rd-Generation-",
+        "kind": "vendor_support",
+        "description": "Source for the reset in this spec. Archived because Smarter has shut down and the live support site no longer answers.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4219,6 +5360,18 @@
         "title": "Home Assistant SmartThings integration",
         "url": "https://www.home-assistant.io/integrations/smartthings/",
         "description": "HA core integration for the SmartThings platform (cloud API; not the local hub protocol documented here)."
+      },
+      {
+        "title": "SmartThings Hub quick start guide (PDF)",
+        "url": "http://pdf.lowes.com/useandcareguides/887276268354_use.pdf",
+        "kind": "manual",
+        "description": "Retailer-hosted copy of the vendor quick start.\n"
+      },
+      {
+        "title": "Samsung SmartThings Hub manual",
+        "url": "https://www.manualslib.com/manual/1315371/Samsung-Smartthings-Hub.html",
+        "kind": "manual",
+        "description": "Vendor manual for the STH-ETH-250 (v2).\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4249,9 +5402,15 @@
         "description": "Home Assistant integration (pysnapmaker) confirming the stock-firmware unauthenticated port-80 Moonraker REST/WebSocket path and the subscribed object set."
       },
       {
-        "url": "https://moonraker.readthedocs.io/en/latest/web_api/",
+        "url": "https://moonraker.readthedocs.io/en/latest/external_api/introduction/",
         "title": "Moonraker Web API reference",
         "description": "Upstream reference for the REST + JSON-RPC surface the U1 exposes."
+      },
+      {
+        "title": "Snapmaker Wiki: reset the touchscreen or controller",
+        "url": "https://wiki.snapmaker.com/en/Snapmaker_2/troubleshooting/reset",
+        "kind": "vendor_support",
+        "description": "Source for both reset routes in this spec — the developer-mode touchscreen path and the M502/M500 serial pair.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4285,6 +5444,18 @@
       {
         "title": "Community IRCC code table incl. consumer-only keys (PowerOff, Exit, Rewind, Forward)",
         "url": "https://github.com/cmos486/Bravia-REST-API/blob/main/COMMANDS.md"
+      },
+      {
+        "title": "Sony BRAVIA XR series reference manual",
+        "url": "https://www.manualslib.com/manual/2602899/Sony-Bravia-Xr-Series.html",
+        "kind": "manual",
+        "description": "Vendor reference manual for the current XR sets.\n"
+      },
+      {
+        "title": "Sony BRAVIA series reference manual",
+        "url": "https://www.manualslib.com/manual/899962/Sony-Bravia-Series.html",
+        "kind": "manual",
+        "description": "Reference manual for the earlier sets, which are the ones still speaking IRCC-IP.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4312,6 +5483,18 @@
         "title": "Magic-LED on Google Play",
         "url": "https://play.google.com/store/apps/details?id=com.vengean.magicled",
         "description": "The vendor app (com.vengean.magicled) whose v2.2.1 build this protocol was recovered from. Fully local — no account, no cloud — so it remains usable as a fallback while it stays installable."
+      },
+      {
+        "title": "SP105E magic controller operating instructions (PDF)",
+        "url": "https://suntechlite.com/wp-content/uploads/2023/05/SP105E-Magic-Controller-Suntech.pdf",
+        "kind": "manual",
+        "description": "Distributor-hosted vendor instructions for the SP105E.\n"
+      },
+      {
+        "title": "SP105E instructions (PDF)",
+        "url": "https://ledlightscanada.com/wp-content/uploads/2020/10/SP105E-Instructions-LLC.pdf",
+        "kind": "manual",
+        "description": "Another distributor's copy, covering the Magic-LED app pairing.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4324,6 +5507,26 @@
     "manufacturer": "Spider Farmer",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Spider Farmer GGS controller operating manual (PDF, vendor-hosted)",
+        "url": "https://www.spider-farmer.com/wp-content/uploads/2025/08/GGS-Controller-Operating-Manual.pdf",
+        "kind": "manual",
+        "description": "Current vendor manual for the GGS controller.\n"
+      },
+      {
+        "title": "Spider Farmer GGS system user manual (PDF, vendor-hosted)",
+        "url": "https://www.spider-farmer.com/wp-content/uploads/2021/09/GGS-System-User-Manual.pdf",
+        "kind": "manual",
+        "description": "The earlier system manual, matching the firmware most units in the field run.\n"
+      },
+      {
+        "title": "Spider Farmer: manual download centre",
+        "url": "https://www.spider-farmer.com/user-manual-download-center/",
+        "kind": "vendor_support",
+        "description": "Vendor index for the rest of the range.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -4334,6 +5537,20 @@
     "manufacturer": "Host No.4 Technology (Chengdu) Co., Ltd.",
     "manufacturer_status": "unsupported",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "SPOTLED app: getting started",
+        "url": "https://spotled.app/getting-started/",
+        "kind": "vendor_support",
+        "description": "The vendor's own setup guide, including reading the model from the Bluetooth ID shown at power-on. There is no printed manual for these panels.\n"
+      },
+      {
+        "title": "iwalton3/python-spotled",
+        "url": "https://github.com/iwalton3/python-spotled",
+        "kind": "implementation",
+        "description": "Working control library for the same displays.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -4365,6 +5582,18 @@
         "title": "Lyrion — CLI / JSON-RPC reference",
         "url": "https://lyrion.org/reference/cli/using-the-cli/",
         "description": "The control API on TCP 9090 and HTTP /jsonrpc.js used by the commands here."
+      },
+      {
+        "title": "Squeezebox Radio quick start guide (PDF, Logitech-hosted)",
+        "url": "https://download01.logitech.com/support/24377.1.0.pdf",
+        "kind": "manual",
+        "description": "Still on Logitech's own download server despite the product's discontinuation.\n"
+      },
+      {
+        "title": "Logitech Squeezebox Radio user manual (Internet Archive)",
+        "url": "https://archive.org/details/manualzilla-id-7011262",
+        "kind": "manual",
+        "description": "Full manual, preserved on the Internet Archive.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4377,6 +5606,14 @@
     "manufacturer": "Subaru Corporation",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "2018 Subaru Impreza quick guide (PDF, vendor-hosted)",
+        "url": "https://techinfo.subaru.com/stis/doc/ownerManual/MSA5B1801B_STIS.pdf",
+        "kind": "manual",
+        "description": "From Subaru's own technical information site — the generation this spec's OBD-II and CAN notes were taken against.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -4392,6 +5629,18 @@
         "title": "Home Assistant SwitchBot integration",
         "url": "https://www.home-assistant.io/integrations/switchbot/",
         "description": "HA core BLE integration; the production consumer of the SwitchBot BLE command set documented here."
+      },
+      {
+        "title": "SwitchBot: user manual downloads",
+        "url": "https://us.switch-bot.com/pages/switchbot-user-manual",
+        "kind": "vendor_support",
+        "description": "Vendor index of per-product manuals across the family this spec covers.\n"
+      },
+      {
+        "title": "SwitchBot Curtain user manual",
+        "url": "https://www.manualslib.com/manual/3776520/Switchbot-Curtain.html",
+        "kind": "manual",
+        "description": "Manual for one of the encrypted models, whose app-set password this spec's pairing block records.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4415,6 +5664,18 @@
         "url": "https://medium.com/@cq674350529/a-journey-into-synology-nas-part-2-analyzing-findhostd-service-2264e4fd21e9",
         "title": "Analyzing the Synology findhostd discovery service",
         "description": "Reverse-engineering of findhostd: UDP 9999, the SYNO packet magic, and the TLV reply carrying MAC/serial/model."
+      },
+      {
+        "title": "Synology DS923+ manuals",
+        "url": "https://www.manualslib.com/products/Synology-Ds923Plus-13460859.html",
+        "kind": "manual",
+        "description": "Product and user manuals for the DS923+, the exemplar in this spec.\n"
+      },
+      {
+        "title": "Synology: DSM help and documentation",
+        "url": "https://kb.synology.com/en-global/DSM/help",
+        "kind": "vendor_support",
+        "description": "Vendor documentation for DSM itself, which is where the API this spec uses is configured.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4432,6 +5693,12 @@
         "title": "vitalybibikov/ha-thermopro-meat (HACS)",
         "url": "https://github.com/vitalybibikov/ha-thermopro-meat",
         "description": "Home Assistant (HACS) integration for the active-BLE ThermoPro meat thermometers (TP902/TP920/TP960 incl. TempSpike, TP25W) built on this reverse-engineered protocol; the HA core thermopro integration covers only the passive-advertising climate sensors."
+      },
+      {
+        "title": "ThermoPro TP960 TempSpike manuals",
+        "url": "https://www.manualslib.com/products/Thermopro-Tp960-13097163.html",
+        "kind": "manual",
+        "description": "Vendor manuals for the TempSpike. They document setup and the probe-in-charger pairing, and no factory reset — which is the basis for this spec's `applicable: false`.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4489,6 +5756,12 @@
         "url": "https://www.home-assistant.io/integrations/thermopro/",
         "title": "Home Assistant ThermoPro integration",
         "description": "HA core integration passively decoding TP357/TP358/TP393 BLE advertisements."
+      },
+      {
+        "title": "ThermoPro TP357 manual",
+        "url": "https://www.manualslib.com/manual/2185218/Thermopro-Tp357.html",
+        "kind": "manual",
+        "description": "Vendor manual for the TP357, including the two-second F/C hold that enters pairing status.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4524,6 +5797,18 @@
         "url": "https://www.home-assistant.io/integrations/tplink/",
         "title": "Home Assistant TP-Link Kasa integration",
         "description": "HA core integration (python-kasa) controlling Kasa plugs locally with this protocol."
+      },
+      {
+        "title": "TP-Link Kasa Wi-Fi Smart Plug HS100/HS110 user guide (PDF, vendor-hosted)",
+        "url": "https://static.tp-link.com/res/down/doc/HS100_V1_UG.pdf",
+        "kind": "manual",
+        "description": "Vendor guide for the HS100 and the energy-monitoring HS110, both of which this spec's port-9999 protocol covers.\n"
+      },
+      {
+        "title": "TP-Link: HS100 downloads",
+        "url": "https://www.tp-link.com/us/support/download/hs100/",
+        "kind": "vendor_support",
+        "description": "Vendor download page, including firmware — worth checking before flashing anything.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4566,6 +5851,12 @@
         "title": "HEX ezCAN: Tiger 900 installation guide",
         "url": "https://hexezcan.com/ezcan-tagus-for-triumph-tiger-900-installation-guide/",
         "description": "Installation guide showing the connector that also exposes the CAN bus; the recommended hookup this spec cites."
+      },
+      {
+        "title": "Triumph Tiger 900 owner's handbook",
+        "url": "https://www.manualslib.com/manual/1995488/Triumph-Tiger-900.html",
+        "kind": "manual",
+        "description": "Vendor handbook for the Tiger 900 range.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4588,6 +5879,18 @@
         "title": "TSDZ2 wiki communication protocol",
         "url": "https://github.com/OpenSource-EBike-firmware/TSDZ2_wiki/wiki/Communication-Protocol",
         "description": "Community protocol notes for Tongsheng TSDZ2 firmware variants."
+      },
+      {
+        "title": "TSDZ2 central motor drive system installation manual (PDF)",
+        "url": "https://enerpower.de/wp/wp-content/uploads/2019/08/User-Manual-TSDZ2-Central-Motor-Drive-System-EN_CE.pdf",
+        "kind": "manual",
+        "description": "English installation manual for the TSDZ2, hosted by a distributor — Tongsheng publish little themselves.\n"
+      },
+      {
+        "title": "TSDZ2 mid-drive installation manual (PDF)",
+        "url": "https://wooshbikes.co.uk/manuals/TSDZ2.pdf",
+        "kind": "manual",
+        "description": "Another distributor's copy, the one this spec's display and setup notes were read from.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4616,6 +5919,18 @@
         "title": "ttlock/Android_SDK_Demo (official closed SDK)",
         "url": "https://github.com/ttlock/Android_SDK_Demo",
         "description": "The vendor's public (but closed-core) SDK — confirms the lock/gateway/DFU feature surface, not the wire format."
+      },
+      {
+        "title": "TTLock A260 user manual (PDF)",
+        "url": "https://digitalas.lt/img/cms/Instructions_ENG/A260%20User%20Manual%20TTLOCK%20202008.pdf",
+        "kind": "manual",
+        "description": "Distributor-hosted vendor manual for the A260 — the source of the five-second rear reset button and the 123456 default master passcode in this spec.\n"
+      },
+      {
+        "title": "TTLock A210 series user manual",
+        "url": "https://www.manualslib.com/manual/3463905/Ttlock-A210-Series.html",
+        "kind": "manual",
+        "description": "A sibling model, useful because the rebadges vary in which controls they expose.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4647,11 +5962,6 @@
         "description": "Full replacement firmware (BTHome v2, GATT config, OTA) plus the hardware teardown: BT3L/TLSR8250, SWS pads, factory data above 0x70000. The no-Tuya-at-all path. Does not support the 2026 SGS01B revision.\n"
       },
       {
-        "title": "Home Assistant discussion #949 — SGS01 product ids",
-        "url": "https://github.com/home-assistant/core/discussions/949",
-        "description": "Older product id aao3yzhs vs current gvygg3m8."
-      },
-      {
         "title": "ble_monitor issue #1161 — SGS01 cannot be passive",
         "url": "https://github.com/custom-components/ble_monitor/issues/1161",
         "description": "Confirms the stock firmware never broadcasts readings — connected GATT only."
@@ -4680,9 +5990,15 @@
         "description": "Open Tuya LAN library: the discovery frame layout, the fixed broadcast key, and the gwId/version/productKey fields."
       },
       {
-        "url": "https://github.com/codetheweb/tuyapi/blob/master/docs/PROTOCOL.md",
+        "url": "https://github.com/codetheweb/tuyapi",
         "title": "tuyapi — protocol notes",
         "description": "The 0x55aa frame format (prefix/command/length/CRC/suffix) and the 3.1/3.3 protocol versions."
+      },
+      {
+        "title": "Tuya: Smart Life / Tuya Smart app user manual",
+        "url": "https://developer.tuya.com/en/docs/iot/user-manual-for-tuya-smart-v3177?id=K9obrofrfk4sk",
+        "kind": "vendor_support",
+        "description": "Tuya's own app manual, covering the Smart and AP pairing modes and the Restore Factory Defaults action this spec's reset documents.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4737,6 +6053,12 @@
         "title": "LibreTiny / ltchiptool — BK7231 flashing toolchain",
         "url": "https://github.com/libretiny-eu/libretiny",
         "description": "UART flashing of WB2S/CB2S modules for the firmware-replacement path (ESPHome config in the first link).\n"
+      },
+      {
+        "title": "Tuya CH4 WiFi gas detector user manual",
+        "url": "https://www.manualslib.com/manual/2789337/Tuya-Ch4.html",
+        "kind": "manual",
+        "description": "Manual for the Tuya combustible-gas detector platform this spec covers. These ship under many retail brands on identical hardware.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4760,6 +6082,12 @@
         "title": "xled-docs — unofficial API documentation",
         "url": "https://xled-docs.readthedocs.io/",
         "description": "Endpoint-by-endpoint REST + UDP realtime protocol documentation."
+      },
+      {
+        "title": "Twinkly Strings instruction manual",
+        "url": "https://www.manualslib.com/manual/2130528/Twinkly-Strings.html",
+        "kind": "manual",
+        "description": "Vendor instructions, including the hold-while-powering-on reset in this spec and the red/amber LED confirmation that differs by edition.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4788,6 +6116,12 @@
         "url": "https://www.home-assistant.io/integrations/unifi/",
         "title": "Home Assistant UniFi Network integration",
         "description": "HA core integration against the UniFi controller that adopts and manages these devices."
+      },
+      {
+        "title": "Ubiquiti UniFi Dream Machine quick start manual",
+        "url": "https://www.manualslib.com/manual/2525417/Ubiquiti-Unifi-Dream-Machine.html",
+        "kind": "manual",
+        "description": "Vendor quick start for the UDM, and the source of the reset LED sequence in this spec.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4822,14 +6156,21 @@
         "description": "Python UniFi Protect library (successor to pyunifiprotect): auth (TOKEN cookie + x-csrf-token), bootstrap data models."
       },
       {
-        "url": "https://help.ui.com/hc/en-us/articles/217879287-UniFi-Protect-RTSP-Streaming",
-        "title": "Ubiquiti — UniFi Protect RTSP streaming",
-        "description": "How to enable RTSP per camera; the 7447/7441 stream ports."
-      },
-      {
         "url": "https://www.home-assistant.io/integrations/unifiprotect/",
         "title": "Home Assistant UniFi Protect integration",
         "description": "HA core integration over the local Protect API documented here (built on the uiprotect library)."
+      },
+      {
+        "title": "UniFi Video Camera G4 Pro quick start guide (PDF, vendor-hosted)",
+        "url": "https://dl.ubnt.com/guides/unifivideo/UVC-G4-PRO_QSG.pdf",
+        "kind": "manual",
+        "description": "Vendor guide for the G4 Pro, including the reset button's two functions this spec distinguishes.\n"
+      },
+      {
+        "title": "UVC-G4-Bullet quick start guide (vendor-hosted)",
+        "url": "https://dl.ui.com/qsg/UVC-G4-BULLET/UVC-G4-BULLET_EN.html",
+        "kind": "manual",
+        "description": "Vendor guide for the G4 Bullet, whose reset hold differs from the Pro's.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4853,6 +6194,12 @@
         "url": "https://play.google.com/store/apps/details?id=com.urevo.app",
         "title": "UREVO app (Google Play)",
         "description": "Official companion app — the protocol source for this spec."
+      },
+      {
+        "title": "UREVO SpaceWalk Lite support: manuals and FAQs",
+        "url": "https://www.urevo.com/pages/spacewalk-lite-product-support",
+        "kind": "vendor_support",
+        "description": "Vendor support page carrying the remote re-pairing procedure in this spec.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4881,6 +6228,18 @@
         "title": "dustbuilder (Dennis Giese)",
         "url": "https://builder.dontvacuum.me/",
         "description": "Builds rooted firmware images with Valetudo prepackaged and DNS patched."
+      },
+      {
+        "title": "Valetudo: rooting essentials",
+        "url": "https://valetudo.cloud/pages/rooting-essentials/",
+        "kind": "vendor_support",
+        "description": "Project documentation on how rooting works and what it costs — read before touching a robot, and before any factory reset, which removes Valetudo.\n"
+      },
+      {
+        "title": "Valetudo: Roborock installation",
+        "url": "https://valetudo.cloud/pages/installation/roborock/",
+        "kind": "vendor_support",
+        "description": "Per-model install paths and exploit chains for the Roborock family.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4931,8 +6290,14 @@
       },
       {
         "title": "PA AG complaint against Digital Dream Labs",
-        "url": "https://www.attorneygeneral.gov/wp-content/uploads/2024/09/DDL-Combined-Complaint-for-FIling-1.pdf",
+        "url": "https://web.archive.org/web/20250726101421/https://www.attorneygeneral.gov/wp-content/uploads/2024/09/DDL-Combined-Complaint-for-FIling-1.pdf",
         "description": "September 2024 Court of Common Pleas filing: PA AG Henry v. Digital Dream Labs and CEO Hanchar over unfulfilled prepaid robot orders (>$4M in sales, ~14,000 orders Nov 2020-Jan 2024 per the AG's announcement)."
+      },
+      {
+        "title": "Anki Vector quick start manual",
+        "url": "https://www.manualslib.com/manual/1509087/Anki-Vector.html",
+        "kind": "manual",
+        "description": "Surviving copy of the quick start guide. Anki is defunct and Digital Dream Labs' hosting is unreliable.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4971,6 +6336,18 @@
         "title": "M6 Smart Fitness Band spec (mis-attribution history)",
         "url": "https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/m6-fitness-band.yaml",
         "description": "Sibling spec whose appendix this analysis was promoted from; documents why the 0xAF0 protocol does NOT apply to the Telink-based M6."
+      },
+      {
+        "title": "VeryFit ID107Plus HR manual",
+        "url": "https://www.manualslib.com/manual/1698696/Veryfit-Id107plus-Hr.html",
+        "kind": "manual",
+        "description": "Manual for the ID107-class band this spec covers; the ODM is unidentified and the app is abandoned.\n"
+      },
+      {
+        "title": "ID107Plus HR user guide (PDF)",
+        "url": "https://cdn.shopify.com/s/files/1/1919/3763/files/id107plus.pdf",
+        "kind": "manual",
+        "description": "A retailer-hosted copy of the same guide, including the app-driven factory reset in this spec.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -4994,6 +6371,12 @@
         "title": "vedderb/vesc_express",
         "url": "https://github.com/vedderb/vesc_express",
         "description": "The BLE (Nordic UART) bridge — comm_ble.c has the service/characteristic UUIDs."
+      },
+      {
+        "title": "VESC 6 hardware documentation (PDF, project-hosted)",
+        "url": "https://vesc-project.com/sites/default/files/Benjamin%20Posts/VESC_6.pdf",
+        "kind": "manual",
+        "description": "The VESC SIX schematic from the project's own site. VESC is open hardware, so the schematic is the reference — including the SWCLK and Hall 2 pins this spec's hardware reset shorts.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5038,6 +6421,12 @@
         "title": "marcelrv's thermal-imager open-resources gist",
         "url": "https://gist.github.com/marcelrv/e81253c14053bcd78753554df1230dd3",
         "description": "Collected open resources for thermal imagers; useful starting point for a clean-room HT-W01 client."
+      },
+      {
+        "title": "VEVOR YXP160 / YXP256 / VT256 mobile phone thermal imager manual (PDF)",
+        "url": "https://images.thdstatic.com/catalog/pdfImages/17/1784eaf5-4373-4d67-a32b-4466c2a6e9f0.pdf",
+        "kind": "manual",
+        "description": "Retailer-hosted copy of the vendor manual covering all three models in this family.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5061,6 +6450,12 @@
         "title": "keshavdv/victron-ble",
         "url": "https://github.com/keshavdv/victron-ble",
         "description": "Reference decoder (company id 0x02E1, AES-CTR, record types and field layouts)."
+      },
+      {
+        "title": "Victron SmartSolar MPPT 75/10 to 100/20 manual (PDF, vendor-hosted)",
+        "url": "https://www.victronenergy.com/upload/documents/Manual_SmartSolar_MPPT_75-10_up_to_100-20/29694-MPPT_solar_charger_manual-pdf-en.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the charger family in this spec's research, including the reset-to-defaults sequence and its ten-second power-off window.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5099,6 +6494,18 @@
         "title": "Lifewire — Vizio TV restart troubleshooting (factory reset and Power Mode menu paths)",
         "url": "https://www.lifewire.com/fix-vizio-tv-that-keeps-turning-on-and-off-5198526",
         "description": "Secondary confirmation of the factory-reset path (default passcode 0000) and the Eco/Quickstart Power Mode setting location."
+      },
+      {
+        "title": "VIZIO V-Series user manual (PDF, vendor-hosted)",
+        "url": "https://www.vizio.com/content/dam/asset-portal/us/en/2022/tv/documentation/v-series/V-Series_UM_EN.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for a SmartCast set.\n"
+      },
+      {
+        "title": "VIZIO: how to reset your SmartCast TV",
+        "url": "https://support.vizio.com/s/article/How-to-Reset-your-VIZIO-SmartCast-TV?language=en_US",
+        "kind": "vendor_support",
+        "description": "Vendor article giving the on-screen factory-reset path (Menu, Admin & Privacy, Reset to Factory Settings) and the PIN it asks for.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5117,6 +6524,12 @@
         "title": "WeatherFlow — Tempest UDP API v171",
         "url": "https://weatherflow.github.io/Tempest/api/udp/v171/",
         "description": "The vendor's own local UDP broadcast API (port 50222, message types, field layouts)."
+      },
+      {
+        "title": "WeatherFlow Tempest quick instruction manual",
+        "url": "https://www.manualslib.com/manual/2595260/Weatherflow-Tempest.html",
+        "kind": "manual",
+        "description": "Vendor manual covering the hub and sensor resets in this spec, plus the LED status indicators.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5140,6 +6553,12 @@
         "title": "Wemo Insight teardown and OpenWrt port",
         "url": "https://svenschwermer.de/wemo",
         "description": "Full F7C029 Insight hardware/firmware teardown (RT5350F SoC, u-boot env independently confirming the 10.22.22.1 setup network, cloud endpoints) with a mainline OpenWrt port and package feed."
+      },
+      {
+        "title": "Belkin Wemo F7C027 user manual",
+        "url": "https://www.manualslib.com/manual/1937978/Belkin-Wemo-F7c027.html",
+        "kind": "manual",
+        "description": "Vendor manual for one of the in-wall models. Belkin's own Wemo support has shut down; this is a surviving copy.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5163,6 +6582,18 @@
         "title": "UselessMnemonic/OpenWiz",
         "url": "https://github.com/UselessMnemonic/OpenWiz",
         "description": "MIT — documents the UDP 38899/38900 ports and the JSON method set."
+      },
+      {
+        "title": "Signify WiZ portable light operator's manual",
+        "url": "https://www.manualslib.com/manual/3362650/Signify-Wiz-9290032117.html",
+        "kind": "manual",
+        "description": "Vendor manual for a WiZ Wi-Fi/BLE fixture.\n"
+      },
+      {
+        "title": "WiZ app setup instructions (PDF)",
+        "url": "https://secure.img1-fg.wfcdn.com/docresources/0/206/2068391.pdf",
+        "kind": "manual",
+        "description": "The onboarding flow this spec's local UDP control sits behind.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5179,6 +6610,7 @@
       {
         "title": "duoCo StripX on Google Play",
         "url": "https://play.google.com/store/apps/details?id=wl.smartled.duoco.rgb",
+        "kind": "vendor_support",
         "description": "One of the three vendor apps for this platform (channel skin of the shared fstart/easylink codebase); protocol source for the MELK- name gating and the 241-entry mode table."
       },
       {
@@ -5218,6 +6650,12 @@
         "title": "Home Assistant WLED integration",
         "url": "https://www.home-assistant.io/integrations/wled/",
         "description": "HA core integration over the WLED JSON/HTTP and WebSocket API documented here."
+      },
+      {
+        "title": "WLED documentation (kno.wled.ge)",
+        "url": "https://kno.wled.ge/",
+        "kind": "vendor_support",
+        "description": "WLED is open firmware, so the project documentation IS the manual — installation, the WLED-AP provisioning fallback, and every API this spec documents.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5236,6 +6674,12 @@
         "title": "mrlt8/docker-wyze-bridge",
         "url": "https://github.com/mrlt8/docker-wyze-bridge",
         "description": "Community bridge: exposes Wyze cameras as local RTSP/RTMP/HLS/WebRTC; needs a Wyze API Key/ID."
+      },
+      {
+        "title": "Wyze: factory reset for Cam v1/v2/v3 and Pan v1 (Internet Archive)",
+        "url": "https://web.archive.org/web/20260109203023/https://support.wyze.com/hc/en-us/articles/360031484511-How-to-factory-reset-your-Wyze-Cam-v1-v2-v3-or-Pan-v1",
+        "kind": "vendor_support",
+        "description": "Source for the 3-5 second setup mode versus 10 second factory reset in this spec. Archived because Wyze's live support site refuses automated requests.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5264,6 +6708,12 @@
         "title": "leojrfs — Mi Band 2 auth writeup",
         "url": "https://leojrfs.github.io/writing/miband2-part1-auth/",
         "description": "The three-step AES-ECB auth handshake and the auth characteristic UUID."
+      },
+      {
+        "title": "Xiaomi Smart Band 7 user manual (PDF)",
+        "url": "https://m.media-amazon.com/images/I/A1np0xcy2RL.pdf",
+        "kind": "manual",
+        "description": "Vendor manual for the Band 7, including the on-device Settings, System, Factory reset path in this spec.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5282,6 +6732,12 @@
         "url": "https://www.home-assistant.io/integrations/xiaomi_ble/",
         "title": "Home Assistant Xiaomi BLE integration",
         "description": "HA core integration passively decoding LYWSD03MMC advertisements (bindkey for stock firmware; plaintext with ATC custom firmware)."
+      },
+      {
+        "title": "Mi LYWSD03MMC user manual",
+        "url": "https://www.manualslib.com/manual/2150730/Mi-Lywsd03mmc.html",
+        "kind": "manual",
+        "description": "Vendor manual for the stock thermometer — the firmware this spec recommends replacing.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5310,6 +6766,12 @@
         "title": "Zimperium — Xiaomi scooter BLE advisory",
         "url": "https://www.zimperium.com/blog/dont-give-me-a-brake-xiaomi-scooter-hack-enables-dangerous-accelerations-and-stops-for-unsuspecting-riders/",
         "description": "The unauthenticated-BLE-command issue recorded in the security_advisory."
+      },
+      {
+        "title": "Xiaomi Mi Electric Scooter M365 user manual",
+        "url": "https://www.manualslib.com/manual/1690418/Xiaomi-Mi-Electric-Scooter-M365.html",
+        "kind": "manual",
+        "description": "Vendor manual for the M365. It documents the power button but not the three-input reset combination this spec records from community sources.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5362,6 +6824,18 @@
         "url": "https://www.home-assistant.io/integrations/xiaomi_ble/",
         "title": "Home Assistant Xiaomi BLE integration",
         "description": "HA core integration covering Xiaomi Mi body scales' BLE advertisements."
+      },
+      {
+        "title": "Xiaomi Body Composition Scale S400 user manual",
+        "url": "https://www.manualslib.com/manual/3453259/Xiaomi-Mi-S400.html",
+        "kind": "manual",
+        "description": "Vendor manual for the S400.\n"
+      },
+      {
+        "title": "Xiaomi: Body Composition Scale S400 user guide (PDF, vendor-hosted)",
+        "url": "https://www.mi.com/au/support/user-guide-pdf/xiaomi-body-composition-scale-s400/",
+        "kind": "vendor_support",
+        "description": "Vendor's own guide download.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5384,6 +6858,12 @@
         "title": "ESPHome Xiaomi Miscale sensor component",
         "url": "https://esphome.io/components/sensor/xiaomi_miscale/",
         "description": "ESPHome BLE-tracker component decoding the Mi Scale advertisement frames documented here (XMTZC01/02/04/05)."
+      },
+      {
+        "title": "Xiaomi Mi Body Composition Scale 2 user manual",
+        "url": "https://www.manualslib.com/manual/3004176/Xiaomi-Mi-Body-Composition-Scale-2.html",
+        "kind": "manual",
+        "description": "Vendor manual for the v2 scale, whose impedance frame this spec decodes.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5396,6 +6876,20 @@
     "manufacturer": "Xiaomi / HHCC Plant Technology Co., Ltd.",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Xiaomi Flower Care smart monitor user manual",
+        "url": "https://www.manua.ls/xiaomi/huahuacacao-flower-care-smart-monitor/manual",
+        "kind": "manual",
+        "description": "Vendor manual for the Huahuacaocao-built sensor this spec documents.\n"
+      },
+      {
+        "title": "Flower plant monitor usage guide (PDF)",
+        "url": "https://img.banggood.com/file/products/20160715033032How%20to%20Use%20Flower%20Plant%20Monitor.pdf",
+        "kind": "manual",
+        "description": "A retailer-hosted copy of the same guide, covering the light, temperature, moisture and fertility measurements.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -5417,6 +6911,12 @@
         "title": "rytilahti/python-miio",
         "url": "https://github.com/rytilahti/python-miio",
         "description": "GPL-3.0 reference client; discovery, token handling, per-device command modules and generic MIoT."
+      },
+      {
+        "title": "Aqara Hub M2 user manual",
+        "url": "https://www.manualslib.com/manual/3277465/Aqara-Hub-M2.html",
+        "kind": "manual",
+        "description": "Manual for one of the Zigbee hubs that bridges into the miIO ecosystem this spec documents.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5429,6 +6929,14 @@
     "manufacturer": "XKGlow",
     "manufacturer_status": "active",
     "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "XKGlow XKchrome kit installation instructions (PDF)",
+        "url": "https://images.carid.com/xkglow/products/pdf/xk-chrome-kit-2-installation-instructions.pdf",
+        "kind": "manual",
+        "description": "Vendor installation instructions, retailer-hosted, covering the controller this spec's BLE protocol drives.\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -5450,6 +6958,18 @@
         "title": "Home Assistant — August / Yale integration",
         "url": "https://www.home-assistant.io/integrations/august/",
         "description": "Documents the offline-key requirement and how to sync it from the cloud for local control."
+      },
+      {
+        "title": "Yale Assure Lock 2 installation instructions",
+        "url": "https://www.manualslib.com/manual/3355424/Yale-Assure-Lock-2.html",
+        "kind": "manual",
+        "description": "Vendor installation manual covering the Assure Lock 2 and its Smart Module.\n"
+      },
+      {
+        "title": "Yale Assure Lock 2 key-free deadbolt installation guide (PDF)",
+        "url": "https://pdf.lowes.com/productdocuments/6de39f83-1b4e-411d-9a87-a3eebf3c4767/63493120.pdf",
+        "kind": "manual",
+        "description": "Retailer-hosted copy of the guide behind this spec's one-minute reset-tool procedure.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5499,6 +7019,12 @@
         "title": "Home Assistant — Yeelight integration",
         "url": "https://www.home-assistant.io/integrations/yeelight/",
         "description": "Core integration covering basic on/off/colour for Yeelight LAN lights, including the cube at that level."
+      },
+      {
+        "title": "Yeelight: how to reset an LED bulb",
+        "url": "https://www.yeelight.com/faq/app/reset/en_US/reset-color.html",
+        "kind": "vendor_support",
+        "description": "Vendor FAQ giving the five-power-cycle reset and the visual confirmation for colour and white fixtures.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5527,6 +7053,18 @@
         "title": "Home Assistant Yeelight integration",
         "url": "https://www.home-assistant.io/integrations/yeelight/",
         "description": "HA core integration over this LAN protocol (requires LAN Control enabled)."
+      },
+      {
+        "title": "Yeelight Smart LED Bulb 1S user manual",
+        "url": "https://www.manualslib.com/manual/1867101/Yeelight-Smart-Led-Bulb-1s.html",
+        "kind": "manual",
+        "description": "Vendor manual for one of the bulbs speaking the LAN control protocol this spec documents.\n"
+      },
+      {
+        "title": "Yeelight Smart LED Bulb W4 multicolor user manual (PDF)",
+        "url": "https://itead.cc/wp-content/uploads/2024/01/W4-User-Manual.pdf",
+        "kind": "manual",
+        "description": "A later model's manual, including the five-power-cycle reset.\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5543,6 +7081,7 @@
       {
         "title": "Zigbee2MQTT: TS0601_soil (classic 2-DP group)",
         "url": "https://www.zigbee2mqtt.io/devices/TS0601_soil.html",
+        "kind": "implementation",
         "description": "Pairing procedure (hold button ~5-6 s), exposed entities and options for the classic group; sibling pages cover TS0601_soil_2 and TS0601_soil_3."
       },
       {

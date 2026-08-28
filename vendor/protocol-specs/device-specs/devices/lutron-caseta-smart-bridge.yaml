@@ -94,31 +94,44 @@ device:
       most devices here the bridge issues the client a real X.509 certificate
       and refuses anonymous connections afterwards.
     methods:
-      - type: "wired"
-        verified: false
-        description: "Ethernet to the router; the bridge takes a DHCP lease and advertises _lutron._tcp.local."
-        steps:
-          - action: "Connect the bridge with Ethernet and apply power."
-            actor: "user"
-            timeout_seconds: 120
       - type: "button_pairing"
+        name: "Ethernet, then button-held CSR signing"
+        role: "primary"
         verified: false
         description: >
-          The client generates a key pair and CSR, then presents it while the
-          physical button on the back of the bridge is held. The bridge signs
-          the CSR and returns the client certificate plus its own CA
-          certificate, which the client pins for all later LEAP sessions.
-        steps:
-          - action: "Generate an RSA/EC key pair and a certificate signing request on the client."
-            actor: "client"
-          - action: "Press and hold the button on the back of the bridge."
-            actor: "user"
-          - action: "Submit the CSR to the bridge's pairing service and store the signed certificate, private key and bridge CA."
-            actor: "client"
-            request:
-              service: "LAP pairing (TLS-JSON on port 8083, not HTTP): Execute /pair with CommandType=CSR and Parameters {CSR, DisplayName, DeviceUID, Role}"
-            expect: "Signed client certificate returned in Body.SigningResult.Certificate (with Body.SigningResult.RootCertificate as the bridge CA); later LEAP connections on port 8081 authenticate with it."
-            timeout_seconds: 30
+          The bridge is Ethernet-only, so there is no wireless
+          provisioning; what needs documenting is the LEAP pairing that
+          follows, because unlike most devices here the bridge issues the
+          client a real X.509 certificate and refuses anonymous
+          connections afterwards.
+        stages:
+          - type: "wired"
+            name: "Get the bridge onto the LAN"
+            verified: false
+            description: "Ethernet to the router; the bridge takes a DHCP lease and advertises _lutron._tcp.local."
+            steps:
+              - action: "Connect the bridge with Ethernet and apply power."
+                actor: "user"
+                timeout_seconds: 120
+          - type: "button_pairing"
+            name: "Sign the client's CSR at the bridge button"
+            verified: false
+            description: >
+              The client generates a key pair and CSR, then presents it while the
+              physical button on the back of the bridge is held. The bridge signs
+              the CSR and returns the client certificate plus its own CA
+              certificate, which the client pins for all later LEAP sessions.
+            steps:
+              - action: "Generate an RSA/EC key pair and a certificate signing request on the client."
+                actor: "client"
+              - action: "Press and hold the button on the back of the bridge."
+                actor: "user"
+              - action: "Submit the CSR to the bridge's pairing service and store the signed certificate, private key and bridge CA."
+                actor: "client"
+                request:
+                  service: "LAP pairing (TLS-JSON on port 8083, not HTTP): Execute /pair with CommandType=CSR and Parameters {CSR, DisplayName, DeviceUID, Role}"
+                expect: "Signed client certificate returned in Body.SigningResult.Certificate (with Body.SigningResult.RootCertificate as the bridge CA); later LEAP connections on port 8081 authenticate with it."
+                timeout_seconds: 30
     factory_reset:
       confidence: "medium"
       effect: >
@@ -153,6 +166,50 @@ device:
         no shared secret, no cloud, and a client credential that can be revoked
         by resetting the bridge.
 
+  pairing:
+    required: true
+    confidence: "high"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "derived"
+      notes: >
+        Not a code but a certificate: the client generates its own key pair
+        and CSR, and the bridge signs it during the button hold. What the
+        client stores afterwards is its signed certificate, its private key
+        and the bridge's CA — the last of which it pins for every later LEAP
+        session.
+    exclusivity:
+      single_connection: false
+      single_bond: false
+      recovery: >
+        Nothing to clear before pairing: the bridge signs a certificate for
+        each client that asks, so a new controller does not displace an
+        existing one.
+    enter_pairing_mode:
+      required: true
+      procedures:
+        - name: "Hold the button on the back of the bridge while submitting the CSR"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            The pairing flow implemented by the open LEAP clients this spec
+            follows. Not replayed against a bridge here.
+          power_state: "on"
+          steps:
+            - action: "Generate an RSA or EC key pair and a certificate signing request on the client."
+              actor: "client"
+            - action: "Press and hold the button on the back of the bridge."
+              actor: "user"
+            - action: "Submit the CSR to the bridge's pairing service while the button is held."
+              actor: "client"
+              expect: "A signed client certificate and the bridge CA in the response."
+    notes: >
+      Unusually for this repository, the credential is a client certificate
+      rather than a token, and the pairing is where the trust in both
+      directions is established at once: the bridge learns the client's public
+      key, and the client learns the CA it will pin. Losing the private key
+      means holding the button again; there is no way to re-download it.
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:
@@ -256,3 +313,8 @@ helpful_urls:
   - title: "Home Assistant Lutron Caséta integration"
     url: "https://www.home-assistant.io/integrations/lutron_caseta/"
     description: "HA core integration over the Smart Bridge LEAP/LAP protocol documented here."
+  - title: "Lutron Caseta Smart Bridge quick start guide"
+    url: "https://www.alarmgrid.com/documents/caseta-smart-bridge-quick-start-guide"
+    kind: "manual"
+    description: >
+      Quick start for the L-BDG2. Lutron's own document server refuses automated requests; this is a mirrored copy of the same guide.

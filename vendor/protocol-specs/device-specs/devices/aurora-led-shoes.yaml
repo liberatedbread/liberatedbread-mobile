@@ -144,6 +144,19 @@ device:
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control — anyone nearby can change the
         shoes' colors.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Close the vendor app, and any other client holding the device,
+        before connecting. Nothing needs clearing afterwards — no bond
+        is stored on either side.
+    enter_pairing_mode:
+      required: false
   variants: []
 
 services:
@@ -310,11 +323,6 @@ entities:
       set_effect: "mode_slow_color_change"
 
 helpful_urls:
-  - title: "Aurora LED Shoes on Google Play"
-    url: "https://play.google.com/store/apps/details?id=com.jtkj.auroraled"
-    description: >-
-      Vendor app (com.jtkj.auroraled, v1.0.1 analyzed). BLE-only, no account,
-      no backend — the app is a pure BLE remote for the shoes.
   - title: "FastBle (open-source BLE wrapper used by the vendor app)"
     url: "https://github.com/Jasonchenlijian/FastBle"
     description: >-
@@ -326,3 +334,8 @@ helpful_urls:
     description: >-
       Same developer, same BLE wrapper, but a DIFFERENT GATT profile
       (0xFFE5/0xFFE9) and opcode set. Not interchangeable with this device.
+  - title: "LED shoes user manual"
+    url: "https://brightledshoes.com/user-manual/"
+    kind: "manual"
+    description: >
+      Generic manual for app-controlled LED shoes of this class. The Aurora hardware is unbranded ODM: there is no vendor manual, and the vendor app's Play listing is gone.
