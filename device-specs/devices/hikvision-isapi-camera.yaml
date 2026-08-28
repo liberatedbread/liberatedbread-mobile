@@ -167,3 +167,8 @@ helpful_urls:
   - title: "hikvisionapi (PyPI)"
     url: "https://pypi.org/project/hikvisionapi/"
     description: "Python ISAPI client (deviceInfo, streaming channels, motionDetection, alertStream)."
+  - title: "Hikvision network camera user manual (PDF, vendor-hosted)"
+    url: "https://assets.hikvision.com/prd/public/all/doc/m000012235/UD16429B-B_Baseline_User-Manual-of-Network-Camera_V5.6.10_20221223.pdf"
+    kind: "manual"
+    description: >
+      Vendor baseline manual for the network camera range, v5.6.10.

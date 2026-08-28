@@ -3,3 +3,13 @@
 # collapses it in GitHub's diff view, so a reviewer looking at a spec PR that
 # happened to pick it up in a merge sees the specs rather than 60 kB of JSON.
 device-specs/index.json linguist-generated=true
+
+# Instruction glyphs (glyphs/) are tracked with Git LFS. They are binary-ish
+# assets that specs reference by path, they will accumulate one or more per
+# device across ~200 devices, and unlike a spec nobody reviews them by reading
+# the file — a glyph is reviewed by looking at it. Keeping them out of the
+# object store keeps a clone of the specs cheap for the consumers that vendor
+# this repo as a subtree and want the YAML, not the artwork.
+glyphs/**/*.svg filter=lfs diff=lfs merge=lfs -text
+glyphs/**/*.png filter=lfs diff=lfs merge=lfs -text
+glyphs/**/*.webp filter=lfs diff=lfs merge=lfs -text

@@ -180,6 +180,20 @@ device:
       wifi_passphrase_protection: "not_applicable"
       notes: "No credentials of any kind on BLE models: the panel speaks unauthenticated GATT. A password flag exists in the device-info response (255 = none); the password wire format is unverified."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    notes: >
+      Plain GATT writes with no encryption and no pairing anywhere in the
+      command path, independently confirmed by the ESPHome component for this
+      family. The protocol does carry an optional password mechanism on some
+      firmware, but its flag value of 255 means no password and that is what
+      the panels ship with; a client should read the flag rather than assume
+      either way.
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "000000fa-0000-1000-8000-00805f9b34fb"
     name: "iPixel Command Service"
@@ -552,6 +566,7 @@ helpful_urls:
     description: "Original reverse-engineering blog post for the family."
   - title: "iPixel Color on Google Play"
     url: "https://play.google.com/store/apps/details?id=com.wifiled.ipixels"
+    kind: "vendor_support"
     description: "Vendor companion app — the app this spec's static analysis is based on."
   - title: "ipixelcolor.net"
     url: "https://ipixelcolor.net/"

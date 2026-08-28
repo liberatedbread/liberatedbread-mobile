@@ -302,6 +302,11 @@ device:
         re-claimed through the Ember app.
       procedures:
         - name: "Factory reset"
+          # Run against hardware (fw-367 and fw-394 Mug 2 units, 2026-08-16),
+          # which is what `verified` means: the LED sequence and the post-reset
+          # state below were observed, not read off a support page. The app's
+          # own troubleshooting copy gives a different hold time.
+          verified: true
           hold_seconds: 15
           indicator: "LED goes blue, then yellow, then red; release at red. It then blinks red, blinks yellow, pulses white, goes solid white and powers off; one press brings it back."
           steps:
@@ -332,6 +337,55 @@ device:
         - "UDSK claim value"
       issued_to_client:
         - "DSK read from the mug, and the UDSK the client wrote"
+  pairing:
+    required: false
+    confidence: "high"
+    security_mode: "just_works"
+    bonding: "optional"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Close the Ember app and wait before retrying. Three quick sessions in
+        succession put the mug into a state where it refuses connections
+        outright, reproduced on the bench; it clears on its own.
+    enter_pairing_mode:
+      required: true
+      indicator: "The base LED changes to the pairing pattern."
+      notes: >
+        Only the vendor's claim flow needs this. Ordinary reads do not: on a
+        link BlueZ reported as unpaired, seventeen of the eighteen
+        characteristics on a Mug 2 answered — temperature, target, battery,
+        liquid state, firmware, mug id, LED, all of it.
+      procedures:
+        - name: "Hold the button on the base until the LED shows the pairing pattern"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            The vendor app's own instructions and python-ember-mug's claim
+            sequence. Not run on the bench, where every session that mattered
+            reached the mug without it.
+          power_state: "on"
+          indicator: "Base LED changes to the pairing pattern."
+          steps:
+            - action: "Hold the button on the base of the mug."
+              actor: "user"
+            - action: "Release when the LED shows the pairing pattern."
+              actor: "user"
+    notes: >
+      The trap here is not whether pairing is required — it is not — but what
+      happens when a client touches the one characteristic that is protected.
+      Reading the DSK returns an insufficient-authentication error, and BlueZ
+      responds by starting SMP on its own, without the application asking for
+      it. On a host with no pairing agent registered, which is the normal state
+      of a headless Home Assistant box, bluetoothd answers its own confirmation
+      request in the negative, SMP fails with a passkey-entry error and the mug
+      drops the connection. Since reading the DSK is step one of the vendor's
+      unlock sequence, a client that correctly concludes it never needs to pair
+      still gets everything except the characteristic that flow starts from.
+      Note also that completing SMP created a long-term key on this bench even
+      though BlueZ had requested no bonding: a client doing this bonds to the
+      mug whether it meant to or not.
 services:
   - uuid: "fc543622-236c-4c94-8fa9-944a3e5353fa"
     name: "Ember Mug Service"
@@ -1697,3 +1751,8 @@ helpful_urls:
     description: >-
       Vendor instructions for putting the mug into pairing mode, which is the physical step this
       spec's setup sequence starts from.
+  - title: "Ember Mug 2 user manual"
+    url: "https://www.manua.ls/ember/mug-2/manual"
+    kind: "manual"
+    description: >
+      Vendor manual. Note it gives a shorter hold than the fifteen seconds observed on hardware here — the LED sequence in this spec is the authority.

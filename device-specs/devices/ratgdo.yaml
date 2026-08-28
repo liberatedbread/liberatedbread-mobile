@@ -217,13 +217,49 @@ device:
             actor: client
             expect: "TXT project_name starts `ratgdo.`; the web server answers GET /cover/Door (older firmware: /cover/door) with the door state."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Re-flashing or an ESPHome factory-reset clears Wi-Fi credentials and
-        the ESPHome config; the opener pairing (rolling-code seed) is separate
-        and cleared at the opener's learn button. The exact ratgdo reset
-        procedure (button hold vs re-flash) is not established here.
+        Clears everything held in non-volatile storage: WiFi credentials,
+        globals, counters and saved state, with no way back. A board that was
+        onboarded through the captive portal comes back offline and has to be
+        re-provisioned from its own access point, in radio range.
+      description: >
+        The reset here belongs to ESPHome rather than to a vendor, which is
+        the advantage of open firmware and also the catch: what exists on a
+        given board is whatever its YAML declares. The stock ratgdo firmware
+        exposes it as a button entity; a build can also wire up the
+        factory_reset component's power-cycle trigger, which fires after a
+        configured number of rapid power cycles.
+
+        Worth being clear with a user before they press it: this is not a
+        reboot. The door opener itself keeps its own rolling-code pairing —
+        that lives in the opener, not in ratgdo — but every setting on the
+        board is gone.
+      procedures:
+        - name: "Factory reset entity exposed by the firmware"
+          verified: false
+          basis: >
+            ESPHome's factory_reset button and switch components, which the
+            ratgdo firmware builds on. Depends on the board's configuration
+            rather than on fixed hardware.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Press the firmware's factory reset button from Home Assistant or the device's own web UI."
+              actor: "client"
+              expect: "Stored preferences are erased and the board reboots unprovisioned."
+        - name: "Rapid power cycles, where the build enables the trigger"
+          verified: false
+          basis: >
+            ESPHome's factory_reset component, whose power-cycle trigger takes
+            a configurable cycle count and maximum delay. Only present if the
+            board's YAML declares it.
+          power_state: "on"
+          glyph: "generic/power-cycle.svg"
+          steps:
+            - action: "Power-cycle the board the configured number of times in quick succession."
+              actor: "user"
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -491,3 +527,8 @@ helpful_urls:
   - url: "https://ratgdo.github.io/esphome-ratgdo/"
     title: "ratgdo ESPHome installer & docs"
     description: "Web flasher and setup for the mainstream ratgdo firmware."
+  - title: "ESPHome: factory reset component"
+    url: "https://esphome.io/components/factory_reset/"
+    kind: "vendor_support"
+    description: >
+      The reset on a ratgdo is ESPHome's, not a vendor's: this documents the button, switch and power-cycle trigger.

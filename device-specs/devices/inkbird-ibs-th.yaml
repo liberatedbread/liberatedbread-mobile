@@ -195,6 +195,13 @@ device:
       issued_to_client: []
       notes: "BLE advertisement broadcast, no auth. No Wi-Fi on this model family."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "IBS-TH1"
       identification:
@@ -362,3 +369,13 @@ helpful_urls:
   - title: "Home Assistant: Inkbird integration"
     url: "https://www.home-assistant.io/integrations/inkbird"
     description: "Where the parser runs in production, and the supported-model list."
+  - title: "INKBIRD: IBS-TH1 Plus manual"
+    url: "https://www.inkbird.com/pages/ibs-th1-plus-manual"
+    kind: "vendor_support"
+    description: >
+      Vendor manual page for the exemplar sensor.
+  - title: "INKBIRD: manual downloads"
+    url: "https://www.inkbird.com/pages/download"
+    kind: "vendor_support"
+    description: >
+      Vendor index covering the rest of the IBS range.

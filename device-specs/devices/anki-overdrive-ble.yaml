@@ -89,11 +89,37 @@ device:
           - action: "Subscribe to BE15BEE0 (read) and write vehicle messages to BE15BEE1 (write)."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
+      applicable: true
       confidence: low
       effect: >
-        No documented factory-reset procedure; the cars store no network or cloud
-        state. Charging on the track is the only persistent state change.
+        Resets the vehicle. What it clears beyond returning the car to a clean
+        connectable state is not documented — and there is little for it to
+        clear: the cars hold no credentials, no network membership and no
+        pairing secret, which is exactly what the pairing block records.
+      description: >
+        Anki's own support material gives a five-second hold of the vehicle's
+        button as the reset, in the context of a car that will not connect.
+        Confidence is low because the vendor is gone and the surviving
+        documentation says what to do without saying what it does.
+
+        Before reaching for it, the far more common cause is charge: Anki's
+        support pages are explicit that vehicles with a low battery will not
+        connect or will drop out mid-session, and that presents identically to
+        a pairing fault.
+      procedures:
+        - name: "Hold the vehicle button for five seconds"
+          verified: false
+          basis: >
+            Anki's own customer-care documentation on detecting and connecting
+            to vehicles. The vendor is defunct; this is what survives.
+          hold_seconds: 5
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: "Charge the vehicle fully first — a low battery presents as a connection fault."
+              actor: "user"
+            - action: "Hold the button on the vehicle for five seconds."
+              actor: "user"
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -104,6 +130,13 @@ device:
       issued_to_client: []
       notes: "No pairing secret or application-layer auth; BLE connection is open."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "be15beef-6186-407e-8381-0bd89c4d8df4"
     name: "Anki vehicle service"
@@ -140,3 +173,8 @@ helpful_urls:
   - title: "anki/drive-sdk — vehicle_gatt_profile.h"
     url: "https://github.com/anki/drive-sdk/blob/master/include/ankidrive/vehicle_gatt_profile.h"
     description: "The service and read/write characteristic UUIDs used here."
+  - title: "Anki customer care: detecting and connecting to vehicles (Internet Archive)"
+    url: "https://web.archive.org/web/20191213112527/https://support.anki.com/hc/en-us/articles/115000471367-Detecting-and-connecting-to-vehicles"
+    kind: "vendor_support"
+    description: >
+      Source for the five-second vehicle reset. Anki is defunct; this snapshot is what survives of their support site.

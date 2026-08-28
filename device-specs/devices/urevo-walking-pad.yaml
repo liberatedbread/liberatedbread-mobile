@@ -176,11 +176,33 @@ device:
       applicable: "unknown"
       confidence: low
       effect: >
-        No factory-reset procedure is recoverable from the app binary for
-        the treadmills (the massager classes have a
-        RestoreFactorySettingsResponse, treadmills do not). The pads hold no
-        network credentials and no bonds, so there is nothing to clear for
-        local control. Not stated rather than guessed.
+        Not established. UREVO's product support covers the remote, the app and
+        warranty questions but documents no factory reset for the treadmill
+        itself, and no reset control is described on the unit.
+      description: >
+        The procedure below is remote-control re-pairing, NOT a factory reset.
+        It is here because it is what the vendor actually documents, and
+        because a user whose remote has stopped responding reaches for a reset
+        when this is the thing that fixes it. Worth checking the remote's
+        battery first — UREVO put its life at one to two months, which is short
+        enough that a flat cell is the likeliest cause.
+      procedures:
+        - name: "Re-pair the remote control (not a factory reset)"
+          verified: false
+          basis: >
+            UREVO's own product support pages for the SpaceWalk range, which
+            give this as the remedy for a remote that has lost its pairing.
+          power_state: "booting"
+          glyph: "generic/hold-button-while-powering-on.svg"
+          indicator: "The remote's indicator flashes, then the treadmill sounds when the pairing takes."
+          steps:
+            - action: "Switch the treadmill off at the power switch."
+              actor: "user"
+            - action: "Press Start and + together on the remote until its indicator flashes, and keep holding."
+              actor: "user"
+            - action: "Switch the power on; a tone confirms the remote has paired."
+              actor: "user"
+              expect: "An audible confirmation from the treadmill."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -196,6 +218,13 @@ device:
         BLE-only control plane; no credentials cross the link and no
         authentication of any kind was found in the treadmill classes.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   # ------------------------------------------------------------- FTMS
   - uuid: "00001826-0000-1000-8000-00805f9b34fb"
@@ -543,3 +572,8 @@ helpful_urls:
   - url: "https://play.google.com/store/apps/details?id=com.urevo.app"
     title: "UREVO app (Google Play)"
     description: "Official companion app — the protocol source for this spec."
+  - title: "UREVO SpaceWalk Lite support: manuals and FAQs"
+    url: "https://www.urevo.com/pages/spacewalk-lite-product-support"
+    kind: "vendor_support"
+    description: >
+      Vendor support page carrying the remote re-pairing procedure in this spec.

@@ -179,12 +179,51 @@ device:
       applicable: "unknown"
       confidence: low
       effect: >
-        No factory-reset procedure was found in the app or in
-        recovered vendor material, so it is unknown whether the lock has
-        one. The credential-rotation path that DOES exist is the password
-        update write (0x01 + new 4-byte password to 0xFFD6), which requires
-        knowing the current password first. RFID tags and share codes have
-        their own delete commands (0xFFE3, 0xFFC5 on biometric models).
+        No factory-reset procedure for the padlock itself was found in the app
+        or in recovered vendor material, so it is unknown whether it has one.
+        The credential-rotation path that DOES exist is the password update
+        write (0x01 + new 4-byte password to 0xFFD6), which requires knowing
+        the current password first. RFID tags and share codes have their own
+        delete commands (0xFFE3, 0xFFC5 on biometric models).
+      description: >
+        The candidates below come from the QuickLock door lock manual —
+        sibling hardware on the same platform, not this padlock. They are worth
+        recording because the button vocabulary is shared across the range and
+        they are the first things someone holding the padlock should try, but
+        neither has been seen to work on a padlock and the padlock has no
+        Z-Wave radio at all, so the first one may have no equivalent here.
+      procedures:
+        - name: "Z-Wave button held for five seconds (sibling hardware)"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            The QuickLock door lock manual, for the Z-Wave variant of the
+            platform. This padlock is Bluetooth-only, so the procedure is
+            recorded as a pattern rather than as something with a button to
+            press here.
+          hold_seconds: 5
+          power_state: "on"
+          steps:
+            - action: "Hold the Z-Wave button down for five seconds."
+              actor: "user"
+              expect: >
+                The lock removes its network connection and clears its
+                association group. On the door lock this is documented as
+                being for use only when the primary controller is missing.
+        - name: "Erase enrolled RFID tags (sibling hardware)"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: "The QuickLock door lock manual's tag-management section."
+          hold_seconds: 5
+          power_state: "on"
+          steps:
+            - action: "Scan a tag that is already programmed."
+              actor: "user"
+            - action: "Press the button again to enter programming mode."
+              actor: "user"
+            - action: "Press and hold the button for five seconds."
+              actor: "user"
+              expect: "Every tag except the one used to enter programming mode is erased."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -209,6 +248,13 @@ device:
         password as publicly known the moment it is used in range of an
         attacker.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000FFD0-0000-1000-8000-00805F9B34FB"
     name: "Lock main service (16-bit 0xFFD0)"
@@ -609,6 +655,11 @@ helpful_urls:
     url: "https://web.archive.org/web/2022/https://safetechproducts.com/"
     description: "Last real captures late 2022; site parked/offline from ~Feb 2023. Vendor/product documentation survives only here."
 
+  - title: "The QuickLock padlock manual"
+    url: "https://www.manualslib.com/manual/1383589/The-Quicklock-Padlock.html"
+    kind: "manual"
+    description: >
+      Manual for the sibling QuickLock hardware this spec's candidate reset procedures come from. SafeTech has shut down.
 evidence:
   artifacts:
     - type: "static_analysis"

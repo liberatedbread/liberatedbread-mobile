@@ -23,6 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # glyphs/ is Git LFS. Without this the working copy has pointer
+          # files where the drawings should be, and test_glyphs.py fails on
+          # every one of them for a reason that has nothing to do with the
+          # change under test.
+          lfs: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -39,12 +45,20 @@ jobs:
         with:
           # `git merge-base` below needs real history, not a depth-1 tip.
           fetch-depth: 0
+          # glyphs/ is Git LFS; the glyph validation below reads the files.
+          lfs: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - name: Validate device specs against schema.json
         run: python scripts/validate_specs.py
+      # Every glyph a spec points at exists and is in the manifest, every
+      # glyph in the store is pointed at by something, and none of them
+      # reaches outside itself. The schema can only check the shape of the
+      # path string; these are the failures that actually happen.
+      - name: Validate instruction glyphs
+        run: python scripts/validate_glyphs.py
       # The index is built by the publish-index job, not carried in branches —
       # so what a PR owes is a spec set the generator can index, not a fresh
       # index.json. Build it and throw it away: a spec that trips the generator

@@ -51,6 +51,24 @@ line: `ip,mac,module` with a placeholder still shows the reply's shape.
 This applies to `research-notes/` and `docs/devices/` exactly as it does to
 `device-specs/` — a verification note is as public as a spec.
 
+## Glyphs are drawn, not derived
+
+`glyphs/` holds line art of the buttons and indicators a reset or pairing step
+points at. Everything above applies to it, and one thing needs saying
+explicitly because the temptation is obvious: **vendor artwork is inadmissible
+in any processed form.** Not a crop of a manual page, not a trace over a
+product photo, not an app asset recoloured or simplified. Passing an image
+through a drawing program does not change where it came from.
+
+What IS fine, and is how these are made: read the manual, learn that the button
+sits below the paddle, then draw a button below a paddle. The knowledge is a
+derived fact like any other in this repository. The picture has to be yours.
+
+`glyphs/MANIFEST.yaml` records both halves separately — `origin:
+original_drawing` attests to the artwork, `drawn_from` records the factual
+basis — and `scripts/validate_glyphs.py` accepts no other origin. See
+[Instruction Glyphs](contributing/glyphs.md).
+
 ## Scope limitations
 - Exclude safety-critical medical devices.
 - Exclude tobacco/vape devices except PAX (explicitly allowed by project policy).

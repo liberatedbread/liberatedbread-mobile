@@ -198,20 +198,46 @@ device:
               - "Home network is 5 GHz — this class of controller is 2.4 GHz only."
               - "Wrong passphrase; the device never leaves SoftAP mode."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Not established. The app exposes CMD_SET_DEVICE_TO_AP_MODE (0x88), which
-        returns a reachable device to SoftAP/provisioning mode over the control
-        channel — a software path back to onboarding that needs no physical
-        access. A hardware button/reset procedure is not documented in the app
-        or the cited sources.
+        Restores factory settings and clears the stored WiFi credentials.
+        Afterwards the controller hosts its own access point named SP108E_xxx
+        with the default pin 12345678 — a product-wide default, printed in the
+        vendor instructions.
       description: >
-        No physical reset procedure has been established. What IS established
-        from the app: any client on the control channel can send
-        CMD_SET_DEVICE_TO_AP_MODE (0x88) to drop the device back into SoftAP
-        mode, clearing its joined-network state in practice. Whether a button
-        on the PCB does the same is unverified.
+        Two published gestures that do not agree: a long hold of the
+        controller's button, given as about thirty seconds, and a
+        power-cycle-three-times sequence in some printed copies. Try the hold
+        first.
+
+        One timing detail matters more than the reset itself. In station mode
+        an unprovisioned controller waits only about twenty seconds after
+        power-on for the app to hand it credentials, then stops listening. A
+        user who resets it, goes to fetch their phone and comes back has
+        already missed the window and has to power-cycle again.
+      procedures:
+        - name: "Hold the controller button for about thirty seconds"
+          verified: false
+          basis: >
+            The SP108E operating instructions, as filed with the FCC under ID
+            2ATV8SP108E and reproduced by the vendor's distributors.
+          hold_seconds: 30
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: "With the controller powered, press and hold its button for about thirty seconds."
+              actor: "user"
+              expect: "Factory settings are restored; the SP108E_xxx access point returns."
+        - name: "Power-cycle three times"
+          verified: false
+          basis: "An alternative given in some printed copies of the same instructions; recorded because the two disagree."
+          press_count: 3
+          power_state: "on"
+          glyph: "generic/power-cycle.svg"
+          steps:
+            - action: "Switch the controller off and on three times."
+              actor: "user"
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -507,3 +533,8 @@ helpful_urls:
   - title: "LED Shop on Google Play"
     url: "https://play.google.com/store/apps/details?id=com.cdc.ledshop"
     description: "The vendor app (com.cdc.ledshop) this spec replaces."
+  - title: "SP108E WiFi LED controller operating instructions (PDF)"
+    url: "https://m.media-amazon.com/images/I/81Xi5n1Iz6L.pdf"
+    kind: "manual"
+    description: >
+      Printed instructions for the controller, including the AP name and default pin.

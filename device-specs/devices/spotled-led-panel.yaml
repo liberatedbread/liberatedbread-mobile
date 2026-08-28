@@ -172,6 +172,13 @@ device:
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "Lunchbox Dream Skin 2.0 / 3.0 (early boards)"
       identification:
@@ -290,3 +297,15 @@ entities:
       "1": "upside_down"
       "2": "mirror"
       "3": "mirror_upside_down"
+
+helpful_urls:
+  - title: "SPOTLED app: getting started"
+    url: "https://spotled.app/getting-started/"
+    kind: "vendor_support"
+    description: >
+      The vendor's own setup guide, including reading the model from the Bluetooth ID shown at power-on. There is no printed manual for these panels.
+  - title: "iwalton3/python-spotled"
+    url: "https://github.com/iwalton3/python-spotled"
+    kind: "implementation"
+    description: >
+      Working control library for the same displays.

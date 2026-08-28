@@ -167,6 +167,13 @@ device:
         No credentials anywhere: no Wi-Fi, no account, no pairing PIN, no
         crypto in the app or protocol. Anything in radio range can connect
         and issue commands; physical proximity is the only access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "Atomic V Hoop"
       identification:
@@ -537,3 +544,13 @@ helpful_urls:
       Vendor Android app (com.astral.astral, v2.0.16 analyzed). Local-only:
       no account, no analytics; network use limited to firmware and pattern
       downloads.
+  - title: "Astral Atomic V AF hoop manual (PDF, vendor-hosted)"
+    url: "https://astralhoops.com/docs/AtomicV-AF-Hoop.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the AF hoop, the exemplar in this spec.
+  - title: "Astral Atomic V Classic hoop manual (PDF, vendor-hosted)"
+    url: "https://astralhoops.com/docs/manual-atomicv-hoop.pdf"
+    kind: "manual"
+    description: >
+      The remote-control Classic variant.

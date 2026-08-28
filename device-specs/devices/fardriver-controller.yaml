@@ -156,6 +156,13 @@ device:
         effectively none -- a consideration for a device whose spec carries
         advanced writes.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
     name: "Fardriver BLE Bridge Service"
@@ -296,3 +303,15 @@ entities:
   - platform: "sensor"
     name: "Ride Mode"
     state_characteristic: "0000ffec-0000-1000-8000-00805f9b34fb"
+
+helpful_urls:
+  - title: "Fardriver controller manual (PDF, vendor-hosted)"
+    url: "https://www.far-driver.com/wp-content/uploads/Fardriver-controller-Manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the ND-series controllers this spec covers.
+  - title: "Fardriver: download centre"
+    url: "https://www.far-driver.com/download/"
+    kind: "vendor_support"
+    description: >
+      Vendor index. Note the vendor gates some downloads behind a password obtained from sales.

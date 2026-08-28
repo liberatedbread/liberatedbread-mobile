@@ -342,3 +342,13 @@ helpful_urls:
   - title: "marcelwestrahome/home-assistant-niu-component (HACS)"
     url: "https://github.com/marcelwestrahome/home-assistant-niu-component"
     description: "HACS custom component surfacing NIU scooter telemetry in Home Assistant (cloud API)."
+  - title: "NIU NQi Sport user manual (PDF)"
+    url: "https://files.scooterhacking.org/documents/manuals/scooters/Niu/NQi%20Sport%20Manual%20ENG.pdf"
+    kind: "manual"
+    description: >
+      English manual for the NQi Sport, mirrored by the ScooterHacking community.
+  - title: "NIU NQi GTS user manual"
+    url: "https://www.manualslib.com/manual/2036845/Niu-Nqi-Gts.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the GTS.

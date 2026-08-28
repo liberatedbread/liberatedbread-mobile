@@ -119,63 +119,95 @@ device:
       After 2026-09-22 the pairing half cannot be performed at all until a
       replacement cloud exists.
     methods:
-      - type: "device_ui"
-        verified: false
-        description: >
-          Join Wi-Fi from the oven's touchscreen (enter SSID/passphrase
-          on-device). No app involvement. The credentials never cross a
-          network.
       - type: "cloud_account"
+        name: "Wi-Fi on the touchscreen, then companion pairing"
+        role: "primary"
         verified: false
         description: >
-          Companion pairing: register a device identity with the cloud, obtain
-          an 8-digit PIN (with Damm check digit), type it on the oven, then
-          complete SRP-6a with INVERTED roles — the companion is the SRP
-          server. See the top-level `pairing` block for the crypto.
-        steps:
-          - action: "Register a companion identity: POST /2/devices/register with a random device_id, a random 32-hex password, and the app's published client_id/client_secret protocol constants."
-            actor: "client"
-            expect: "7-day Bearer token (expires_in 604800). 'Refresh' is re-registering the same device_id; grant_type=refresh_token is rejected with unsupported_grant_type."
-          - action: "Request a pairing code from the cloud and display it for the user."
-            actor: "client"
-            expect: "8-digit PIN; the final digit is a Damm check digit."
-          - action: "Type the PIN on the oven's touchscreen."
-            actor: "user"
-          - action: "Act as the SRP-6a SERVER (RFC 5054 8192-bit group, g=19, SHA-1, I='user', password = the displayed PIN) and POST /2/devices/pairing/{code}/companion with {salt, B, companion_info}, where companion_info is sealed with NaCl secretbox under K = BLAKE2b-256(S)."
-            actor: "client"
-            expect: "Pairing progresses; the oven completes its side of SRP."
-            notes: "Do NOT DELETE the pairing session early — the oven has not finished SRP yet and will emit 10027 PairingSessionInvalidated. Wait for the SECOND 10026 frame carrying oven_info."
-          - action: "Resolve the oven identity: GET /2/devices/{deviceId}/associated."
-            actor: "client"
-            expect: "Response carries the oven_id used in all messaging URLs."
-          - action: "Persist the pairing material (oven_id, device_id, device_name, device password, Ed25519 seed) in the platform keychain, and offer it as an export."
-            actor: "client"
-            notes: "After 2026-09-22 this set cannot be re-minted; an Ed25519 seed the oven already trusts keeps working against any endpoint that can reach the oven."
-        cloud:
-          provider: "June cloud (retires 2026-09-22)"
-          local_alternative: >
-            None known. Pairing exists only inside the vendor cloud: there is
-            no mDNS/SSDP/local HTTP surface and no BLE control surface on
-            stock firmware, so after the shutdown no new companion can be
-            paired at all. An already-paired oven keeps cooking from its own
-            touchscreen; a factory-reset or new oven cannot complete first
-            boot. Recovering remote control means standing up a replacement
-            backend for the recovered endpoints.
+          Two distinct phases, both required. Wi-Fi credentials are typed
+          on the oven's OWN touchscreen — there is no SoftAP, BLE or WPS
+          provisioning path — and pairing a companion then runs through
+          the June cloud with an 8-digit PIN and an SRP-6a exchange. See
+          the top-level `pairing` block for the crypto.
+        stages:
+          - type: "device_ui"
+            name: "Enter Wi-Fi credentials on the oven's touchscreen"
+            verified: false
+            description: >
+              Join Wi-Fi from the oven's touchscreen (enter SSID/passphrase
+              on-device). No app involvement. The credentials never cross a
+              network.
+          - type: "cloud_account"
+            name: "Pair a companion: cloud PIN, then SRP-6a"
+            verified: false
+            description: >
+              Companion pairing: register a device identity with the cloud, obtain
+              an 8-digit PIN (with Damm check digit), type it on the oven, then
+              complete SRP-6a with INVERTED roles — the companion is the SRP
+              server. See the top-level `pairing` block for the crypto.
+            steps:
+              - action: "Register a companion identity: POST /2/devices/register with a random device_id, a random 32-hex password, and the app's published client_id/client_secret protocol constants."
+                actor: "client"
+                expect: "7-day Bearer token (expires_in 604800). 'Refresh' is re-registering the same device_id; grant_type=refresh_token is rejected with unsupported_grant_type."
+              - action: "Request a pairing code from the cloud and display it for the user."
+                actor: "client"
+                expect: "8-digit PIN; the final digit is a Damm check digit."
+              - action: "Type the PIN on the oven's touchscreen."
+                actor: "user"
+              - action: "Act as the SRP-6a SERVER (RFC 5054 8192-bit group, g=19, SHA-1, I='user', password = the displayed PIN) and POST /2/devices/pairing/{code}/companion with {salt, B, companion_info}, where companion_info is sealed with NaCl secretbox under K = BLAKE2b-256(S)."
+                actor: "client"
+                expect: "Pairing progresses; the oven completes its side of SRP."
+                notes: "Do NOT DELETE the pairing session early — the oven has not finished SRP yet and will emit 10027 PairingSessionInvalidated. Wait for the SECOND 10026 frame carrying oven_info."
+              - action: "Resolve the oven identity: GET /2/devices/{deviceId}/associated."
+                actor: "client"
+                expect: "Response carries the oven_id used in all messaging URLs."
+              - action: "Persist the pairing material (oven_id, device_id, device_name, device password, Ed25519 seed) in the platform keychain, and offer it as an export."
+                actor: "client"
+                notes: "After 2026-09-22 this set cannot be re-minted; an Ed25519 seed the oven already trusts keeps working against any endpoint that can reach the oven."
+            cloud:
+              provider: "June cloud (retires 2026-09-22)"
+              local_alternative: >
+                None known. Pairing exists only inside the vendor cloud: there is
+                no mDNS/SSDP/local HTTP surface and no BLE control surface on
+                stock firmware, so after the shutdown no new companion can be
+                paired at all. An already-paired oven keeps cooking from its own
+                touchscreen; a factory-reset or new oven cannot complete first
+                boot. Recovering remote control means standing up a replacement
+                backend for the recovered endpoints.
     factory_reset:
-      # "unknown", not true: an on-screen reset path is believed to exist but
-      # its steps were never captured, and the schema reserves `applicable:
-      # true` for a reset somebody established (it then demands `procedures`).
-      applicable: "unknown"
-      confidence: "low"
+      applicable: true
+      confidence: low
       effect: >
-        The reset procedure itself is not documented in the sources used here
-        (it is an on-screen settings path; exact steps were never captured).
-        What IS established — from June's own documentation — is the
-        consequence: a new or factory-reset oven requires Wi-Fi and a cloud
-        software download on FIRST BOOT. After the cloud retires on
-        2026-09-22, a reset oven cannot complete first boot and is effectively
-        bricked. Do not factory-reset a June oven unless a replacement cloud
-        or a captured firmware image exists to answer it.
+        Returns the oven to first-run state, clearing the WiFi configuration
+        and the account association. Cook history and anything else that lived
+        in June's cloud is a separate question, and with that service gone it
+        is not coming back either way.
+      description: >
+        June documents a factory reset in their own support portal, alongside a
+        dedicated WiFi settings menu — the two articles are the authority and
+        both are archived under `~/research/june-oven/docs-cache`. The exact
+        touchscreen path is not transcribed here because it could not be
+        retrieved directly at the time of writing, and the general shape for
+        this class of appliance is Settings, then a reset or system-restore
+        entry, then a confirmation, after which the screen blanks and reboots.
+
+        Given the vendor shutdown this is a step to think twice about: an oven
+        that comes back asking for an account it can no longer reach is worse
+        than one that is merely offline. Read the archived article before
+        resetting rather than after.
+      procedures:
+        - name: "Factory reset from the oven's touchscreen"
+          verified: false
+          basis: >
+            June's own support articles on Factory Reset and the WiFi Settings
+            Menu, mirrored in this project's research cache. The exact menu
+            path is not reproduced here; consult the archived article.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "On the oven's touchscreen, open Settings and choose the factory reset entry, then confirm."
+              actor: "user"
+              expect: "The screen blanks and the oven reboots to first-run setup."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -475,6 +507,11 @@ helpful_urls:
     url: "https://github.com/sanjay900/igrill"
     description: "BLE integration for the Weber iGrill probe. Shares no protocol surface with the June oven — the link is corporate, not technical. Listed only so nobody conflates the two."
 
+  - title: "June support: Factory Reset (Internet Archive)"
+    url: "https://web.archive.org/web/20240724184405/https://support.juneoven.com/hc/en-us/articles/16093273236372-Factory-Reset"
+    kind: "vendor_support"
+    description: >
+      The vendor's own factory-reset article, archived. Read it before resetting — a June that comes back asking for an account it cannot reach is worse than one that is merely offline.
 evidence:
   artifacts:
     - type: "static_analysis"

@@ -99,9 +99,54 @@ device:
           Physical access to the CAN harness via a D-Sub 9 breakout and a SocketCAN-compatible interface at 500 kbit/s. There is no onboarding handshake for a third-party client -- the bus is simply there.
         verified: false
     factory_reset:
-      applicable: false
+      applicable: true
+      confidence: medium
       effect: >
-        No user- or workshop-accessible factory reset. Component pairing and any reset-like operation run through Bosch dealer tooling. Recording that gap honestly is the point of this entry; a procedure invented for safety-relevant hardware would be worse than none.
+        On the ON-BOARD COMPUTER only: returns the Kiox display to its factory
+        settings — units, language, screen layout and the values it holds.
+        Nothing on the drive unit or the battery is touched, and no component
+        pairing is undone.
+      description: >
+        Be clear about what this does not do. There is still no user- or
+        workshop-accessible factory reset for the DRIVE UNIT: component pairing
+        and every reset-like operation on the motor and battery run through
+        Bosch dealer tooling, and that gap is recorded honestly rather than
+        papered over — a procedure invented for safety-relevant hardware would
+        be worse than none. What the vendor manuals do document is the display
+        reset below, which is a genuine and useful thing for an owner who has
+        misconfigured a Kiox, and nothing more than that.
+      procedures:
+        - name: "Kiox: factory reset from the settings menu"
+          glyph: "generic/on-screen-menu.svg"
+          verified: false
+          basis: >
+            Bosch's Kiox (BUI330) manuals for MY19 and MY21, which give the
+            menu path as Settings, then system settings, then the reset entry
+            named for the on-board computer.
+          power_state: "on"
+          applies_to: ["Kiox BUI330 on-board computer"]
+          steps:
+            - action: "On the Kiox, open Settings, then the system settings, then the reset entry named for the on-board computer."
+              actor: "user"
+              expect: "The on-board computer returns to its factory settings."
+        - name: "Kiox: forced reset of an unresponsive display"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            Bosch's Kiox BUI330 MY21 manual, which describes an eight-second
+            hold as resetting a display that cannot otherwise be operated. On
+            a working display the same hold puts it into storage mode instead,
+            which is the trap.
+          hold_seconds: 8
+          power_state: "on"
+          applies_to: ["Kiox BUI330 on-board computer"]
+          steps:
+            - action: "Press and hold the Kiox on/off button for at least eight seconds."
+              actor: "user"
+              notes: >
+                On a display that is working normally this puts it into storage
+                mode rather than resetting it. Only reach for this on a Kiox
+                that has stopped responding.
     rejoin:
       requires_factory_reset: false
       notes: >
@@ -312,3 +357,13 @@ helpful_urls:
   - title: "Xunil99/ha-bosch-ebike (HACS)"
     url: "https://github.com/Xunil99/ha-bosch-ebike"
     description: "HACS integration for Bosch eBike Smart System bikes (Performance Line CX); ride/bike sensors via the Bosch Data Act API."
+  - title: "Bosch Kiox Online (BUI330) operating instructions, MY21 (PDF, vendor-hosted)"
+    url: "https://www.bosch-ebike.com/fileadmin/EBC/Service/Downloads/Bedienungsanleitungen/MY2021/Kiox_Online_Manual/Bosch-eBike-Manual-Kiox-Online-MY21-EN_US.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the on-board computer, and the source of the display reset in this spec. Note it covers the Kiox only — the drive unit still has no owner-accessible reset.
+  - title: "Bosch Kiox BUI330 original operating instructions"
+    url: "https://www.manualslib.com/manual/1980078/Bosch-Kiox-Bui330.html"
+    kind: "manual"
+    description: >
+      The MY19 edition of the same manual.

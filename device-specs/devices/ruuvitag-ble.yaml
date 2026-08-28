@@ -99,11 +99,31 @@ device:
             actor: "client"
             expect: "Temperature/humidity/pressure/acceleration/battery update every advertisement."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Firmware reflash / a bootloader gesture exists but is not a broadcast
-        reset and is not transcribed here. The tag stores no network/cloud state.
+        Restarts the sensor and, on stock firmware, clears the measurement
+        history held on the tag. There are no credentials, no bond and no
+        network membership to clear — a RuuviTag broadcasts and nothing else.
+      description: >
+        The reset is the battery, and that is the whole procedure: Ruuvi
+        documents no button-based reset and no hold time. A related detail
+        from the same page saves a lot of confusion — the sensors appear in a
+        phone's Bluetooth settings but cannot be connected from there, which
+        is exactly what an advertisement-first device that never bonds looks
+        like, and not a fault to be reset away.
+      procedures:
+        - name: "Remove and reinsert the coin cell"
+          verified: false
+          basis: "Ruuvi's own support documentation on powering and resetting RuuviTag."
+          power_state: "off"
+          glyph: "generic/pinhole-reset.svg"
+          steps:
+            - action: "Open the enclosure and take out the coin cell."
+              actor: "user"
+            - action: "Reinsert it. The sensor restarts on its own."
+              actor: "user"
+              expect: "The tag resumes advertising; stored history is gone."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -114,6 +134,13 @@ device:
       issued_to_client: []
       notes: "No pairing/auth; measurements are broadcast in the clear. No Wi-Fi."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 # Broadcast-only sensor: the standard Generic Access below records a connectable
 # surface; the telemetry is entirely in the advertisement (payload_formats).
 services:
@@ -184,3 +211,8 @@ helpful_urls:
   - title: "Ruuvi — Data Format 3 (RAWv1)"
     url: "https://docs.ruuvi.com/communication/bluetooth-advertisements/data-format-3-rawv1"
     description: "The 14-byte legacy DF3 payload layout."
+  - title: "Ruuvi: powering and resetting RuuviTag"
+    url: "https://ruuvi.com/manuals/tag/powering-and-resetting-ruuvitag/"
+    kind: "vendor_support"
+    description: >
+      Vendor page behind the reset procedure in this spec: the battery cycle is the whole of it.

@@ -144,3 +144,13 @@ helpful_urls:
   - url: "https://medium.com/@cq674350529/a-journey-into-synology-nas-part-2-analyzing-findhostd-service-2264e4fd21e9"
     title: "Analyzing the Synology findhostd discovery service"
     description: "Reverse-engineering of findhostd: UDP 9999, the SYNO packet magic, and the TLV reply carrying MAC/serial/model."
+  - title: "Synology DS923+ manuals"
+    url: "https://www.manualslib.com/products/Synology-Ds923Plus-13460859.html"
+    kind: "manual"
+    description: >
+      Product and user manuals for the DS923+, the exemplar in this spec.
+  - title: "Synology: DSM help and documentation"
+    url: "https://kb.synology.com/en-global/DSM/help"
+    kind: "vendor_support"
+    description: >
+      Vendor documentation for DSM itself, which is where the API this spec uses is configured.

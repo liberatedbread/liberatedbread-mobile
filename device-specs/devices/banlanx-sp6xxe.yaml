@@ -207,6 +207,13 @@ device:
         provisioning — the over-the-air protection of that exchange is
         undocumented.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "SP630E"
       identification:
@@ -570,10 +577,8 @@ helpful_urls:
     description: >-
       Vendor-hosted user documentation for the SP6xxE line (Wi-Fi config
       troubleshooting, manuals); linked from the app.
-  - title: "Vendor cloud base (firmware check / ELS endpoints)"
-    url: "https://app.ledhue.com/spiot"
-    description: >-
-      Base URL of the vendor cloud: /device/check-update returns OTA firmware
-      info (the .bin URL pattern is unrecovered), /els/v1 backs the new
-      authenticated channel. Reference only — local BLE control needs none of
-      it; no firmware files are mirrored here.
+  - title: "SP110E Bluetooth LED controller operating instructions (PDF)"
+    url: "https://m.media-amazon.com/images/I/81-vuGVbmgL.pdf"
+    kind: "manual"
+    description: >
+      Manual for a Sperll/BanlanX sibling controller. The SP6xxE's own manuals are not published anywhere that resolves; this is the nearest documented relative and the app vocabulary matches.

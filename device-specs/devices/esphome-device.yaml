@@ -296,6 +296,8 @@ device:
       this spec's control surface applies.
     methods:
       - type: "softap_http"
+        name: "Fallback hotspot and captive portal"
+        role: "primary"
         verified: false
         description: >
           Fallback hotspot + captive portal. When `wifi: ap:` and
@@ -313,6 +315,8 @@ device:
             actor: client
             expect: "TXT mac identifies the same board; project_name, when present, says which product it is."
       - type: "ble_provisioning"
+        name: "Improv over BLE, where the build includes it"
+        role: "alternative"
         verified: false
         description: >
           Improv over BLE (`esp32_improv:`), where supported by the build: the
@@ -671,3 +675,13 @@ helpful_urls:
   - url: "https://esphome.io/components/captive_portal/"
     title: "ESPHome captive portal"
     description: "The fallback hotspot and its 192.168.4.1 setup page — the recovery path when a router changes."
+  - title: "ESPHome: getting started"
+    url: "https://esphome.io/guides/getting_started_hassio/"
+    kind: "vendor_support"
+    description: >
+      ESPHome is open firmware, so the project documentation is the manual — first flash over USB, everything after that over the air.
+  - title: "ESPHome device configuration repository"
+    url: "https://devices.esphome.io/"
+    kind: "vendor_support"
+    description: >
+      Per-device configuration templates for hardware known to run ESPHome; the closest thing to a per-product manual this platform has.

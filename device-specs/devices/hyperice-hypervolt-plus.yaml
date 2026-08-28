@@ -145,13 +145,26 @@ device:
               action: "Enable notifications on 31CB456C-3C31-4E56-8C2B-E8F479D2B056"
             expect: "Notifications carrying the current level as a single byte."
     factory_reset:
-      applicable: "unknown"
-      confidence: "low"
+      applicable: false
+      confidence: medium
       effect: >
-        No factory-reset procedure was found in the app for this family, and
-        the pairing model (a per-connection derived password, not a stored
-        bond) suggests there may be no persistent pairing state to clear.
-        Unknown whether a button-combination reset exists on the hardware.
+        No reset, and nothing that would need one. The device has a single
+        button that cycles power and speed; Hyperice state plainly that there
+        is no reset button. It holds no credentials, no network membership and
+        no pairing secret — the Bluetooth link exists so the app can drive
+        speed presets, and everything else lives in the app.
+      description: >
+        `false` rather than `unknown`: the absence is a property of the
+        hardware, established from the vendor's own material, not a gap in
+        research.
+
+        What people actually want when they go looking for a reset is to break
+        a stale Bluetooth association, and that is done on the phone side:
+        forget the device in the Hyperice app (the profile tab carries a
+        forget-device action for their connected products), and then in the
+        phone's own Bluetooth settings. Hyperice make a point worth repeating —
+        toggling Bluetooth from the quick-settings shade does not fully clear
+        the saved parameters; it has to be done from the settings app.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -166,6 +179,13 @@ device:
         - "Session seed served by the secure characteristic (per research; whether it is static or per-connection is unknown)"
       issued_to_client:
         - "4-byte session password derived from the device MAC and seed (written back, not stored)"
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "Hypervolt"
       identification:
@@ -420,6 +440,11 @@ helpful_urls:
     url: "https://device.report/hyperice"
     description: "Device database listing carrying the Hypervolt Plus model number 54020 001-00 (the page bot-blocks plain HTTP clients; open in a browser)."
 
+  - title: "Hyperice Hypervolt Plus operating instructions"
+    url: "https://www.manualslib.com/manual/2175242/Hyperice-Hypervolt-Plus.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the Hypervolt Plus. It documents a single power/speed button and no reset control, which is the basis for this spec's `applicable: false`.
 evidence:
   artifacts:
     - type: "static_analysis"

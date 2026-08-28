@@ -145,15 +145,45 @@ device:
             actor: client
             expect: "Subsequent challenge-response sessions (0x10/0x13/0x14 commands) authenticate."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        A reset exists (Kwikset support documents holding the interior "A"
-        button for ~20 s on 2nd-gen; 1st-gen differs) and clears enrolled
-        devices, after which every phone/fob must re-enroll. The exact
-        per-generation procedure is documented by the vendor, not
-        established here — a guessed sequence on a door lock can leave
-        someone locked out of their home.
+        Restores the lock to factory settings and deletes every enrolled
+        smartphone and fob from its memory. Each one has to be enrolled again
+        afterwards, so this is the step that strands a household if it is done
+        without the eKey owner present.
+      description: >
+        The button is on the back panel of the interior assembly, so the
+        interior side must be accessible — which on an installed lock means
+        being inside the door it secures. The beep and the red light ring
+        together are the confirmation; a hold that produces neither has not
+        taken.
+
+        Kwikset's support material has also described a roughly twenty-second
+        hold of the interior "A" button on second-generation locks, and
+        first-generation hardware differs again. Where the two disagree, the
+        installation guide transcribed here is the one that shipped with the
+        lock — but check the guide for the generation in hand before starting,
+        because a lock is not a device to experiment on.
+      procedures:
+        - name: "Reset button on the back panel held for ten seconds"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            Kwikset's Kevo 2nd-generation installation guide and interactive
+            guide, which both give ten seconds and the same confirmation.
+          applies_to: ["Kevo 2nd generation"]
+          hold_seconds: 10
+          power_state: "on"
+          indicator: "The lock beeps and the light ring flashes red."
+          steps:
+            - action: "Open the door so the interior assembly is accessible."
+              actor: "user"
+            - action: "Press and hold the Reset button on the back panel for ten seconds."
+              actor: "user"
+            - action: "Release when the lock beeps and the light ring flashes red."
+              actor: "user"
+              expect: "Lock beeps, light ring flashes red; all eKeys and fobs are gone."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -186,6 +216,13 @@ device:
         setting-id -> value), 0x73=hardware type (u16; 19=RPU gateway),
         0x74=product descriptor (UTF-8, e.g. "RPU1").
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 cloud:
   required: false
   vendor_service: "UniKey cloud (operated for Kwikset/Weiser/Baldwin)"
@@ -600,3 +637,13 @@ helpful_urls:
   - title: "gaggle331/home-assistant-kevo"
     url: "https://github.com/gaggle331/home-assistant-kevo"
     description: "Home Assistant custom component for Kevo locks via the Kevo Plus gateway cloud API (pykevoplus); CAPTCHA changes broke lock-id discovery, so a manual lock_id is required."
+  - title: "Kwikset Kevo 2nd generation installation and user guide (PDF)"
+    url: "https://s7d5.scene7.com/is/content/BDHHI/Kwikset/Tech-Docs/5064452.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted guide for the 2nd-generation lock, including the ten-second Reset button hold used in this spec.
+  - title: "Kwikset Kevo installation and user guide, 1st generation (PDF)"
+    url: "https://s7d5.scene7.com/is/content/BDHHI/Kwikset/Website%20Content/Kevo/KwiksetKevo_InstallationUserGuide.pdf"
+    kind: "manual"
+    description: >
+      First-generation guide, whose reset differs from the 2nd generation.

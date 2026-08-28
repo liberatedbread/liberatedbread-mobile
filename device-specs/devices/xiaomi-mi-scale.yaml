@@ -169,6 +169,13 @@ device:
       issued_to_client: []
       notes: "BLE-only. No auth. Health data — handle with privacy awareness."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "Mi Scale v1"
       identification:
@@ -206,6 +213,11 @@ helpful_urls:
     url: "https://esphome.io/components/sensor/xiaomi_miscale/"
     description: "ESPHome BLE-tracker component decoding the Mi Scale advertisement frames documented here (XMTZC01/02/04/05)."
 
+  - title: "Xiaomi Mi Body Composition Scale 2 user manual"
+    url: "https://www.manualslib.com/manual/3004176/Xiaomi-Mi-Body-Composition-Scale-2.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the v2 scale, whose impedance frame this spec decodes.
 services:
   - uuid: "0000181d-0000-1000-8000-00805f9b34fb"
     name: "Weight Scale Service"

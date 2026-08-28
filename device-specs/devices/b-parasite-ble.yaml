@@ -37,6 +37,7 @@ device:
     license: "MIT"
     upstream_docs:
       - url: "https://github.com/rbaron/b-parasite"
+        kind: "vendor_support"
         title: "rbaron/b-parasite"
         covers: "The hardware, the BTHome-v2 default encoding, and the legacy custom advertisement."
     notes: >
@@ -86,9 +87,23 @@ device:
             actor: "client"
             expect: "Soil moisture, air temp/humidity, battery, and light (if fitted) update per advertisement."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
-      effect: "Firmware reflash; no broadcast reset. No network/cloud state."
+      applicable: false
+      confidence: medium
+      effect: >
+        Nothing to reset. b-parasite is an open-hardware nRF52 soil sensor that
+        broadcasts and does nothing else: no credentials, no bond, no network
+        membership, no writable configuration on the device. Power-cycling it
+        restarts it; there is no state that survives to be cleared.
+      description: >
+        `false` rather than `unknown` because this is a property of the design
+        and the design is public — the firmware, schematics and everything else
+        are in the project's own repository, which is the source this spec is
+        built from rather than a teardown.
+
+        Changing what the sensor does means reflashing it. That is a firmware
+        operation over SWD or the project's own update path, not a reset, and
+        it is the answer to "how do I change its configuration" rather than to
+        "how do I clear it".
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -99,6 +114,13 @@ device:
       issued_to_client: []
       notes: "No pairing/auth (BTHome may be AES-CCM encrypted if built with a key). No Wi-Fi."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 # Broadcast-only sensor; telemetry is in the BTHome-v2 advertisement (see
 # bthome-v2.yaml). Generic Access records a connectable surface.
 services:

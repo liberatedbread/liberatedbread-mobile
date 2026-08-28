@@ -227,6 +227,16 @@ helpful_urls:
   - title: "Android Developers — KeyEvent keycode reference"
     url: "https://developer.android.com/reference/android/view/KeyEvent"
 
+  - title: "NVIDIA SHIELD TV user's guide (PDF)"
+    url: "https://m.media-amazon.com/images/I/A1XxgNnyiqS.pdf"
+    kind: "manual"
+    description: >
+      Vendor guide for the SHIELD, the exemplar Android TV device in this spec.
+  - title: "NVIDIA SHIELD TV Pro get started guide"
+    url: "https://www.manualslib.com/manual/1425793/Nvidia-Shield-Tv-Pro.html"
+    kind: "manual"
+    description: >
+      Setup guide for the Pro.
 evidence:
   research:
     date: "2026-08-11"

@@ -375,3 +375,13 @@ helpful_urls:
   - url: "https://www.home-assistant.io/integrations/limitlessled/"
     title: "Home Assistant LimitlessLED integration"
     description: "HA core integration driving MiLight/LimitlessLED bridges with the UDP v6 protocol documented here."
+  - title: "NeonHorizon/milight — V6 bridge drivers and protocol notes"
+    url: "https://github.com/NeonHorizon/milight"
+    kind: "implementation"
+    description: >
+      Working implementation for the V6 iBox bridge, and the closest thing to documentation for hardware whose vendor published none.
+  - title: "Mi-Light MiBoxer WL-Box2 instructions"
+    url: "https://www.manualslib.com/manual/3029132/Mi-Light-Miboxer-Wl-Box2.html"
+    kind: "manual"
+    description: >
+      Manual for the successor gateway. The original iBox/iBox2 bridges this spec documents have no surviving vendor manual; this is the nearest documented relative.

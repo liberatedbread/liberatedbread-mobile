@@ -8,9 +8,12 @@ genuine advantage over WiFi hardware and worth stating explicitly in a device
 spec (`setup.required: false`) rather than leaving blank.
 
 The exception is BLE used as the *provisioning channel* for a WiFi device
-(Vector, Chef iQ Sense). Both cases, plus pairing/bonding pitfalls and the
-one-central-at-a-time problem, are covered in
-[Initial Device Setup](device-setup.md).
+(Vector, Chef iQ Sense), which is covered in
+[Initial Device Setup](device-setup.md). Pairing and bonding pitfalls, and the
+one-central-at-a-time problem below, have their own page:
+[Pairing, Bonding and Unpairing](pairing.md). Both are structured in a spec —
+`device.pairing` says whether a client must bond before the control surface
+answers, and `exclusivity` records who else may be holding the device.
 
 The failure that looks like a protocol bug but is not: a device that refuses to
 connect is usually already connected to something else — a phone with the

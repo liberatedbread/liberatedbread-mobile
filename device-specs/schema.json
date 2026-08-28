@@ -401,6 +401,22 @@
         "url"
       ],
       "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "vendor_support",
+            "teardown",
+            "protocol_writeup",
+            "implementation",
+            "forum",
+            "standard",
+            "video",
+            "other"
+          ],
+          "description": "What sort of thing is on the other end of the link, so a consumer can pick one out rather than rendering an undifferentiated list. `manual` is the one worth having: an owner holding an abandoned device wants the manual, and 'the manual' is the single most common thing they cannot find because the vendor's site is gone. `vendor_support` is a support-site article rather than the manual proper. Optional and advisory -- a link with no kind is still a link, and a consumer that ignores the field renders exactly what it rendered before.",
+          "$comment": "An enum rather than free text because the value of the field is entirely in a consumer being able to switch on it. Kept short on purpose: every member has to be a distinction somebody would actually branch on, and `other` absorbs the rest rather than growing the list."
+        },
         "title": {
           "type": "string",
           "minLength": 1,
@@ -478,6 +494,108 @@
           "description": "Hex-encoded static key, present only when key_derivation is 'static'."
         }
       }
+    },
+    "glyph_ref": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._/-]*\\.(svg|png)$",
+      "description": "Path to an instruction glyph, relative to this repository's `glyphs/` directory -- `devices/wemo-mini/reset-button.svg`, not `glyphs/devices/...`. A glyph is a small ORIGINAL drawing of the physical thing a step refers to: which button, where it sits on the case, what the LED does when the step takes. It exists because the hardest part of a reset or a pairing-mode entry is not the timing, which prose carries fine, but identifying the right unlabelled button on a device the reader is holding for the first time.",
+      "$comment": "The `glyphs/` prefix is deliberately absent so a consumer that vendors this repo as a git subtree, or serves the set from its own asset bundle, rebases every reference at once by prepending its own root. Two invariants are enforced by scripts/validate_glyphs.py rather than by this pattern, which can only check shape: the file exists under `glyphs/`, and it has an entry in `glyphs/MANIFEST.yaml` carrying its alt text and its clean-room origin. Glyphs are advisory by construction -- a step must read correctly with no picture beside it, so a consumer that ships none loses only the picture. That is also why no field ever REQUIRES a glyph: a spec whose reset is documented but undrawn is complete, not half-written."
+    },
+    "physical_procedure": {
+      "type": "object",
+      "description": "Something a person does to the hardware itself -- hold this button while powering on, press it five times within five seconds -- together with the signal that tells them it worked. Shared by `device.setup.factory_reset.procedures` and by the pairing-mode and unpair procedures under `device.pairing`, because on most devices those are literally the same button held for different lengths of time, and describing them in two shapes is how one of them ends up without a `basis`.",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short label, e.g. 'Restore button while powering on'."
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "True only when this exact sequence was run against the hardware and observed to work. False marks it as a candidate — plausible, worth trying, not established — and then `basis` must say where it came from. A candidate procedure is genuinely useful (it is the first thing someone with the device should try), so the point of this field is to keep it usable without letting it read as confirmed."
+        },
+        "basis": {
+          "type": "string",
+          "description": "Where an unverified procedure comes from: the vendor manual, a community report, or the generic pattern for that class of hardware. Required when `verified` is false, because 'the manual says so' and 'every other bulb in this family works this way' warrant very different levels of trust."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable prose for this specific procedure — what the user will see happen, and how to tell success from a failed attempt."
+        },
+        "applies_to": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Variant models this procedure applies to; omit when it applies to all."
+        },
+        "hold_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "press_count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of separate presses, when the procedure is a press pattern rather than one long hold (double-press; five presses inside five seconds). Kept separate from `hold_seconds` because a consumer renders the two differently — a countdown for a hold, a tally for a pattern — and a spec that folds both into prose leaves it nothing to branch on. A procedure may state both: three presses, then hold on the fourth.",
+          "$comment": "A press pattern that also has a window belongs in `window_seconds` on the pairing block or in `steps[].timeout_seconds`; this field counts presses and nothing else."
+        },
+        "power_state": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off",
+            "booting",
+            "any"
+          ],
+          "description": "Power state the device must be in when the procedure STARTS. 'booting' is the while-powering-on case that so many resets need and that is the single most common reason a correct-looking reset does not take: the user holds the button on a running device and nothing happens. 'any' says the state genuinely does not matter — say it rather than omitting the field, which reads as nobody having checked."
+        },
+        "indicator": {
+          "type": "string",
+          "description": "LED/screen/audio signal that confirms the procedure took."
+        },
+        "glyph": {
+          "$ref": "#/$defs/glyph_ref",
+          "description": "Drawing of the control this procedure acts on and where to find it on the device."
+        },
+        "indicator_glyph": {
+          "$ref": "#/$defs/glyph_ref",
+          "description": "Drawing of the `indicator` — the LED pattern or screen state that confirms success. A blink rate is far easier to recognise than to read: 'amber, 2 Hz' and 'amber, 4 Hz' are one word apart in prose and unmistakable side by side."
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/setup_step"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "An unverified procedure must cite its basis. Without that a reader cannot weigh it, and a candidate nobody can weigh is indistinguishable from a guess.",
+          "if": {
+            "properties": {
+              "verified": {
+                "const": false
+              }
+            },
+            "required": [
+              "verified"
+            ]
+          },
+          "then": {
+            "required": [
+              "basis"
+            ],
+            "properties": {
+              "basis": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
     },
     "setup_step": {
       "type": "object",
@@ -559,6 +677,10 @@
           "type": "integer",
           "minimum": 0,
           "description": "How long a consumer should wait for this step to complete before treating it as failed."
+        },
+        "glyph": {
+          "$ref": "#/$defs/glyph_ref",
+          "description": "Drawing of what this step asks for, when the step is one the user performs by hand: the button to hold, the port to plug into, the screen the code appears on. Rarely useful on a `client` step — a consumer executing an HTTP call has nothing to show a picture of."
         },
         "notes": {
           "type": "string"
@@ -664,6 +786,346 @@
           "maximum": 255,
           "description": "Value of the scheme's channel-tag byte for writes to this characteristic (daniao_fragment byte 3): 0 on the command channel; on bulk channels it identifies the buffer type and is chosen per transfer, so a fixed value here only covers the common case."
         }
+      }
+    },
+    "setup_method": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "none",
+            "softap_http",
+            "softap_soap",
+            "softap_udp",
+            "softap_mqtt",
+            "ble_provisioning",
+            "ble_direct",
+            "wps",
+            "smartconfig",
+            "wired",
+            "device_ui",
+            "hub_pairing",
+            "button_pairing",
+            "cloud_account"
+          ],
+          "description": "Onboarding model -- the mechanism, not the label. Two methods on the same device routinely share a `type` and are not remotely the same procedure, which is what `name` is for. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP, a UDP datagram protocol or MQTT; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 80,
+          "description": "Short label for THIS method, in the reader's terms -- 'Setup AP, current app', 'HOME-button handshake, no account', 'Read the key out of the vendor account'. It is what a person chooses by when a device offers more than one route, and it is the heading a consumer renders. Say what makes this one different from its siblings (which generation, which app, which button, whether an account is involved); do not restate the `type`, which is already machine-readable, and do not write 'Method 2'.",
+          "$comment": "Required once a spec lists two or more methods, enforced by the conditional below. One method needs no label because there is nothing to tell it apart from."
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "alternative",
+            "variant",
+            "historical"
+          ],
+          "description": "How this method relates to the others on the device. Every entry in `methods` is a route the reader CHOOSES -- if two entries are things they must both do, in order, they were never two methods and belong in one method's `stages`. 'primary' = the route to recommend, and at most one entry may claim it. 'alternative' = another independent route to the same finished state; the ordering rule puts the easiest first. 'variant' = which one applies is decided by the hardware or firmware the reader owns, not by preference; the entry must say in `description` which units it covers. 'historical' = it cannot be completed today (the cloud it depended on is gone, the app release that spoke it is retired) and is kept only so a reader who finds it referenced elsewhere knows why it fails.",
+          "$comment": "Two roles were tried here and removed: 'follow_on' for a method done after another, and 'prerequisite' for one done before. Both were ordering facts about phases of a single route, and expressing them as sibling methods put 'plug in the Ethernet' and 'press the link button' side by side as though a reader picked one. They are `stages` of one method now, which is where a sequence belongs; what is left in this enum is exactly the set of things someone chooses between."
+        },
+        "description": {
+          "type": "string",
+          "description": "The method in prose: what actually happens, what it needs, and what it leaves behind. For `role: variant` this is where the applicability lives (which generation, which firmware, how to tell which one is in hand). For `role: historical` it is where the reason it stopped working goes."
+        },
+        "softap": {
+          "type": "object",
+          "description": "Details of the temporary access point the device hosts while in setup mode.",
+          "properties": {
+            "ssid_prefix": {
+              "type": "string",
+              "description": "Case-insensitive SSID prefix that identifies the setup AP."
+            },
+            "ssid_examples": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "open_network": {
+              "type": "boolean",
+              "description": "True when the setup AP has no passphrase."
+            },
+            "passphrase_source": {
+              "type": "string",
+              "description": "Where the setup AP passphrase comes from when the AP is not open (e.g. 'printed on device sticker')."
+            },
+            "gateway_ip": {
+              "type": "string",
+              "description": "IP the device answers on while hosting the setup AP."
+            },
+            "port": {
+              "type": "integer",
+              "description": "Port of the setup API on the setup AP. The transport follows the method type: TCP for softap_http/softap_soap/softap_mqtt, UDP for softap_udp."
+            },
+            "credential_encryption": {
+              "type": "object",
+              "description": "How the WiFi passphrase is protected on the wire during provisioning.",
+              "properties": {
+                "algorithm": {
+                  "type": "string"
+                },
+                "padding": {
+                  "type": "string",
+                  "description": "Block cipher padding scheme, e.g. pkcs7."
+                },
+                "key_derivation": {
+                  "type": "string",
+                  "description": "Where the key material comes from (e.g. 'device metadata returned by GetMetaInfo')."
+                },
+                "algorithm_steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The encryption as an ordered, unambiguous procedure. Prose like 'AES-128-CBC with a key derived from device metadata' is not implementable; state the byte-level detail — whether values are UTF-8 or hex-decoded, how many hash rounds, the padding, the output encoding."
+                },
+                "variants": {
+                  "type": "array",
+                  "description": "Alternative key derivations where firmware generations differ. Each entry must say how a client decides it applies.",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "method"
+                    ],
+                    "properties": {
+                      "method": {
+                        "type": "integer"
+                      },
+                      "keydata": {
+                        "type": "string",
+                        "description": "Key material layout for this variant."
+                      },
+                      "add_lengths": {
+                        "type": "boolean"
+                      },
+                      "selector": {
+                        "type": "string",
+                        "description": "How a client decides this variant applies."
+                      }
+                    }
+                  }
+                },
+                "openssl_equivalent": {
+                  "type": "object",
+                  "description": "An equivalent openssl(1) invocation, for implementations without a crypto library — and as a second description of the algorithm that can be checked against the first.",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "password_constraints": {
+                  "type": "object",
+                  "properties": {
+                    "min_length": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "max_length": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "test_vectors": {
+                  "type": "object",
+                  "description": "Known-good values so an implementation can be verified without hardware — the highest-value thing this block can carry. Use a documentation-range MAC and an invented serial so the vectors identify no real device, and add a test asserting they stay reproducible.",
+                  "properties": {
+                    "description": {
+                      "type": "string"
+                    },
+                    "input": {
+                      "type": "object",
+                      "description": "The inputs every vector is derived from.",
+                      "additionalProperties": true
+                    },
+                    "vectors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                },
+                "encoding": {
+                  "type": "string",
+                  "description": "How the ciphertext is encoded before transmission (e.g. base64 plus hex length suffix)."
+                },
+                "notes": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "ble": {
+          "type": "object",
+          "description": "Details of a BLE-based provisioning channel.",
+          "properties": {
+            "advertised_name": {
+              "type": "string",
+              "description": "Name pattern advertised while in setup/pairing mode."
+            },
+            "advertised_name_match": {
+              "type": "string",
+              "enum": [
+                "exact",
+                "prefix"
+              ],
+              "default": "exact",
+              "description": "How `advertised_name` compares against a scan result's local name. Rabbit Air's setup-mode unit advertises exactly 'RabbitAirSetup'; a family that suffixes a serial would say 'prefix'. Stated so a consumer can route a setup-mode device to its provisioning flow from the spec alone rather than hardcoding the name."
+            },
+            "protocol": {
+              "type": "string",
+              "description": "Name of the provisioning protocol (e.g. 'Anki RTS')."
+            },
+            "service_uuid": {
+              "$ref": "#/$defs/uuid"
+            },
+            "write_characteristic": {
+              "$ref": "#/$defs/uuid"
+            },
+            "read_characteristic": {
+              "$ref": "#/$defs/uuid"
+            },
+            "pairing_required": {
+              "type": "boolean",
+              "description": "Whether BLE bonding / a PIN is required before provisioning messages are accepted."
+            },
+            "pin_source": {
+              "type": "string",
+              "description": "Where the pairing PIN comes from (device screen, sticker, fixed default)."
+            }
+          }
+        },
+        "cloud": {
+          "type": "object",
+          "description": "Details of a cloud-account-only onboarding path.",
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "local_alternative": {
+              "type": "string",
+              "description": "Any known way to provision without the vendor cloud, or an explicit statement that none is known."
+            }
+          }
+        },
+        "issues_credentials": {
+          "type": "object",
+          "description": "Machine-readable statement of the credentials this method issues, keyed by the exact name that `source: credential:<name>` parameters refer to -- the key spelling is the coupling, the way `instances.keyed_by` is for `instance:` parameters. This is what lets a consumer run the pairing flow and store what it yields without a per-device credential table: the Hue link-button flow issues `username` (and `clientkey` when asked), and every later request's `credential:username` names the stored value.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "reply_path"
+            ],
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "Named command whose reply carries the value (Hue's `create_user`). Omit when the method has exactly one exchange and it is unambiguous."
+              },
+              "reply_path": {
+                "type": "string",
+                "description": "Dotted path with bracketed indices into that reply: '[0].success.username'."
+              },
+              "request_condition": {
+                "type": "string",
+                "description": "Request argument that must be set for the field to appear at all -- Hue's clientkey exists only when `generateclientkey: true` rode the create request, and only at create time; a re-pair without it never sees the key again."
+              },
+              "notes": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "description": "Ordered provisioning steps.",
+          "items": {
+            "$ref": "#/$defs/setup_step"
+          }
+        },
+        "stages": {
+          "type": "array",
+          "minItems": 2,
+          "description": "The ordered phases of THIS route, when it takes more than one and they are different enough that a flat step list hides the shape -- get the bridge onto the LAN, THEN authorize a client at its button; join Wi-Fi on the oven's touchscreen, THEN pair a companion through the cloud. A stage is a method in miniature: it carries its own `type`, its own prose, and whichever detail block belongs to it, so the `wired` half of a route does not lose that it was wired when the route as a whole is named for its pairing step. Use `steps` instead when the route has one phase; a method may not have both.",
+          "$comment": "Stages exist because the alternative was worse in both directions. Left as sibling methods, a two-phase route reads as two options and a reader does one of them. Flattened into a single `steps` list, the phases lose their `type` and their detail blocks collide -- Hue's route would have to be either `wired` or `button_pairing` and could only carry one `issues_credentials`. A stage $refs the method definition so it keeps all of that; it may not nest further and may not carry a `role`, because `role` is about choosing between routes and there is no choice inside one.",
+          "items": {
+            "$ref": "#/$defs/setup_method",
+            "required": [
+              "name"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "stages"
+                  ]
+                },
+                {
+                  "required": [
+                    "role"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "True only when this exact flow has been executed successfully against hardware. Always state it: an absent flag reads as an oversight rather than as 'not yet verified'."
+        },
+        "payload_formats": {
+          "$ref": "#/$defs/payload_formats"
+        },
+        "timing": {
+          "type": "object",
+          "description": "Timing constants a client must honour. Onboarding flows are full of values that look arbitrary but are not (minimum poll timeouts, deliberate duplicate sends); record them rather than leaving the next implementer to rediscover them by failing.",
+          "additionalProperties": true
+        },
+        "troubleshooting": {
+          "type": "array",
+          "description": "Known failure modes and their causes. Onboarding fails for a small number of recurring reasons — wrong band, unsupported security mode, wrong credential variant — and naming them is often the difference between a working implementation and an abandoned one.",
+          "items": {
+            "type": "object",
+            "required": [
+              "symptom"
+            ],
+            "properties": {
+              "symptom": {
+                "type": "string"
+              },
+              "causes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "not": {
+        "required": [
+          "steps",
+          "stages"
+        ]
       }
     }
   },
@@ -1786,295 +2248,22 @@
             "methods": {
               "type": "array",
               "minItems": 1,
-              "description": "Ordered onboarding methods to try, first is preferred.",
-              "items": {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "none",
-                      "softap_http",
-                      "softap_soap",
-                      "softap_udp",
-                      "softap_mqtt",
-                      "ble_provisioning",
-                      "ble_direct",
-                      "wps",
-                      "smartconfig",
-                      "wired",
-                      "device_ui",
-                      "hub_pairing",
-                      "button_pairing",
-                      "cloud_account"
-                    ],
-                    "description": "Onboarding model. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP, a UDP datagram protocol or MQTT; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "softap": {
-                    "type": "object",
-                    "description": "Details of the temporary access point the device hosts while in setup mode.",
-                    "properties": {
-                      "ssid_prefix": {
-                        "type": "string",
-                        "description": "Case-insensitive SSID prefix that identifies the setup AP."
-                      },
-                      "ssid_examples": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "open_network": {
-                        "type": "boolean",
-                        "description": "True when the setup AP has no passphrase."
-                      },
-                      "passphrase_source": {
-                        "type": "string",
-                        "description": "Where the setup AP passphrase comes from when the AP is not open (e.g. 'printed on device sticker')."
-                      },
-                      "gateway_ip": {
-                        "type": "string",
-                        "description": "IP the device answers on while hosting the setup AP."
-                      },
-                      "port": {
-                        "type": "integer",
-                        "description": "Port of the setup API on the setup AP. The transport follows the method type: TCP for softap_http/softap_soap/softap_mqtt, UDP for softap_udp."
-                      },
-                      "credential_encryption": {
-                        "type": "object",
-                        "description": "How the WiFi passphrase is protected on the wire during provisioning.",
-                        "properties": {
-                          "algorithm": {
-                            "type": "string"
-                          },
-                          "padding": {
-                            "type": "string",
-                            "description": "Block cipher padding scheme, e.g. pkcs7."
-                          },
-                          "key_derivation": {
-                            "type": "string",
-                            "description": "Where the key material comes from (e.g. 'device metadata returned by GetMetaInfo')."
-                          },
-                          "algorithm_steps": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            },
-                            "description": "The encryption as an ordered, unambiguous procedure. Prose like 'AES-128-CBC with a key derived from device metadata' is not implementable; state the byte-level detail — whether values are UTF-8 or hex-decoded, how many hash rounds, the padding, the output encoding."
-                          },
-                          "variants": {
-                            "type": "array",
-                            "description": "Alternative key derivations where firmware generations differ. Each entry must say how a client decides it applies.",
-                            "items": {
-                              "type": "object",
-                              "required": [
-                                "method"
-                              ],
-                              "properties": {
-                                "method": {
-                                  "type": "integer"
-                                },
-                                "keydata": {
-                                  "type": "string",
-                                  "description": "Key material layout for this variant."
-                                },
-                                "add_lengths": {
-                                  "type": "boolean"
-                                },
-                                "selector": {
-                                  "type": "string",
-                                  "description": "How a client decides this variant applies."
-                                }
-                              }
-                            }
-                          },
-                          "openssl_equivalent": {
-                            "type": "object",
-                            "description": "An equivalent openssl(1) invocation, for implementations without a crypto library — and as a second description of the algorithm that can be checked against the first.",
-                            "properties": {
-                              "command": {
-                                "type": "string"
-                              },
-                              "notes": {
-                                "type": "string"
-                              }
-                            }
-                          },
-                          "password_constraints": {
-                            "type": "object",
-                            "properties": {
-                              "min_length": {
-                                "type": "integer",
-                                "minimum": 0
-                              },
-                              "max_length": {
-                                "type": "integer",
-                                "minimum": 1
-                              },
-                              "notes": {
-                                "type": "string"
-                              }
-                            }
-                          },
-                          "test_vectors": {
-                            "type": "object",
-                            "description": "Known-good values so an implementation can be verified without hardware — the highest-value thing this block can carry. Use a documentation-range MAC and an invented serial so the vectors identify no real device, and add a test asserting they stay reproducible.",
-                            "properties": {
-                              "description": {
-                                "type": "string"
-                              },
-                              "input": {
-                                "type": "object",
-                                "description": "The inputs every vector is derived from.",
-                                "additionalProperties": true
-                              },
-                              "vectors": {
-                                "type": "array",
-                                "items": {
-                                  "type": "object",
-                                  "additionalProperties": true
-                                }
-                              }
-                            }
-                          },
-                          "encoding": {
-                            "type": "string",
-                            "description": "How the ciphertext is encoded before transmission (e.g. base64 plus hex length suffix)."
-                          },
-                          "notes": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    }
-                  },
-                  "ble": {
-                    "type": "object",
-                    "description": "Details of a BLE-based provisioning channel.",
-                    "properties": {
-                      "advertised_name": {
-                        "type": "string",
-                        "description": "Name pattern advertised while in setup/pairing mode."
-                      },
-                      "advertised_name_match": {
-                        "type": "string",
-                        "enum": [
-                          "exact",
-                          "prefix"
-                        ],
-                        "default": "exact",
-                        "description": "How `advertised_name` compares against a scan result's local name. Rabbit Air's setup-mode unit advertises exactly 'RabbitAirSetup'; a family that suffixes a serial would say 'prefix'. Stated so a consumer can route a setup-mode device to its provisioning flow from the spec alone rather than hardcoding the name."
-                      },
-                      "protocol": {
-                        "type": "string",
-                        "description": "Name of the provisioning protocol (e.g. 'Anki RTS')."
-                      },
-                      "service_uuid": {
-                        "$ref": "#/$defs/uuid"
-                      },
-                      "write_characteristic": {
-                        "$ref": "#/$defs/uuid"
-                      },
-                      "read_characteristic": {
-                        "$ref": "#/$defs/uuid"
-                      },
-                      "pairing_required": {
-                        "type": "boolean",
-                        "description": "Whether BLE bonding / a PIN is required before provisioning messages are accepted."
-                      },
-                      "pin_source": {
-                        "type": "string",
-                        "description": "Where the pairing PIN comes from (device screen, sticker, fixed default)."
-                      }
-                    }
-                  },
-                  "cloud": {
-                    "type": "object",
-                    "description": "Details of a cloud-account-only onboarding path.",
-                    "properties": {
-                      "provider": {
-                        "type": "string"
-                      },
-                      "local_alternative": {
-                        "type": "string",
-                        "description": "Any known way to provision without the vendor cloud, or an explicit statement that none is known."
-                      }
-                    }
-                  },
-                  "issues_credentials": {
-                    "type": "object",
-                    "description": "Machine-readable statement of the credentials this method issues, keyed by the exact name that `source: credential:<name>` parameters refer to -- the key spelling is the coupling, the way `instances.keyed_by` is for `instance:` parameters. This is what lets a consumer run the pairing flow and store what it yields without a per-device credential table: the Hue link-button flow issues `username` (and `clientkey` when asked), and every later request's `credential:username` names the stored value.",
-                    "additionalProperties": {
-                      "type": "object",
-                      "required": [
-                        "reply_path"
-                      ],
-                      "properties": {
-                        "command": {
-                          "type": "string",
-                          "description": "Named command whose reply carries the value (Hue's `create_user`). Omit when the method has exactly one exchange and it is unambiguous."
-                        },
-                        "reply_path": {
-                          "type": "string",
-                          "description": "Dotted path with bracketed indices into that reply: '[0].success.username'."
-                        },
-                        "request_condition": {
-                          "type": "string",
-                          "description": "Request argument that must be set for the field to appear at all -- Hue's clientkey exists only when `generateclientkey: true` rode the create request, and only at create time; a re-pair without it never sees the key again."
-                        },
-                        "notes": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  },
-                  "steps": {
-                    "type": "array",
-                    "description": "Ordered provisioning steps.",
-                    "items": {
-                      "$ref": "#/$defs/setup_step"
-                    }
-                  },
-                  "verified": {
-                    "type": "boolean",
-                    "description": "True only when this exact flow has been executed successfully against hardware. Always state it: an absent flag reads as an oversight rather than as 'not yet verified'."
-                  },
-                  "payload_formats": {
-                    "$ref": "#/$defs/payload_formats"
-                  },
-                  "timing": {
-                    "type": "object",
-                    "description": "Timing constants a client must honour. Onboarding flows are full of values that look arbitrary but are not (minimum poll timeouts, deliberate duplicate sends); record them rather than leaving the next implementer to rediscover them by failing.",
-                    "additionalProperties": true
-                  },
-                  "troubleshooting": {
-                    "type": "array",
-                    "description": "Known failure modes and their causes. Onboarding fails for a small number of recurring reasons — wrong band, unsupported security mode, wrong credential variant — and naming them is often the difference between a working implementation and an abandoned one.",
-                    "items": {
-                      "type": "object",
-                      "required": [
-                        "symptom"
-                      ],
-                      "properties": {
-                        "symptom": {
-                          "type": "string"
-                        },
-                        "causes": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    }
-                  }
+              "description": "The routes onto the network that a reader CHOOSES BETWEEN, ordered easiest first: the recommended one (`role: primary`) and its alternatives, then routes selected by which hardware the reader happens to own rather than by preference (`role: variant`), and last anything that no longer works (`role: historical`). Easiest means fewest obstacles for the reader, not fewest packets: no vendor account beats an account, no extra hardware beats a hub or a second radio, and a flow this project has actually run beats one nobody has. Every entry in a list of two or more carries a `name` and a `role`, because a bare list of `type` values cannot say which of them a reader is supposed to do. A route that takes several phases is ONE entry with `stages` -- never several entries.",
+              "if": {
+                "minItems": 2
+              },
+              "then": {
+                "items": {
+                  "required": [
+                    "type",
+                    "name",
+                    "role"
+                  ]
                 }
+              },
+              "$comment": "This list was for a long time described only as `first is preferred`, and preference turned out to be too weak a word for what specs were putting in it. The entries were not all the same kind of thing: some were genuine alternatives (three ways to hand the same device WiFi credentials), some were consecutive phases of one route filed side by side (join WiFi on the touchscreen, THEN pair the app), one was a one-time account binding whose only product was a key the next entry needed, one applied solely to hardware sold before 2019, and one had not worked since the cloud was switched off. Rendered as an undifferentiated list, all of those read as `pick one` -- so a reader picks the defunct one, or does the first half of a route and stops. `role` says which kind each entry is, `stages` holds the routes that have more than one phase, and `name` is what a reader chooses by; `type` answers `what protocol does it speak`, which is a different question and never was a label.",
+              "items": {
+                "$ref": "#/$defs/setup_method"
               }
             },
             "factory_reset": {
@@ -2143,76 +2332,9 @@
                 "procedures": {
                   "type": "array",
                   "minItems": 1,
+                  "$comment": "Hoisted to $defs/physical_procedure, which is shared with the pairing-mode and unpair procedures under `device.pairing`. The shape and every field description are unchanged from when they were written inline here; sharing them means the glyph fields, the press-pattern and power-state fields and the unverified-needs-a-basis rule are defined once and cannot drift between the reset a user performs and the pairing-mode entry they perform on the same button.",
                   "items": {
-                    "type": "object",
-                    "required": [
-                      "name"
-                    ],
-                    "properties": {
-                      "name": {
-                        "type": "string",
-                        "description": "Short label, e.g. 'Restore button while powering on'."
-                      },
-                      "verified": {
-                        "type": "boolean",
-                        "description": "True only when this exact sequence was run against the hardware and observed to work. False marks it as a candidate — plausible, worth trying, not established — and then `basis` must say where it came from. A candidate procedure is genuinely useful (it is the first thing someone with the device should try), so the point of this field is to keep it usable without letting it read as confirmed."
-                      },
-                      "basis": {
-                        "type": "string",
-                        "description": "Where an unverified procedure comes from: the vendor manual, a community report, or the generic pattern for that class of hardware. Required when `verified` is false, because 'the manual says so' and 'every other bulb in this family works this way' warrant very different levels of trust."
-                      },
-                      "description": {
-                        "type": "string",
-                        "description": "Human-readable prose for this specific procedure — what the user will see happen, and how to tell success from a failed attempt."
-                      },
-                      "applies_to": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        },
-                        "description": "Variant models this procedure applies to; omit when it applies to all."
-                      },
-                      "hold_seconds": {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "indicator": {
-                        "type": "string",
-                        "description": "LED/screen/audio signal that confirms the reset took."
-                      },
-                      "steps": {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/$defs/setup_step"
-                        }
-                      }
-                    },
-                    "allOf": [
-                      {
-                        "$comment": "An unverified procedure must cite its basis. Without that a reader cannot weigh it, and a candidate nobody can weigh is indistinguishable from a guess.",
-                        "if": {
-                          "properties": {
-                            "verified": {
-                              "const": false
-                            }
-                          },
-                          "required": [
-                            "verified"
-                          ]
-                        },
-                        "then": {
-                          "required": [
-                            "basis"
-                          ],
-                          "properties": {
-                            "basis": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    ]
+                    "$ref": "#/$defs/physical_procedure"
                   }
                 }
               }
@@ -2278,6 +2400,315 @@
               "type": "string"
             }
           }
+        },
+        "pairing": {
+          "type": "object",
+          "description": "Whether a client must pair or bond with this device before its control surface answers, and what a person has to do at the hardware for that to be possible. This is the third thing called setup and the one the schema had no room for: `device.setup` is the one-time provisioning that gives a device credentials and an owner, top-level `initialization` is the application-layer handshake run on every connection, and this block is the link-layer question underneath both — does the transport itself demand a bond, a passkey, a pairing-mode button press, before any of that can start.",
+          "$comment": "Until this block existed the only pairing fields in the schema were `setup.methods[].ble.pairing_required` and `pin_source`, reachable only from inside a provisioning method. That put them out of reach of exactly the devices that need them most: the 111 BLE specs here, the great majority of which have `setup.required: false` and no provisioning method to hang the fields off. So facts an implementer is blocked by — this scale bonds and will not talk to a second phone until you forget it in the first, this badge takes a fixed 000000 passkey, this lock is pairable only for thirty seconds after a button press — survived as prose in research notes or not at all. The block is optional for the same reason `discovery` allows `none`: a missing block means nobody has looked, and every value below can say `unknown` out loud instead.",
+          "properties": {
+            "required": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "const": "unknown"
+                }
+              ],
+              "description": "Whether a client must pair/bond before the device's control surface answers. False is the common and valuable answer — most cheap BLE peripherals expose open GATT, and saying so plainly is what tells an implementer not to go looking for a pairing flow that does not exist. 'unknown' when nobody has established it; that requires `confidence: low`, and any procedures below must be marked `verified: false` with a `basis`."
+            },
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "description": "How well the pairing story is established. 'high' = a client connected and controlled the device (or was refused until it bonded) against real hardware; 'medium' = the vendor manual or a working open implementation says so, unreplayed; 'low' = inferred."
+            },
+            "security_mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "just_works",
+                "passkey_entry",
+                "numeric_comparison",
+                "out_of_band",
+                "legacy_pin",
+                "network_join",
+                "app_layer",
+                "unknown"
+              ],
+              "description": "How the pairing is authenticated. 'none' — no link-layer pairing at all, the characteristics are readable and writable on a bare connection. 'just_works' — pairing happens but is unauthenticated (no MITM protection), which is what the overwhelming majority of consumer BLE hardware does. 'passkey_entry'/'numeric_comparison'/'out_of_band' — the authenticated LE Secure Connections methods. 'legacy_pin' — BR/EDR or LE legacy pairing with a fixed or printed PIN. 'app_layer' — the transport pairs trivially or not at all and the real authorisation is a key exchange or token above it, which belongs in top-level `initialization`; say it here so a reader who finds no link-layer security knows it was looked for and knows where the security actually lives. 'network_join' — the device is admitted to a mesh and handed a network key, which is what Zigbee inclusion and Z-Wave inclusion actually are: not a pairing between two peers but a join to a network the controller owns, and the reason those devices are excluded from one controller before being included on the next.",
+              "$comment": "'none' and 'just_works' are not the same fact and are constantly conflated. 'none' means a client never triggers pairing and nothing is stored on either side; 'just_works' means a bond IS established and persists, which is what makes the device stop answering a second client later. An implementer who reads one as the other ships something that works on a fresh device and fails on a used one."
+            },
+            "bonding": {
+              "type": "string",
+              "enum": [
+                "none",
+                "optional",
+                "required",
+                "unknown"
+              ],
+              "description": "Whether the pairing is PERSISTED across connections. 'none' — nothing is stored, every connection starts clean. 'optional' — the device will bond if the central asks but does not insist. 'required' — the device stores the bond and expects it back. Distinct from `security_mode` because storage, not authentication, is what produces the failure everyone hits: a device that bonds remembers a phone that has since forgotten it, and refuses the reconnect until one side is cleared."
+            },
+            "pin": {
+              "type": "object",
+              "description": "The passkey or PIN, when one is involved.",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "fixed_default",
+                    "printed_label",
+                    "device_screen",
+                    "vendor_app",
+                    "derived",
+                    "user_chosen",
+                    "unknown"
+                  ],
+                  "description": "Where the value comes from. 'fixed_default' — the same for every unit of the product, so it can be written down here. 'printed_label' — on a sticker on this particular unit. 'device_screen' — shown on the hardware at pairing time. 'derived' — computed from something else (serial, MAC); say how in `notes`."
+                },
+                "value": {
+                  "type": "string",
+                  "description": "The PIN itself, and ONLY when `source` is 'fixed_default' — a product-wide constant like '000000' or '123456' is a protocol fact and belongs in the spec. A per-unit value is a secret belonging to whoever owns that unit, and the clean-room rules forbid committing it: for those, say where to find it in `source` and leave this out."
+                },
+                "length": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Digit count, useful for a consumer drawing an entry field before it knows the value."
+                },
+                "notes": {
+                  "type": "string"
+                }
+              },
+              "allOf": [
+                {
+                  "$comment": "A stated PIN value must be a product-wide default. This is the schema half of a clean-room rule -- a per-unit passkey read off the label of the researcher's own hardware is exactly the class of identifier that CLEANROOM_RULES.md says to placeholder, and it is useless to every other reader besides.",
+                  "if": {
+                    "required": [
+                      "value"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "source"
+                    ],
+                    "properties": {
+                      "source": {
+                        "const": "fixed_default"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "exclusivity": {
+              "type": "object",
+              "description": "Who else may be talking to the device, and what a user must do when someone is. This is the first thing that goes wrong in the field and almost never appears in a protocol write-up, because the researcher's own phone is the client that already holds the bond.",
+              "properties": {
+                "single_connection": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "const": "unknown"
+                    }
+                  ],
+                  "description": "True when the device accepts only one connected central at a time — so the vendor app open in the background is enough to make this client fail, usually with a timeout rather than a refusal."
+                },
+                "single_bond": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "const": "unknown"
+                    }
+                  ],
+                  "description": "True when the device stores exactly one bond, so pairing a new client evicts or is refused by the old one. The reason a second-hand device that was never reset cannot be adopted."
+                },
+                "recovery": {
+                  "type": "string",
+                  "description": "What the user actually has to do when they hit this: close the vendor app, forget the device in the OS Bluetooth settings, power-cycle it, or reset it. The actionable half of the two booleans above."
+                },
+                "notes": {
+                  "type": "string"
+                }
+              }
+            },
+            "enter_pairing_mode": {
+              "type": "object",
+              "description": "How a device is made pairable, for hardware that is not pairable all the time. Separate from `device.setup` because it recurs: a user re-pairs after changing phones, and re-running provisioning is not what they need to be told to do.",
+              "properties": {
+                "required": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "const": "unknown"
+                    }
+                  ],
+                  "description": "Whether the user must do something to make the device pairable. False means it advertises and accepts pairing whenever it is powered — the normal case for sensors and beacons, and worth stating so nobody hunts for a button that is not there."
+                },
+                "window_seconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "How long the device stays pairable after being put into pairing mode. A client that scans, prompts the user and then connects can easily spend a 30-second window on its own UI."
+                },
+                "advertised_name": {
+                  "type": "string",
+                  "description": "Name pattern advertised WHILE pairable, when it differs from the normal advertising name — some devices only advertise at all in this state, and a consumer that scans for the running name finds nothing."
+                },
+                "advertised_name_match": {
+                  "type": "string",
+                  "enum": [
+                    "exact",
+                    "prefix"
+                  ],
+                  "default": "exact",
+                  "description": "How `advertised_name` compares against a scan result's local name."
+                },
+                "indicator": {
+                  "type": "string",
+                  "description": "LED/screen/audio signal that the device is now pairable."
+                },
+                "indicator_glyph": {
+                  "$ref": "#/$defs/glyph_ref",
+                  "description": "Drawing of that signal."
+                },
+                "procedures": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "Ways to get the device into pairing mode, first preferred. Same shape as a reset procedure because it is the same kind of knowledge about the same buttons.",
+                  "items": {
+                    "$ref": "#/$defs/physical_procedure"
+                  }
+                },
+                "notes": {
+                  "type": "string"
+                }
+              }
+            },
+            "unpair": {
+              "type": "object",
+              "description": "Clearing a bond WITHOUT a full factory reset, where that is possible. Worth its own block because the two are routinely confused and the difference matters to a user who does not want to lose their device's name, schedules and history just to move it to a new phone.",
+              "properties": {
+                "supported": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "const": "unknown"
+                    }
+                  ],
+                  "description": "Whether the device offers any way to drop a bond short of a factory reset."
+                },
+                "requires_factory_reset": {
+                  "type": "boolean",
+                  "description": "True when the only way to clear a bond is the full reset in `device.setup.factory_reset` — the common case, and the answer that tells a user what adopting a second-hand unit will cost them."
+                },
+                "clears": {
+                  "type": "string",
+                  "description": "What unpairing removes, where that is narrower than a reset (the bond only, leaving configuration intact)."
+                },
+                "procedures": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/physical_procedure"
+                  }
+                },
+                "notes": {
+                  "type": "string"
+                }
+              },
+              "allOf": [
+                {
+                  "$comment": "The two fields are one question asked twice and must agree: a device whose only route is a factory reset does not also support standalone unpairing.",
+                  "if": {
+                    "properties": {
+                      "requires_factory_reset": {
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "requires_factory_reset"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "supported": {
+                        "not": {
+                          "const": true
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "notes": {
+              "type": "string"
+            }
+          },
+          "allOf": [
+            {
+              "$comment": "An unestablished pairing story may still list what to try, but nothing under it may claim to be verified -- the same rule factory_reset applies to an `applicable: unknown` reset, for the same reason.",
+              "if": {
+                "properties": {
+                  "required": {
+                    "const": "unknown"
+                  }
+                },
+                "required": [
+                  "required"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "confidence": {
+                    "const": "low"
+                  },
+                  "enter_pairing_mode": {
+                    "properties": {
+                      "procedures": {
+                        "items": {
+                          "required": [
+                            "verified"
+                          ],
+                          "properties": {
+                            "verified": {
+                              "const": false
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "unpair": {
+                    "properties": {
+                      "procedures": {
+                        "items": {
+                          "required": [
+                            "verified"
+                          ],
+                          "properties": {
+                            "verified": {
+                              "const": false
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
         },
         "variants": {
           "type": "array",

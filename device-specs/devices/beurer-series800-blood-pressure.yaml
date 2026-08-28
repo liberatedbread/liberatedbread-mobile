@@ -181,6 +181,37 @@ device:
         device, no pairing PIN. The only shared secret is the OS-level BLE
         bond key, if bonding encrypts the link.
 
+  pairing:
+    required: true
+    confidence: "low"
+    security_mode: "unknown"
+    bonding: "required"
+    pin:
+      source: "unknown"
+      notes: >
+        No app-level PIN exists anywhere in either companion app for the
+        blood-pressure devices, so Just Works or numeric comparison is the
+        expectation — but the app simply calls the OS bonding API and lets the
+        stack decide, which means the association model is whatever the
+        monitor asks for, and nobody has watched it ask.
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: >
+        If the monitor stops accepting new bonds, remove the OS-level bond on
+        the old phone first. That is the classic single-bond-peripheral
+        symptom rather than a confirmed property of this device.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The monitor advertises after a measurement or when woken; there is no
+        separate pairing button in the documented flow.
+    notes: >
+      The whole of this block is expectation rather than observation, which is
+      why it is low confidence: the app requests OS bonding and the rest is
+      inference from what is absent in the code. One btsnoop capture of a real
+      sync would settle the association model, whether indications need an
+      encrypted link, and whether the monitor holds one bond or several.
 services:
   - uuid: "00001810-0000-1000-8000-00805f9b34fb"
     name: "Blood Pressure Service"
@@ -675,6 +706,11 @@ helpful_urls:
       0x1810/0x2A35/0x2A49 structure, subject to the Beurer quirks this spec
       documents on top.
 
+  - title: "Beurer BM 93 instructions for use"
+    url: "https://www.manualslib.com/manual/2001931/Beurer-Bm-93.html"
+    kind: "manual"
+    description: >
+      Vendor manual for one of the family this spec covers — the BM 93 is the model whose 0x2A35 payload tail remains an open question here.
 evidence:
   artifacts:
     - type: "static_analysis"

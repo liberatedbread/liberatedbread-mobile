@@ -207,3 +207,13 @@ helpful_urls:
   - title: "thirtythreeforty/neolink"
     url: "https://github.com/thirtythreeforty/neolink"
     description: "RTSP bridge for Baichuan-only Reolink cameras; carries the port-9000 Wireshark dissector."
+  - title: "Reolink PoE camera user manual (PDF, vendor-hosted)"
+    url: "https://home-cdn.reolink.us/wp-content/assets/multiple-languages/manual/Reolink_PoE_Camera_User_Manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the PoE camera range.
+  - title: "Reolink PoE NVR user manual (PDF, vendor-hosted)"
+    url: "https://home-cdn.reolink.us/wp-content/assets/multiple-languages/manual/Reolink_PoE_NVR_User_Manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the RLN8-410 and RLN16-410 recorders this spec's family includes.

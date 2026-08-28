@@ -114,12 +114,36 @@ device:
           - action: "Connect to gateway TCP 4000 and enumerate paired devices (0x13) / zones (0x1E)."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        A reset would clear the gateway's Zigbee network and Wi-Fi config. With
-        the cloud gone, a reset risks stranding the gateway (re-onboarding may
-        need the dead app); the reset gesture is not documented here.
+        Clears the gateway's Wi-Fi configuration and returns it to onboarding.
+        Whether it also clears the Zigbee network and the bulbs joined to it is
+        not stated by the vendor material recovered here.
+      description: >
+        Read the warning before doing this. The Lightify cloud is gone, and
+        onboarding was an app-and-cloud flow — so a gateway that is currently
+        working on your network may not be recoverable once it has been reset.
+        This procedure is recorded so that someone who has already reset one,
+        or who has nothing to lose, knows what the button does; it is not a
+        troubleshooting step to reach for first.
+      procedures:
+        - name: "Gateway key held for five seconds"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            OSRAM's Lightify onboarding guide, where it appears as the remedy
+            for a gateway whose LED has turned orange after a failed Wi-Fi
+            connection.
+          hold_seconds: 5
+          power_state: "on"
+          indicator: "The gateway LED; green means it reached the network, orange means the Wi-Fi connection failed."
+          steps:
+            - action: "Push and hold the key on the gateway for five seconds."
+              actor: "user"
+            - action: "Unplug the gateway and plug it back in."
+              actor: "user"
+              expect: "The gateway returns to onboarding. With the vendor cloud gone, onboarding may no longer complete."
     rejoin:
       in_place_supported: false
       requires_factory_reset: true
@@ -235,3 +259,13 @@ helpful_urls:
   - title: "tfriedel/python-lightify"
     url: "https://github.com/tfriedel/python-lightify"
     description: "Apache-2.0 Python implementation; independent confirmation of port 4000 and the model."
+  - title: "OSRAM LIGHTIFY user guide (PDF, vendor-hosted)"
+    url: "https://lightfiy-customer-service.s3.eu-central-1.amazonaws.com/Manuals/LIGHTIFY_User_Guide_EN_Version2.0.pdf"
+    kind: "manual"
+    description: >
+      Vendor app and system guide, still on OSRAM's own storage despite the service shutdown.
+  - title: "OSRAM LIGHTIFY onboarding procedure (PDF)"
+    url: "https://fvdm.com/wp-content/uploads/2017/12/LIGHTIFY-Onboarding-Procedure-EN.pdf"
+    kind: "manual"
+    description: >
+      Onboarding document — the flow a gateway returns to after the reset in this spec, and which the dead cloud may no longer complete.

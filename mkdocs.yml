@@ -234,6 +234,7 @@ nav:
   - Protocols:
       - Overview: protocols/index.md
       - Initial Device Setup: protocols/device-setup.md
+      - Pairing, Bonding and Unpairing: protocols/pairing.md
       - Common BLE Patterns: protocols/ble-common.md
       - Common WiFi Patterns: protocols/wifi-common.md
       - Common OBD-II Patterns: protocols/obd2-common.md
@@ -245,4 +246,5 @@ nav:
   - Contributing:
       - How to Contribute: contributing/index.md
       - Documentation Guide: contributing/documentation-guide.md
+      - Instruction Glyphs: contributing/glyphs.md
       - Spec Evolution Proposals: contributing/spec-evolution.md

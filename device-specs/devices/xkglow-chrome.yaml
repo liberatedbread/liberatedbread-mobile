@@ -137,6 +137,13 @@ device:
       issued_to_client: []
       notes: "BLE GATT. No auth or pairing. Anything in radio range can connect and command."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "458a7133-0000-4e37-a4a4-5d8492586977"
     name: "Controller Service"
@@ -329,3 +336,10 @@ entities:
       set_color: "set_rgb_color"
       set_brightness: "set_mono_brightness"
       set_effect: "write_animation"
+
+helpful_urls:
+  - title: "XKGlow XKchrome kit installation instructions (PDF)"
+    url: "https://images.carid.com/xkglow/products/pdf/xk-chrome-kit-2-installation-instructions.pdf"
+    kind: "manual"
+    description: >
+      Vendor installation instructions, retailer-hosted, covering the controller this spec's BLE protocol drives.

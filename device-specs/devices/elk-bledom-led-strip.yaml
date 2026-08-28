@@ -130,6 +130,13 @@ device:
       issued_to_client: []
       notes: "No auth. Physical proximity is the only access control."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "ELK-BLEDOM"
       identification:
@@ -339,3 +346,13 @@ helpful_urls:
   - title: "dave-code-ruiz/elkbledom (HACS)"
     url: "https://github.com/dave-code-ruiz/elkbledom"
     description: "Home Assistant (HACS) custom component controlling ELK-BLEDOM/MELK/LEDBLE strips over BLE; a production consumer of the command set documented here."
+  - title: "Controlling an ELK-BLEDOM strip: protocol write-up"
+    url: "https://linuxthings.co.uk/blog/control-an-elk-bledom-bluetooth-led-strip"
+    kind: "vendor_support"
+    description: >
+      There is no vendor and no manual for this hardware — it is an unbranded ODM controller. This write-up is the closest thing to documentation, and it records the plug/unplug-four-times reset.
+  - title: "TheSylex/ELK-BLEDOM-bluetooth-led-strip-controller"
+    url: "https://github.com/TheSylex/ELK-BLEDOM-bluetooth-led-strip-controller"
+    kind: "implementation"
+    description: >
+      Working controller for the same hardware, useful as an executable reference where prose runs out.

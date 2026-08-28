@@ -91,6 +91,16 @@ helpful_urls:
     url: "https://github.com/OpenSource-EBike-firmware/TSDZ2_wiki/wiki/Communication-Protocol"
     description: "Community protocol notes for Tongsheng TSDZ2 firmware variants."
 
+  - title: "TSDZ2 central motor drive system installation manual (PDF)"
+    url: "https://enerpower.de/wp/wp-content/uploads/2019/08/User-Manual-TSDZ2-Central-Motor-Drive-System-EN_CE.pdf"
+    kind: "manual"
+    description: >
+      English installation manual for the TSDZ2, hosted by a distributor — Tongsheng publish little themselves.
+  - title: "TSDZ2 mid-drive installation manual (PDF)"
+    url: "https://wooshbikes.co.uk/manuals/TSDZ2.pdf"
+    kind: "manual"
+    description: >
+      Another distributor's copy, the one this spec's display and setup notes were read from.
 bus:
   link:
     type: "uart"

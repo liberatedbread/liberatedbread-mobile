@@ -140,12 +140,46 @@ device:
             actor: client
             expect: "state 'ready' and klippy_connected true, unauthenticated."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Not documented here. A network/cloud unbind is available from the
-        touchscreen; the machine stores no third-party credentials for the
-        plain HTTP path.
+        Returns the touchscreen's preferences to defaults. The controller's own
+        motion and machine settings are a separate reset, done over serial with
+        the standard Marlin restore-and-save pair rather than from the screen.
+      description: >
+        The touchscreen reset is hidden behind a developer-mode gesture — five
+        taps on the image in the About Machine page — which is worth knowing
+        because nothing on the visible menu leads there.
+
+        Two different things are called a reset on this printer and they clear
+        different state. The screen path resets the interface's preferences.
+        M502 followed by M500 over USB restores the firmware's own settings and
+        writes them to EEPROM, which is what a printer with bad motion
+        configuration needs. Neither is documented as touching network
+        credentials.
+      procedures:
+        - name: "Touchscreen: Reset All from developer mode"
+          verified: false
+          basis: "Snapmaker's wiki page on resetting the touchscreen or controller."
+          press_count: 5
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Tap Settings, then About Machine."
+              actor: "user"
+            - action: "Tap the image at the top of the About Machine page five times, then confirm entering developer mode."
+              actor: "user"
+            - action: "In developer mode, choose Experiment, then Preference, then Reset All."
+              actor: "user"
+        - name: "Controller: restore firmware defaults over USB"
+          verified: false
+          basis: "Snapmaker's wiki page on resetting the touchscreen or controller."
+          power_state: "on"
+          steps:
+            - action: "Connect the printer over USB and open a serial console to it."
+              actor: "client"
+            - action: "Send M502 to load firmware defaults, then M500 to write them to EEPROM."
+              actor: "client"
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -318,6 +352,11 @@ helpful_urls:
   - url: "https://github.com/kbaker827/ha-snapmaker-u1"
     title: "kbaker827/ha-snapmaker-u1"
     description: "Home Assistant integration (pysnapmaker) confirming the stock-firmware unauthenticated port-80 Moonraker REST/WebSocket path and the subscribed object set."
-  - url: "https://moonraker.readthedocs.io/en/latest/web_api/"
+  - url: "https://moonraker.readthedocs.io/en/latest/external_api/introduction/"
     title: "Moonraker Web API reference"
     description: "Upstream reference for the REST + JSON-RPC surface the U1 exposes."
+  - title: "Snapmaker Wiki: reset the touchscreen or controller"
+    url: "https://wiki.snapmaker.com/en/Snapmaker_2/troubleshooting/reset"
+    kind: "vendor_support"
+    description: >
+      Source for both reset routes in this spec — the developer-mode touchscreen path and the M502/M500 serial pair.

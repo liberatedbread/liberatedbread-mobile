@@ -116,11 +116,76 @@ device:
           - action: "Run the BLE secure handshake, then send UNLOCK (0x0A) / LOCK (0x0B) as AES-CBC frames."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        A hardware reset (per model) clears the lock's enrollment and keys. The
-        exact procedure varies by model and is not transcribed here.
+        Deletes every user code including the Master code, clears enrolled
+        clients and their offline keys, and returns all programming to
+        factory defaults. On the Assure models, creating a new Master code is
+        the only thing the lock will accept afterwards and must be done before
+        anything else.
+      description: >
+        Read the procedure for the specific model before starting: all three
+        families below need the batteries out, and two of them need the
+        interior escutcheon off the door to reach a button that is not
+        externally accessible. That is deliberate on the vendor's part — a
+        reset that could be done from outside would be a way past the lock —
+        and it means this is not something to attempt on a door someone needs
+        to use in the next ten minutes.
+
+        A lock previously enrolled in a Z-Wave network should be excluded from
+        that network as well; a reset clears the lock's side but not the
+        controller's.
+      procedures:
+        - name: "Assure Lock 2 Key Free Deadbolt: reset tool held for one minute"
+          glyph: "generic/pinhole-reset.svg"
+          verified: false
+          basis: "Yale's installation guide for the Assure Lock 2 key-free deadbolt."
+          applies_to: ["Yale Assure Lock 2 (key-free deadbolt)"]
+          hold_seconds: 60
+          power_state: "on"
+          steps:
+            - action: "Remove the battery cover and take out one battery."
+              actor: "user"
+            - action: "Press the reset button for one full minute with the reset tool supplied in the hardware box."
+              actor: "user"
+            - action: "Replace the battery and the cover."
+              actor: "user"
+        - name: "Assure Lock (Andersen): reset button held across a battery insertion"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: "Yale's installation guide for the Assure Lock for Andersen doors."
+          applies_to: ["Yale Assure Lock (Andersen)"]
+          power_state: "off"
+          steps:
+            - action: "Remove the battery cover and all batteries."
+              actor: "user"
+            - action: "Remove the interior lock body to reach the reset button, which sits above the PCB cable connectors."
+              actor: "user"
+            - action: "Re-insert three batteries and hold the reset button for three seconds."
+              actor: "user"
+            - action: "Still holding, insert the fourth battery and hold for a further three seconds, then release."
+              actor: "user"
+            - action: "Re-install the interior lock on the door."
+              actor: "user"
+              expect: "The lock accepts only Master PIN code creation until a new Master code is set."
+        - name: "Assure Lock SL: reset button held while the batteries go back in"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: "Yale's Assure Lock SL manual."
+          applies_to: ["Yale Assure Lock SL"]
+          hold_seconds: 3
+          power_state: "off"
+          steps:
+            - action: "Remove the battery cover and all batteries."
+              actor: "user"
+            - action: "Remove the interior side of the lock to reach the reset button, which sits beside the cable adapter."
+              actor: "user"
+            - action: "Press and hold the reset button for at least three seconds while reinstalling the batteries, then release."
+              actor: "user"
+            - action: "Replace the battery cover."
+              actor: "user"
+              expect: "The lock accepts only Master Entry code creation until a new Master code is set."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -136,6 +201,34 @@ device:
         held by the vendor cloud, so obtaining it requires an account. The Wi-Fi
         variants add a separate radio/bridge; the lock core here is BLE.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # The lock does not bond. It runs its own secure handshake against an
+    # offline key that only the vendor account can issue.
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        The lock's OFFLINE KEY and key slot index, synchronised to a client
+        that has logged into an August/Yale account. Per-unit key material,
+        so no value appears here. Once held, unlocking is fully local and the
+        account is not consulted again — which is what makes this lock
+        survivable if the vendor service does not.
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Close the Yale Access app before connecting; it holds the lock while
+        it is in the foreground.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        There is no pairing-mode button in this flow. Authorisation is issued
+        by the vendor account rather than by possession of the lock, which is
+        the opposite of the Nuki model and worth knowing before someone goes
+        looking for a button to hold.
 services:
   - uuid: "0000fe24-0000-1000-8000-00805f9b34fb"
     name: "August / Yale lock service (0xFE24)"
@@ -196,3 +289,13 @@ helpful_urls:
   - title: "Home Assistant — August / Yale integration"
     url: "https://www.home-assistant.io/integrations/august/"
     description: "Documents the offline-key requirement and how to sync it from the cloud for local control."
+  - title: "Yale Assure Lock 2 installation instructions"
+    url: "https://www.manualslib.com/manual/3355424/Yale-Assure-Lock-2.html"
+    kind: "manual"
+    description: >
+      Vendor installation manual covering the Assure Lock 2 and its Smart Module.
+  - title: "Yale Assure Lock 2 key-free deadbolt installation guide (PDF)"
+    url: "https://pdf.lowes.com/productdocuments/6de39f83-1b4e-411d-9a87-a3eebf3c4767/63493120.pdf"
+    kind: "manual"
+    description: >
+      Retailer-hosted copy of the guide behind this spec's one-minute reset-tool procedure.

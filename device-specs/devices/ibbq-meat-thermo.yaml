@@ -161,6 +161,13 @@ device:
       notes: >
         The 15-byte credential is a fixed magic sequence, not real auth.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "iBBQ Service"
@@ -257,3 +264,15 @@ entities:
       Switches the DEVICE display unit; the BLE temperature stream stays
       0.1°C either way. No unit read-back is documented, so the switch is
       write-only.
+
+helpful_urls:
+  - title: "INKBIRD IBBQ-4T manual"
+    url: "https://www.manualslib.com/manual/1910857/Inkbird-Ibbq-4t.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the IBBQ-4T, one of the exemplars in this spec.
+  - title: "INKBIRD: IBBQ-4T manual page"
+    url: "https://www.inkbird.com/pages/ibbq-4t-manual"
+    kind: "vendor_support"
+    description: >
+      Vendor's own manual page, kept current.

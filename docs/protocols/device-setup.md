@@ -10,7 +10,7 @@ A device you can control but cannot *re-onboard* is only half rescued. When the
 router is replaced, the SSID changes, or the hardware is sold on, an
 undocumented setup flow is exactly as fatal as an undocumented control protocol.
 
-!!! note "Three different things called 'setup'"
+!!! note "Four different things, two of them called 'setup'"
     This project keeps them apart deliberately, and so does
     `device-specs/schema.json`:
 
@@ -18,6 +18,9 @@ undocumented setup flow is exactly as fatal as an undocumented control protocol.
       network credentials and an owner. Covered on this page.
     - **`device.discovery`** — finding an already-provisioned device. See
       [WiFi Discovery](../devices/wifi-discovery.md).
+    - **`device.pairing`** — whether the transport itself demands a bond, a
+      passkey or a pairing-mode button press before any of this can start, and
+      how to undo one. See [Pairing, Bonding and Unpairing](pairing.md).
     - **`initialization`** — the per-connection handshake run *every* time a
       client connects (BLE key exchange, auth challenge). Not setup.
 

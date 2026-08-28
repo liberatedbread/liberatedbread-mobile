@@ -137,6 +137,46 @@ device:
         Standard BLE pairing on newer firmware; no application-layer credential.
         There is no Wi-Fi.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "optional"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        Only one client at a time. A new client connects — and pairs, on
+        firmware 1.20+ — independently; existing pairings are unaffected, so
+        adding a controller does not cost the household its phone app.
+    enter_pairing_mode:
+      required: true
+      indicator: "The valve's display shows \"Pair\"."
+      notes: >
+        Firmware 1.20+ only. Older firmware connects with no pairing step at
+        all, so a client must handle both and should not treat a valve that
+        never asks as a failure.
+      procedures:
+        - name: "Hold the valve wheel until the display shows \"Pair\""
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            rytilahti/python-eq3bt, which documents the firmware 1.20+ pairing
+            requirement alongside the GATT characteristic UUIDs used here. Not
+            replayed against a valve.
+          power_state: "on"
+          indicator: "Display shows \"Pair\"."
+          steps:
+            - action: "Hold the wheel on the valve head."
+              actor: "user"
+            - action: "Release when the display shows \"Pair\", then connect."
+              actor: "user"
+    notes: >
+      A firmware split rather than a device property: everything below 1.20
+      connects and is controlled with no pairing whatsoever, and 1.20+ may ask
+      for a one-time pairing first. The link-layer key, where one exists, is
+      the only thing stored — the schedule, presets and sensor offset are
+      device configuration and survive any pairing change.
 services:
   - uuid: "3fa4585a-ce4a-3bad-db4b-b8df8179ea09"
     name: "eQ-3 command characteristic"
@@ -242,3 +282,13 @@ helpful_urls:
   - title: "rytilahti/python-eq3bt"
     url: "https://github.com/rytilahti/python-eq3bt"
     description: "MIT Python client (bleak/bluepy/gattlib); GATT UUIDs and the FW-1.20+ pairing note."
+  - title: "eQ-3 Bluetooth Smart Radiator Thermostat operating manual (PDF, vendor-hosted)"
+    url: "https://www.eq-3.com/downloads/download/eqiva/bda/CC-RT-M-BLE-EQ_UM_E_eqiva_180508.pdf"
+    kind: "manual"
+    description: >
+      English manual from eQ-3's own download server, for the CC-RT-M-BLE-EQ. Covers the wheel-hold that this spec's firmware 1.20+ pairing procedure uses.
+  - title: "eQ-3 CC-RT-N operating manual"
+    url: "https://www.manualslib.com/manual/947780/Eq-3-Cc-Rt-N.html"
+    kind: "manual"
+    description: >
+      A sibling model's manual, useful where the CC-RT-BLE's own is only available in German.

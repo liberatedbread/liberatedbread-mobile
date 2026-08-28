@@ -88,6 +88,28 @@ def setups(specs: dict[str, dict]):
             yield device_id, setup
 
 
+def phases(method: dict):
+    """Yield the phases of a method: its `stages`, or the method itself.
+
+    A route with more than one phase carries them in `stages`, and everything
+    that reads a method's `type`, `steps` or detail blocks wants the phases
+    rather than the wrapper -- the wrapper's `type` names the route's defining
+    act, and `cloud`, `ble` or `issues_credentials` sit on whichever phase
+    owns them.
+    """
+    return method.get("stages") or [method]
+
+
+def method_phases(setup: dict):
+    """Every phase of every method in a setup block, wrappers flattened."""
+    for method in setup["methods"]:
+        yield from phases(method)
+
+
+def method_types(setup: dict) -> set[str]:
+    return {phase["type"] for phase in method_phases(setup)}
+
+
 def is_reference(spec: dict) -> bool:
     """True for published-protocol references rather than devices.
 
@@ -149,6 +171,114 @@ def test_every_method_states_type_description_and_verified(specs):
             )
 
 
+METHOD_ROLES = {"primary", "alternative", "variant", "historical"}
+
+
+def test_multi_method_setups_label_every_method(specs):
+    """A list of two `type` values does not say which one the reader does.
+
+    `type` is the mechanism -- and two methods on one device routinely share
+    it (both Rachio generations are `softap_http`, both Bravia steps are
+    `device_ui`). What tells them apart is `name`, and what says whether the
+    reader picks one or does both is `role`. The schema requires the pair
+    once a spec lists two or more methods; this checks the values are usable
+    rather than merely present.
+    """
+    for device_id, setup in setups(specs):
+        methods = setup["methods"]
+        if len(methods) < 2:
+            continue
+        seen = set()
+        for method in methods:
+            label = f"{device_id}:{method.get('type', '?')}"
+            name = method.get("name", "")
+            assert name, f"{label}: needs a `name` -- it is the only label a reader has"
+            assert name not in seen, f"{device_id}: two methods both named {name!r}"
+            seen.add(name)
+            assert method.get("role") in METHOD_ROLES, (
+                f"{label}: role {method.get('role')!r} not in {sorted(METHOD_ROLES)}"
+            )
+
+
+def test_setup_methods_are_ordered_for_a_reader(specs):
+    """Order is the instruction, so it has to hold top to bottom.
+
+    Someone reads this list with the device in their hands and picks one
+    entry. That only works if the route to recommend is the first thing they
+    meet and what cannot be done today is the last. Which of two alternatives
+    is "easier" is a judgement the ordering rule states and a test cannot
+    check; these two are mechanical and are the ones that mislead when they
+    are wrong.
+    """
+    for device_id, setup in setups(specs):
+        roles = [m.get("role") for m in setup["methods"]]
+        if len(roles) < 2:
+            continue
+        assert roles.count("primary") <= 1, (
+            f"{device_id}: {roles.count('primary')} methods claim role 'primary' "
+            "-- at most one route can be the one to recommend"
+        )
+        if "primary" in roles:
+            assert roles.index("primary") == 0, (
+                f"{device_id}: the 'primary' method is at index "
+                f"{roles.index('primary')}, behind {roles[:roles.index('primary')]} "
+                "-- the recommended route comes first"
+            )
+        last_live = max(
+            (i for i, r in enumerate(roles) if r != "historical"), default=-1
+        )
+        first_dead = next(
+            (i for i, r in enumerate(roles) if r == "historical"), len(roles)
+        )
+        assert first_dead > last_live, (
+            f"{device_id}: a 'historical' method at index {first_dead} sits "
+            f"above one that still works -- routes that cannot be completed "
+            "today go last, or they get tried first"
+        )
+
+
+def test_a_multi_phase_route_is_one_method_with_stages(specs):
+    """Consecutive phases are not options, and must not be listed as options.
+
+    "Plug in the Ethernet" and "press the link button" are both required and
+    happen in that order; side by side in `methods` they read as a choice, and
+    a reader does one of them. A route with more than one phase is one method
+    carrying `stages`. Each stage keeps its own `type`, so folding the phases
+    together does not lose that the first half of the Hue route is `wired`.
+    """
+    for device_id, setup in setups(specs):
+        for method in setup["methods"]:
+            stages = method.get("stages")
+            if stages is None:
+                continue
+            label = f"{device_id}:{method.get('name', method['type'])}"
+            assert "steps" not in method, (
+                f"{label}: has both `steps` and `stages` -- a route describes "
+                "its flow one way or the other"
+            )
+            assert len(stages) >= 2, (
+                f"{label}: `stages` with {len(stages)} entry -- a single-phase "
+                "route uses `steps`"
+            )
+            seen = set()
+            for stage in stages:
+                name = stage.get("name", "")
+                assert name, f"{label}: a stage has no name"
+                assert name not in seen, f"{label}: two stages named {name!r}"
+                seen.add(name)
+                assert stage.get("type") in METHOD_TYPES, (
+                    f"{label}/{name}: stage type {stage.get('type')!r} is not a "
+                    "known method type"
+                )
+                assert "role" not in stage, (
+                    f"{label}/{name}: a stage has no `role` -- role is about "
+                    "choosing between routes, and there is no choice inside one"
+                )
+                assert "stages" not in stage, (
+                    f"{label}/{name}: stages do not nest"
+                )
+
+
 def test_verified_methods_are_high_confidence(specs):
     """A flow run against hardware cannot be low confidence."""
     for device_id, setup in setups(specs):
@@ -163,7 +293,7 @@ def test_verified_methods_are_high_confidence(specs):
 def test_steps_name_a_valid_actor(specs):
     """`actor` decides what a wizard can automate, so it must be meaningful."""
     for device_id, setup in setups(specs):
-        step_lists = [m.get("steps", []) for m in setup["methods"]]
+        step_lists = [p.get("steps", []) for p in method_phases(setup)]
         step_lists += [
             p.get("steps", [])
             for p in setup["factory_reset"].get("procedures", [])
@@ -183,7 +313,7 @@ def test_devices_that_need_provisioning_document_the_flow(specs):
     for device_id, setup in setups(specs):
         if not setup["required"]:
             continue
-        total = sum(len(m.get("steps", [])) for m in setup["methods"])
+        total = sum(len(p.get("steps", [])) for p in method_phases(setup))
         assert total > 0, (
             f"{device_id}: setup.required is true but no method documents steps"
         )
@@ -192,7 +322,7 @@ def test_devices_that_need_provisioning_document_the_flow(specs):
 def test_no_provisioning_methods_are_consistent_with_required(specs):
     """A device whose only method is 'nothing to do' must not claim required."""
     for device_id, setup in setups(specs):
-        types = {m["type"] for m in setup["methods"]}
+        types = method_types(setup)
         if types <= NO_PROVISIONING_TYPES:
             assert not setup["required"], (
                 f"{device_id}: only no-provisioning methods ({sorted(types)}) "
@@ -207,7 +337,7 @@ def test_ble_devices_use_ble_method_types(specs):
         setup = spec["device"].get("setup")
         if not setup or spec["device"]["protocol"] != "ble":
             continue
-        types = {m["type"] for m in setup["methods"]}
+        types = method_types(setup)
         assert not (types & wifi_only), (
             f"{device_id}: BLE device documents WiFi-only onboarding {types & wifi_only}"
         )
@@ -295,6 +425,280 @@ def test_rejoin_answers_the_router_replacement_question(specs):
                 )
 
 
+BLE_PROTOCOLS = {"ble", "ble_gatt"}
+SECURITY_MODES = {
+    "none",
+    "just_works",
+    "passkey_entry",
+    "numeric_comparison",
+    "out_of_band",
+    "legacy_pin",
+    "network_join",
+    "app_layer",
+    "unknown",
+}
+BONDING_VALUES = {"none", "optional", "required", "unknown"}
+
+
+def pairings(specs: dict[str, dict]):
+    """Yield (device_id, pairing) for every spec that documents pairing."""
+    for device_id, spec in specs.items():
+        pairing = spec["device"].get("pairing")
+        if pairing is not None:
+            yield device_id, pairing
+
+
+def test_ble_devices_answer_the_pairing_question(specs):
+    """A BLE spec must say whether a client has to pair, even if the answer is no.
+
+    'No pairing, open GATT' is the most common answer and the most useful one:
+    it is what tells an implementer not to go hunting for a pairing flow that
+    does not exist. Silence says the same thing to a reader who assumes the
+    best and the opposite to a reader who assumes the worst, which is why the
+    block is required here rather than merely allowed. `required: unknown` is
+    the honest third answer and satisfies this.
+
+    WiFi and bus devices are not gated: pairing in this sense is a property of
+    the radio link, and a device reached over HTTP or a diagnostic connector
+    has no equivalent. Those may still carry the block (a hub with a physical
+    link button does) but are not required to.
+    """
+    missing = [
+        device_id
+        for device_id, spec in specs.items()
+        if spec["device"].get("protocol") in BLE_PROTOCOLS
+        and not is_reference(spec)
+        and "pairing" not in spec["device"]
+    ]
+    assert not missing, f"BLE specs without a device.pairing block: {missing}"
+
+
+def test_pairing_states_required_and_confidence(specs):
+    """The two fields that make the rest of the block weighable."""
+    for device_id, pairing in pairings(specs):
+        assert "required" in pairing, f"{device_id}: pairing must state `required`"
+        required = pairing["required"]
+        assert isinstance(required, bool) or required == "unknown", (
+            f"{device_id}: pairing.required is {required!r}, expected a bool or 'unknown'"
+        )
+        assert pairing.get("confidence") in CONFIDENCE_VALUES, (
+            f"{device_id}: pairing needs a confidence level"
+        )
+        if required == "unknown":
+            assert pairing["confidence"] == "low", (
+                f"{device_id}: an unestablished pairing story is low confidence"
+            )
+
+
+def test_pairing_vocabulary_is_the_documented_one(specs):
+    """Typos in an enum are invisible to a permissive reader and to a grep."""
+    for device_id, pairing in pairings(specs):
+        if "security_mode" in pairing:
+            assert pairing["security_mode"] in SECURITY_MODES, (
+                f"{device_id}: security_mode {pairing['security_mode']!r} "
+                f"not in {sorted(SECURITY_MODES)}"
+            )
+        if "bonding" in pairing:
+            assert pairing["bonding"] in BONDING_VALUES, (
+                f"{device_id}: bonding {pairing['bonding']!r} "
+                f"not in {sorted(BONDING_VALUES)}"
+            )
+
+
+def test_pairing_required_and_security_mode_agree(specs):
+    """`required: false` cannot go with a mode that needs the user's hands.
+
+    Passkey entry, numeric comparison and OOB all require a person to read
+    something off the device and act on it. None of that can happen in a flow
+    the client is not required to run, so the combination describes two
+    different devices.
+
+    `just_works` is deliberately NOT in that set. 'Pairing is not required,
+    but a client that pairs anyway gets Just Works, and the device will keep
+    the bond' is a real and common configuration — Ember's mug and the Eqiva
+    valve both behave that way — and forcing it into either `none` or
+    `required: true` would lose the distinction that matters.
+    """
+    interactive_modes = {"passkey_entry", "numeric_comparison", "out_of_band"}
+    for device_id, pairing in pairings(specs):
+        mode = pairing.get("security_mode")
+        if pairing["required"] is False and mode in interactive_modes:
+            raise AssertionError(
+                f"{device_id}: pairing.required is false but security_mode is "
+                f"{mode!r}, which needs a person to complete it"
+            )
+
+
+def test_no_pairing_cannot_also_be_mandatory_bonding(specs):
+    """`security_mode: none` and `bonding: required` cannot both be true.
+
+    These two get conflated constantly, and the difference is the whole reason
+    the fields are separate. 'none' says the device demands nothing; 'bonding:
+    required' says it insists on a stored bond. A spec claiming both has
+    almost certainly used 'none' to mean 'just works', which is the error this
+    catches.
+
+    `bonding: optional` alongside 'none' is left alone on purpose: it is the
+    accurate description of hardware that demands no pairing but will accept
+    and keep one if a central starts it — which most OS stacks will, given an
+    insufficient-authentication error, without the application asking.
+    """
+    for device_id, pairing in pairings(specs):
+        if pairing.get("security_mode") == "none":
+            assert pairing.get("bonding", "none") != "required", (
+                f"{device_id}: security_mode 'none' but bonding is required — "
+                f"nothing pairs, so nothing can be made to bond"
+            )
+
+
+def test_unverified_pairing_procedures_cite_a_basis(specs):
+    """Same rule the reset procedures follow, on the same shared $def."""
+    for device_id, pairing in pairings(specs):
+        for block in ("enter_pairing_mode", "unpair"):
+            for procedure in (pairing.get(block) or {}).get("procedures", []):
+                label = f"{device_id}: {block} procedure {procedure.get('name')!r}"
+                assert procedure.get("name"), f"{device_id}: a {block} procedure has no name"
+                assert isinstance(procedure.get("verified"), bool), (
+                    f"{label} must state `verified` explicitly"
+                )
+                if procedure["verified"] is False:
+                    assert procedure.get("basis"), (
+                        f"{label} is unverified and must cite a `basis`"
+                    )
+
+
+def test_pairing_mode_entry_that_is_required_says_how(specs):
+    """`enter_pairing_mode.required: true` with nothing else is a dead end.
+
+    Telling a user their lock must be put into pairing mode, and not telling
+    them how, is worse than silence: they now know there is a step and still
+    cannot take it. A procedure or, at minimum, prose in `notes` has to follow.
+    """
+    for device_id, pairing in pairings(specs):
+        entry = pairing.get("enter_pairing_mode")
+        if not entry or entry.get("required") is not True:
+            continue
+        assert entry.get("procedures") or entry.get("notes"), (
+            f"{device_id}: enter_pairing_mode is required but the spec does not "
+            f"say how to do it"
+        )
+
+
+def test_a_stated_pin_is_a_product_wide_default(specs):
+    """A per-unit PIN is a live credential, not a protocol fact.
+
+    docs/CLEANROOM_RULES.md lists pairing PINs among the identifiers to scrub:
+    one read off the researcher's own hardware is a key to that hardware and
+    is useless to everyone else. Only a value that is the same on every unit
+    of the product belongs in a spec. The schema enforces this too; the test
+    is here because it is a rule about what we publish, not only about shape.
+    """
+    for device_id, pairing in pairings(specs):
+        pin = pairing.get("pin")
+        if not pin or "value" not in pin:
+            continue
+        assert pin.get("source") == "fixed_default", (
+            f"{device_id}: pairing.pin states a value but source is "
+            f"{pin.get('source')!r} — only a product-wide default may be published"
+        )
+
+
+def test_the_schema_itself_rejects_a_per_unit_pin_value():
+    """The clean-room PIN rule is in the schema, not only in this file.
+
+    schema.json is published for standalone consumers who never run pytest,
+    and this particular rule protects somebody's front door rather than our
+    tidiness. Assert the schema really carries it.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = {
+        "device": {
+            "name": "Test",
+            "protocol": "ble",
+            "pairing": {
+                "required": True,
+                "confidence": "low",
+                "pin": {"source": "printed_label", "value": "481602"},
+            },
+        },
+        "services": [],
+    }
+    errors = list(validator.iter_errors(spec))
+    assert errors, "schema accepted a per-unit PIN value; it must not"
+
+
+LINK_KINDS = {
+    "manual",
+    "vendor_support",
+    "teardown",
+    "protocol_writeup",
+    "implementation",
+    "forum",
+    "standard",
+    "video",
+    "other",
+}
+
+
+def helpful_urls(specs: dict[str, dict]):
+    for device_id, spec in specs.items():
+        for entry in spec.get("helpful_urls") or []:
+            yield device_id, entry
+
+
+def test_link_kinds_come_from_the_documented_vocabulary(specs):
+    """`kind` is only worth having if a consumer can switch on it."""
+    for device_id, entry in helpful_urls(specs):
+        kind = entry.get("kind")
+        if kind is None:
+            continue
+        assert kind in LINK_KINDS, (
+            f"{device_id}: helpful_urls kind {kind!r} not in {sorted(LINK_KINDS)}"
+        )
+
+
+def test_a_spec_does_not_link_the_same_url_twice(specs):
+    """Two entries for one URL is a merge artefact, not a second reference."""
+    for device_id, spec in specs.items():
+        urls = [entry["url"] for entry in spec.get("helpful_urls") or []]
+        duplicates = {url for url in urls if urls.count(url) > 1}
+        assert not duplicates, f"{device_id}: helpful_urls repeats {sorted(duplicates)}"
+
+
+def test_manual_links_say_which_manual(specs):
+    """A bare 'manual' link is a guessing game when a spec covers a family.
+
+    Most specs here document a family rather than one product — the Wemo
+    entry spans plugs and in-wall switches, Beurer's spans a dozen monitors —
+    so which model's manual this is, and whether it is vendor-hosted or an
+    archived copy, is the difference between a useful link and a shrug.
+    """
+    for device_id, entry in helpful_urls(specs):
+        if entry.get("kind") not in {"manual", "vendor_support"}:
+            continue
+        assert (entry.get("description") or "").strip(), (
+            f"{device_id}: the manual link {entry['url']} needs a description "
+            f"saying which model or edition it covers"
+        )
+
+
+def test_archived_links_are_kept_as_archive_urls(specs):
+    """An archive.org link must be a snapshot, not the availability API.
+
+    The API returns JSON about whether a snapshot exists; it is what
+    scripts/check_links.py queries, and it is useless to a human following a
+    link. Only the /web/<timestamp>/ replay form belongs in a spec.
+    """
+    for device_id, entry in helpful_urls(specs):
+        url = entry["url"]
+        if "archive.org/wayback/available" in url:
+            raise AssertionError(
+                f"{device_id}: {url} is the Wayback availability API, not a snapshot"
+            )
+        if "web.archive.org" in url:
+            assert "/web/" in url, f"{device_id}: {url} is not a Wayback replay URL"
+
+
 def test_credentials_declare_passphrase_handling(specs):
     """How the user's WiFi passphrase is protected is never 'unspecified'."""
     for device_id, spec in specs.items():
@@ -320,7 +724,7 @@ def test_credentials_declare_passphrase_handling(specs):
         # provisioning (thermopro-tempspike-bbq), lock pairing (nuki-smart-lock).
         # It only implicates a passphrase when the device has WiFi to join.
         if protection == "not_applicable":
-            types = {m["type"] for m in setup["methods"]}
+            types = method_types(setup)
             hands_over_credentials = bool(
                 types & {"softap_http", "softap_soap", "wps", "smartconfig"}
             ) or ("ble_provisioning" in types and spec["device"]["protocol"] == "wifi")
@@ -333,10 +737,10 @@ def test_credentials_declare_passphrase_handling(specs):
 def test_cloud_only_onboarding_records_whether_a_local_path_exists(specs):
     """The whole point of flagging cloud_account is the recoverability answer."""
     for device_id, setup in setups(specs):
-        for method in setup["methods"]:
-            if method["type"] != "cloud_account":
+        for phase in method_phases(setup):
+            if phase["type"] != "cloud_account":
                 continue
-            cloud = method.get("cloud", {})
+            cloud = phase.get("cloud", {})
             assert cloud.get("local_alternative"), (
                 f"{device_id}: cloud_account onboarding must state whether any "
                 "local alternative exists — 'none known' is a valid answer"
@@ -1425,8 +1829,36 @@ def test_testing_status_is_stated(specs):
 
 @pytest.fixture(scope="module")
 def candidate_reset_spec() -> dict:
-    """A real spec whose factory_reset is unestablished with a candidate."""
-    return load(DEVICES_DIR / "govee-h6001-bulb.yaml")
+    """A real spec carrying an unestablished reset with a candidate procedure.
+
+    Found rather than named. This fixture used to point at one spec by
+    filename, and research resolving that device's reset to an established one
+    silently took the base case out from under three mutation tests — they kept
+    passing while proving nothing, which is the failure mode mutation testing
+    exists to avoid. Searching for a qualifying spec means the backfill can
+    resolve any device it likes without quietly disarming the guards.
+
+    If the catalogue ever contains no unestablished reset at all — a good
+    problem to have — the shape is built from a real spec instead, so the
+    schema rules stay tested either way.
+    """
+    for path in SPEC_PATHS:
+        spec = load(path)
+        reset = (spec["device"].get("setup") or {}).get("factory_reset") or {}
+        if reset.get("applicable") != "unknown":
+            continue
+        procedures = reset.get("procedures") or []
+        if procedures and procedures[0].get("verified") is False and procedures[0].get("basis"):
+            return spec
+
+    spec = copy.deepcopy(load(DEVICES_DIR / "wemo-devices.yaml"))
+    reset = spec["device"]["setup"]["factory_reset"]
+    reset["applicable"] = "unknown"
+    reset["confidence"] = "low"
+    reset["procedures"] = reset["procedures"][:1]
+    reset["procedures"][0]["verified"] = False
+    reset["procedures"][0].setdefault("basis", "synthesised for the mutation tests")
+    return spec
 
 
 def test_candidate_reset_spec_is_valid_to_begin_with(candidate_reset_spec):
@@ -2215,4 +2647,104 @@ def test_a_websocket_spec_declares_the_transport_its_commands_ride(specs):
         assert transport == "websocket", (
             f"{spec_name}: declares a sendable `websocket` channel but "
             f"device.transport is {transport!r}"
+        )
+
+
+def _credential_consumers(spec):
+    """name -> [(command, parameter, description)] for every `credential:` source."""
+    found = {}
+    for command_name, command in (spec.get("commands") or {}).items():
+        if not isinstance(command, dict):
+            continue
+        for param_name, param in (command.get("parameters") or {}).items():
+            if not isinstance(param, dict):
+                continue
+            source = param.get("source") or ""
+            if not source.startswith("credential:"):
+                continue
+            name = source[len("credential:"):]
+            found.setdefault(name, []).append(
+                (command_name, param_name, param.get("description"))
+            )
+    return found
+
+
+def _issued_credential_names(spec):
+    """Every name a setup method declares it issues."""
+    methods = ((spec.get("device") or {}).get("setup") or {}).get("methods") or []
+    return {
+        name
+        for method in methods
+        if isinstance(method, dict)
+        for name in (method.get("issues_credentials") or {})
+    }
+
+
+def test_every_credential_can_be_obtained_or_asked_for(specs):
+    """A `credential:` parameter says where its value comes from, one way or
+    the other.
+
+    Two routes, and a spec must offer one of them. Either a setup method
+    declares it in `issues_credentials`, so a consumer can run the flow and
+    read the value out of the reply — or the parameter carries a `description`
+    saying where a person finds it, so a consumer can ask.
+
+    Neither is a control surface that silently cannot be driven. The commands
+    resolve, the buttons draw, and every press fails on a value the client has
+    no way to obtain and no words to request. A generic consumer builds its
+    prompt out of this description — that is what makes it generic, and what
+    makes an absent one a prompt with a blank in it.
+
+    Hisense was the case that prompted this: `mqtt_client_id` is the source of
+    all thirty-nine of its commands, and what the id IS lived in
+    protocol_details, three hundred lines from the parameter that needs it.
+    """
+    for device_id, spec in specs.items():
+        issued = _issued_credential_names(spec)
+        for name, consumers in _credential_consumers(spec).items():
+            if name in issued:
+                continue
+            described = any(
+                (description or "").strip() for _, _, description in consumers
+            )
+            assert described, (
+                f"{device_id}: {len(consumers)} command(s) source "
+                f"{name!r} from a stored credential, but no setup method "
+                f"issues it and no parameter describes it. A client can "
+                f"neither obtain it nor ask for it. Add a `description` to "
+                f"the parameter saying where a person finds the value, or "
+                f"declare the issuing method in `issues_credentials`."
+            )
+
+
+def test_issued_credentials_are_named_the_way_their_consumers_spell_them(specs):
+    """`issues_credentials` keys and `credential:<name>` sources are one
+    vocabulary.
+
+    The schema says the coupling IS the key spelling — that is what lets a
+    consumer store a pairing's output and fill a later request without a
+    per-device table. A pairing that issues `user` for commands that source
+    `username` stores the value under a name nothing looks up, and every send
+    fails as though the pairing had never happened.
+
+    An issued name with no consumer is fine and deliberate: Hue's `clientkey`
+    is obtainable only at creation time and is stored because it can never be
+    had again, even though no command in the catalogue uses it yet.
+    """
+    for device_id, spec in specs.items():
+        consumed = set(_credential_consumers(spec))
+        issued = _issued_credential_names(spec)
+        if not consumed or not issued:
+            continue
+        # A spec whose consumers are ENTIRELY unissued names is not a
+        # spelling error -- it is a device whose credentials come from
+        # outside any flow it documents (a serial off a touchscreen). The
+        # mismatch worth catching is a pairing that issues something close
+        # to, but not the same as, what the commands ask for.
+        if consumed & issued:
+            continue
+        raise AssertionError(
+            f"{device_id}: setup issues {sorted(issued)} and commands source "
+            f"{sorted(consumed)} — no name is shared, so nothing a pairing "
+            "yields can fill a request. The key spelling is the coupling."
         )

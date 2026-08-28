@@ -110,6 +110,13 @@ device:
       notes: >
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 # Custom consumer-side handler for the cdbwsoft AES-128-ECB command framing
 # (shared with Magic Display). Declarative.
 protocol_handler: "cdbwsoft_ecb"

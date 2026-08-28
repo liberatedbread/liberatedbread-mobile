@@ -141,6 +141,27 @@ device:
       issued_to_client: []
       notes: "BLE-only. Encryption is optional; Bot/Meter work with no auth."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    # Optional per device: the encrypted models take a password inside the
+    # vendor's own frames rather than bonding at the link layer.
+    security_mode: "app_layer"
+    bonding: "optional"
+    pin:
+      source: "user_chosen"
+      notes: >
+        Set by the owner in the SwitchBot app on the models that support it,
+        and then required on every command to those models. Not a BLE passkey
+        — it is carried in the command frames.
+    notes: >
+      Bot, Meter and Curtain accept unencrypted commands from any central, so
+      the common case needs no pairing at all. The Lock family, and newer
+      firmware on some others, require the app-set password before they will
+      act. A client should treat encryption as a per-model property read from
+      this spec rather than assuming either answer for the family.
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "Bot (WoHand)"
       identification:
@@ -402,3 +423,13 @@ helpful_urls:
   - title: "Home Assistant SwitchBot integration"
     url: "https://www.home-assistant.io/integrations/switchbot/"
     description: "HA core BLE integration; the production consumer of the SwitchBot BLE command set documented here."
+  - title: "SwitchBot: user manual downloads"
+    url: "https://us.switch-bot.com/pages/switchbot-user-manual"
+    kind: "vendor_support"
+    description: >
+      Vendor index of per-product manuals across the family this spec covers.
+  - title: "SwitchBot Curtain user manual"
+    url: "https://www.manualslib.com/manual/3776520/Switchbot-Curtain.html"
+    kind: "manual"
+    description: >
+      Manual for one of the encrypted models, whose app-set password this spec's pairing block records.

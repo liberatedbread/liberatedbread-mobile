@@ -204,6 +204,13 @@ device:
         Anything within radio range can connect while the hub advertises its
         pairing-mode flag and issue commands. Physical proximity is the only
         access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "Spectra Smart Hub (PhotoHub)"
       identification:
@@ -502,3 +509,8 @@ helpful_urls:
     description: >-
       Vendor storefront; the Spectra app is delisted from Google Play and the
       Spectra firmware backend (facemeltcrew.com) is gone.
+  - title: "EmazingLights Spectra Evo instructions (PDF)"
+    url: "https://www.scribd.com/document/619493635/Spectra-Evo-Instructions"
+    kind: "manual"
+    description: >
+      Vendor instructions for the Spectra Evo gloves and Smart Hub, covering chip transfer and sync. EmazingLights has shut down; this is a surviving copy.

@@ -255,6 +255,13 @@ device:
         No authentication. Anything within radio range can connect and
         issue commands; physical proximity is the only access control.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "MELK- pixel strip (duoCo StripX / Magic Lantern)"
       identification:
@@ -511,6 +518,7 @@ entities:
 helpful_urls:
   - title: "duoCo StripX on Google Play"
     url: "https://play.google.com/store/apps/details?id=wl.smartled.duoco.rgb"
+    kind: "vendor_support"
     description: "One of the three vendor apps for this platform (channel skin of the shared fstart/easylink codebase); protocol source for the MELK- name gating and the 241-entry mode table."
   - title: "Lotus Lantern on Google Play"
     url: "https://play.google.com/store/apps/details?id=wl.smartled"

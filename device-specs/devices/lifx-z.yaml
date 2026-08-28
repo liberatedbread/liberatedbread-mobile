@@ -95,6 +95,8 @@ device:
       unauthenticated UDP and needs no further setup.
     methods:
       - type: "softap_udp"
+        name: "Original firmware: plaintext UDP on the setup AP"
+        role: "variant"
         verified: false
         description: >
           Join the device's own setup AP and drive the deprecated access-point
@@ -318,6 +320,8 @@ device:
             expect: "The device answers mDNS/UDP discovery on the home LAN; see the discovery block."
             timeout_seconds: 90
       - type: "softap_udp"
+        name: "Later firmware: mutual-TLS TCP on the setup AP"
+        role: "variant"
         verified: false
         description: >
           Modern flow, derived from the vendor app (app-derived,
@@ -669,3 +673,13 @@ helpful_urls:
   - title: "Home Assistant LIFX integration"
     url: "https://www.home-assistant.io/integrations/lifx/"
     description: "HA core integration speaking the LIFX LAN binary protocol documented here (UDP 56700)."
+  - title: "LIFX Z instructions manual"
+    url: "https://www.manualslib.com/manual/2397784/Lifx-Z.html"
+    kind: "manual"
+    description: >
+      Vendor instructions for the Z light strip.
+  - title: "LIFX: Z LED strip manuals"
+    url: "https://www.lifx.com.au/pages/z-led-strip-manuals"
+    kind: "vendor_support"
+    description: >
+      Vendor manual index for the Z range.

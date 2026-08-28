@@ -18,5 +18,11 @@ The rules most likely to bite if skipped:
   and commits it on main. A branch carrying it fails CI (it is the file every
   parallel spec PR used to conflict on). `python scripts/generate_index.py`
   still writes it locally if you want to look at it; just don't stage it.
+- **Glyphs are drawn, never derived.** `glyphs/` holds original line art of
+  the buttons and LEDs a reset or pairing step points at. A crop of a vendor
+  manual or a trace over a product photo is a clean-room violation, whatever
+  it has been through in between. They are tracked with Git LFS — run
+  `git lfs install` in a fresh clone.
 - Validate before you're done: `python scripts/validate_specs.py`,
-  `ruff check .`, `pytest -q`, `mkdocs build --strict`.
+  `python scripts/validate_glyphs.py`, `ruff check .`, `pytest -q`,
+  `mkdocs build --strict`.

@@ -211,6 +211,19 @@ device:
         Anything within radio range can connect and issue commands; physical
         proximity is the only access control. The vendor app's device-lock
         ("password") feature exists but its wire mechanism is untraced.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Close the vendor app, and any other client holding the device,
+        before connecting. Nothing needs clearing afterwards — no bond
+        is stored on either side.
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "ST17H66-based (Lenze)"
       identification:
@@ -669,8 +682,18 @@ helpful_urls:
       for Bluetrum, .dcf) are public and are the reference material for the OTA
       flows this spec documents.
   - title: "Hello Fairy on Google Play"
-    url: "https://play.google.com/store/apps/details?id=com.lenzetech.hellofairy"
+    url: "https://web.archive.org/web/20220804013543/https://play.google.com/store/apps/details?id=com.lenzetech.hellofairy"
     description: >-
       Vendor app (v3.3.3 analyzed for this spec). BLE-only; also fetches
       scene/UI resources and self-updates from vendor cloud buckets, none of
       which are needed for local control.
+  - title: "AvatarControls: Hello Fairy app and setup"
+    url: "https://www.avatarcontrols.com/pages/hello-fairy-app"
+    kind: "vendor_support"
+    description: >
+      Vendor setup page for the Hello Fairy app this spec's BLE protocol belongs to.
+  - title: "AvatarControls: Hello Fairy outdoor string lights"
+    url: "https://www.avatarcontrols.com/products/outdoor-string-lights-hello-fairy-app-control"
+    kind: "vendor_support"
+    description: >
+      Vendor product page documenting the controller's button behaviour — short press to toggle, three-second hold to cycle modes.

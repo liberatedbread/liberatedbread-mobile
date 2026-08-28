@@ -69,6 +69,13 @@ device:
         mdns:
           service_type: "_miio._udp.local."
           port: 54321
+          # This spec IS the platform, in the schema's own words: it matches a
+          # whole firmware family rather than one product, declares no
+          # entities, and claims no product's controls. Without the flag it
+          # competes on equal terms with any product spec that also names
+          # `_miio._udp`, and a Roborock vacuum came back badged as a Yeelight
+          # cube — because the product spec's NAME is the one a scan row shows.
+          platform_fallback: true
           identity_mapping:
             stable_keys:
               - source: "txt:mac"
@@ -113,12 +120,41 @@ device:
           - action: "Control locally over UDP 54321 with the token."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
+      applicable: true
       confidence: low
       effect: >
-        Per-device reset (usually a button hold) returns the device to
-        onboarding and may rotate the token. Gestures vary by product and are not
-        transcribed here.
+        Returns the device to onboarding. Expect the miIO token to rotate, so
+        any client holding one must extract it again — that is the practical
+        consequence for anything built on this spec, and it is the reason not
+        to reset a working device casually.
+      description: >
+        This spec covers a platform rather than one product, so the gesture is
+        per-device and the two shapes below are the ones the Mi Home
+        documentation describes. Confidence stays low deliberately: the
+        vendor material recovered here names the methods without giving hold
+        times or indicators for any specific product, and those are exactly the
+        details that decide whether an attempt works.
+      procedures:
+        - name: "Reset pinhole pressed with a needle (sensors and small devices)"
+          glyph: "generic/pinhole-reset.svg"
+          verified: false
+          basis: >
+            The Mi Home smart kit manual, which directs the user to reset
+            factory settings with a needle before siting a sensor. No hold time
+            or indicator is given.
+          power_state: "on"
+          steps:
+            - action: "Press the reset pinhole on the device with the supplied needle or a similar thin tool."
+              actor: "user"
+              expect: "The device returns to onboarding and can be added again."
+        - name: "Add-device flow from the Mi Home app"
+          glyph: "generic/on-screen-menu.svg"
+          verified: false
+          basis: "The Mi Home smart kit manual, given as the alternative to the physical reset."
+          power_state: "on"
+          steps:
+            - action: "Open the hub in Mi Home, choose add device, and follow the prompts, which include performing the device's factory reset."
+              actor: "user"
     rejoin:
       in_place_supported: false
       requires_factory_reset: true
@@ -183,3 +219,8 @@ helpful_urls:
   - title: "rytilahti/python-miio"
     url: "https://github.com/rytilahti/python-miio"
     description: "GPL-3.0 reference client; discovery, token handling, per-device command modules and generic MIoT."
+  - title: "Aqara Hub M2 user manual"
+    url: "https://www.manualslib.com/manual/3277465/Aqara-Hub-M2.html"
+    kind: "manual"
+    description: >
+      Manual for one of the Zigbee hubs that bridges into the miIO ecosystem this spec documents.

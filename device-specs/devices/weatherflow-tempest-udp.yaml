@@ -94,11 +94,70 @@ device:
             actor: "user"
             expect: "The hub broadcasts obs_st / rapid_wind datagrams on UDP 50222."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Hub reset (button/power) returns it to onboarding; the exact gesture is
-        not documented in the UDP API and is not transcribed here.
+        On the hub, clears the saved WiFi connection and returns it to
+        onboarding. On a Tempest or SKY sensor, drops its association with the
+        hub and puts it back into pairing mode. Neither clears the observation
+        history, which lives in the vendor's cloud rather than on the hardware.
+      description: >
+        Two different pieces of hardware with two different buttons, and it is
+        worth being clear which one is being reset: the hub is the thing that
+        holds the WiFi credentials and emits the UDP broadcasts this spec
+        documents, while the sensors only talk to the hub. A sensor whose
+        observations have stopped appearing needs the sensor procedure; a hub
+        that needs to move to a new network needs the first one.
+      procedures:
+        - name: "Hub: clear the saved WiFi connection"
+          glyph: "generic/pinhole-reset.svg"
+          indicator_glyph: "generic/led-flashing.svg"
+          verified: false
+          basis: "WeatherFlow's Tempest instruction manual."
+          power_state: "on"
+          indicator: "The LED flashes."
+          steps:
+            - action: "With the hub powered, press and hold the reset button on the back using a toothpick or a straightened clip."
+              actor: "user"
+            - action: "Release when the LED flashes."
+              actor: "user"
+              expect: "The saved WiFi connection is cleared and the hub returns to onboarding."
+        - name: "Hub: radio reset, held while power is applied"
+          glyph: "generic/hold-button-while-powering-on.svg"
+          indicator_glyph: "generic/led-flashing.svg"
+          verified: false
+          basis: "WeatherFlow's Tempest instruction manual, listed under sensors not reporting."
+          power_state: "booting"
+          indicator: "The blue LED on the back of the hub."
+          steps:
+            - action: "Disconnect the hub from power."
+              actor: "user"
+            - action: "Using a thin tool, press and hold the reset button on the back."
+              actor: "user"
+            - action: "Reconnect power while still holding the button."
+              actor: "user"
+            - action: "Wait for the blue LED on the back, then release."
+              actor: "user"
+              expect: "Blue LED on the back of the hub."
+        - name: "Tempest or SKY sensor: back to pairing mode"
+          glyph: "generic/hold-button.svg"
+          indicator_glyph: "generic/led-flashing.svg"
+          verified: false
+          basis: "WeatherFlow's Tempest instruction manual."
+          applies_to: ["Tempest", "SKY"]
+          hold_seconds: 5
+          power_state: "on"
+          indicator: "The LED flashes green."
+          steps:
+            - action: "Press and hold the clear LED button on the base of the unit, next to the battery door, for about five seconds."
+              actor: "user"
+              notes: >
+                On a SKY with the solar panel accessory fitted, reach the same
+                button with a thin tool through the slot in the panel rather
+                than removing it.
+            - action: "Release when the LED flashes green."
+              actor: "user"
+              expect: "LED flashes green — the device is in pairing mode and can be re-added to the station."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -179,3 +238,8 @@ helpful_urls:
   - title: "WeatherFlow — Tempest UDP API v171"
     url: "https://weatherflow.github.io/Tempest/api/udp/v171/"
     description: "The vendor's own local UDP broadcast API (port 50222, message types, field layouts)."
+  - title: "WeatherFlow Tempest quick instruction manual"
+    url: "https://www.manualslib.com/manual/2595260/Weatherflow-Tempest.html"
+    kind: "manual"
+    description: >
+      Vendor manual covering the hub and sensor resets in this spec, plus the LED status indicators.

@@ -172,13 +172,38 @@ device:
             actor: client
             expect: "Fields decode per payload_formats.current_readings; sentinel bits mark invalid values during calibration."
     factory_reset:
-      applicable: "unknown"
+      applicable: true
       confidence: low
       effect: >
-        No documented factory-reset procedure in the public RE literature.
-        Bonds can be cleared from the device's settings menu per vendor
-        support docs; nothing network-related is stored. Not stated rather
-        than guessed.
+        Removing and reinserting a battery restarts the sensor and clears the
+        stored measurement history. Whether it also clears the Bluetooth bonds
+        is NOT established — and for this device that is the question that
+        actually matters, since bonding is mandatory for every GATT operation.
+      description: >
+        Two different things get called a reset here and only one of them is
+        documented. The battery cycle is documented by Aranet's community as
+        the way to clear stored history. Clearing BONDS is a separate
+        operation, and this spec's `pairing.unpair` block records the vendor
+        support position that bonds can be cleared from the sensor's own
+        settings menu — that is the route to take when the problem is a device
+        that will not accept a new phone, and it does not cost the history.
+
+        Aranet also document a full factory reset for the Aranet PRO base
+        station, under System then Backup. That is different hardware; do not
+        go looking for it on an Aranet4.
+      procedures:
+        - name: "Battery cycle — clears stored history"
+          verified: false
+          basis: >
+            Aranet's community forum, where this is given as the way to clear
+            historic data. It is not described as clearing bonds, and nobody
+            has established whether it does.
+          power_state: "off"
+          glyph: "generic/pinhole-reset.svg"
+          steps:
+            - action: "Take out one of the batteries and put it back."
+              actor: "user"
+              expect: "The sensor restarts and previous historic data is gone."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -195,6 +220,45 @@ device:
         radio range once integrations are enabled — a privacy consideration,
         not a control risk (the sensor actuates nothing).
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "passkey_entry"
+    bonding: "required"
+    pin:
+      source: "device_screen"
+      notes: >
+        Shown on the sensor's own e-ink display at pairing time, so it is
+        per-unit and per-attempt — there is nothing to write down here, and a
+        client must prompt the user rather than supply it.
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: >
+        A new client bonds independently and existing bonds are unaffected, so
+        adding a second reader does not evict the first. Only one may be
+        connected at a time.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "Stored bonds, leaving readings, history and settings intact."
+      notes: >
+        Bonds can be cleared from the sensor's own settings menu per the
+        vendor's support documentation — worth knowing before anyone reaches
+        for a factory reset to solve a pairing problem, since a reset here
+        also drops the measurement history.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Which surface you want decides the answer, and this is the device where
+      that distinction matters most. Advertisements never require pairing:
+      with firmware >= v1.2.0 and "Smart Home integrations" enabled, a passive
+      scan gets every measurement with no connection at all. Everything else
+      does require a bond — always on firmware < v1.2.0, where unbonded
+      connections are dropped outright, and on any firmware for history
+      download and settings writes. `required: true` records the harder of the
+      two because a client that assumes otherwise fails on the GATT path;
+      a client that only wants readings can ignore this block entirely.
 services:
   - uuid: "f0cd1400-95da-4f4b-9ac8-aa55d312af0c"
     name: "Aranet vendor service"
@@ -451,3 +515,13 @@ helpful_urls:
   - url: "https://www.home-assistant.io/integrations/aranet/"
     title: "Home Assistant Aranet integration"
     description: "Passive-only integration; documents the firmware v1.2.0 + integrations-enabled requirement."
+  - title: "Aranet4 HOME / PRO user guide (PDF)"
+    url: "https://assets.aranet.com/documents/Aranet4_HOME_TDSPC0H3_User_Manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the Aranet4 Home.
+  - title: "Aranet4 Home: FAQ"
+    url: "https://help.aranet.com/aranet4/aranet4-home/faq"
+    kind: "vendor_support"
+    description: >
+      Vendor FAQ. Note it does not cover bond clearing — that comes from Aranet's support material referenced in the pairing block.

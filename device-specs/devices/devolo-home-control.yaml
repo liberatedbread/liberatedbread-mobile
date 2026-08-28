@@ -195,13 +195,8 @@ device:
       confidence medium, nothing here was replayed against hardware.
     methods:
       - type: "hub_pairing"
-        verified: false
-        description: "Original flow: vendor app wizard includes the device into the MT2600 gateway's network. Defunct with the cloud shutdown — documented for completeness only."
-        steps:
-          - action: "In the vendor app, start the add-device wizard for the device type and follow the per-device button procedure."
-            actor: "user"
-            expect: "Device appears in the app."
-      - type: "hub_pairing"
+        name: "Migrate the device to a third-party Z-Wave controller"
+        role: "primary"
         verified: false
         description: "Migration flow: exclude from the devolo network, then include on the new Z-Wave controller. Exclusion does not need the old controller or the cloud — put the NEW controller in exclusion mode and perform the device-side exclusion procedure from the variant table."
         steps:
@@ -223,6 +218,15 @@ device:
             causes:
               - "Battery device went back to sleep — wake it manually and let the interview finish."
               - "Homey: devolo manufacturer ID 0x0175 is unmatched by Philio drivers — pairs as unknown device; use generic Z-Wave or wait for driver support."
+      - type: "hub_pairing"
+        name: "Original app/portal inclusion into the MT2600"
+        role: "historical"
+        verified: false
+        description: "Original flow: vendor app wizard includes the device into the MT2600 gateway's network. Defunct with the cloud shutdown — documented for completeness only."
+        steps:
+          - action: "In the vendor app, start the add-device wizard for the device type and follow the per-device button procedure."
+            actor: "user"
+            expect: "Device appears in the app."
     factory_reset:
       confidence: "medium"
       effect: "Per-device: clears the Z-Wave network membership (home ID / node ID) and restores configuration defaults. There is no estate-wide reset; each device is reset individually. See the variant table for per-model procedures."
@@ -250,6 +254,42 @@ device:
         Home Control Central Unit itself uses is the hub's own provisioning
         and is out of scope here.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    # Z-Wave inclusion: the device is admitted to a controller's network and
+    # handed its network key, rather than pairing with a peer.
+    security_mode: "network_join"
+    bonding: "required"
+    exclusivity:
+      single_bond: true
+      recovery: >
+        A Z-Wave device belongs to exactly one network at a time. Exclude it
+        from the old controller — or, since the vendor gateway is defunct, put
+        the NEW controller into exclusion mode, which works without the old
+        one — before including it anywhere else.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "Network membership and the network key. Device configuration is controller-side and does not survive the move."
+      notes: >
+        Exclusion is the Z-Wave answer to unpairing and it does not need the
+        original controller, which is the fact that makes this hardware
+        recoverable at all after the vendor cloud shutdown. Any Z-Wave
+        controller in exclusion mode will do.
+    enter_pairing_mode:
+      required: true
+      notes: >
+        The device-side inclusion trigger differs per model — see the variant
+        table, e.g. the tamper key pressed three times within 1.5 seconds on
+        Philio-based units. Battery devices sleep within seconds, so keep the
+        device awake with button presses through the whole interview or it
+        will complete with an empty capability list.
+    notes: >
+      There is nothing devolo-specific about the pairing: this is ordinary
+      Z-Wave inclusion, and the whole point of documenting it here is that
+      exclusion works without the dead vendor gateway. Rebinding to any
+      third-party controller is exclude, then include.
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:
@@ -362,6 +402,11 @@ helpful_urls:
   - title: "HA community: Danfoss LC13 (aka POPP/devolo) temperature offset"
     url: "https://community.home-assistant.io/t/danfoss-lc13-aka-popp-devolo-temperature-calibration-set-permanent-offset/971303"
 
+  - title: "devolo Home Control: first steps"
+    url: "https://www.manualslib.com/manual/1641659/Devolo-Home-Control.html"
+    kind: "manual"
+    description: >
+      Surviving copy of the setup documentation; devolo's Home Control cloud has shut down.
 # Companion-app status (NOT purely cloud-routed, see cloud block):
 #   Delisted from the store fronts with the shutdown, but still fetchable
 #   by package id as of 2026-08-04. Static inspection: a Retrofit REST +

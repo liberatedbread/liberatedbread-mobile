@@ -174,3 +174,13 @@ helpful_urls:
   - title: "tchellomello/python-amcrest"
     url: "https://github.com/tchellomello/python-amcrest"
     description: "Python client for Amcrest and Dahua cameras/NVRs."
+  - title: "Amcrest IP2M-841 user manual"
+    url: "https://www.manualslib.com/manual/1159982/Amcrest-Ip2m-841.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the exemplar camera in this spec.
+  - title: "Amcrest IP2M-841E user manual (PDF, vendor-hosted)"
+    url: "https://s3.amazonaws.com/amcrest-files/Documentation/IP2M-841E+User+Manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted PDF for the PoE variant, covering the reset button this spec documents.

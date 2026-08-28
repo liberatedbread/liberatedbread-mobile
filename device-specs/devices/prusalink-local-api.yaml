@@ -94,11 +94,29 @@ device:
           - action: "Call GET /api/v1/status (Digest maker + password, or X-Api-Key)."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Network settings reset from the printer menu clears the Wi-Fi config and
-        rotates the API key. The exact menu path is not transcribed here.
+        Resets every saved value on the printer to its default state. Expect
+        the network configuration and the PrusaLink API key to go with it, so
+        any client holding that key must be given the new one.
+      description: >
+        Menu-driven rather than a button hold. Note that the button under the
+        rotary knob is NOT this: it is a reset in the reboot sense — the
+        vendor documents it as equivalent to switching the printer off and on
+        — and someone reaching for a factory reset will find it first.
+      procedures:
+        - name: "Factory Reset from the printer's own menu"
+          glyph: "generic/on-screen-menu.svg"
+          verified: false
+          basis: >
+            Prusa's MK4/MK3.9 handbook and MK4S user manual, section 4.13
+            Factory Reset.
+          power_state: "on"
+          steps:
+            - action: "On the printer's LCD, open Settings, then System, then Factory Reset."
+              actor: "user"
+              expect: "All saved values return to their default state."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -173,3 +191,13 @@ helpful_urls:
   - title: "PrusaLink — OpenAPI spec"
     url: "https://github.com/prusa3d/Prusa-Link-Web/blob/master/spec/openapi.yaml"
     description: "The official /api/v1 endpoints, auth, and OctoPrint-compatible layer."
+  - title: "Original Prusa MK4 handbook"
+    url: "https://www.manualslib.com/manual/3029382/Prusa-Research-Original-Prusa-Mk4.html"
+    kind: "manual"
+    description: >
+      Vendor handbook; section 4.13 is the factory reset this spec documents.
+  - title: "Prusa Knowledge Base: Original Prusa MK4"
+    url: "https://help.prusa3d.com/manual/original-prusa-mk4-kit-assembly_1967"
+    kind: "vendor_support"
+    description: >
+      Vendor documentation hub, kept current as firmware changes the menus.
