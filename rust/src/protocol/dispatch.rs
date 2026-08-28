@@ -33,11 +33,11 @@ static SPEC_CACHE: LazyLock<Mutex<HashMap<String, Arc<DeviceSpec>>>> =
 
 /// Upper bound on cached specs. Generous for the legitimate workload (a
 /// handful of bundled specs plus a few installed packs), tiny against a
-/// hostile stream of never-repeating YAML strings. When the bound is hit the
-/// whole cache is cleared rather than LRU-evicted: reaching it at all means
-/// the workload is not the one the cache serves, and a documented clear is
-/// simpler than an eviction policy (or an LRU dependency) — the cost of a
-/// miss is one re-parse.
+/// hostile stream of never-repeating YAML strings. At the bound, ONE
+/// arbitrary entry is evicted per insert — the policy and the story of why
+/// clear-on-full lost live at the eviction site in [`parse_or_cached`].
+/// `regex_for` in `device_api.rs` bounds its pattern cache the same way; if
+/// one policy changes, change both.
 const SPEC_CACHE_MAX_ENTRIES: usize = 64;
 
 /// Parse `yaml`, or hand back the [`SPEC_CACHE`] entry for it.
@@ -231,11 +231,13 @@ services:
     // rather than reading the global cache length, which is shared with
     // every other test running on the multithreaded test runner.
 
-    /// The capacity test clears the shared global cache, which would race
-    /// the identity assertions of the identical-YAML test if the two
-    /// interleave on the parallel runner. Serialize just those two — the
-    /// remaining tests only compare *content* or the identity of *distinct*
-    /// specs, both of which survive a concurrent clear.
+    /// The capacity test MUTATES the shared global cache — it fills it to
+    /// the bound (evicting arbitrary entries, possibly another test's) and
+    /// clears it on the way out — which would race the identity assertions
+    /// of the identical-YAML test if the two interleave on the parallel
+    /// runner. Serialize the mutators and the identity-asserting tests here;
+    /// the remaining tests only compare *content* or the identity of
+    /// *distinct* specs, both of which survive concurrent eviction.
     static CACHE_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
@@ -304,6 +306,13 @@ services: []
             Arc::ptr_eq(&first, &second),
             "a just-filed entry must be served by identity, not re-parsed"
         );
+        // Leave the cache EMPTY, not saturated: this test walks away from a
+        // map sitting exactly at its bound, where every later unguarded
+        // `parse_or_cached` insert anywhere in the binary would evict an
+        // arbitrary entry — with ~1/64 luck, one a guarded test is holding an
+        // `Arc::ptr_eq` assertion over. An unreproducible flake is a worse
+        // legacy than a cold cache.
+        SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     /// The lock is released across the parse, so two threads can miss on the

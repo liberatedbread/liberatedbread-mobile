@@ -45,6 +45,9 @@ pub enum ProtocolError {
     #[error("command has neither value nor template")]
     EmptyCommand,
 
+    #[error("parameter '{name}' cannot ride a text frame: {reason}")]
+    TextFrameValueInvalid { name: String, reason: String },
+
     #[error("command requires '{0}' encoding, which is not supported by the legacy raw-byte encoder — use typed controls instead")]
     UnsupportedCommandEncoding(String),
 

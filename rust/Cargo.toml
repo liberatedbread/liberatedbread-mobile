@@ -51,12 +51,21 @@ serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 # in declared order — a BTreeMap-backed Map would alphabetize the keys and diff
 # against nothing.
 serde_json = { version = "1", features = ["preserve_order"] }
-# default-features off: the catalogue's matcher patterns are short ASCII
-# alternations, and the unicode tables are ~1 MB of binary a phone app ships
-# to every user for `\p{...}` classes no spec writes. A pattern that needs
-# them fails closed — regex_for caches the compile failure and the matcher
+# default-features off, MINUS the two unicode features the schema's own
+# pattern vocabulary needs: `\d`/`\w`/`\s`/`\b` compile only with
+# `unicode-perl`, and `(?i)` only with `unicode-case` — upstream validates
+# patterns with Python `re`, which accepts all of those, so a catalogue
+# author writing `^S\d` must not ship a matcher that silently matches
+# nothing. What stays off is the rest of the tables (`\p{...}` property
+# classes, ~1 MB of binary no spec writes). A pattern that needs those still
+# fails closed — regex_for caches the compile failure and the matcher
 # matches nothing, the same as any other uncompilable pattern.
-regex = { version = "1", default-features = false, features = ["std", "perf"] }
+regex = { version = "1", default-features = false, features = [
+    "std",
+    "perf",
+    "unicode-perl",
+    "unicode-case",
+] }
 thiserror = "2"
 anyhow = "1"
 # The Rabbit Air LAN protocol's wire crypto: AES-128-CBC with PKCS7 padding,

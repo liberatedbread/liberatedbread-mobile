@@ -2752,3 +2752,97 @@ fn hue_username_is_issued_by_the_link_button_stage() {
     assert_eq!(issued.method, "button_pairing");
     assert!(!username.must_be_asked_for());
 }
+
+/// Every regex matcher the catalogue writes must COMPILE in this build.
+/// Upstream validates patterns with Python `re`, which accepts `\d`, `\w`,
+/// `\b` and `(?i)`; the regex crate only compiles those with its
+/// `unicode-perl`/`unicode-case` features on. A pattern that fails to
+/// compile is cached as a permanent non-match — a matcher that silently
+/// claims nothing, which for a warning-category spec is fail-open. This
+/// gate turns that silence into a red test the moment a refreshed catalogue
+/// (or a feature-list trim in Cargo.toml) produces an uncompilable pattern.
+#[test]
+fn every_vendored_regex_matcher_compiles_in_this_build() {
+    fn regex_values(node: &serde_yaml::Value, out: &mut Vec<String>) {
+        match node {
+            serde_yaml::Value::Mapping(map) => {
+                let is_regex = map
+                    .get("match")
+                    .and_then(|m| m.as_str())
+                    .is_some_and(|m| m == "regex");
+                if is_regex {
+                    if let Some(value) = map.get("value").and_then(|v| v.as_str()) {
+                        out.push(value.to_string());
+                    }
+                    if let Some(values) = map.get("values").and_then(|v| v.as_sequence()) {
+                        out.extend(values.iter().filter_map(|v| v.as_str().map(str::to_string)));
+                    }
+                }
+                for (_, child) in map {
+                    regex_values(child, out);
+                }
+            }
+            serde_yaml::Value::Sequence(seq) => {
+                for child in seq {
+                    regex_values(child, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut patterns = Vec::new();
+    for path in vendored_yaml_paths() {
+        let text = fs::read_to_string(&path).expect("vendored yaml is readable");
+        let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(&text) else {
+            continue; // every_vendored_spec_parses_ok owns parse failures
+        };
+        regex_values(&doc, &mut patterns);
+    }
+    assert!(
+        patterns.len() >= 10,
+        "expected the catalogue's dozen-odd regex matchers, found {} — \
+         did the matcher shape change under this gate?",
+        patterns.len()
+    );
+    for pattern in patterns {
+        // The same builder settings `regex_for` compiles with (size limits
+        // bounded so a hostile pattern cannot balloon); a pattern that fails
+        // HERE would match nothing THERE.
+        assert!(
+            regex::RegexBuilder::new(&pattern)
+                .size_limit(1 << 20)
+                .dfa_size_limit(1 << 20)
+                .build()
+                .is_ok(),
+            "vendored matcher pattern {pattern:?} does not compile in this build's \
+             regex feature set (see the regex entry in Cargo.toml)"
+        );
+    }
+}
+
+/// Both vendored televisions must DECLARE their pairing token: the stores
+/// are wired only for declared credentials, so a set whose token vanishes
+/// from this list re-pairs on every group run — the Allow prompt raised
+/// mid-run for a TV that was already paired.
+#[test]
+fn the_vendored_tvs_declare_their_pairing_tokens() {
+    use liberated_bread_core::spec::credentials::required_credentials;
+
+    for file in ["samsung-tizen-tv.yaml", "lg-webos.yaml"] {
+        let yaml =
+            fs::read_to_string(spec_path(file)).unwrap_or_else(|_| panic!("{file} is bundled"));
+        let spec = parse_device_spec(&yaml).unwrap_or_else(|_| panic!("{file} parses"));
+        let credentials = required_credentials(&spec);
+        let token = credentials
+            .iter()
+            .find(|c| c.issued_by.as_ref().is_some_and(|i| i.method == "websocket_pairing"))
+            .unwrap_or_else(|| {
+                panic!("{file} must report its websocket pairing credential; an empty list is what re-paired TVs mid-group-run")
+            });
+        assert!(
+            !token.must_be_asked_for(),
+            "{file}: a pairing-minted token must never be prompted for"
+        );
+    }
+}

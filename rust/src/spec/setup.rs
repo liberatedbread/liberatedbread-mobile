@@ -72,8 +72,12 @@ pub fn soft_ap_profiles<'a>(specs: impl IntoIterator<Item = &'a DeviceSpec>) -> 
 /// is free to put the softap or BLE half of a multi-phase route on the stage
 /// that performs it — no stage in today's catalogue does, but reading them
 /// costs nothing, and not reading them would silently drop that route the day
-/// one appears.
-fn method_and_stages(method: &serde_yaml::Value) -> impl Iterator<Item = &serde_yaml::Value> {
+/// one appears. This is the ONE definition of that walk: the credential
+/// scan reuses it, so "a stage is method-shaped" cannot drift between the
+/// profile extractors and `issued_credentials`.
+pub(crate) fn method_and_stages(
+    method: &serde_yaml::Value,
+) -> impl Iterator<Item = &serde_yaml::Value> {
     std::iter::once(method).chain(
         method
             .get("stages")
@@ -176,10 +180,11 @@ fn profiles_for_spec(spec: &DeviceSpec) -> Vec<SoftApProfile> {
 // it speaks — so the shapes are deliberately parallel, `advertised_name` where
 // softap has `ssid_prefix`.
 
-/// How a spec says its setup-mode advertised name is compared. The default is
-/// [`Prefix`](NameMatch::Prefix), matching `local_name_prefixes` elsewhere in
-/// the catalogue; a spec that has watched the radio and knows the name is
-/// whole says `exact` and gets an equality test.
+/// How a spec says its setup-mode advertised name is compared. The schema's
+/// default — and the fallback for a rule this build does not recognize — is
+/// [`Exact`](NameMatch::Exact): a whole-string equality test. A spec whose
+/// setup name is a stem says `prefix` and gets the looser comparison; the
+/// looser reading is always the spec's to ask for, never a fallback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameMatch {
     Exact,
@@ -390,12 +395,16 @@ impl SetupMethod {
     /// primary and its alternatives first, then hardware variants, then
     /// anything defunct. A missing role sorts with primary so a legacy
     /// single-role catalogue keeps its file order (the sort is stable).
+    /// A role STRING this build has never heard of sorts with the variants
+    /// instead: the schema can grow one (say `deprecated`), and a value we
+    /// cannot rank must not outrank routes the catalogue deliberately put
+    /// first — the same closed reading `advertised_name_match` gets.
     fn role_rank(&self) -> u8 {
         match self.role.as_deref() {
+            None | Some("primary") => 0,
             Some("alternative") => 1,
-            Some("variant") => 2,
             Some("historical") => 3,
-            _ => 0,
+            _ => 2,
         }
     }
 }
@@ -1045,6 +1054,41 @@ device:
         let s = setup_instructions(&spec(legacy)).expect("has instructions");
         assert_eq!(s.methods[0].description.as_deref(), Some("First."));
         assert_eq!(s.methods[1].description.as_deref(), Some("Second."));
+    }
+
+    /// A role this build has never heard of must not outrank the routes the
+    /// catalogue deliberately put first. It sorts with the variants — below
+    /// primary and its alternatives, above the defunct — instead of falling
+    /// into the primary bucket the way absent-role legacy methods do.
+    #[test]
+    fn an_unknown_role_sorts_with_the_variants_not_with_primary() {
+        let yaml = r#"
+device:
+  name: "Test Future"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  setup:
+    methods:
+      - type: "cloud_account"
+        name: "A role from a newer schema"
+        role: "deprecated"
+        description: "This build cannot rank it."
+      - type: "softap_http"
+        name: "The documented fallback"
+        role: "alternative"
+        description: "Ranked by the catalogue."
+      - type: "hub_pairing"
+        name: "The main route"
+        role: "primary"
+        description: "First for a reader."
+"#;
+        let s = setup_instructions(&spec(yaml)).expect("has instructions");
+        let roles: Vec<Option<&str>> = s.methods.iter().map(|m| m.role.as_deref()).collect();
+        assert_eq!(
+            roles,
+            vec![Some("primary"), Some("alternative"), Some("deprecated")]
+        );
     }
 
     #[test]

@@ -3686,8 +3686,9 @@ fn regex_for(pattern: &str) -> Option<std::sync::Arc<regex::Regex>> {
     use std::sync::{Arc, Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<HashMap<String, Option<Arc<regex::Regex>>>>> = OnceLock::new();
     /// Remote spec packs can feed a stream of never-repeating patterns, so
-    /// the map is bounded the way the spec cache is — clear-on-full, tiny
-    /// against hostility, generous for a catalogue's worth of matchers.
+    /// the map is bounded the way the spec cache is — one arbitrary entry
+    /// evicted per insert at the bound — tiny against hostility, generous
+    /// for a catalogue's worth of matchers.
     const CACHE_MAX_ENTRIES: usize = 64;
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     // Poisoning is taken back, not swallowed: `.ok()?` here meant one panic
@@ -3700,7 +3701,14 @@ fn regex_for(pattern: &str) -> Option<std::sync::Arc<regex::Regex>> {
         Err(poisoned) => poisoned.into_inner(),
     };
     if cache.len() >= CACHE_MAX_ENTRIES && !cache.contains_key(pattern) {
-        cache.clear();
+        // Evict ONE entry, never the whole map — dispatch.rs's cache learned
+        // that a working set one past the bound turns clear-on-full into a
+        // 0% hit rate that recompiles the whole catalogue every scan tick.
+        // One policy for both caches, so neither comment lies about the
+        // other again.
+        if let Some(evict) = cache.keys().next().cloned() {
+            cache.remove(&evict);
+        }
     }
     cache
         .entry(pattern.to_string())
@@ -4991,8 +4999,9 @@ pub struct BleProvisioningProfileDto {
     pub category: Option<String>,
     /// The name the device advertises while it is waiting to be set up.
     pub advertised_name: String,
-    /// True when the spec says that name is the whole advertised name; false
-    /// when it is a prefix (the catalogue-wide default).
+    /// True when the advertised name is compared whole — the schema's
+    /// default, and the fallback for a match rule this build does not
+    /// recognize. False only when the spec explicitly says `prefix`.
     pub exact_name: bool,
     /// The setup service and characteristics, when the spec names them.
     pub service_uuid: Option<String>,
@@ -5162,6 +5171,15 @@ impl From<crate::spec::setup::SetupStep> for SetupStepDto {
     }
 }
 
+impl From<crate::spec::setup::Troubleshooting> for TroubleshootingDto {
+    fn from(t: crate::spec::setup::Troubleshooting) -> Self {
+        TroubleshootingDto {
+            symptom: t.symptom,
+            causes: t.causes,
+        }
+    }
+}
+
 impl From<crate::spec::setup::SetupInstructions> for SetupInstructionsDto {
     fn from(s: crate::spec::setup::SetupInstructions) -> Self {
         SetupInstructionsDto {
@@ -5186,21 +5204,11 @@ impl From<crate::spec::setup::SetupInstructions> for SetupInstructionsDto {
                             troubleshooting: stage
                                 .troubleshooting
                                 .into_iter()
-                                .map(|t| TroubleshootingDto {
-                                    symptom: t.symptom,
-                                    causes: t.causes,
-                                })
+                                .map(Into::into)
                                 .collect(),
                         })
                         .collect(),
-                    troubleshooting: m
-                        .troubleshooting
-                        .into_iter()
-                        .map(|t| TroubleshootingDto {
-                            symptom: t.symptom,
-                            causes: t.causes,
-                        })
-                        .collect(),
+                    troubleshooting: m.troubleshooting.into_iter().map(Into::into).collect(),
                 })
                 .collect(),
             factory_reset: s.factory_reset.map(|fr| FactoryResetDto {
@@ -6743,6 +6751,30 @@ device:
         assert!(matched("HC-06"));
         assert!(!matched("HC-05Foo"), "the spec anchored the end");
         assert!(!matched("MyHC-05"), "the spec anchored the start");
+    }
+
+    /// The pattern vocabulary upstream validates with Python `re` must
+    /// compile HERE too. The crate's default-features trim once dropped
+    /// `unicode-perl`/`unicode-case`, so a schema-legal `^S\d` or `(?i)`
+    /// pattern compiled to a cached `None` — a matcher that silently matched
+    /// nothing, with fail-closed semantics standing in for a working matcher.
+    #[test]
+    fn regex_for_compiles_the_classes_and_flags_the_schema_allows() {
+        for pattern in [r"^S\d", r"^\w+-\d{4}$", r"\bHC\b", r"\s", "(?i)^govee_h5"] {
+            assert!(
+                regex_for(pattern).is_some(),
+                "schema-legal pattern {pattern:?} failed to compile — check the \
+                 regex crate's feature list in Cargo.toml"
+            );
+        }
+        assert!(
+            regex_for("(?i)^govee").unwrap().is_match("GOVEE_H6001"),
+            "(?i) must actually fold case"
+        );
+        assert!(
+            regex_for(r"^S\d").unwrap().is_match("S3"),
+            r"\d must actually match a digit"
+        );
     }
 
     #[test]

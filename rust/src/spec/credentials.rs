@@ -130,6 +130,42 @@ pub fn required_credentials(spec: &DeviceSpec) -> Vec<CredentialRequirement> {
             .issued_by = Some(issuance);
     }
 
+    // The websocket surface's pairing mints a credential of its own — the
+    // token the connect path or register frame fills. No command consumes it
+    // (the CONNECT is what needs it), so no `credential:` parameter ever
+    // names it, and before this arm a paired TV's declared list came back
+    // EMPTY: nothing wired the credential stores, and a group run re-paired
+    // a television whose token was already saved, raising its consent prompt
+    // mid-run while the same set worked from its own screen.
+    if let Some(pairing) =
+        crate::protocol::websocket::surface(spec).and_then(|surface| surface.pairing)
+    {
+        if let Some(name) = pairing.credential_name {
+            let entry = found
+                .entry(name.clone())
+                .or_insert_with(|| CredentialRequirement {
+                    name,
+                    description: None,
+                    needed_by: Vec::new(),
+                    issued_by: None,
+                });
+            if entry.description.is_none() {
+                entry.description = pairing.prompt_notes.clone();
+            }
+            // A setup-method issuance for the same name is the richer
+            // declaration (a command to run, a reply to read); the surface's
+            // own facts only fill in where the methods said nothing.
+            if entry.issued_by.is_none() {
+                entry.issued_by = Some(CredentialIssuance {
+                    method: "websocket_pairing".to_string(),
+                    command: None,
+                    reply_path: pairing.issued_at.clone().unwrap_or_default(),
+                    request_condition: None,
+                });
+            }
+        }
+    }
+
     for requirement in found.values_mut() {
         requirement.needed_by.sort();
         requirement.needed_by.dedup();
@@ -161,19 +197,19 @@ fn issued_credentials(spec: &DeviceSpec) -> Vec<(String, CredentialIssuance)> {
             .and_then(|t| t.as_str())
             .unwrap_or_default()
             .to_string();
-        collect_issuances(method, &method_type, &mut out);
-        // A multi-phase route files its issuance on the stage that performs
+        // One definition of "a method and its stages" — setup.rs's walk. A
+        // multi-phase route files its issuance on the stage that performs
         // it — hue-bridge's username is minted by the button_pairing stage,
-        // not by the route as a whole. Missing these would turn a
-        // button-issued credential into one the client asks a person to type.
-        if let Some(stages) = method.get("stages").and_then(|s| s.as_sequence()) {
-            for stage in stages {
-                let stage_type = stage
-                    .get("type")
-                    .and_then(|t| t.as_str())
-                    .map_or_else(|| method_type.clone(), str::to_string);
-                collect_issuances(stage, &stage_type, &mut out);
-            }
+        // not by the route as a whole — and missing those would turn a
+        // button-issued credential into one the client asks a person to
+        // type. A stage without its own type inherits the method's, so the
+        // issuance still names a flow.
+        for block in crate::spec::setup::method_and_stages(method) {
+            let block_type = block
+                .get("type")
+                .and_then(|t| t.as_str())
+                .map_or_else(|| method_type.clone(), str::to_string);
+            collect_issuances(block, &block_type, &mut out);
         }
     }
     out
@@ -299,6 +335,60 @@ commands:
         assert_eq!(issued.method, "button_pairing");
         assert_eq!(issued.command.as_deref(), Some("create_user"));
         assert_eq!(issued.reply_path, "[0].success.username");
+    }
+
+    /// A television shaped like the vendored sets: the websocket surface's
+    /// pairing block names the token the connect path fills, and no command
+    /// carries a `credential:` parameter for it. The declared list must
+    /// still report it — an empty list is what left group runs re-pairing
+    /// TVs whose token was already stored.
+    #[test]
+    fn a_websocket_pairing_token_is_declared_and_never_asked_for() {
+        let yaml = r#"
+device:
+  name: Test TV
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+  transport: websocket
+websocket:
+  connect:
+    port: 8002
+    scheme: wss
+    path: "/api/v2/channels?token={tv_token}"
+  pairing:
+    mode: token_query
+    credential_name: tv_token
+    issued_at: "data.token"
+    prompt_notes: "Allow the connection on the TV screen."
+  channels:
+    - name: main
+      default: true
+      encoding: json
+      frame:
+        method: "{action}"
+commands:
+  power_off:
+    description: Power off.
+    action: "POWER"
+"#;
+        let spec = parse_device_spec(yaml).expect("test spec should parse");
+        let found = required_credentials(&spec);
+        assert_eq!(found.len(), 1, "the pairing token is the one credential");
+        let token = &found[0];
+        assert_eq!(token.name, "tv_token");
+        assert_eq!(
+            token.description.as_deref(),
+            Some("Allow the connection on the TV screen."),
+            "the pairing's own prompt notes are the description"
+        );
+        let issued = token.issued_by.as_ref().expect("the pairing issues it");
+        assert_eq!(issued.method, "websocket_pairing");
+        assert_eq!(issued.reply_path, "data.token");
+        assert!(
+            !token.must_be_asked_for(),
+            "a pairing-minted token is never typed by a person"
+        );
     }
 
     #[test]
