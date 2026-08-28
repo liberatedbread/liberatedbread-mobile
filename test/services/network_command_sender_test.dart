@@ -453,6 +453,28 @@ void main() {
       expect(stream, isA<Stream<MqttMessage>>());
     });
 
+    /// A readings-only device — entities with state topics, zero MQTT
+    /// commands — has no action to carry the credential mapping. The
+    /// subscription must still work: the login falls back to stored
+    /// credentials under the literal names. Requiring an action here is what
+    /// left exactly these devices permanently silent.
+    test('a device with no MQTT actions can still subscribe to state',
+        () async {
+      final s = mqttSender();
+      addTearDown(s.close);
+
+      const topic = '438/NN2-EU-ABC1234D/status/current';
+      await s.subscribeMqttState(null, const [topic]);
+
+      expect(broker.connects, 1);
+      expect(mqttCodec.mqttConnectArgs?.clientId, 'phone');
+      expect(mqttCodec.mqttConnectArgs?.username, 'hisenseservice');
+      expect(
+        broker.written.last,
+        await mqttCodec.mqttSubscribePacket(topic: topic, packetId: 1),
+      );
+    });
+
     /// Every topic is addressed to the client id, so an unpaired device has no
     /// useful session. Refused by name rather than connecting under a
     /// generated id, which would be silently unauthorised on a set that pairs.

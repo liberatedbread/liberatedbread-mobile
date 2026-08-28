@@ -968,6 +968,20 @@ class FakeSpecCodec implements SpecCodec {
   }
 
   @override
+  Future<String> fillMqttStateTopic({
+    required String topic,
+    required Map<String, String> values,
+  }) async {
+    // Mirrors the real codec's exact-name fill; test values are benign, so a
+    // simple replace matches the single-pass result.
+    var filled = topic;
+    values.forEach((name, value) {
+      filled = filled.replaceAll('{$name}', value);
+    });
+    return filled;
+  }
+
+  @override
   Future<List<int>> mqttSubscribePacket({
     required String topic,
     required int packetId,

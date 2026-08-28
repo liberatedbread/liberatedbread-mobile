@@ -541,6 +541,16 @@ abstract class SpecCodec {
     required Map<String, String> values,
   });
 
+  /// Fill an MQTT state topic's `{name}` placeholders from what the app
+  /// holds — stored credentials and discovery facts, keyed by exactly the
+  /// names the topic uses. Single-pass: a value is data, never re-scanned as
+  /// template. What nothing fills survives verbatim, which is the caller's
+  /// signal that the topic is not subscribable yet.
+  Future<String> fillMqttStateTopic({
+    required String topic,
+    required Map<String, String> values,
+  });
+
   /// MQTT SUBSCRIBE at QoS 0.
   Future<List<int>> mqttSubscribePacket({
     required String topic,

@@ -1026,28 +1026,58 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// sender's session, so state and sends share one broker connection and
   /// one client identity.
   Future<void> _subscribeMqttState() async {
-    final topics = <String>{
+    final declaredTopics = <String>{
       for (final entity in _entities)
         if (!entity.isInstanced &&
             entity.stateCommand.isNotEmpty &&
             entity.transport == roombaTransport)
           entity.stateCommand,
     };
-    if (topics.isEmpty) return;
-    // Any MQTT action carries the session's credential mapping; without one
-    // there is no way to know what identity the broker wants.
+    if (declaredTopics.isEmpty) return;
+    // An action carries the richest credential mapping when the device has
+    // one; a readings-only device (a Dyson: entities, zero commands) has
+    // none, and the session then logs in from stored credentials under the
+    // literal names. Requiring an action here is what left exactly those
+    // devices — the ones this subscription exists for — permanently silent.
     final action = _entities
         .expand((e) => e.actions)
         .where((a) => a.transport == roombaTransport)
         .firstOrNull;
-    if (action == null) return;
+    // Topics are subscribed as the DEVICE speaks them: `{serial}`-style
+    // placeholders filled from what the app holds — the discovery TXT facts
+    // (a Dyson's serial rides its mDNS record) and the stored credentials.
+    // A topic still carrying a placeholder is NOT subscribed: a literal
+    // "{serial}" matches nothing on any broker, and subscribing to it is
+    // how these cards spent a release looking live while permanently
+    // Unknown. Readings decode under the DECLARED topic, so the map back.
+    final codec = ref.read(specCodecProvider);
+    final values = <String, String>{
+      ...widget.device.txt,
+      ...await _sender.currentCredentials(),
+    };
+    final declaredByFilled = <String, String>{};
+    for (final declared in declaredTopics) {
+      final filled =
+          await codec.fillMqttStateTopic(topic: declared, values: values);
+      if (filled.contains('{')) {
+        Log.net.info('mqtt state topic "$declared" still carries a '
+            'placeholder after filling from discovery and stored '
+            'credentials — not subscribing; the reading stays unknown '
+            'until the missing value is known');
+        continue;
+      }
+      declaredByFilled[filled] = declared;
+    }
+    if (declaredByFilled.isEmpty || !mounted) return;
     try {
-      final stream = await _sender.subscribeMqttState(action, topics.toList());
+      final stream = await _sender.subscribeMqttState(
+          action, declaredByFilled.keys.toList());
       await _mqttStateSub?.cancel();
       _mqttStateSub = stream.listen((message) {
-        if (!topics.contains(message.topic) || !mounted) return;
-        _stateByCommand[message.topic] = httpStateFields(message.payload);
-        unawaited(_decodeEntities());
+        final declared = declaredByFilled[message.topic];
+        if (declared == null || !mounted) return;
+        _stateByCommand[declared] = httpStateFields(message.payload);
+        _scheduleDecode();
       }, onError: (Object e) {
         Log.net.debug('mqtt state stream on ${widget.device.host}: $e');
       });
@@ -1056,6 +1086,39 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       // the ask; the readings stay honestly unknown until it is answered.
       Log.net.debug('mqtt state unavailable on ${widget.device.host}: $e');
     }
+  }
+
+  /// Whether a decode pass is running, and whether pushes arrived during it.
+  ///
+  /// The poll path coalesces with [_polling]; this is the push path's
+  /// equivalent. A broker replaying its retained messages delivers a burst —
+  /// one per topic, back to back — and without this each push ran its own
+  /// full-entity decode concurrently and rebuilt the whole screen per frame.
+  bool _decoding = false;
+  bool _decodeQueued = false;
+
+  /// Decode once for however many pushes arrived, and never let a decode
+  /// failure escape as an unhandled zone error: the stream outlives any one
+  /// bad payload, and the next push gets another chance.
+  void _scheduleDecode() {
+    if (_decoding) {
+      _decodeQueued = true;
+      return;
+    }
+    _decoding = true;
+    unawaited(() async {
+      try {
+        do {
+          _decodeQueued = false;
+          await _decodeEntities();
+        } while (_decodeQueued && mounted);
+      } catch (e) {
+        Log.net.warning(
+            'decode after mqtt push on ${widget.device.host} failed: $e');
+      } finally {
+        _decoding = false;
+      }
+    }());
   }
 
   Future<void> _decodeEntities() async {

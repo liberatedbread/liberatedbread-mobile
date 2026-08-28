@@ -447,6 +447,13 @@ class RealSpecCodec implements SpecCodec {
       );
 
   @override
+  Future<String> fillMqttStateTopic({
+    required String topic,
+    required Map<String, String> values,
+  }) =>
+      rust.fillMqttStateTopic(topic: topic, values: values);
+
+  @override
   Future<List<int>> mqttSubscribePacket({
     required String topic,
     required int packetId,

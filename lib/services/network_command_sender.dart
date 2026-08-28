@@ -228,17 +228,21 @@ class NetworkCommandSender {
   /// fills it lives in the spec — carried here as `action.credentials`, the
   /// `{param, name}` pairs Rust parsed out of `source:`.
   static String? _credentialFor(
-    NetworkActionDto action,
+    NetworkActionDto? action,
     String param,
     Map<String, String> credentials,
     Map<String, String> values,
   ) {
     final supplied = values[param];
     if (supplied != null && supplied.isNotEmpty) return supplied;
-    for (final declared in action.credentials) {
-      if (declared.param != param) continue;
-      final stored = credentials[declared.name];
-      if (stored != null && stored.isNotEmpty) return stored;
+    // A readings-only device has no action to carry a mapping; the literal
+    // lookup below is all there is for it.
+    if (action != null) {
+      for (final declared in action.credentials) {
+        if (declared.param != param) continue;
+        final stored = credentials[declared.name];
+        if (stored != null && stored.isNotEmpty) return stored;
+      }
     }
     // A spec that names the credential exactly as the parameter (Hue's
     // `username`) needs no mapping, and a broker login that is not a command
@@ -473,9 +477,12 @@ class NetworkCommandSender {
   /// rendered permanently unknown while a comment upstairs claimed a stream
   /// was filling them. [action] can be ANY of the device's MQTT actions: it
   /// carries the credential mapping the session's login rides, exactly as a
-  /// send's does.
+  /// send's does. NULL when the device declares no MQTT commands at all — a
+  /// readings-only purifier — in which case the login falls back to stored
+  /// credentials under the literal names `client_id`/`username`/`password`,
+  /// the same names a pairing flow for such a device would store them under.
   Future<Stream<MqttMessage>> subscribeMqttState(
-    NetworkActionDto action,
+    NetworkActionDto? action,
     List<String> topics,
   ) async {
     final session = await _openMqtt(action, const {});
@@ -491,7 +498,7 @@ class NetworkCommandSender {
   /// surface is MQTT has no second way in, so a failure to connect is the
   /// caller's to report rather than something to latch and route around.
   Future<MqttSession> _openMqtt(
-      NetworkActionDto action, Map<String, String> values) {
+      NetworkActionDto? action, Map<String, String> values) {
     final existing = _mqtt;
     if (existing != null && existing.isConnected) return Future.value(existing);
     // One connect in flight, shared by every caller waiting on it. MQTT is an
@@ -506,7 +513,7 @@ class NetworkCommandSender {
   }
 
   Future<MqttSession> _connectMqtt(
-      NetworkActionDto action, Map<String, String> values) async {
+      NetworkActionDto? action, Map<String, String> values) async {
     if (_closed) {
       throw const MqttConnectionException('This device screen has closed.');
     }
