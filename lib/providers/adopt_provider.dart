@@ -50,24 +50,35 @@ class AdoptableDevice {
 ///
 /// Data-driven, like the rest of the catalogue: a third adoptable family
 /// arrives by adding a `softap_*` spec upstream and an [AdoptFamily] arm.
+/// Join parsed specs by DISPLAY name — the only field the profile DTOs
+/// carry, so two specs sharing one shadow each other here (the resolver
+/// demoted names to fallback for exactly this). Duplicates resolve by
+/// insertion order, exactly as [specEntriesByKey] documents for key
+/// lookups: remote pack specs load after bundled ones, so on a collision
+/// the pack's copy wins — which is the DELIBERATE duplicate, a pack
+/// carrying a corrected copy of a bundled device. A first-wins reading
+/// here briefly inverted that and silently handed adopt the stale bundled
+/// spec. Loud either way; until the profile DTOs carry a spec key, a
+/// same-name collision between unrelated specs still shadows one of them.
+Map<String, ({DeviceSpecDto spec, String yaml})> _specsByDeviceName(
+    List<({DeviceSpecDto spec, String yaml})> parsed) {
+  final byName = <String, ({DeviceSpecDto spec, String yaml})>{};
+  for (final entry in parsed) {
+    final name = entry.spec.deviceName;
+    if (byName.containsKey(name)) {
+      Log.spec.warning('two specs share device name "$name"; adopt takes the '
+          'later copy (an installed pack overrides the bundled spec)');
+    }
+    byName[name] = entry;
+  }
+  return byName;
+}
+
 final adoptableDevicesProvider =
     FutureProvider<List<AdoptableDevice>>((ref) async {
   final codec = ref.watch(specCodecProvider);
   final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  final byName = <String, String>{};
-  for (final entry in parsed) {
-    final name = entry.spec.deviceName;
-    if (byName.containsKey(name)) {
-      // The join is by display name because the profile DTO carries nothing
-      // else; two specs sharing one would silently shadow each other here
-      // (the resolver demoted names to fallback for exactly this). Until the
-      // profile carries a spec key, keep the first and say so loudly.
-      Log.spec.warning(
-          'two specs share device name "$name"; adopt keeps the first');
-      continue;
-    }
-    byName[name] = entry.yaml;
-  }
+  final byName = _specsByDeviceName(parsed);
   final profiles =
       await codec.softApProfiles(parsed.map((p) => p.yaml).toList());
 
@@ -75,7 +86,7 @@ final adoptableDevicesProvider =
   final seen = <String>{};
   for (final profile in profiles) {
     final family = AdoptFamily.fromMethodType(profile.methodType);
-    final yaml = byName[profile.specName];
+    final yaml = byName[profile.specName]?.yaml;
     // Skip a family the app cannot drive (a future softap_http device) rather
     // than offer a button that dead-ends. Skip a duplicate prefix so the hint
     // and the picker each list a family once.
@@ -126,17 +137,8 @@ final bleAdoptableDevicesProvider =
     FutureProvider<List<BleAdoptableDevice>>((ref) async {
   final codec = ref.watch(specCodecProvider);
   final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  final byName = <String, ({String yaml, String? handler})>{};
-  for (final entry in parsed) {
-    final name = entry.spec.deviceName;
-    if (byName.containsKey(name)) {
-      // Same shadowing rule as the softap join above: first wins, loudly.
-      Log.spec.warning(
-          'two specs share device name "$name"; adopt keeps the first');
-      continue;
-    }
-    byName[name] = (yaml: entry.yaml, handler: entry.spec.protocolHandler);
-  }
+  // The same join, the same shadowing rule — one definition for both flows.
+  final byName = _specsByDeviceName(parsed);
   final profiles =
       await codec.bleProvisioningProfiles(parsed.map((p) => p.yaml).toList());
 
@@ -151,7 +153,7 @@ final bleAdoptableDevicesProvider =
     devices.add(BleAdoptableDevice(
       profile: profile,
       specYaml: spec.yaml,
-      protocolHandler: spec.handler,
+      protocolHandler: spec.spec.protocolHandler,
     ));
   }
   return devices;

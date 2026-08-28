@@ -16,42 +16,7 @@ import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/services/ws_control_service.dart';
 
 import '../fakes/fake_spec_codec.dart';
-
-/// A scripted device on the other end of a socket.
-///
-/// Single-subscription, like `dart:io`'s WebSocket: it BUFFERS what the device
-/// sends until something listens. A broadcast controller here would drop the
-/// first frame — and dropping the first frame is precisely the case the
-/// session's ordering exists to survive, so a fake that could not deliver it
-/// would test nothing.
-class _ScriptedSocket implements WsSocket {
-  Duration? pings;
-  @override
-  set pingInterval(Duration? interval) => pings = interval;
-
-  final _out = StreamController<dynamic>();
-  final List<String> written = [];
-  var closed = false;
-
-  @override
-  Stream<dynamic> get stream => _out.stream;
-
-  @override
-  void add(String frame) => written.add(frame);
-
-  @override
-  Future<void> close() async {
-    closed = true;
-    if (!_out.isClosed) await _out.close();
-  }
-
-  void send(String frame) => _out.add(frame);
-
-  /// The DEVICE hangs up: the stream ends without the session closing it.
-  Future<void> hangUp() async {
-    if (!_out.isClosed) await _out.close();
-  }
-}
+import '../fakes/scripted_ws_socket.dart';
 
 /// A codec whose websocket render waits for the test's say-so, so a test can
 /// land a hang-up exactly inside send()'s render await.
@@ -109,7 +74,7 @@ void main() {
 
   test('opens the declared address and stores the token the TV issues',
       () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final urls = <String>[];
     final session = WsSession(
       codec: codec,
@@ -148,7 +113,7 @@ void main() {
   });
 
   test('carries a stored token into the connect path', () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final urls = <String>[];
     final session = WsSession(
       codec: codec,
@@ -175,7 +140,7 @@ void main() {
   /// LG's clients are required to try both, and the refusal on the way is
   /// ordinary rather than an error worth showing.
   test('falls back to the second address when the first refuses', () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final urls = <String>[];
     final session = WsSession(
       codec: codec,
@@ -201,7 +166,7 @@ void main() {
   });
 
   test('a device that never authorises says what the viewer must do', () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -253,7 +218,7 @@ void main() {
   /// not the same message: some devices read that as a key and reject it.
   test('a first pairing sends the register frame without the key field',
       () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -279,7 +244,7 @@ void main() {
   });
 
   test('a repeat pairing sends the stored key', () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -305,8 +270,8 @@ void main() {
   /// the JSON requests go to. It goes to one the TV names at runtime, and
   /// sending it on the main socket would be silently ignored.
   test('a button opens the runtime socket the TV names, once', () async {
-    final main = _ScriptedSocket();
-    final pointer = _ScriptedSocket();
+    final main = ScriptedWsSocket();
+    final pointer = ScriptedWsSocket();
     final urls = <String>[];
 
     codec.websocketFrameFor = (command, id) => switch (command) {
@@ -365,7 +330,7 @@ void main() {
   });
 
   test('an ssap request goes to the main socket with a fresh id', () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     codec.websocketFrameFor = (command, id) => WebSocketFrameDto(
         channel: 'ssap', text: jsonEncode({'id': id, 'uri': command}));
     final session = WsSession(
@@ -415,8 +380,8 @@ void main() {
   });
 
   test('closing shuts every socket the session opened', () async {
-    final main = _ScriptedSocket();
-    final pointer = _ScriptedSocket();
+    final main = ScriptedWsSocket();
+    final pointer = ScriptedWsSocket();
     var opened = 0;
     codec.websocketFrameFor = (command, id) => command == 'get_pointer_socket'
         ? WebSocketFrameDto(channel: 'ssap', text: jsonEncode({'id': id}))
@@ -460,7 +425,7 @@ void main() {
   /// past: proceeding would open an unauthorised session whose every command
   /// is silently dropped.
   test('an unknown pairing mode is refused rather than skipped', () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -490,7 +455,7 @@ void main() {
   /// A socket with no pairing block needs no authorisation, and must not sit
   /// waiting for a credential nobody is going to send.
   test('a surface with no pairing opens immediately', () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -517,7 +482,7 @@ void main() {
   // ── Lifecycle: teardown, keepalive, and the runtime socket's guards ──────
 
   test('the session tears down when the device hangs up', () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -564,7 +529,7 @@ void main() {
         WebSocketChannelDto(name: 'ssap', isDefault: true, encoding: 'json'),
       ],
     );
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -593,7 +558,7 @@ void main() {
         WebSocketChannelDto(name: 'remote', isDefault: true, encoding: 'json'),
       ],
     );
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -611,7 +576,7 @@ void main() {
   });
 
   test('a runtime socket on a foreign host is refused', () async {
-    final main = _ScriptedSocket();
+    final main = ScriptedWsSocket();
     final urls = <String>[];
     codec.websocketFrameFor = (command, id) => switch (command) {
           'get_pointer_socket' => WebSocketFrameDto(
@@ -647,8 +612,8 @@ void main() {
   });
 
   test('concurrent presses share one runtime socket open', () async {
-    final main = _ScriptedSocket();
-    final pointer = _ScriptedSocket();
+    final main = ScriptedWsSocket();
+    final pointer = ScriptedWsSocket();
     final urls = <String>[];
     codec.websocketFrameFor = (command, id) => switch (command) {
           'get_pointer_socket' => WebSocketFrameDto(
@@ -694,7 +659,7 @@ void main() {
   /// A spec-authored literal query value that merely ENDS in base64 padding
   /// is a value, not an empty pair. The old trailing-`=` rule deleted it.
   test('a literal query value ending in base64 padding survives', () async {
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final urls = <String>[];
     const surface = WebSocketSurfaceDto(
       port: 8002,
@@ -737,7 +702,7 @@ void main() {
   test('a hang-up during a send reads as the device closing, not a crash',
       () async {
     final gated = _GatedRenderCodec();
-    final tv = _ScriptedSocket();
+    final tv = ScriptedWsSocket();
     final session = WsSession(
       codec: gated,
       specYaml: 'yaml',
@@ -765,8 +730,8 @@ void main() {
   /// to every later press, add() silently dropping — the eviction is what
   /// makes the next press re-request the channel.
   test('an idle-closed runtime socket is evicted and re-requested', () async {
-    final main = _ScriptedSocket();
-    final pointers = <_ScriptedSocket>[];
+    final main = ScriptedWsSocket();
+    final pointers = <ScriptedWsSocket>[];
     final urls = <String>[];
     codec.websocketFrameFor = (command, id) => switch (command) {
           'get_pointer_socket' => WebSocketFrameDto(
@@ -787,7 +752,7 @@ void main() {
               })));
           return main;
         }
-        final pointer = _ScriptedSocket();
+        final pointer = ScriptedWsSocket();
         pointers.add(pointer);
         return pointer;
       },
@@ -822,8 +787,8 @@ void main() {
   /// session — nothing else would ever close it.
   test('a runtime socket resolving after close is closed, not cached',
       () async {
-    final main = _ScriptedSocket();
-    final pointer = _ScriptedSocket();
+    final main = ScriptedWsSocket();
+    final pointer = ScriptedWsSocket();
     final pointerGate = Completer<void>();
     final urls = <String>[];
     codec.websocketFrameFor = (command, id) => switch (command) {
@@ -872,8 +837,8 @@ void main() {
   /// Uri.parse lowercases the host; discovery may have recorded it in the
   /// case the device advertises. The comparison must not care.
   test('the runtime address host check is case-insensitive', () async {
-    final main = _ScriptedSocket();
-    final pointer = _ScriptedSocket();
+    final main = ScriptedWsSocket();
+    final pointer = ScriptedWsSocket();
     final urls = <String>[];
     codec.websocketFrameFor = (command, id) => switch (command) {
           'get_pointer_socket' => WebSocketFrameDto(

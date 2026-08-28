@@ -86,7 +86,9 @@ SPEC-GAP section above absorbs.
   `liberatedbread-protocol-specs` merges: an ordinary
   `./scripts/update-specs.sh`, then `./scripts/test.sh`. Expected deltas:
   ignis-pixel stops auto-matching the shared Nordic UART UUID, hello-fairy's
-  variant matcher narrows, clean-room placeholder text, and the Samsung
+  variant matcher narrows, clean-room placeholder text (the review's second
+  scrub adds Lutron/SmartThings/Rachio hostname identifiers, the Kasa
+  verification alias, and research-note vendor class names), and the Samsung
   connect path may spell `{samsung_token}` (the fill rule handles both).
 - **Dependabot [#55](https://github.com/liberatedbread/liberatedbread-mobile/pull/55)**
   (cargo aes/cbc/getrandom/md-5/base64): merge after this branch lands — the

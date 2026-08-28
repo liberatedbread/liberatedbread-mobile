@@ -25,6 +25,7 @@ import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_ecp2_socket.dart';
+import '../fakes/scripted_ws_socket.dart';
 import '../fakes/fake_spec_codec.dart';
 
 NetworkActionDto action(String role, String command,
@@ -527,7 +528,8 @@ void main() {
 
   group('the websocket transport', () {
     late FakeSpecCodec wsCodec;
-    late _ScriptedTv tv;
+    late ScriptedWsSocket tv;
+    late List<String> tvUrls;
 
     const surface = WebSocketSurfaceDto(
       port: 8002,
@@ -544,7 +546,8 @@ void main() {
     );
 
     setUp(() {
-      tv = _ScriptedTv();
+      tv = ScriptedWsSocket();
+      tvUrls = [];
       wsCodec = FakeSpecCodec()
         ..websocketSurfaceResult = surface
         ..websocketFrameFor = (command, id) => WebSocketFrameDto(
@@ -562,7 +565,7 @@ void main() {
           onCredentialIssued: onNamedIssue,
           storedCredentials: storedCredentials,
           wsConnect: (url, headers) async {
-            tv.urls.add(url);
+            tvUrls.add(url);
             scheduleMicrotask(() => tv.send('{"data":{"token":"issued-1"}}'));
             return tv;
           },
@@ -588,7 +591,7 @@ void main() {
       await s.sendAction(
           action('press', 'press_down', transport: 'websocket'), {});
 
-      expect(tv.urls, hasLength(1), reason: 'one socket, not one per press');
+      expect(tvUrls, hasLength(1), reason: 'one socket, not one per press');
       expect(tv.written, hasLength(2));
     });
 
@@ -604,7 +607,7 @@ void main() {
         s.sendAction(action('press', 'press_down', transport: 'websocket'), {}),
       ]);
 
-      expect(tv.urls, hasLength(1));
+      expect(tvUrls, hasLength(1));
     });
 
     test('a newly issued credential is handed back to be stored', () async {
@@ -633,7 +636,7 @@ void main() {
 
       await s.sendAction(
           action('press', 'press_power', transport: 'websocket'), {});
-      expect(tv.urls.single, contains('token=from-store'));
+      expect(tvUrls.single, contains('token=from-store'));
     });
 
     test("an issued credential is reported under the spec's name", () async {
@@ -686,7 +689,7 @@ void main() {
       // The session survived the failed save: the next press rides it.
       await s
           .sendAction(action('press', 'press_up', transport: 'websocket'), {});
-      expect(tv.urls, hasLength(1));
+      expect(tvUrls, hasLength(1));
       expect(tv.written, hasLength(2));
     });
 
@@ -741,27 +744,3 @@ class _ScriptedBroker implements MqttSocket {
 }
 
 /// A scripted television behind the sender's WebSocket seam.
-class _ScriptedTv implements WsSocket {
-  Duration? pings;
-  @override
-  set pingInterval(Duration? interval) => pings = interval;
-
-  final _out = StreamController<dynamic>();
-  final List<String> written = [];
-  final List<String> urls = [];
-  var closed = false;
-
-  @override
-  Stream<dynamic> get stream => _out.stream;
-
-  @override
-  void add(String frame) => written.add(frame);
-
-  @override
-  Future<void> close() async {
-    closed = true;
-    if (!_out.isClosed) unawaited(_out.close());
-  }
-
-  void send(String frame) => _out.add(frame);
-}

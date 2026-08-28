@@ -26,7 +26,12 @@ void main() {
     test('${entry.key} claims exactly the roles it looks up', () {
       final source = File(entry.key).readAsStringSync();
 
-      final lookedUp = RegExp(r"_action\('([a-z_0-9]+)'\)")
+      // Both quote styles, deliberately: the repo's style is single quotes,
+      // but a double-quoted `_action("x")` is legal Dart the formatter
+      // leaves alone — and a guard blind to it would wave a genuine drift
+      // through green (both extraction sets missing the same role satisfies
+      // the equality below vacuously).
+      final lookedUp = RegExp('_action\\([\'"]([a-z_0-9]+)[\'"]\\)')
           .allMatches(source)
           .map((m) => m.group(1)!)
           .toSet();
@@ -38,7 +43,7 @@ void main() {
               .firstMatch(source);
       expect(setLiteral, isNotNull,
           reason: 'the card should declare _claimedRoles');
-      final claimed = RegExp(r"'([a-z_0-9]+)'")
+      final claimed = RegExp('[\'"]([a-z_0-9]+)[\'"]')
           .allMatches(setLiteral!.group(1)!)
           .map((m) => m.group(1)!)
           .toSet();

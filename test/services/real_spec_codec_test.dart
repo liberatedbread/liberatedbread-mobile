@@ -15,6 +15,8 @@ import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/services/ws_control_service.dart';
 
+import '../fakes/scripted_ws_socket.dart';
+
 import '../helpers/host_rust_lib.dart';
 
 const _cmdChar = '0000fff1-0000-1000-8000-00805f9b34fb';
@@ -46,7 +48,7 @@ void main() {
     final surface = await codec.websocketSurface(samsungYaml);
     expect(surface, isNotNull, reason: 'samsung declares a websocket surface');
 
-    final tv = _ScriptedTvSocket();
+    final tv = ScriptedWsSocket();
     final urls = <String>[];
     final session = WsSession(
       codec: codec,
@@ -363,25 +365,4 @@ void main() {
       throwsA(anything),
     );
   });
-}
-
-/// A scripted socket for driving [WsSession] against the REAL vendored
-/// Samsung surface — the invented-fixture version of this test is what let
-/// the literal `{client_name}`/`{token}` reach the wire unnoticed.
-class _ScriptedTvSocket implements WsSocket {
-  Duration? pings;
-  @override
-  set pingInterval(Duration? interval) => pings = interval;
-
-  final _out = StreamController<dynamic>();
-  @override
-  Stream<dynamic> get stream => _out.stream;
-  @override
-  void add(String frame) {}
-  @override
-  Future<void> close() async {
-    if (!_out.isClosed) await _out.close();
-  }
-
-  void send(String frame) => _out.add(frame);
 }

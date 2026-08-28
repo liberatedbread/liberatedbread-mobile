@@ -80,6 +80,36 @@ void main() {
     expect(lifx.profile.methodType, 'softap_udp');
   });
 
+  /// The join's shadowing rule is insertion order, the same rule
+  /// [specEntriesByKey] encodes for key lookups: remote pack specs load
+  /// after bundled ones, so a pack carrying a corrected copy of a bundled
+  /// device WINS the name join. A first-wins reading here silently handed
+  /// adopt the stale bundled spec instead of the copy the user installed.
+  test('a later duplicate (an installed pack) overrides the bundled copy',
+      () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    final wemo = parsed.first;
+    final packCopy = (
+      yaml: '${wemo.yaml}\n# corrected pack copy\n',
+      spec: wemo.spec,
+    );
+    final container = ProviderContainer(overrides: [
+      specCodecProvider.overrideWithValue(const RealSpecCodec()),
+      parsedDeviceSpecsProvider
+          .overrideWith((ref) async => [...parsed, packCopy]),
+      wifiNetworkScannerProvider.overrideWithValue(_FakeScanner(const [])),
+    ]);
+    addTearDown(container.dispose);
+
+    final devices = await container.read(adoptableDevicesProvider.future);
+    final adopted = devices.firstWhere((d) => d.family == AdoptFamily.wemo);
+    expect(adopted.specYaml, contains('# corrected pack copy'),
+        reason: 'the later (pack) copy must win the name join');
+  });
+
   test('a visible Wemo setup SSID is matched to the Wemo family', () async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');
