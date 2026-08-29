@@ -11,6 +11,7 @@
 // code; duplicating them here would be two tests for one behaviour.
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -245,4 +246,91 @@ void main() {
     expect(session.isConnected, isFalse);
     await session.dispose();
   });
+
+  /// The hang-up must not just SURFACE — it must tear the session down, or
+  /// `isConnected` stays true and every later send publishes into a corpse
+  /// while the screen claims a live stream. The next send's reopen depends
+  /// on this.
+  test('a hang-up tears the session down and the next connect reopens',
+      () async {
+    final brokers = <_ScriptedBroker>[];
+    final session = MqttSession(
+      codec: codec,
+      connect: (host, port, timeout) async {
+        // Closed by the session (or by the hang-up the test performs).
+        // ignore: close_sinks
+        final broker = _ScriptedBroker();
+        brokers.add(broker);
+        scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+        return broker;
+      },
+    );
+    addTearDown(session.dispose);
+    await session.connect('10.0.0.5', 1883, clientId: 'c');
+    final errors = <Object>[];
+    final sub = session.messages.listen((_) {}, onError: errors.add);
+    addTearDown(sub.cancel);
+
+    await brokers.single.hangUp();
+    await pumpEventQueue();
+
+    expect(session.isConnected, isFalse,
+        reason: 'a dead socket must not be served to the next send');
+    expect(errors, hasLength(1));
+
+    await session.connect('10.0.0.5', 1883, clientId: 'c');
+    expect(brokers, hasLength(2), reason: 'the reopen dialled a fresh socket');
+    await session.publish('t', 'p');
+    expect(brokers.last.written, isNotEmpty);
+  });
+
+  /// One banner per failure, not one per aftermath event: the queued chunks
+  /// draining after a failure must not each add their own error.
+  test('the receive bound fails the session once and tears it down', () async {
+    final (session, broker) = await connected();
+    addTearDown(session.dispose);
+    final errors = <Object>[];
+    final sub = session.messages.listen((_) {}, onError: errors.add);
+    addTearDown(sub.cancel);
+
+    broker.send(List.filled((1 << 20) + 1, 0));
+    broker.send(List.filled(8, 0));
+    await pumpEventQueue();
+
+    expect(session.isConnected, isFalse);
+    expect(errors, hasLength(1),
+        reason: 'aftermath chunks must not re-report the failure');
+  });
+
+  /// A wedged peer with a zero receive window never drains a flush. close()
+  /// waits a bounded courtesy interval for the DISCONNECT to leave, then
+  /// destroys anyway — unbounded, this await hung connect()'s own error path.
+  test('close gives up on a flush the peer never drains', () async {
+    // destroy() is this socket's close, and the assertion below proves it ran.
+    // ignore: close_sinks
+    final socket = _WedgedSocket();
+    final adapter =
+        SocketAdapter(socket, flushDeadline: const Duration(milliseconds: 50));
+
+    await adapter.close().timeout(const Duration(seconds: 5));
+
+    expect(socket.destroyed, isTrue,
+        reason: 'destroy must follow even when flush never completes');
+  });
+}
+
+/// A socket whose flush never completes — the shape of a wedged peer with a
+/// zero receive window. Only the members `SocketAdapter.close` touches are
+/// real; anything else failing loudly is a feature.
+class _WedgedSocket implements Socket {
+  var destroyed = false;
+
+  @override
+  Future<void> flush() => Completer<void>().future;
+
+  @override
+  void destroy() => destroyed = true;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 import '../core/log.dart';
+import '../models/network_device.dart';
 import 'settings_store.dart';
 
 /// What a spec says to do about a LAN device's TLS certificate.
@@ -101,6 +102,17 @@ String identityFor({String? mac, String? host}) =>
     (mac != null && mac.isNotEmpty)
         ? 'mac:${mac.toLowerCase()}'
         : 'host:${host ?? ''}';
+
+/// The one spelling of "this scanned device's store identity".
+///
+/// Three call sites — the device screen, the sender factory, the group
+/// provider — each used to derive it by hand from the same two fields. An
+/// edit to any one of them (a normalization, a keying change) would split
+/// the key a credential is WRITTEN under from the keys it is READ under:
+/// saved but never found, and the television's Allow prompt returns.
+extension NetworkDeviceIdentity on NetworkDevice {
+  String get credentialIdentity => identityFor(mac: advertisedMac, host: host);
+}
 
 /// The sha256 of a certificate's DER encoding, lowercase hex — what gets
 /// pinned. The DER is the certificate's own bytes, so this changes when and

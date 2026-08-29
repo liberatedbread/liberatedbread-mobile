@@ -25,6 +25,7 @@ import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_ecp2_socket.dart';
+import '../fakes/scripted_ws_socket.dart';
 import '../fakes/fake_spec_codec.dart';
 
 NetworkActionDto action(String role, String command,
@@ -64,14 +65,14 @@ void main() {
     Map<String, String> storedCredentials = const {},
     WsConnect? wsConnect,
     String? wsCredential,
-    void Function(String)? onWsCredential,
+    Future<void> Function(String, String)? onCredentialIssued,
     SpecCodec? withCodec,
   }) =>
       NetworkCommandSender(
         mqttConnect: mqttConnect,
         wsConnect: wsConnect,
         wsCredential: wsCredential,
-        onWsCredential: onWsCredential,
+        onCredentialIssued: onCredentialIssued,
         host: '192.0.2.9',
         discoveredControlPort: discoveredControlPort,
         devicePort: devicePort,
@@ -431,6 +432,48 @@ void main() {
       expect(broker.connects, 1);
     });
 
+    test('subscribing to state topics rides the one session', () async {
+      final s = mqttSender();
+      addTearDown(s.close);
+
+      const topic = '/remoteapp/mobile/broadcast/ui_service/state';
+      final stream = await s.subscribeMqttState(
+          action('press', 'press_power', transport: 'mqtt'), const [topic]);
+
+      // The SUBSCRIBE reached the broker on the SAME session a send would
+      // use — one connection, one client identity for state and commands.
+      expect(broker.connects, 1);
+      expect(
+        broker.written.last,
+        await mqttCodec.mqttSubscribePacket(topic: topic, packetId: 1),
+      );
+      await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});
+      expect(broker.connects, 1, reason: 'the send reuses the session');
+      expect(stream, isA<Stream<MqttMessage>>());
+    });
+
+    /// A readings-only device — entities with state topics, zero MQTT
+    /// commands — has no action to carry the credential mapping. The
+    /// subscription must still work: the login falls back to stored
+    /// credentials under the literal names. Requiring an action here is what
+    /// left exactly these devices permanently silent.
+    test('a device with no MQTT actions can still subscribe to state',
+        () async {
+      final s = mqttSender();
+      addTearDown(s.close);
+
+      const topic = '438/NN2-EU-ABC1234D/status/current';
+      await s.subscribeMqttState(null, const [topic]);
+
+      expect(broker.connects, 1);
+      expect(mqttCodec.mqttConnectArgs?.clientId, 'phone');
+      expect(mqttCodec.mqttConnectArgs?.username, 'hisenseservice');
+      expect(
+        broker.written.last,
+        await mqttCodec.mqttSubscribePacket(topic: topic, packetId: 1),
+      );
+    });
+
     /// Every topic is addressed to the client id, so an unpaired device has no
     /// useful session. Refused by name rather than connecting under a
     /// generated id, which would be silently unauthorised on a set that pairs.
@@ -485,7 +528,8 @@ void main() {
 
   group('the websocket transport', () {
     late FakeSpecCodec wsCodec;
-    late _ScriptedTv tv;
+    late ScriptedWsSocket tv;
+    late List<String> tvUrls;
 
     const surface = WebSocketSurfaceDto(
       port: 8002,
@@ -502,7 +546,8 @@ void main() {
     );
 
     setUp(() {
-      tv = _ScriptedTv();
+      tv = ScriptedWsSocket();
+      tvUrls = [];
       wsCodec = FakeSpecCodec()
         ..websocketSurfaceResult = surface
         ..websocketFrameFor = (command, id) => WebSocketFrameDto(
@@ -511,14 +556,16 @@ void main() {
 
     NetworkCommandSender wsSender({
       String? credential = 'stored',
-      void Function(String)? onIssued,
+      Future<void> Function(String, String)? onNamedIssue,
+      Map<String, String> storedCredentials = const {},
     }) =>
         sender(
           withCodec: wsCodec,
           wsCredential: credential,
-          onWsCredential: onIssued,
+          onCredentialIssued: onNamedIssue,
+          storedCredentials: storedCredentials,
           wsConnect: (url, headers) async {
-            tv.urls.add(url);
+            tvUrls.add(url);
             scheduleMicrotask(() => tv.send('{"data":{"token":"issued-1"}}'));
             return tv;
           },
@@ -544,7 +591,7 @@ void main() {
       await s.sendAction(
           action('press', 'press_down', transport: 'websocket'), {});
 
-      expect(tv.urls, hasLength(1), reason: 'one socket, not one per press');
+      expect(tvUrls, hasLength(1), reason: 'one socket, not one per press');
       expect(tv.written, hasLength(2));
     });
 
@@ -560,12 +607,14 @@ void main() {
         s.sendAction(action('press', 'press_down', transport: 'websocket'), {}),
       ]);
 
-      expect(tv.urls, hasLength(1));
+      expect(tvUrls, hasLength(1));
     });
 
     test('a newly issued credential is handed back to be stored', () async {
       final issued = <String>[];
-      final s = wsSender(credential: null, onIssued: issued.add);
+      final s = wsSender(
+          credential: null,
+          onNamedIssue: (name, value) async => issued.add(value));
       addTearDown(s.close);
 
       await s.sendAction(
@@ -573,11 +622,84 @@ void main() {
       expect(issued, ['issued-1']);
     });
 
+    test("a stored credential is read from the store by the spec's name",
+        () async {
+      // No constructor value: the production factory passes none, and the
+      // token a past pairing issued lives in the ONE store map under the
+      // spec's credential_name. Before this lookup existed, a stored token
+      // was unreachable and every screen open re-raised the Allow prompt.
+      final s = wsSender(
+        credential: null,
+        storedCredentials: const {'samsung_token': 'from-store'},
+      );
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+      expect(tvUrls.single, contains('token=from-store'));
+    });
+
+    test("an issued credential is reported under the spec's name", () async {
+      // The (name, value) pair is what a store can file: the bare-value
+      // callback alone left the factory nothing to save it AS.
+      final named = <(String, String)>[];
+      final s = wsSender(
+        credential: null,
+        onNamedIssue: (name, value) async => named.add((name, value)),
+      );
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+      expect(named, [('samsung_token', 'issued-1')]);
+    });
+
+    /// The save is AWAITED before the send returns (and before the memoized
+    /// store read resets), so the very next read cannot race a write still
+    /// in flight and memoize the pre-save map — a token "stored" but never
+    /// found, and the Allow prompt back on the next open.
+    test('the issued credential is saved before the send completes', () async {
+      var saved = false;
+      final s = wsSender(
+        credential: null,
+        onNamedIssue: (name, value) async {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          saved = true;
+        },
+      );
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+      expect(saved, isTrue,
+          reason: 'the send must not resolve ahead of the store write');
+    });
+
+    /// A locked keystore costs the NEXT open its token — never this press
+    /// its session, and never the zone its stability.
+    test('a failing save is logged, not fatal to the session', () async {
+      final s = wsSender(
+        credential: null,
+        onNamedIssue: (name, value) async => throw Exception('keystore locked'),
+      );
+      addTearDown(s.close);
+
+      await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'), {});
+      // The session survived the failed save: the next press rides it.
+      await s
+          .sendAction(action('press', 'press_up', transport: 'websocket'), {});
+      expect(tvUrls, hasLength(1));
+      expect(tv.written, hasLength(2));
+    });
+
     /// A pairing that reissued the same key is not news, and a store write per
     /// connect is a write per screen open.
     test('an unchanged credential is not reported again', () async {
       final issued = <String>[];
-      final s = wsSender(credential: 'issued-1', onIssued: issued.add);
+      final s = wsSender(
+          credential: 'issued-1',
+          onNamedIssue: (name, value) async => issued.add(value));
       addTearDown(s.close);
 
       await s.sendAction(
@@ -622,23 +744,3 @@ class _ScriptedBroker implements MqttSocket {
 }
 
 /// A scripted television behind the sender's WebSocket seam.
-class _ScriptedTv implements WsSocket {
-  final _out = StreamController<dynamic>();
-  final List<String> written = [];
-  final List<String> urls = [];
-  var closed = false;
-
-  @override
-  Stream<dynamic> get stream => _out.stream;
-
-  @override
-  void add(String frame) => written.add(frame);
-
-  @override
-  Future<void> close() async {
-    closed = true;
-    if (!_out.isClosed) unawaited(_out.close());
-  }
-
-  void send(String frame) => _out.add(frame);
-}

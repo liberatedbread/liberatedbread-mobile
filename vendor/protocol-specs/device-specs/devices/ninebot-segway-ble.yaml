@@ -94,11 +94,55 @@ device:
           - action: "Write a 5A A5-framed register read; parse the checksummed reply."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        No documented BLE factory reset; settings are register writes. Not
-        transcribed here.
+        Restores every setting to factory values, and explicitly includes the
+        Bluetooth connection state and the Bluetooth password. Any client
+        holding pairing state for the scooter has to start again.
+      description: >
+        A hardware gesture that needs three inputs and a power cycle in the
+        middle of it, which is why it reads oddly: throttle and brake held
+        down while the scooter is switched OFF, released, and then the scooter
+        powered back on with a three-second hold.
+
+        The app carries a restore-to-factory-settings action too, which is the
+        gentler route when the scooter still talks to a phone. Reach for the
+        hardware one when it does not.
+
+        The register-level protocol this spec documents lives on the ESC and
+        BMS behind the Nordic UART bridge; the reset returns those settings to
+        defaults rather than changing the protocol itself.
+      procedures:
+        - name: "Throttle and brake held across a power cycle"
+          verified: false
+          basis: >
+            Community reset documentation covering the Ninebot KickScooter ES
+            range. Not performed here; the vendor manual documents the power
+            button but not this combination.
+          hold_seconds: 3
+          power_state: "on"
+          glyph: "generic/press-two-buttons.svg"
+          steps:
+            - action: "Switch the scooter on with the power button."
+              actor: "user"
+            - action: "Hold the throttle and the brake lever fully down and keep them there."
+              actor: "user"
+            - action: "Switch the scooter off while still holding them, then release."
+              actor: "user"
+            - action: "Press the power key for three seconds to switch the scooter back on."
+              actor: "user"
+              expect: "All settings, including the Bluetooth connection and password, are back to factory values."
+        - name: "Restore to factory settings from the vendor app"
+          verified: false
+          basis: "The Segway-Ninebot app's own settings menu, as documented by community guides."
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "Connect the scooter to the Segway-Ninebot app over Bluetooth."
+              actor: "user"
+            - action: "In Settings, choose the restore-to-factory-settings entry and confirm."
+              actor: "user"
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -113,6 +157,20 @@ device:
         Older units gate the app only, not the bus. Newer firmware may add a
         session key — verify before assuming plaintext access. No Wi-Fi.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    # Nothing pairs at the link layer: the Nordic UART service is open, and
+    # the crypto that newer firmware adds sits above it in the frame.
+    security_mode: "app_layer"
+    bonding: "none"
+    notes: >
+      Connect and write 5A A5 frames; no bond is negotiated or stored. Newer
+      firmware adds a session-crypto handshake to the frame layer, so a client
+      that connects successfully and then gets nothing back is looking at a
+      firmware difference rather than a pairing failure — verify per unit.
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     name: "Nordic UART serial bridge"
@@ -143,3 +201,13 @@ helpful_urls:
   - title: "CamiAlfa/M365-BLE-PROTOCOL"
     url: "https://github.com/CamiAlfa/M365-BLE-PROTOCOL"
     description: "The shared ESC/BMS register map (Xiaomi + Ninebot family)."
+  - title: "Segway KickScooter ES user manual (PDF, vendor-hosted)"
+    url: "https://store.segway.com/media/wysiwyg/warranty/kickscooter-es-user-manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the ES range this spec covers.
+  - title: "Segway KickScooter ES1 series user manual (PDF, vendor-hosted)"
+    url: "https://support.segway.com/product_files/20230727035750_Segway%20KickScooter%20ES1%20series%20User%20Manual.pdf"
+    kind: "manual"
+    description: >
+      The ES1-series manual from Segway's support file store.

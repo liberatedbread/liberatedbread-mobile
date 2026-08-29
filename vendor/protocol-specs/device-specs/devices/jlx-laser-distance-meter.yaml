@@ -270,6 +270,13 @@ device:
       issued_to_client: []
       notes: "BLE direct, no auth. No Wi-Fi on this device."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "LDM330 (40-6013)"
       notes: "330 ft range, integrated angle sensor. Angle is not exposed over the recovered BLE protocol."
@@ -443,3 +450,13 @@ helpful_urls:
     description: >-
       Third-party app's catalogue of which meters it speaks to and how, useful for placing this
       Precaster OEM platform among the other vendors' protocols.
+  - title: "Johnson Level LDM330 instruction manual (PDF, vendor-hosted)"
+    url: "https://www.johnsonlevel.com/Content/files/manuals/LDM330manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the LDM330.
+  - title: "Johnson Level & Tool LDM330 instruction manual"
+    url: "https://www.manualslib.com/manual/1294902/Johnson-Level-And-Tool-Ldm330.html"
+    kind: "manual"
+    description: >
+      Alternative copy of the same document.

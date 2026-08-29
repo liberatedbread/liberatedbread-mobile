@@ -125,12 +125,27 @@ device:
               protocol: "ble_gatt"
               action: "read_storage_info / get_measurements_page"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: false
+      confidence: medium
       effect: >
-        Not established. The device holds up to 100 measurement records plus
-        BLE bonding state, but no reset procedure was found in either
-        companion app or in the US manual text examined. Do not guess one.
+        There is no way to clear the oximeter's memory. Beurer's own support
+        position is that the stored measurements cannot be reset on the device:
+        the hundred measurement slots fill and roll, and deleting readings in
+        the phone app does not help because the next sync downloads them from
+        the device again.
+      description: >
+        `false` rather than `unknown`, and this is one of the more consequential
+        absences in the registry. The PO60's stored sessions are health data;
+        they are held unencrypted, readable by any bonded client (see
+        `pairing`), and per the vendor there is no owner-accessible way to
+        remove them. Nothing survives a hand-over: a second-hand PO60 comes
+        with its previous owner's readings, and the only barrier to them is the
+        BLE bond.
+
+        The power button is the device's only control and carries power and
+        transfer functions; no reset function is documented on it. If a
+        procedure ever turns out to exist, this is a block worth revisiting,
+        because the privacy consequence is real.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -147,6 +162,41 @@ device:
       issued_to_client:
         - "Nothing beyond the BLE bond itself; there are no per-device application credentials"
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "passkey_entry"
+    bonding: "required"
+    pin:
+      source: "fixed_default"
+      length: 6
+      notes: >
+        Printed in the device's manual rather than on the unit, which makes it
+        a product-wide constant rather than a per-unit secret. The value is
+        not transcribed here because it was not read from a manual held by
+        this project — a PIN quoted from memory for a device someone is
+        holding is worse than a pointer to where the real one is.
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: >
+        If the oximeter refuses to pair with a new phone, remove the old bond
+        from the previous phone's OS Bluetooth settings and try again.
+    unpair:
+      supported: "unknown"
+      requires_factory_reset: false
+      notes: >
+        Moving to a new phone is ordinary BLE re-bonding and needs no reset;
+        no procedure for clearing the device's own bond state was found in
+        either companion app or in the manual text examined.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Bonding is the only protection this device has: nothing in the protocol
+      above it is encrypted, and up to 100 stored measurement sessions — health
+      data — are readable by any bonded client. Whether some firmware revisions
+      accept Just Works instead, and whether an unbonded client can already
+      write the time-set command, is unestablished and needs hardware.
   # The cloud block below records the phone-app services for completeness.
   # The PO60 itself has no radio but BLE and never talks to any of this.
 cloud:
@@ -468,6 +518,16 @@ helpful_urls:
       The standard profile the PO60 notably does NOT implement — listed so an
       implementer does not wait for PLX notifications that will never come.
 
+  - title: "Beurer PO 60 manual"
+    url: "https://www.manualslib.com/manual/2178319/Beurer-Po-60.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the PO60. It documents the six-digit pairing PIN this spec's pairing block records, and — per Beurer's own support — no way to clear the stored measurements.
+  - title: "Beurer PO 60 quick start manual"
+    url: "https://www.manualslib.com/manual/1729747/Beurer-Po-60.html"
+    kind: "manual"
+    description: >
+      The short-form guide for the same device.
 evidence:
   artifacts:
     - type: "static_analysis"

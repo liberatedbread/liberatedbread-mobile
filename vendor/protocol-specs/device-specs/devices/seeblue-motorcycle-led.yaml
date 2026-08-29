@@ -96,6 +96,13 @@ device:
         proximity is the only access control. Note the app-level handshake on
         protocol 0x00 after every connect (see setup description); whether the
         firmware enforces it is unverified.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "Direct"
       identification:
@@ -697,3 +704,15 @@ entities:
     notes: >
       Binds zone A of the v2 dialect's three color/brightness zones; zones
       B and C remain command-only.
+
+helpful_urls:
+  - title: "LEDGlow Bluetooth installation and pairing instructions (PDF, vendor-hosted)"
+    url: "https://www.ledglow.com/Instructions/Bluetooth_Installation_and_Pairing_Instructions.pdf"
+    kind: "manual"
+    description: >
+      Vendor instructions for the LEDGlow Bluetooth controller, a sibling of this hardware. Includes the four-second power-button hold — red to yellow — that puts the controller into pairing mode.
+  - title: "LEDGlow Advanced Million Color motorcycle kit instructions (PDF)"
+    url: "https://www.motorcycleledlights.com/content/instructions/Advanced-Million-Color-Motorcycle-Kit-New-CB.pdf"
+    kind: "manual"
+    description: >
+      Full kit installation guide for the same controller family.

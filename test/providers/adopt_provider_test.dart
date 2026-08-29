@@ -80,6 +80,47 @@ void main() {
     expect(lifx.profile.methodType, 'softap_udp');
   });
 
+  /// The join's shadowing rule is insertion order, the same rule
+  /// [specEntriesByKey] encodes for key lookups: remote pack specs load
+  /// after bundled ones, so a pack carrying a corrected copy of a bundled
+  /// device WINS the name join. A first-wins reading here silently handed
+  /// adopt the stale bundled spec instead of the copy the user installed.
+  test('a later duplicate (an installed pack) overrides the bundled copy',
+      () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    final wemo = parsed.first;
+    // The pack copy differs in a field the PROFILE carries, not just in its
+    // YAML text — otherwise the test cannot tell which copy produced the
+    // card's profile, which is exactly the split-brain it exists to catch:
+    // profiles generated from every parsed copy, deduped first-wins (the
+    // bundled one), then paired with the winning copy's YAML.
+    final packCopy = (
+      yaml: wemo.yaml
+          .replaceAll('ssid_prefix: "Wemo."', 'ssid_prefix: "WemoPack."'),
+      spec: wemo.spec,
+    );
+    final container = ProviderContainer(overrides: [
+      specCodecProvider.overrideWithValue(const RealSpecCodec()),
+      parsedDeviceSpecsProvider
+          .overrideWith((ref) async => [...parsed, packCopy]),
+      wifiNetworkScannerProvider.overrideWithValue(_FakeScanner(const [])),
+    ]);
+    addTearDown(container.dispose);
+
+    final devices = await container.read(adoptableDevicesProvider.future);
+    final adopted = devices.firstWhere((d) => d.family == AdoptFamily.wemo);
+    expect(adopted.specYaml, contains('WemoPack.'),
+        reason: 'the later (pack) copy must win the name join');
+    // …and the profile beside it comes from that same copy.
+    expect(adopted.profile.ssidPrefix, 'WemoPack.',
+        reason: 'a card must not wear the bundled profile over pack YAML');
+    expect(devices.where((d) => d.family == AdoptFamily.wemo), hasLength(1),
+        reason: 'the shadowed copy must not also produce a card');
+  });
+
   test('a visible Wemo setup SSID is matched to the Wemo family', () async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');

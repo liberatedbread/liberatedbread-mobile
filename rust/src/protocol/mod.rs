@@ -58,6 +58,38 @@ pub fn top_level_command<'a>(
         })
 }
 
+/// Fill `{name}` placeholders in one left-to-right pass.
+///
+/// Every template byte is read exactly once and every value is written as
+/// opaque text — never re-scanned for further placeholders, so data cannot
+/// become template. A brace pair naming nothing in `fills` passes through
+/// untouched, as does a lone `{` with no closing brace: what the caller did
+/// not fill is the template's own prose. The websocket text frames and the
+/// MQTT state-topic fill share this discipline through this one definition;
+/// a second scanner would be a second chance for data to become template.
+pub(crate) fn fill_placeholders_once(template: &str, fills: &[(String, String)]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    loop {
+        let Some(open) = rest.find('{') else {
+            out.push_str(rest);
+            return out;
+        };
+        out.push_str(&rest[..open]);
+        let brace_on = &rest[open..];
+        let Some(close) = brace_on.find('}') else {
+            out.push_str(brace_on);
+            return out;
+        };
+        let key = &brace_on[..=close];
+        match fills.iter().find(|(placeholder, _)| placeholder == key) {
+            Some((_, value)) => out.push_str(value),
+            None => out.push_str(key),
+        }
+        rest = &brace_on[close + 1..];
+    }
+}
+
 /// Resolve one command parameter's value for a render.
 ///
 /// The order is the contract, and every network transport shares it because
@@ -118,6 +150,13 @@ pub struct EncodedWrite {
 /// index by [`Self::packets`], not by 1: a frame that splits into P packets
 /// uses P serials, and advancing by less would make the next frame reuse
 /// them, corrupting fragment reassembly on the device.
+///
+/// "Packet" here means whatever unit the HANDLER's wire protocol numbers,
+/// and today that genuinely differs: the thermal printers count logical
+/// ESC/POS frames, while the badge and Magic Display count BLE writes.
+/// Nothing observes the difference — none of the four uses a serial — but a
+/// handler that starts numbering fragments must pick the unit ITS device
+/// sequences, not copy a sibling's.
 #[derive(Debug)]
 pub struct EncodedFrame {
     pub writes: Vec<EncodedWrite>,

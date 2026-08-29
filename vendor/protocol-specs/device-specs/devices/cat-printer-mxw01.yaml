@@ -180,6 +180,13 @@ device:
       issued_to_client: []
       notes: "BLE-only. No auth. Physical proximity is the only access control."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "MXW01"
       identification:

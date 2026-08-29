@@ -170,6 +170,8 @@ device:
       issue #602).
     methods:
       - type: "ble_provisioning"
+        name: "Flash custom firmware over Web Bluetooth"
+        role: "primary"
         verified: false
         description: >
           Flash custom firmware via web browser OTA to enable direct
@@ -188,6 +190,8 @@ device:
             actor: "client"
             expect: "Device reboots and advertises as ATC_XXXXXX."
       - type: "cloud_account"
+        name: "Keep stock firmware, take the bindkey from Mi Home"
+        role: "alternative"
         # The custom-firmware path above is the one this repo documents and
         # exercises; the stock Mi Home route is recorded as the alternative it
         # replaces, not as a flow verified here.
@@ -227,6 +231,37 @@ device:
         - "Bindkey (stock firmware, obtained from Xiaomi cloud)"
       notes: "Custom firmware stores no cloud credentials. Optional PIN for GATT access control."
 
+  pairing:
+    required: false
+    confidence: "high"
+    security_mode: "none"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        Stock firmware only, and not a PIN: the MiBeacon bindkey that decrypts
+        the broadcast payload, extracted once from the Mi Home app. Per-unit,
+        so no value appears here. Custom firmware removes the need for it
+        entirely.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The Xiaomi account binding, and with it the validity of the extracted bindkey."
+      notes: >
+        Removing the thermometer from Mi Home invalidates the bindkey, so a
+        local integration that was decoding broadcasts stops decoding them
+        with no change on its own side. Re-pairing issues a new one. Flashing
+        the custom firmware makes the whole question moot.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing bonds on either firmware — this is a broadcast sensor, and no
+      client ever pairs with it at the link layer. What the stock firmware
+      requires is a key, not a pairing: its MiBeacon payload is encrypted, and
+      the bindkey comes from the Mi Home account the thermometer is registered
+      to. The recommended path here is the pvvx/ATC custom firmware, which
+      broadcasts unencrypted and has no account, no key and no pairing of any
+      kind; the flash is reversible.
   variants:
     - model: "LYWSD03MMC (custom firmware ATC)"
       identification:
@@ -478,3 +513,8 @@ helpful_urls:
   - url: "https://www.home-assistant.io/integrations/xiaomi_ble/"
     title: "Home Assistant Xiaomi BLE integration"
     description: "HA core integration passively decoding LYWSD03MMC advertisements (bindkey for stock firmware; plaintext with ATC custom firmware)."
+  - title: "Mi LYWSD03MMC user manual"
+    url: "https://www.manualslib.com/manual/2150730/Mi-Lywsd03mmc.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the stock thermometer — the firmware this spec recommends replacing.

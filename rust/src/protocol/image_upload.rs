@@ -267,6 +267,18 @@ pub(crate) fn declared_static_key(
         .static_key
         .ok_or_else(|| unsupported(format!("characteristic {} declares no static_key", c.uuid)))?;
     let hex = hex.trim();
+    // Checked BEFORE the length: `str::len()` counts bytes and the slices
+    // below are byte-indexed, so a multibyte character that lands a slice on
+    // a non-boundary is a panic — in a value that arrives in spec packs
+    // installable from arbitrary URLs. The policy is the one `abef4d5` set
+    // for the test-only Index impl: production input must never take the
+    // core down, however malformed.
+    if !hex.is_ascii() {
+        return Err(unsupported(format!(
+            "characteristic {}'s static_key is not hexadecimal (0-9, a-f)",
+            c.uuid
+        )));
+    }
     if hex.len() != 32 {
         return Err(unsupported(format!(
             "characteristic {}'s static_key is {} characters; a 128-bit key is 32 hex \
@@ -347,6 +359,21 @@ pub(crate) fn printhead_row_bytes(spec: &DeviceSpec) -> Result<usize, ProtocolEr
     if width == 0 || width % 8 != 0 {
         return Err(ProtocolError::ImageUploadUnsupported {
             reason: format!("paper width {width} is not a whole number of 8-dot bytes"),
+        });
+    }
+    // Bounded because the row length rides one-byte fields on the wire (the
+    // cat printer's 0xA2 payload length, the D11's GS v 0 row count), and
+    // `as u8` past 255 would truncate SILENTLY into a frame the printer
+    // obeys wrongly. 2040 dots is 255 bytes — several times any real
+    // printhead — so the bound never binds legitimate hardware, only a
+    // malformed or hostile spec. Debug asserts guarded this before, which is
+    // no guard at all in the release build that ships.
+    if width > 2040 {
+        return Err(ProtocolError::ImageUploadUnsupported {
+            reason: format!(
+                "paper width {width} exceeds the 2040 dots a one-byte row \
+                 length can carry"
+            ),
         });
     }
     Ok(width as usize / 8)
@@ -647,6 +674,29 @@ pub fn encode_frame_with(
 mod tests {
     use super::*;
     use crate::spec::parser::parse_device_spec;
+
+    #[test]
+    fn a_multibyte_static_key_is_refused_not_a_panic() {
+        // 31 characters but exactly 32 BYTES: the byte-length check let this
+        // through, and the byte-indexed slice then cut the é mid-character —
+        // a panic, in a value that arrives in spec packs installable from
+        // arbitrary http(s) URLs. Malformed production input must never take
+        // the core down.
+        let c: crate::spec::types::Characteristic = serde_yaml::from_str(
+            r#"
+uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+name: command
+properties: ["write"]
+encryption:
+  algorithm: aes-128-ecb
+  key_derivation: static
+  static_key: "a\u00e900000000000000000000000000000"
+"#,
+        )
+        .expect("characteristic parses");
+        let err = declared_static_key(&c, "aes-128-ecb").unwrap_err();
+        assert!(format!("{err:?}").contains("not hexadecimal"));
+    }
 
     /// A framing scheme with nothing in common with `daniao_fragment`: no
     /// header at all, one write per packet, and a different name.

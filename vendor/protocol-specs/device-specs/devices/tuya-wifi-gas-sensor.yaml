@@ -160,6 +160,8 @@ device:
       per-device 16-char local key (see cloud.notes).
     methods:
       - type: "smartconfig"
+        name: "EZ mode: credentials broadcast over the air"
+        role: "primary"
         verified: false
         description: >
           EZ mode: with the device in pairing mode (fast-blinking LED after
@@ -181,7 +183,10 @@ device:
               The LED stops blinking and the device appears in Smart Life /
               Tuya Smart.
         # SDK-generic flow, not replayed against this hardware — see setup.notes.
+        # SDK-generic flow, not replayed against this hardware — see setup.notes.
       - type: "softap_udp"
+        name: "AP mode: the device's own hotspot"
+        role: "alternative"
         verified: false
         description: >
           AP mode (device hotspot, slow-blinking LED — entered from EZ mode
@@ -191,6 +196,8 @@ device:
           setup network. Supported by the SDK; exact per-clone AP naming
           unverified.
       - type: "ble_provisioning"
+        name: "BLE-assisted pairing"
+        role: "alternative"
         verified: false
         description: >
           BLE-assisted pairing: the WB2S/CB2S module's BLE radio advertises
@@ -698,6 +705,11 @@ helpful_urls:
       UART flashing of WB2S/CB2S modules for the firmware-replacement path
       (ESPHome config in the first link).
 
+  - title: "Tuya CH4 WiFi gas detector user manual"
+    url: "https://www.manualslib.com/manual/2789337/Tuya-Ch4.html"
+    kind: "manual"
+    description: >
+      Manual for the Tuya combustible-gas detector platform this spec covers. These ship under many retail brands on identical hardware.
 evidence:
   artifacts:
     - type: "static_analysis"

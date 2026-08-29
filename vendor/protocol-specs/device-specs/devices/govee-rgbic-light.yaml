@@ -530,6 +530,13 @@ device:
         BLE-only models exchange no credentials. The optional 8-byte BLE
         auth key is static per device.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "00010203-0405-0607-0809-0a0b0c0d1910"
     name: "Govee Light Command Service"
@@ -730,3 +737,8 @@ helpful_urls:
     description: >-
       HA core integration for the firmware-side LAN API (UDP 4001/4002/4003) that WiFi models
       expose once the local-network-API function is enabled.
+  - title: "Govee H619A RGBIC LED strip user manual"
+    url: "https://www.manualslib.com/manual/3231376/Govee-H619a.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the H619A, one of the segmented strips this spec covers.

@@ -181,6 +181,13 @@ device:
         AES key obfuscates but does not authenticate. Physical proximity is
         the only access control.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "Pixel tree string (TR2107R, productType 0)"
       identification:
@@ -589,11 +596,3 @@ helpful_urls:
       The 8none1 author bricked a light set by sending out-of-family bytes
       during development — the reason this spec warns against guessing
       undecoded opcode payloads.
-  - title: "iDeal LED on Google Play"
-    url: "https://play.google.com/store/apps/details?id=com.tech.idealled"
-    description: "Vendor app (com.tech.idealled)."
-  - title: "Firmware info endpoint (OTA check)"
-    url: "https://api.e-toys.cn/api/getFirmwareInfo"
-    description: >-
-      Public vendor endpoint (POST) the app queries for .ufw firmware
-      updates; referenced so firmware need not be harvested into this repo.

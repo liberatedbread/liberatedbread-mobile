@@ -1,0 +1,147 @@
+# Instruction glyph manifest.
+#
+# Every file under glyphs/ has an entry here and every entry has a file;
+# scripts/validate_glyphs.py enforces both directions, plus the rule that no
+# glyph sits in the store unreferenced by any spec. The manifest exists for two
+# things the image itself cannot carry:
+#
+#   alt     — what a screen reader says instead of showing the picture. A glyph
+#             is decoration for a step that must already read correctly without
+#             it, so the alt text describes the DRAWING, not the instruction:
+#             the step text is already there and repeating it is noise.
+#   origin  — the clean-room attestation. `original_drawing` is the only value
+#             the validator accepts, and it means exactly what it says: someone
+#             drew this from scratch. Vendor artwork is not admissible here in
+#             any processed form — not a crop of a manual page, not a trace over
+#             a product photo, not an app asset recoloured. See
+#             docs/CLEANROOM_RULES.md; the same rule that keeps vendor images
+#             out of the repo keeps them out of this directory.
+#
+# `drawn_from` records the FACTUAL basis — where the knowledge of what the
+# hardware looks like came from — which is a different question from where the
+# artwork came from. Reading a manual to learn that the button sits below the
+# paddle is research; tracing the manual's diagram of it is not.
+
+version: 1
+license: Apache-2.0
+
+glyphs:
+  devices/wemo-devices/restore-button-plug.svg:
+    title: Restore button on a plug-style Wemo device
+    alt: >-
+      Line drawing of a smart plug seen from the front, with a dashed circle
+      calling out a small button on the right edge of the body.
+    origin: original_drawing
+    drawn_from: >-
+      Belkin's published Wemo user guides for the plug-style models, which
+      place the Restore button on the side of the body next to the socket
+      face.
+
+  devices/wemo-devices/restore-button-inwall.svg:
+    title: Restore button on an in-wall Wemo device
+    alt: >-
+      Line drawing of an in-wall light switch seen from the front, with a
+      dashed circle calling out a small button below the rocker paddle.
+    origin: original_drawing
+    drawn_from: >-
+      Belkin's published Wemo user guides for the in-wall switch and dimmer
+      models, which place the Restore button on the faceplate below the
+      paddle.
+
+  generic/led-flashing.svg:
+    title: Indicator light flashing
+    alt: >-
+      Line drawing of a single lit indicator surrounded by expanding arcs,
+      showing a light that is flashing rather than holding steady.
+    origin: original_drawing
+    drawn_from: >-
+      The distinction every device in this registry needs drawn at some
+      point — a steady indicator against a blinking one. Nothing
+      device-specific about it, which is why it lives under generic/.
+
+  generic/hold-button.svg:
+    title: Press and hold the button
+    alt: >-
+      Line drawing of a round button pressed in the centre, with a curved
+      arrow sweeping around it to show it is held rather than tapped.
+    origin: original_drawing
+    drawn_from: >-
+      The single most common physical instruction in this registry. Drawn
+      once because a hold and a tap look identical in prose and completely
+      different as pictures.
+
+  generic/hold-button-while-powering-on.svg:
+    title: Hold the button while power is applied
+    alt: >-
+      Line drawing of a held button joined by a plus sign to the standard
+      power symbol, showing that the button is already down when power
+      arrives.
+    origin: original_drawing
+    drawn_from: >-
+      The single most common reason a correct-looking reset does not take:
+      the user holds the button on a running device. The order is the whole
+      instruction, and it is what this drawing exists to carry.
+
+  generic/power-cycle.svg:
+    title: Switch the device off and on again, repeatedly
+    alt: >-
+      Line drawing of the standard power symbol enclosed by two curved arrows
+      chasing each other around it.
+    origin: original_drawing
+    drawn_from: >-
+      The power-cycle-N-times reset that every cheap WiFi bulb and LED
+      controller uses. Deliberately distinct from the hold-while-powering-on
+      drawing: those are different gestures and confusing them wastes an
+      afternoon.
+
+  generic/press-two-buttons.svg:
+    title: Press both buttons at the same time
+    alt: >-
+      Line drawing of two round buttons side by side, both pressed, joined
+      underneath by a bracket showing they are held together.
+    origin: original_drawing
+    drawn_from: >-
+      Two-button combinations, where prose has to say "at the same time" and
+      readers do them in sequence anyway.
+
+  generic/pinhole-reset.svg:
+    title: Press the recessed reset pinhole with a thin tool
+    alt: >-
+      Line drawing of a small recessed hole in a panel with a straightened
+      pin angled into it.
+    origin: original_drawing
+    drawn_from: >-
+      The recessed-hole reset that ships on everything from weather stations
+      to sensors, usually described as needing "a paperclip" or "the supplied
+      needle".
+
+  generic/on-screen-menu.svg:
+    title: Find the setting in the device's own menu
+    alt: >-
+      Line drawing of a screen showing a list of menu rows with the third row
+      highlighted and a chevron marking it as the one to open.
+    origin: original_drawing
+    drawn_from: >-
+      Menu-driven resets, which are not a gesture at all and are worth
+      distinguishing at a glance from the button holds around them.
+
+  devices/nuki-smart-lock/pairing-button-hold.svg:
+    title: Hold the lock button to enter pairing mode
+    alt: >-
+      Line drawing of a cylindrical smart lock seen face-on, with a curved
+      arrow sweeping around it to show its centre button being held rather
+      than tapped.
+    origin: original_drawing
+    drawn_from: >-
+      Nuki's public documentation of the Smart Lock, which describes putting
+      the lock into pairing mode by holding the button on its face.
+
+  devices/nuki-smart-lock/ring-led-pairing.svg:
+    title: Ring LED showing the lock is discoverable
+    alt: >-
+      Line drawing of a ring of eight lit arc segments running the whole way
+      around a circular lock body.
+    origin: original_drawing
+    drawn_from: >-
+      Nuki's public documentation of the Smart Lock's ring indicator, which
+      signals state by which part of the ring is lit.

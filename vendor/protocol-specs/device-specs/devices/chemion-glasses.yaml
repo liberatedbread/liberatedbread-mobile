@@ -200,6 +200,13 @@ device:
         No authentication of any kind: anything within radio range can
         connect and issue commands, including power-off. Physical proximity
         is the only access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "CHEMION Original (glasses)"
       identification:
@@ -552,3 +559,13 @@ helpful_urls:
   - title: "CHEMION official site"
     url: "https://www.chemionglasses.com/"
     description: "Vendor product site for the glasses and HAT."
+  - title: "CHEMION LED glasses manual (PDF, vendor-hosted)"
+    url: "https://image.chemi-on.com/CHEMION_manual_ENG.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the original CHEMION glasses this spec documents.
+  - title: "CHEMION: manuals index"
+    url: "https://www.chemionglasses.com/pages/manual"
+    kind: "vendor_support"
+    description: >
+      Vendor index. Note the 2024 hardware uses a different app ('COLOR CHEMION') from the one this spec was derived from.

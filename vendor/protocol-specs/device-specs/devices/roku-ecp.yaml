@@ -196,6 +196,16 @@ helpful_urls:
   - title: "RoMote — open-source Android ECP remote"
     url: "https://github.com/wseemann/RoMote"
 
+  - title: "Roku Streaming Stick user manual"
+    url: "https://www.manualslib.com/manual/696105/Roku-Streaming-Stick.html"
+    kind: "manual"
+    description: >
+      Vendor manual covering the reset button and status light on the stick form factor.
+  - title: "Roku TV user guide (PDF, vendor-hosted)"
+    url: "https://image.roku.com/c3VwcG9ydC1B/RokuTVUserGuide-11-5a-US.pdf"
+    kind: "manual"
+    description: >
+      Vendor guide for the TV platform, which speaks the same ECP this spec documents.
 evidence:
   live_lan_probe:
     date: "2026-07-16"

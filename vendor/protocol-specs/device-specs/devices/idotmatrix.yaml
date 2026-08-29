@@ -155,6 +155,13 @@ device:
       notes: >
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 # Custom consumer-side handler: builds framed image/GIF/text packets, computes the
 # CRC32, and drives MTU-aware chunked writes. Declarative.
 protocol_handler: "idotmatrix_image"
@@ -463,3 +470,8 @@ helpful_urls:
   - title: "adriantukendorf/iDotMatrix-HomeAssistant (HACS)"
     url: "https://github.com/adriantukendorf/iDotMatrix-HomeAssistant"
     description: "HACS integration driving iDotMatrix BLE pixel boards locally (native adapter or Bluetooth proxy)."
+  - title: "derkalle4/python3-idotmatrix-client"
+    url: "https://github.com/derkalle4/python3-idotmatrix-client"
+    kind: "implementation"
+    description: >
+      No vendor manual is published anywhere that resolves — iDotMatrix ship a QR code to an app and nothing else. This reverse-engineered client is the working documentation for the protocol.

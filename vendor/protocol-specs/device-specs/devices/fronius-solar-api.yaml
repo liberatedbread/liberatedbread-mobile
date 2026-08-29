@@ -47,7 +47,7 @@ device:
     status: "documented_api"
     reverse_engineered: false
     upstream_docs:
-      - url: "https://www.fronius.com/en/solar-energy/installers-partners/technical-data/all-products/system-monitoring/open-interfaces/fronius-solar-api-json-"
+      - url: "https://web.archive.org/web/20241007142028/https://www.fronius.com/en/solar-energy/installers-partners/technical-data/all-products/system-monitoring/open-interfaces/fronius-solar-api-json-"
         title: "Fronius — Solar API (JSON)"
         covers: "The /solar_api/v1 endpoints, request model (Scope/DeviceId/DataCollection) and response envelope."
     notes: >
@@ -104,9 +104,19 @@ device:
       applicable: "unknown"
       confidence: low
       effect: >
-        A datalogger reset returns it to setup; the gesture is in Fronius's own
-        documentation and not transcribed here. The Solar API stores no user
-        credential (it is unauthenticated).
+        A datalogger reset returns it to setup. The Solar API stores no user
+        credential — it is unauthenticated — so nothing of ours is lost. What
+        IS lost is the API itself: on a device running bundle version 1.14.1
+        or higher, a factory reset leaves the Solar API DEACTIVATED by
+        default, and it has to be switched back on before any of this spec
+        works again.
+      description: >
+        The gesture is not transcribed here — Fronius documents it per
+        datalogger and the API manual does not repeat it — but the consequence
+        above is the part worth knowing before anyone resets one of these to
+        fix something else. An updated device keeps the API enabled; a reset
+        one does not, and the symptom is a datalogger that is plainly on the
+        network and answers nothing.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -185,8 +195,13 @@ entities:
 
 helpful_urls:
   - title: "Fronius — Solar API (JSON) documentation"
-    url: "https://www.fronius.com/en/solar-energy/installers-partners/technical-data/all-products/system-monitoring/open-interfaces/fronius-solar-api-json-"
+    url: "https://web.archive.org/web/20241007142028/https://www.fronius.com/en/solar-energy/installers-partners/technical-data/all-products/system-monitoring/open-interfaces/fronius-solar-api-json-"
     description: "Official Solar API V1: endpoints, request model, response envelope, platform compatibility."
   - title: "mwittig/node-fronius-solar"
     url: "https://github.com/mwittig/node-fronius-solar"
     description: "Community Node client for the Solar API."
+  - title: "Fronius Solar API V1 operating instructions (PDF, vendor-hosted)"
+    url: "https://www.fronius.com/~/downloads/Solar%20Energy/Operating%20Instructions/42,0410,2012.pdf"
+    kind: "manual"
+    description: >
+      The normative document for the API this spec implements — including the warning that a factory reset leaves the Solar API deactivated on bundle 1.14.1 and later.

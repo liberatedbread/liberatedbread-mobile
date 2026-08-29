@@ -149,6 +149,34 @@ device:
         replay. No Wi-Fi on the lock (a separate Wi-Fi module / hub provides
         remote access). No public advisory surfaced.
 
+  pairing:
+    required: true
+    confidence: "high"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "printed_label"
+      notes: >
+        On SESAME 5 the device secret can be loaded from a QR code printed on
+        the unit, which makes possession of the lock sufficient. Otherwise it
+        is minted by the registration exchange. Per-unit either way, so no
+        value appears here.
+    unpair:
+      supported: "unknown"
+      requires_factory_reset: false
+      notes: >
+        Registration mints a per-device secret rather than a link-layer bond,
+        so there is no OS-level pairing for a user to forget. What clearing
+        that registration takes has not been established.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      The registration step is a genuine pairing in every sense except the
+      Bluetooth one: an ECDH exchange over SECP256R1 that derives the device
+      secret every later session logs in with. Nothing bonds at the link
+      layer, so a client looking for an OS pairing prompt will not see one —
+      and a client that skips registration and tries to connect-and-go gets
+      nothing.
 services:
   - uuid: "0000fd81-0000-1000-8000-00805f9b34fb"
     name: "SESAME service (0xFD81)"
@@ -199,3 +227,8 @@ helpful_urls:
   - title: "CANDY HOUSE developer docs"
     url: "https://docs.candyhouse.co/"
     description: "The overall SesameOS3 SDK / API documentation."
+  - title: "CANDY HOUSE: SESAME 5 product and documentation page"
+    url: "https://candyhouse.co/products/sesame5"
+    kind: "vendor_support"
+    description: >
+      Vendor page for the SESAME 5, including the QR-printed device secret this spec's pairing block records.

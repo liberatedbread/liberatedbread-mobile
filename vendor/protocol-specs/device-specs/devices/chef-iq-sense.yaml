@@ -129,6 +129,8 @@ device:
       loud, because the vendor app treats the account as mandatory.
     methods:
       - type: "ble_direct"
+        name: "BLE only — no provisioning at all"
+        role: "primary"
         verified: false
         description: >
           For local use, no provisioning is required: scan for the local name
@@ -143,6 +145,8 @@ device:
             request:
               protocol: "ble_gatt"
       - type: "ble_provisioning"
+        name: "Wi-Fi credentials over the provisioning service"
+        role: "alternative"
         verified: false
         description: >
           WiFi credentials are written over the Family C service. The
@@ -204,6 +208,13 @@ device:
         BLE writes here are not encrypted or bonded, so the passphrase is
         exposed to anything sniffing the connection event during provisioning.
         Provision in a quiet RF environment or skip WiFi entirely for local use.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "048a00ff-cd06-4d57-a048-ccd5cb9f8f43"
     name: "Thermometer/Probe Service (Family A)"
@@ -767,3 +778,13 @@ helpful_urls:
       Probe grant (CHEF PROBE-V2, granted 2023-07-28) with user manual,
       internal photos and BLE test report; includes the 2024-12-18 C2PC
       adding probe models CQ60-PRC-01/02/03/04 (ISED IC 27740-CQ60QPROBE).
+  - title: "CHEF iQ Sense probe and hub user manual"
+    url: "https://www.manualslib.com/manual/3659271/Chef-Iq-Iq-Sense-Chef-Probe-V3.html"
+    kind: "manual"
+    description: >
+      Vendor manual covering the probe and the CQ60 hub this spec documents.
+  - title: "CHEF iQ Smart Hub user manual"
+    url: "https://www.manualslib.com/manual/2643694/Chef-Iq-Smart-Hub.html"
+    kind: "manual"
+    description: >
+      Manual for the hub form factor.

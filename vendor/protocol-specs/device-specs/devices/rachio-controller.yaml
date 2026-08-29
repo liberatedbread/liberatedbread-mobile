@@ -20,6 +20,34 @@ device:
       HomeKit setup code only exists in the vendor app, and pairing an
       unpaired unit out from under its owner would be hostile. SoftAP
       provisioning flows remain unexercised.
+      Re-probed 2026-08-25 on a different LAN (same unit, new attachment —
+      HAP id unchanged, confirming its stability): the _hap._tcp service now
+      shows the full HAP TXT set (c#=4, ff=1, sf=1 still unpaired, s#=1,
+      pv=1.1, ci=2 bridge category, sh present). New finding: TCP 443 was
+      open and serving the Gen 3 device HTTPS API on the provisioned LAN —
+      TLS certificate CN=*-rachio.local issued by "Rachio Device CA"
+      (O=Rachio, Denver CO), matching the pinned-CA scheme documented from
+      the app. Route map from live GET probes: /info, /conn, /time and
+      /fwupdate answer 403 (route exists, x-api-key auth required);
+      /config, /schedule, /done and /remove answer 404 (setup-AP-only
+      routes), as does everything else. The 443 listener stopped accepting
+      connections after a burst of probe traffic and did not recover within
+      40 minutes of polling (port 80 HAP unaffected throughout) — the WICED
+      HTTPS server does not self-restart on a short timescale; it
+      returns on reboot (confirmed 2026-08-26). Probe gently.
+      Authenticated session 2026-08-26 (after a reboot revived the 443
+      listener): with "x-api-key: <serial uppercase>", GET /info → 200
+      {"fwv":"iro3-firmware-hk-5-645","wfv":"wl0: ... 7.15.168.143
+      (Broadcom WLAN)","env":"prod","valve_num":16} — this 16-zone unit's
+      current build, and direct confirmation of the Broadcom/Cypress Wi-Fi
+      under WICED. GET /conn → 200 {"con_state":{"current":
+      "FULLY_CONNECTED","furthest":"FULLY_CONNECTED","code":0}}.
+      POST /time {"epoch": N} → 200 (time sync replayed successfully).
+      Method map settled: /info and /conn are GET, /time and /fwupdate are
+      POST-only (GET → 405, POST on a GET route → 405), wrong/absent API
+      key → 403, setup-only routes → 404 on the LAN. /fwupdate was NOT
+      exercised — pushing an OTA image to someone else's running
+      irrigation controller is not a probe, it's a firmware flash.
   protocol: "wifi"
   category: "irrigation"
   transport: "homekit"
@@ -33,10 +61,24 @@ device:
     provisioning; cloud end-of-life 2024), Gen 2 = AzureWave CU288 / Marvell
     (FCC ID TLZ-CU288), Gen 3 = Rachio's own FCC ID 2AOTB-ZULWC, dual-band
     Wi-Fi plus a 900 MHz radio for the Wireless Flow Meter. Native HomeKit
-    exists only on Rachio 3. In-the-wild firmware build:
-    iro3-firmware-hk-5-632 ("hk" = HomeKit). Rachio's 2025 Smart Lighting
-    Controller uses Matter/Thread — the vendor is migrating new products away
-    from HomeKit.
+    exists only on Rachio 3. In-the-wild firmware builds:
+    iro3-firmware-hk-5-632 (2020-2023 community sightings), 5-640 (2023
+    sighting), iro3-firmware-hk-5-645 (verified live on a 16-zone unit
+    2026-08-26 via GET /info; "hk" = HomeKit). Firmware is OTA-only: no
+    public download host — the vendor cloud hands the app a signed URL
+    (gRPC DeviceService/GetDesiredFirmware → desiredFirmwareUrl) and the
+    app pushes the image to the device's local HTTPS API. Rachio's 2025
+    Smart Lighting Controller uses Matter/Thread — the vendor is migrating
+    new products away from HomeKit.
+    Local HTTPS API: the Gen 3 device HTTPS API documented from the vendor
+    app for setup-AP provisioning is also live on the provisioned LAN at TCP
+    443 (verified 2026-08-25; see http_endpoints). It exposes a subset of
+    routes — info, conn, time, fwupdate — authenticated with
+    "x-api-key: <device serial, uppercase>" (the serial the app collects
+    during onboarding, scanned from the unit's label), under TLS with the
+    vendor-pinned CA. The app pushes local OTA firmware to this port using
+    the controller's LAN IP. No zone-control route exists here: local
+    watering control remains HAP-only.
   identification:
     # No mdns_service_type. HomeKit accessories all advertise `_hap._tcp` — hundreds of unrelated
     # products. It says the device speaks HomeKit, not that it is this one.
@@ -51,7 +93,7 @@ device:
       - type: "mdns"
         mdns:
           service_type: "_hap._tcp.local."
-          txt_record_keys: ["id", "md", "c#", "pv"]
+          txt_record_keys: ["id", "md", "c#", "pv", "ff", "s#", "sf", "ci", "sh"]
           identity_mapping:
             stable_keys:
               - source: "txt:id"
@@ -81,6 +123,45 @@ device:
       vendor app at least once.
     methods:
       - type: "softap_http"
+        name: "Gen 3 setup AP: HTTPS JSON under a pinned CA"
+        role: "variant"
+        verified: false
+        description: >
+          Gen 3 flow (current vendor app): the
+          phone joins the unit's setup Wi-Fi, then talks HTTPS JSON to the
+          device — POST https://<deviceMac>/<endpoint> with a custom DNS
+          resolver, a pinned root CA shipped in the app assets
+          (rachioBroker_rootCA.pem) and auth header
+          "x-api-key: <serial uppercase>". Endpoints: info, config, conn,
+          schedule, time, done, remove, fwupdate. The config body carries
+          the home ssid/pass in cleartext JSON (protected only by the pinned
+          TLS session); time carries the epoch. The conn poll exposes the
+          device's connection state machine — WIFI_CONNECTED → DNS_SUCCESS →
+          TLS_CONNECTED → MQTT_CONNECTED → MQTT_SUBSCRIBED → FULLY_CONNECTED
+          — confirming the Gen 3 cloud path is MQTT. App-side provisioning
+          states run CONNECT → SETTINGTIME → CONFIGURING → WAITINGFORWIFI →
+          CHECKING → COMPLETE, with a final POST done.
+        softap:
+          ssid_prefix: "Rachio"
+          ssid_examples: ["Rachio-XXXXXX"]
+          credential_encryption:
+            algorithm: "TLS with a pinned vendor root CA"
+            notes: "Wi-Fi credentials travel as cleartext JSON fields (ssid, pass) inside the pinned-TLS POST body; no application-layer encryption like Gen 2."
+        steps:
+          - action: 'Join the controller''s setup Wi-Fi (SSID "Rachio-XXXXXX", XXXXXX = last 3 MAC bytes uppercase).'
+            actor: "client"
+          - action: "POST https://<deviceMac>/time with the current epoch (JSON, pinned CA, x-api-key header)."
+            actor: "client"
+          - action: "POST https://<deviceMac>/config with the home Wi-Fi ssid and pass as JSON."
+            actor: "client"
+          - action: "Poll https://<deviceMac>/conn until the device reports Wi-Fi then MQTT connected (state machine ending at FULLY_CONNECTED)."
+            actor: "client"
+          - action: "POST https://<deviceMac>/done to end provisioning."
+            actor: "client"
+            notes: "Derived from the vendor app; not replayed on hardware. The pinned CA means third-party clients must extract or replace it to talk to the device. Corroborated on the live LAN 2026-08-25: the provisioned unit serves TCP 443 with a device cert (CN=*-rachio.local) issued by a vendor device CA, and the info/conn/time/fwupdate routes exist there (403 without x-api-key) — config/schedule/done/remove are setup-AP-only (404 on the LAN)."
+      - type: "softap_http"
+        name: "Gen 2 setup AP: Curve25519 secure session"
+        role: "variant"
         verified: false
         description: >
           Gen 2 flow (from an older release of the vendor app; constants
@@ -116,42 +197,9 @@ device:
           - action: "POST /sys/time to sync the epoch."
             actor: "client"
             notes: "Gen 2 verified from the vendor app (an older release's flow, constants re-confirmed in the current app); not replayed on hardware."
-      - type: "softap_http"
-        verified: false
-        description: >
-          Gen 3 flow (current vendor app): the
-          phone joins the unit's setup Wi-Fi, then talks HTTPS JSON to the
-          device — POST https://<deviceMac>/<endpoint> with a custom DNS
-          resolver, a pinned root CA shipped in the app assets
-          (rachioBroker_rootCA.pem) and auth header
-          "x-api-key: <serial uppercase>". Endpoints: info, config, conn,
-          schedule, time, done, remove, fwupdate. The config body carries
-          the home ssid/pass in cleartext JSON (protected only by the pinned
-          TLS session); time carries the epoch. The conn poll exposes the
-          device's connection state machine — WIFI_CONNECTED → DNS_SUCCESS →
-          TLS_CONNECTED → MQTT_CONNECTED → MQTT_SUBSCRIBED → FULLY_CONNECTED
-          — confirming the Gen 3 cloud path is MQTT. App-side provisioning
-          states run CONNECT → SETTINGTIME → CONFIGURING → WAITINGFORWIFI →
-          CHECKING → COMPLETE, with a final POST done.
-        softap:
-          ssid_prefix: "Rachio"
-          ssid_examples: ["Rachio-XXXXXX"]
-          credential_encryption:
-            algorithm: "TLS with a pinned vendor root CA"
-            notes: "Wi-Fi credentials travel as cleartext JSON fields (ssid, pass) inside the pinned-TLS POST body; no application-layer encryption like Gen 2."
-        steps:
-          - action: 'Join the controller''s setup Wi-Fi (SSID "Rachio-XXXXXX", XXXXXX = last 3 MAC bytes uppercase).'
-            actor: "client"
-          - action: "POST https://<deviceMac>/time with the current epoch (JSON, pinned CA, x-api-key header)."
-            actor: "client"
-          - action: "POST https://<deviceMac>/config with the home Wi-Fi ssid and pass as JSON."
-            actor: "client"
-          - action: "Poll https://<deviceMac>/conn until the device reports Wi-Fi then MQTT connected (state machine ending at FULLY_CONNECTED)."
-            actor: "client"
-          - action: "POST https://<deviceMac>/done to end provisioning."
-            actor: "client"
-            notes: "Derived from the vendor app; not replayed on hardware. The pinned CA means third-party clients must extract or replace it to talk to the device."
       - type: "button_pairing"
+        name: "HomeKit pairing with the app's 8-digit code"
+        role: "alternative"
         verified: false
         description: >
           HomeKit pairing using the 8-digit setup code generated and displayed
@@ -192,6 +240,30 @@ device:
       issued_to_client:
         - "HomeKit long-term public key pair, if HAP pairing is used"
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      length: 8
+      notes: >
+        The HomeKit setup code, generated and shown in the Rachio app under
+        Controller Settings. Per-unit, so no value appears here — and it is
+        reportedly only reachable from the iOS app, which is worth knowing
+        before an Android-only household plans on this route.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The controller advertises its HAP service on the LAN continuously;
+        what gates pairing is the setup code, not a mode or a button.
+    notes: >
+      This is the cloud-free local path for a device whose native API is
+      cloud-only: pair over HomeKit with the app-displayed code and control
+      survives the vendor service. The pairing itself is standard HAP
+      pair-setup against the advertised _hap._tcp service, so a client that
+      already speaks HomeKit needs nothing device-specific from this spec.
 evidence:
   live_lan_probe:
     date: "2026-07-16"
@@ -201,12 +273,103 @@ evidence:
     model_txt: "Rachio-AABBCC"
     port: 80
     hap_id: "0A:01:0A:AA:BB:CC"
+  live_lan_probe_2:
+    date: "2026-08-25"
+    address: "192.168.1.50"
+    notes: >
+      Same unit on a new LAN attachment: HAP id unchanged (identity stable
+      across IP changes re-confirmed), sf=1 (unpaired). Full HAP TXT set
+      observed: c#=4, ff=1, s#=1, pv=1.1, ci=2, sf=1, sh, md, id. New:
+      TCP 443 open, TLS cert CN=*-rachio.local issued by "Rachio Device CA"
+      (validity 2020-2049). GET probes: /info, /conn, /time, /fwupdate →
+      403 (auth required); /config, /schedule, /done, /remove → 404.
+      The 443 listener stopped accepting connections after a burst of probe
+      traffic and did not recover within 40 minutes of polling, while port
+      80 kept answering 470 throughout.
+  live_lan_probe_3:
+    date: "2026-08-26"
+    address: "192.168.1.50"
+    notes: >
+      Authenticated session after a device reboot revived the 443 listener.
+      Header "x-api-key: <serial uppercase>" (serial from the unit's label,
+      withheld here) accepted: GET /info → 200 with fwv
+      iro3-firmware-hk-5-645, Broadcom wfv, env=prod, valve_num=16;
+      GET /conn → 200 FULLY_CONNECTED; POST /time {"epoch": N} → 200.
+      Wrong key → 403. Method map: /info, /conn GET-only; /time, /fwupdate
+      POST-only (cross-method → 405). /fwupdate deliberately not exercised.
+      Firmware availability: OTA-only — the app downloads images from a
+      cloud-provided signed URL (gRPC DeviceService/GetDesiredFirmware →
+      desiredFirmwareUrl), upgrades http→https, caches, and pushes the
+      image to the device over this local API. No public firmware download
+      host exists; community sightings run 5-632 → 5-640 → 5-645 (this
+      unit). Gen 2 OTA images in research custody are signed/encrypted
+      containers (~342 KB, length-prefixed header, high-entropy body).
 
 http_endpoints:
   - method: "GET"
     path: "/"
     name: "Device HTTP Root"
     description: "TCP port 80 was observed open. Control path is not yet documented as a complete local unauthenticated REST API."
+  - method: "GET"
+    path: "/info"
+    name: "Device Info (LAN HTTPS API)"
+    description: "Gen 3 local HTTPS API on TCP 443 (also live on the provisioned LAN, not just the setup AP). TLS under a vendor-pinned CA; header \"x-api-key: <device serial, uppercase>\" required — 403 without/with a wrong key (verified). Verified live 2026-08-26."
+    response_body:
+      content_type: "application/json"
+      fields:
+        - name: "fwv"
+          type: "string"
+          description: "Controller firmware build string (iro3-firmware-hk-<major>-<build>)."
+        - name: "wfv"
+          type: "string"
+          description: "Broadcom/Cypress WLAN firmware version banner."
+        - name: "env"
+          type: "string"
+          description: "Cloud environment the device is bound to (prod)."
+        - name: "valve_num"
+          type: "integer"
+          description: "Number of irrigation zones (8 or 16)."
+      example: '{"fwv":"iro3-firmware-hk-5-645","wfv":"wl0: Mar 26 2020 22:11:35 version 7.15.168.143 (r725087) FWID 01-abe534b7","env":"prod","valve_num":16}'
+  - method: "GET"
+    path: "/conn"
+    name: "Connection State (LAN HTTPS API)"
+    description: >
+      Gen 3 local HTTPS API, TCP 443, x-api-key auth (403 without it, verified).
+      Response carries con_state {code, current, furthest} with the cloud
+      connection state machine: WIFI_CONNECTING → WIFI_CONNECTED →
+      DNS_SUCCESS → TLS_CONNECTED → MQTT_CONNECTED → MQTT_SUBSCRIBED →
+      WAITING_INIT_DATA → FULLY_CONNECTED (plus DNS_FAILURE,
+      TLS_CONNECT_FAILURE, MQTT_SUBSCRIBE_FAILURE error states). Confirms
+      the Gen 3 cloud path is MQTT over TLS. Verified live 2026-08-26.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - name: "con_state"
+          type: "object"
+          description: "{code, current, furthest} — current/furthest are states from the connection state machine described above."
+      example: '{"con_state":{"current":"FULLY_CONNECTED","furthest":"FULLY_CONNECTED","code":0}}'
+  - method: "POST"
+    path: "/time"
+    name: "Time Sync (LAN HTTPS API)"
+    description: "Gen 3 local HTTPS API, TCP 443, x-api-key auth (403 without it). POST-only — GET answers 405 (verified). Carries the current epoch during provisioning."
+    request_body:
+      content_type: "application/json"
+      fields:
+        - name: "epoch"
+          type: "integer"
+          description: "Current time as Unix seconds."
+          required: true
+      example: '{"epoch": 1787520000}'
+  - method: "POST"
+    path: "/fwupdate"
+    name: "Local OTA Firmware Push (LAN HTTPS API)"
+    description: >
+      Gen 3 local HTTPS API, TCP 443, x-api-key auth (403 without it).
+      POST-only (GET → 405, verified). Body is the OTA image as
+      application/octet-stream. The vendor app POSTs firmware to this
+      endpoint at the controller's LAN IP (from its network state) during
+      local firmware update and Wireless Flow Meter pairing flows. Not
+      exercised against live hardware — that would flash the unit.
 
 entities:
   - platform: "switch"
@@ -233,3 +396,13 @@ helpful_urls:
   - title: "Home Assistant Rachio integration"
     url: "https://www.home-assistant.io/integrations/rachio/"
     description: "HA core integration for Rachio irrigation controllers."
+  - title: "Rachio 3 smart sprinkler controller manual"
+    url: "https://www.manualslib.com/manual/2862755/Rachio-3.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the Rachio 3.
+  - title: "Rachio: manuals and resources"
+    url: "https://support.rachio.com/en_us/rachio-manuals-and-resources-rkCSP81Yw"
+    kind: "vendor_support"
+    description: >
+      Vendor index covering the other generations this spec's family spans.

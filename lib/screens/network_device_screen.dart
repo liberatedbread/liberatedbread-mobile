@@ -17,6 +17,7 @@ import '../providers/roomba_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/http_control_service.dart';
 import '../services/json_fields.dart';
+import '../services/mqtt_session.dart' show MqttMessage;
 import '../services/kasa_control_service.dart';
 import '../services/network_command_sender.dart';
 import '../services/query_source_reader.dart';
@@ -148,6 +149,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// successful load, only for devices that actually expose state. [_polling]
   /// guards against a slow tick stacking on the one before it.
   Timer? _statePoll;
+
+  /// The pushed-state stream of a non-Roomba MQTT device, held so dispose
+  /// stops listening when the screen goes.
+  StreamSubscription<MqttMessage>? _mqttStateSub;
   bool _polling = false;
 
   /// Bumped on every write to [_keyboardFocused]. A poll captures it before its
@@ -221,6 +226,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     _keyboardPoll?.cancel();
     _statePoll?.cancel();
     unawaited(_keyboardSub?.cancel());
+    unawaited(_mqttStateSub?.cancel());
     unawaited(_sender.close());
     // Letting go is part of the Roomba protocol, not tidiness: the slot stays
     // occupied until this happens, and the owner's app stays locked out.
@@ -429,6 +435,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       e.transport == roombaTransport ||
       e.actions.any((a) => a.transport == roombaTransport));
 
+  /// Whether this device's commands ride the spec-declared WebSocket surface
+  /// — a Samsung or LG set. Like [_speaksMqtt]: no description to fetch and
+  /// nothing to poll, and nothing to open either — the sender opens and
+  /// pairs the session on the first send, so a screen the user only looks at
+  /// never raises the television's Allow prompt.
+  bool get _speaksWebsocket => _entities.any((e) =>
+      e.transport == NetworkCommandSender.websocketTransport ||
+      e.actions
+          .any((a) => a.transport == NetworkCommandSender.websocketTransport));
+
   /// Whether this device is specifically a Roomba, which has a bespoke load
   /// path — credentials, an HA route, a controller holding the robot's one
   /// client slot — that no other MQTT device wants.
@@ -518,11 +534,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         await _refreshState();
       } else if (_speaksMqtt) {
         // Any other device that pushes over MQTT — a Hisense set, a Dyson
-        // purifier. Nothing to fetch and nothing to poll, and unlike a robot
-        // nothing to open either: the sender opens the session on the first
-        // send, so a screen the user only looks at never touches the broker.
-        // Without this arm the else below demands a UPnP control port these
-        // devices never advertise, and a working set loads as an error.
+        // purifier. Nothing to fetch and nothing to poll — but the pushed
+        // readings only exist if someone SUBSCRIBES, so that is what loading
+        // means here. Refused quietly when the device is unpaired: the
+        // credentials card is the ask, and a screen the user only looks at
+        // must not become an error page over a reading. Without this arm the
+        // else below demands a UPnP control port these devices never
+        // advertise, and a working set loads as an error.
+        await _subscribeMqttState();
+      } else if (_speaksWebsocket) {
+        // A television driven over its WebSocket surface. Nothing to fetch
+        // (no UPnP description), nothing to poll, nothing to open here — the
+        // sender opens and pairs the session on the first send. Without this
+        // arm the else below demands a control port and, when the spec
+        // declares one as a fallback, tries to fetch /setup.xml from a set
+        // that serves no such document.
       } else if (_isRabbitAir) {
         // No description either — and the whole encrypted exchange (key,
         // clock sync, poll) is the shared panel's job. Forward the refresh;
@@ -582,8 +608,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// The device's own identity in the credential store — the same handle the
   /// certificate pin is keyed by, for the same reason: a DHCP lease is not a
   /// device, and a value filed under one would be lost on the next renewal.
-  String get _credentialIdentity =>
-      identityFor(mac: widget.device.advertisedMac, host: widget.device.host);
+  String get _credentialIdentity => widget.device.credentialIdentity;
 
   /// Work out what this device still needs from a person: the credentials its
   /// spec says must be asked for, minus whatever is already stored.
@@ -599,13 +624,18 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           .credentialsForDevice(widget.controls.specYaml);
       // A device that names none never opens the credential store. Most of
       // the catalogue is that device, and the store is the platform keychain.
+      // A WebSocket TV is no longer a carve-out here: required_credentials
+      // reports its pairing token itself now, which is what wires the reader
+      // for the group runner too — the screen-only exception this used to
+      // carry left group runs re-pairing (Allow prompt and all) a set the
+      // screen drove fine.
       if (declared.isEmpty) {
         if (mounted && _missingCredentials.isNotEmpty) {
           setState(() => _missingCredentials = const []);
         }
         return;
       }
-      // This spec names some, so the sends need them: hand the sender the
+      // This spec names some (or pairs at runtime), so the sends need the
       // store. Idempotent, and it is the only route by which this screen's
       // sender ever reads one.
       final store = ref.read(deviceCredentialStoreProvider);
@@ -627,9 +657,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// state poll that failed on it can succeed, and the card that asked for it
   /// can leave.
   Future<void> _saveCredential(String name, String value) async {
+    // A failed write (a locked keystore) propagates: the credentials card
+    // catches it and tells the person, which nothing here used to.
     await ref
         .read(deviceCredentialStoreProvider)
         .save(_credentialIdentity, name, value);
+    // The screen can be gone by the time the keychain answers, and the
+    // refresh below reads providers through a ref that death disposed.
+    if (!mounted) return;
     // The sender holds what it read; this is the moment that changed.
     _sender.refreshCredentials();
     await _refreshMissingCredentials();
@@ -671,12 +706,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       return;
     }
     // An MQTT device PUSHES. There is no request whose reply is the battery
-    // level, so there is nothing to poll and nothing to do here — the state
-    // stream fills the cards. Without this branch the spec's state topic
-    // falls through to the SOAP path below, which dereferences a description
-    // this device never had, and every SUCCESSFUL command ends in an error
-    // banner.
+    // level, so there is nothing to poll here — [_subscribeMqttState]'s
+    // stream fills the cards once the device is paired, and until then the
+    // readings are honestly unknown. Without this branch the spec's state
+    // topic falls through to the SOAP path below, which dereferences a
+    // description this device never had, and every SUCCESSFUL command ends
+    // in an error banner.
     if (_speaksMqtt) return;
+    // A WebSocket device is push-shaped the same way: state, where a spec
+    // declares any, arrives on the session's frames, and there is no request
+    // whose reply is a reading.
+    if (_speaksWebsocket) return;
     final codec = ref.read(specCodecProvider);
     final client = ref.read(soapControlClientProvider);
 
@@ -980,6 +1020,119 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// Decode every entity from whatever `_stateByCommand` currently holds — the
   /// step shared by both transports' state refresh, so a reading means the
   /// same thing whichever socket carried it.
+  /// The pushed readings a non-Roomba MQTT device serves, routed into the
+  /// shared decode. Subscribes to every distinct state topic the entities
+  /// bind — `stateCommand` IS the topic for an MQTT binding — through the
+  /// sender's session, so state and sends share one broker connection and
+  /// one client identity.
+  Future<void> _subscribeMqttState() async {
+    final declaredTopics = <String>{
+      for (final entity in _entities)
+        if (!entity.isInstanced &&
+            entity.stateCommand.isNotEmpty &&
+            entity.transport == roombaTransport)
+          entity.stateCommand,
+    };
+    if (declaredTopics.isEmpty) return;
+    // An action carries the richest credential mapping when the device has
+    // one; a readings-only device (a Dyson: entities, zero commands) has
+    // none, and the session then logs in from stored credentials under the
+    // literal names. Requiring an action here is what left exactly those
+    // devices — the ones this subscription exists for — permanently silent.
+    final action = _entities
+        .expand((e) => e.actions)
+        .where((a) => a.transport == roombaTransport)
+        .firstOrNull;
+    // Topics are subscribed as the DEVICE speaks them: `{serial}`-style
+    // placeholders filled from what the app holds — the discovery TXT facts
+    // (a Dyson's serial rides its mDNS record) and the stored credentials.
+    // A topic still carrying a placeholder is NOT subscribed: a literal
+    // "{serial}" matches nothing on any broker, and subscribing to it is
+    // how these cards spent a release looking live while permanently
+    // Unknown. Readings decode under the DECLARED topic, so the map back.
+    final codec = ref.read(specCodecProvider);
+    final values = <String, String>{
+      ...widget.device.txt,
+      ...await _sender.currentCredentials(),
+    };
+    final declaredByFilled = <String, String>{};
+    for (final declared in declaredTopics) {
+      final String filled;
+      try {
+        filled =
+            await codec.fillMqttStateTopic(topic: declared, values: values);
+      } catch (e) {
+        // The fill refuses a value carrying the MQTT topic language (`/`,
+        // `+`, `#`): a spoofed or malformed serial would not fill a level, it
+        // would widen this subscription to topics the spec never named. One
+        // refused topic costs its own reading, never the whole screen.
+        Log.net.warning(
+            'mqtt state topic "$declared" was refused on ${widget.device.host}'
+            ' — not subscribing: $e');
+        continue;
+      }
+      if (filled.contains('{')) {
+        Log.net.info('mqtt state topic "$declared" still carries a '
+            'placeholder after filling from discovery and stored '
+            'credentials — not subscribing; the reading stays unknown '
+            'until the missing value is known');
+        continue;
+      }
+      declaredByFilled[filled] = declared;
+    }
+    if (declaredByFilled.isEmpty || !mounted) return;
+    try {
+      final stream = await _sender.subscribeMqttState(
+          action, declaredByFilled.keys.toList());
+      await _mqttStateSub?.cancel();
+      _mqttStateSub = stream.listen((message) {
+        final declared = declaredByFilled[message.topic];
+        if (declared == null || !mounted) return;
+        _stateByCommand[declared] = httpStateFields(message.payload);
+        _scheduleDecode();
+      }, onError: (Object e) {
+        Log.net.debug('mqtt state stream on ${widget.device.host}: $e');
+      });
+    } on Exception catch (e) {
+      // Unpaired (no client id yet) or unreachable. The credentials card is
+      // the ask; the readings stay honestly unknown until it is answered.
+      Log.net.debug('mqtt state unavailable on ${widget.device.host}: $e');
+    }
+  }
+
+  /// Whether a decode pass is running, and whether pushes arrived during it.
+  ///
+  /// The poll path coalesces with [_polling]; this is the push path's
+  /// equivalent. A broker replaying its retained messages delivers a burst —
+  /// one per topic, back to back — and without this each push ran its own
+  /// full-entity decode concurrently and rebuilt the whole screen per frame.
+  bool _decoding = false;
+  bool _decodeQueued = false;
+
+  /// Decode once for however many pushes arrived, and never let a decode
+  /// failure escape as an unhandled zone error: the stream outlives any one
+  /// bad payload, and the next push gets another chance.
+  void _scheduleDecode() {
+    if (_decoding) {
+      _decodeQueued = true;
+      return;
+    }
+    _decoding = true;
+    unawaited(() async {
+      try {
+        do {
+          _decodeQueued = false;
+          await _decodeEntities();
+        } while (_decodeQueued && mounted);
+      } catch (e) {
+        Log.net.warning(
+            'decode after mqtt push on ${widget.device.host} failed: $e');
+      } finally {
+        _decoding = false;
+      }
+    }());
+  }
+
   Future<void> _decodeEntities() async {
     await _refineSurface();
     final codec = ref.read(specCodecProvider);
@@ -1337,7 +1490,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               ],
               for (final entity
                   in _drawableEntities.where((e) => e.isInstanced))
-                for (final child in _instances[entity.name] ?? const []) ...[
+                for (final child in _instances[entity.name] ??
+                    const <NetworkInstanceDto>[]) ...[
                   _instanceSwitchCard(entity, child),
                   const SizedBox(height: 12),
                 ],

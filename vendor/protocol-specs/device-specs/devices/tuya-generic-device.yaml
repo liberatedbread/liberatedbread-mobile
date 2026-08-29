@@ -137,12 +137,47 @@ device:
           - action: "Show the smart-device pictogram; direct the user to the device's own app for control (no local admin UI, no local key held)."
             actor: client
     factory_reset:
-      applicable: false
-      confidence: high
+      applicable: true
+      confidence: medium
       effect: >
-        Done at the device (its vendor's reset gesture, typically power-cycling
-        or holding a button) and clears the device's own Tuya pairing, not
-        anything this app stores. We only identify the device.
+        Removes the device from the Tuya account's device list and erases all
+        of its data, returning it to pairing mode. It clears nothing this
+        spec's consumers store — this entry only identifies the device — but
+        it does invalidate any local key already extracted for it, so anything
+        controlling the device locally stops working.
+      description: >
+        Two routes, and the app one is worth knowing about because it is not
+        obviously a factory reset from its name: the vendor app's "Restore
+        Factory Defaults" and its "Remove Device" sit next to each other in the
+        same menu and do different amounts of damage. The physical gesture
+        differs per product — commonly a button held or a power-cycle pattern —
+        and belongs in that product's own documentation rather than here.
+      procedures:
+        - name: "Restore Factory Defaults from the vendor app"
+          glyph: "generic/on-screen-menu.svg"
+          verified: false
+          basis: >
+            The Tuya Smart / Smart Life app user manual, which distinguishes
+            this from the adjacent Remove Device action.
+          power_state: "on"
+          steps:
+            - action: "Open the device in the vendor app and choose Restore Factory Defaults."
+              actor: "user"
+              expect: >
+                The device is removed from the device list and all of its data
+                is erased; it returns to pairing mode and its local key is
+                invalidated.
+        - name: "The product's own physical reset gesture"
+          verified: false
+          basis: >
+            The pattern across Tuya OEM products — a button held, or a
+            power-cycle sequence — rather than documentation for any one
+            device. Consult the specific product's manual.
+          power_state: "on"
+          steps:
+            - action: "Perform the reset gesture documented for the specific product."
+              actor: "user"
+              expect: "The device returns to advertising or broadcasting in pairing mode."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -177,6 +212,11 @@ helpful_urls:
   - url: "https://github.com/jasonacox/tinytuya"
     title: "tinytuya"
     description: "Open Tuya LAN library: the discovery frame layout, the fixed broadcast key, and the gwId/version/productKey fields."
-  - url: "https://github.com/codetheweb/tuyapi/blob/master/docs/PROTOCOL.md"
+  - url: "https://github.com/codetheweb/tuyapi"
     title: "tuyapi — protocol notes"
     description: "The 0x55aa frame format (prefix/command/length/CRC/suffix) and the 3.1/3.3 protocol versions."
+  - title: "Tuya: Smart Life / Tuya Smart app user manual"
+    url: "https://developer.tuya.com/en/docs/iot/user-manual-for-tuya-smart-v3177?id=K9obrofrfk4sk"
+    kind: "vendor_support"
+    description: >
+      Tuya's own app manual, covering the Smart and AP pairing modes and the Restore Factory Defaults action this spec's reset documents.

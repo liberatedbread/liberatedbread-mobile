@@ -177,8 +177,8 @@ void main() {
     });
 
     test('toJson/fromJson preserves them', () {
-      final restored =
-          SavedNetworkDevice.fromJson(jsonDecode(jsonEncode(robot.toJson())));
+      final restored = SavedNetworkDevice.fromJson(
+          jsonDecode(jsonEncode(robot.toJson())) as Map<String, dynamic>);
       expect(restored, isNotNull);
       expect(restored!.sources, {NetworkDiscoverySource.lanProbe});
       expect(restored.answeredLanProtocols, ['irobot-mqtt']);

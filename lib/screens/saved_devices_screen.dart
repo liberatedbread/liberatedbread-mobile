@@ -111,6 +111,8 @@ class SavedDevicesScreen extends ConsumerWidget {
       credentials: ref.read(deviceCredentialStoreProvider),
       deviceMac: saved.toNetworkDevice().advertisedMac,
       host: saved.host,
+      // What the record says its pins were actually keyed by at write time.
+      recordedIdentity: saved.credentialIdentity,
     );
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }

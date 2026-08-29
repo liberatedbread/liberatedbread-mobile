@@ -108,6 +108,13 @@ device:
       notes: >
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 # Custom consumer-side handler: JSON command serialization into the popled 0xAA55
 # framed binary-TLV transport (shared with the NYAN BT Image Controller). Declarative.
 protocol_handler: "popled_json"
@@ -212,3 +219,10 @@ entities:
     features: ["brightness"]
     commands:
       set_brightness: "set_brightness"
+
+helpful_urls:
+  - title: "LOY SPACE app (Google Play)"
+    url: "https://play.google.com/store/apps/details?id=com.yskd.loywf"
+    kind: "vendor_support"
+    description: >
+      The vendor app's listing, which is the only vendor-published documentation this hardware has — the backpacks themselves ship with no manual and no brand.

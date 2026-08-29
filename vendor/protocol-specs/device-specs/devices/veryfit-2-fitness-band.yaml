@@ -175,6 +175,27 @@ device:
         undocumented at the byte level. No hardware button procedure is
         known.
       procedures:
+        - name: "Restore factory defaults from the vendor app"
+          glyph: "generic/on-screen-menu.svg"
+          verified: false
+          basis: >
+            The ID107 Plus HR user guides shipped with the band, which give
+            this as the answer to 'how to restore factory defaults'. The app
+            wording differs between guide revisions — 'reboot device' in one,
+            'Restart Device' in the other — for what is presented as the same
+            menu item.
+          power_state: "on"
+          steps:
+            - action: "Make sure the band is connected to the phone."
+              actor: "user"
+            - action: "In the vendor app, open Device, then More, and choose the device restart/reboot item."
+              actor: "user"
+              notes: >
+                This is almost certainly the same over-the-air command as the
+                candidate below, reached through the vendor's UI instead of by
+                writing the frame — which makes it the practical route for
+                anyone holding the band, and the way to observe the frame for
+                anyone trying to document it.
         - name: "One-key restore over BLE (candidate)"
           verified: false
           basis: >
@@ -209,6 +230,18 @@ device:
         authentication, so the band's stored health data is readable by
         anyone in radio range.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    notes: >
+      No pairing, bonding or authentication exists anywhere in the app
+      protocol — there are no bonding code paths in the vendor app's BLE layer
+      at all. The band joins no network and bonds with no client, so there is
+      nothing to clear when it moves to a new phone.
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "00000af0-0000-1000-8000-00805f9b34fb"
     name: "Veryfit 2.0 Command Service"
@@ -428,3 +461,13 @@ helpful_urls:
     description: >-
       Sibling spec whose appendix this analysis was promoted from; documents why the 0xAF0 protocol
       does NOT apply to the Telink-based M6.
+  - title: "VeryFit ID107Plus HR manual"
+    url: "https://www.manualslib.com/manual/1698696/Veryfit-Id107plus-Hr.html"
+    kind: "manual"
+    description: >
+      Manual for the ID107-class band this spec covers; the ODM is unidentified and the app is abandoned.
+  - title: "ID107Plus HR user guide (PDF)"
+    url: "https://cdn.shopify.com/s/files/1/1919/3763/files/id107plus.pdf"
+    kind: "manual"
+    description: >
+      A retailer-hosted copy of the same guide, including the app-driven factory reset in this spec.

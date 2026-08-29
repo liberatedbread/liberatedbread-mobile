@@ -149,6 +149,13 @@ device:
       notes: >
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
     name: "MoTool Slacker UART Service"
@@ -181,3 +188,10 @@ entities:
     device_class: "distance"
     unit: "mm"
     state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+
+helpful_urls:
+  - title: "Motool: Slacker product page and documentation"
+    url: "https://getslacker.com/products/slacker"
+    kind: "vendor_support"
+    description: >
+      Vendor page; the full PDF user guide and video guides are distributed through Motool's own service app rather than as a public download.

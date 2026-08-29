@@ -143,13 +143,38 @@ device:
             actor: client
             expect: "Payload decodes to the ASCII model string (e.g. \"EP500\"); registers 17-20 then yield the serial matching the advertised name."
     factory_reset:
-      applicable: "unknown"
+      applicable: true
       confidence: low
       effect: >
-        No BLE-relevant factory-reset procedure is documented in the public RE
-        literature. The unit stores no client credentials and no bonds, so
-        there is nothing to clear for local control. Not stated rather than
-        guessed.
+        Returns the unit's settings to defaults. The stored energy in the
+        battery is not affected — this is a settings reset, not a discharge.
+      description: >
+        The button combination differs across the AC and EP ranges and the
+        sources for it are community rather than vendor, which is why this is
+        low confidence: on the AC200P it is the light button and the power
+        button together for about five seconds until the screen resets, and
+        other units are described as using the power and settings buttons, or
+        a long hold of the power button alone. Confirm against the manual for
+        the specific model before trying it, and disconnect inputs and outputs
+        first.
+      procedures:
+        - name: "Two-button hold with the unit off (AC200P)"
+          verified: false
+          basis: >
+            BLUETTI's community forum and third-party summaries of it, not a
+            vendor manual. Applies to the AC200P; other models in the range
+            differ.
+          applies_to: ["AC200P"]
+          hold_seconds: 5
+          power_state: "off"
+          glyph: "generic/press-two-buttons.svg"
+          indicator: "The screen resets."
+          steps:
+            - action: "Disconnect everything from the inputs and outputs and switch the unit off."
+              actor: "user"
+            - action: "Hold the light button and the power button together for about five seconds, until the screen resets."
+              actor: "user"
+              expect: "The display reboots and settings are back to defaults."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -165,6 +190,13 @@ device:
         radio range can read telemetry and toggle AC/DC outputs. Relevant
         because those outputs power real appliances.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000ff00-0000-1000-8000-00805f9b34fb"
     name: "Bluetti MODBUS-over-GATT service"
@@ -436,3 +468,8 @@ helpful_urls:
   - url: "https://github.com/mariolukas/Bluetti_ESP32_Bridge"
     title: "mariolukas/Bluetti_ESP32_Bridge"
     description: "ESP32 C++ bridge; third independent confirmation of service UUID, poll ranges and write registers 3007/3008."
+  - title: "BLUETTI user guides (all models)"
+    url: "https://www.bluettipower.com/pages/user-guides"
+    kind: "manual"
+    description: >
+      Vendor manual index. The reset button combination differs by model — take it from here rather than from this spec's AC200P example.

@@ -93,12 +93,35 @@ device:
             actor: client
             expect: "Weight reports (type 0xD0: sign u8 — 1 = negative, weight u16BE scaled x10, unit u8, stable u8) stream as the load changes."
     factory_reset:
-      applicable: "unknown"
+      applicable: true
       confidence: low
       effect: >
-        Not established. No reset command was recovered from the app, and the
-        scale is not known to store per-user state that a reset would clear.
-        Removing the batteries is the only power-cycle path observed.
+        Removing the batteries and reinserting them restarts the scale. No
+        vendor source describes it as clearing anything, and there is little
+        for it to clear: the scale holds no credentials and no bond, and user
+        profiles and weight history live in the app account rather than on the
+        hardware.
+      description: >
+        Low confidence deliberately. The battery cycle is the only state change
+        available on the hardware — the vendor manual covers weighing, units
+        and cleaning, and documents no reset control — but nobody has
+        established what, if anything, it clears. It is recorded as a
+        procedure because it is the first thing someone holding an
+        unresponsive scale should try, not because its effect is known.
+
+        If the goal is to hand the scale to somebody else, the thing that
+        actually needs clearing is the app account, not the scale.
+      procedures:
+        - name: "Battery cycle (candidate)"
+          verified: false
+          basis: >
+            The only state change the hardware offers; no vendor source
+            describes it as a reset. A candidate, not an established procedure.
+          power_state: "off"
+          steps:
+            - action: "Remove the batteries, wait a few seconds, and reinsert them."
+              actor: "user"
+              expect: "The scale restarts. What this clears, if anything, is not established."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -113,6 +136,13 @@ device:
         No WiFi passphrase is involved — the scale is BLE-only. A VeSync account
         credential is held by the app, not by the scale.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "00001910-0000-1000-8000-00805f9b34fb"
     name: "ESN00 Scale Service"
@@ -150,7 +180,8 @@ helpful_urls:
     url: "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble"
     description: >-
       Home Assistant (HACS) BLE integration for Etekcity fitness scales (ESF-551; ESF24 in beta) —
-      same vendor family, active-connect path; does not decode the ESN00 kitchen-scale broadcast format.
+      same vendor family, decoding their advertisements locally over an active-connect path. It does
+      not decode the ESN00 kitchen-scale broadcast format this spec documents.
   - title: "Hacking a BLE kitchen scale"
     url: "https://dev.to/hertzg/hacking-ble-kitchen-scale-55io"
     description: "hertzg's write-up of that reverse engineering."
@@ -165,6 +196,13 @@ helpful_urls:
   - title: "FCC ID 2AB22-ESN00"
     url: "https://fccid.io/2AB22-ESN00"
     description: "FCC filing for the scale; the source of the FCC ID and variant recorded here."
-  - url: "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble"
-    title: "etekcity_fitness_scale_ble (HACS custom integration)"
-    description: "HACS custom integration decoding Etekcity BLE scale advertisements locally."
+  - title: "Etekcity ESN00 series user manual"
+    url: "https://www.manualslib.com/manual/2371463/Etekcity-Esn00-Series.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the ESN00 kitchen scale this spec decodes.
+  - title: "Etekcity: user manuals"
+    url: "https://etekcity.com/pages/user-manuals"
+    kind: "vendor_support"
+    description: >
+      Vendor manual index for the wider range.

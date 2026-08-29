@@ -271,6 +271,16 @@ helpful_urls:
     url: "https://community.home-assistant.io/t/hisense-tv-control/97638"
     description: "Six years of model-by-model reports: which sets need TLS, which need certs, channel_param changechannel payloads, bridge configs."
 
+  - title: "Hisense A6 series user manual"
+    url: "https://www.manualslib.com/manual/2845830/Hisense-A6-Series.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the A6GV sets this spec's research used.
+  - title: "Hisense 55K600GW VIDAA TV manual"
+    url: "https://www.manualslib.com/manual/1026982/Hisense-55k600gw-Vidaa-Tv.html"
+    kind: "manual"
+    description: >
+      An earlier VIDAA set, for comparison across platform versions.
 evidence:
   provenance: >
     This project has NOT probed a Hisense TV. Every fact above is "reported"
@@ -680,6 +690,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_POWER"
     verification: "reported"
 
@@ -695,6 +714,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_UP"
     verification: "reported"
   press_down:
@@ -708,6 +736,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_DOWN"
     verification: "reported"
   press_left:
@@ -721,6 +758,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_LEFT"
     verification: "reported"
   press_right:
@@ -734,6 +780,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_RIGHT"
     verification: "reported"
   press_ok:
@@ -747,6 +802,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_OK"
     verification: "reported"
   press_back:
@@ -760,6 +824,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_RETURNS"
     verification: "reported"
   press_home:
@@ -773,6 +846,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_HOME"
     verification: "reported"
   press_menu:
@@ -786,6 +868,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_MENU"
     verification: "reported"
   press_exit:
@@ -799,6 +890,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_EXIT"
     verification: "reported"
 
@@ -814,6 +914,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_VOLUMEUP"
     verification: "reported"
   press_volume_down:
@@ -827,6 +936,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_VOLUMEDOWN"
     verification: "reported"
   press_mute:
@@ -840,6 +958,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_MUTE"
     verification: "reported"
 
@@ -855,6 +982,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_CHANNELUP"
     verification: "reported"
   press_channel_down:
@@ -868,6 +1004,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_CHANNELDOWN"
     verification: "reported"
 
@@ -883,6 +1028,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_PLAY"
     verification: "reported"
   press_pause:
@@ -896,6 +1050,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_PAUSE"
     verification: "reported"
   press_stop:
@@ -909,6 +1072,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_STOP"
     verification: "reported"
   press_fast_forward:
@@ -922,6 +1094,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_FORWARDS"
     verification: "reported"
   press_rewind:
@@ -935,6 +1116,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_BACK"
     verification: "reported"
 
@@ -950,6 +1140,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_0"
     verification: "reported"
   press_1:
@@ -963,6 +1162,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_1"
     verification: "reported"
   press_2:
@@ -976,6 +1184,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_2"
     verification: "reported"
   press_3:
@@ -989,6 +1206,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_3"
     verification: "reported"
   press_4:
@@ -1002,6 +1228,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_4"
     verification: "reported"
   press_5:
@@ -1015,6 +1250,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_5"
     verification: "reported"
   press_6:
@@ -1028,6 +1272,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_6"
     verification: "reported"
   press_7:
@@ -1041,6 +1294,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_7"
     verification: "reported"
   press_8:
@@ -1054,6 +1316,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_8"
     verification: "reported"
   press_9:
@@ -1067,6 +1338,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_9"
     verification: "reported"
 
@@ -1082,6 +1362,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_RED"
     verification: "reported"
   press_green:
@@ -1095,6 +1384,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_GREEN"
     verification: "reported"
   press_yellow:
@@ -1108,6 +1406,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_YELLOW"
     verification: "reported"
   press_blue:
@@ -1121,6 +1428,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_BLUE"
     verification: "reported"
   press_subtitle:
@@ -1134,6 +1450,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_SUBTITLE"
     verification: "reported"
   press_info:
@@ -1147,6 +1472,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
     body: "KEY_INFO"
     verification: "reported"
 
@@ -1162,6 +1496,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
       volume:
         type: "integer"
         required: true
@@ -1184,6 +1527,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
       sourceid:
         type: "string"
         required: true
@@ -1211,6 +1563,15 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+        description: >
+          The id this client connects under, and the id the TV authorised
+          during PIN pairing. The CLIENT chooses it -- convention is the
+          client's own MAC with "$normal" appended, or a plain name like
+          "HomeAssistant" -- and the TV keeps a list of the ones it has
+          accepted, so a client that changes it is unpaired again. Reusing
+          another integration's id evicts that integration's session. See
+          protocol_details.remoteapp_common.pairing for the exchange that
+          gets an id authorised.
       name:
         type: "string"
         required: true

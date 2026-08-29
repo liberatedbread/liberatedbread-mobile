@@ -2793,6 +2793,53 @@ pub fn render_network_mqtt_command(
     })
 }
 
+/// Fill an MQTT state topic's `{name}` placeholders from stored values.
+///
+/// State topics are subscribed rather than rendered from a command, so their
+/// placeholders (`{serial}`, `{productType}` — names the spec's own prose
+/// defines) resolve against what the app already holds: stored credentials
+/// and any device facts the caller knows, keyed by exactly those names. The
+/// splice is the same single-pass discipline every other template fill in
+/// this crate uses — a value is data, never template.
+///
+/// A placeholder nothing fills STAYS in the text, and the caller must treat
+/// a returned topic still carrying `{` as unsubscribable: a literal
+/// `{serial}` on the wire is a topic no broker publishes on, and
+/// subscribing to it is how an entity renders forever-Unknown while the
+/// code claims a stream is filling it.
+///
+/// A value carrying the topic language itself is REFUSED, exactly as the
+/// command-topic renderer refuses it (see [`mqtt::TOPIC_LANGUAGE`]). These
+/// values come off a device announcement — a serial, a product type — so a
+/// malformed or spoofed one carrying `#` would not fill a level, it would
+/// widen the subscription to every topic on the broker. The caller skips
+/// that topic rather than subscribing to something the spec never named.
+pub fn fill_mqtt_state_topic(
+    topic: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<String> {
+    let mut fills: Vec<(String, String)> = Vec::new();
+    for (name, value) in values {
+        let placeholder = format!("{{{name}}}");
+        // Only what this topic actually uses: a stored credential carrying a
+        // slash is nobody's business here unless the topic names it.
+        if !topic.contains(&placeholder) {
+            continue;
+        }
+        if value.contains(crate::protocol::mqtt::TOPIC_LANGUAGE) {
+            anyhow::bail!(
+                "the value for {{{name}}} carries a topic separator or \
+                 wildcard ({value:?}); it would rewrite the state topic \
+                 rather than fill it"
+            );
+        }
+        fills.push((placeholder, value));
+    }
+    // Deterministic order even though exact-key lookup makes ties impossible.
+    fills.sort();
+    Ok(crate::protocol::fill_placeholders_once(&topic, &fills))
+}
+
 /// MQTT CONNECT for a spec-declared broker.
 ///
 /// The generic sibling of [`roomba_connect_packet`]. Username and password are
@@ -3685,11 +3732,47 @@ fn regex_for(pattern: &str) -> Option<std::sync::Arc<regex::Regex>> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<HashMap<String, Option<Arc<regex::Regex>>>>> = OnceLock::new();
+    /// Remote spec packs can feed a stream of never-repeating patterns, so
+    /// the map is bounded the way the spec cache is — one arbitrary entry
+    /// evicted per insert at the bound — tiny against hostility, generous
+    /// for a catalogue's worth of matchers.
+    const CACHE_MAX_ENTRIES: usize = 64;
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut cache = cache.lock().ok()?;
+    // Poisoning is taken back, not swallowed: `.ok()?` here meant one panic
+    // anywhere while the lock was held silently disabled EVERY regex matcher
+    // for the life of the process — and a matcher that exists to EXCLUDE
+    // devices then excluded nothing. The map is plain data; the same rule
+    // dispatch.rs applies to its cache.
+    let mut cache = match cache.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if cache.len() >= CACHE_MAX_ENTRIES && !cache.contains_key(pattern) {
+        // Evict ONE entry, never the whole map — dispatch.rs's cache learned
+        // that a working set one past the bound turns clear-on-full into a
+        // 0% hit rate that recompiles the whole catalogue every scan tick.
+        // One policy for both caches, so neither comment lies about the
+        // other again.
+        if let Some(evict) = cache.keys().next().cloned() {
+            cache.remove(&evict);
+        }
+    }
     cache
         .entry(pattern.to_string())
-        .or_insert_with(|| regex::Regex::new(pattern).ok().map(Arc::new))
+        .or_insert_with(|| {
+            // Bounded compilation: a hostile pattern may otherwise allocate
+            // regex's 10 MB default before failing. A megabyte covers every
+            // matcher shape the catalogue writes (short anchored
+            // alternations) many times over; one that will not fit fails
+            // closed into the cached None — matches nothing, like any other
+            // uncompilable pattern.
+            regex::RegexBuilder::new(pattern)
+                .size_limit(1 << 20)
+                .dfa_size_limit(1 << 20)
+                .build()
+                .ok()
+                .map(Arc::new)
+        })
         .clone()
 }
 
@@ -4963,8 +5046,9 @@ pub struct BleProvisioningProfileDto {
     pub category: Option<String>,
     /// The name the device advertises while it is waiting to be set up.
     pub advertised_name: String,
-    /// True when the spec says that name is the whole advertised name; false
-    /// when it is a prefix (the catalogue-wide default).
+    /// True when the advertised name is compared whole — the schema's
+    /// default, and the fallback for a match rule this build does not
+    /// recognize. False only when the spec explicitly says `prefix`.
     pub exact_name: bool,
     /// The setup service and characteristics, when the spec names them.
     pub service_uuid: Option<String>,
@@ -5056,13 +5140,37 @@ pub struct TroubleshootingDto {
     pub causes: Vec<String>,
 }
 
-/// One `setup.methods[]` entry as human-readable prose.
+/// One phase of a multi-phase route — `setup.methods[].stages[]`. Not a
+/// choice: every stage of its method happens, in order. Deliberately flat
+/// (the schema forbids nesting), so the DTO cannot recurse.
 #[derive(Debug, Clone)]
-pub struct SetupMethodDto {
-    /// `ble_direct`, `button_pairing`, … — labels the method.
+pub struct SetupStageDto {
+    /// What the phase is called — "Get the bridge onto the LAN".
+    pub name: Option<String>,
+    /// `wired`, `button_pairing`, … — the phase's own mechanism.
     pub method_type: Option<String>,
     pub description: Option<String>,
     pub steps: Vec<SetupStepDto>,
+    pub troubleshooting: Vec<TroubleshootingDto>,
+}
+
+/// One `setup.methods[]` entry as human-readable prose.
+#[derive(Debug, Clone)]
+pub struct SetupMethodDto {
+    /// `ble_direct`, `button_pairing`, … — labels the method's mechanism.
+    pub method_type: Option<String>,
+    /// What a person chooses by ("HomeKit pairing with the app's 8-digit
+    /// code"). Present whenever the spec lists more than one route.
+    pub name: Option<String>,
+    /// `primary` / `alternative` / `variant` / `historical`. Methods arrive
+    /// already sorted into that reading order; the role is here so a UI can
+    /// label a route that only applies to older hardware or a dead cloud.
+    pub role: Option<String>,
+    pub description: Option<String>,
+    /// The single-phase body — empty when the route is staged.
+    pub steps: Vec<SetupStepDto>,
+    /// The multi-phase body — consecutive phases of this one route.
+    pub stages: Vec<SetupStageDto>,
     pub troubleshooting: Vec<TroubleshootingDto>,
 }
 
@@ -5110,6 +5218,15 @@ impl From<crate::spec::setup::SetupStep> for SetupStepDto {
     }
 }
 
+impl From<crate::spec::setup::Troubleshooting> for TroubleshootingDto {
+    fn from(t: crate::spec::setup::Troubleshooting) -> Self {
+        TroubleshootingDto {
+            symptom: t.symptom,
+            causes: t.causes,
+        }
+    }
+}
+
 impl From<crate::spec::setup::SetupInstructions> for SetupInstructionsDto {
     fn from(s: crate::spec::setup::SetupInstructions) -> Self {
         SetupInstructionsDto {
@@ -5119,16 +5236,26 @@ impl From<crate::spec::setup::SetupInstructions> for SetupInstructionsDto {
                 .into_iter()
                 .map(|m| SetupMethodDto {
                     method_type: m.method_type,
+                    name: m.name,
+                    role: m.role,
                     description: m.description,
                     steps: m.steps.into_iter().map(Into::into).collect(),
-                    troubleshooting: m
-                        .troubleshooting
+                    stages: m
+                        .stages
                         .into_iter()
-                        .map(|t| TroubleshootingDto {
-                            symptom: t.symptom,
-                            causes: t.causes,
+                        .map(|stage| SetupStageDto {
+                            name: stage.name,
+                            method_type: stage.method_type,
+                            description: stage.description,
+                            steps: stage.steps.into_iter().map(Into::into).collect(),
+                            troubleshooting: stage
+                                .troubleshooting
+                                .into_iter()
+                                .map(Into::into)
+                                .collect(),
                         })
                         .collect(),
+                    troubleshooting: m.troubleshooting.into_iter().map(Into::into).collect(),
                 })
                 .collect(),
             factory_reset: s.factory_reset.map(|fr| FactoryResetDto {
@@ -6671,6 +6798,93 @@ device:
         assert!(matched("HC-06"));
         assert!(!matched("HC-05Foo"), "the spec anchored the end");
         assert!(!matched("MyHC-05"), "the spec anchored the start");
+    }
+
+    /// A state topic fills from stored values by exact placeholder name, one
+    /// pass, and what nothing fills survives verbatim so the caller can see
+    /// the topic is not subscribable yet.
+    #[test]
+    fn a_state_topic_fills_from_stored_values_and_keeps_what_it_cannot_fill() {
+        let values: HashMap<String, String> = [
+            ("serial".to_string(), "NN2-EU-ABC1234D".to_string()),
+            ("productType".to_string(), "455".to_string()),
+        ]
+        .into();
+        assert_eq!(
+            fill_mqtt_state_topic(
+                "{productType}/{serial}/status/current".into(),
+                values.clone()
+            )
+            .unwrap(),
+            "455/NN2-EU-ABC1234D/status/current"
+        );
+        // A placeholder the store cannot answer stays visible — the caller's
+        // signal to badge the entity instead of subscribing to a literal.
+        assert_eq!(
+            fill_mqtt_state_topic("{productType}/{unknown}/x".into(), values).unwrap(),
+            "455/{unknown}/x"
+        );
+        // A value is data: one containing braces lands verbatim and is never
+        // re-scanned as template.
+        let sneaky: HashMap<String, String> = [
+            ("a".to_string(), "{b}".to_string()),
+            ("b".to_string(), "2".to_string()),
+        ]
+        .into();
+        assert_eq!(
+            fill_mqtt_state_topic("{a}/{b}".into(), sneaky).unwrap(),
+            "{b}/2"
+        );
+    }
+
+    /// A discovery-supplied value carrying the topic language would not fill
+    /// a level, it would rewrite the topic — `#` widens the subscription to
+    /// every topic on the broker. Refused here exactly as the command-topic
+    /// renderer refuses it.
+    #[test]
+    fn a_state_topic_value_carrying_the_topic_language_is_refused() {
+        for hostile in ["#", "+", "a/b", "455/#"] {
+            let values: HashMap<String, String> =
+                [("serial".to_string(), hostile.to_string())].into();
+            let refused = fill_mqtt_state_topic("455/{serial}/status".into(), values);
+            assert!(
+                refused.is_err(),
+                "a serial of {hostile:?} must not reach a subscription"
+            );
+        }
+        // …but a value only becomes this function's business when the topic
+        // actually names it: an unrelated stored credential with a slash in
+        // it does not block a topic that never uses it.
+        let unrelated: HashMap<String, String> =
+            [("password".to_string(), "a/b#c".to_string())].into();
+        assert_eq!(
+            fill_mqtt_state_topic("455/fixed/status".into(), unrelated).unwrap(),
+            "455/fixed/status"
+        );
+    }
+
+    /// The pattern vocabulary upstream validates with Python `re` must
+    /// compile HERE too. The crate's default-features trim once dropped
+    /// `unicode-perl`/`unicode-case`, so a schema-legal `^S\d` or `(?i)`
+    /// pattern compiled to a cached `None` — a matcher that silently matched
+    /// nothing, with fail-closed semantics standing in for a working matcher.
+    #[test]
+    fn regex_for_compiles_the_classes_and_flags_the_schema_allows() {
+        for pattern in [r"^S\d", r"^\w+-\d{4}$", r"\bHC\b", r"\s", "(?i)^govee_h5"] {
+            assert!(
+                regex_for(pattern).is_some(),
+                "schema-legal pattern {pattern:?} failed to compile — check the \
+                 regex crate's feature list in Cargo.toml"
+            );
+        }
+        assert!(
+            regex_for("(?i)^govee").unwrap().is_match("GOVEE_H6001"),
+            "(?i) must actually fold case"
+        );
+        assert!(
+            regex_for(r"^S\d").unwrap().is_match("S3"),
+            r"\d must actually match a digit"
+        );
     }
 
     #[test]

@@ -125,12 +125,62 @@ device:
           - action: "Connect, subscribe to 0000fff4, and write framed/encrypted commands to 0000fff2."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        A reset (typically a button inside the lock, or an app command) clears
-        the pairing and key material. The exact gesture varies by OEM rebrand and
-        is not documented in the sources used here.
+        Returns the lock to factory state: the account binding and the per-lock
+        AES key are cleared, along with enrolled passcodes and fingerprints,
+        and the lock reverts to its default master passcode. Any client holding
+        the old key stops working and the lock must be added to an account
+        again to issue a new one.
+      description: >
+        The TTLock/Sciener platform is sold under dozens of OEM names and the
+        control layout differs between them, so identify which of these two
+        shapes the lock in hand has before starting. What does not vary is the
+        consequence: a reset lock is wide open on a documented default
+        passcode until it is re-enrolled, so do not reset a door and then walk
+        away from it.
+      procedures:
+        - name: "Reset button on the rear panel held for five seconds"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            The TTLock A260 WiFi smart lock user manual, which documents the
+            button, the hold time and the resulting default passcode.
+          applies_to: ["TTLock A260 and similar keypad/fingerprint rebrands"]
+          hold_seconds: 5
+          power_state: "on"
+          indicator: "Two audible tips from the lock."
+          steps:
+            - action: "Open the door and find the single Reset button on the back of the rear panel."
+              actor: "user"
+            - action: "Press and hold it for five seconds, until the lock gives two audible tips."
+              actor: "user"
+              expect: >
+                The lock is in factory state and opens to any passcode or
+                fingerprint until it is re-enrolled. The documented default
+                master passcode is 123456 — a product-wide vendor default, not
+                a per-unit secret, and the reason a freshly reset lock should
+                not be left on a door.
+            - action: "Press the reset button for three seconds and enter 000# to initialise, if the model prompts for an initialisation passcode."
+              actor: "user"
+              expect: "The lock announces success."
+              notes: "Documented for the A260; not all rebrands ask for this step."
+        - name: "Clear the lock data from the setting button (button-and-beep models)"
+          glyph: "generic/press-two-buttons.svg"
+          verified: false
+          basis: >
+            The Lagute/Sciener smart lock instructions, which document the
+            setting-button flow used by the models with no keypad.
+          applies_to: ["Sciener/Lagute button-and-beep rebrands"]
+          power_state: "on"
+          indicator: "A single beep confirms the lock is empty."
+          steps:
+            - action: "Hold the setting button beside the batteries until a long beep says the lock is in setting mode, and keep holding."
+              actor: "user"
+            - action: "Still in setting mode, hold the unlock button until a beep sounds."
+              actor: "user"
+              expect: "One beep — the lock's data is cleared."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -148,6 +198,26 @@ device:
         Wi-Fi gateway exists). See the security_advisory: the cloud that issues
         keys/passcodes has had severe public flaws.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        A per-lock AES key, retrieved from the lock itself after a successful
+        pairing through the vendor's app and account. It is not one global
+        constant across the product line, and it belongs to whoever owns the
+        lock, so no value appears here.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Authentication is a custom multi-packet key exchange rather than
+      standard BLE bonding, so nothing here appears in the operating system's
+      Bluetooth settings. The cloud is needed once, for key and passcode
+      issuance; a client holding the per-lock key unlocks over BLE offline
+      afterwards, which is the whole reason this device is documented.
 services:
   - uuid: "00001910-0000-1000-8000-00805f9b34fb"
     name: "TTLock command service (0x1910)"
@@ -191,3 +261,13 @@ helpful_urls:
   - title: "ttlock/Android_SDK_Demo (official closed SDK)"
     url: "https://github.com/ttlock/Android_SDK_Demo"
     description: "The vendor's public (but closed-core) SDK — confirms the lock/gateway/DFU feature surface, not the wire format."
+  - title: "TTLock A260 user manual (PDF)"
+    url: "https://digitalas.lt/img/cms/Instructions_ENG/A260%20User%20Manual%20TTLOCK%20202008.pdf"
+    kind: "manual"
+    description: >
+      Distributor-hosted vendor manual for the A260 — the source of the five-second rear reset button and the 123456 default master passcode in this spec.
+  - title: "TTLock A210 series user manual"
+    url: "https://www.manualslib.com/manual/3463905/Ttlock-A210-Series.html"
+    kind: "manual"
+    description: >
+      A sibling model, useful because the rebadges vary in which controls they expose.

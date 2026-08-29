@@ -1263,6 +1263,14 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     });
     _effectListSub = sub;
     await _sendFramedCommand(specYaml, serviceUuid, charUuid, 'effect_list');
+    // The await above is where dispose lands: a timer created after it
+    // belongs to a dead widget — dispose already ran its cancels, so this
+    // one would tick for 2.5 s and log from a screen that no longer exists.
+    if (!mounted) {
+      unawaited(sub.cancel());
+      if (identical(_effectListSub, sub)) _effectListSub = null;
+      return;
+    }
     _effectListTimer = Timer(const Duration(milliseconds: 2500), () {
       unawaited(sub.cancel());
       if (identical(_effectListSub, sub)) _effectListSub = null;

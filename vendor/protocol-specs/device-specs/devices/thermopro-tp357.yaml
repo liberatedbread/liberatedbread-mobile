@@ -153,6 +153,42 @@ device:
       issued_to_client: []
       notes: "BLE advertisement broadcast, no auth. No Wi-Fi on this family."
 
+  pairing:
+    required: false
+    confidence: "high"
+    security_mode: "none"
+    bonding: "none"
+    notes: >
+      Broadcast-only in normal use, with no bond of any kind: any client that
+      can hear the advertisement can decode it. Connecting is needed only for
+      on-device history on the TP357 and TP357S, and that needs no pairing
+      either — just a per-session datetime-sync write on the TP357S. The
+      passive decode is pinned by captured advertisements in the parser
+      library's test suite and runs in production in Home Assistant.
+    enter_pairing_mode:
+      required: false
+      indicator: "The Bluetooth icon on the display flashes."
+      notes: >
+        Not required for anything this spec documents — the advertisements are
+        there whenever the sensor has power. The button below exists for the
+        vendor app's benefit and is recorded because a user whose app cannot
+        find the sensor will be told to press it, and it is the same button
+        that changes the temperature unit.
+      procedures:
+        - name: "Hold the F/C button for two seconds"
+          glyph: "generic/hold-button.svg"
+          indicator_glyph: "generic/led-flashing.svg"
+          verified: false
+          basis: >
+            ThermoPro's TP357 user manuals, which document the same button as
+            both the unit toggle (press) and the pairing-status entry (hold).
+          hold_seconds: 2
+          power_state: "on"
+          indicator: "The Bluetooth icon on the display starts flashing."
+          steps:
+            - action: "Press and hold the F/C button on the back of the unit for two seconds."
+              actor: "user"
+              expect: "The Bluetooth icon begins flashing, which is the pairing state."
   variants:
     - model: "TP357 / TP358 / TP359 / TP393 / TP397"
       notes: >
@@ -313,3 +349,8 @@ helpful_urls:
   - url: "https://www.home-assistant.io/integrations/thermopro/"
     title: "Home Assistant ThermoPro integration"
     description: "HA core integration passively decoding TP357/TP358/TP393 BLE advertisements."
+  - title: "ThermoPro TP357 manual"
+    url: "https://www.manualslib.com/manual/2185218/Thermopro-Tp357.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the TP357, including the two-second F/C hold that enters pairing status.

@@ -114,13 +114,49 @@ device:
           - action: "Offer the admin link http://<ip>/webfig/ (or winbox://<ip>:8291)."
             actor: client
     factory_reset:
-      applicable: false
-      confidence: high
+      applicable: true
+      confidence: medium
       effect: >
-        Not this project's concern: RouterOS reset (hold the physical reset
-        button on boot, or /system reset-configuration) is done at the device
-        and clears its own config, not anything we store. We only identify the
-        device; there is nothing on our side to reset.
+        Depends on when the button is released — see the procedure. The mildest
+        outcome restores the RouterOS default configuration; the next clears
+        all configuration and bridges every interface; the longest hold sends
+        the device looking for a Netinstall server instead of booting. None of
+        it touches anything a consumer of this spec stores, which only
+        identifies the device on the network.
+      description: >
+        This is the clearest example in the registry of a single button whose
+        meaning is set entirely by the LED: three different outcomes from the
+        same press, separated only by when the user lets go, and the third one
+        leaves a router that will not boot until something feeds it an
+        operating system. Watch the LED, not a clock.
+      procedures:
+        - name: "RouterBOOT reset button, held from power-on and released on an LED state"
+          glyph: "generic/hold-button-while-powering-on.svg"
+          indicator_glyph: "generic/led-flashing.svg"
+          verified: false
+          basis: >
+            MikroTik's hEX user manual and quick guide. The same RouterBOOT
+            behaviour is documented across the product line, but confirm the
+            LED colours against the manual for the specific board.
+          power_state: "booting"
+          indicator: "Green LED flashing, then solid green, then dark at roughly twenty seconds."
+          steps:
+            - action: "With the device unpowered, press and hold the reset button (labelled RES)."
+              actor: "user"
+            - action: "Apply power while still holding."
+              actor: "user"
+            - action: "Release when the green LED starts flashing to reset the RouterOS configuration to defaults."
+              actor: "user"
+              expect: "RouterOS boots with its default configuration."
+            - action: "Or keep holding until the LED is solid green, then release, to clear all configuration and bridge every interface."
+              actor: "user"
+            - action: "Or keep holding until the LED is no longer lit — about twenty seconds — to make the device look for a Netinstall server instead of booting."
+              actor: "user"
+              notes: >
+                This last one does not reset anything: it leaves the device
+                waiting for a network install, and it will stay there until it
+                gets one. Only useful if you are already set up to reinstall
+                RouterOS over the network.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -153,3 +189,13 @@ helpful_urls:
   - url: "https://www.home-assistant.io/integrations/mikrotik/"
     title: "Home Assistant MikroTik integration"
     description: "HA core integration (RouterOS API device tracker/presence) for this router family."
+  - title: "MikroTik quick guide G1-d (vendor documentation)"
+    url: "https://help.mikrotik.com/docs/spaces/QG/pages/247169272/Quick+Guide+G1-d"
+    kind: "manual"
+    description: >
+      Vendor quick guide covering the RouterBOOT reset button and its three release points.
+  - title: "MikroTik RB750Gr3 (hEX) manuals"
+    url: "https://www.manualslib.com/products/Mikrotik-Rb750gr3-11530423.html"
+    kind: "manual"
+    description: >
+      Manuals for the hEX, the exemplar board in this spec.

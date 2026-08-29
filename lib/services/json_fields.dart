@@ -30,18 +30,23 @@ Map<String, String> jsonStateFields(String replyJson) {
   if (decoded is! Map) return const {};
 
   final out = <String, String>{};
-  void walk(String prefix, Map<dynamic, dynamic> map) {
+  // Depth-capped: the document is device-supplied, and recursion the sender
+  // sizes is a stack overflow that takes the whole poll down. Thirty-two
+  // levels is several times the deepest state document any spec names;
+  // anything deeper is dropped, not fabricated.
+  void walk(String prefix, Map<dynamic, dynamic> map, int depth) {
+    if (depth > 32) return;
     map.forEach((key, value) {
       final path = prefix.isEmpty ? '$key' : '$prefix.$key';
       if (value is Map) {
-        walk(path, value);
+        walk(path, value, depth + 1);
       } else if (value is String || value is num || value is bool) {
         out[path] = value.toString();
       }
     });
   }
 
-  walk('', decoded);
+  walk('', decoded, 0);
   return out;
 }
 
@@ -70,8 +75,21 @@ Map<String, String> xmlStateFields(String replyXml) {
     return const {};
   }
 
+  // rootElement throws StateError — not XmlException — on a document that
+  // parsed but has no root (only comments or processing instructions), which
+  // escaped the catch above and erred the poll instead of reading as "no
+  // state here".
+  final XmlElement root;
+  try {
+    root = document.rootElement;
+  } on StateError {
+    return const {};
+  }
+
   final out = <String, String>{};
-  void walk(String prefix, XmlElement element) {
+  // Same device-sized-recursion cap as the JSON walk.
+  void walk(String prefix, XmlElement element, int depth) {
+    if (depth > 32) return;
     for (final child in element.childElements) {
       final path =
           prefix.isEmpty ? child.localName : '$prefix.${child.localName}';
@@ -79,12 +97,12 @@ Map<String, String> xmlStateFields(String replyXml) {
         // A leaf: its text is the value. First sibling wins.
         out.putIfAbsent(path, () => child.innerText.trim());
       } else {
-        walk(path, child);
+        walk(path, child, depth + 1);
       }
     }
   }
 
-  walk('', document.rootElement);
+  walk('', root, 0);
   return out;
 }
 

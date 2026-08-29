@@ -188,49 +188,31 @@ device:
           - action: "Connect and read sensor data via standard BLE characteristics or ASR notifications."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: "low"
+      # `false` rather than `unknown`: this is an established absence, not an
+      # unanswered question. Researched 2026-08-25 against the vendor manual
+      # and Airthings' own reset-button article — see
+      # ~/research/airthings-wave-family/PAIRING-RESET.md.
+      applicable: false
+      confidence: medium
       effect: >
-        Expected to clear the device's logged sensor history and any ASRACP
-        password, though neither the trigger nor its effect was recovered from
-        the app.
+        Nothing to reset. The Wave family has no reset control and no
+        documented factory-reset procedure: the vendor manual describes
+        activation as pulling the battery tab and pairing as an in-app step,
+        and no button is described anywhere on the housing.
       description: >
-        Not established on any model in this family. The procedure below is the
-        conventional one for button-equipped Airthings hardware and is worth
-        trying first, but treat it as a starting point: the family spans six
-        models — Wave, Wave Plus, Wave Mini, Wave Gen 2, View Plus and the Hub —
-        whose physical controls differ, and the Wave Mini has no user-facing
-        button at all, so no button-hold can apply to it.
+        Worth stating loudly because the obvious search leads somewhere wrong.
+        Airthings DOES document a reset button, at length, with a five-second
+        hold that clears WiFi and Bluetooth pairing and shows a countdown on
+        the display — and all of that belongs to the VIEW series, a different
+        product. A Wave Plus, Wave Radon or Wave Mini has neither the button
+        nor the display, so someone following those instructions is looking
+        for a control that does not exist on the device in their hand.
 
-        Worth knowing before trying: a reset is expected to destroy the on-device
-        measurement history, and radon readings in particular are cumulative
-        over weeks. Pull any history you care about over ASR before resetting,
-        because that data is not recoverable afterwards.
-      procedures:
-        - name: "Button hold"
-          verified: false
-          basis: >
-            The conventional reset for button-equipped Airthings devices.
-            Neither the hold duration nor the confirmation signal was recovered
-            from the decompiled app; not confirmed on hardware.
-          description: >
-            Hold the device's single button down and keep holding well past the
-            point where it would normally respond. Applies only to models that
-            have a button — the Wave Mini does not, and no reset path is known
-            for it.
-          applies_to:
-            - "Wave"
-            - "Wave Plus"
-            - "Wave Gen 2"
-            - "View Plus"
-          steps:
-            - action: "Hold the device button for 10+ seconds."
-              actor: "user"
-              expect: >
-                Device is expected to reset and re-advertise. The confirming
-                signal is unknown — it may be an LED change, and there may be
-                none at all, so re-scanning is the reliable way to tell whether
-                it took.
+        There is also little for a reset to clear: the Wave is BLE-only, holds
+        no network credentials, and never bonds (an HCI capture of a full
+        vendor-app session shows no SMP traffic at all — see `pairing`). A new
+        client just connects. Removing the batteries restarts the sensor, but
+        no vendor source describes that as clearing anything.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -241,6 +223,29 @@ device:
       issued_to_client: []
       notes: "BLE-only for sensor access. Hub variant adds WiFi but config is done via BLE."
 
+  pairing:
+    required: false
+    confidence: "high"
+    security_mode: "none"
+    bonding: "optional"
+    notes: >
+      A 44-minute HCI capture of four vendor-app sessions, including a full
+      history readout, contains zero SMP traffic: sensor reads, DIS reads and
+      every ASRACP write ran unauthenticated over an unencrypted link. So
+      nothing is required. A central may still bond on its own initiative and
+      the device will accept it, which is why `bonding` is optional rather
+      than none — and why the rejoin note tells a user to clear the OS bond if
+      one exists. An optional PIN/challenge path may exist for operations the
+      capture did not exercise; the app's command-set frame parsing hints at
+      one, but it was never seen on the wire.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The device does expose a pairing-mode state — bit 7 of the sensor
+        flags field reports it — but nothing in the documented surface needs
+        it. Reading the flag is useful for showing a user what the device
+        thinks it is doing; entering the mode is not a prerequisite for
+        anything here.
   variants:
     - model: "Wave (Gen 1)"
       identification:
@@ -1511,3 +1516,10 @@ entities:
     device_class: "battery"
     unit: "%"
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+
+helpful_urls:
+  - title: "Airthings Wave Plus user manual (PDF)"
+    url: "https://www.airthings.com/hubfs/Website/Manuals/Wave%20Plus/Wave-Plus-manual-ENG.pdf?hsLang=en-ca"
+    kind: "manual"
+    description: >
+      Vendor manual for the Wave Plus. Confirms the family has no reset control and that pairing is an in-app step.

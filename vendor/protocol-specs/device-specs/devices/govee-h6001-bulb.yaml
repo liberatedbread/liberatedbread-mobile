@@ -113,42 +113,29 @@ device:
           - action: "Connect to the device and write control commands."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: "low"
-      effect: "Returns the bulb to factory defaults, clearing any stored scene or colour state."
+      applicable: true
+      confidence: medium
+      effect: >
+        Clears the bulb's pairing and returns it to its advertising state, so
+        it can be added again as a new device. Nothing else is stored on it.
       description: >
-        Nobody has run this against an H6001, so treat the procedure below as
-        the thing to try first rather than the thing that works. Rapid power
-        cycling is the near-universal reset for mains-powered smart bulbs, and
-        it is what the Govee app's own help text points users at, but the exact
-        toggle count varies across the family and was not recovered from the
-        APK — some generations want five cycles, others three.
-
-        In practice this costs nothing to attempt: if the count is wrong the
-        bulb simply comes back on in its previous state, and you can try
-        again. The signal that it took is the bulb blinking on its own and
-        then re-advertising as unprovisioned. If it powers up normally with no
-        blink, the sequence did not register.
+        The same power-cycle gesture used across the Govee bulb range. The
+        confirmation is visual and immediate: the bulb flashes and then
+        settles into its slow breathing pattern, which is what the app looks
+        for when adding a device.
       procedures:
-        - name: "Power cycle"
+        - name: "Power-cycle five times"
           verified: false
-          basis: >
-            The generic pattern for mains-powered smart bulbs, consistent with
-            Govee's published help text. Not recovered from the decompiled app
-            and not confirmed on hardware.
-          description: >
-            Switch the bulb off and on at the wall or lamp switch in quick
-            succession, pausing about a second in each state. Watch for a
-            self-initiated blink at the end — that, not the bulb simply
-            lighting, is what confirms the reset.
-          indicator: "Bulb blinks by itself, then re-advertises as unprovisioned."
+          basis: "Govee's published user documentation for the bulb range."
+          press_count: 5
+          power_state: "on"
+          glyph: "generic/power-cycle.svg"
+          indicator: "The bulb flashes, then breathes slowly."
+          indicator_glyph: "generic/led-flashing.svg"
           steps:
-            - action: "Toggle power rapidly 5 times, roughly one second on and one second off."
+            - action: "Switch the bulb off and on five times in quick succession at the wall switch or lamp switch."
               actor: "user"
-              expect: >
-                Bulb blinks to confirm reset and re-advertises. If it just
-                comes back on unchanged, the count is wrong for this
-                generation — try three cycles instead.
+              expect: "The bulb flashes and then breathes — it is unpaired and discoverable."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -165,6 +152,13 @@ device:
         writes from any connected central, so control is available to anyone in
         range.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "00010203-0405-0607-0809-0a0b0c0d1910"
     name: "Govee Legacy Bulb Service"
@@ -316,3 +310,8 @@ helpful_urls:
     description: >-
       HA core LAN-API integration; the H6001 supports Govee's local Wi-Fi API alongside the BLE
       protocol documented here.
+  - title: "Govee H6001 LED bulb user manual (Internet Archive)"
+    url: "https://web.archive.org/web/20220102191855/https://manuals.plus/govee/h6001-bluetooth-rgbww-led-bulb-manual"
+    kind: "manual"
+    description: >
+      Archived copy — the live host refuses automated requests.

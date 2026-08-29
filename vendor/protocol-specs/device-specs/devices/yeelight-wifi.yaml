@@ -245,3 +245,13 @@ helpful_urls:
   - title: "Home Assistant Yeelight integration"
     url: "https://www.home-assistant.io/integrations/yeelight/"
     description: "HA core integration over this LAN protocol (requires LAN Control enabled)."
+  - title: "Yeelight Smart LED Bulb 1S user manual"
+    url: "https://www.manualslib.com/manual/1867101/Yeelight-Smart-Led-Bulb-1s.html"
+    kind: "manual"
+    description: >
+      Vendor manual for one of the bulbs speaking the LAN control protocol this spec documents.
+  - title: "Yeelight Smart LED Bulb W4 multicolor user manual (PDF)"
+    url: "https://itead.cc/wp-content/uploads/2024/01/W4-User-Manual.pdf"
+    kind: "manual"
+    description: >
+      A later model's manual, including the five-power-cycle reset.

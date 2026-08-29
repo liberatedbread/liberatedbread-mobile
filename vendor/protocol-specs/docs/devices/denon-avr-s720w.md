@@ -72,8 +72,8 @@ identity is the UDN or the AirPlay `deviceid` value.
 
 | Property | Value |
 |----------|-------|
-| Setup required | Yes (on the receiver's own on-screen menu) |
-| Method | `device_ui` (Wi-Fi, WPS, or credentials copied over USB from an iOS device) or `wired` |
+| Setup required | Yes — Ethernet, or on the receiver's own on-screen menu |
+| Method | `wired` — plug into the NETWORK port, no menu interaction — or `device_ui` (Wi-Fi, WPS, or credentials copied over USB from an iOS device) |
 | Passphrase protection | not_applicable — it is typed on the receiver, never handed to it by a client |
 | Client pairing | None. There is no authentication anywhere on the local surface. |
 | Confidence | medium (published sources; not run here) |

@@ -212,6 +212,16 @@ helpful_urls:
     url: "https://developer.samsung.com/smarttv/develop/specifications/tv-model-groups.html"
     description: "Official model-year ↔ Tizen version table; settles whether a given Samsung TV is Tizen (2016+, this spec) or Orsay (samsung_legacy_common)."
 
+  - title: "Samsung Q9FN series user manual (PDF, vendor-hosted)"
+    url: "https://image-us.samsung.com/SamsungUS/tv-ci-resources/2018-user-manuals/2018_UserManual_Q9FNSeries.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the 2018 Q9FN, one of the sets this spec's family covers.
+  - title: "Samsung QLED TV Q7F user manual"
+    url: "https://www.manualslib.com/manual/1244665/Samsung-Qled-Tv-Q7f.html"
+    kind: "manual"
+    description: >
+      Another Tizen-era set. On-set documentation lives in the embedded e-Manual under Settings, Support, Open e-Manual.
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:

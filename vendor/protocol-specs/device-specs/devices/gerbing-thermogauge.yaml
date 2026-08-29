@@ -161,6 +161,13 @@ device:
       issued_to_client: []
       notes: "BLE GATT. No auth or pairing in app source."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "coreheat7"
       notes: "7.4V battery. Subject to battery-saver heat clamp at 20% or below."
@@ -377,5 +384,15 @@ helpful_urls:
       Community thread on controlling the same module from ESPHome; practical detail on the shared
       protocol.
   - title: "Gerbing ThermoGauge 12V controller"
-    url: "https://www.gerbing.com/products/gerbing-thermogauge-12v-bluetooth-temperature-controller"
+    url: "https://web.archive.org/web/20250813042526/https://www.gerbing.com/products/gerbing-thermogauge-12v-bluetooth-temperature-controller"
     description: "Vendor product page for the controller; model names and voltage variants."
+  - title: "Gerbing: user guides"
+    url: "https://www.gerbing.com/pages/user-guides"
+    kind: "vendor_support"
+    description: >
+      Vendor index of instruction manuals and setup guides for the 12V range, including the Bluetooth Thermogauge this spec documents.
+  - title: "Gerbing 12V heated motorcycle clothing catalogue (PDF)"
+    url: "https://alfresco-heating.com/content/product-pdfs/gerbing-heated-motorcycle-clothing-12-volt-catalog.pdf"
+    kind: "manual"
+    description: >
+      Distributor-hosted catalogue covering the controller range and the 12V wiring rules.

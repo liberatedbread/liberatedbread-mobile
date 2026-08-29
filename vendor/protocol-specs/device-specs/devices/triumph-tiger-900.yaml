@@ -667,3 +667,8 @@ helpful_urls:
     description: >-
       Installation guide showing the connector that also exposes the CAN bus; the recommended hookup
       this spec cites.
+  - title: "Triumph Tiger 900 owner's handbook"
+    url: "https://www.manualslib.com/manual/1995488/Triumph-Tiger-900.html"
+    kind: "manual"
+    description: >
+      Vendor handbook for the Tiger 900 range.

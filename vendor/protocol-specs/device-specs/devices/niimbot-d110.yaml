@@ -154,6 +154,13 @@ device:
       issued_to_client: []
       notes: "BLE-only. No auth."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "D110"
       identification:
@@ -234,3 +241,8 @@ helpful_urls:
   - title: "eigger/hass-niimbot (HACS)"
     url: "https://github.com/eigger/hass-niimbot"
     description: "HACS integration printing to Niimbot BLE label printers (D110 family) from Home Assistant."
+  - title: "NIIMBOT D110 quick start manual"
+    url: "https://www.manualslib.com/manual/3027392/Niimbot-D110.html"
+    kind: "manual"
+    description: >
+      Vendor quick start covering the indicator-light meanings this spec's status decoding relies on.

@@ -108,6 +108,13 @@ device:
         No credentials exist anywhere in this protocol. That is the security
         finding, not an omission — see the warnings in `device.notes`.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "BT-912"
       uuid_family: "ffb0"
@@ -351,6 +358,7 @@ helpful_urls:
       app.ventureheat.com is shared.
   - title: "Venture Heat: motorcycle heated gear guide"
     url: "https://www.ventureheat.com/pages/motorcycle-guide"
+    kind: "vendor_support"
     description: "Vendor guide to the 12V motorcycle garments this protocol drives."
   - title: "MEC Addheat"
     url: "https://www.addheat.com/"

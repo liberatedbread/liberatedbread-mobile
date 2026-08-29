@@ -495,3 +495,8 @@ helpful_urls:
   - title: "bm1549/home-assistant-frigidaire (HACS)"
     url: "https://github.com/bm1549/home-assistant-frigidaire"
     description: "HACS custom component for Frigidaire ACs via the Electrolux cloud API; cloud fallback where the local path documented here is unavailable."
+  - title: "Frigidaire Gallery FGRC1244T100 use and care manual"
+    url: "https://www.manualslib.com/manual/1834955/Frigidaire-Gallery-Fgrc1244t100.html"
+    kind: "manual"
+    description: >
+      Vendor manual for a Wi-Fi window unit of the generation this spec covers.

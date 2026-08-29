@@ -158,6 +158,13 @@ device:
       notes: >
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "SP107E"
       identification:
@@ -402,3 +409,18 @@ helpful_urls:
       HACS integration for SP LED / BanlanX-family BLE controllers (LED Chord / SP107E, LED
       Hue / SP110E); a production Home Assistant consumer of the SP107E command set this spec
       documents. Does not cover the later SPOTLED-app panel generation.
+  - title: "SP110E Bluetooth LED controller operating instructions (PDF)"
+    url: "https://m.media-amazon.com/images/I/81-vuGVbmgL.pdf"
+    kind: "manual"
+    description: >
+      Vendor instructions for the SP110E.
+  - title: "SP107E Bluetooth LED music controller manual (PDF)"
+    url: "https://www.ledbe.com/image/catalog/Sperll/sp107e-manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the SP107E, the music-reactive sibling this spec also covers.
+  - title: "SP105E LED controller manual (PDF)"
+    url: "https://www.ledbe.com/image/catalog/Sperll/sp105e-magic-controller-manual.pdf"
+    kind: "manual"
+    description: >
+      Manual for the SP105E, a sibling of the SP107E/SP110E this spec covers.

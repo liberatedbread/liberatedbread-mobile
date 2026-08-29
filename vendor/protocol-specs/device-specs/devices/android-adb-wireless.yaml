@@ -145,5 +145,6 @@ helpful_urls:
     title: "AOSP adb — adb_wifi.md (wireless debugging design)"
     description: "Authoritative mDNS service types and instance-name format for wireless ADB."
   - url: "https://developer.android.com/tools/adb"
+    kind: "vendor_support"
     title: "Android Developers — Android Debug Bridge (adb)"
     description: "User-facing wireless debugging (Android 11+): mDNS discovery, pairing code and the dynamic connect port."

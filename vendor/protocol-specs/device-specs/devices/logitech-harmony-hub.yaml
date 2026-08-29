@@ -246,3 +246,13 @@ helpful_urls:
   - title: "Home Assistant — local API removal and restoration (2018)"
     url: "https://www.home-assistant.io/blog/2018/12/17/logitech-harmony-removes-local-api/"
     description: "Context on the firmware 4.15.206 local-API removal and its restoration in 4.15.250."
+  - title: "Logitech Harmony Hub setup manual"
+    url: "https://www.manualslib.com/manual/837905/Logitech-Harmony-Hub.html"
+    kind: "manual"
+    description: >
+      Vendor setup manual for the Hub.
+  - title: "Harmony Ultimate user guide (PDF, vendor-hosted)"
+    url: "https://www.logitech.com/assets/50282/harmony-ultimate-user-guide.pdf"
+    kind: "manual"
+    description: >
+      Still on Logitech's own server despite the Harmony line being discontinued and the MyHarmony service wound down.

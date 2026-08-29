@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -217,11 +218,9 @@ final rabbitAirProvisionServiceProvider =
 /// as the member finishes. A family-cached instance would share one signed
 /// session between surfaces that outlive each other, and nobody would know
 /// who closes it.
-typedef NetworkCommandSenderFactory = NetworkCommandSender Function({
-  required NetworkDevice device,
-  required String specYaml,
-  NetworkCapabilitiesDto? capabilities,
-});
+// The factory TYPE lives beside the sender's constructor
+// (NetworkCommandSenderFactory in network_command_sender.dart) so this
+// provider and the group runner share one declaration that cannot drift.
 
 final networkCommandSenderFactoryProvider =
     Provider<NetworkCommandSenderFactory>((ref) {
@@ -229,23 +228,37 @@ final networkCommandSenderFactoryProvider =
     required NetworkDevice device,
     required String specYaml,
     NetworkCapabilitiesDto? capabilities,
-  }) =>
-      NetworkCommandSender(
-        host: device.host,
-        // The one handle that survives a DHCP lease, for the certificate pin.
-        deviceMac: device.advertisedMac,
-        discoveredControlPort: device.controlPort,
-        devicePort: device.port,
-        ssdpTargets: device.ssdpTargets,
-        specYaml: specYaml,
-        capabilities: capabilities,
-        codec: ref.read(specCodecProvider),
-        http: ref.read(httpControlClientProvider),
-        soap: ref.read(soapControlClientProvider),
-        kasa: ref.read(kasaControlClientProvider),
-        rabbitAir: ref.read(rabbitAirControlClientProvider),
-        ecp2: ref.read(ecp2ControlServiceProvider),
-      );
+  }) {
+    // What a pairing issues at runtime is persisted HERE, in the factory,
+    // because the sender is the only thing that knows the credential's
+    // spec-given name and the store is the only thing that survives the
+    // screen. Without this wiring every value a television issued was
+    // discarded on dispose, and each screen open raised the set's Allow
+    // prompt again — the parameters existed and were passed only by tests.
+    final store = ref.read(deviceCredentialStoreProvider);
+    final identity = device.credentialIdentity;
+    return NetworkCommandSender(
+      host: device.host,
+      // The one handle that survives a DHCP lease, for the certificate pin.
+      deviceMac: device.advertisedMac,
+      discoveredControlPort: device.controlPort,
+      devicePort: device.port,
+      ssdpTargets: device.ssdpTargets,
+      specYaml: specYaml,
+      capabilities: capabilities,
+      codec: ref.read(specCodecProvider),
+      http: ref.read(httpControlClientProvider),
+      soap: ref.read(soapControlClientProvider),
+      kasa: ref.read(kasaControlClientProvider),
+      rabbitAir: ref.read(rabbitAirControlClientProvider),
+      ecp2: ref.read(ecp2ControlServiceProvider),
+      // Returned, not fire-and-forgotten: the sender awaits the save before
+      // re-reading the store (so the token it just filed is findable) and
+      // logs a keystore failure instead of letting it become an unhandled
+      // zone error that also silently loses the freshly issued token.
+      onCredentialIssued: (name, value) => store.save(identity, name, value),
+    );
+  };
 });
 
 /// Identity of one network device the control layer is asked about.

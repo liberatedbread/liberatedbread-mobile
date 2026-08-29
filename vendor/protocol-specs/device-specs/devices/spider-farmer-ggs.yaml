@@ -210,6 +210,13 @@ device:
         Cloud-free local protocol. Marketed cloud dependency is unused
         by the local BLE path.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "000000ff-0000-1000-8000-00805f9b34fb"
     name: "Spider Farmer GGS Service"
@@ -264,3 +271,20 @@ entities:
     name: "Fan"
     features: ["speed"]
     state_characteristic: "0000ff01-0000-1000-8000-00805f9b34fb"
+
+helpful_urls:
+  - title: "Spider Farmer GGS controller operating manual (PDF, vendor-hosted)"
+    url: "https://www.spider-farmer.com/wp-content/uploads/2025/08/GGS-Controller-Operating-Manual.pdf"
+    kind: "manual"
+    description: >
+      Current vendor manual for the GGS controller.
+  - title: "Spider Farmer GGS system user manual (PDF, vendor-hosted)"
+    url: "https://www.spider-farmer.com/wp-content/uploads/2021/09/GGS-System-User-Manual.pdf"
+    kind: "manual"
+    description: >
+      The earlier system manual, matching the firmware most units in the field run.
+  - title: "Spider Farmer: manual download centre"
+    url: "https://www.spider-farmer.com/user-manual-download-center/"
+    kind: "vendor_support"
+    description: >
+      Vendor index for the rest of the range.

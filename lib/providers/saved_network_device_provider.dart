@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/network_device.dart';
 import '../services/saved_network_device_store.dart';
+import '../services/tls_trust.dart';
 import 'saved_device_provider.dart';
 
 final savedNetworkDeviceStoreProvider = Provider<SavedNetworkDeviceStore>(
@@ -93,6 +94,13 @@ class SavedNetworkDevicesNotifier
       txt: _mergeTxt(existing?.txt, device.txt),
       category: category ?? existing?.category,
       specKey: specKey ?? existing?.specKey,
+      // The identity the sender and screen key THIS sighting's credentials
+      // and pins under, recorded so Remove can clear exactly what was
+      // written. Strongest form wins on merge: a `mac:` identity is never
+      // downgraded by a later thin sighting whose host is all it knows —
+      // the mac-keyed pin would outlive the record's memory of it.
+      credentialIdentity: _strongerIdentity(
+          existing?.credentialIdentity, device.credentialIdentity),
     );
     await save(record);
     return record;
@@ -168,6 +176,16 @@ class SavedNetworkDevicesNotifier
       merged[entry.key] = entry.value;
     }
     return merged;
+  }
+
+  /// The stronger of two store identities: `mac:` beats `host:` (the mac is
+  /// the handle that survives a lease), a fresh value of equal strength wins
+  /// (the device re-observed is the device), and null fills from whatever is
+  /// known.
+  static String? _strongerIdentity(String? existing, String sighted) {
+    if (sighted.startsWith('mac:')) return sighted;
+    if (existing != null && existing.startsWith('mac:')) return existing;
+    return sighted;
   }
 
   bool contains(String id) => state.any((d) => d.id == id);

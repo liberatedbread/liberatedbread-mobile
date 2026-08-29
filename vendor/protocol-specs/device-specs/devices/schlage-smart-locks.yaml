@@ -106,6 +106,8 @@ device:
       but we have not run it against a lock ourselves.
     methods:
       - type: ble_provisioning
+        name: "BLE pairing with the printed programming code"
+        role: "primary"
         description: >
           Pair over BLE: SPAKE2/P-224 with the programming code as password,
           then claim an access-control credential (CAT). Runs phases A-D once;
@@ -183,6 +185,8 @@ device:
             The app posts a response watchdog per command: 3000 ms for most
             commands, 15000 ms for the lock/unlock command (motor runtime).
       - type: cloud_account
+        name: "Optional vendor-cloud onboarding for Wi-Fi locks"
+        role: "alternative"
         description: >
           OPTIONAL vendor path — the Schlage Home app additionally onboards
           WiFi locks to the vendor cloud (JITR). Not required for local BLE
@@ -266,6 +270,13 @@ device:
         blob) is minted by the vendor's factory service and pushed over BLE —
         see `cloud`.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   identification:
     service_uuids:
       - "1f6b43aa-94de-4ba9-981c-da38823117bd"   # advertised (AD 0x06) in Schlage/unified mode
@@ -875,3 +886,13 @@ helpful_urls:
   - url: "https://www.home-assistant.io/integrations/schlage/"
     title: "Home Assistant Schlage integration"
     description: "HA core integration for Schlage Encode WiFi locks (cloud-based; no local API exists on these locks)."
+  - title: "Schlage Encode Plus quick start guide (PDF, vendor-hosted)"
+    url: "https://www.schlage.ca/content/dam/sch-us/documents/pdf/installation-manuals/schlage-encode-plus-quick-start-guide-BE499WB.pdf"
+    kind: "manual"
+    description: >
+      Vendor guide for the BE499WB. Note its warning to keep the backup codes: they are what a factory reset leaves you needing.
+  - title: "Schlage Encode smart WiFi deadbolt quick start guide"
+    url: "https://www.manualslib.com/manual/1577108/Schlage-Encode.html"
+    kind: "manual"
+    description: >
+      Vendor guide for the original Encode.

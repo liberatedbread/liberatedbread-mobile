@@ -63,6 +63,12 @@ String colorSwatchName(Color color) {
 
   // The warm off-white every list carries as its second swatch reads as a
   // pale orange by hue alone, which is not what anyone would call it.
-  if (min > 0.6 && delta < 0.35) return 'Warm white';
+  // Hue-gated: only a swatch already in the warm band (red through yellow)
+  // can be warm white. Without the gate a pale azure — high floor, low
+  // saturation, hue 200 — was overridden to "Warm white", and a confidently
+  // wrong screen-reader label is the exact failure this file promises a
+  // future swatch list will not hit.
+  final warmHue = hue < 70 || hue >= 345;
+  if (warmHue && min > 0.6 && delta < 0.35) return 'Warm white';
   return name;
 }

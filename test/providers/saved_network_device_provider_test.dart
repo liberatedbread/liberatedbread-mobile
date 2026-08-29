@@ -6,8 +6,12 @@ import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/device_group_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_network_device_provider.dart';
+import 'package:liberated_bread_mobile/services/device_credential_store.dart';
 import 'package:liberated_bread_mobile/services/device_group_store.dart';
+import 'package:liberated_bread_mobile/services/tls_trust.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../fakes/in_memory_settings_store.dart';
 
 NetworkDevice _sighting({String host = '192.168.1.20'}) => NetworkDevice(
       host: host,
@@ -190,16 +194,122 @@ void main() {
       deviceIds: ['AA:BB', networkMemberId(record.id)],
     );
 
+    final settings = InMemorySettingsStore();
     await forgetNetworkDevice(
       savedDevices: savedNetwork,
       groups: groups,
       deviceId: record.id,
+      trust: TlsTrust(CertificatePinStore(settings)),
+      credentials: DeviceCredentialStore(settings),
+      host: record.host,
     );
 
     expect(c.read(savedNetworkDevicesProvider), isEmpty);
     final group = c.read(deviceGroupsProvider).single;
     expect(group.deviceIds, ['AA:BB'],
         reason: 'the BLE member stays; the network membership is pruned');
+  });
+
+  test('forgetting clears the pin and credentials under BOTH identity forms',
+      () async {
+    final c = await container();
+    final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
+    final groups = c.read(deviceGroupsProvider.notifier);
+    final record = await savedNetwork.touch(_sighting(), category: 'tv');
+
+    // The pin was written by the LIVE sender, which had the scan's mac; the
+    // credential by a screen keyed the same way. The forget flow derives its
+    // identity from the SAVED record — and the two views can disagree, which
+    // used to leave a pin nothing could erase after the only recovery the
+    // app offers.
+    final settings = InMemorySettingsStore();
+    final pins = CertificatePinStore(settings);
+    final credentials = DeviceCredentialStore(settings);
+    const mac = 'aa:bb:cc:dd:ee:ff';
+    final host = record.host;
+    await pins.save(identityFor(mac: mac, host: host), 'fp-mac');
+    await pins.save(identityFor(host: host), 'fp-host');
+    await credentials.save(identityFor(host: host), 'samsung_token', 't');
+
+    await forgetNetworkDevice(
+      savedDevices: savedNetwork,
+      groups: groups,
+      deviceId: record.id,
+      trust: TlsTrust(pins),
+      credentials: credentials,
+      deviceMac: mac,
+      host: host,
+    );
+
+    expect(await pins.pin(identityFor(mac: mac, host: host)), isNull);
+    expect(await pins.pin(identityFor(host: host)), isNull);
+    expect(await credentials.credentials(identityFor(host: host)), isEmpty);
+  });
+
+  /// The record now REMEMBERS the identity its pins were written under, so
+  /// Remove clears the mac-keyed pin even when the saved record itself never
+  /// captured the mac — the direction the both-forms fallback cannot reach.
+  test('forgetting clears the pin under the identity recorded at write time',
+      () async {
+    final c = await container();
+    final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
+    final groups = c.read(deviceGroupsProvider.notifier);
+    final record = await savedNetwork.touch(_sighting(), category: 'tv');
+
+    final settings = InMemorySettingsStore();
+    final pins = CertificatePinStore(settings);
+    final credentials = DeviceCredentialStore(settings);
+    // The live sender pinned under a mac the SAVED record does not know
+    // (an SSDP-only record, a mac-bearing scan): only the recorded identity
+    // can name it at forget time.
+    const liveIdentity = 'mac:aa:bb:cc:dd:ee:ff';
+    await pins.save(liveIdentity, 'fp-live');
+    await credentials.save(liveIdentity, 'samsung_token', 't');
+
+    await forgetNetworkDevice(
+      savedDevices: savedNetwork,
+      groups: groups,
+      deviceId: record.id,
+      trust: TlsTrust(pins),
+      credentials: credentials,
+      host: record.host,
+      recordedIdentity: liveIdentity,
+    );
+
+    expect(await pins.pin(liveIdentity), isNull,
+        reason: 'the write-time identity is the one Remove must clear');
+    expect(await credentials.credentials(liveIdentity), isEmpty);
+  });
+
+  /// touch() records the sighting's own store identity, and a later thin
+  /// sighting must not downgrade a `mac:` identity to `host:` — the
+  /// mac-keyed pin would outlive the record's memory of it.
+  test('touch records the credential identity, strongest form winning',
+      () async {
+    final c = await container();
+    final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
+
+    // A mac-bearing sighting: the identity the sender pins under.
+    final rich = await savedNetwork.touch(NetworkDevice(
+      host: '192.168.1.20',
+      name: 'Living Room TV',
+      hostname: 'tv.local',
+      txt: const {'mac': 'AA:BB:CC:DD:EE:FF'},
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    ));
+    expect(rich.credentialIdentity, 'mac:aa:bb:cc:dd:ee:ff');
+
+    // A thin re-sighting: same device, no TXT (so no mac to derive).
+    final thin = await savedNetwork.touch(NetworkDevice(
+      host: '192.168.1.20',
+      name: 'Living Room TV',
+      hostname: 'tv.local',
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026, 2),
+    ));
+    expect(thin.credentialIdentity, 'mac:aa:bb:cc:dd:ee:ff',
+        reason: 'a mac: identity is never downgraded by a thin sighting');
   });
 
   test('member id namespace round-trips and never collides with bare ids', () {

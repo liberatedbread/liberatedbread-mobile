@@ -127,6 +127,13 @@ device:
         No auth. Hard-coded public MAC address is a privacy tracking
         risk. Warn users that the MAC can be used to track the tag.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "00001802-0000-1000-8000-00805f9b34fb"
     name: "Immediate Alert Service"
@@ -200,3 +207,10 @@ entities:
   - platform: "sensor"
     name: "Battery"
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+
+helpful_urls:
+  - title: "iTag user manual (Internet Archive)"
+    url: "https://web.archive.org/web/20170308134043/http://manualzz.com:80/doc/6467956/itag-user-manual"
+    kind: "manual"
+    description: >
+      Manual for the generic iTag tracker platform. Archived because the live host refuses automated requests; these are unbranded ODM devices with no vendor site to point at.

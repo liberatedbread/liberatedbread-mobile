@@ -33,12 +33,12 @@ static SPEC_CACHE: LazyLock<Mutex<HashMap<String, Arc<DeviceSpec>>>> =
 
 /// Upper bound on cached specs. Generous for the legitimate workload (a
 /// handful of bundled specs plus a few installed packs), tiny against a
-/// hostile stream of never-repeating YAML strings. When the bound is hit the
-/// whole cache is cleared rather than LRU-evicted: reaching it at all means
-/// the workload is not the one the cache serves, and a documented clear is
-/// simpler than an eviction policy (or an LRU dependency) — the cost of a
-/// miss is one re-parse.
-const SPEC_CACHE_MAX_ENTRIES: usize = 32;
+/// hostile stream of never-repeating YAML strings. At the bound, ONE
+/// arbitrary entry is evicted per insert — the policy and the story of why
+/// clear-on-full lost live at the eviction site in [`parse_or_cached`].
+/// `regex_for` in `device_api.rs` bounds its pattern cache the same way; if
+/// one policy changes, change both.
+const SPEC_CACHE_MAX_ENTRIES: usize = 64;
 
 /// Parse `yaml`, or hand back the [`SPEC_CACHE`] entry for it.
 ///
@@ -70,7 +70,16 @@ pub(crate) fn parse_or_cached(yaml: &str) -> Result<Arc<DeviceSpec>, ProtocolErr
         return Ok(existing.clone());
     }
     if cache.len() >= SPEC_CACHE_MAX_ENTRIES {
-        cache.clear();
+        // Evict ONE arbitrary entry, never the whole map. Clear-on-full made
+        // sense when only the BLE screens fed this; now sixteen per-poll
+        // network entry points route through it, and a group run over more
+        // distinct specs than the bound turned every insert into a full
+        // clear — a 0% hit rate that cost the lock AND the parse, which is
+        // strictly worse than no cache. One arbitrary eviction keeps the hot
+        // entries hot with no bookkeeping a hostile stream could bloat.
+        if let Some(evict) = cache.keys().next().cloned() {
+            cache.remove(&evict);
+        }
     }
     cache.insert(yaml.to_string(), spec.clone());
     Ok(spec)
@@ -222,11 +231,13 @@ services:
     // rather than reading the global cache length, which is shared with
     // every other test running on the multithreaded test runner.
 
-    /// The capacity test clears the shared global cache, which would race
-    /// the identity assertions of the identical-YAML test if the two
-    /// interleave on the parallel runner. Serialize just those two — the
-    /// remaining tests only compare *content* or the identity of *distinct*
-    /// specs, both of which survive a concurrent clear.
+    /// The capacity test MUTATES the shared global cache — it fills it to
+    /// the bound (evicting arbitrary entries, possibly another test's) and
+    /// clears it on the way out — which would race the identity assertions
+    /// of the identical-YAML test if the two interleave on the parallel
+    /// runner. Serialize the mutators and the identity-asserting tests here;
+    /// the remaining tests only compare *content* or the identity of
+    /// *distinct* specs, both of which survive concurrent eviction.
     static CACHE_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
@@ -254,22 +265,11 @@ services: []
     /// SPEC_CACHE_MAX_ENTRIES fresh inserts — i.e. the map cannot grow
     /// without limit.
     #[test]
-    fn cache_clears_when_capacity_is_reached() {
+    fn cache_stays_bounded_and_evicts_one_at_a_time() {
         let _guard = CACHE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let base = "
-device:
-  name: \"cap-test-base\"
-  manufacturer: x
-  manufacturer_status: abandoned
-  protocol: ble
-services: []
-";
-        let before = parse_or_cached(base).unwrap();
-
-        // Whatever the cache held beforehand, inserting MAX distinct specs
-        // after `base` guarantees at least one clear happens after `base`
-        // was cached (base + MAX fresh entries > MAX).
-        for i in 0..SPEC_CACHE_MAX_ENTRIES {
+        // A storm of distinct specs — twice the bound — must not grow the
+        // map past it.
+        for i in 0..(SPEC_CACHE_MAX_ENTRIES * 2) {
             let yaml = format!(
                 "
 device:
@@ -282,13 +282,37 @@ services: []
             );
             parse_or_cached(&yaml).unwrap();
         }
-
-        let after = parse_or_cached(base).unwrap();
+        let len = SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner()).len();
         assert!(
-            !Arc::ptr_eq(&before, &after),
-            "base entry should have been evicted by the capacity clear; \
-             an identity hit here would mean the cache grew past its bound"
+            len <= SPEC_CACHE_MAX_ENTRIES,
+            "cache holds {len} entries past its bound of {SPEC_CACHE_MAX_ENTRIES}"
         );
+        // And the storm did not take everyone else's entries with it: a spec
+        // filed mid-storm is still served by identity on the next ask. The
+        // old clear-everything rule failed exactly this — sixteen per-poll
+        // network entry points shared a cache that a group run over enough
+        // distinct specs reduced to a 0% hit rate.
+        let hot = "
+device:
+  name: \"cap-test-hot\"
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services: []
+";
+        let first = parse_or_cached(hot).unwrap();
+        let second = parse_or_cached(hot).unwrap();
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "a just-filed entry must be served by identity, not re-parsed"
+        );
+        // Leave the cache EMPTY, not saturated: this test walks away from a
+        // map sitting exactly at its bound, where every later unguarded
+        // `parse_or_cached` insert anywhere in the binary would evict an
+        // arbitrary entry — with ~1/64 luck, one a guarded test is holding an
+        // `Arc::ptr_eq` assertion over. An unreproducible flake is a worse
+        // legacy than a cold cache.
+        SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     /// The lock is released across the parse, so two threads can miss on the

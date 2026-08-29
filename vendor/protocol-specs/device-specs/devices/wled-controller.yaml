@@ -161,6 +161,8 @@ device:
       medium rather than high.
     methods:
       - type: "softap_http"
+        name: "WLED-AP captive portal"
+        role: "primary"
         verified: false
         description: >
           The board hosts an open-to-anyone-who-reads-the-manual WPA2 access
@@ -230,6 +232,8 @@ device:
             expect: "WLED-AP disappears; the device answers _wled._tcp.local."
             timeout_seconds: 60
       - type: "device_ui"
+        name: "Vendor-assembled boards, onboarded their way first"
+        role: "variant"
         verified: false
         description: >
           Vendor-assembled controllers (Athom and similar) ship pre-flashed and
@@ -869,3 +873,8 @@ helpful_urls:
   - title: "Home Assistant WLED integration"
     url: "https://www.home-assistant.io/integrations/wled/"
     description: "HA core integration over the WLED JSON/HTTP and WebSocket API documented here."
+  - title: "WLED documentation (kno.wled.ge)"
+    url: "https://kno.wled.ge/"
+    kind: "vendor_support"
+    description: >
+      WLED is open firmware, so the project documentation IS the manual — installation, the WLED-AP provisioning fallback, and every API this spec documents.

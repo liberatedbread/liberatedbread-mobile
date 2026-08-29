@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../core/constants.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import 'spec_codec.dart';
@@ -27,6 +28,16 @@ abstract class WsSocket {
   Stream<dynamic> get stream;
   void add(String frame);
   Future<void> close();
+
+  /// Ask the transport to keep the link alive with protocol-level pings.
+  ///
+  /// A WebSocket ping is the protocol's own keepalive — a control frame the
+  /// peer must pong, invisible to the application. The empty TEXT frame that
+  /// used to stand in here was neither: it reached LG's SSAP dispatcher as a
+  /// malformed request, and it kept being sent into sockets that had already
+  /// closed, throwing inside a timer where nothing caught it. Fakes may
+  /// ignore this; `dart:io` maps it to [WebSocket.pingInterval].
+  set pingInterval(Duration? interval);
 }
 
 /// Opens one socket. Injected so a test answers from canned frames.
@@ -62,35 +73,44 @@ class WsPairingException implements UserFacingException {
       promptNotes == null ? message : '$message\n\n$promptNotes';
 }
 
-/// The default connector: a real WebSocket, tolerating the self-signed
-/// certificate a television carries.
+/// The default connector for [surface]: a real WebSocket whose certificate
+/// posture is what the SPEC declares, not a blanket accept.
 ///
-/// A set's certificate is self-signed with no chain, so validating it is not a
-/// thing that can succeed — the specs record `verification: none` for exactly
-/// that reason, and what authenticates the session is the token or client-key,
-/// not the certificate.
-Future<WsSocket> _defaultConnect(
-    String url, Map<String, String> headers) async {
-  final client = HttpClient()..badCertificateCallback = (_, __, ___) => true;
-  try {
-    // ignore: close_sinks — ownership passes to the session, which closes it.
-    final socket = await WebSocket.connect(
-      url,
-      headers: headers.isEmpty ? null : headers,
-      customClient: client,
-    );
-    return _RealWsSocket(socket, client);
-  } on SocketException catch (e) {
-    client.close(force: true);
-    throw WsConnectionException('Could not reach $url — ${e.message}');
-  } on WebSocketException catch (e) {
-    client.close(force: true);
-    throw WsConnectionException(
-        '$url refused the WebSocket upgrade — ${e.message}');
-  } on HandshakeException catch (e) {
-    client.close(force: true);
-    throw WsConnectionException('The TLS handshake with $url failed ($e).');
-  }
+/// The televisions in the catalogue carry self-signed certificates with no
+/// chain, record `tls.self_signed: true` / `verification: "none"`, and are
+/// authenticated by their token or client-key — for THOSE surfaces the
+/// permissive callback is the documented truth. A surface that declares
+/// neither gets the platform's ordinary validation: the fields crossed the
+/// FFI from day one and were then ignored here, which silently extended one
+/// television's posture to every future WebSocket device.
+WsConnect _connectorFor(WebSocketSurfaceDto surface) {
+  final permissive =
+      surface.tlsSelfSigned == true || surface.tlsVerification == 'none';
+  return (String url, Map<String, String> headers) async {
+    final client = HttpClient();
+    if (permissive) {
+      client.badCertificateCallback = (_, __, ___) => true;
+    }
+    try {
+      // ignore: close_sinks — ownership passes to the session, which closes it.
+      final socket = await WebSocket.connect(
+        url,
+        headers: headers.isEmpty ? null : headers,
+        customClient: client,
+      );
+      return _RealWsSocket(socket, client);
+    } on SocketException catch (e) {
+      client.close(force: true);
+      throw WsConnectionException('Could not reach $url — ${e.message}');
+    } on WebSocketException catch (e) {
+      client.close(force: true);
+      throw WsConnectionException(
+          '$url refused the WebSocket upgrade — ${e.message}');
+    } on HandshakeException catch (e) {
+      client.close(force: true);
+      throw WsConnectionException('The TLS handshake with $url failed ($e).');
+    }
+  };
 }
 
 class _RealWsSocket implements WsSocket {
@@ -103,6 +123,9 @@ class _RealWsSocket implements WsSocket {
 
   @override
   void add(String frame) => _socket.add(frame);
+
+  @override
+  set pingInterval(Duration? interval) => _socket.pingInterval = interval;
 
   @override
   Future<void> close() async {
@@ -129,7 +152,6 @@ class WsSession {
 
   WsSocket? _socket;
   StreamSubscription<dynamic>? _subscription;
-  Timer? _heartbeat;
 
   /// Frames from the main socket, for a caller reading state. The session
   /// itself only consumes what pairing needs.
@@ -139,6 +161,11 @@ class WsSession {
   /// Sockets the device handed out at runtime, keyed by channel name. LG's
   /// remote buttons ride one of these.
   final _channelSockets = <String, WsSocket>{};
+
+  /// The open in flight per channel, so two presses racing the first use of
+  /// a runtime socket share ONE open instead of each opening their own and
+  /// leaking whichever lost the map write.
+  final _channelOpening = <String, Future<WsSocket>>{};
   final _channelSubscriptions = <StreamSubscription<dynamic>>[];
 
   var _requestId = 0;
@@ -162,7 +189,7 @@ class WsSession {
         _host = host,
         _surface = surface,
         _credential = credential,
-        _connect = connect ?? _defaultConnect;
+        _connect = connect ?? _connectorFor(surface);
 
   bool get isConnected => _socket != null;
 
@@ -232,6 +259,12 @@ class WsSession {
           _frames.addError(
               const WsConnectionException('The device closed the connection.'));
         }
+        // The device hung up, so the session must stop LOOKING connected:
+        // with `_socket` still set, `isConnected` stayed true, the sender
+        // handed this dead session out forever, and every later press died
+        // inside a closed sink as a raw StateError. Tearing down here flips
+        // `isConnected`, which is what makes the next send reopen.
+        unawaited(close());
       },
       cancelOnError: false,
     );
@@ -249,43 +282,80 @@ class WsSession {
 
     final heartbeat = _surface.heartbeatSeconds;
     if (heartbeat != null && heartbeat > 0) {
-      _heartbeat = Timer.periodic(
-        Duration(milliseconds: (heartbeat * 1000).round()),
-        (_) {
-          final open = _socket;
-          // A WebSocket ping is the protocol's own keepalive; there is nothing
-          // spec-declared to send, so an empty frame stands in where the
-          // device expects traffic.
-          if (open != null) open.add('');
-        },
-      );
+      // The protocol's own keepalive, at the spec's declared cadence. The
+      // transport owns it — see [WsSocket.pingInterval] for why this stopped
+      // being a timer writing empty text frames.
+      socket.pingInterval = Duration(milliseconds: (heartbeat * 1000).round());
     }
   }
 
-  /// Fill the connect path's placeholders. The only one this layer knows is
-  /// the credential the spec named; anything else is the caller's to have put
-  /// in the path already.
+  /// The name this client authorises under, in the encoding the catalogue's
+  /// sets expect: standard base64 of the UTF-8 display name (samsungtvws
+  /// precedent, recorded in the spec's own protocol_details). The whole
+  /// Samsung flow keys on this string — a client that changes it is a new
+  /// stranger and the TV prompts again — so it is a constant, not a setting.
+  static final String _clientName =
+      base64.encode(utf8.encode(AppConstants.appName));
+
+  /// Fill the connect path's placeholders and query-encode what goes in.
+  ///
+  /// Three placeholders exist in the catalogue: the one the spec names as its
+  /// `credential_name` (`{samsung_token}`), and the two well-known ones the
+  /// Samsung paths actually spell — `{token}` (the same credential) and
+  /// `{client_name}` (this client's name, base64 of the UTF-8 display name).
+  /// The spec's path writes `{token}` while its credential_name says
+  /// `samsung_token`, so filling ONLY `{credentialName}` — as this used to —
+  /// sent the literal braces to the TV and pairing could never succeed.
   String _fillPath(String path) {
-    final name = _surface.credentialName;
+    final credential = _credential ?? '';
     var filled = path;
+    final name = _surface.credentialName;
     if (name != null) {
-      filled = filled.replaceAll('{$name}', _credential ?? '');
+      filled =
+          filled.replaceAll('{$name}', Uri.encodeQueryComponent(credential));
     }
-    // `{token}` and `{client_name}` are the two the Samsung path uses; the
-    // credential above covers the first when the spec names it that way.
-    return filled;
+    filled = filled
+        .replaceAll('{token}', Uri.encodeQueryComponent(credential))
+        .replaceAll('{client_name}', Uri.encodeQueryComponent(_clientName));
+    return _dropEmptyQueryPairs(filled);
+  }
+
+  /// Remove query parameters whose value resolved empty — the first pairing,
+  /// before any token exists. `token=` is not "no token" to every set: some
+  /// read the empty string as a key and refuse it, where an absent parameter
+  /// raises the Allow prompt the first connection is for.
+  ///
+  /// "Empty" means the pair's FIRST `=` is also its last character.
+  /// Classifying by a trailing `=` alone — as this used to — deleted any
+  /// literal value that merely ENDS in one, which is every base64 payload
+  /// with padding; filled credentials only escaped because the query
+  /// encoding turns their padding into `%3D`.
+  static String _dropEmptyQueryPairs(String path) {
+    final question = path.indexOf('?');
+    if (question < 0) return path;
+    final kept = path.substring(question + 1).split('&').where((pair) {
+      final equals = pair.indexOf('=');
+      return equals == -1 || equals != pair.length - 1;
+    }).toList();
+    final base = path.substring(0, question);
+    return kept.isEmpty ? base : '$base?${kept.join('&')}';
   }
 
   /// Begin becoming authorised, by whichever mode the spec declares.
   ///
   /// Returns a future that completes when the device has authorised this
   /// client. Split from the awaiting so the caller can attach this BEFORE the
-  /// socket starts delivering — see the ordering note in [open].
-  Future<void> _startAuthorising() {
+  /// socket starts delivering — see the ordering note in [open]. `async` is
+  /// load-bearing twice over: the body still runs synchronously to its first
+  /// await, preserving that ordering, and a synchronous throw on the way —
+  /// `_registerFrame()` on a spec with no frame, or its jsonDecode on a
+  /// malformed one — becomes a FAILED FUTURE the caller's close-on-error can
+  /// catch, instead of escaping past it with the socket already open.
+  Future<void> _startAuthorising() async {
     switch (_surface.pairingMode) {
       case null:
         // The socket needs no authorisation at all.
-        return Future<void>.value();
+        return;
       case 'token_query':
         // The device speaks first; nothing to send.
         return _awaitIssuedCredential(send: null);
@@ -295,10 +365,10 @@ class WsSession {
         // A pairing mode this build does not implement is not something to
         // improvise past: proceeding would open an unauthorised session whose
         // every command is silently dropped.
-        return Future<void>.error(WsPairingException(
+        throw WsPairingException(
           'This app does not know how to pair with this device yet '
           '(pairing mode "$unknown").',
-        ));
+        );
     }
   }
 
@@ -424,7 +494,14 @@ class WsSession {
   /// use and held, because asking for a new one per button press is what the
   /// address exists to avoid.
   Future<WsSocket> _socketFor(String channelName) async {
-    final main = _socket!;
+    // Re-read across send()'s render await rather than trusting its entry
+    // guard: a hang-up lands exactly in that window, onDone's close() nulls
+    // the field, and a bare `!` here turned "the device closed the
+    // connection" into a raw null-check TypeError that no catch knows.
+    final main = _socket;
+    if (main == null) {
+      throw const WsConnectionException('The device closed the connection.');
+    }
     final channel = _surface.channels.firstWhere(
       (c) => c.name == channelName,
       // The renderer already refused an undeclared channel, so reaching here
@@ -439,6 +516,27 @@ class WsSession {
     final existing = _channelSockets[channelName];
     if (existing != null) return existing;
 
+    // One open per channel, however many presses race the first use: both
+    // used to miss the cache, both opened a pointer socket, and the second
+    // overwrote the map so the first was never closed by anything — the same
+    // race the sender's `_wsOpening` guard closes one level up.
+    final opening = _channelOpening[channelName];
+    if (opening != null) return opening;
+    final future = _openChannelSocket(channelName, channel, obtainedBy);
+    _channelOpening[channelName] = future;
+    try {
+      return await future;
+    } finally {
+      // The map's value is a Future; removing it is bookkeeping, not a wait.
+      unawaited(_channelOpening.remove(channelName));
+    }
+  }
+
+  Future<WsSocket> _openChannelSocket(
+    String channelName,
+    WebSocketChannelDto channel,
+    String obtainedBy,
+  ) async {
     final addressPath = channel.addressPath;
     if (addressPath == null) {
       throw WsConnectionException(
@@ -459,18 +557,61 @@ class WsSession {
     try {
       await send(obtainedBy, const {});
       final url = await address.future.timeout(connectTimeout);
+      // The reply names where the socket lives — and the answer must still
+      // be THIS device, on a WebSocket scheme. The value is device-supplied:
+      // taken verbatim, a compromised or spoofed set could point the app at
+      // an arbitrary endpoint off the LAN and have it connect under the
+      // session's certificate posture. The host compares case-insensitively
+      // because Uri.parse lowercases it while `_host` is whatever discovery
+      // recorded ("LGwebOSTV.local"); everything else stays DELIBERATELY
+      // strict — an address on any other host, the set's own second
+      // interface included, is refused rather than followed.
+      final uri = Uri.tryParse(url);
+      if (uri == null ||
+          (uri.scheme != 'ws' && uri.scheme != 'wss') ||
+          uri.host != _host.toLowerCase()) {
+        throw WsConnectionException(
+          'The device offered its "$channelName" socket at "$url" — not a '
+          'WebSocket address on $_host, so it is refused.',
+        );
+      }
       final socket = await _connect(url, const {}).timeout(connectTimeout);
+      if (_socket == null) {
+        // close() ran while this connect was in flight. A socket cached now
+        // would repopulate the maps on a spent session and hold its TCP
+        // connection to the device for the life of the process — nothing
+        // would ever close it.
+        socket.stream.listen((_) {}, onError: (_) {}, cancelOnError: false);
+        unawaited(socket.close().then((_) {}, onError: (_) {}));
+        throw const WsConnectionException(
+            'The session closed while the socket was being opened.');
+      }
       // Drained even though nothing reads it: a socket whose stream has no
       // listener never delivers its done event, so closing it later would
       // hang, and any error it reports would go unobserved. LG's button
       // socket answers nothing useful — what matters is that it is a socket
-      // like any other.
+      // like any other. Its onDone EVICTS the cache entry: the set
+      // idle-closes this socket, and a cached corpse would be served to
+      // every later press with add() silently dropping, every button on the
+      // channel dead until the whole session died.
       _channelSubscriptions.add(socket.stream.listen(
         (_) {},
         onError: (Object e) =>
             Log.net.debug('ws $_host "$channelName" socket: $e'),
+        onDone: () {
+          if (identical(_channelSockets[channelName], socket)) {
+            _channelSockets.remove(channelName);
+          }
+        },
         cancelOnError: false,
       ));
+      // The protocol keepalive the main socket gets, for the same reason:
+      // an idle button socket a set would otherwise time out.
+      final heartbeat = _surface.heartbeatSeconds;
+      if (heartbeat != null && heartbeat > 0) {
+        socket.pingInterval =
+            Duration(milliseconds: (heartbeat * 1000).round());
+      }
       _channelSockets[channelName] = socket;
       return socket;
     } on TimeoutException {
@@ -484,8 +625,6 @@ class WsSession {
 
   /// Close every socket this session opened. Idempotent.
   Future<void> close() async {
-    _heartbeat?.cancel();
-    _heartbeat = null;
     final socket = _socket;
     _socket = null;
     final extras = List.of(_channelSockets.values);

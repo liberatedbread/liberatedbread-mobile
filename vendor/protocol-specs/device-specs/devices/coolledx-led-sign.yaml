@@ -169,6 +169,13 @@ device:
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     # Only CoolLEDX is discoverable (see `discovery` above). The rest are
     # documented so a consumer can recognise what it has found and refuse to
@@ -375,3 +382,10 @@ entities:
     step: 1
     commands:
       set_value: "set_speed"
+
+helpful_urls:
+  - title: "UpDryTwist/coolledx-driver"
+    url: "https://github.com/UpDryTwist/coolledx-driver"
+    kind: "implementation"
+    description: >
+      There is no vendor and no manual: these signs are unbranded AliExpress hardware sold to work with the CoolLED1248 app. This driver is the documentation.

@@ -149,6 +149,13 @@ device:
         demonstrated unauthenticated takeover within ~10 m, and no fix is
         expected (the device has no firmware-update channel).
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 helpful_urls:
   - title: "Bishop Fox: Invasion of the Face Changers"
     url: "https://bishopfox.com/blog/invasion-of-the-face-changers-halloween-hijinks-with-bluetooth-led-masks"
@@ -157,6 +164,11 @@ helpful_urls:
     url: "https://github.com/GoneUp/mask-go"
     description: "Open-source implementation cited by the device page and notes."
 
+  - title: "Shining Mask user manual (FCC filing, Internet Archive)"
+    url: "https://web.archive.org/web/20250109103726/https://fccid.io/2AOLN-16/User-Manual/User-Manual-5007895.pdf"
+    kind: "manual"
+    description: >
+      The vendor manual as filed with the FCC by Shenzhen Shining Bright Technology — the only authoritative document for this hardware. Archived because fccid.io refuses automated requests.
 # Custom consumer-side handler for the shining-mask AES-128-ECB command framing
 # and color encoding. Declarative.
 protocol_handler: "shiningmask_ecb"

@@ -101,8 +101,25 @@ device:
       applicable: "unknown"
       confidence: low
       effect: >
-        No documented BLE factory reset; the board stores no network/cloud state.
-        Not transcribed here.
+        Not established. Future Motion document firmware updates and app
+        troubleshooting but no factory reset, and the owner's manuals recovered
+        here describe no reset control on the board — every reset-shaped
+        passage in them is about warranty repair. What the board stores that a
+        reset would clear is likewise undocumented.
+      description: >
+        Recorded as unknown rather than absent, because a board this
+        configurable almost certainly has something and it simply is not
+        published. A community "factory mode" is reachable through third-party
+        tooling (the ReWheel/FFMWheel firmware work), which is evidence that
+        such a mode exists rather than a procedure this spec can hand a user.
+
+        Two things people mistake for needing a reset, both cheaper to try:
+        the board must not be connected in the vendor app for another client
+        to reach it, and a phone with a stale bond should forget the board in
+        its own Bluetooth settings first. Both are in `pairing.exclusivity`.
+
+        SAFETY: this is a rideable. Do not experiment with undocumented button
+        combinations on a board you intend to stand on.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -118,6 +135,13 @@ device:
         credential. No Wi-Fi. SAFETY: this commands a self-balancing board — treat
         all controls as advanced.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "e659f300-ea98-11e3-ac10-0800200c9a66"
     name: "Onewheel service"
@@ -174,3 +198,13 @@ helpful_urls:
   - title: "ponewheel/android-ponewheel"
     url: "https://github.com/ponewheel/android-ponewheel"
     description: "Community Onewheel app: the per-attribute GATT map and the firmware unlock handshake."
+  - title: "Onewheel: Pint and Pint X manuals"
+    url: "https://onewheel.com/pages/manuals-pint"
+    kind: "vendor_support"
+    description: >
+      Vendor manual index for the Pint family, in ten languages.
+  - title: "Onewheel Pint / Pint X owner's manual (PDF)"
+    url: "https://www.funshop.at/anleitungen/onewheel/onewheel-future-motion-pint-pintx-manual-v2-english.pdf"
+    kind: "manual"
+    description: >
+      Distributor-hosted English PDF. Note it documents no factory reset, which is why this spec's block records that absence as unestablished rather than assumed.

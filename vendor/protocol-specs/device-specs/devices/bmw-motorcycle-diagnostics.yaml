@@ -386,6 +386,7 @@ obd:
 helpful_urls:
   - title: "MotoScan (WGSoft)"
     url: "https://www.motoscan.de/"
+    kind: "vendor_support"
     description: >-
       Vendor site for the app this spec is derived from, and the tool that covers the dealer-gated
       diagnostic surface on BMW motorcycles.
@@ -394,6 +395,7 @@ helpful_urls:
     description: "Distribution page for the analysed app, package de.wgsoft.motoscan."
   - title: "UniCarScan UCSI-2100 adapter"
     url: "https://www.wgsoft.de/unicarscan-ucsi-2100"
+    kind: "vendor_support"
     description: >-
       Vendor page for the adapter MotoScan classifies as an original; relevant to the 255-byte
       long-message mode this spec documents for coding and adaptation writes.

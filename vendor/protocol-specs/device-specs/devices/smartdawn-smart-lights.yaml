@@ -191,6 +191,19 @@ device:
         BLE path has no credentials. Wi-Fi provisioning (Wi-Fi SKUs only)
         uses the fixed AP/hotspot passphrase "00000000".
 
+  pairing:
+    required: false
+    confidence: "high"
+    security_mode: "none"
+    bonding: "none"
+    notes: >
+      No pairing, bonding or authentication exists on the command path. The
+      protocol does define auth message types, but they serve the vendor's
+      cloud and sharing flows rather than local control — a client that goes
+      looking for a local handshake to implement will find one that is never
+      required of it. There is no bonding state on the device to clear.
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "RGBIC permanent outdoor string lights (50/100/150/200 ft)"
       identification:
@@ -205,6 +218,7 @@ device:
 helpful_urls:
   - title: "SmartDawn store — smart lights collection"
     url: "https://smartdawn.com/collections/smart-lights"
+    kind: "vendor_support"
     description: "Vendor storefront listing the product families this spec covers."
   - title: "SmartDawn companion app on Google Play"
     url: "https://play.google.com/store/apps/details?id=com.daniaokeji.smartdawn"

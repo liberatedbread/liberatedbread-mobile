@@ -103,12 +103,36 @@ device:
             actor: "client"
             expect: "A bindok reply carrying the per-device AES key."
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Returns the Wi-Fi module to onboarding (typically a remote-control key
-        combination on the AC). The exact gesture varies by model and is not
-        transcribed here.
+        Returns the Wi-Fi module to factory settings and back to onboarding.
+        It is the module that is reset, not the air conditioner: climate
+        settings, timers and modes are unaffected.
+      description: >
+        The gesture is on the remote control rather than on the indoor unit,
+        and it only works with the unit OFF — which is the detail that makes
+        people conclude their remote is broken. It doubles as the escape hatch
+        when Wi-Fi pairing mode times out: the unit stays pairable for two
+        minutes, and this is how to start that window again.
+      procedures:
+        - name: "MODE and WiFi held together on the remote, unit off"
+          glyph: "generic/press-two-buttons.svg"
+          verified: false
+          basis: >
+            Gree's Vireo Gen3 owner's manual, which documents the key
+            combination and the two-minute pairing window it restarts. Other
+            Gree models and rebrands use the same remote vocabulary but
+            confirm against the manual for the unit in hand.
+          hold_seconds: 1
+          power_state: "off"
+          indicator: "An audible beep from the indoor unit."
+          steps:
+            - action: "Turn the unit off with the remote."
+              actor: "user"
+            - action: "Press MODE and WiFi on the remote at the same time and hold for about a second, until the unit beeps."
+              actor: "user"
+              expect: "The Wi-Fi module returns to factory settings and the unit is pairable for about two minutes."
     rejoin:
       in_place_supported: false
       requires_factory_reset: true
@@ -211,3 +235,13 @@ helpful_urls:
   - title: "cmroche/greeclimate"
     url: "https://github.com/cmroche/greeclimate"
     description: "Python client with AES-GCM (encryption_version 2) support for newer firmware."
+  - title: "GREE+ app and universal WiFi installation and operation manual (PDF, vendor-hosted)"
+    url: "https://www.greecomfort.com/assets/documents/resource-materials/wifi-info/gree-wifi-app-installation-and-operation.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the WiFi module and app.
+  - title: "Gree universal Wi-Fi kit WSBEC02/WSBEE03 installation guide (PDF)"
+    url: "https://hvacdirect.com/hvac/pdf/Gree-Wi-Fi-Installation-Guide.pdf"
+    kind: "manual"
+    description: >
+      Module installation guide for the retrofit kits this spec's family includes.

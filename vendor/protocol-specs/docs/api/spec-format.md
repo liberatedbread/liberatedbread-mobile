@@ -421,7 +421,7 @@ device:
     confidence: "high"      # how well is this verified? see below
     notes: >
       Prose overview, including what is and isn't confirmed.
-    methods: [...]          # ordered; first is preferred
+    methods: [...]          # ordered for a reader; see below
     factory_reset: {...}    # how to return it to unprovisioned
     rejoin: {...}           # moving it to a different network
     credentials: {...}      # what secrets move, and how they are protected
@@ -447,7 +447,7 @@ that was read out of someone else's code rather than off the wire.
 
 ### Methods
 
-`methods` is ordered, preferred first. Each has a `type` from a fixed set:
+Each method has a `type` from a fixed set:
 
 | Type | Meaning |
 |---|---|
@@ -463,6 +463,91 @@ that was read out of someone else's code rather than off the wire.
 
 Alongside `type` a method carries whichever detail blocks apply: `softap`,
 `ble`, `cloud`, and the shared blocks below.
+
+#### `name` and `role` — which one am I supposed to do?
+
+`type` is the mechanism, not a label, and it was never enough to read a list
+by. Two methods on one device routinely share it: both Rachio generations are
+`softap_http`. Worse, a bare list reads as *pick one* — so a reader picks the
+flow that has not worked since the cloud shut down.
+
+So once a spec lists **two or more** methods, every entry carries both fields
+(the schema requires them at that point):
+
+| Field | What it answers |
+|---|---|
+| `name` | What a person chooses by — "Gen 3 setup AP: HTTPS JSON under a pinned CA", "HOME-button handshake, no account". Say what makes this one different from its siblings; don't restate the `type`, and never write "Method 2". |
+| `role` | What kind of choice this entry is |
+
+`role` is one of:
+
+| Role | Meaning |
+|---|---|
+| `primary` | The route to recommend. At most one method per device may claim it, and it comes first |
+| `alternative` | Another independent route to the same finished state — pick this **or** the primary |
+| `variant` | Which one applies is decided by the hardware or firmware in hand, not by preference. Say which units it covers in `description` |
+| `historical` | Cannot be completed today — the cloud is gone, the app release that spoke it is retired. Kept so a reader who finds it referenced elsewhere knows why it fails |
+
+**Every entry in `methods` is a route the reader chooses.** If two entries are
+things they must *both* do, in order, they were never two methods — see
+`stages` below.
+
+#### `stages` — a route that takes more than one phase
+
+"Plug in the Ethernet" and "press the link button" are both required and
+happen in that order. Side by side in `methods` they read as a choice, and a
+reader does one of them and stops. A route with more than one phase is **one**
+method carrying `stages`:
+
+```yaml
+methods:
+  - type: "button_pairing"        # the route's defining act
+    name: "Ethernet, then the link button"
+    role: "primary"
+    verified: false
+    description: >
+      Two things have to happen and neither is a choice...
+    stages:
+      - type: "wired"             # the phase keeps its own type
+        name: "Get the bridge onto the LAN"
+        verified: false
+        description: >
+          Plug the bridge into the router with Ethernet and power it...
+        steps: [...]
+      - type: "button_pairing"
+        name: "Authorize this client at the link button"
+        verified: false
+        description: >
+          The bridge issues an API username to any client that asks within
+          roughly 30 seconds of the link button being pressed...
+        issues_credentials:       # and its own detail block
+          username: {...}
+        steps: [...]
+```
+
+A stage is a method in miniature — same shape, so it keeps its own `type`,
+prose, detail block (`softap`, `ble`, `cloud`, `issues_credentials`, `timing`,
+`troubleshooting`) and `steps`. That is the point: flattening the Hue route
+into one step list would force it to be *either* `wired` or `button_pairing`,
+and "this bridge has no Wi-Fi radio" is a fact worth keeping.
+
+Stages do not nest, they carry no `role` (there is no choice inside a route),
+and a method has `steps` **or** `stages`, never both.
+
+#### Ordering
+
+The order is an instruction, so it has to hold when someone reads down the
+list with the device in their hands:
+
+1. `primary`, then `alternative` entries **easiest first**
+2. `variant`
+3. `historical` — last, or it gets tried first
+
+*Easiest* means fewest obstacles for the reader, not fewest packets: no vendor
+account beats an account, no extra hardware beats a hub or a second radio, and
+a flow this project has actually replayed beats one nobody has. Which of two
+alternatives is easier is a judgement call; the mechanical parts of the rule
+above are enforced by `scripts/test_device_specs.py`.
 
 ### Steps
 

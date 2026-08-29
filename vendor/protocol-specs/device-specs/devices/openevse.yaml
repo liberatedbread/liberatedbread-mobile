@@ -51,7 +51,7 @@ device:
     source_code: "https://github.com/OpenEVSE/openevse_esp32_firmware"
     license: "GPL-3.0"
     upstream_docs:
-      - url: "https://openevse.stoplight.io/docs/openevse-wifi-v4/"
+      - url: "https://github.com/OpenEVSE/ESP32_WiFi_V4.x"
         title: "OpenEVSE WiFi v4 — HTTP API"
         covers: "The /status, /config and /override endpoints and the WebSocket."
       - url: "https://github.com/OpenEVSE/openevse_esp32_firmware/blob/master/docs/mqtt.md"
@@ -244,8 +244,18 @@ helpful_urls:
     url: "https://github.com/OpenEVSE/openevse_esp32_firmware"
     description: "GPLv3 ESP32 gateway firmware: HTTP API, WebSocket, MQTT, OCPP."
   - title: "OpenEVSE WiFi v4 — HTTP API (Stoplight)"
-    url: "https://openevse.stoplight.io/docs/openevse-wifi-v4/"
+    url: "https://github.com/OpenEVSE/ESP32_WiFi_V4.x"
     description: "The /status, /config and /override endpoints."
   - title: "lincomatic/open_evse — RAPI protocol"
     url: "https://github.com/lincomatic/open_evse/blob/master/firmware/open_evse/rapi_proc.h"
     description: "The controller RAPI serial command set and framing."
+  - title: "OpenEVSE EmonEVSE series manual"
+    url: "https://www.manualslib.com/manual/1990323/Openevse-Emonevse-Series.html"
+    kind: "manual"
+    description: >
+      Manual for the EmonEVSE builds, covering WiFi setup and the web interface this spec's API belongs to.
+  - title: "OpenEnergyMonitor: EmonEVSE assembly and setup documentation"
+    url: "https://docs.openenergymonitor.org/emonevse/assembly.html"
+    kind: "vendor_support"
+    description: >
+      Project documentation — this is open hardware, so the build guide is also the reference.

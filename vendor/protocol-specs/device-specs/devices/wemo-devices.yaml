@@ -742,13 +742,19 @@ device:
       procedures:
         - name: "Restore button held while power is applied (plug-style devices)"
           applies_to: ["F7C063", "WSP080", "F7C029", "WSP090"]
+          verified: false
+          basis: "Belkin's published Wemo user guides for the plug-style models. Not replayed against hardware here."
           hold_seconds: 5
+          power_state: "booting"
           indicator: "Status LED blinks, then the device reboots into setup mode and starts advertising its Wemo.* AP."
+          glyph: "devices/wemo-devices/restore-button-plug.svg"
+          indicator_glyph: "generic/led-flashing.svg"
           steps:
             - action: "Unplug the device from the outlet."
               actor: "user"
             - action: "Press and hold the Restore button, then plug the device back in while still holding."
               actor: "user"
+              glyph: "devices/wemo-devices/restore-button-plug.svg"
             - action: "Keep holding for about 5 seconds after power is applied, then release."
               actor: "user"
             - action: "Wait up to 90 seconds for the device to finish rebooting."
@@ -757,8 +763,13 @@ device:
               expect: "An open Wemo.* network appears in the client's WiFi scan."
         - name: "Restore button held on a mains-powered in-wall device"
           applies_to: ["F7C030/F7C027/F7C076", "F7C059", "WDS060"]
+          verified: false
+          basis: "Belkin's published Wemo user guides for the in-wall switch and dimmer models. Not replayed against hardware here."
           hold_seconds: 10
+          power_state: "on"
           indicator: "Status LED cycles, then the device reboots into setup mode."
+          glyph: "devices/wemo-devices/restore-button-inwall.svg"
+          indicator_glyph: "generic/led-flashing.svg"
           steps:
             - action: "Leave the switch powered at the breaker."
               actor: "user"
@@ -1242,6 +1253,11 @@ helpful_urls:
     url: "https://svenschwermer.de/wemo"
     description: "Full F7C029 Insight hardware/firmware teardown (RT5350F SoC, u-boot env independently confirming the 10.22.22.1 setup network, cloud endpoints) with a mainline OpenWrt port and package feed."
 
+  - title: "Belkin Wemo F7C027 user manual"
+    url: "https://www.manualslib.com/manual/1937978/Belkin-Wemo-F7c027.html"
+    kind: "manual"
+    description: >
+      Vendor manual for one of the in-wall models. Belkin's own Wemo support has shut down; this is a surviving copy.
 soap_common:
   transport: "HTTP POST"
   content_type: "text/xml; charset=\"utf-8\""

@@ -130,6 +130,42 @@ pub fn required_credentials(spec: &DeviceSpec) -> Vec<CredentialRequirement> {
             .issued_by = Some(issuance);
     }
 
+    // The websocket surface's pairing mints a credential of its own — the
+    // token the connect path or register frame fills. No command consumes it
+    // (the CONNECT is what needs it), so no `credential:` parameter ever
+    // names it, and before this arm a paired TV's declared list came back
+    // EMPTY: nothing wired the credential stores, and a group run re-paired
+    // a television whose token was already saved, raising its consent prompt
+    // mid-run while the same set worked from its own screen.
+    if let Some(pairing) =
+        crate::protocol::websocket::surface(spec).and_then(|surface| surface.pairing)
+    {
+        if let Some(name) = pairing.credential_name {
+            let entry = found
+                .entry(name.clone())
+                .or_insert_with(|| CredentialRequirement {
+                    name,
+                    description: None,
+                    needed_by: Vec::new(),
+                    issued_by: None,
+                });
+            if entry.description.is_none() {
+                entry.description = pairing.prompt_notes.clone();
+            }
+            // A setup-method issuance for the same name is the richer
+            // declaration (a command to run, a reply to read); the surface's
+            // own facts only fill in where the methods said nothing.
+            if entry.issued_by.is_none() {
+                entry.issued_by = Some(CredentialIssuance {
+                    method: "websocket_pairing".to_string(),
+                    command: None,
+                    reply_path: pairing.issued_at.clone().unwrap_or_default(),
+                    request_condition: None,
+                });
+            }
+        }
+    }
+
     for requirement in found.values_mut() {
         requirement.needed_by.sort();
         requirement.needed_by.dedup();
@@ -161,41 +197,65 @@ fn issued_credentials(spec: &DeviceSpec) -> Vec<(String, CredentialIssuance)> {
             .and_then(|t| t.as_str())
             .unwrap_or_default()
             .to_string();
-        let Some(issues) = method
-            .get("issues_credentials")
-            .and_then(|issues| issues.as_mapping())
-        else {
-            continue;
-        };
-        for (name, body) in issues {
-            let Some(name) = name.as_str() else { continue };
-            // `reply_path` is the schema's one required field: without it the
-            // block says a credential exists and not how to read it, which is
-            // an issuance a client cannot run.
-            let Some(reply_path) = body.get("reply_path").and_then(|p| p.as_str()) else {
-                continue;
-            };
-            if out.iter().any(|(seen, _)| seen == name) {
-                continue;
-            }
-            out.push((
-                name.to_string(),
-                CredentialIssuance {
-                    method: method_type.clone(),
-                    command: body
-                        .get("command")
-                        .and_then(|c| c.as_str())
-                        .map(str::to_string),
-                    reply_path: reply_path.to_string(),
-                    request_condition: body
-                        .get("request_condition")
-                        .and_then(|c| c.as_str())
-                        .map(str::to_string),
-                },
-            ));
+        // One definition of "a method and its stages" — setup.rs's walk. A
+        // multi-phase route files its issuance on the stage that performs
+        // it — hue-bridge's username is minted by the button_pairing stage,
+        // not by the route as a whole — and missing those would turn a
+        // button-issued credential into one the client asks a person to
+        // type. A stage without its own type inherits the method's, so the
+        // issuance still names a flow.
+        for block in crate::spec::setup::method_and_stages(method) {
+            let block_type = block
+                .get("type")
+                .and_then(|t| t.as_str())
+                .map_or_else(|| method_type.clone(), str::to_string);
+            collect_issuances(block, &block_type, &mut out);
         }
     }
     out
+}
+
+/// Read one method-shaped block's `issues_credentials` into `out`, first
+/// declaration of a name winning — the spec lists the flow it expects a
+/// client to run first, and a stage inherits that ordering.
+fn collect_issuances(
+    block: &serde_yaml::Value,
+    method_type: &str,
+    out: &mut Vec<(String, CredentialIssuance)>,
+) {
+    let Some(issues) = block
+        .get("issues_credentials")
+        .and_then(|issues| issues.as_mapping())
+    else {
+        return;
+    };
+    for (name, body) in issues {
+        let Some(name) = name.as_str() else { continue };
+        // `reply_path` is the schema's one required field: without it the
+        // block says a credential exists and not how to read it, which is
+        // an issuance a client cannot run.
+        let Some(reply_path) = body.get("reply_path").and_then(|p| p.as_str()) else {
+            continue;
+        };
+        if out.iter().any(|(seen, _)| seen == name) {
+            continue;
+        }
+        out.push((
+            name.to_string(),
+            CredentialIssuance {
+                method: method_type.to_string(),
+                command: body
+                    .get("command")
+                    .and_then(|c| c.as_str())
+                    .map(str::to_string),
+                reply_path: reply_path.to_string(),
+                request_condition: body
+                    .get("request_condition")
+                    .and_then(|c| c.as_str())
+                    .map(str::to_string),
+            },
+        ));
+    }
 }
 
 #[cfg(test)]
@@ -277,6 +337,60 @@ commands:
         assert_eq!(issued.reply_path, "[0].success.username");
     }
 
+    /// A television shaped like the vendored sets: the websocket surface's
+    /// pairing block names the token the connect path fills, and no command
+    /// carries a `credential:` parameter for it. The declared list must
+    /// still report it — an empty list is what left group runs re-pairing
+    /// TVs whose token was already stored.
+    #[test]
+    fn a_websocket_pairing_token_is_declared_and_never_asked_for() {
+        let yaml = r#"
+device:
+  name: Test TV
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+  transport: websocket
+websocket:
+  connect:
+    port: 8002
+    scheme: wss
+    path: "/api/v2/channels?token={tv_token}"
+  pairing:
+    mode: token_query
+    credential_name: tv_token
+    issued_at: "data.token"
+    prompt_notes: "Allow the connection on the TV screen."
+  channels:
+    - name: main
+      default: true
+      encoding: json
+      frame:
+        method: "{action}"
+commands:
+  power_off:
+    description: Power off.
+    action: "POWER"
+"#;
+        let spec = parse_device_spec(yaml).expect("test spec should parse");
+        let found = required_credentials(&spec);
+        assert_eq!(found.len(), 1, "the pairing token is the one credential");
+        let token = &found[0];
+        assert_eq!(token.name, "tv_token");
+        assert_eq!(
+            token.description.as_deref(),
+            Some("Allow the connection on the TV screen."),
+            "the pairing's own prompt notes are the description"
+        );
+        let issued = token.issued_by.as_ref().expect("the pairing issues it");
+        assert_eq!(issued.method, "websocket_pairing");
+        assert_eq!(issued.reply_path, "data.token");
+        assert!(
+            !token.must_be_asked_for(),
+            "a pairing-minted token is never typed by a person"
+        );
+    }
+
     #[test]
     fn a_credential_nothing_consumes_is_still_reported_and_never_asked_for() {
         // Hue's clientkey: obtainable only at creation time, so it is stored
@@ -300,6 +414,63 @@ commands:
             !found[1].must_be_asked_for(),
             "a pairing mints the username"
         );
+    }
+
+    #[test]
+    fn a_credential_issued_by_a_stage_is_still_issued() {
+        // The hue-bridge shape after the catalogue's setup restructure: the
+        // route is one method, and `issues_credentials` lives on the
+        // button_pairing STAGE. A client that misses it would prompt a person
+        // to type the very value the button press was about to hand over.
+        const STAGED_BRIDGE: &str = r#"
+device:
+  name: Test Bridge
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+  setup:
+    required: true
+    methods:
+      - type: wired
+        name: "Ethernet, then the link button"
+        role: primary
+        description: Two phases, both required.
+        stages:
+          - type: wired
+            name: "Get the bridge onto the LAN"
+            steps:
+              - action: Plug the bridge into the router.
+          - type: button_pairing
+            name: "Authorize this client at the link button"
+            issues_credentials:
+              username:
+                command: create_user
+                reply_path: "[0].success.username"
+commands:
+  create_user:
+    description: Mint a whitelist entry.
+    transport: http
+    method: POST
+    path: /api
+  get_lights:
+    description: Read light state.
+    transport: http
+    method: GET
+    path: /api/{username}/lights
+    parameters:
+      username:
+        type: string
+        source: credential:username
+        description: The whitelist username the link-button flow issued.
+"#;
+        let spec = parse_device_spec(STAGED_BRIDGE).expect("test spec should parse");
+        let found = required_credentials(&spec);
+        assert_eq!(found.len(), 1);
+        let username = &found[0];
+        let issued = username.issued_by.as_ref().expect("the stage issues it");
+        assert_eq!(issued.method, "button_pairing", "the stage's own type");
+        assert_eq!(issued.command.as_deref(), Some("create_user"));
+        assert!(!username.must_be_asked_for());
     }
 
     #[test]

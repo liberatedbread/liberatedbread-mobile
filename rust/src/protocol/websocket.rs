@@ -285,9 +285,50 @@ pub fn render_command(
             let Some(template) = channel.frame_template.as_deref() else {
                 return Err(ProtocolError::EmptyCommand);
             };
-            template
-                .replace("{action}", action)
-                .replace("{request_id}", &request_id.to_string())
+            // The command's declared parameters substitute too — resolved the
+            // way every renderer resolves them: the caller's value, then the
+            // declared default, then a visible failure by name. A text
+            // template carrying {name} used to render with the braces intact,
+            // which the device reads as a value: silently the wrong
+            // instruction. No vendored spec hits it today; the first that
+            // does now works or errors instead of lying on the wire.
+            //
+            // All values are resolved BEFORE any splicing, and the splice is a
+            // single left-to-right pass: a chained `replace` re-scans its own
+            // output, so a resolved value that happened to contain another
+            // parameter's `{name}` was substituted AGAIN — caller data
+            // promoted to template. Text frames also have no escaping to hide
+            // behind (the JSON encoding renders values through the JSON
+            // writer): the frame's own line structure is its delimiter, so a
+            // value carrying a control character is not a value, it is a
+            // second frame, and it is refused by name.
+            // Built-ins first: the splice takes the FIRST entry for a
+            // placeholder, so a parameter that shadows their names loses to
+            // them, exactly as the old replace ordering (built-ins replaced
+            // before the parameter loop ran) had it.
+            let mut fills: Vec<(String, String)> = vec![
+                ("{action}".to_string(), action.to_string()),
+                ("{request_id}".to_string(), request_id.to_string()),
+            ];
+            for name in command.parameters.keys() {
+                let placeholder = format!("{{{name}}}");
+                if !template.contains(&placeholder) || fills.iter().any(|(p, _)| *p == placeholder)
+                {
+                    continue;
+                }
+                let value =
+                    crate::protocol::resolve_parameter(command, command_name, name, values)?;
+                if value.chars().any(char::is_control) {
+                    return Err(ProtocolError::TextFrameValueInvalid {
+                        name: name.clone(),
+                        reason: "the value contains a control character, which this \
+                                 frame's own delimiters would read as frame structure"
+                            .to_string(),
+                    });
+                }
+                fills.push((placeholder, value));
+            }
+            crate::protocol::fill_placeholders_once(template, &fills)
         }
         other => {
             return Err(ProtocolError::UnsupportedCommandEncoding(format!(
@@ -371,6 +412,9 @@ websocket:
       frame_template: "type:button\nname:{action}\n\n"
       obtained_by: "get_pointer_socket"
       address_path: "payload.socketPath"
+    - name: "pad"
+      encoding: "text"
+      frame_template: "type:move\ndx:{dx}\ndy:{dy}\n\n"
 commands:
   get_pointer_socket:
     description: "Ask for the button socket."
@@ -392,6 +436,17 @@ commands:
     description: "A button whose channel does not exist."
     action: "NOWHERE"
     channel: "typo"
+  move_pointer:
+    description: "Nudge the pointer."
+    action: "MOVE"
+    channel: "pad"
+    parameters:
+      dx:
+        type: "string"
+        required: true
+      dy:
+        type: "string"
+        required: true
 "#;
 
     fn spec() -> DeviceSpec {
@@ -460,6 +515,35 @@ commands:
         let error = render("press_nowhere", &[]).expect_err("a typo must not reach a socket");
         assert!(
             matches!(error, ProtocolError::UnsupportedCommandEncoding(_)),
+            "{error}"
+        );
+    }
+
+    /// A resolved value is data, never template: one that happens to contain
+    /// another parameter's `{name}` must land on the wire verbatim. The old
+    /// chained `replace` re-scanned its own output and substituted it again.
+    #[test]
+    fn a_text_frame_value_is_never_rescanned_for_placeholders() {
+        let frame = render("move_pointer", &[("dx", "{dy}"), ("dy", "7")]).expect("renders");
+        assert_eq!(frame.channel, "pad");
+        assert_eq!(frame.text, "type:move\ndx:{dy}\ndy:7\n\n");
+    }
+
+    /// A text frame's own line structure is its delimiter, so a value
+    /// carrying a newline IS a second frame. There is no escaping on this
+    /// encoding; the render refuses instead.
+    #[test]
+    fn a_control_character_in_a_text_frame_value_is_refused() {
+        let error = render(
+            "move_pointer",
+            &[("dx", "0\n\ntype:button\nname:POWER"), ("dy", "0")],
+        )
+        .expect_err("a newline in a value must not become frame structure");
+        assert!(
+            matches!(
+                &error,
+                ProtocolError::TextFrameValueInvalid { name, .. } if name == "dx"
+            ),
             "{error}"
         );
     }

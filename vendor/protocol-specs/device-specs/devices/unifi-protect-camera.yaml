@@ -134,12 +134,34 @@ device:
             actor: client
             expect: "The NVR's RTSP server (Server: Media Server (www.ui.com)) serves the H.264 stream."
     factory_reset:
-      applicable: false
+      applicable: true
       confidence: medium
       effect: >
-        Done at the camera (reset button) and re-adopted in UniFi Protect;
-        clears the camera's own adoption, not anything this app stores. We only
-        read the feed.
+        Clears the camera's own adoption and configuration, after which it must
+        be re-adopted in UniFi Protect. It clears nothing a consumer of this
+        spec stores — we only read the feed — so this is here for the owner's
+        benefit rather than as part of any integration flow.
+      description: >
+        The G4 Pro's button does two jobs and the difference is entirely in how
+        long it is held: a quick press reboots, and only a long hold resets.
+        Someone trying to reboot a camera and holding a moment too long will
+        find they have to re-adopt it.
+      procedures:
+        - name: "Reset button held while the camera is powered"
+          glyph: "generic/hold-button.svg"
+          verified: false
+          basis: >
+            Ubiquiti's quick-start guides for the UVC-G4-Bullet and UVC-G4-Pro,
+            which give 'more than 10 seconds' and '10-20 seconds' respectively.
+          hold_seconds: 10
+          power_state: "on"
+          indicator: "On the G4 Pro, the LED turns off; release at that point."
+          steps:
+            - action: "With the camera powered, press and hold the Reset button."
+              actor: "user"
+            - action: "Keep holding for at least ten seconds; on the G4 Pro release when the LED turns off."
+              actor: "user"
+              expect: "The camera reboots unadopted and can be re-adopted in UniFi Protect."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -212,9 +234,16 @@ helpful_urls:
   - url: "https://github.com/uilibs/uiprotect"
     title: "uilibs/uiprotect"
     description: "Python UniFi Protect library (successor to pyunifiprotect): auth (TOKEN cookie + x-csrf-token), bootstrap data models."
-  - url: "https://help.ui.com/hc/en-us/articles/217879287-UniFi-Protect-RTSP-Streaming"
-    title: "Ubiquiti — UniFi Protect RTSP streaming"
-    description: "How to enable RTSP per camera; the 7447/7441 stream ports."
   - url: "https://www.home-assistant.io/integrations/unifiprotect/"
     title: "Home Assistant UniFi Protect integration"
     description: "HA core integration over the local Protect API documented here (built on the uiprotect library)."
+  - title: "UniFi Video Camera G4 Pro quick start guide (PDF, vendor-hosted)"
+    url: "https://dl.ubnt.com/guides/unifivideo/UVC-G4-PRO_QSG.pdf"
+    kind: "manual"
+    description: >
+      Vendor guide for the G4 Pro, including the reset button's two functions this spec distinguishes.
+  - title: "UVC-G4-Bullet quick start guide (vendor-hosted)"
+    url: "https://dl.ui.com/qsg/UVC-G4-BULLET/UVC-G4-BULLET_EN.html"
+    kind: "manual"
+    description: >
+      Vendor guide for the G4 Bullet, whose reset hold differs from the Pro's.

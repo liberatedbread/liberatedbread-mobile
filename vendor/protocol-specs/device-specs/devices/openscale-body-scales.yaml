@@ -118,9 +118,21 @@ device:
       applicable: "unknown"
       confidence: low
       effect: >
-        Per-scale user-management resets exist (clearing stored users) but are
-        not uniform across the families and are not transcribed here. No network
-        or cloud state is stored on the device.
+        Not established for any of the three families. The vendor manuals cover
+        selecting and overwriting the per-user memory slots but describe no
+        operation that clears the scale wholesale, and none of the families
+        stores a credential or a bond that a reset would need to remove.
+      description: >
+        What the manuals do give is per-user memory rather than a reset: the
+        Medisana units hold eight user profiles with thirty measurements each,
+        selected with the SET button, and a profile is changed by overwriting
+        it rather than deleted.
+
+        The privacy-shaped answer, which is usually what someone reaching for a
+        reset actually wants, is the guest slot. Weighing in guest mode stores
+        nothing at all on the scale — and on Medisana it also disables the
+        Bluetooth transmission, so it is not a mode to use when the point is to
+        record a reading.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -135,6 +147,22 @@ device:
         No Wi-Fi. Trisa binds a 32-bit password during pairing used in its XOR
         challenge-response; the others are unauthenticated local reads.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    # No link-layer pairing on any of the three families. Trisa's password is
+    # exchanged in the family's own frames, above the transport.
+    security_mode: "app_layer"
+    bonding: "none"
+    notes: >
+      All three families connect without a bond. What differs is what a client
+      must do once connected: Beurer/Sanitas/SilverCrest register a user,
+      Medisana needs its trigger magic, and Trisa completes an XOR
+      challenge-response against a password captured during its own
+      first-contact handshake. None of that is BLE pairing, and a client that
+      treats it as such will go looking for an SMP exchange that never happens.
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
     name: "Beurer / Sanitas scale service"
@@ -205,3 +233,13 @@ helpful_urls:
   - title: "openScale — Trisa Body Analyze protocol"
     url: "https://github.com/oliexdev/openScale/wiki/Trisa-Body-Analyze"
     description: "The challenge-response pairing and weight mantissa/exponent encoding."
+  - title: "Medisana BS 444 connect instruction manual"
+    url: "https://www.manualslib.com/manual/1922343/Medisana-Bs-444-Connect.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the Medisana family, including the eight user slots and the guest mode that stores nothing.
+  - title: "Medisana: BS 444 connect product documents"
+    url: "https://www.medisana.com/en/Docs/?artnum=40444"
+    kind: "vendor_support"
+    description: >
+      Vendor document index for the same scale.

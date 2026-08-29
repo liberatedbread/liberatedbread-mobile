@@ -811,3 +811,13 @@ helpful_urls:
   - url: "https://www.home-assistant.io/integrations/tplink/"
     title: "Home Assistant TP-Link Kasa integration"
     description: "HA core integration (python-kasa) controlling Kasa plugs locally with this protocol."
+  - title: "TP-Link Kasa Wi-Fi Smart Plug HS100/HS110 user guide (PDF, vendor-hosted)"
+    url: "https://static.tp-link.com/res/down/doc/HS100_V1_UG.pdf"
+    kind: "manual"
+    description: >
+      Vendor guide for the HS100 and the energy-monitoring HS110, both of which this spec's port-9999 protocol covers.
+  - title: "TP-Link: HS100 downloads"
+    url: "https://www.tp-link.com/us/support/download/hs100/"
+    kind: "vendor_support"
+    description: >
+      Vendor download page, including firmware — worth checking before flashing anything.

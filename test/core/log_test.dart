@@ -120,6 +120,24 @@ void main() {
         greaterThan(LogLevel.debug.index),
       );
     });
+
+    test('an explicit category Capture is honoured in a release build', () {
+      // The diagnostics screen's per-category chip is CONSENT — a person, one
+      // category, until the process ends. Clamping it made the chip render
+      // selected while recording nothing, in the one build the feature exists
+      // for: a field session on a release install.
+      Log.setCategoryLevel(Log.ble, LogLevel.debug);
+      addTearDown(() => Log.setCategoryLevel(Log.ble, null));
+      expect(
+        Log.effectiveLevelIn(Log.ble.category, releaseMode: true),
+        LogLevel.debug,
+      );
+      // The GLOBAL level stays floored: only the explicit override is exempt.
+      expect(
+        Log.effectiveLevelIn(Log.net.category, releaseMode: true).index,
+        greaterThanOrEqualTo(Log.releaseFloor.index),
+      );
+    });
   });
 
   group('records', () {

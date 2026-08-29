@@ -206,7 +206,7 @@ class _ViewControls extends StatelessWidget {
     // Only the categories actually present, so the filter row describes this
     // session rather than the catalogue of categories.
     final present = {
-      for (final r in Log.buffer?.records ?? const []) r.category
+      for (final r in Log.buffer?.records ?? const <LogRecord>[]) r.category
     }.toList()
       ..sort();
     return Padding(

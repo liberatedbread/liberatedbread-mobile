@@ -367,7 +367,9 @@ jobs:
       # material theme for building their docs site, which this job has no use
       # for. These are the two the validator imports.
       - name: Install the spec validator's dependencies
-        run: python -m pip install --disable-pip-version-check jsonschema pyyaml
+        # Pinned: this is the job whose whole purpose is asserting the vendored
+        # catalogue is what upstream signed off, so its own inputs do not float.
+        run: python -m pip install --disable-pip-version-check jsonschema==4.26.0 pyyaml==6.0.3
       - name: Check the vendored protocol-specs subtree
         run: ./scripts/update-specs.sh --check
 

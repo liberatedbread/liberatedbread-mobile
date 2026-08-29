@@ -355,9 +355,14 @@ helpful_urls:
     url: "https://support.anki.bot/"
     description: "Still online; articles 383/384 document Firmware Recovery Mode vs Clear User Data, article 108 the firmware changelog, article 344 the $11.99/mo or $99.99/yr membership pricing."
   - title: "PA AG complaint against Digital Dream Labs"
-    url: "https://www.attorneygeneral.gov/wp-content/uploads/2024/09/DDL-Combined-Complaint-for-FIling-1.pdf"
+    url: "https://web.archive.org/web/20250726101421/https://www.attorneygeneral.gov/wp-content/uploads/2024/09/DDL-Combined-Complaint-for-FIling-1.pdf"
     description: "September 2024 Court of Common Pleas filing: PA AG Henry v. Digital Dream Labs and CEO Hanchar over unfulfilled prepaid robot orders (>$4M in sales, ~14,000 orders Nov 2020-Jan 2024 per the AG's announcement)."
 
+  - title: "Anki Vector quick start manual"
+    url: "https://www.manualslib.com/manual/1509087/Anki-Vector.html"
+    kind: "manual"
+    description: >
+      Surviving copy of the quick start guide. Anki is defunct and Digital Dream Labs' hosting is unreliable.
 http_endpoints:
   - method: "POST"
     path: "/v1/protocol_version"

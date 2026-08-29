@@ -1809,12 +1809,7 @@ fn every_credential_the_catalogue_names_can_be_obtained() {
     /// test in its own right — so keep the list to what has genuinely been
     /// written upstream, and delete each line the moment vendoring makes it
     /// unnecessary.
-    const FIXED_UPSTREAM_NOT_YET_VENDORED: &[(&str, &str, &str)] = &[(
-        "hisense-vidaa.yaml",
-        "mqtt_client_id",
-        "described on all 39 parameters upstream ('A credential says where \
-         its value comes from'); pending an update-specs.sh refresh",
-    )];
+    const FIXED_UPSTREAM_NOT_YET_VENDORED: &[(&str, &str, &str)] = &[];
 
     let mut unobtainable: Vec<String> = Vec::new();
     for path in vendored_yaml_paths() {
@@ -2665,4 +2660,189 @@ fn a_scoped_entity_carries_its_variants_across_the_ffi() {
         "the variants are the ONLY thing telling these two apart — they share a name"
     );
     assert!(lights.iter().all(|v| !v.is_empty()));
+}
+
+/// The catalogue's setup restructure files a multi-phase route as ONE method
+/// carrying `stages` — and a consumer that reads only `steps` silently
+/// renders those routes as prose with no procedure. This pins, across every
+/// vendored spec, that a method upstream gave stages surfaces them with their
+/// steps intact, so the next restructure fails here instead of on a phone.
+#[test]
+fn staged_setup_routes_keep_their_procedures() {
+    use liberated_bread_core::spec::setup::setup_instructions;
+
+    let mut staged_specs = 0;
+    for path in vendored_yaml_paths() {
+        let yaml =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        let raw: serde_yaml::Value = match serde_yaml::from_str(&yaml) {
+            Ok(v) => v,
+            // every_vendored_spec_parses_ok owns unparseable specs.
+            Err(_) => continue,
+        };
+        let raw_staged = raw
+            .get("device")
+            .and_then(|d| d.get("setup"))
+            .and_then(|s| s.get("methods"))
+            .and_then(|m| m.as_sequence())
+            .map(|methods| methods.iter().filter(|m| m.get("stages").is_some()).count())
+            .unwrap_or(0);
+        if raw_staged == 0 {
+            continue;
+        }
+        staged_specs += 1;
+
+        let spec = parse_device_spec(&yaml)
+            .unwrap_or_else(|e| panic!("{} should parse: {e}", path.display()));
+        let instructions = setup_instructions(&spec).unwrap_or_else(|| {
+            panic!(
+                "{} declares staged setup methods but yields no instructions",
+                path.display()
+            )
+        });
+        let surfaced = instructions
+            .methods
+            .iter()
+            .filter(|m| !m.stages.is_empty())
+            .count();
+        assert_eq!(
+            surfaced,
+            raw_staged,
+            "{}: {raw_staged} staged method(s) in the YAML, {surfaced} surfaced",
+            path.display()
+        );
+        for method in instructions.methods.iter().filter(|m| !m.stages.is_empty()) {
+            let steps: usize = method.stages.iter().map(|s| s.steps.len()).sum();
+            assert!(
+                steps > 0,
+                "{}: staged route {:?} surfaces no steps at all",
+                path.display(),
+                method.name
+            );
+        }
+    }
+    // The restructure folded eight routes; a catalogue refresh that loses
+    // them all at once is a parse regression, not a spec change.
+    assert!(
+        staged_specs >= 8,
+        "expected at least the eight staged routes upstream filed, found {staged_specs}"
+    );
+}
+
+/// hue-bridge moved `issues_credentials` onto its button_pairing STAGE. If
+/// the credential join stops seeing it, `must_be_asked_for` flips true and
+/// the app prompts a person to hand-type the whitelist username the link
+/// button was about to mint — the exact anti-pattern the credentials card's
+/// own docs forbid.
+#[test]
+fn hue_username_is_issued_by_the_link_button_stage() {
+    use liberated_bread_core::spec::credentials::required_credentials;
+
+    let yaml = fs::read_to_string(spec_path("hue-bridge.yaml"))
+        .expect("hue-bridge.yaml should be bundled");
+    let spec = parse_device_spec(&yaml).expect("hue-bridge.yaml should parse");
+    let credentials = required_credentials(&spec);
+    let username = credentials
+        .iter()
+        .find(|c| c.name == "username")
+        .expect("hue declares the whitelist username credential");
+    let issued = username.issued_by.as_ref().expect(
+        "the link-button stage issues the username; None here means the UI would prompt for it",
+    );
+    assert_eq!(issued.method, "button_pairing");
+    assert!(!username.must_be_asked_for());
+}
+
+/// Every regex matcher the catalogue writes must COMPILE in this build.
+/// Upstream validates patterns with Python `re`, which accepts `\d`, `\w`,
+/// `\b` and `(?i)`; the regex crate only compiles those with its
+/// `unicode-perl`/`unicode-case` features on. A pattern that fails to
+/// compile is cached as a permanent non-match — a matcher that silently
+/// claims nothing, which for a warning-category spec is fail-open. This
+/// gate turns that silence into a red test the moment a refreshed catalogue
+/// (or a feature-list trim in Cargo.toml) produces an uncompilable pattern.
+#[test]
+fn every_vendored_regex_matcher_compiles_in_this_build() {
+    fn regex_values(node: &serde_yaml::Value, out: &mut Vec<String>) {
+        match node {
+            serde_yaml::Value::Mapping(map) => {
+                let is_regex = map
+                    .get("match")
+                    .and_then(|m| m.as_str())
+                    .is_some_and(|m| m == "regex");
+                if is_regex {
+                    if let Some(value) = map.get("value").and_then(|v| v.as_str()) {
+                        out.push(value.to_string());
+                    }
+                    if let Some(values) = map.get("values").and_then(|v| v.as_sequence()) {
+                        out.extend(values.iter().filter_map(|v| v.as_str().map(str::to_string)));
+                    }
+                }
+                for (_, child) in map {
+                    regex_values(child, out);
+                }
+            }
+            serde_yaml::Value::Sequence(seq) => {
+                for child in seq {
+                    regex_values(child, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut patterns = Vec::new();
+    for path in vendored_yaml_paths() {
+        let text = fs::read_to_string(&path).expect("vendored yaml is readable");
+        let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(&text) else {
+            continue; // every_vendored_spec_parses_ok owns parse failures
+        };
+        regex_values(&doc, &mut patterns);
+    }
+    assert!(
+        patterns.len() >= 10,
+        "expected the catalogue's dozen-odd regex matchers, found {} — \
+         did the matcher shape change under this gate?",
+        patterns.len()
+    );
+    for pattern in patterns {
+        // The same builder settings `regex_for` compiles with (size limits
+        // bounded so a hostile pattern cannot balloon); a pattern that fails
+        // HERE would match nothing THERE.
+        assert!(
+            regex::RegexBuilder::new(&pattern)
+                .size_limit(1 << 20)
+                .dfa_size_limit(1 << 20)
+                .build()
+                .is_ok(),
+            "vendored matcher pattern {pattern:?} does not compile in this build's \
+             regex feature set (see the regex entry in Cargo.toml)"
+        );
+    }
+}
+
+/// Both vendored televisions must DECLARE their pairing token: the stores
+/// are wired only for declared credentials, so a set whose token vanishes
+/// from this list re-pairs on every group run — the Allow prompt raised
+/// mid-run for a TV that was already paired.
+#[test]
+fn the_vendored_tvs_declare_their_pairing_tokens() {
+    use liberated_bread_core::spec::credentials::required_credentials;
+
+    for file in ["samsung-tizen-tv.yaml", "lg-webos.yaml"] {
+        let yaml =
+            fs::read_to_string(spec_path(file)).unwrap_or_else(|_| panic!("{file} is bundled"));
+        let spec = parse_device_spec(&yaml).unwrap_or_else(|_| panic!("{file} parses"));
+        let credentials = required_credentials(&spec);
+        let token = credentials
+            .iter()
+            .find(|c| c.issued_by.as_ref().is_some_and(|i| i.method == "websocket_pairing"))
+            .unwrap_or_else(|| {
+                panic!("{file} must report its websocket pairing credential; an empty list is what re-paired TVs mid-group-run")
+            });
+        assert!(
+            !token.must_be_asked_for(),
+            "{file}: a pairing-minted token must never be prompted for"
+        );
+    }
 }

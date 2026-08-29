@@ -534,6 +534,11 @@ http_endpoints:
     field, so newer firmware may start gating this endpoint.'
   name: post_api
 helpful_urls:
+- title: "Divoom Pixoo 64 quick start manual"
+  url: "https://www.manualslib.com/manual/2462222/Divoom-Pixoo-64.html"
+  kind: "manual"
+  description: >
+    Vendor quick start for the Pixoo 64.
 - title: "Divoom app on Google Play"
   url: "https://play.google.com/store/apps/details?id=com.divoom.Divoom"
   description: "Distribution page for the vendor app this spec was derived from."

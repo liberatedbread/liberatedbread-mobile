@@ -341,7 +341,24 @@ device:
       The trade-off is real and the user's to make: "Always On" raises idle
       power draw, and Denon ships it off on some model years.
     methods:
+      - type: "wired"
+        name: "Ethernet — plug in and take a DHCP lease"
+        role: "primary"
+        verified: false
+        description: >
+          Ethernet: plug into the NETWORK port and the receiver takes a DHCP
+          lease with no menu interaction. This is the reliable option for a
+          fixed installation — the Wi-Fi radio on this generation is 2.4/5 GHz
+          802.11n and the unit sits inside a metal chassis in a cabinet.
+        steps:
+          - action: "Connect the NETWORK port to the LAN and power the receiver on."
+            actor: "user"
+            expect: "Setup > Network shows an IP address; the Wi-Fi radio is disabled automatically when the cable is present."
+          - action: "Setup > Network > Network Control > Always On (same reason as above)."
+            actor: "user"
       - type: "device_ui"
+        name: "Wi-Fi from the receiver's on-screen setup menu"
+        role: "alternative"
         verified: false
         description: >
           Wi-Fi join from the receiver's own setup menu: Setup > Network >
@@ -371,19 +388,6 @@ device:
               protocol: "http"
               action: "GET /goform/formMainZone_MainZoneXmlStatusLite.xml"
             expect: "XML `<item>` document on port 80 carrying Power, InputFuncSelect, MasterVolume and Mute."
-      - type: "wired"
-        verified: false
-        description: >
-          Ethernet: plug into the NETWORK port and the receiver takes a DHCP
-          lease with no menu interaction. This is the reliable option for a
-          fixed installation — the Wi-Fi radio on this generation is 2.4/5 GHz
-          802.11n and the unit sits inside a metal chassis in a cabinet.
-        steps:
-          - action: "Connect the NETWORK port to the LAN and power the receiver on."
-            actor: "user"
-            expect: "Setup > Network shows an IP address; the Wi-Fi radio is disabled automatically when the cable is present."
-          - action: "Setup > Network > Network Control > Always On (same reason as above)."
-            actor: "user"
     factory_reset:
       confidence: "low"
       effect: >
@@ -507,6 +511,11 @@ helpful_urls:
   - title: "librespot — open Spotify Connect implementation, incl. the zeroconf getInfo/addUser API"
     url: "https://github.com/librespot-org/librespot"
 
+  - title: "Denon AVR-S720W owner's manual"
+    url: "https://www.manualslib.com/manual/1133915/Denon-Avrs720w.html"
+    kind: "manual"
+    description: >
+      Vendor owner's manual for the receiver.
 evidence:
   # A discovery-only observation of a real unit: what it announces, verbatim.
   # Identifiers belonging to the contributor's hardware and network are

@@ -91,11 +91,25 @@ device:
           - action: "Connect over BLE, subscribe to 0xFFF1, write a Modbus read of 0x0100 to 0xFFD1."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: false
+      confidence: medium
       effect: >
-        No documented BLE factory reset for the module; controller settings are
-        changed via Modbus writes to the config registers, not a single reset.
+        Nothing to reset on the module. The BT-1 and BT-2 are transparent
+        bridges between the charge controller's RJ45 communication port and
+        BLE: they hold no credentials, no bond and no configuration of their
+        own. Settings live on the charge controller or battery behind them,
+        and those are changed through the app rather than cleared by a reset.
+      description: >
+        `false` rather than `unknown` because the absence is a property of what
+        the module is, not a gap in research. Renogy's own troubleshooting for
+        a module that will not connect is a power sequence rather than a reset:
+        unplug the module, take the device off the system entirely, wait about
+        thirty seconds, reconnect the house battery first, then the rest, then
+        the module last, and add it again in the app.
+
+        If what actually needs resetting is the charge controller's
+        configuration, that is a function of the controller — see its own
+        documentation, not this module's.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -109,6 +123,13 @@ device:
         No pairing/auth documented. Reads are open; writes change controller
         configuration and should be treated as advanced.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000ffd0-0000-1000-8000-00805f9b34fb"
     name: "Renogy BT module service"
@@ -146,3 +167,8 @@ helpful_urls:
   - title: "cyrils/renogy-bt"
     url: "https://github.com/cyrils/renogy-bt"
     description: "GPL-3.0 reference client: GATT UUIDs, Modbus-over-BLE framing, Rover register map, MQTT/HTTP republish."
+  - title: "Renogy BT-2 Bluetooth module manual"
+    url: "https://www.manualslib.com/manual/2278484/Renogy-Bt-2.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the BT-2. Confirms the module is a transparent RJ45-to-BLE bridge with no state of its own, which is why this spec's factory reset says there is nothing to reset.

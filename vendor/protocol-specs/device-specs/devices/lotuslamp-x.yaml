@@ -209,6 +209,13 @@ device:
         access control (the key is recoverable from the app). Physical
         proximity remains the only real barrier.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "MELK-OA10"
       identification:
@@ -356,6 +363,7 @@ helpful_urls:
       protocol (UUIDs, E1 frame layout) from APK analysis plus systematic testing.
   - title: "LotusLamp X on Google Play"
     url: "https://play.google.com/store/apps/details?id=com.szelk.ledlamppro"
+    kind: "vendor_support"
     description: >-
       Vendor app this spec was derived from (Shenzhen ELK). Note the app's
       telemetry endpoint lotus.elkled.com:8082 — unnecessary for local control.

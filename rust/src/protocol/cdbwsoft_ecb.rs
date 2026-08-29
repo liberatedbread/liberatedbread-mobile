@@ -12,8 +12,15 @@
 //! sibling-derived reading that had this channel unencrypted):
 //!
 //! Every packet on every channel is exactly one AES-128-ECB block under the
-//! static key the spec records on the characteristic. Commands are ASCII, in
-//! plaintext before encryption:
+//! static key the spec records on the characteristic. Obfuscation, not
+//! security — the same honesty note the Kasa cipher carries, and it matters
+//! here too: the key is a fixed constant published in a public spec
+//! repository, so the channel has no confidentiality against anyone who can
+//! read that repo, no authentication, and identical plaintexts produce
+//! identical (replayable) ciphertexts. What ECB costs a real cryptosystem it
+//! cannot cost this one, because there was nothing to protect; one block per
+//! packet is simply the vendor's framing. Commands are ASCII, in plaintext
+//! before encryption:
 //!
 //! ```text
 //!   [length] [ASCII name…] [args…] [zero pad to 16]

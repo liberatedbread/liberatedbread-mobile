@@ -104,34 +104,32 @@ device:
           - action: "Connect and write control commands to 0xFFE1."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: "low"
-      effect: "Returns the strip to factory defaults, clearing any stored scene or colour state."
+      applicable: true
+      confidence: medium
+      effect: >
+        Clears the pairing and returns the strip to its advertising state so it
+        can be added again as a new device. Nothing else is stored on it.
       description: >
-        Nobody has run this against an H6101/H6104. Rapid power cycling is
-        the near-universal reset for mains-powered smart lights and is what
-        Govee's own help text points users at, but the exact toggle count
-        varies across the family. If the count is wrong the strip simply
-        comes back on in its previous state; the signal that it took is a
-        self-initiated blink followed by re-advertising as unprovisioned.
+        The same power-cycle gesture Govee use across their lighting range, and
+        the confirmation is the same: the light flashes and then settles into
+        the slow breathing pattern the app looks for.
+
+        On a backlight strip that means cycling whatever it is plugged into —
+        the switched outlet or the controller's own inline switch — rather than
+        looking for a button on the strip, which does not have one.
       procedures:
-        - name: "Power cycle"
+        - name: "Power-cycle five times"
           verified: false
-          basis: >
-            The generic pattern for mains-powered smart lights, consistent
-            with Govee's published help text. Not confirmed on hardware.
-          description: >
-            Switch the strip off and on at the wall in quick succession,
-            pausing about a second in each state. Watch for a
-            self-initiated blink at the end.
-          indicator: "Strip blinks by itself, then re-advertises as unprovisioned."
+          basis: "Govee's published user documentation for the lighting range."
+          press_count: 5
+          power_state: "on"
+          glyph: "generic/power-cycle.svg"
+          indicator: "The strip flashes, then breathes slowly."
+          indicator_glyph: "generic/led-flashing.svg"
           steps:
-            - action: "Toggle power rapidly 5 times, roughly one second on and one second off."
+            - action: "Switch the strip off and on five times in quick succession at whatever controls its power."
               actor: "user"
-              expect: >
-                Strip blinks to confirm reset and re-advertises. If it just
-                comes back on unchanged, the count is wrong for this
-                generation — try three cycles instead.
+              expect: "The strip flashes and then breathes — it is unpaired and discoverable."
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -146,6 +144,13 @@ device:
         BLE-only; no WiFi passphrase crosses the link. Open writes from any
         connected central are accepted.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
 services:
   - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
     name: "Govee Legacy Backlight Service"
@@ -269,3 +274,8 @@ helpful_urls:
     url: "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/"
     description: >-
       Write-up of the shared Govee BLE command protocol with an on-device GATT dump.
+  - title: "Govee H6199 RGBIC TV backlight user manual"
+    url: "https://www.manualslib.com/manual/2492115/Govee-H6199.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the H6199, the closest documented sibling of the H6101/H6104 — same app, same power-cycle reset.

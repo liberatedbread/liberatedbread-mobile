@@ -80,6 +80,7 @@ export '../src/rust/api/device_api.dart'
         SecurityAdvisoryDto,
         SetupInstructionsDto,
         SetupMethodDto,
+        SetupStageDto,
         SetupStepDto,
         TroubleshootingDto,
         FactoryResetDto,
@@ -537,6 +538,16 @@ abstract class SpecCodec {
   Future<MqttRequestDto> renderNetworkMqttCommand({
     required String specYaml,
     required String commandName,
+    required Map<String, String> values,
+  });
+
+  /// Fill an MQTT state topic's `{name}` placeholders from what the app
+  /// holds — stored credentials and discovery facts, keyed by exactly the
+  /// names the topic uses. Single-pass: a value is data, never re-scanned as
+  /// template. What nothing fills survives verbatim, which is the caller's
+  /// signal that the topic is not subscribable yet.
+  Future<String> fillMqttStateTopic({
+    required String topic,
     required Map<String, String> values,
   });
 

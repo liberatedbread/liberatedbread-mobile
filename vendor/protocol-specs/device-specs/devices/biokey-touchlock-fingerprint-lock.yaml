@@ -218,6 +218,38 @@ device:
         client-generated and pushed to the lock; losing the client's stored
         credentials means re-enrolling via factory reset.
 
+  pairing:
+    required: true
+    confidence: "low"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Disconnect the vendor app before connecting. Because the app drops its
+        bond on every disconnect, a stale bond is not usually what is in the
+        way — an open session is.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The transient bond only; enrolled fingerprints and admin records survive."
+      notes: >
+        The vendor app deliberately unpairs on disconnect on Android 7+, so
+        bonds here are transient by design rather than persistent state
+        somebody has to manage. A client that assumes a durable bond will find
+        one is not there next time.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Error code 0x07 is literally named for an unbonded device, which is the
+      strongest evidence that the lock refuses commands from centrals it has
+      not bonded with — but whether bonding is strictly required before every
+      write is unverified, because the app handles every pairing variant and
+      so never has to find out. No PIN is involved: the OS bond is Just Works
+      and the lock's own password is a time-derived value in the command
+      frames. Treat the bond as the only real barrier, and a weak one: the
+      password scheme is predictable to anyone who has watched one exchange
+      and knows roughly what time it is.
 cloud:
   required: false
   vendor_service: "None — no cloud service exists for this product"
@@ -488,6 +520,11 @@ helpful_urls:
   - title: "BIO-key International (company status; SEC filings)"
     url: "https://www.bio-key.com"
 
+  - title: "BIO-key TouchLock XL instruction manual (Internet Archive)"
+    url: "https://web.archive.org/web/20220507045155/https://manuals.plus/bio-key/touchlock-xl-manual"
+    kind: "manual"
+    description: >
+      Manual for the TouchLock XL, one of the family this spec covers. Archived because the live host refuses automated requests and BIO-key's consumer lock line is abandoned.
 evidence:
   artifacts:
     - type: "static_analysis"

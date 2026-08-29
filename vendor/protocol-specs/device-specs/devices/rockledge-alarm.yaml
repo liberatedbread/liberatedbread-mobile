@@ -68,6 +68,15 @@ device:
       stored_on_device: []
       issued_to_client: []
       notes: "No credential crosses to this app; it never connects."
+  pairing:
+    required: "unknown"
+    confidence: "low"
+    notes: >
+      This entry never connects — it matches the BLE advertisement and warns,
+      which is the whole of its integration — so the question of whether a
+      connection would demand a bond has never arisen. Unknown here means
+      unasked rather than unanswerable: anyone who does connect to one should
+      record what they find.
   discovery:
     # Match on the advertised BLE local name; inferred, not captured (see
     # testing.notes). identification.local_name_prefixes carries the same name.

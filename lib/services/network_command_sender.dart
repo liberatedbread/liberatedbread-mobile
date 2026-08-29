@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import '../core/log.dart';
+import '../models/network_device.dart';
 import 'ecp2_control_service.dart';
 import 'http_control_service.dart';
 import 'kasa_control_service.dart';
@@ -18,6 +19,18 @@ import 'tls_trust.dart';
 /// Asked per send rather than captured once — see
 /// [NetworkCommandSender.credentials] for why that matters.
 typedef CredentialReader = Future<Map<String, String>> Function();
+
+/// Builds one sender for one device — the shape the device screen's factory
+/// provider and the group runner must AGREE on. It lives here, next to the
+/// constructor it mirrors, because the group runner used to re-declare it
+/// inline and the two copies drifted: dropping an optional argument from a
+/// function type is silent, and the group's copy lost `capabilities` for a
+/// whole release of consequences (see NetworkGroupRunner's field note).
+typedef NetworkCommandSenderFactory = NetworkCommandSender Function({
+  required NetworkDevice device,
+  required String specYaml,
+  NetworkCapabilitiesDto? capabilities,
+});
 
 /// Sends spec-resolved actions to one network device, over whichever of the
 /// six transports each action declares — the send half of what
@@ -85,10 +98,19 @@ class NetworkCommandSender {
   /// on both televisions raises a prompt the viewer must accept.
   final String? wsCredential;
 
-  /// Called with the credential a pairing issues, so the caller can store it
-  /// and skip the prompt next time. Absent means "do not persist", which is
-  /// the honest default for a sender that does not own a store.
-  final void Function(String credential)? onWsCredential;
+  /// Called with the NAME and value of a credential the device issued at
+  /// runtime — a WebSocket pairing's token today. The name is the spec's own
+  /// (`websocket.pairing.credential_name`), the same key the [useCredentials]
+  /// map serves it back under on the next connect, so a caller can persist it
+  /// in [DeviceCredentialStore] without knowing which transport issued it.
+  ///
+  /// AWAITED by the sender before its memoized credential read resets, so
+  /// the very next read sees the store after the write — fired-and-forgotten,
+  /// a re-read racing the save could memoize the pre-save map and the token
+  /// would be "stored" but never found. A throw from the callback is logged
+  /// and swallowed: the session in hand is authorised either way, and only
+  /// the next open pays for the failed save.
+  final Future<void> Function(String name, String value)? onCredentialIssued;
 
   /// Opens the WebSocket. Injected so a test answers from canned frames.
   final WsConnect? _wsConnect;
@@ -144,7 +166,7 @@ class NetworkCommandSender {
     required Ecp2ControlService ecp2,
     MqttConnect? mqttConnect,
     this.wsCredential,
-    this.onWsCredential,
+    this.onCredentialIssued,
     WsConnect? wsConnect,
   })  : _wsConnect = wsConnect,
         _mqttConnect = mqttConnect,
@@ -202,17 +224,21 @@ class NetworkCommandSender {
   /// fills it lives in the spec — carried here as `action.credentials`, the
   /// `{param, name}` pairs Rust parsed out of `source:`.
   static String? _credentialFor(
-    NetworkActionDto action,
+    NetworkActionDto? action,
     String param,
     Map<String, String> credentials,
     Map<String, String> values,
   ) {
     final supplied = values[param];
     if (supplied != null && supplied.isNotEmpty) return supplied;
-    for (final declared in action.credentials) {
-      if (declared.param != param) continue;
-      final stored = credentials[declared.name];
-      if (stored != null && stored.isNotEmpty) return stored;
+    // A readings-only device has no action to carry a mapping; the literal
+    // lookup below is all there is for it.
+    if (action != null) {
+      for (final declared in action.credentials) {
+        if (declared.param != param) continue;
+        final stored = credentials[declared.name];
+        if (stored != null && stored.isNotEmpty) return stored;
+      }
     }
     // A spec that names the credential exactly as the parameter (Hue's
     // `username`) needs no mapping, and a broker login that is not a command
@@ -437,13 +463,38 @@ class NetworkCommandSender {
     await session.publish(request.topic, request.payload);
   }
 
+  /// Open (or reuse) the device's MQTT session, subscribe to [topics], and
+  /// hand back the session's message stream for the caller to read state
+  /// from.
+  ///
+  /// The other half of admitting `state_topic` entities to the network
+  /// surface: the binding resolved, the cards drew — and nothing ever
+  /// subscribed, so a Hisense set's power state and a Dyson's sensors
+  /// rendered permanently unknown while a comment upstairs claimed a stream
+  /// was filling them. [action] can be ANY of the device's MQTT actions: it
+  /// carries the credential mapping the session's login rides, exactly as a
+  /// send's does. NULL when the device declares no MQTT commands at all — a
+  /// readings-only purifier — in which case the login falls back to stored
+  /// credentials under the literal names `client_id`/`username`/`password`,
+  /// the same names a pairing flow for such a device would store them under.
+  Future<Stream<MqttMessage>> subscribeMqttState(
+    NetworkActionDto? action,
+    List<String> topics,
+  ) async {
+    final session = await _openMqtt(action, const {});
+    for (final topic in topics) {
+      await session.subscribe(topic);
+    }
+    return session.messages;
+  }
+
   /// The MQTT session, opened once and reused.
   ///
   /// Unlike the ECP2 session there is no fallback path: a device whose control
   /// surface is MQTT has no second way in, so a failure to connect is the
   /// caller's to report rather than something to latch and route around.
   Future<MqttSession> _openMqtt(
-      NetworkActionDto action, Map<String, String> values) {
+      NetworkActionDto? action, Map<String, String> values) {
     final existing = _mqtt;
     if (existing != null && existing.isConnected) return Future.value(existing);
     // One connect in flight, shared by every caller waiting on it. MQTT is an
@@ -458,7 +509,7 @@ class NetworkCommandSender {
   }
 
   Future<MqttSession> _connectMqtt(
-      NetworkActionDto action, Map<String, String> values) async {
+      NetworkActionDto? action, Map<String, String> values) async {
     if (_closed) {
       throw const MqttConnectionException('This device screen has closed.');
     }
@@ -548,12 +599,25 @@ class NetworkCommandSender {
     _ws = null;
     await (stale?.dispose() ?? Future<void>.value());
 
+    // The pairing credential rides the same store map every other credential
+    // does, under the spec's own name (`samsung_token`, `webos_client_key`).
+    // The constructor value wins when a caller pinned one — tests, mostly —
+    // and a device with no reader wired simply pairs afresh, exactly as an
+    // unpaired one would. Before this lookup the production factory passed
+    // nothing at all, so every screen open re-ran pairing and raised the
+    // television's Allow prompt again.
+    final credentialName = surface.credentialName;
+    var given = wsCredential;
+    if (given == null && credentialName != null) {
+      given = (await _storedCredentials())[credentialName];
+    }
+
     final session = WsSession(
       codec: _codec,
       specYaml: specYaml,
       host: host,
       surface: surface,
-      credential: wsCredential,
+      credential: given,
       connect: _wsConnect,
     );
     await session.open();
@@ -565,8 +629,21 @@ class NetworkCommandSender {
     // pairing that reissued the same key is not news, and a store write per
     // connect is a write per screen open.
     final issued = session.credential;
-    if (issued != null && issued != wsCredential) {
-      onWsCredential?.call(issued);
+    if (issued != null && issued != given && credentialName != null) {
+      final persist = onCredentialIssued;
+      if (persist != null) {
+        try {
+          // Awaited so the refresh below cannot memoize a pre-save read;
+          // caught so a locked keystore costs the NEXT open its token, not
+          // this press its session (or the zone its stability).
+          await persist(credentialName, issued);
+        } catch (e) {
+          Log.net
+              .warning('storing issued "$credentialName" for $host failed: $e');
+        }
+        // The store just changed (or tried to) under the memoized read.
+        refreshCredentials();
+      }
     }
     return _ws = session;
   }

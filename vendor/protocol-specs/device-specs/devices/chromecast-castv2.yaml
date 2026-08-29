@@ -242,3 +242,13 @@ helpful_urls:
   - title: "home-assistant-libs/pychromecast"
     url: "https://github.com/home-assistant-libs/pychromecast"
     description: "MIT — reference Python client; discovery TXT keys and app IDs."
+  - title: "Google Chromecast with Google TV user manual"
+    url: "https://www.manualslib.com/manual/4544349/Google-Chromecast-With-Google-Tv.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the Google TV generation.
+  - title: "Chromecast with Google TV 4K instruction manual (PDF)"
+    url: "https://argos-support.co.uk/instruction-manual/8834948-google-chromecast-with-google-tv-4k-and-voice-remote.pdf"
+    kind: "manual"
+    description: >
+      Retailer-hosted copy of the same guide, including the voice remote.

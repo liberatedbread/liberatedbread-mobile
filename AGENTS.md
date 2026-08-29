@@ -62,8 +62,19 @@ optional here — they're a feature.
   [liberatedbread-protocol-specs](https://github.com/liberatedbread/liberatedbread-protocol-specs).
   Edits are invisible upstream and CI fails the PR. To change a spec, open a PR
   against that repo, then refresh here with `./scripts/update-specs.sh`.
-  Iterating on a spec and the app together, refresh from your local checkout:
-  `./scripts/update-specs.sh my-branch --from ../liberatedbread-protocol-specs`.
+  **Committed refreshes come from upstream `main` only.** Upstream squash-merges
+  its PRs, so a PR-branch tip vanishes the moment it merges — a subtree pulled
+  from one records a `git-subtree-split` that dangles, every later pull
+  degrades into a full-tree squash, and (this happened) the vendored catalogue
+  quietly stops corresponding to anything upstream can name. Iterating on a
+  spec and the app together, refresh from your local checkout — that path is
+  for UNCOMMITTED iteration:
+  `./scripts/update-specs.sh my-branch --from ../liberatedbread-protocol-specs`,
+  then re-pull `main` once the spec PR lands and commit that.
+  Upstream tracks its glyph artwork (`glyphs/**`) in Git LFS; a plain clone or
+  subtree pull carries 3-line pointer files, which is the intended state here —
+  the app bundles the YAML, not the artwork. If a local `git lfs` install
+  starts failing the pull's checkout, `git lfs install --local --skip-smudge`.
   Upstream's `device-specs/index.json` — the list the app's loader reads — is
   built by upstream CI *after* a spec merges, so a branch's index never names
   the spec you are writing. The script rebuilds it from the vendored specs for

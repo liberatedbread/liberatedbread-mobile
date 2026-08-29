@@ -229,6 +229,13 @@ device:
         No credentials exist anywhere in this protocol. Any central within
         radio range can connect and issue every command, including firmware
         erase/reflash — physical proximity is the only access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "Gen1 classic poi (FW_DevType 0x04xx)"
       identification:
@@ -437,3 +444,13 @@ helpful_urls:
       The companion app this spec was recovered from (v2.29.9 analyzed). Qt6/QML
       shell; all protocol logic is in one symbol-rich native library, which is
       why the framing and header layouts here carry HIGH confidence.
+  - title: "Ignis Pixel manual for LED fans, buugengs and hoops (PDF)"
+    url: "https://www.homeofpoi.com/pdf/Manual-for-Ignis-Pixel-Fans-Buugengs-Hoops-EN.pdf"
+    kind: "manual"
+    description: >
+      English manual for the fan, buugeng and hoop props.
+  - title: "Ignis Pixel BubblePoi manual (PDF, vendor-hosted)"
+    url: "https://ignispixel.com/files/upload/manual/BubblePOI_manual.pdf"
+    kind: "manual"
+    description: >
+      Vendor manual for the BubblePoi.

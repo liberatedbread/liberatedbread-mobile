@@ -126,6 +126,19 @@ device:
       notes: >
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      recovery: >
+        Close the vendor app, and any other client holding the device,
+        before connecting. Nothing needs clearing afterwards — no bond
+        is stored on either side.
+    enter_pairing_mode:
+      required: false
 # Custom consumer-side handler: assembles the 64-byte header + stripe-major
 # 1-bit bitmap and drives the acknowledged 16-byte chunked writes. Declarative.
 protocol_handler: "ledbadge_bitmap"
@@ -210,3 +223,15 @@ entities:
       nothing and drew nothing, while reading as though a text control existed.
       Brightness stays in `features` because the header does carry it — the
       uploader sets it, not a slider on this entity.
+
+helpful_urls:
+  - title: "LED name badge with multiple functions user manual (PDF)"
+    url: "https://docs.rs-online.com/07aa/0900766b80c044ee.pdf"
+    kind: "manual"
+    description: >
+      Distributor-hosted manual for the badge platform, covering the PC software path.
+  - title: "USB programmable LED badge user manual (Internet Archive)"
+    url: "https://web.archive.org/web/20220117171411/http://ipsgproducts.com/products/electronics/support/LED_Badge_driver+manual/Led_Badge_User_Manual.pdf"
+    kind: "manual"
+    description: >
+      Archived copy — the host now returns a server error.

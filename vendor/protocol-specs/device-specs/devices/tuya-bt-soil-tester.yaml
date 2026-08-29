@@ -153,54 +153,71 @@ device:
       tuya-iot-py-sdk flow). Not replayed against this hardware by this
       project.
     methods:
-      - type: "ble_provisioning"
-        verified: false
-        description: >
-          Standard Tuya BLE pairing in the vendor app: the device advertises
-          in pairing mode, the app connects over GATT (service 0xFD50),
-          exchanges PAIR frames (function code 0x0001) carrying the
-          cloud-issued credentials, and bonds the device to the Tuya account.
-          Requires a Tuya cloud account in Smart Life or Tuya Smart.
-        steps:
-          - action: >
-              Put the tester in pairing mode (per the vendor quick-start:
-              batteries in / reset pin held) so it advertises on 0xFD50.
-            actor: "user"
-          - action: "Connect over GATT to Tuya service 0xFD50 in the vendor app."
-            actor: "client"
-          - action: >
-              Exchange PAIR frames (function code 0x0001) carrying the
-              cloud-issued credentials, binding the device to the account.
-            actor: "client"
-            expect: >
-              The device appears in Smart Life / Tuya Smart and its uuid and
-              local_key exist in the account.
-        # Not replayed against this hardware — see setup.notes.
       - type: "ble_direct"
+        name: "Pair once in the vendor app, then run the session yourself"
+        role: "primary"
         verified: false
         description: >
-          After one-time key extraction (device id + local key via a Tuya IoT
-          developer account), a third-party client connects directly and runs
-          the encrypted session itself — the python-tuya-ble / ha_tuya_ble
-          path. No hub, no cloud at runtime.
-        steps:
-          - action: >
-              Pair the device once through the vendor app (the
-              ble_provisioning method above); local access needs the
-              credentials that pairing creates.
-            actor: "user"
-          - action: >
-              Fetch the device `uuid` and 16-char `local_key` once from a
-              Tuya IoT developer account (the ha_tuya_ble /
-              tuya-iot-py-sdk flow).
-            actor: "user"
-            expect: "Both secrets in hand; no cloud contact is needed after this."
-          - action: >
-              Connect directly and run the encrypted DP session with those
-              keys — no hub and no cloud at runtime.
-            actor: "client"
-        ble:
-          pairing_required: true
+          A stock Tuya BLE device yields nothing until it has been paired:
+          every DP frame afterwards is encrypted with keys derived from
+          the device `uuid` and the cloud-issued `local_key`. So the route
+          has two phases — pair once in Smart Life or Tuya Smart to mint
+          those keys and extract them, then connect directly and run the
+          encrypted session with no hub and no cloud at runtime.
+        stages:
+          - type: "ble_provisioning"
+            name: "Pair in the vendor app, and extract the keys"
+            verified: false
+            description: >
+              Standard Tuya BLE pairing in the vendor app: the device advertises
+              in pairing mode, the app connects over GATT (service 0xFD50),
+              exchanges PAIR frames (function code 0x0001) carrying the
+              cloud-issued credentials, and bonds the device to the Tuya account.
+              Requires a Tuya cloud account in Smart Life or Tuya Smart.
+            steps:
+              - action: >
+                  Put the tester in pairing mode (per the vendor quick-start:
+                  batteries in / reset pin held) so it advertises on 0xFD50.
+                actor: "user"
+              - action: "Connect over GATT to Tuya service 0xFD50 in the vendor app."
+                actor: "client"
+              - action: >
+                  Exchange PAIR frames (function code 0x0001) carrying the
+                  cloud-issued credentials, binding the device to the account.
+                actor: "client"
+                expect: >
+                  The device appears in Smart Life / Tuya Smart and its uuid and
+                  local_key exist in the account.
+            # Not replayed against this hardware — see setup.notes.
+            # Not replayed against this hardware — see setup.notes.
+            # Not replayed against this hardware — see setup.notes.
+            # Not replayed against this hardware — see setup.notes.
+          - type: "ble_direct"
+            name: "Run the encrypted session from a third-party client"
+            verified: false
+            description: >
+              After one-time key extraction (device id + local key via a Tuya IoT
+              developer account), a third-party client connects directly and runs
+              the encrypted session itself — the python-tuya-ble / ha_tuya_ble
+              path. No hub, no cloud at runtime.
+            steps:
+              - action: >
+                  Pair the device once through the vendor app (the
+                  ble_provisioning method above); local access needs the
+                  credentials that pairing creates.
+                actor: "user"
+              - action: >
+                  Fetch the device `uuid` and 16-char `local_key` once from a
+                  Tuya IoT developer account (the ha_tuya_ble /
+                  tuya-iot-py-sdk flow).
+                actor: "user"
+                expect: "Both secrets in hand; no cloud contact is needed after this."
+              - action: >
+                  Connect directly and run the encrypted DP session with those
+                  keys — no hub and no cloud at runtime.
+                actor: "client"
+            ble:
+              pairing_required: true
     factory_reset:
       confidence: "low"
       effect: >
@@ -243,6 +260,59 @@ device:
         The local key IS the credential for the encrypted BLE session —
         treat it as a password.
 
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    pin:
+      source: "vendor_app"
+      notes: >
+        Not a PIN: a device id and 16-character local key, issued by Tuya's
+        cloud during the vendor-app pairing and recoverable afterwards through
+        a Tuya IoT developer project. Per-unit, and rotated whenever the
+        device is unbound and paired again.
+    unpair:
+      # No route short of the reset: on this device unbinding IS the factory
+      # reset, which is why `supported` is false rather than true.
+      supported: false
+      requires_factory_reset: true
+      clears: >
+        The Tuya account binding and the pairing keys; the device returns to
+        advertising in pairing mode and is issued a new device id and local
+        key on the next pairing.
+      notes: >
+        Unbinding and factory reset are the same operation on this device, and
+        it is destructive to local access in a way users do not expect: any
+        client holding the old local key stops working, and the replacement
+        key can only be obtained by pairing through the vendor app and cloud
+        again. Moving the tester to a different Tuya account means exactly
+        this — unbind, re-pair, re-extract.
+    enter_pairing_mode:
+      required: true
+      notes: >
+        A factory-fresh or freshly reset tester advertises in pairing mode on
+        its own; the procedure below is for a device that is already bound.
+      procedures:
+        - name: "Insert batteries, or hold the reset pin, until it advertises in pairing mode"
+          glyph: "generic/pinhole-reset.svg"
+          verified: false
+          basis: >
+            The vendor quick-start guide for this class of Tuya BLE device.
+            Not replayed against hardware; the exact control differs across the
+            models this spec covers.
+          power_state: "off"
+          steps:
+            - action: "Insert the batteries, or hold the reset pin on an already-bound tester."
+              actor: "user"
+              expect: "The tester advertises on Tuya service 0xFD50 in pairing mode."
+    notes: >
+      Nothing is readable at all without completing this: the session key
+      derives from the device uuid and the cloud-issued local key, so a stock
+      Tuya BLE device is inert to any client that has not paired it. That is
+      the one hard cloud dependency in this spec, and it is one-time — once
+      the device id and local key are extracted, day-to-day local monitoring
+      keeps working with the Tuya cloud gone entirely.
   # Family members this spec covers. Matching a physical unit to a variant
   # happens at cloud pairing time (product id) or via the DP layout observed
   # after pairing; the advertisement alone does not distinguish them.
@@ -563,9 +633,6 @@ helpful_urls:
       hardware teardown: BT3L/TLSR8250, SWS pads, factory data above
       0x70000. The no-Tuya-at-all path. Does not support the 2026 SGS01B
       revision.
-  - title: "Home Assistant discussion #949 — SGS01 product ids"
-    url: "https://github.com/home-assistant/core/discussions/949"
-    description: "Older product id aao3yzhs vs current gvygg3m8."
   - title: "ble_monitor issue #1161 — SGS01 cannot be passive"
     url: "https://github.com/custom-components/ble_monitor/issues/1161"
     description: "Confirms the stock firmware never broadcasts readings — connected GATT only."

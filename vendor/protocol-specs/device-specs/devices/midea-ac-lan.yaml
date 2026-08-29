@@ -108,11 +108,41 @@ device:
           - action: "Discover on UDP 6445 and control over TCP 6444 with the cached key."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        Returns the Wi-Fi module to onboarding (remote-control key combination on
-        the unit). The exact gesture is model-specific and not transcribed here.
+        Resets the WiFi module and returns the unit to its AP/onboarding
+        state, clearing the stored network credentials. Climate settings on
+        the air conditioner itself are not affected — this is the module, not
+        the appliance.
+      description: >
+        The gesture is on the REMOTE rather than on the unit, which is the
+        first surprise, and the button it uses is one of the ones nobody
+        presses: LED DISPLAY on some models, DO NOT DISTURB on others. Watch
+        for "AP" on the display, which is the module announcing it is hosting
+        its own network again.
+
+        A separate operation with a confusingly similar name: resetting the
+        REMOTE (batteries out for thirty seconds, then its own reset button)
+        does nothing to the WiFi module and is not what someone changing
+        routers needs.
+      procedures:
+        - name: "LED DISPLAY or DO NOT DISTURB held on the remote until AP shows"
+          verified: false
+          basis: >
+            Midea WiFi setup and troubleshooting guidance for the Midea Air /
+            SmartHome app range. The button differs by model, so check the
+            unit's own manual.
+          hold_seconds: 3
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          indicator: "The display shows AP, and the unit's WiFi indicator blinks."
+          steps:
+            - action: "Point the remote at the unit and hold the LED DISPLAY button — or DO NOT DISTURB, depending on the model — for three to five seconds."
+              actor: "user"
+              expect: "The display shows AP and the WiFi indicator on the unit blinks."
+            - action: "Re-onboard from the vendor app on a 2.4 GHz network."
+              actor: "user"
     rejoin:
       in_place_supported: false
       requires_factory_reset: true
@@ -179,3 +209,13 @@ helpful_urls:
   - title: "nbogojevic/midea-beautiful-air"
     url: "https://github.com/nbogojevic/midea-beautiful-air"
     description: "MIT — covers dehumidifier rebadges and the token/key-from-cloud story."
+  - title: "Midea SK102 smart AC WiFi user manual"
+    url: "https://www.manualslib.com/manual/1442163/Midea-Sk102.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the SK102 WiFi controller, including the AP-mode entry this spec's reset produces.
+  - title: "Midea smart AC CS373U-APP (SK102) user manual (PDF, vendor-hosted)"
+    url: "https://www.midea.com.ua/sites/default/files/downloadables-documents/pdf/wifi-manual-obm-16122000003074-cs373u-appsk102.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted PDF of the same document.

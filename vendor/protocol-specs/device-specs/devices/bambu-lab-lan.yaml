@@ -104,11 +104,40 @@ device:
           - action: "Connect mqtts://{ip}:8883 as bblp + access code; subscribe device/{serial}/report and publish device/{serial}/request."
             actor: "client"
     factory_reset:
-      applicable: "unknown"
-      confidence: low
+      applicable: true
+      confidence: medium
       effect: >
-        A factory reset from the touchscreen clears network config and the access
-        code. The exact menu path is not transcribed here.
+        Erases the user data held on the printer: the Bambu account binding
+        and the network configuration both go. For anything built on this
+        spec that matters directly — the LAN-mode access code is reissued, so
+        a client holding the old one stops connecting and the new code has to
+        be read off the printer's screen again.
+      description: >
+        Driven from the printer's own screen, and the menu path differs across
+        the X1, P1 and A1 lines, so take it from the wiki page for the model in
+        hand rather than from a video for a different one. Bambu documents it
+        as the remedy for an abnormal system state and for odd behaviour after
+        a firmware update.
+
+        Not the first thing to try for a printer that has simply dropped off
+        the network: for P1 binding trouble the vendor's own first step is a
+        power cycle with a twenty-second wait, which costs nothing and does not
+        take the access code with it.
+      procedures:
+        - name: "Factory reset from the printer's screen"
+          verified: false
+          basis: >
+            Bambu Lab's wiki, which documents the reset as the remedy for HMS
+            abnormal-state codes and describes what it erases. The exact menu
+            path differs by model line.
+          power_state: "on"
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "On the printer's touchscreen, open the settings and choose the factory-reset entry for this model."
+              actor: "user"
+              expect: "Account binding and network configuration are cleared."
+            - action: "Re-onboard the printer and read the new LAN access code from the screen."
+              actor: "user"
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -243,3 +272,8 @@ helpful_urls:
   - title: "Doridian/OpenBambuAPI — FTP"
     url: "https://github.com/Doridian/OpenBambuAPI/blob/main/ftp.md"
     description: "The FTPS (990) file access (gcode/3mf, timelapse, logs)."
+  - title: "Bambu Lab Wiki"
+    url: "https://wiki.bambulab.com/en/home"
+    kind: "vendor_support"
+    description: >
+      Vendor documentation hub. The factory-reset path and what it clears differ across the X1, P1 and A1 lines.

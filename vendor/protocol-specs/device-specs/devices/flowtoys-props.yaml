@@ -194,6 +194,13 @@ device:
         The bridge fallback AP itself uses WPA2 with the fixed password
         "findyourflow" in the published firmware.
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "capsule 2.0 / 2.C light engine (podpoi, capsule poi, staffs, batons)"
       notes: >
@@ -367,3 +374,15 @@ entities:
       entity. Color/effect go through the set_pattern command (page/mode
       select the effect; hue/sat/brightness set the color); wake/power-off
       map to the light's on/off.
+
+helpful_urls:
+  - title: "Flowtoys capsule light instructions"
+    url: "https://www.manualslib.com/manual/2044501/Flowtoys-Capsule-Light.html"
+    kind: "manual"
+    description: >
+      Vendor instructions for the capsule light, the core of the Connect prop system.
+  - title: "Flowtoys: guides and manuals download folder"
+    url: "https://flowtoys2.freshdesk.com/support/solutions/folders/6000008575"
+    kind: "vendor_support"
+    description: >
+      Vendor support library — the same folder this project's research cache mirrors.

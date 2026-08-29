@@ -11,6 +11,7 @@ const _full = SetupInstructionsDto(
     SetupMethodDto(
       methodType: 'ble_direct',
       description: 'Pair directly over BLE.',
+      stages: [],
       steps: [
         SetupStepDto(
           action: 'Hold the base button until the LED turns blue.',
@@ -124,5 +125,109 @@ void main() {
     expect(find.text('How to pair'), findsNothing);
     expect(find.text('Factory reset'), findsNothing);
     expect(find.text('Overview'), findsNothing);
+  });
+
+  testWidgets('a staged route renders every phase with its own steps',
+      (tester) async {
+    // The hue-bridge shape after the catalogue's setup restructure: one named
+    // primary route whose steps live entirely on its two stages. Losing the
+    // stages loses the whole procedure — the exact break this guards.
+    await _pump(
+      tester,
+      const SetupInstructionsDto(
+        notes: null,
+        methods: [
+          SetupMethodDto(
+            methodType: 'wired',
+            name: 'Ethernet, then the link button',
+            role: 'primary',
+            description: 'Two things have to happen and neither is a choice.',
+            steps: [],
+            stages: [
+              SetupStageDto(
+                name: 'Get the bridge onto the LAN',
+                methodType: 'wired',
+                description: null,
+                steps: [
+                  SetupStepDto(
+                      action: 'Plug the bridge into the router.',
+                      actor: 'user'),
+                ],
+                troubleshooting: [],
+              ),
+              SetupStageDto(
+                name: 'Authorize this client at the link button',
+                methodType: 'button_pairing',
+                description: null,
+                steps: [
+                  SetupStepDto(action: 'Press the link button.', actor: 'user'),
+                  SetupStepDto(
+                      action: 'Create a user.',
+                      actor: 'client',
+                      expect: 'A username in the reply.'),
+                ],
+                troubleshooting: [],
+              ),
+            ],
+            troubleshooting: [],
+          ),
+        ],
+        factoryReset: null,
+        rejoin: null,
+      ),
+    );
+
+    // The route's own name is the section title — not a generic heading.
+    expect(find.text('Ethernet, then the link button'), findsOneWidget);
+    expect(find.text('How to pair'), findsNothing);
+    // Both phases render, in order, with their steps.
+    expect(find.textContaining('1 of 2 — Get the bridge onto the LAN'),
+        findsOneWidget);
+    expect(
+        find.textContaining(
+            '2 of 2 — Authorize this client at the link button'),
+        findsOneWidget);
+    expect(
+        find.textContaining('Plug the bridge into the router'), findsOneWidget);
+    expect(find.textContaining('Press the link button'), findsOneWidget);
+    expect(find.textContaining('A username in the reply'), findsOneWidget);
+    // Primary needs no qualifier label.
+    expect(find.text('Also works'), findsNothing);
+  });
+
+  testWidgets('non-primary roles are labelled and named routes are choosable',
+      (tester) async {
+    await _pump(
+      tester,
+      const SetupInstructionsDto(
+        notes: null,
+        methods: [
+          SetupMethodDto(
+            methodType: 'hub_pairing',
+            name: 'HomeKit pairing',
+            role: 'primary',
+            description: 'The account-free route.',
+            steps: [],
+            stages: [],
+            troubleshooting: [],
+          ),
+          SetupMethodDto(
+            methodType: 'softap_http',
+            name: 'Gen 3 setup AP',
+            role: 'variant',
+            description: 'Gen 3 units only.',
+            steps: [],
+            stages: [],
+            troubleshooting: [],
+          ),
+        ],
+        factoryReset: null,
+        rejoin: null,
+      ),
+    );
+
+    expect(find.text('HomeKit pairing'), findsOneWidget);
+    expect(find.text('Gen 3 setup AP'), findsOneWidget);
+    expect(find.text('Depends on the hardware'), findsOneWidget);
   });
 }

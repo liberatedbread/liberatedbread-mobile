@@ -162,6 +162,13 @@ device:
       issued_to_client: []
       notes: "BLE-only passive sensor. No auth."
 
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
   variants:
     - model: "Ropot (no light sensor)"
       identification:
@@ -376,3 +383,15 @@ entities:
     state_characteristic: "00001a02-0000-1000-8000-00805f9b34fb"
     state_mapping:
       value: "battery"
+
+helpful_urls:
+  - title: "Xiaomi Flower Care smart monitor user manual"
+    url: "https://www.manua.ls/xiaomi/huahuacacao-flower-care-smart-monitor/manual"
+    kind: "manual"
+    description: >
+      Vendor manual for the Huahuacaocao-built sensor this spec documents.
+  - title: "Flower plant monitor usage guide (PDF)"
+    url: "https://img.banggood.com/file/products/20160715033032How%20to%20Use%20Flower%20Plant%20Monitor.pdf"
+    kind: "manual"
+    description: >
+      A retailer-hosted copy of the same guide, covering the light, temperature, moisture and fertility measurements.
