@@ -103,17 +103,46 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
     }
   }
 
-  Future<void> _printTestLabel() async {
+  /// Whether the print button is offered: when the printer reported ready, OR
+  /// when it is reachable but reported no status at all (some firmware only
+  /// answers status while idle — the card says a test label should still
+  /// print, so the button must honour that). A reported not-ready (real error)
+  /// keeps it disabled.
+  bool get _canPrint => _status == null || _status!.readyToPrint;
+
+  /// The media to print on: what the printer reported, or a conservative
+  /// default (62 mm continuous, the common DK-2205 roll) when it stayed silent.
+  BrotherQlJobParamsDto _printParams() {
     final status = _status;
-    if (status == null || !status.readyToPrint) return;
+    if (status == null) {
+      return const BrotherQlJobParamsDto(
+        mediaWidthMm: 62,
+        mediaLengthMm: 0,
+        mediaDieCut: false,
+        autoCut: true,
+      );
+    }
+    return BrotherQlJobParamsDto(
+      mediaWidthMm: status.mediaWidthMm,
+      mediaLengthMm: status.mediaLengthMm,
+      mediaDieCut: status.mediaType == 'die_cut',
+      autoCut: true,
+    );
+  }
+
+  Future<void> _printTestLabel() async {
+    if (!_canPrint) return;
+    final status = _status;
+    final detail = status == null
+        ? 'The printer did not report its media, so this assumes a standard '
+            '62 mm continuous roll.'
+        : 'This uses one ${status.mediaWidthMm} mm label to check the '
+            'printer end to end.';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Print a test label?'),
-        content: Text(
-          'This uses one ${status.mediaWidthMm} mm label to check the '
-          'printer end to end.',
-        ),
+        content: Text(detail),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -133,12 +162,7 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
     try {
       final job = await codec.renderBrotherQlTestLabel(
         specYaml: widget.controls.specYaml,
-        params: BrotherQlJobParamsDto(
-          mediaWidthMm: status.mediaWidthMm,
-          mediaLengthMm: status.mediaLengthMm,
-          mediaDieCut: status.mediaType == 'die_cut',
-          autoCut: true,
-        ),
+        params: _printParams(),
       );
       final result = await printer.send(widget.device.host, _port, job);
       if (!mounted) return;
@@ -194,7 +218,7 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
             ),
             const SizedBox(height: 20),
             FilledButton.icon(
-              onPressed: (_status?.readyToPrint ?? false) && !_printing
+              onPressed: _canPrint && !_loading && !_printing
                   ? () => unawaited(_printTestLabel())
                   : null,
               icon: _printing

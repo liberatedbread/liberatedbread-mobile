@@ -24,9 +24,15 @@ class BrotherQlPrintService {
   /// printer answers a status request promptly, or not at all).
   final Duration statusReadTimeout;
 
+  /// How long to wait for the payload to flush (and the half-close after it):
+  /// a wedged printer can complete the TCP handshake and then stop draining its
+  /// receive window mid-job, which would otherwise hang the write forever.
+  final Duration writeTimeout;
+
   const BrotherQlPrintService({
     this.connectTimeout = const Duration(seconds: 6),
     this.statusReadTimeout = const Duration(seconds: 4),
+    this.writeTimeout = const Duration(seconds: 8),
   });
 
   /// Open [host]:[port], write [payload], and — when [readStatus] — read up to
@@ -45,23 +51,35 @@ class BrotherQlPrintService {
       Log.spec.debug('brother_ql connect to $host:$port failed', error: e);
       return BrotherQlSendFailed('Could not reach the printer at $host:$port.');
     }
+    // Getting the bytes onto the wire is the real send; bound it so a printer
+    // that stops draining mid-job cannot hang here forever.
     try {
       socket.add(payload);
-      await socket.flush();
-      if (!readStatus) {
-        await socket.close();
-        return const BrotherQlSendOk(null);
-      }
-      final reply = await _readStatus(socket);
-      // close() flushes and half-closes; destroy() guarantees the read side is
-      // torn down too even if the printer left the connection open.
+      await socket.flush().timeout(writeTimeout);
+    } on TimeoutException {
+      Log.spec.debug('brother_ql flush to $host:$port timed out');
       socket.destroy();
-      return BrotherQlSendOk(reply);
+      return const BrotherQlSendFailed('The printer stopped accepting data.');
     } on Object catch (e) {
       Log.spec.debug('brother_ql send to $host:$port failed', error: e);
       socket.destroy();
       return const BrotherQlSendFailed('The printer refused the data.');
     }
+
+    if (readStatus) {
+      final reply = await _readStatus(socket);
+      // destroy() guarantees the read side is torn down even if the printer
+      // left the connection open.
+      socket.destroy();
+      return BrotherQlSendOk(reply);
+    }
+    // The bytes are already flushed, so a slow half-close is not a send
+    // failure: bound it, swallow it, and destroy regardless.
+    try {
+      await socket.close().timeout(writeTimeout);
+    } on Object catch (_) {}
+    socket.destroy();
+    return const BrotherQlSendOk(null);
   }
 
   /// Collect the first 32 bytes the printer sends, or null on timeout / a short

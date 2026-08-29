@@ -743,21 +743,6 @@ Future<Uint8List> brotherQlStatusRequest() =>
 Future<BrotherQlStatusDto> decodeBrotherQlStatus({required List<int> reply}) =>
     RustLib.instance.api.crateApiDeviceApiDecodeBrotherQlStatus(reply: reply);
 
-/// Encode a full Brother QL raster job from an RGB888 canvas — the whole byte
-/// stream to write to TCP 9100 (or LPR/SPP).
-Future<Uint8List> encodeBrotherQlJob(
-        {required String specYaml,
-        required int width,
-        required int height,
-        required List<int> rgb,
-        required BrotherQlJobParamsDto params}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeBrotherQlJob(
-        specYaml: specYaml,
-        width: width,
-        height: height,
-        rgb: rgb,
-        params: params);
-
 /// Render a self-contained test label — a bordered box with a diagonal cross —
 /// sized to the loaded media, and encode it as a raster job. The "Print test
 /// label" action: it proves the whole path (encode + transport + cut) without

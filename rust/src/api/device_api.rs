@@ -4547,30 +4547,6 @@ fn brother_ql_media(params: &BrotherQlJobParamsDto) -> crate::protocol::brother_
     }
 }
 
-/// Encode a full Brother QL raster job from an RGB888 canvas — the whole byte
-/// stream to write to TCP 9100 (or LPR/SPP).
-pub fn encode_brother_ql_job(
-    spec_yaml: String,
-    width: u32,
-    height: u32,
-    rgb: Vec<u8>,
-    params: BrotherQlJobParamsDto,
-) -> anyhow::Result<Vec<u8>> {
-    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let options = crate::protocol::brother_ql::JobOptions {
-        auto_cut: params.auto_cut,
-        ..Default::default()
-    };
-    Ok(crate::protocol::brother_ql::encode_print_job(
-        &spec,
-        &rgb,
-        width,
-        height,
-        brother_ql_media(&params),
-        options,
-    )?)
-}
-
 /// Render a self-contained test label — a bordered box with a diagonal cross —
 /// sized to the loaded media, and encode it as a raster job. The "Print test
 /// label" action: it proves the whole path (encode + transport + cut) without
@@ -4583,13 +4559,21 @@ pub fn render_brother_ql_test_label(
     let head = crate::protocol::image_upload::image_feature(&spec)
         .and_then(|f| f.max_width)
         .unwrap_or(1296) as usize;
-    // Printable dots at 300 dpi from the media's mm width, capped to the head.
-    let width = ((params.media_width_mm as usize * 3000) / 254).clamp(8, head);
-    // Height: a die-cut label's own length, else a fixed strip. Kept at/above
-    // the 301-dot minimum print length the geometry states.
-    let length_dots = (params.media_length_mm as usize * 3000) / 254;
-    let height = if params.media_die_cut && length_dots >= 301 {
-        length_dots
+    // Media width in dots at 300 dpi, kept off the head's ~44-dot right dead
+    // zone so the box's right edge actually prints, and off the head bound so a
+    // narrow label is not overdrawn. `.max(8)` (not `.clamp`, which panics when
+    // its bounds cross on a malformed tiny-head spec) — an oversized result is
+    // then refused cleanly by validate_rgb_canvas rather than crashing.
+    let printable_width = head.saturating_sub(44).max(8);
+    let want_width = (params.media_width_mm as usize * 3000) / 254;
+    let width = want_width.min(printable_width).max(8);
+    // Height. Continuous tape has no label boundary, so a short fixed strip is
+    // safe. A die-cut label DOES have one: the raw mm→dots length overshoots
+    // the printable length by the inter-label gap, so undershoot ~1/8 to keep
+    // the test box inside a single label rather than overrunning onto the next.
+    let height = if params.media_die_cut {
+        let label = (params.media_length_mm as usize * 3000) / 254;
+        (label - label / 8).max(1)
     } else {
         400
     };

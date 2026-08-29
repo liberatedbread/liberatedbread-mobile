@@ -21,12 +21,15 @@ import 'spec_choice_provider.dart';
 import 'spec_codec_provider.dart';
 
 /// Categories that never take part in grouping: `reference` specs document a
-/// protocol rather than a device, and `vehicle` covers OBD dongles — serial
-/// bridges into a car, not endpoints a bulk on/off or battery sweep should
-/// ever touch.
+/// protocol rather than a device, `vehicle` covers OBD dongles — serial bridges
+/// into a car, not endpoints a bulk on/off or battery sweep should ever touch —
+/// and `printer` is a per-job action surface (a raster label printer now
+/// resolves to a non-null control surface with no commands, so without this it
+/// would appear as a group member that does nothing when the group is run).
 const Set<DeviceCategory> kNonGroupableCategories = {
   DeviceCategory.reference,
   DeviceCategory.vehicle,
+  DeviceCategory.printer,
 };
 
 /// Whether a device with this recorded `device.category` value may take part
