@@ -10,8 +10,17 @@
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <!-- Required for BLE scanning on API 30 and below, and requested at runtime
-         on every API level (see RealBleService.requestPermissions). -->
+         on every API level (see RealBleService.requestPermissions).
+         ACCESS_COARSE_LOCATION must be declared ALONGSIDE fine: from Android 12
+         (API 31), a runtime request for ACCESS_FINE_LOCATION that is not
+         accompanied by ACCESS_COARSE_LOCATION is silently ignored by the system
+         (no dialog, logcat "ACCESS_FINE_LOCATION must be accompanied by
+         ACCESS_COARSE_LOCATION"). permission_handler only adds COARSE to the
+         request when it is declared here, so without this line every scan on a
+         12+ device returns from requestPermissions() denied and throws
+         BlePermissionDeniedException — i.e. most of the fleet. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Home Assistant companion mode: registration + webhook pushes. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Local-network device discovery (mDNS + SSDP). ACCESS_WIFI_STATE reads
