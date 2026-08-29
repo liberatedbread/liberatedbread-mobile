@@ -1,9 +1,12 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/constants.dart';
 import '../core/log.dart';
@@ -20,27 +23,102 @@ final adBannerServiceProvider = Provider<AdBannerService>((ref) {
   return AdBannerService(client: client);
 });
 
+/// The full ad state: the parsed config (global banner + targeted banners) and
+/// the set of promotion ids the user has dismissed. Held whole so both the
+/// global scan-screen banner and any device-targeted banner derive from one
+/// source and react together to a refresh or a dismissal.
+@immutable
+class AdBannerState {
+  final AdBannerConfig config;
+  final Set<String> dismissed;
+
+  const AdBannerState({required this.config, required this.dismissed});
+
+  /// The global banner for the scan screen, or null when there is none or the
+  /// user dismissed it.
+  AdBanner? get globalBanner {
+    final b = config.banner;
+    return (b == null || dismissed.contains(b.id)) ? null : b;
+  }
+
+  /// The best banner for a device with [category]/[specKey], or null. A
+  /// spec-key match beats a category match beats the global banner; dismissed
+  /// promotions are skipped at every tier.
+  AdBanner? bannerFor({String? category, String? specKey}) => config.bestFor(
+        category: category,
+        specKey: specKey,
+        exclude: dismissed,
+      );
+
+  AdBannerState copyWith({AdBannerConfig? config, Set<String>? dismissed}) =>
+      AdBannerState(
+        config: config ?? this.config,
+        dismissed: dismissed ?? this.dismissed,
+      );
+}
+
+/// Identifies the device a targeted banner is chosen for. Both fields are
+/// nullable — a device whose spec did not match still has neither, and then
+/// only the global banner can show.
+@immutable
+class DeviceAdContext {
+  final String? category;
+  final String? specKey;
+
+  const DeviceAdContext({this.category, this.specKey});
+
+  @override
+  bool operator ==(Object other) =>
+      other is DeviceAdContext &&
+      other.category == category &&
+      other.specKey == specKey;
+
+  @override
+  int get hashCode => Object.hash(category, specKey);
+}
+
+/// The whole ad state. Seeds synchronously (cache or bundled) so the first
+/// frame never waits on IO, then refreshes in the background.
+final adBannerStateProvider =
+    NotifierProvider<AdBannerNotifier, AdBannerState>(AdBannerNotifier.new);
+
 /// The banner to show at the bottom of the scan screen, or null for none.
 ///
-/// Deliberately non-blocking: [AdBannerNotifier.build] is synchronous — it
-/// seeds from the last successfully fetched config (cached in
-/// SharedPreferences) or the bundled [AdBanner.fallback], so the first frame
-/// never waits on the network. The remote refresh runs fire-and-forget in the
-/// background and only ever swaps the state after the fact; if it fails, the
-/// seed simply stays.
+/// A thin view over [adBannerStateProvider] kept at its old name and type so
+/// the scan screen and its tests read it unchanged.
 final adBannerProvider =
-    NotifierProvider<AdBannerNotifier, AdBanner?>(AdBannerNotifier.new);
+    Provider<AdBanner?>((ref) => ref.watch(adBannerStateProvider).globalBanner);
 
-class AdBannerNotifier extends Notifier<AdBanner?> {
+/// The banner to show against a specific device (its device screen), or null.
+///
+/// Falls back to the global banner when nothing targets the device, so a device
+/// screen always shows the most relevant promotion available — a label printer
+/// its label-supply promo, an unmatched device the general shop banner.
+final deviceAdBannerProvider =
+    Provider.family<AdBanner?, DeviceAdContext>((ref, context) {
+  final state = ref.watch(adBannerStateProvider);
+  return state.bannerFor(category: context.category, specKey: context.specKey);
+});
+
+class AdBannerNotifier extends Notifier<AdBannerState> {
   /// Raw JSON of the last config a fetch successfully parsed.
   static const cacheKey = 'ad_banner_config_json';
 
-  /// Id of the banner the user last dismissed. That banner stays hidden until
-  /// a config ships a different id.
-  static const dismissedKey = 'ad_banner_dismissed_id';
+  /// Ids of banners the user has dismissed. Each stays hidden until a config
+  /// ships a different id. Stored as a JSON array of ids; a bare-string value
+  /// left by an older build (one id) is read as a single-element set.
+  static const dismissedKey = 'ad_banner_dismissed_ids';
+
+  /// The pre-set-of-ids key an older build wrote (one dismissed id). Read once
+  /// for a smooth upgrade, then superseded by [dismissedKey].
+  static const legacyDismissedKey = 'ad_banner_dismissed_id';
+
+  /// Cap on remembered dismissals, so the set cannot grow without bound across
+  /// many promotions over the app's life. FIFO by insertion.
+  static const maxDismissed = 64;
 
   @override
-  AdBanner? build() {
+  AdBannerState build() {
     // Guards the background refresh: after the container is disposed, writing
     // state would throw into an unawaited future.
     var disposed = false;
@@ -80,19 +158,55 @@ class AdBannerNotifier extends Notifier<AdBanner?> {
     if (!isMockMode) {
       unawaited(_refresh(isDisposed: () => disposed));
     }
-    return _visible(_seedConfig().banner);
+    return AdBannerState(config: _seedConfig(), dismissed: _loadDismissed());
+  }
+
+  /// SharedPreferences, or null when it is not wired in this scope. The banner
+  /// is a non-critical, embeddable bit of UI (both bars can sit on any screen),
+  /// so it must not hard-depend on the store being overridden: a screen test
+  /// that shows the bar without providing prefs gets the bundled content with
+  /// no persistence — exactly the offline behaviour — rather than an exception
+  /// building the widget tree.
+  SharedPreferences? _prefsOrNull() {
+    try {
+      return ref.read(sharedPreferencesProvider);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// The synchronous seed: the cached remote config when one parses, else the
-  /// bundled fallback.
+  /// bundled config (global fallback + bundled targeted banners).
   AdBannerConfig _seedConfig() {
-    final cached = ref.read(sharedPreferencesProvider).getString(cacheKey);
+    final cached = _prefsOrNull()?.getString(cacheKey);
     if (cached != null) {
       final config = AdBannerConfig.tryParse(cached);
       if (config != null) return config;
       Log.ads.warning('ignoring corrupt cached banner config');
     }
-    return AdBannerConfig(banner: AdBanner.fallback);
+    return AdBannerConfig.bundled;
+  }
+
+  /// The dismissed-id set from storage, tolerating the legacy single-id key.
+  Set<String> _loadDismissed() {
+    final prefs = _prefsOrNull();
+    if (prefs == null) return <String>{};
+    final stored = prefs.getString(dismissedKey);
+    if (stored != null) {
+      try {
+        final decoded = jsonDecode(stored);
+        if (decoded is List) {
+          return {
+            for (final e in decoded)
+              if (e is String) e
+          };
+        }
+      } catch (_) {
+        // Fall through to the legacy key / empty.
+      }
+    }
+    final legacy = prefs.getString(legacyDismissedKey);
+    return legacy == null ? <String>{} : {legacy};
   }
 
   /// Fetch the remote config, cache it, and swap the state. Failures leave the
@@ -106,7 +220,7 @@ class AdBannerNotifier extends Notifier<AdBanner?> {
       case AdBannerFetchOk(:final config, :final rawJson):
         // Apply the fetched config first — a remote kill switch must work
         // even when the cache write below fails.
-        state = _visible(config.banner);
+        state = state.copyWith(config: config);
         // Cache verbatim so the next launch seeds with this config — including
         // a "show nothing" one, which must keep the banner off from the first
         // frame, not flash the fallback and then hide it. Best-effort: this
@@ -124,30 +238,26 @@ class AdBannerNotifier extends Notifier<AdBanner?> {
     }
   }
 
-  /// [banner] unless the user has already dismissed that exact promotion.
-  AdBanner? _visible(AdBanner? banner) {
-    if (banner == null) return null;
-    final dismissed =
-        ref.read(sharedPreferencesProvider).getString(dismissedKey);
-    return banner.id == dismissed ? null : banner;
-  }
-
-  /// Hide the current banner and remember its id, so it stays gone until a
-  /// config ships a different promotion.
-  Future<void> dismiss() async {
-    final banner = state;
-    if (banner == null) return;
-    state = null;
+  /// Hide the banner with [id] and remember it, so it stays gone until a config
+  /// ships a different promotion. Bounded FIFO.
+  Future<void> dismiss(String id) async {
+    if (state.dismissed.contains(id)) return;
+    final next = <String>{...state.dismissed, id};
+    // Trim oldest-first if we blew the cap: iteration order is insertion order.
+    final trimmed = next.length > maxDismissed
+        ? next.skip(next.length - maxDismissed).toSet()
+        : next;
+    state = state.copyWith(dismissed: trimmed);
     // Best-effort like the cache write in _refresh: the caller fires this
     // unawaited, and the banner is already hidden for this session even if
-    // persisting the id fails.
+    // persisting fails.
     try {
       await ref
           .read(sharedPreferencesProvider)
-          .setString(dismissedKey, banner.id);
+          .setString(dismissedKey, jsonEncode(trimmed.toList()));
     } catch (e) {
       Log.ads.warning('could not persist the ad dismissal', error: e);
     }
-    Log.ads.info('banner "${banner.id}" dismissed');
+    Log.ads.info('banner "$id" dismissed');
   }
 }

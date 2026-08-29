@@ -28,6 +28,7 @@ import '../services/roomba_control_service.dart';
 import '../services/roomba_controller.dart';
 import '../services/spec_codec.dart';
 import '../services/tls_trust.dart';
+import '../widgets/ad_banner_bar.dart';
 import '../widgets/device_credentials_card.dart';
 import '../widgets/entity_cards/sensor_level_chip.dart';
 import '../widgets/network_light_card.dart';
@@ -61,10 +62,19 @@ class NetworkDeviceScreen extends ConsumerStatefulWidget {
   final NetworkDevice device;
   final NetworkControls controls;
 
+  /// The matched spec's `device.category` and `specKeyFor` identity, when the
+  /// opener knew them — used only to pick the device-targeted ad banner (label
+  /// supplies for a label printer, filters for a Rabbit Air). Null falls back
+  /// to the global promotion.
+  final String? category;
+  final String? specKey;
+
   const NetworkDeviceScreen({
     super.key,
     required this.device,
     required this.controls,
+    this.category,
+    this.specKey,
   });
 
   @override
@@ -1367,6 +1377,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
     return Scaffold(
       backgroundColor: scheme.surface,
+      // The device-targeted promotion: label-roll supplies for a label printer,
+      // filter kits for a Rabbit Air, etc., falling back to the global shop
+      // banner for a device nothing targets. Zero-height when there is nothing
+      // to show.
+      bottomNavigationBar: DeviceAdBannerBar(
+        category: widget.category,
+        specKey: widget.specKey,
+      ),
       appBar: AppBar(
         title: Text(description?.friendlyName ?? widget.device.displayName),
         actions: [

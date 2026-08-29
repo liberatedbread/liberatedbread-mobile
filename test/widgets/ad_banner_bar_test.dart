@@ -74,8 +74,8 @@ void main() {
     expect(find.text('AD'), findsNothing);
     expect(find.text(AdBanner.fallback.message), findsNothing);
     expect(opened, isEmpty);
-    expect(
-        _prefs.getString(AdBannerNotifier.dismissedKey), AdBanner.fallback.id);
+    expect(_prefs.getString(AdBannerNotifier.dismissedKey),
+        jsonEncode([AdBanner.fallback.id]));
   });
 
   testWidgets('a maximum-length CTA ellipsizes on a narrow screen',
@@ -107,8 +107,9 @@ void main() {
 
   testWidgets('renders nothing when the promotion was already dismissed',
       (tester) async {
-    SharedPreferences.setMockInitialValues(
-        {AdBannerNotifier.dismissedKey: AdBanner.fallback.id});
+    SharedPreferences.setMockInitialValues({
+      AdBannerNotifier.dismissedKey: jsonEncode([AdBanner.fallback.id])
+    });
     _prefs = await SharedPreferences.getInstance();
 
     await tester.pumpWidget(_wrap(opened: []));

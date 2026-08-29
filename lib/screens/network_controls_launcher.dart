@@ -25,6 +25,13 @@ Future<void> openNetworkControls({
   required WidgetRef ref,
   required NetworkDevice device,
   required NetworkControls controls,
+  // The matched spec's category (`device.category`) and identity
+  // (`specKeyFor`), when the caller knows them — the scan row has them from its
+  // guess, a saved device persists them. They drive the device-targeted ad
+  // banner (label supplies for a label printer, filters for a Rabbit Air) and
+  // are otherwise inert; null just falls back to the global promotion.
+  String? category,
+  String? specKey,
 }) async {
   if (!await _adopted(
       context: context, ref: ref, device: device, controls: controls)) {
@@ -39,7 +46,12 @@ Future<void> openNetworkControls({
       // bridge would not survive.
       builder: (_) => controls.isHub
           ? HubDeviceScreen(device: device, controls: controls)
-          : NetworkDeviceScreen(device: device, controls: controls),
+          : NetworkDeviceScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            ),
     ),
   );
 }

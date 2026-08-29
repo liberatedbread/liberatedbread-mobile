@@ -92,6 +92,8 @@ class SavedDevicesScreen extends ConsumerWidget {
         ref: ref,
         device: saved.toNetworkDevice(),
         controls: controls,
+        category: saved.category,
+        specKey: saved.specKey,
       );
 
   Future<void> _forgetNetwork(

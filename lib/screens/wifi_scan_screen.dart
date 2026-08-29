@@ -385,14 +385,17 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
               // can join groups and be reached while out of sight. The spec
               // identity and category ride along — they are what the TVs
               // auto-group buckets by.
+              final category = guess?.category?.wireName;
+              final specKey = guess == null
+                  ? null
+                  : '${guess.deviceName}|${guess.manufacturer}';
               unawaited(ref.read(savedNetworkDevicesProvider.notifier).touch(
                     device,
-                    category: guess?.category?.wireName,
-                    specKey: guess == null
-                        ? null
-                        : '${guess.deviceName}|${guess.manufacturer}',
+                    category: category,
+                    specKey: specKey,
                   ));
-              unawaited(_openControls(device, controls));
+              unawaited(_openControls(device, controls,
+                  category: category, specKey: specKey));
             }
           // A UniFi camera's own admin page is a dead end — cameras are driven
           // through UniFi Protect, not individually — so it opens the details
@@ -413,13 +416,17 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   /// scanned robot and a saved one get the same adoption pre-flight.
   Future<void> _openControls(
     NetworkDevice device,
-    NetworkControls controls,
-  ) =>
+    NetworkControls controls, {
+    String? category,
+    String? specKey,
+  }) =>
       openNetworkControls(
         context: context,
         ref: ref,
         device: device,
         controls: controls,
+        category: category,
+        specKey: specKey,
       );
 
   /// A UniFi camera or doorbell — recognized by the pictogram its transport
