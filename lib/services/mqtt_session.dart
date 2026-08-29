@@ -211,6 +211,14 @@ class MqttSession {
   Timer? _ping;
   final _buffer = <int>[];
 
+  /// Bumped every time the session is torn down, so a chunk decode suspended
+  /// across an `await` can tell it belongs to a session that has since closed
+  /// (or been reopened) and bail before it touches the shared buffer. Without
+  /// it, a close() that clears the buffer mid-parse makes the resuming
+  /// `removeRange` throw, and a reopen in that window has its fresh buffer
+  /// stripped by the stale decode.
+  int _generation = 0;
+
   /// The tail of the chunk-processing chain.
   ///
   /// `Stream.listen` does not await an async callback, so without this two
@@ -370,6 +378,7 @@ class MqttSession {
   static const int _maxBufferedBytes = 1 << 20;
 
   Future<void> _onBytes(Uint8List chunk) async {
+    final generation = _generation;
     if (_buffer.length + chunk.length > _maxBufferedBytes) {
       _fail(const MqttConnectionException(
           'The MQTT stream exceeded its 1 MiB receive bound.'));
@@ -384,6 +393,11 @@ class MqttSession {
       _fail(MqttConnectionException('Unreadable MQTT stream — $e'));
       return;
     }
+    // close() may have run during the parse above, clearing (and a reopen
+    // refilling) the buffer. This decode belongs to the session that was live
+    // when it started; if that is no longer the current one, drop it rather
+    // than removeRange past the emptied buffer or strip a fresh session's bytes.
+    if (generation != _generation) return;
     _buffer.removeRange(0, parsed.consumed);
 
     for (final packet in parsed.packets) {
@@ -443,6 +457,10 @@ class MqttSession {
   Future<void> close() async {
     final socket = _socket;
     _socket = null;
+    // Retire this session's generation so any chunk decode suspended across an
+    // await bails when it resumes, instead of removeRange-ing the buffer we are
+    // about to clear (or, after a reopen, the next session's buffer).
+    _generation++;
     _ping?.cancel();
     _ping = null;
     // Cancel and detach the read subscription and buffer SYNCHRONOUSLY, before
