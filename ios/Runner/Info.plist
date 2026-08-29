@@ -49,8 +49,11 @@
 	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Location access needed for Bluetooth scanning.</string>
+	<!-- No NSLocationWhenInUseUsageDescription: iOS BLE needs no location, and
+	     the only location request in the app is Android-only
+	     (RealBleService.requestPermissions, inside `if (Platform.isAndroid)`).
+	     A location purpose string with no matching location-API use is a
+	     Guideline 5.1.1 review flag, so it is deliberately absent here. -->
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Liberated Bread finds IoT devices on your Wi-Fi network, and connects to your Home Assistant server.</string>
 	<!-- iOS 14+ will not deliver mDNS answers for a service type that is not
