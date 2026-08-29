@@ -136,28 +136,26 @@ device:
     OPEN — the full numeric opcode map, exact MSG_DATA_* / MSG_PC_CMD_EX
     field layouts (image pixel blocks carry R/G/B uint32 fields with a gamma
     step), .fw obfuscation, RF on-air protocol, advertised BLE local name.
-  identification:
-    service_uuids:
-      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+  # NO automatic identification or discovery block, deliberately. The only
+  # scan signal known for these props is the Nordic UART Service UUID, and
+  # this spec carries brick-capable advanced commands (bootloader entry,
+  # firmware erase) — docs/CLEANROOM_RULES.md forbids auto-matching on a
+  # non-unique signal in that case, because a misidentified device means
+  # pointing a write at unrelated hardware.
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          service_uuids:
-            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-    identity:
-      stable_keys: ["address"]
-      display: "local_name"
-    static_ip_required: false
-    notes: >
-      The Nordic UART Service UUID is a shared platform UUID used by countless
-      unrelated devices, and it is the only scan signal documented here (the
-      vendor app's own scanner also filters on this UUID alone). A consumer
-      MUST confirm identity after connecting: issue the get-id / hardware-info
-      request and check the FW_DevType field against the variant table before
-      presenting the device as an Ignis Pixel prop. The advertised local name
-      on real hardware has not been captured — record it on first contact and
-      promote it to identification.local_name_prefix.
+    none: >
+      The only advertisement is the shared Nordic UART Service platform UUID
+      (6e400001-b5a3-f393-e0a9-e50e24dcca9e), used by countless unrelated
+      devices — the vendor app's own scanner filters on this UUID alone — so
+      no signal distinguishes an Ignis Pixel prop from any other NUS device,
+      and this spec carries brick-capable advanced commands. Manual selection
+      only: after connecting, a consumer MUST confirm identity by issuing the
+      get-id / hardware-info request and checking the FW_DevType field
+      against the variant table before presenting the device as an Ignis
+      Pixel prop. The advertised local name on real hardware has not been
+      captured — record it on first contact and promote it to
+      identification.local_name_prefix, which is what would make safe scan
+      matching possible.
   setup:
     required: false
     confidence: "medium"

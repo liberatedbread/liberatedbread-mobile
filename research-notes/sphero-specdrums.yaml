@@ -32,8 +32,8 @@ ble:
 
   custom_profile:
     note: >
-      MIX/Edu apps use Sphero's generic BLE stack (com.sphero.platform.BtLe)
-      with runtime service discovery — no ring-specific UUIDs recoverable in a
+      MIX/Edu apps use Sphero's generic BLE convenience stack with runtime
+      service discovery — no ring-specific UUIDs recoverable in a
       triage static pass. Custom profile carries raw color/tap events, ring LED
       control, battery, and MIDI-mode config. One nRF Connect / HCI-snoop
       session with a live ring will enumerate it.

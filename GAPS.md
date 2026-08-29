@@ -52,6 +52,31 @@ companion app `xfkj.fitpro`). `m6-fitness-band.yaml` was re-targeted accordingly
 keeps the Veryfit analysis only as a clearly-labeled mis-attribution note. See
 `research/m6-fitness-band/CONFIRMATION.md` §C.
 
+## Mobile handlers' schema asks (image-upload wave)
+
+Recorded from the `SPEC-GAP` comments the mobile app's handlers carry in
+`rust/src/protocol/`. Each marks a place where a handler had to hard-code a
+value, tell two cases apart by command name, or parse a payload out of prose,
+because the spec or schema gave it no field to read. These are spec/schema
+asks, not protocol unknowns: the bytes are established downstream and work;
+what is missing is a machine-readable home for them so a generic consumer
+gets what this app had to special-case. Twelve asks across five handlers:
+
+| Handler | Schema ask |
+|---------|-----------|
+| cdbwsoft_ecb | `link_flag` vocabulary is undeclared — the handler carries the values inline. |
+| cdbwsoft_ecb | WRITE2 and WRITE3 are distinguishable only by command name; wants a declared `channel_tag` to switch on. |
+| cat_printer | Command set is in prose only — there is no `commands:` block to bind. |
+| cat_printer | Energy byte order is unstated. |
+| cat_printer | Payload values are unstated. |
+| fichero_d11 | Command set is in prose, not a `commands:` block. |
+| fichero_d11 | Density vocabulary is not a field. |
+| fichero_d11 | Paper-type vocabulary is not a field. |
+| idotmatrix | The 4096-byte chunk payload is described in prose only. |
+| idotmatrix | Static-image header values (time/delay + speed) are unstated. |
+| ledbadge_bitmap | Slot-mode enumeration is not in the YAML. |
+| ledbadge_bitmap | The 8192-byte flash ceiling is not declared. |
+
 ## Validation: 200/200 passing (199 device specs + 1 example)
 
 Pinned by `test_gaps_md_states_the_real_spec_count` in

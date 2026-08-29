@@ -41,7 +41,7 @@ learn button to pair the emulated panel (it seeds the rolling-code counter).
 A 2026-08-19 LAN sweep found a second Chamberlain-family device next to the
 closed-port hub from the `research-notes/myq-cloud-hub` dud: a **MyQ Smart
 Garage Control hub, model MYQ-G0401** (Gen 3, BLE-linked to the opener,
-firmware 1.10) at `192.168.1.104`. Unlike the earlier hub, this unit answers
+firmware 1.10) at `192.168.1.50`. Unlike the earlier hub, this unit answers
 on port 80:
 
 - `GET /jabout` — **unauthenticated** JSON identity: product string

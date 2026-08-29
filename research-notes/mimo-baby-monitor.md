@@ -38,7 +38,7 @@ GATT (from live capture, not the APK):
 - **SHA-256**: `648603a933ee5bba855d9701d8a05d082af50ff2cf8a8e59d7e30b08c65b10e7`
 - jadx decompile OK (workspace/static/mimo-baby-monitor). **The app
   contains no `android.bluetooth` code at all** — it is purely a
-  WebSocket/cloud client (`WebSocketService`, Count.ly, Crittercism,
+  WebSocket/cloud client (a WebSocket service plus Count.ly, Crittercism,
   Nest OAuth integration). The only UUID-looking strings are a WebSocket
   RFC 6455 GUID and a Nest client ID. The APK is therefore useless for
   BLE protocol recovery; the jadonk captures are the primary source.

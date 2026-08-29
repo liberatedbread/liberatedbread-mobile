@@ -122,6 +122,18 @@ device:
       Settings → HomeKit; reportedly iOS-only), so HAP pairing depends on the
       vendor app at least once.
     methods:
+      - type: "button_pairing"
+        name: "HomeKit pairing with the app's 8-digit code"
+        role: "primary"
+        verified: false
+        description: >
+          HomeKit pairing using the 8-digit setup code generated and displayed
+          in the Rachio app (Controller Settings → HomeKit; reportedly
+          iOS-only), which provides cloud-free local control once paired.
+        steps:
+          - action: "Perform a HAP pair-setup against the advertised _hap._tcp service using the app-displayed setup code."
+            actor: "client"
+            notes: "Not implemented in this project; the most promising route to local control."
       - type: "softap_http"
         name: "Gen 3 setup AP: HTTPS JSON under a pinned CA"
         role: "variant"
@@ -197,18 +209,6 @@ device:
           - action: "POST /sys/time to sync the epoch."
             actor: "client"
             notes: "Gen 2 verified from the vendor app (an older release's flow, constants re-confirmed in the current app); not replayed on hardware."
-      - type: "button_pairing"
-        name: "HomeKit pairing with the app's 8-digit code"
-        role: "alternative"
-        verified: false
-        description: >
-          HomeKit pairing using the 8-digit setup code generated and displayed
-          in the Rachio app (Controller Settings → HomeKit; reportedly
-          iOS-only), which provides cloud-free local control once paired.
-        steps:
-          - action: "Perform a HAP pair-setup against the advertised _hap._tcp service using the app-displayed setup code."
-            actor: "client"
-            notes: "Not implemented in this project; the most promising route to local control."
     factory_reset:
       confidence: "medium"
       effect: "Clears WiFi credentials, HomeKit pairings and schedules (vendor-documented procedure)."
@@ -267,8 +267,8 @@ device:
 evidence:
   live_lan_probe:
     date: "2026-07-16"
-    address: "192.168.1.186"
-    hostname: "WICED-hap-B68A9A.local"
+    address: "192.168.1.50"
+    hostname: "WICED-hap-AABBCC.local"
     mdns_service_type: "_hap._tcp.local."
     model_txt: "Rachio-AABBCC"
     port: 80

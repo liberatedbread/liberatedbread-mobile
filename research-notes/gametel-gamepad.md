@@ -17,7 +17,7 @@ registry confirmation pulled — last press 2013, domain gone).
      UUID `6ae94aad-1f69-4499-9791-e5bc1dbfbbd3` (`BtService.GAMETEL_UUID`,
      service name "Gametel").
 - App checks SDP records and branches on HID vs GAMETEL UUID
-  (`BtOutConnectHandler.handleUuidsFetched`).
+  (its outgoing-connection handler, on the fetched-UUIDs callback).
 
 ## Vendor Protocol (from com.fructel.gametel v1.5.3 DEX)
 Framing:
@@ -45,8 +45,8 @@ Reports: 16=FeatureReport, 17=ButtonReport,
 ## What the app did (and what is lost)
 - IME service (`IMEService`) injected gamepad button events as Android
   key/touch events — the "works with any game" hack. Also per-game key
-  mapping (`KeyMapActivity`) and a web-hosted game catalog
-  (`AppListAcitivity` + `UrlImageCache`), plus firmware update checker
+  mapping (a dedicated key-map activity) and a web-hosted game catalog
+  (an app-list activity with a URL image cache), plus firmware update checker
   (`FWUpdateChecker`). Catalog/firmware URLs are dead — cosmetic loss only.
 - The gamepad itself remains fully usable as a standard BT Classic HID
   gamepad without the app (pair in OS settings).

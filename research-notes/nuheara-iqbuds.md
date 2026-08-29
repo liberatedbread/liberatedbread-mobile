@@ -22,11 +22,11 @@ location-based hearing profiles, tap-touch remapping, EQ. Companion app: "IQbuds
 - **Version**: 3.3.5 (versionCode 967) — fetched via apkeep (apk-pure source) as XAPK, 2026-08-03
 - **XAPK SHA-256**: `11f4457c92d8005ad9ff0e9bddd24c79c886154d8d23cb1f4d4b835db5944d6f`
 - **Framework**: Kotlin + Dagger; packages largely unobfuscated
-  (`com.nuheara.iqbudsapp.communication.*` fully readable).
+  (the app's communication layer is fully readable).
 - jadx output at `workspace/static/iqbuds/`.
 
 ## Key finding: control is Qualcomm GAIA, not BLE GATT
-The buds' control channel in the app is `com.nuheara.gaialibrary` — Qualcomm GAIA
+The buds' control channel in the app is its bundled GAIA library — Qualcomm GAIA
 over Bluetooth Classic SPP/RFCOMM (SPP `00001101-...`, GAIA service UUID
 `00001107-d102-11e1-9b23-00025b00a5a5` in the app). BLE in this app is used
 only for the **IQstream TV** accessory:
@@ -42,13 +42,13 @@ Whether IQbuds² MAX (BT 5.0) also exposes GAIA-over-BLE needs a live scan.
 
 - Advertising/pairing name prefix: `"IQbuds"` (from the app's scanner,
   device names iqbuds / iqbudsboost / iqbudsmax / iqbuds2max).
-- Command model: `NuhearaCommands`, `NuhearaPacket`, `NuhearaPayloadParser`,
-  payload classes for audiogram, live EQ, location profiles, tap-touch, favourites.
+- Command model: dedicated command, packet and payload-parser classes, with
+  payload types for audiogram, live EQ, location profiles, tap-touch, favourites.
 
 ## Local feasibility
 High, via GAIA. No cloud in the device-control path; the app's account/registration
 is optional. Firmware update for gen-1 was USB+desktop utility; OTA manager exists
-in-app for later models (`IQBudsOTAManager`).
+in-app for later models (a dedicated OTA-manager class).
 
 ## Prior art
 - Qualcomm GAIA protocol documentation is public; multiple open-source GAIA host

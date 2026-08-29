@@ -39,12 +39,12 @@ bluetooth_classic:
 protocol:
   name: Qualcomm GAIA (framing) + Nura crypto layer
   framing:
-    source_class: com.nuraphone.android.commands.GAIACommand
+    source_role: the app's GAIA command wrapper class
     layout: [SOF, version, flags, payload...]  # GAIA standard
-    command_ids_class: com.nuraphone.android.commands.GAIACommandID
-    response_class: com.nuraphone.android.commands.GAIAResponse
+    command_ids_source: the app's GAIA command-id registry
+    response_source: the app's GAIA response parser
   crypto:
-    source_class: com.nuraphone.android.crypto.NativeWrapper (native lib)
+    source_role: the app's crypto wrapper around a bundled native library
     scheme: per-device 16-byte AES key; authenticated encrypt/decrypt; challenge-response auth
     key_acquisition: nura_backend_relay (one-time) or manual extraction from paired phone
   controls_mapped_by_community:

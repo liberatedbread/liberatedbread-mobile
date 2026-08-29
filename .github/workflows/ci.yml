@@ -9,14 +9,29 @@ on:
 permissions:
   contents: read
 
-# Only one run per ref at a time. Without this, a batch push of several commits
-# to main starts one run per commit, and their deploy jobs race to force-push
-# gh-pages: the loser dies on "cannot lock ref 'refs/heads/gh-pages'". Runs are
-# created in push order, so cancelling the older run leaves the newest commit —
-# the one whose docs should be live — as the only deployer.
+# One run per ref, but cancel the IN-PROGRESS run only on pull requests.
+#
+# On a PR, a new push supersedes the old one: cancelling the stale run saves
+# minutes and its outdated result was going to be ignored anyway.
+#
+# On main, never cancel a run that has started. The group key is per-ref, so
+# every push to main shares one group — and a run cancelled by concurrency
+# reports neither success nor failure, so if a fast second push killed the
+# first run mid-flight, a commit that actually broke a gate would land on main
+# with no red check anywhere to show it. Run #55 on main was cancelled exactly
+# this way.
+#
+# With cancel-in-progress false the group still serialises main: the running
+# job stays running, later pushes wait pending, and GitHub keeps only the
+# newest pending one (an intermediate commit may be superseded before it
+# starts, but it has run no gates yet, so nothing red is hidden — and the tip
+# commit always gets a full run). Serialising is also what keeps the deploy
+# jobs from racing to force-push gh-pages: they never run at the same time, so
+# the "cannot lock ref 'refs/heads/gh-pages'" failure that first motivated
+# cancel-in-progress cannot happen here without it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-and-test:

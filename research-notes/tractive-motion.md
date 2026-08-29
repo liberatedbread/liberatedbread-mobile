@@ -21,7 +21,7 @@ BLE-only pet activity tracker (no GPS, no cellular) from Tractive. Product line 
 - **Package**: `com.tractive.android.motion` ("Tractive MOTION")
 - **Source**: apkeep, apk-pure. Versions available: 2.0.0 … 2.3.0; downloaded 2.3.0 (latest).
 - **SHA-256**: `704b44ea1b81672df0ffe9113dfd000eaefd3dd54b23d90ff94e9db75205548b` (21 MB, 3 dex files)
-- **Framework**: native Java/Kotlin; dedicated `com.tractive.android.motion.ble.MotionClientAPI` BLE class; Nordic UART + DFU references present.
+- **Framework**: native Java/Kotlin; a dedicated BLE client-API class; Nordic UART + DFU references present.
 
 ## BLE UUIDs (from classes.dex)
 | UUID | Role |
@@ -43,6 +43,6 @@ BLE-only pet activity tracker (no GPS, no cellular) from Tractive. Product line 
 
 ## Open questions
 1. Does the 2.3.0 app still function against Tractive's backend today (account creation/login for MOTION)?
-2. Frame format on `69af0003/0004` for activity sync and clock set — needs HCI snoop or jadx pass on `MotionClientAPI`.
+2. Frame format on `69af0003/0004` for activity sync and clock set — needs HCI snoop or a deeper jadx pass on the app's BLE client-API class.
 3. Is the Nordic UART actually exposed by the pod, or only used for DFU?
 4. On-pod storage depth (days of activity) and sample format.

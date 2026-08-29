@@ -57,7 +57,7 @@ the reverse-engineering work.
 LOY SPACE (`com.yskd.loywf`), NYAN GEAR (`com.nyan.gear`) and very likely LED space
 (`com.yj.led`) are all built on the popled.cn backend. Signals: BLE name prefix `YS` or `TL`,
 Wi-Fi SSID containing `YS` with default password `12345678`, UDP discovery on port 9090 to
-`192.168.4.255`, and an `aa 55` framed TLV packet carrying JSON commands. The LED space product
+the subnet broadcast `192.168.4.255`, and an `aa 55` framed TLV packet carrying JSON commands. The LED space product
 literature names the panel `YSP-001`, which is the same naming family. Confirming the LED space
 link would fold an entire second app into an already-documented protocol.
 

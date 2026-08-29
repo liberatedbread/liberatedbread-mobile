@@ -14,7 +14,7 @@ App-enabled "smart bone" dog toy (wheeled, treat-dispensing). Company dead; cont
 
 ## Local BLE feasibility — STRONG
 - The toy has no Wi-Fi; all control is phone ↔ toy over BLE.
-- App classes are unobfuscated (`com.pulsepet.gobone.controller.*`, `GoBoneBLEManager`) with explicit constants `GOBONE_SERVICE_UUID`, `GOBONE_RX_CHARACTERISTIC_UUID`, `GOBONE_TX_CHARACTERISTIC_UUID` mapping to the standard Nordic UART profile.
+- App classes are unobfuscated (`com.pulsepet.gobone`, its controller package and BLE-manager class) with explicitly named UUID constants mapping to the standard Nordic UART profile.
 - App uses BLE bonding (dedicated `bonding/Bonding` controllers) — a replacement client likely needs to pair/bond.
 - Cloud bits present (Firebase, Google Fit scopes) appear to back optional activity tracking; core driving looks offline — confirm on-device. No forced login observed in static pass, but not ruled out.
 - No prior community RE found (searched 2026-08-03).
@@ -39,6 +39,6 @@ App-enabled "smart bone" dog toy (wheeled, treat-dispensing). Company dead; cont
 - Nothing for driving/auto-play, as far as static analysis shows. Firebase/Google Fit only used for activity-history features (hypothesis — verify on first app launch).
 
 ## Open questions
-1. UART command format (drive vectors, auto-play config, LED/sound) — small unobfuscated codebase; a short jadx pass on `GoBoneBLEManager` should yield the full command set without hardware.
+1. UART command format (drive vectors, auto-play config, LED/sound) — small unobfuscated codebase; a short jadx pass on the BLE-manager class should yield the full command set without hardware.
 2. Is bonding strictly required, or will a bond-less write work?
 3. Whether app first-run forces account creation (Firebase present; unverified).

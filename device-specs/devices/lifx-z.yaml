@@ -559,16 +559,16 @@ evidence:
   live_lan_probe:
     date: "2026-07-16"
     devices:
-      - address: "192.168.1.149"
+      - address: "192.168.1.50"
         mdns_service_type: "_hap._tcp.local."
         hap_model: "LIFX Z"
         udp_port: 56700
-      - address: "192.168.1.151"
+      - address: "192.168.1.51"
         mdns_service_type: "_hap._tcp.local."
         hap_model: "LIFX Z"
         udp_port: 56700
         http_port_open: 80
-      - address: "192.168.1.168"
+      - address: "192.168.1.52"
         mdns_service_type: "_hap._tcp.local."
         hap_model: "LIFX Z"
         udp_port: 56700

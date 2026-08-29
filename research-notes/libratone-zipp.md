@@ -11,8 +11,8 @@ rescue.
 ## Local protocol — UDP, reverse-engineered
 - Binary/JSON command protocol over UDP. Client must listen on **3333/udp**
   and **7778/udp** for speaker responses/events; discovery is "LSSDP"
-  (Libratone's SSDP variant) — class `com.libratone.model.LSSDPNode` in the
-  Android app.
+  (Libratone's SSDP variant) — implemented by a dedicated node-model class in
+  the Android app.
 - Command vocabulary recovered from APK decompilation + the LoxWiki command
   list (Benjamin Hanke). Implemented commands include play/pause/stop/
   next/prev, volume get/set, voicing (EQ) get/set + list, room-setting

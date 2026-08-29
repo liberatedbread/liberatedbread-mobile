@@ -254,8 +254,8 @@ protocol_details:
 evidence:
   live_lan_probe:
     date: "2026-07-16"
-    address: "192.168.1.190"
-    hostname: "Lutron-083e013d.local"
+    address: "192.168.1.50"
+    hostname: "Lutron-00000000.local"
     firmware: "08.25.17f000"
     accessory_count: 13
     mdns_services:
@@ -279,7 +279,8 @@ entities:
   # When a LEAP client lands, declare real commands and bind the roles.
   #
   # CommandType spellings verified 2026-08-20 from the vendor app
-  # (com.lutron.mmw 26.7.0.5, leaplib CommandTypeEnum + ZoneRequestCreator):
+  # (com.lutron.mmw 26.7.0.5, its LEAP command-name enumeration and its
+  # zone-request builder):
   # dimmers take GoToDimmedLevel with Body.Command.DimmedLevelParameter
   # {Level: 0-100}; switches take GoToSwitchedLevel with
   # SwitchedLevelParameter {SwitchedLevel: On|Off}; shades take

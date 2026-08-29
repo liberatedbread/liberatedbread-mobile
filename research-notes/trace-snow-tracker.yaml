@@ -53,7 +53,7 @@ ble:
 
 protocol:
   note: >
-    Fully named GATT table in com.traceup.core.sync.sdk.TRCSDK — no crypto
+    Fully named GATT table in the app's bundled sync SDK — no crypto
     visible at triage depth. Session files use the ".arz" container format,
     partially reverse-engineered by community (github.com/wfraser/arz).
     File-streaming characteristic/framing not yet identified.

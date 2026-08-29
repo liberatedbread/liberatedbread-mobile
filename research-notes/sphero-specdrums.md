@@ -24,11 +24,11 @@ from the original Kickstarter startup.
 2. **Native app protocol**: MIX/Edu apps talk to the ring over a custom GATT
    profile for raw color/tap events, LED control, battery, and MIDI-mode
    config. Decompiling `com.sphero.specdrumsmix` (jadx, triage pass) shows the
-   app uses Sphero's generic BLE convenience stack
-   (`com.sphero.platform.BtLe`) which **discovers service/characteristic UUIDs
-   at runtime** — no hardcoded ring UUIDs were recoverable in a cheap static
+   app uses Sphero's generic BLE convenience stack, which **discovers
+   service/characteristic UUIDs at runtime** — no hardcoded ring UUIDs were
+   recoverable in a cheap static
    pass. Getting the custom profile needs either deeper jadx time on the
-   `com.sphero.jams` module or a quick nRF Connect / HCI-snoop session with a
+   app's shared music-robot module or a quick nRF Connect / HCI-snoop session with a
    real ring (trivial: single peripheral, few characteristics).
 - No prior public RE of the ring protocol found (Sphero robot RE — e.g.
   astagi/freer2 — exists but covers different hardware/API).

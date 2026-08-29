@@ -101,7 +101,7 @@ Found 1 Vector robot(s):
 
   Name:       Vector-A1B2
   Hostname:   Vector-A1B2.local.
-  Address:    192.168.1.43
+  Address:    192.168.1.50
   Port:       443
   Serial:     00e00000
 ```

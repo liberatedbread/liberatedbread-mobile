@@ -9,8 +9,8 @@ In-Car relay unit. Sensors talk BLE directly to the phone app.
 ## Why it is at-risk (cloud-dependent, app churn)
 - App **requires account sign-in** (Google or email) before use — confirmed in the
   current user manual ("Launch FOBO TPMS app and sign in using Google or your
-  personal...") and in the FOBO Bike 2 APK (`LoginActivity` uses Google Sign-In +
-  email, plus `TwoFactorLoginActivity`). Sensor ownership is bound to the account
+  personal...") and in the FOBO Bike 2 APK (its login flow uses Google Sign-In +
+  email, plus a dedicated two-factor step). Sensor ownership is bound to the account
   ("CrossPair" anti-theft; owner must release sensors server-side for transfer).
   If Salutica's auth/fleet server dies, new installs and sensor re-pairing die too.
 - The old **FOBO Bike 2 app is delisted from Google Play** (Play URL for

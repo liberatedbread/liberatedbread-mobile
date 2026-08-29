@@ -41,13 +41,13 @@ All GATT constants live in the app:
 | `0000ffd1/ffd2/ffd3-...` | Feeding-data characteristics |
 | `0000ffd4-0000-1000-8000-00805f9b34fb` | mBabyCharacteristic (main feeding data channel) |
 | `0000ffd5-0000-1000-8000-00805f9b34fb` | Feeding characteristic (aux) |
-| `f000ffc0-0451-4000-b000-000000000000` | TI OAD service (mia2 firmware update, `Mia2OADUpdateActivity`) |
+| `f000ffc0-0451-4000-b000-000000000000` | TI OAD service (mia2 firmware update, the app's dedicated OAD-update activity) |
 
 - Device SN derived from the advertised BLE name: `"mia-" + <suffix>`
-  (`BleDeviceScanActivity`, `ByteUtils.getMiaSn(device.getName())`).
+  (the app's scan activity parses it out of the device name).
 - App syncs device clock/timezone on every connect (ffa2/ffa9 writes),
   then reads feeding records and uploads them to the cloud
-  (`DaemonService`/`BleDaemonService`, log tag `mia2Service`).
+  (a pair of background daemon services, log tag `mia2Service`).
 
 ## Local feasibility: CONFIRMED-connectable, protocol hypothesis
 The device is a plain BLE GATT peripheral with 16-bit UUIDs; clock-set,

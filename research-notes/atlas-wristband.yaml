@@ -37,8 +37,8 @@ ble:
       source: assets/www JS
       description: role TBD
   app_architecture:
-    ui: Cordova/Ionic (assets/www; AWPlugin.js exposes awGetDeviceInfo, awSetPreferences, awFullSync, awFastSync, awSendLearn, awCancelLearn, awFirmwareUpdate, awRestartDevice)
-    hardware: dual-MCU — STM32 + nRF51822 (expectedSTMVersion / expectedNRFVersion)
+    ui: Cordova/Ionic (a bundled device-plugin JS layer exposes get-device-info, set-preferences, full-sync, fast-sync, send-learn, cancel-learn, firmware-update and restart-device operations)
+    hardware: dual-MCU — STM32 + nRF51822 (separate expected-firmware-version checks per MCU)
 
 protocol:
   note: >
