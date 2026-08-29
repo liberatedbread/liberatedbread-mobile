@@ -14,6 +14,7 @@ import '../providers/ha_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
+import '../widgets/ad_banner_bar.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
@@ -50,6 +51,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   // one-shot read: the user answering the spec chooser resolves the same
   // family later, and that answer must be captured too.
   ProviderSubscription<AsyncValue<SpecMatchOutcome>>? _matchSub;
+
+  /// The matched spec's category and identity, captured from [_matchSub] so the
+  /// device-targeted ad banner (e.g. label-roll supplies for a BLE thermal
+  /// label printer) can be shown here — those specs open THIS screen, which had
+  /// no ad bar, so their promos never surfaced. Null until a spec matches.
+  String? _adCategory;
+  String? _adSpecKey;
 
   /// The in-flight saved-record write from [_connect]'s `touch()`. The spec
   /// match listener awaits it before `recordMatch`, because the two write the
@@ -240,6 +248,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       (previous, next) async {
         final chosen = next.valueOrNull?.chosen;
         if (chosen == null) return;
+        if (mounted) {
+          setState(() {
+            _adCategory = chosen.spec.category;
+            _adSpecKey = specKeyFor(chosen.spec);
+          });
+        }
         // Let _connect()'s touch() land first. recordMatch treats an absent
         // record as "never saved" and skips silently — without this order a
         // match resolving faster than the first preferences write would drop
@@ -311,6 +325,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // The device-targeted promo (label-roll supplies for a BLE label printer,
+      // a filter kit for a Rabbit Air, …), shown only ONCE a spec has matched —
+      // the connecting/failed/unmatched states get no bar, so no shop banner
+      // clutters an error screen (and its ~48 px does not squeeze those layouts).
+      bottomNavigationBar: (_adCategory != null || _adSpecKey != null)
+          ? DeviceAdBannerBar(category: _adCategory, specKey: _adSpecKey)
+          : null,
       appBar: AppBar(
         // The default 56pt toolbar clips a two-line title, which silently hid
         // the status row.

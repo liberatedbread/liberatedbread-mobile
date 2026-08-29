@@ -270,6 +270,12 @@ class AdBannerConfig {
     // Stale fallback content would be wrong more often than a quiet bottom bar.
     if (version > supportedVersion) return const AdBannerConfig(banner: null);
 
+    // Top-level kill switch: `enabled: false` at the root turns off EVERY ad —
+    // global and targeted alike. Before targeted banners existed, disabling the
+    // one `banner` was "ads off"; that no longer suppresses `targets`, so this
+    // is the switch that still means all-off, in one place.
+    if (decoded['enabled'] == false) return const AdBannerConfig(banner: null);
+
     // The global banner: null (kill switch) is valid; a non-map or an invalid
     // banner object fails the whole document, as before.
     final bannerRaw = decoded['banner'];
