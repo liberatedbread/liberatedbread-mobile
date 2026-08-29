@@ -385,6 +385,16 @@ pub fn render_command(
     })
 }
 
+/// The three characters that ARE the MQTT topic language: the level
+/// separator and the two wildcards.
+///
+/// A substituted value carrying one of these does not fill a level, it
+/// rewrites the topic — and there is no quoting in an MQTT topic name, so the
+/// only safe answer is refusal. Named once because two call sites must refuse
+/// exactly the same set: this module's command topics, and the state topics
+/// `device_api::fill_mqtt_state_topic` fills for the subscribe path.
+pub(crate) const TOPIC_LANGUAGE: [char; 3] = ['/', '+', '#'];
+
 /// Fill `{name}` placeholders in a topic.
 ///
 /// A substituted value may not contain `/`, `+` or `#`. Those three are the
@@ -401,16 +411,6 @@ pub fn render_command(
 /// would publish a topic containing a literal `{client_id}`, which succeeds at
 /// the socket and does nothing at the device — the worst kind of failure to
 /// debug.
-/// The three characters that ARE the MQTT topic language: the level
-/// separator and the two wildcards.
-///
-/// A substituted value carrying one of these does not fill a level, it
-/// rewrites the topic — and there is no quoting in an MQTT topic name, so the
-/// only safe answer is refusal. Named once because two call sites must refuse
-/// exactly the same set: this module's command topics, and the state topics
-/// `device_api::fill_mqtt_state_topic` fills for the subscribe path.
-pub(crate) const TOPIC_LANGUAGE: [char; 3] = ['/', '+', '#'];
-
 fn substitute_topic(
     template: &str,
     command: &SpecCommand,

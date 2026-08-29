@@ -445,6 +445,20 @@ class MqttSession {
     _socket = null;
     _ping?.cancel();
     _ping = null;
+    // Cancel and detach the read subscription and buffer SYNCHRONOUSLY, before
+    // the awaits below. _fail() fires close() unawaited, and a connect() that
+    // reopens the session during the disconnect-write / socket.close() awaits
+    // installs a fresh _subscription and refills _buffer. Cancelling/clearing
+    // them only after the awaits — as this used to — would then cannibalise the
+    // NEW session: it connects, its subscription is cancelled out from under it,
+    // and it goes deaf until the CONNACK timeout. Same identity discipline the
+    // ping timer already uses on _socket. cancel() is intentionally not awaited
+    // (its future only reports cleanup, and waiting on it would reopen the very
+    // window this closes) — so there is no await point between the cancel and
+    // the null, keeping the swap atomic.
+    unawaited(_subscription?.cancel() ?? Future<void>.value());
+    _subscription = null;
+    _buffer.clear();
     if (socket != null) {
       try {
         socket.add(await _codec.mqttDisconnectPacket());
@@ -453,9 +467,6 @@ class MqttSession {
       }
       await socket.close();
     }
-    await _subscription?.cancel();
-    _subscription = null;
-    _buffer.clear();
   }
 
   /// Close the session and the message stream. After this the session is spent.
