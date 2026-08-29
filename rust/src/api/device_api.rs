@@ -4478,6 +4478,177 @@ pub fn encode_image_frame(
     })
 }
 
+/// A decoded Brother QL 32-byte status reply, for the printer card.
+#[derive(Debug, Clone)]
+pub struct BrotherQlStatusDto {
+    /// Loaded media width in mm, 0 when no media is loaded.
+    pub media_width_mm: u8,
+    /// "continuous", "die_cut", or None for no media / unknown.
+    pub media_type: Option<String>,
+    /// Loaded media length in mm (0 for continuous).
+    pub media_length_mm: u8,
+    /// Status kind (offset 18) and phase (offset 19), passed through for a
+    /// caller polling job completion (status 0x01 = printing complete).
+    pub status_type: u8,
+    pub phase: u8,
+    /// Human-readable errors decoded from the reply's error bytes; empty when
+    /// the printer reports none.
+    pub errors: Vec<String>,
+    /// No error and media loaded — safe to send a job.
+    pub ready_to_print: bool,
+}
+
+/// The bytes that ask a Brother QL printer for its 32-byte status reply
+/// (`ESC i S`). Written to the same raw stream as a job.
+pub fn brother_ql_status_request() -> Vec<u8> {
+    crate::protocol::brother_ql::status_request().to_vec()
+}
+
+/// Decode a Brother QL 32-byte status reply into media and error information.
+pub fn decode_brother_ql_status(reply: Vec<u8>) -> anyhow::Result<BrotherQlStatusDto> {
+    use crate::protocol::brother_ql::MediaType;
+    let s = crate::protocol::brother_ql::decode_status(&reply)?;
+    Ok(BrotherQlStatusDto {
+        media_width_mm: s.media_width_mm,
+        media_type: s.media_type.map(|t| match t {
+            MediaType::Continuous => "continuous".to_string(),
+            MediaType::DieCut => "die_cut".to_string(),
+        }),
+        media_length_mm: s.media_length_mm,
+        status_type: s.status_type,
+        phase: s.phase,
+        ready_to_print: s.ready_to_print(),
+        errors: s.errors,
+    })
+}
+
+/// The media a Brother QL job prints on, plus the cut choice. Bundled so the
+/// job/test-label calls take one descriptor rather than a fistful of scalars;
+/// a caller fills it from a decoded [`BrotherQlStatusDto`].
+#[derive(Debug, Clone)]
+pub struct BrotherQlJobParamsDto {
+    pub media_width_mm: u8,
+    /// 0 for continuous tape (the row count sets the length).
+    pub media_length_mm: u8,
+    pub media_die_cut: bool,
+    pub auto_cut: bool,
+}
+
+fn brother_ql_media(params: &BrotherQlJobParamsDto) -> crate::protocol::brother_ql::Media {
+    use crate::protocol::brother_ql::{Media, MediaType};
+    Media {
+        media_type: if params.media_die_cut {
+            MediaType::DieCut
+        } else {
+            MediaType::Continuous
+        },
+        width_mm: params.media_width_mm,
+        length_mm: params.media_length_mm,
+    }
+}
+
+/// Encode a full Brother QL raster job from an RGB888 canvas — the whole byte
+/// stream to write to TCP 9100 (or LPR/SPP).
+pub fn encode_brother_ql_job(
+    spec_yaml: String,
+    width: u32,
+    height: u32,
+    rgb: Vec<u8>,
+    params: BrotherQlJobParamsDto,
+) -> anyhow::Result<Vec<u8>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let options = crate::protocol::brother_ql::JobOptions {
+        auto_cut: params.auto_cut,
+        ..Default::default()
+    };
+    Ok(crate::protocol::brother_ql::encode_print_job(
+        &spec,
+        &rgb,
+        width,
+        height,
+        brother_ql_media(&params),
+        options,
+    )?)
+}
+
+/// Render a self-contained test label — a bordered box with a diagonal cross —
+/// sized to the loaded media, and encode it as a raster job. The "Print test
+/// label" action: it proves the whole path (encode + transport + cut) without
+/// the caller supplying an image.
+pub fn render_brother_ql_test_label(
+    spec_yaml: String,
+    params: BrotherQlJobParamsDto,
+) -> anyhow::Result<Vec<u8>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let head = crate::protocol::image_upload::image_feature(&spec)
+        .and_then(|f| f.max_width)
+        .unwrap_or(1296) as usize;
+    // Printable dots at 300 dpi from the media's mm width, capped to the head.
+    let width = ((params.media_width_mm as usize * 3000) / 254).clamp(8, head);
+    // Height: a die-cut label's own length, else a fixed strip. Kept at/above
+    // the 301-dot minimum print length the geometry states.
+    let length_dots = (params.media_length_mm as usize * 3000) / 254;
+    let height = if params.media_die_cut && length_dots >= 301 {
+        length_dots
+    } else {
+        400
+    };
+    let rgb = brother_ql_test_canvas(width, height);
+    let options = crate::protocol::brother_ql::JobOptions {
+        auto_cut: params.auto_cut,
+        ..Default::default()
+    };
+    Ok(crate::protocol::brother_ql::encode_print_job(
+        &spec,
+        &rgb,
+        width as u32,
+        height as u32,
+        brother_ql_media(&params),
+        options,
+    )?)
+}
+
+/// A white RGB888 canvas with a black border and a diagonal cross — enough ink
+/// on the page to confirm alignment and that every part of the head fires.
+fn brother_ql_test_canvas(width: usize, height: usize) -> Vec<u8> {
+    let mut rgb = vec![255u8; width * height * 3];
+    let mut set = |x: usize, y: usize| {
+        if x < width && y < height {
+            let i = (y * width + x) * 3;
+            rgb[i] = 0;
+            rgb[i + 1] = 0;
+            rgb[i + 2] = 0;
+        }
+    };
+    let border = 4usize;
+    for y in 0..height {
+        for x in 0..width {
+            let on_edge = x < border
+                || x >= width.saturating_sub(border)
+                || y < border
+                || y >= height.saturating_sub(border);
+            if on_edge {
+                set(x, y);
+            }
+        }
+    }
+    // Two diagonals, a few dots thick, so a mirror/offset bug is obvious.
+    let thick = 3usize;
+    for x in 0..width {
+        let y = x * height / width.max(1);
+        for t in 0..thick {
+            set(x, y.saturating_add(t));
+            set(
+                x,
+                (height.saturating_sub(1))
+                    .saturating_sub(y)
+                    .saturating_add(t),
+            );
+        }
+    }
+    rgb
+}
+
 /// Encode the BLE writes that PERSIST a picture on the device so it plays
 /// standalone after disconnect, dispatched on the spec's `stored_upload`
 /// feature.

@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -734,6 +734,39 @@ Future<ImageWritePlanDto> encodeImageFrame(
         frameIndex: frameIndex,
         maxPayloadPerWrite: maxPayloadPerWrite);
 
+/// The bytes that ask a Brother QL printer for its 32-byte status reply
+/// (`ESC i S`). Written to the same raw stream as a job.
+Future<Uint8List> brotherQlStatusRequest() =>
+    RustLib.instance.api.crateApiDeviceApiBrotherQlStatusRequest();
+
+/// Decode a Brother QL 32-byte status reply into media and error information.
+Future<BrotherQlStatusDto> decodeBrotherQlStatus({required List<int> reply}) =>
+    RustLib.instance.api.crateApiDeviceApiDecodeBrotherQlStatus(reply: reply);
+
+/// Encode a full Brother QL raster job from an RGB888 canvas — the whole byte
+/// stream to write to TCP 9100 (or LPR/SPP).
+Future<Uint8List> encodeBrotherQlJob(
+        {required String specYaml,
+        required int width,
+        required int height,
+        required List<int> rgb,
+        required BrotherQlJobParamsDto params}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeBrotherQlJob(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: rgb,
+        params: params);
+
+/// Render a self-contained test label — a bordered box with a diagonal cross —
+/// sized to the loaded media, and encode it as a raster job. The "Print test
+/// label" action: it proves the whole path (encode + transport + cut) without
+/// the caller supplying an image.
+Future<Uint8List> renderBrotherQlTestLabel(
+        {required String specYaml, required BrotherQlJobParamsDto params}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderBrotherQlTestLabel(
+        specYaml: specYaml, params: params);
+
 /// Encode the BLE writes that PERSIST a picture on the device so it plays
 /// standalone after disconnect, dispatched on the spec's `stored_upload`
 /// feature.
@@ -1098,6 +1131,99 @@ class BleProvisioningProfileDto {
           writeCharacteristic == other.writeCharacteristic &&
           readCharacteristic == other.readCharacteristic &&
           mtu == other.mtu;
+}
+
+/// The media a Brother QL job prints on, plus the cut choice. Bundled so the
+/// job/test-label calls take one descriptor rather than a fistful of scalars;
+/// a caller fills it from a decoded [`BrotherQlStatusDto`].
+class BrotherQlJobParamsDto {
+  final int mediaWidthMm;
+
+  /// 0 for continuous tape (the row count sets the length).
+  final int mediaLengthMm;
+  final bool mediaDieCut;
+  final bool autoCut;
+
+  const BrotherQlJobParamsDto({
+    required this.mediaWidthMm,
+    required this.mediaLengthMm,
+    required this.mediaDieCut,
+    required this.autoCut,
+  });
+
+  @override
+  int get hashCode =>
+      mediaWidthMm.hashCode ^
+      mediaLengthMm.hashCode ^
+      mediaDieCut.hashCode ^
+      autoCut.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BrotherQlJobParamsDto &&
+          runtimeType == other.runtimeType &&
+          mediaWidthMm == other.mediaWidthMm &&
+          mediaLengthMm == other.mediaLengthMm &&
+          mediaDieCut == other.mediaDieCut &&
+          autoCut == other.autoCut;
+}
+
+/// A decoded Brother QL 32-byte status reply, for the printer card.
+class BrotherQlStatusDto {
+  /// Loaded media width in mm, 0 when no media is loaded.
+  final int mediaWidthMm;
+
+  /// "continuous", "die_cut", or None for no media / unknown.
+  final String? mediaType;
+
+  /// Loaded media length in mm (0 for continuous).
+  final int mediaLengthMm;
+
+  /// Status kind (offset 18) and phase (offset 19), passed through for a
+  /// caller polling job completion (status 0x01 = printing complete).
+  final int statusType;
+  final int phase;
+
+  /// Human-readable errors decoded from the reply's error bytes; empty when
+  /// the printer reports none.
+  final List<String> errors;
+
+  /// No error and media loaded — safe to send a job.
+  final bool readyToPrint;
+
+  const BrotherQlStatusDto({
+    required this.mediaWidthMm,
+    this.mediaType,
+    required this.mediaLengthMm,
+    required this.statusType,
+    required this.phase,
+    required this.errors,
+    required this.readyToPrint,
+  });
+
+  @override
+  int get hashCode =>
+      mediaWidthMm.hashCode ^
+      mediaType.hashCode ^
+      mediaLengthMm.hashCode ^
+      statusType.hashCode ^
+      phase.hashCode ^
+      errors.hashCode ^
+      readyToPrint.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BrotherQlStatusDto &&
+          runtimeType == other.runtimeType &&
+          mediaWidthMm == other.mediaWidthMm &&
+          mediaType == other.mediaType &&
+          mediaLengthMm == other.mediaLengthMm &&
+          statusType == other.statusType &&
+          phase == other.phase &&
+          errors == other.errors &&
+          readyToPrint == other.readyToPrint;
 }
 
 class CharacteristicDto {

@@ -88,7 +88,9 @@ export '../src/rust/api/device_api.dart'
         RejoinDto,
         WemoAccessPointDto,
         WemoConnectAttemptDto,
-        WemoJoinStatus;
+        WemoJoinStatus,
+        BrotherQlStatusDto,
+        BrotherQlJobParamsDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -892,6 +894,23 @@ abstract class SpecCodec {
   Future<StoredPlayDto> encodeRemoveAllApps({
     required String specYaml,
     required int sequence,
+  });
+
+  // ── Brother QL raster label printers (raw byte stream, TCP 9100/LPR/SPP) ──
+
+  /// The `ESC i S` bytes that ask a Brother QL printer for its 32-byte status
+  /// reply. Written to the same raw stream a job goes to.
+  Future<Uint8List> brotherQlStatusRequest();
+
+  /// Decode a Brother QL 32-byte status reply into loaded-media and error
+  /// information (throws on a wrong-length or wrong-header buffer).
+  Future<BrotherQlStatusDto> decodeBrotherQlStatus({required List<int> reply});
+
+  /// Render a self-contained test label sized to the loaded media, encoded as a
+  /// complete raster job ready to write to the printer.
+  Future<Uint8List> renderBrotherQlTestLabel({
+    required String specYaml,
+    required BrotherQlJobParamsDto params,
   });
 }
 
