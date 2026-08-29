@@ -20,7 +20,7 @@ Coin-sized BLE item trackers (CR1616/CR2016, buzzer + button) from TrackR, Inc. 
 - **Package**: `com.phonehalo.itemtracker`
 - **Source**: apkeep, apk-pure (2026-08-03) — downloaded OK
 - **SHA-256**: `f3d67324150f1d89dcb57197a654586d812663ba5ef6b964818c6b565b4960ee` (62,885,521 bytes)
-- Version: latest available on APKPure (Uptodown shows 4.1.0 as final, Jan 2020); multidex, Kotlin, Mapbox native libs (crowd-GPS maps), Crashlytics. BLE code under `com.thetrackr.ble` / `com.phonehalo.trackr` (TrackrService, TrackrItemAlertManager).
+- Version: latest available on APKPure (Uptodown shows 4.1.0 as final, Jan 2020); multidex, Kotlin, Mapbox native libs (crowd-GPS maps), Crashlytics. BLE code lives in two dedicated internal packages (a BLE service and an item-alert manager).
 - Triage done via DEX `strings` only — full jadx not needed for the UUID set.
 
 ## Open questions

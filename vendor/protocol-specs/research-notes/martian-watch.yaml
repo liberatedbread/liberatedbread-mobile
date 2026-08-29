@@ -30,8 +30,8 @@ transport:
 
 protocol:
   frame_format: "0x3C cmd len_hi len_lo payload... 0x3E"  # '<' ... '>', len is big-endian payload length
-  source: SpwatchService.write() ~line 1627 (jadx)
-  commands:  # partial; ~80 opcodes recovered from SpwatchService constants
+  source: the app's BLE service class, its write method (jadx)
+  commands:  # partial; ~80 opcodes recovered from that class's constants
     AUDIO: 1
     TEXT: 2
     ACK: 3

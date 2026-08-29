@@ -47,7 +47,7 @@ ble:
           description: Options/config (LBLumoService); payload format TBD
     - uuid: "af120201-31d4-48e8-a1f8-5c09c020ae42"
       name: bulk_transfer_server_control
-      note: LBBulkTransferService; enum values overlap with LumoRun service id
+      note: the app's bulk-transfer service; enum values overlap with LumoRun service id
     - uuid: "af120202-31d4-48e8-a1f8-5c09c020ae42"
       name: bulk_transfer_server_data
   related_services:

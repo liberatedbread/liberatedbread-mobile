@@ -62,9 +62,9 @@ of the best-documented dead hearables.
 
 ## Open questions
 - Bonding/pairing requirements; whether both buds are addressed separately
-  (`HereOneBud` is per-bud, L/R addressed independently).
+  (the app models each bud as its own peripheral, L/R addressed independently).
 - Which characteristic carries the opcode payloads (likely ONOFF/EFFECTS or a
-  dedicated target — `TargetIdentifier` enum in model).
+  dedicated target — the app's model carries a target-identifier enum).
 - Here Active Listening (Kickstarter gen-1) GATT may differ.
 
 ## Safety class

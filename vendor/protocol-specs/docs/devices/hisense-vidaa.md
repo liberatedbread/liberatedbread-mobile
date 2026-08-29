@@ -56,9 +56,12 @@ The dynamic algorithm (MD5 hex, uppercase; `PATTERN =
 - legacy: `username = his${ts}`, modern: `username = his${ts ^ 0x569814772b03a968}`
 - `password = md5({ts}${md5("his" + crosssum(ts)%10 + suffix)[:6]})`
 
-Worked example (pyvidaa, verified on hardware): uuid `56:b8:88:4e:f7:19`,
-ts `1766974704` → client_id `56:b8:88:4e:f7:19$his$256DBF_vidaacommon_001`,
+Worked example (algorithm verified on hardware by pyvidaa), using an RFC 7042
+documentation MAC as the client-minted uuid: uuid `00:00:5E:00:53:01`,
+ts `1766974704` → client_id `00:00:5E:00:53:01$his$E49CB3_vidaacommon_001`,
 username `his$6239759786168176024`, password `C3BA44782E18ABF4892AC44D79A622D2`.
+Only `client_id` depends on the uuid; `username` and `password` derive from
+`ts` alone.
 
 ### Pairing
 

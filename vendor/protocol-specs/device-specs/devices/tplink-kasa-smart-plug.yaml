@@ -11,7 +11,7 @@ device:
     detail: minimally-verified
     notes: >
       Read path verified live 2026-08-14 against a real HS210 3-way switch
-      ("Bonus Lights", mac 00:31:92:AA:BB:CC), driving the protocol exactly
+      (alias placeholdered as "3-Way Switch", mac 00:31:92:AA:BB:CC), driving the protocol exactly
       as documented in kasa_protocol below. UDP discovery: the XOR-autokey
       get_sysinfo broadcast to 255.255.255.255:9999 (no length prefix) drew
       unauthenticated replies from EIGHT Kasa devices on the LAN across five

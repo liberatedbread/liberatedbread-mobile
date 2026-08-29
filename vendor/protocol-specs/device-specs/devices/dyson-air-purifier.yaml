@@ -11,7 +11,7 @@ device:
     detail: minimally-verified
     notes: >
       Partially verified live 2026-08-14. WiFi/MQTT: the machine at
-      192.168.1.164 (an F3H Pure Cool per the 2026-07-16 evidence) has TCP
+      192.168.1.50 (an F3H Pure Cool per the 2026-07-16 evidence) has TCP
       1883 open and answers an MQTT CONNECT with no credentials with a
       CONNACK return code 4 (bad username/password) — proving the device IS
       the local MQTT broker and that it enforces the device-specific local
@@ -210,18 +210,18 @@ evidence:
     devices:
       - model: "F3H Pure Cool"
         serial: "F3H-US-XXXXXXXX"
-        address: "192.168.1.164"
+        address: "192.168.1.50"
         mdns_service_type: "_dyson_mqtt._tcp.local."
         port: 1883
       - model: "PE6 Humidify+Cool"
         serial: "PE6-US-XXXXXXXX"
-        address: "192.168.1.165"
+        address: "192.168.1.51"
         mdns_service_type: "_dyson_mqtt._tcp.local."
         port: 1883
   live_probe_2026_08_14:
     date: "2026-08-14"
     wifi_mqtt:
-      address: "192.168.1.164"
+      address: "192.168.1.50"
       model: "F3H Pure Cool (per 2026-07-16 probe)"
       observation: >
         TCP 1883 open, 8883 closed; MQTT CONNECT without credentials returned

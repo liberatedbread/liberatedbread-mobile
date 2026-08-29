@@ -207,33 +207,37 @@ def test_setup_methods_are_ordered_for_a_reader(specs):
     entry. That only works if the route to recommend is the first thing they
     meet and what cannot be done today is the last. Which of two alternatives
     is "easier" is a judgement the ordering rule states and a test cannot
-    check; these two are mechanical and are the ones that mislead when they
-    are wrong.
+    check; the checks here are mechanical and are the ones that mislead when
+    they are wrong.
     """
+    rank = {"primary": 0, "alternative": 1, "variant": 2, "historical": 3}
     for device_id, setup in setups(specs):
         roles = [m.get("role") for m in setup["methods"]]
         if len(roles) < 2:
             continue
+        # Named before ranked: a missing or misspelled role used to surface
+        # as a bare KeyError with no device in it, aborting the loop so
+        # every spec after the broken one went unchecked.
+        unknown = [r for r in roles if r not in rank]
+        assert not unknown, (
+            f"{device_id}: methods carry role(s) {unknown} -- with two or "
+            f"more methods every one needs a role from {sorted(rank)}, or "
+            "the reading order below cannot be judged"
+        )
         assert roles.count("primary") <= 1, (
             f"{device_id}: {roles.count('primary')} methods claim role 'primary' "
             "-- at most one route can be the one to recommend"
         )
-        if "primary" in roles:
-            assert roles.index("primary") == 0, (
-                f"{device_id}: the 'primary' method is at index "
-                f"{roles.index('primary')}, behind {roles[:roles.index('primary')]} "
-                "-- the recommended route comes first"
-            )
-        last_live = max(
-            (i for i, r in enumerate(roles) if r != "historical"), default=-1
-        )
-        first_dead = next(
-            (i for i, r in enumerate(roles) if r == "historical"), len(roles)
-        )
-        assert first_dead > last_live, (
-            f"{device_id}: a 'historical' method at index {first_dead} sits "
-            f"above one that still works -- routes that cannot be completed "
-            "today go last, or they get tried first"
+        # Role rank never goes back up: the recommended route, then genuine
+        # alternatives, then routes selected by which hardware the reader
+        # owns, then what no longer works. This one check IS
+        # primary-comes-first and historical-goes-last — the two used to be
+        # spelled out separately above it, three assertions for one rule.
+        ranked = [rank[r] for r in roles]
+        assert ranked == sorted(ranked), (
+            f"{device_id}: methods are ordered {roles} -- role rank "
+            "(primary, alternative, variant, historical) must be "
+            "non-decreasing top to bottom"
         )
 
 
@@ -2748,3 +2752,191 @@ def test_issued_credentials_are_named_the_way_their_consumers_spell_them(specs):
             f"{sorted(consumed)} — no name is shared, so nothing a pairing "
             "yields can fill a request. The key spelling is the coupling."
         )
+
+
+# ---------------------------------------------------------------------------
+# Clean-room: private LAN addresses are placeholders or product facts
+# ---------------------------------------------------------------------------
+#
+# docs/CLEANROOM_RULES.md: an address the researcher's DHCP server happened to
+# assign identifies the researcher's network, teaches nobody anything, and
+# keeps arriving inside otherwise-good verification evidence. The convention
+# is 192.168.1.50 (.51-.53 when one note needs several distinct hosts).
+# Addresses fixed by the PRODUCT — a SoftAP gateway, a captive-portal
+# endpoint, a camera's hardcoded address — are protocol facts and stay.
+#
+# The scrub happened once already and regressed; this is the gate that stops
+# it regressing again. Every RFC1918 address under device-specs/, docs/ AND
+# research-notes/ must be a placeholder, a known product-fixed address, or
+# declared by the same YAML file in a fixed-address field (gateway_ip /
+# ap_ip / setup_endpoint). research-notes/ is held to a STRICTER rule than
+# the other two: the common home-gateway lookalikes are not vouched for by
+# the table there (see RESEARCHER_GATEWAY_LOOKALIKES), because that tree is
+# where a live session's paste lands first.
+
+PLACEHOLDER_LAN_ADDRESSES = frozenset(
+    {"192.168.1.50", "192.168.1.51", "192.168.1.52", "192.168.1.53"}
+)
+
+# Addresses that are the device's, not the researcher's. Keyed by address so
+# a reviewer can see at a glance why each one is allowed; a new product-fixed
+# address is added here (or declared in a gateway_ip-style field, which
+# allows it in that file without touching this table).
+PRODUCT_FIXED_LAN_ADDRESSES = {
+    "192.168.0.1": "Frigidaire v2.0 cleartext exception target; Particle SoftAP UI",
+    "192.168.1.1": "AR.Drone 1.0/2.0 AP; Govee SoftAP provisioning socket",
+    "192.168.1.10": "VEVOR VT256 thermal imager's fixed AP address",
+    "192.168.1.188": "Dericam/Wanscam-family static factory-default IP",
+    "192.168.1.254": "Novatek dashcam AP default (INNOVV K-series web UI)",
+    "192.168.4.1": "ESP-style SoftAP default (SP108E, LED Space, BanlanX…)",
+    "192.168.6.1": "Frigidaire/Electrolux NIU setup endpoint",
+    "192.168.8.1": "Valetudo provisioning AP; June oven's captive-DNS answer",
+    "192.168.10.1": "Rachio Gen 2 / Rabbit Air setup AP gateway",
+    "192.168.42.1": "Parrot Bebop/Anafi family AP",
+    "192.168.60.1": "Dyson setup-AP MQTT broker (non-EC categories)",
+    "192.168.100.1": "OpenGarage device-AP web UI",
+    "192.168.186.2": "iRobot Create 3 over USB-C RNDIS Ethernet",
+    "10.10.100.254": "HF-LPB100 module SoftAP (Mi-Light bridge and kin)",
+    "10.22.22.1": "Wemo setup AP",
+    "172.16.0.1": "LIFX SoftAP gateway",
+    "172.30.1.1": "Enphase Envoy AP-mode gateway",
+}
+
+# Two of the product-fixed addresses are ALSO the commonest home-router
+# gateways. In the curated trees the ambiguity resolves by review; in
+# research-notes/ — where a live session's paste lands first — a bare
+# 192.168.1.1 is overwhelmingly the researcher's own gateway, so there the
+# table above does not vouch for them: scrub the address, or declare it in
+# a FIXED_ADDRESS_FIELDS key if the product genuinely fixes it.
+RESEARCHER_GATEWAY_LOOKALIKES = frozenset({"192.168.0.1", "192.168.1.1"})
+
+# YAML keys whose value states an address fixed by the product. An address a
+# spec declares under one of these is allowed anywhere in the same file, so a
+# new SoftAP spec does not need to touch the table above.
+FIXED_ADDRESS_FIELDS = frozenset({"gateway_ip", "ap_ip", "setup_endpoint"})
+
+# The three RFC1918 blocks, as they appear embedded in prose, YAML and JSON.
+# The lookbehind keeps this from matching inside a longer dotted run or a
+# standard's section number (ISO 15765-2 §10.4.2.1 is not an address); the
+# lookahead stops a partial match of a longer final octet.
+RFC1918_ADDRESS_RE = re.compile(
+    r"(?<![\w.§])"
+    r"(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+    r"|192\.168\.\d{1,3}\.\d{1,3})"
+    r"(?!\d)"
+)
+
+
+def _rfc1918_scan_paths():
+    """Every text file the gate reads: specs, the schema, the docs — and the
+    research notes, which are where the addresses actually leak. The notes
+    tree is where a hardware session's paste lands first (this repo's own
+    address scrub happened there), so carving it out guarded every tree
+    except the one with the regression history."""
+    for tree in (
+        REPO_ROOT / "device-specs",
+        REPO_ROOT / "docs",
+        REPO_ROOT / "research-notes",
+    ):
+        for path in sorted(tree.rglob("*")):
+            if path.suffix not in {".yaml", ".yml", ".md", ".json"}:
+                continue
+            # Generated on main by CI from specs that already pass this test.
+            if path.name == "index.json":
+                continue
+            yield path
+
+
+def _declared_fixed_addresses(path: Path, parsed_specs=None) -> frozenset:
+    """Addresses this YAML file declares in a fixed-address field."""
+    if path.suffix not in {".yaml", ".yml"}:
+        return frozenset()
+    # The module fixture already parsed every device spec once; re-reading
+    # the whole catalogue here doubled the run's YAML cost for the same
+    # documents. Only files outside the fixture (research-note YAML and kin)
+    # still parse fresh.
+    doc = (
+        parsed_specs.get(path.stem)
+        if parsed_specs is not None and path in SPEC_PATHS
+        else None
+    )
+    if doc is None:
+        try:
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            return frozenset()  # validate_specs.py owns reporting parse errors
+
+    found: set[str] = set()
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in FIXED_ADDRESS_FIELDS and isinstance(value, str):
+                    found.update(RFC1918_ADDRESS_RE.findall(value))
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(doc)
+    return frozenset(found)
+
+
+def test_lan_addresses_are_placeholders_or_product_facts(specs):
+    """No researcher-network address may reach a published file again."""
+    offenders = []
+    for path in _rfc1918_scan_paths():
+        declared = _declared_fixed_addresses(path, specs)
+        allowed = (
+            PLACEHOLDER_LAN_ADDRESSES
+            | set(PRODUCT_FIXED_LAN_ADDRESSES)
+            | declared
+        )
+        rel = path.relative_to(REPO_ROOT)
+        if rel.parts[0] == "research-notes":
+            # The blanket table stops vouching for the gateway lookalikes
+            # here; a declaration in the file itself still does. A note
+            # pair shares that declaration — garadget.md's SoftAP address
+            # is vouched for by garadget.yaml's ap_ip — so the prose half
+            # does not have to strip a genuine product fact.
+            allowed -= RESEARCHER_GATEWAY_LOOKALIKES - declared
+            sibling = path.with_suffix(".yaml")
+            if path.suffix == ".md" and sibling.exists():
+                allowed |= _declared_fixed_addresses(sibling, specs)
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            for match in RFC1918_ADDRESS_RE.finditer(line):
+                address = match.group()
+                if address in allowed:
+                    continue
+                rest = line[match.end():]
+                # Subnet notation (192.168.1.0/24) describes a network, not
+                # a host on the researcher's — the shape an implementer
+                # needs. The `.0` requirement keeps `<real host>/24` from
+                # slipping through as if it were a network, and the prefix
+                # match reads one- and two-digit lengths whatever follows
+                # them (`/8,` used to fail the old two-character check).
+                if address.endswith(".0") and re.match(r"/\d{1,2}(?!\d)", rest):
+                    continue
+                # A `.255` is a broadcast only in its /24-or-wider context;
+                # bare, it is as likely a host in a pasted /16. It passes
+                # when its own line SAYS so — a CIDR alongside, or the word
+                # broadcast — which every genuine use in the tree does.
+                if address.endswith(".255") and (
+                    "broadcast" in line.lower()
+                    or re.search(r"/\d{1,2}(?!\d)", line)
+                ):
+                    continue
+                offenders.append(f"{rel}:{lineno}: {address}")
+
+    assert not offenders, (
+        "researcher-network addresses in published files (see "
+        "docs/CLEANROOM_RULES.md — scrub your own identifiers):\n  "
+        + "\n  ".join(offenders)
+        + "\nUse 192.168.1.50 (.51-.53 for distinct hosts). If the address "
+        "is fixed by the product, declare it in a gateway_ip / ap_ip / "
+        "setup_endpoint field or add it to PRODUCT_FIXED_LAN_ADDRESSES "
+        "with a note saying whose it is."
+    )

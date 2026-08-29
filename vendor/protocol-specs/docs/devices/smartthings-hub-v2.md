@@ -24,7 +24,7 @@ advertises the Matter bridge endpoint.
 | `_smartthings-hedge._tcp.local.` | 8766 | `feat=ctrl` | Edge driver WebSocket |
 | `_matter._tcp.local.` | 49722 | `T=6` | Matter bridge |
 
-Observed hostname: `hubv2-0d052a8a662bc0001.local`
+Observed hostname: `hubv2-0d052a80000000001.local`
 
 Machine-readable spec: `device-specs/devices/smartthings-hub-v2.yaml`
 

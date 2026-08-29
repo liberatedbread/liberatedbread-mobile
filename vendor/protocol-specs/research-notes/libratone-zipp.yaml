@@ -24,7 +24,7 @@ lan:
 
 protocol:
   note: >
-    RE'd from the Android app (com.libratone.* LSSDPNode command IDs) plus
+    RE'd from the Android app (command IDs from its LSSDP node-model class) plus
     the LoxWiki command list. Implemented: transport control, volume, voicing
     (EQ), room settings, standby + timer, favorite recall, name, firmware,
     serial, battery, mute, charging. Known-but-unimplemented command IDs:

@@ -447,7 +447,7 @@ websocket:
     # authenticates by name alone.
     port: 8002
     scheme: "wss"
-    path: "/api/v2/channels/samsung.remote.control?name={client_name}&token={token}"
+    path: "/api/v2/channels/samsung.remote.control?name={client_name}&token={samsung_token}"
     fallback:
       port: 8001
       scheme: "ws"

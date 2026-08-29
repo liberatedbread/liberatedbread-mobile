@@ -22,7 +22,7 @@ streaming live to the Hykso app.
     (11+ characteristics; `ca281079` is likely the service, rest are characteristics —
     role mapping TBD)
   - Standard DIS chars `2a23`–`2a29`, battery `180f`, CCCD `2902`
-- BLE entry point class: `HyksoBleActivity`. App is small (~9 MB base apk) — cheap jadx target.
+- BLE entry point: a single dedicated BLE activity class. App is small (~9 MB base apk) — cheap jadx target.
 
 ## APK details (apkeep, apk-pure)
 - Package: `com.hykso.hyksofit`, version 1.02.03 (final), XAPK

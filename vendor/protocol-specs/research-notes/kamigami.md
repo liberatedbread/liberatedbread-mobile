@@ -15,7 +15,7 @@
   - Nordic legacy DFU UUID `00001530-1212-efde-1523-785feabcd123` also present (maybe dev-board legacy)
   - Standard DIS/battery strings present.
 - Prior art: UC Berkeley's BML lab ran multi-robot Kamigami experiments — [BML-MultiRobot/kamigami_common](https://github.com/BML-MultiRobot/kamigami_common) (ROS; mostly sim, but the group drove real Kamigami hardware via BLE in papers). No published opcode map found — this is the RE opportunity.
-- App is plain Android Java (`com.dashrobotics.kamigami2.models.Instruction`, `Game` views, unobfuscated-looking class names in strings) — a jadx pass should yield the command table quickly.
+- App is plain Android Java (its instruction and game model classes carry unobfuscated-looking names in strings) — a jadx pass should yield the command table quickly.
 
 ## APK provenance
 - **Package**: `com.dashrobotics.kamigami2` ("Kamigami Controller"), version **1.4.0** — final.

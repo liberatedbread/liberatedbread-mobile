@@ -62,9 +62,10 @@ cloud:
 
 protocol:
   note: >
-    Dedicated BLE layer: com.tractive.android.motion.ble.MotionClientAPI.
-    MOTION_DATA_SERVICE / MOTION_DFU_SERVICE / MOTION_HARDWARE_ID constants seen.
-    Frame format for activity sync TBD — jadx on MotionClientAPI or HCI snoop.
+    Dedicated BLE layer: the app's own motion-client API class, with
+    constants naming dedicated data, DFU and hardware-id services.
+    Frame format for activity sync TBD — deeper jadx on that BLE layer, or
+    HCI snoop.
   commands:
     activity_sync: TBD
     clock_set: TBD

@@ -10,7 +10,7 @@ device:
     status: verified
     detail: minimally-verified
     notes: >
-      Probed live 2026-08-14 against the real hub (id D052A8A662BC0001 at the
+      Probed live 2026-08-14 against the real hub (id D052A80000000001 at the
       address its mDNS answers resolved to). All three documented mDNS
       services re-observed exactly as recorded in evidence (2026-07-16):
       _smartthings._tcp 8081 (type=hubv2, path=/), _smartthings-hedge._tcp
@@ -225,13 +225,13 @@ protocol_details:
 evidence:
   live_lan_probe:
     date: "2026-07-16"
-    address: "192.168.1.162"
-    hostname: "hubv2-0d052a8a662bc0001.local"
+    address: "192.168.1.50"
+    hostname: "hubv2-0d052a80000000001.local"
     mdns_services:
       - service_type: "_smartthings._tcp.local."
         port: 8081
         type: "hubv2"
-        id: "D052A8A662BC0001"
+        id: "D052A80000000001"
       - service_type: "_smartthings-hedge._tcp.local."
         port: 8766
         feat: "ctrl"
@@ -244,7 +244,7 @@ http_endpoints:
     path: "/"
     name: "SmartThings Local Service Root"
     status: "unverified"
-    description: "Primary _smartthings._tcp service endpoint on port 8081 (probe-observed only; the 2016 community capture's TXT path=/ supports a root path existing, but no public documentation of an HTTP API on 8081 exists). Edge control is advertised separately on the hedge HTTPS service. Live probe 2026-08-14 (firmware-current hub, id D052A8A662BC0001): the port REFUSED both http and https connections even while the mDNS answer advertising it was fresh — on current firmware nothing listens there, so treat the advertisement as legacy identity metadata, not a usable API."
+    description: "Primary _smartthings._tcp service endpoint on port 8081 (probe-observed only; the 2016 community capture's TXT path=/ supports a root path existing, but no public documentation of an HTTP API on 8081 exists). Edge control is advertised separately on the hedge HTTPS service. Live probe 2026-08-14 (firmware-current hub, id D052A80000000001): the port REFUSED both http and https connections even while the mDNS answer advertising it was fresh — on current firmware nothing listens there, so treat the advertisement as legacy identity metadata, not a usable API."
   - method: "GET"
     path: "/devices/hub/connectionState"
     name: "Hub Connection State (hedge, port 8766)"

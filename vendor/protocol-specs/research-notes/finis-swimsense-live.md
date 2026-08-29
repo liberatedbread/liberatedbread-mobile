@@ -57,7 +57,7 @@ itself syncs watch→phone locally over BLE; per the DC Rainmaker review, openin
 syncs immediately. Account registration exists in-app but is not part of the BLE exchange.
 
 ## Open Questions
-- Exact byte layout of workout/stat responses (needs reading `FinisBluetoothService` parsers
-  or one HCI snoop with a real watch).
+- Exact byte layout of workout/stat responses (needs reading the app's BLE
+  service parsers or one HCI snoop with a real watch).
 - Whether the removed-from-Play iOS/Android apps still install and run without the backend.
 - FINIS HRM strap (0xFFF1/0xFFF2 path) is a second accessory worth covering in the same spec.

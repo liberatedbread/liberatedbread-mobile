@@ -34,7 +34,7 @@ dual-mode phone gamepads, widely available used for $10–30.
   Note: apkeep lookup under the *old* id `com.bda.pivot.moga` returns nothing; the
   correct id is `com.bda.pivot.mogapgp`.
 
-## Mode A protocol (from static analysis of com.bda.controller.service.Device)
+## Mode A protocol (from static analysis of the app's controller-service device class)
 Transport: RFCOMM/SPP, service UUID `00001101-0000-1000-8000-00805f9b34fb`
 (standard SPP). Controller IDs 1..8. Poll-driven: host sends 5-byte commands,
 controller answers with state frames.

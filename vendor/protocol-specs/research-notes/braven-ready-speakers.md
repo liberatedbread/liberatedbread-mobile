@@ -27,15 +27,15 @@ social-marketing tabs.
 - **Decompiled**: jadx → `$REPO/workspace/static/braven/` (clean Java, unobfuscated)
 
 ## Transport (from static analysis)
-- Bluetooth Classic RFCOMM. `com.braven.gaia.library.GaiaLink` connects via:
+- Bluetooth Classic RFCOMM. The app's bundled GAIA library link class connects via:
   - GAIA SDP UUID `00001107-d102-11e1-9b23-00025b00a5a5` (primary)
   - standard SPP UUID `00001101-0000-1000-8000-00805f9b34fb` (fallback)
 - SoC: CSR86xx-class (ships `vmupgradelibrary` = GAIA VM-upgrade DFU).
 
 ## App feature surface (local)
-- Speaker settings (`SpeakerFragment`), **rename speaker** (`ChangeNameDialog`),
+- Speaker settings screen, **rename speaker** dialog,
   EQ / audio control per Play listing, remote power-off / Smart Lock per ZAGG
-  manual, **firmware update** (`UpdateVMFragment` + vmupgradelibrary, DFU over
+  manual, **firmware update** screen (backed by vmupgradelibrary, DFU over
   GAIA — firmware images may have been fetched from now-dead servers).
 - Social-media tabs (Twitter/Facebook/Instagram) are dead weight, ignorable.
 

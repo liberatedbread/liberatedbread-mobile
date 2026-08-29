@@ -93,12 +93,12 @@ ble:
 
 protocol:
   note: >
-    GATT layout fully recovered from APK (io.lattis.ellipse.sdk.Ellipse).
-    Auth flow (SecurityHandlerV2): read PUBLIC_KEY -> write CHALLENGE_KEY derived
-    from userId -> write SIGNED_MESSAGE (issued/signed server-side) -> read
-    CHALLENGE_DATA; invalid state SECURITY_STATE_INVALID_ACCESS_DENIED disconnects.
+    GATT layout fully recovered from the APK's bundled lock SDK.
+    Auth flow (the SDK's v2 security handler): read PUBLIC_KEY -> write
+    CHALLENGE_KEY derived from userId -> write SIGNED_MESSAGE (issued/signed
+    server-side) -> read CHALLENGE_DATA; an access-denied state disconnects.
     Crypto helpers: SHA-256, AES/ECB/PKCS5Padding. Auth material cached locally
-    (Realm KeyCache), so provisioned phones operate offline.
+    (a Realm-backed key cache), so provisioned phones operate offline.
   pairing_model: server-signed message; re-pairing without Lattis backend unverified
   local_fallback: capacitive touchpad code (BUTTON_LOCK_SEQUENCE)
 
