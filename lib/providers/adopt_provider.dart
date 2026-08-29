@@ -79,8 +79,13 @@ final adoptableDevicesProvider =
   final codec = ref.watch(specCodecProvider);
   final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
   final byName = _specsByDeviceName(parsed);
+  // Profiles come from the WINNING copies only. Generating them from every
+  // parsed copy paired a card's profile (SSID prefix, gateway, ports) with a
+  // different copy's YAML: the dedupe below keeps the first profile it sees
+  // — the bundled one — while the name join hands back the pack's YAML, so an
+  // installed pack override was shown wearing the bundled spec's identity.
   final profiles =
-      await codec.softApProfiles(parsed.map((p) => p.yaml).toList());
+      await codec.softApProfiles([for (final e in byName.values) e.yaml]);
 
   final devices = <AdoptableDevice>[];
   final seen = <String>{};
@@ -139,8 +144,10 @@ final bleAdoptableDevicesProvider =
   final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
   // The same join, the same shadowing rule — one definition for both flows.
   final byName = _specsByDeviceName(parsed);
-  final profiles =
-      await codec.bleProvisioningProfiles(parsed.map((p) => p.yaml).toList());
+  // Winning copies only, for the reason the softap join above gives: a
+  // profile and the YAML beside it must come from the same spec.
+  final profiles = await codec
+      .bleProvisioningProfiles([for (final e in byName.values) e.yaml]);
 
   final devices = <BleAdoptableDevice>[];
   final seen = <String>{};

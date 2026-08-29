@@ -406,6 +406,13 @@ Future<MqttRequestDto> renderNetworkMqttCommand(
 /// `{serial}` on the wire is a topic no broker publishes on, and
 /// subscribing to it is how an entity renders forever-Unknown while the
 /// code claims a stream is filling it.
+///
+/// A value carrying the topic language itself is REFUSED, exactly as the
+/// command-topic renderer refuses it (see [`mqtt::TOPIC_LANGUAGE`]). These
+/// values come off a device announcement — a serial, a product type — so a
+/// malformed or spoofed one carrying `#` would not fill a level, it would
+/// widen the subscription to every topic on the broker. The caller skips
+/// that topic rather than subscribing to something the spec never named.
 Future<String> fillMqttStateTopic(
         {required String topic, required Map<String, String> values}) =>
     RustLib.instance.api

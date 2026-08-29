@@ -1256,12 +1256,13 @@ fn wire__crate__api__device_api__fill_mqtt_state_topic_impl(
                 <std::collections::HashMap<String, String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
-                    let output_ok = Result::<_, ()>::Ok(
-                        crate::api::device_api::fill_mqtt_state_topic(api_topic, api_values),
-                    )?;
-                    Ok(output_ok)
-                })())
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::device_api::fill_mqtt_state_topic(api_topic, api_values)?;
+                        Ok(output_ok)
+                    })(),
+                )
             }
         },
     )

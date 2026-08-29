@@ -2807,14 +2807,37 @@ pub fn render_network_mqtt_command(
 /// `{serial}` on the wire is a topic no broker publishes on, and
 /// subscribing to it is how an entity renders forever-Unknown while the
 /// code claims a stream is filling it.
-pub fn fill_mqtt_state_topic(topic: String, values: HashMap<String, String>) -> String {
-    let mut fills: Vec<(String, String)> = values
-        .into_iter()
-        .map(|(name, value)| (format!("{{{name}}}"), value))
-        .collect();
+///
+/// A value carrying the topic language itself is REFUSED, exactly as the
+/// command-topic renderer refuses it (see [`mqtt::TOPIC_LANGUAGE`]). These
+/// values come off a device announcement — a serial, a product type — so a
+/// malformed or spoofed one carrying `#` would not fill a level, it would
+/// widen the subscription to every topic on the broker. The caller skips
+/// that topic rather than subscribing to something the spec never named.
+pub fn fill_mqtt_state_topic(
+    topic: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<String> {
+    let mut fills: Vec<(String, String)> = Vec::new();
+    for (name, value) in values {
+        let placeholder = format!("{{{name}}}");
+        // Only what this topic actually uses: a stored credential carrying a
+        // slash is nobody's business here unless the topic names it.
+        if !topic.contains(&placeholder) {
+            continue;
+        }
+        if value.contains(crate::protocol::mqtt::TOPIC_LANGUAGE) {
+            anyhow::bail!(
+                "the value for {{{name}}} carries a topic separator or \
+                 wildcard ({value:?}); it would rewrite the state topic \
+                 rather than fill it"
+            );
+        }
+        fills.push((placeholder, value));
+    }
     // Deterministic order even though exact-key lookup makes ties impossible.
     fills.sort();
-    crate::protocol::fill_placeholders_once(&topic, &fills)
+    Ok(crate::protocol::fill_placeholders_once(&topic, &fills))
 }
 
 /// MQTT CONNECT for a spec-declared broker.
@@ -6791,13 +6814,14 @@ device:
             fill_mqtt_state_topic(
                 "{productType}/{serial}/status/current".into(),
                 values.clone()
-            ),
+            )
+            .unwrap(),
             "455/NN2-EU-ABC1234D/status/current"
         );
         // A placeholder the store cannot answer stays visible — the caller's
         // signal to badge the entity instead of subscribing to a literal.
         assert_eq!(
-            fill_mqtt_state_topic("{productType}/{unknown}/x".into(), values),
+            fill_mqtt_state_topic("{productType}/{unknown}/x".into(), values).unwrap(),
             "455/{unknown}/x"
         );
         // A value is data: one containing braces lands verbatim and is never
@@ -6807,7 +6831,36 @@ device:
             ("b".to_string(), "2".to_string()),
         ]
         .into();
-        assert_eq!(fill_mqtt_state_topic("{a}/{b}".into(), sneaky), "{b}/2");
+        assert_eq!(
+            fill_mqtt_state_topic("{a}/{b}".into(), sneaky).unwrap(),
+            "{b}/2"
+        );
+    }
+
+    /// A discovery-supplied value carrying the topic language would not fill
+    /// a level, it would rewrite the topic — `#` widens the subscription to
+    /// every topic on the broker. Refused here exactly as the command-topic
+    /// renderer refuses it.
+    #[test]
+    fn a_state_topic_value_carrying_the_topic_language_is_refused() {
+        for hostile in ["#", "+", "a/b", "455/#"] {
+            let values: HashMap<String, String> =
+                [("serial".to_string(), hostile.to_string())].into();
+            let refused = fill_mqtt_state_topic("455/{serial}/status".into(), values);
+            assert!(
+                refused.is_err(),
+                "a serial of {hostile:?} must not reach a subscription"
+            );
+        }
+        // …but a value only becomes this function's business when the topic
+        // actually names it: an unrelated stored credential with a slash in
+        // it does not block a topic that never uses it.
+        let unrelated: HashMap<String, String> =
+            [("password".to_string(), "a/b#c".to_string())].into();
+        assert_eq!(
+            fill_mqtt_state_topic("455/fixed/status".into(), unrelated).unwrap(),
+            "455/fixed/status"
+        );
     }
 
     /// The pattern vocabulary upstream validates with Python `re` must

@@ -1057,8 +1057,20 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     };
     final declaredByFilled = <String, String>{};
     for (final declared in declaredTopics) {
-      final filled =
-          await codec.fillMqttStateTopic(topic: declared, values: values);
+      final String filled;
+      try {
+        filled =
+            await codec.fillMqttStateTopic(topic: declared, values: values);
+      } catch (e) {
+        // The fill refuses a value carrying the MQTT topic language (`/`,
+        // `+`, `#`): a spoofed or malformed serial would not fill a level, it
+        // would widen this subscription to topics the spec never named. One
+        // refused topic costs its own reading, never the whole screen.
+        Log.net.warning(
+            'mqtt state topic "$declared" was refused on ${widget.device.host}'
+            ' — not subscribing: $e');
+        continue;
+      }
       if (filled.contains('{')) {
         Log.net.info('mqtt state topic "$declared" still carries a '
             'placeholder after filling from discovery and stored '

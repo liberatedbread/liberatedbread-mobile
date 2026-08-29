@@ -972,10 +972,17 @@ class FakeSpecCodec implements SpecCodec {
     required String topic,
     required Map<String, String> values,
   }) async {
-    // Mirrors the real codec's exact-name fill; test values are benign, so a
-    // simple replace matches the single-pass result.
+    // Mirrors the real codec: exact-name fill, and a value carrying the MQTT
+    // topic language is refused rather than widening the subscription. Test
+    // values are otherwise benign, so a simple replace matches the real
+    // single-pass result.
     var filled = topic;
     values.forEach((name, value) {
+      if (!topic.contains('{$name}')) return;
+      if (value.contains(RegExp(r'[/+#]'))) {
+        throw ArgumentError('the value for {$name} carries a topic separator '
+            'or wildcard ($value); it would rewrite the state topic');
+      }
       filled = filled.replaceAll('{$name}', value);
     });
     return filled;
