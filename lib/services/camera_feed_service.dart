@@ -116,6 +116,8 @@ class _FeedSession {
 
   Future<void> start() async {
     await _startKeepalive();
+    // The keepalive connect awaits; the session may have been stopped meanwhile.
+    if (_stopped) return;
     // Poll interval from target_fps (default 1 fps), floored at 200 ms so a
     // hostile spec cannot spin the fetch loop.
     final fps = (stream.targetFps ?? 1).clamp(1, 30);
@@ -131,13 +133,23 @@ class _FeedSession {
     final urlTemplate = k.urlTemplate;
     final startMethod = k.startMethod;
     if (urlTemplate == null || startMethod == null) return;
+    final WebSocket ws;
     try {
-      _ws = await WebSocket.connect(fillCameraUrl(urlTemplate, host))
+      ws = await WebSocket.connect(fillCameraUrl(urlTemplate, host))
           .timeout(connectTimeout);
     } on Object catch (e) {
       Log.spec.debug('camera keepalive connect failed', error: e);
       return; // Some firmware still refreshes without it; keep polling.
     }
+    // The connect awaited; if the feed was stopped meanwhile, do not adopt the
+    // socket or schedule the keepalive timer — close it and bail, or it leaks.
+    if (_stopped) {
+      try {
+        await ws.close();
+      } catch (_) {}
+      return;
+    }
+    _ws = ws;
     void sendStart() {
       final ws = _ws;
       if (ws == null || _stopped) return;

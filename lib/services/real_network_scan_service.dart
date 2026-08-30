@@ -1680,6 +1680,27 @@ class RealNetworkScanService implements NetworkScanService {
               .timeout(timeout, onTimeout: (sink) => sink.close())) {
             txt.addAll(parseTxtRecord(record.text.split(RegExp(r'[\r\n]+'))));
           }
+          // Emit the moment TXT is in, without waiting for the (often absent)
+          // SRV/A. A device that never answers the A query for its own hostname
+          // (the Snapmaker U1) self-reports its address in TXT (see
+          // [addressFromTxt]); waiting for SRV/A to time out first can let
+          // _runMdns tear the client down before a post-resolution fallback
+          // runs — on Android especially, where the source-capture backstop
+          // cannot co-bind :5353 and rescue it. Coalesces by host with any
+          // later resolved row (mergedWith prefers that row's name and SRV
+          // port) and with the source-capture backstop.
+          final txtHost = addressFromTxt(txt);
+          if (txtHost != null) {
+            emit(NetworkDevice(
+              host: txtHost,
+              name: instanceNameOf(instance.domainName),
+              serviceTypes: [serviceTypeOf(instance.domainName)],
+              pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
+              txt: txt,
+              sources: const {NetworkDiscoverySource.mdns},
+              discoveredAt: DateTime.now(),
+            ));
+          }
         }(),
         () async {
           if (!clientLive()) return;
@@ -1694,7 +1715,6 @@ class RealNetworkScanService implements NetworkScanService {
         }(),
       ]);
 
-      var addressResolved = false;
       for (final srv in srvRecords) {
         if (!clientLive()) return;
         await for (final IPAddressResourceRecord address in client
@@ -1702,35 +1722,11 @@ class RealNetworkScanService implements NetworkScanService {
                 ResourceRecordQuery.addressIPv4(srv.target),
                 timeout: timeout)
             .timeout(timeout, onTimeout: (sink) => sink.close())) {
-          addressResolved = true;
           emit(NetworkDevice(
             host: address.address.address,
             name: instanceNameOf(instance.domainName),
             hostname: srv.target,
             port: srv.port,
-            serviceTypes: [serviceTypeOf(instance.domainName)],
-            pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
-            txt: txt,
-            sources: const {NetworkDiscoverySource.mdns},
-            discoveredAt: DateTime.now(),
-          ));
-        }
-      }
-
-      // SRV/A never yielded an address, but the device may have self-reported
-      // one in its TXT record (see [addressFromTxt]). Use it so a device that
-      // does not answer the A query for its own hostname is still surfaced —
-      // this is what makes the Snapmaker U1 discoverable. Coalesces by host with
-      // the raw source-capture backstop when both fire; here it works on every
-      // platform (that backstop cannot co-bind :5353 on Android).
-      if (!addressResolved && clientLive()) {
-        final txtHost = addressFromTxt(txt);
-        if (txtHost != null) {
-          emit(NetworkDevice(
-            host: txtHost,
-            name: instanceNameOf(instance.domainName),
-            hostname: srvRecords.isEmpty ? null : srvRecords.first.target,
-            port: srvRecords.isEmpty ? null : srvRecords.first.port,
             serviceTypes: [serviceTypeOf(instance.domainName)],
             pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
             txt: txt,
