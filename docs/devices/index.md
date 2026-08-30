@@ -160,6 +160,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Fronius Solar Inverter](fronius-solar-api.md) | WiFi (HTTP REST) | Spec Available | Device web UI (low) | Fronius |
 | [OpenEVSE Charging Station](openevse.md) | WiFi (HTTP/MQTT) | Spec Available | SoftAP (low) | OpenEVSE |
 | [Xiaomi miIO Protocol](xiaomi-miio.md) | WiFi (UDP 54321) | Spec Available | Mi Home + token (low) | Xiaomi ecosystem |
+| [Aqara Hub family (M1S Gen 2 / M2 / P3)](aqara-hub.md) | WiFi (mDNS + UDP 10008 onboarding) | Spec Available | Cloud account binding (hard); steady-state control cloud-relayed | Lumi United (Aqara) |
 | [Roborock Robot Vacuum (local)](roborock-local.md) | WiFi (TCP 58867) | Spec Available | Cloud login for local key (low) | Roborock |
 | [Valetudo (rooted vacuum)](valetudo.md) | WiFi (HTTP /api/v2) | Spec Available | Requires rooting (low) | Hypfer + community |
 | [Parrot Drones (AR.Drone / ARSDK)](parrot-arsdk-drone.md) | WiFi (UDP) | Spec Available | Join drone AP | Parrot |

@@ -1,0 +1,513 @@
+# Aqara Hub family (M1S Gen 2 / M2 / AC Partner P3) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Protocol source (clean-room): the Aqara Home Android app v4.2.1
+# (com.lumiunited.aqarahome.play) is SecNeo/Bangcle packed; its real code was
+# recovered by running the app on a rooted physical ARM device, freezing it
+# mid-unpack with SIGSTOP/SIGCONT, dumping /proc/<pid>/mem as root and carving
+# the decrypted dex payload offline, then decompiling. No vendor source,
+# assets or UI copy used. The provisioning crypto constants below were
+# recovered from the app's bundled native library (its runtime-decrypted
+# image) and VERIFIED end-to-end against the library's own encrypt/decrypt
+# functions driven on-device as an oracle (known-plaintext pairs reproduced
+# byte-for-byte).
+
+device:
+  name: "Aqara Hub family (M1S Gen 2, M2, AC Partner P3)"
+  manufacturer: "Lumi United (Aqara)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No Aqara hub is in the project's test hardware pool, so no packet here
+      has been replayed against real hardware. Everything comes from static
+      analysis of the recovered Aqara Home 4.2.1 app code. ONE part is
+      hardware-verified: the provisioning datagram crypto (AES-128-CBC
+      parameters in aqara_lan_protocol.crypto) was confirmed against the
+      vendor's own crypto library running on a rooted Android device —
+      known plaintexts encrypt to the library's exact outputs. The discovery
+      whois/iam exchange, the provisioning JSON keys and the port numbers are
+      read from code, not sniffed from a live hub.
+  protocol: "wifi"
+  category: "hub"
+  transport: "udp"
+  notes: >
+    Aqara's Wi-Fi hubs bridge the vendor's Zigbee/BLE sensors to Wi-Fi and
+    the cloud; some models add IR blaster (AC Partner P3, M2) or a speaker/
+    RGB light (M1S). Aqara (Lumi United) is an ACTIVE company — this spec's
+    purpose is documenting the local surface, which turns out to be narrow
+    in the current generation:
+
+    WHAT IS LOCAL: hub discovery and Wi-Fi onboarding. An unprovisioned hub
+    answers mDNS `_aqara._tcp.local.` and a UDP multicast "whois" probe to
+    230.0.0.1:10008, and it takes Wi-Fi credentials over UDP 10008 as
+    AES-128-CBC-encrypted JSON (parameters fully recovered — see
+    aqara_lan_protocol.crypto). Some models accept the same credentials over
+    TCP 10000 plaintext JSON, an HTTPS POST while hosting their setup AP, or
+    BLE "Magic Pair" commissioning.
+
+    WHAT IS NOT LOCAL: steady-state control. The v4.2.1 app contains NO
+    post-setup LAN command channel for hubs — no get/read/write verbs, no
+    local event stream, no LAN heartbeat. Arm/disarm, light control,
+    sub-device state, IR blasting and event delivery are all relayed through
+    Aqara's cloud (authenticated REST "resource write" with
+    subjectId/dataKey/value, plus cloud push). The older Xiaomi-era
+    developer-mode LAN protocol (multicast 224.0.0.50, ports 54321/9898,
+    per-hub AES key shown in the app) has NO trace in this app version —
+    third-party projects that still use it (e.g. the Home Assistant
+    AqaraGateway custom integration) depend on enabling developer options on
+    older hub firmware, outside what this document verifies.
+
+    CLOUD DEPENDENCY: onboarding is cloud-assisted even though the transport
+    is local — the app fetches a `bindKey` (and region/position IDs) from
+    Aqara's REST API and embeds it in the provisioning payload; account
+    binding completes via cloud polling. The hub's persistent control
+    session is hub→cloud.
+
+    RELATED SURFACES (recovered in the same analysis, documented under
+    protocol_details): the Aqara BLE lock family (lumi.lock.*) has a fully
+    mapped local GATT control channel (ECDH P-256 + AES-CCM session) whose
+    binding step is cloud-assisted; Matter commissioning is standard CHIP
+    (BLE 0xFFF6 / _matterc._udp) but fabric certificates are cloud-issued
+    and steady-state Matter control is cloud-relayed in this app version.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Aqara publishes no LAN API for the current hub generation. This spec
+      is recovered from the vendor app's recovered code (see file header).
+      The only documented local interface Aqara ever shipped was the legacy
+      developer-mode protocol on older firmware, which this app version no
+      longer speaks.
+
+  identification:
+    mdns_service_type: "_aqara._tcp.local."
+    default_port: 10008
+    notes: >
+      On the LAN a hub (or any unprovisioned Aqara Wi-Fi device) advertises
+      `_aqara._tcp` with TXT keys md (model string, e.g. the lumi.* model
+      id), id (device id / did) and pv (`pv=true` means "already
+      provisioned" — the app's own setup list filters those OUT, so for
+      discovery of adoptable units watch for the opposite). The mDNS
+      instance name is the device id. In setup mode the hub hosts a Wi-Fi AP
+      whose SSID matches `lumi-<type>-<suffix>` (observed tokens: gateway,
+      and model-family suffixes like m1s / acn02 / aqhm) or `Aqara Hub *`;
+      the hub answers at 192.x.y.1 (the /24 gateway of whatever address it
+      hands the phone) on UDP 10008.
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_aqara._tcp.local."
+          port: 10008
+          txt_record_keys: ["md", "id", "pv"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt"
+                key: "id"
+            display:
+              source: "txt"
+              key: "md"
+        notes: >
+          Service type confirmed from the app's mDNS browser code. TXT:
+          md=model, id=did, pv=true ⇒ already provisioned (a hub in pairing
+          mode advertises without pv or with pv unset). The SRV port is the
+          device's provisioning port; the app defaults to 10008 when absent.
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 10008
+          broadcast_address: "230.0.0.1"
+          passive_ok: false
+          identity_mapping:
+            stable_keys:
+              - source: "payload"
+                key: "address"
+            display:
+              source: "payload"
+              key: "model"
+        notes: >
+          Multicast (not subnet-broadcast) discovery: send plaintext JSON
+          {"command":"whois","address":"<your LAN IP>","port":"<your UDP
+          listen port>"} to group 230.0.0.1 port 10008. Answering devices
+          reply to the given address with a plaintext JSON ARRAY of
+          {"command":"iam","address":"<deviceIP>:<port>","model":"…",
+          "name":"…","registered":"yes|no"}. Whether the probe itself may
+          also go through the app's AES layer is unverifiable from the
+          recovered code (one method body did not survive unpacking); the
+          reply is parsed as plaintext JSON.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      A factory/reset hub cannot be used until it joins Wi-Fi AND is bound
+      to an Aqara account: the Wi-Fi credential handoff is fully local
+      (encrypted UDP below), but the payload embeds a cloud-issued bindKey
+      and the app confirms onboarding by polling the cloud. Aqara's cloud
+      being alive is therefore a hard requirement for adopting a reset hub
+      as designed — a key fact for this registry's purpose. The app selects
+      among several per-model delivery modes (its own words: ap_udp, ap_tcp,
+      ap_http, ethernet, ble_gateway, magic_pair, matter, …); the methods
+      below are ordered by how reproducible they are from this document.
+    methods:
+      - type: "softap_udp"
+        name: "Setup-AP + encrypted UDP credential push (port 10008)"
+        role: "primary"
+        verified: false
+        description: >
+          The phone joins the hub's temporary AP, derives the hub address as
+          192.x.y.1, and sends the Wi-Fi credentials as AES-128-CBC
+          encrypted JSON in one UDP datagram to port 10008. The hub replies
+          (encrypted), and the app closes with an encrypted {"ack":1}. The
+          full payload format and crypto are in aqara_lan_protocol.
+        softap:
+          ssid_prefix: "lumi-gateway-"
+          ssid_examples:
+            - "lumi-gateway-m1s<suffix>"
+            - "lumi-gateway-acn02<suffix>"
+            - "Aqara Hub <model-suffix>"
+          open_network: true
+          gateway_ip: "192.x.y.1 (the /24 gateway of the address the hub's DHCP hands the phone)"
+          port: 10008
+        payload_formats:
+          provisioning_request:
+            description: >
+              JSON {"cid":" ","ssid":"<home ssid>","passwd":"<wifi password>",
+              "lang":"<locale>","bindKey":"<cloud-issued>",
+              "country_domain":"<region>","timeZone":"GMT±h[:mm]"} — optional
+              extra keys positionId, uid, baseUrl — then AES-128-CBC encrypted
+              (aqara_lan_protocol.crypto) and sent as a single datagram.
+          provisioning_response:
+            description: >
+              Encrypted JSON; the app checks keys iotError / errorMessage.
+              On success the app sends encrypted {"ack":1}.
+        steps:
+          - action: "Reset the hub (or it ships fresh) so it hosts its setup AP."
+            actor: "user"
+            expect: "An SSID matching lumi-gateway-* / 'Aqara Hub *' appears."
+          - action: "Join that AP from the client machine."
+            actor: "user"
+            expect: "Client gets a 192.x.y.z lease; hub is 192.x.y.1."
+          - action: "Send the encrypted provisioning JSON to 192.x.y.1:10008 (format in aqara_lan_protocol)."
+            actor: "client"
+            expect: "Encrypted reply without iotError; hub joins the home Wi-Fi and starts answering _aqara._tcp on the LAN."
+        troubleshooting:
+          - symptom: "Hub never completes onboarding even though the UDP exchange answers."
+            causes:
+              - "The bindKey inside the payload is issued by Aqara's cloud REST API for the target positionId; whether a hub accepts an arbitrary bindKey offline has not been tested (no hardware)."
+              - "Wrong band: the hubs are 802.11b/g/n 2.4 GHz only."
+      - type: "softap_http"
+        name: "Setup-AP + HTTPS POST (ap_http models)"
+        role: "variant"
+        verified: false
+        description: >
+          Some models take credentials as an HTTPS POST while hosting the
+          setup AP: JSON {"wifi":"<ssid>","pwd":"<password>","cid":" ",
+          "bindKey":"…","country_domain":"…"} followed by a second POST
+          {"ack":1}. The app's built-in default URL reads
+          https://192.168.5.1:4567/<path>, but the path in the binary is a
+          placeholder and the real endpoint is pushed per-device from server
+          config — treat the exact URL as UNVERIFIED until captured from a
+          real hub.
+        softap:
+          ssid_prefix: "lumi-gateway-"
+          open_network: true
+          gateway_ip: "192.168.5.1 (default; unverified)"
+          port: 4567
+        steps:
+          - action: "Join the hub's setup AP, then POST the credential JSON to its HTTPS endpoint."
+            actor: "client"
+            expect: "HTTP 200, then a second POST {\"ack\":1} completes the handoff."
+      - type: "ble_provisioning"
+        name: "BLE Magic Pair commissioning"
+        role: "variant"
+        verified: false
+        description: >
+          Newer hubs (and other Aqara Wi-Fi devices) advertise a BLE
+          commissioning surface: GATT service 0000fcb9-0000-1000-8000-
+          00805f9b34fb (write 0000ff07-…, notify 0000ff08-…) carrying a
+          Weave-style TLV provisioning dialogue, with a TLV advertisement
+          (vendor id / product id / discriminator / commissioned flag).
+          Matter-capable models expose standard CHIP commissioning instead
+          (BLE service 0xFFF6, or _matterc._udp for on-network
+          commissioning). Both flows hand over Wi-Fi credentials locally but
+          complete binding against Aqara's cloud (Matter fabric certificates
+          are generated by Aqara REST endpoints).
+        steps:
+          - action: "Scan BLE for the hub's commissioning advertisement while it is in pairing mode."
+            actor: "client"
+            expect: "Advertisement with service 0000fcb9-… (Magic Pair) or 0000FFF6-… (Matter)."
+      - type: "wired"
+        name: "Ethernet models: multicast whois + UDP 10008"
+        role: "variant"
+        verified: false
+        description: >
+          Hubs with an RJ45 port (M2) skip the setup AP entirely: plug in
+          Ethernet, find the hub with the multicast whois probe (discovery
+          block) or mDNS, and push the same encrypted provisioning JSON to
+          its LAN address on UDP 10008.
+        steps:
+          - action: "Connect the hub to the router over Ethernet and power it."
+            actor: "user"
+            expect: "Hub answers whois multicast and _aqara._tcp on the LAN."
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Two reset scopes (vendor-documented): holding the button ~10 s until
+        the yellow LED flashes resets the NETWORK connection only (Zigbee
+        child bindings survive — this is the router-replacement move);
+        pressing the button 10 times (M1S Gen 2, per its manual) restores
+        factory defaults including bindings. Either way the hub must be
+        re-onboarded afterwards, which requires the vendor cloud (bindKey).
+      procedures:
+        - name: "Network reset (button hold)"
+          verified: false
+          basis: "Vendor help center (Aqara Hub M2) and M1S Gen 2 manual: hold ~10 s until the yellow LED flashes."
+          steps:
+            - action: "With the hub powered, hold its button for about 10 seconds."
+              actor: "user"
+              expect: "Yellow/red LED flashes quickly; hub forgets Wi-Fi and re-enters pairing."
+            - action: "Re-add the hub (setup.methods)."
+              actor: "user"
+        - name: "Full factory reset (M1S Gen 2: button ×10)"
+          verified: false
+          basis: "M1S Gen 2 vendor manual (button press table): 10 presses restore factory defaults."
+          steps:
+            - action: "Press the hub button 10 times in succession."
+              actor: "user"
+              expect: "Hub restores factory defaults; child-device bindings are cleared."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The 10-second network reset re-points the hub at a new Wi-Fi network
+        without wiping Zigbee children (per vendor help center and user
+        reports); full ×10 factory reset is the clean-slate fallback.
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "cloud-issued bindKey"
+      issued_to_client: []
+      notes: >
+        The Wi-Fi passphrase travels AES-128-CBC encrypted with an app-wide
+        key (recovered, aqara_lan_protocol.crypto) — over-the-air protection
+        only; the key is public once the app is analyzed, so treat the
+        setup-AP window as the sensitive moment. The bindKey is bound to the
+        account/position and is not a reusable client credential.
+
+  variants:
+    - model: "M1S Gen 2 (HM1S-G02)"
+      notes: >
+        Wi-Fi 2.4 GHz + Zigbee 3.0 hub with RGB night light and 2 W speaker;
+        button: single press toggles the light, 10 s hold resets network,
+        ×10 press factory-resets (vendor manual).
+    - model: "M2 (HM2-G01 family)"
+      notes: >
+        Adds Ethernet (RJ45) and an IR blaster; vendor help center documents
+        the 10 s hold reset. The app's IR remote surface for this family is
+        cloud-relayed (no local IR protocol in the app).
+    - model: "AC Partner P3 (KTBL12LM family)"
+      notes: >
+        AC-partner hub with IR. The app carries a full virtual-remote IR
+        module for it; every IR action observed in the app is a cloud REST
+        call (controller key click / learn start/cancel / learn read).
+
+cloud:
+  required: true
+  notes: >
+    The v4.2.1 app's only steady-state device channel is Aqara's cloud:
+    authenticated HTTPS REST "resource write" ({subjectId, dataKey, value})
+    for control and cloud push for events. Onboarding is also cloud-bound:
+    GET/POST /app/v1.0/lumi/... endpoints issue the bindKey (per
+    positionId/connectType), register BLE devices (dev/bluetooth/reg/*) and
+    generate Matter fabric material (user/cert/matter/home/gen-cac|gen-noc).
+    If the vendor cloud dies: already-provisioned hubs keep their LAN
+    presence (mDNS/whois still answer) but no documented local control path
+    exists in this app generation; adopting a reset hub without the cloud is
+    blocked on the bindKey unless hardware testing shows hubs accept an
+    arbitrary one.
+
+local_access:
+  status: "none_known"
+  summary: >
+    For CONTROL, no local path exists in the current app/firmware generation
+    — an honest dead end as shipped: the app drives hubs and their Zigbee
+    children exclusively through the vendor cloud. Locally you CAN discover
+    hubs (mDNS _aqara._tcp / multicast whois) and perform the Wi-Fi
+    onboarding transport (AES-128-CBC encrypted UDP 10008, parameters
+    recovered). For the pre-2022 hub generation a developer-mode LAN control
+    protocol was documented by third parties (see helpful_urls), but it is
+    absent from the current app and unverified here.
+  covers:
+    - "LAN discovery and identification of hubs (mDNS + multicast whois)"
+    - "Wi-Fi credential delivery (encrypted UDP 10008, TCP 10000, setup-AP HTTPS variants)"
+  not_covered:
+    - "Any steady-state control: arm/disarm, hub light/speaker, IR blaster"
+    - "Zigbee child-device state or control"
+    - "Local event/alert stream"
+    - "Adopting a reset hub without the vendor cloud (bindKey)"
+
+protocol_handler: "aqara_lan"
+
+protocol_details:
+  # Recovered from the Aqara Home 4.2.1 app (see file header). This is the
+  # complete local wire surface the app speaks to hubs.
+  aqara_lan_protocol:
+    mdns:
+      service_type: "_aqara._tcp.local."
+      txt_keys:
+        md: "model string (lumi.* model id)"
+        id: "device id (did)"
+        pv: "'true' when already provisioned; absent/unset in pairing mode"
+      port_default: 10008
+    multicast_discovery:
+      group: "230.0.0.1"
+      port: 10008
+      probe: '{"command":"whois","address":"<client LAN IP>","port":"<client UDP listen port>"}'
+      probe_encoding: "plaintext JSON (unencrypted)"
+      reply: >
+        Plaintext JSON array, one object per answering device:
+        [{"command":"iam","address":"<deviceIP>:<port>","model":"…",
+        "name":"…","registered":"yes|no"}]
+    provisioning_udp:
+      port: 10008
+      direction: "client → hub, one datagram; hub replies; client closes with ack"
+      plaintext_json:
+        required_keys:
+          cid: "single space ' ' (placeholder in app code)"
+          ssid: "home Wi-Fi SSID"
+          passwd: "home Wi-Fi passphrase"
+          lang: "locale language tag"
+          bindKey: "cloud-issued onboarding key (per positionId/connectType)"
+          country_domain: "server region tag"
+          timeZone: "e.g. GMT+8"
+        optional_keys: ["positionId", "uid", "baseUrl"]
+      reply: "encrypted JSON; error keys iotError / errorMessage"
+      ack: '{"ack":1} — encrypted, sent after a successful reply'
+      socket_behavior: "receive timeout ~5 s, receive buffer 102400 bytes (app side)"
+    provisioning_tcp:
+      port: 10000
+      plaintext_json: '{"ssid":"…","password":"…","bindKey":"…"} — note "password" (not "passwd") on this path'
+      retries: 3
+      timeouts_ms: [10000, 8000]
+      encryption: "none visible in the recovered code"
+    provisioning_https_ap:
+      endpoint_default: "https://192.168.5.1:4567/<path> — path is a placeholder in the binary; real value is server-pushed per device model. UNVERIFIED."
+      body: '{"wifi":"…","pwd":"…","cid":" ","bindKey":"…","country_domain":"…"}'
+      ack: 'second POST {"ack":1}'
+    crypto:
+      algorithm: "AES-128-CBC, PKCS7 padding, no per-message IV on the wire"
+      key_ascii: "Uw4i98shjoeUQdaD"
+      iv_hex: "ddb3ba695a2e6f58562e17996d093d28"
+      scope: "app-wide constants from the bundled native crypto library; used for the UDP provisioning datagrams and their replies"
+      verification: >
+        Verified 2026-08-29 against the vendor library itself (driven
+        on-device): with key "Uw4i98shjoeUQdaD" and the IV above,
+        AES-128-CBC/PKCS7 of "" is caca794f590e57df25730a7462fc7644, of "A"
+        is c7ecb89c15608887cf9dd16e9ac6b038, of "AAAAAAAAAAAAAAAA" is
+        6cac6e23b9fcd71f166859a4d028c8e42fe0b189b4da6a0baf2eb935afacc2e2,
+        and of 64 "A" bytes is 6cac6e23…(first block repeated scheme)…
+        — all four byte-for-byte identical to the library's output.
+      determinism: "no random IV — same plaintext always yields the same ciphertext"
+    ble_lock_family:
+      summary: >
+        Aqara's BLE locks (lumi.lock.acn02/03/04/06, aq1, dq1, n100, s2,
+        s2pro, net) speak a local GATT protocol recovered in the same
+        analysis. Control after binding is fully local; binding/log-in is
+        cloud-assisted (ECDH publickey exchange + assure endpoints). Worth a
+        dedicated spec when hardware is available.
+      services:
+        data: "0000ff60-2333-5b1e-9d7c-c687fd2f04f2 (write ff61, notify ff62, OTA write ff63, OTA notify ff64, same base)"
+        registration: "0000ffa0-0000-1000-8000-00805f9b34fb (write ffb1, notify ffb2)"
+        magic_pair: "0000fcb9-0000-1000-8000-00805f9b34fb (write ff07, notify ff08) — gateway commissioning, not locks"
+      framing: "2-byte command header (mainCmd, subCmd); mainCmd 0x01 system / 0x02 user / 0x03 record / 0x04 alarm / 0x3F long / 0x81 reply / 0xBF long-reply; fragmented writes, final fragment id 0xFF; registration frames CRC16-protected"
+      security: "ECDH secp256r1 key exchange → AES-CCM session (13-byte nonce); 25 s application heartbeat"
+      onboarding_opcodes:
+        note: "2 bytes {cmd, group}; group 0x10 = registration/login, 0x20 = info/OTA"
+        values:
+          REGISTER_REQ: "01 10"
+          SYNC_ECC_KEY: "02 10"
+          CERT_VERIFY_REQ: "03 10"
+          REG_VERIFY_REQ: "04 10"
+          REGISTER_RESULT: "05 10"
+          START_LOGIN: "06 10"
+          VERIFY_LOGIN: "07 10"
+          DELETE_DEV: "08 10"
+          GET_DEVICE_ID: "01 20"
+          GET_SUBDEVICE_INFO: "02 20"
+          DEVICE_IDENTIFY: "03 20"
+          DATA_CHANNEL_JSON: "10 00"
+          DATA_CHANNEL: "11 00"
+          DATA_CHANNEL_CBOR: "12 00"
+    matter:
+      summary: >
+        Matter-capable models commission via stock CHIP: BLE service
+        0000FFF6-0000-1000-8000-00805F9B34FB or NSD _matterc._udp.local.,
+        PASE with the printed/manual pincode, then NetworkCredentials
+        (Wi-Fi or Thread). Fabric certificates and node IDs are generated by
+        Aqara's cloud (REST gen-cac/gen-noc/gen-nodeid) and steady-state
+        control is cloud-relayed in this app version.
+
+commands:
+  discover_whois:
+    description: "Multicast discovery probe: plaintext JSON to 230.0.0.1:10008; hubs answer with iam (see protocol_details.aqara_lan_protocol.multicast_discovery)."
+    transport: "udp"
+    body: '{"command":"whois","address":"<client LAN IP>","port":"<client UDP listen port>"}'
+    returns:
+      - name: "iam"
+        type: "json"
+        description: 'Plaintext JSON array: [{"command":"iam","address":"<ip>:<port>","model":"…","name":"…","registered":"yes|no"}]'
+    verification: "reported"
+  provision_wifi:
+    description: >
+      Wi-Fi onboarding: AES-128-CBC-encrypted JSON provisioning datagram to
+      the hub on UDP 10008 (or its mDNS-advertised port). Format and crypto
+      in protocol_details.aqara_lan_protocol. Requires a cloud-issued
+      bindKey embedded in the payload.
+    transport: "udp"
+    body: '{"cid":" ","ssid":"…","passwd":"…","lang":"…","bindKey":"…","country_domain":"…","timeZone":"GMT±h"} (then encrypted)'
+    returns:
+      - name: "provision_result"
+        type: "json"
+        description: 'Encrypted JSON; error keys iotError/errorMessage; close with encrypted {"ack":1}'
+    verification: "reported"
+
+remaining_unknowns:
+  - "Whether a hub accepts an arbitrary bindKey in the provisioning payload when the vendor cloud is unreachable (needs hardware; decides whether offline adoption of reset hubs is possible)."
+  - "The HTTPS setup-AP endpoint path and whether 192.168.5.1:4567 is the real default (placeholder-looking value in the binary; server-pushed per model)."
+  - "Whether the whois multicast probe is additionally wrapped in the AES layer on some firmware (one code path did not survive unpacking)."
+  - "BLE lock sub-command byte values and the advertisement bit packing (hidden behind the packer's JNI indirection in the dump)."
+  - "Legacy developer-mode LAN control protocol on older hub firmware: documented by third parties (Home Assistant AqaraGateway), absent from the current app — not verified by this project."
+
+helpful_urls:
+  - title: "Aqara Hub M2 — official help center (reset procedure, FAQ)"
+    url: "https://store-support.aqara.com/products/aqara-smart-hub-m2"
+    description: >
+      Vendor help center for the M2: the 10-second button hold that unbinds
+      and network-resets the hub, plus add/accessory troubleshooting.
+  - title: "Aqara Hub M1S Gen 2 user manual"
+    url: "https://www.manualslib.com/manual/3613999/Aqara-M1s-Gen-2.html"
+    kind: "manual"
+    description: >
+      Manual for the M1S Gen 2 (HM1S-G02): button semantics used in
+      device.setup.factory_reset (single press night light, 10 s hold =
+      reset network connection, 10 presses = factory defaults).
+  - title: "Home Assistant AqaraGateway custom integration (niceboygithub)"
+    url: "https://github.com/niceboygithub/AqaraGateway"
+    description: >
+      Third-party local-control project for older Aqara hub firmware via the
+      developer-mode (telnet/miio-style) protocol — the only known local
+      CONTROL path for this family; depends on firmware the current app no
+      longer speaks to. Prior art, unverified by this project.
+  - title: "Aqara Hub M1S Gen 2 product/spec page"
+    url: "https://www.aqara.com.cn/en/product/hub-m1s-gen-2/specs/"
+    description: >
+      Vendor spec sheet: 2.4 GHz 802.11b/g/n + Zigbee 3.0, model HM1S-G02.

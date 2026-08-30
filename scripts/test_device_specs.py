@@ -1147,6 +1147,9 @@ ENTITYLESS_CONTROL_SURFACES = {
     "xiaomi-miio": "miIO is an encrypted UDP protocol keyed by a token the "
                    "spec cannot carry; the commands document the method "
                    "names, not a surface a renderer can drive.",
+    "aqara-hub": "The two commands are onboarding verbs (multicast whois, "
+                 "encrypted credential push); the spec's own finding is that "
+                 "no post-setup LAN control surface exists to bind.",
 }
 
 
@@ -2791,6 +2794,7 @@ PRODUCT_FIXED_LAN_ADDRESSES = {
     "192.168.4.1": "ESP-style SoftAP default (SP108E, LED Space, BanlanX…)",
     "192.168.6.1": "Frigidaire/Electrolux NIU setup endpoint",
     "192.168.8.1": "Valetudo provisioning AP; June oven's captive-DNS answer",
+    "192.168.5.1": "Aqara hub setup-AP HTTPS default (from the Aqara Home 4.2.1 app binary; the address is the app's built-in default, the path is a placeholder)",
     "192.168.10.1": "Rachio Gen 2 / Rabbit Air setup AP gateway",
     "192.168.42.1": "Parrot Bebop/Anafi family AP",
     "192.168.60.1": "Dyson setup-AP MQTT broker (non-EC categories)",

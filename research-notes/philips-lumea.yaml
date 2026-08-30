@@ -1,0 +1,29 @@
+# Philips Lumea — Device Spec (finding: no device radio in current app)
+# Source: Philips Lumea IPL app 6.x (com.philips.platform.lumea), static analysis 2026-08-29
+
+device:
+  id: philips-lumea
+  name: Philips Lumea IPL family (9000/9900 series; current app has NO BLE)
+  manufacturer: Philips
+  category: ipl_hair_removal
+  safety_class: IPL_CLASS_UNRATED
+
+transport:
+  type: none              # current app (6.x) talks to the device via camera/mic, not radio
+  local_only: true        # device fully standalone; never locked, never phones home
+  historical: Lumea Prestige BRI95x had BLE with app <= 5.x (not in this build)
+
+app_gates:
+  skinai_unlock:
+    mechanism: QR code on device handle or serial number, validated server-side
+    endpoint: apps.api.it.philips.com (anti-counterfeit API; token via login.microsoftonline.com)
+    scope: app features only (flash counter, skin analysis) — device unaffected
+  paywall: none (Zuora code displays Try&Buy rental status only)
+  account: optional (guest mode exists)
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  protocol_recovered: false   # no protocol exists in current app to recover
+  hci_snoop_needed: false
+  community_support: n/a
