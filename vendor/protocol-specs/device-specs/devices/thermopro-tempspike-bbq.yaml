@@ -201,22 +201,23 @@ device:
         (scan name TP980R, the app's "tempWifi" group) uses notification
         opcodes decimal 80-84 = 0x50-0x54 (an earlier revision of this spec
         wrote "0x80-0x84", confusing decimal with hex) for
-        wifiScan/wifiConnect/wifiCheck and cloud binding, returning the WiFi
-        MAC, an 18-char device did and boundUser; the TP920/TP25W family has
-        the same capability on opcodes 0x60-0x67 (writes: scanWifi 0x60,
-        connectWifi 0x62, checkWifi 0x63, unBound 0x64, checkDid 0x66;
-        notifications: wifiScanReturn 0x61, wifiConnectReturn 0x63/0x67,
-        boundNotification 0x65, checkDidReturn 0x66 — from the app's TP920
-        command and parse classes). Unlike the TP980 set, no decimal/hex
+        wifi-scan/wifi-connect/wifi-check and cloud binding, returning the WiFi
+        MAC, an 18-char device did and the bound-user field; the TP920/TP25W
+        family has the same capability on opcodes 0x60-0x67 (writes: scan-wifi
+        0x60, connect-wifi 0x62, check-wifi 0x63, unbind 0x64, check-did 0x66;
+        notifications: wifi-scan-return 0x61, wifi-connect-return 0x63/0x67,
+        bound-notification 0x65, check-did-return 0x66 — from the app's TP920
+        command and parse code). Unlike the TP980 set, no decimal/hex
         confusion applies to these: the literals in the app are decimal
         96-103, which equal hex 0x60-0x67 exactly as written here. The
         apparent write/notify overlaps are real request/response opcode
         sharing — the device's reply notification echoes the request's
-        opcode (checkWifi write 0x63 → wifiConnectReturn notify 0x63,
-        checkDid write 0x66 → checkDidReturn notify 0x66; 0x61 and 0x65
-        likewise double as the client's ack writes wifiScanReturn(index)
-        and returnUnBoundDevice), while 0x67 is a notification-only WiFi
-        connect-state variant with no matching write. So a
+        opcode (check-wifi write 0x63 → wifi-connect-return notify 0x63,
+        check-did write 0x66 → check-did-return notify 0x66; 0x61 and 0x65
+        likewise double as the client's ack writes — the wifi-scan-return ack
+        carrying the scan index, and the unbind ack), while 0x67 is a
+        notification-only WiFi connect-state variant with no matching write.
+        So a
         WiFi passphrase IS involved for those families, and TP980W is sold as
         a Wi-Fi model. No TP980 cloud broker endpoint is identifiable from
         static code; the binding rides the device did.
@@ -296,9 +297,10 @@ device:
         - alarm_per_probe
         - probe_disconnect_detection (-999.0°C sentinel)
       protocol_notes: |
-        Per-probe push notifications (tempReturn opcodes 0x61/0x10, probe index
-        in byte 1) — there is NO polling state machine on this family; the
-        setTemp(0..3) sequential-probing flow belongs to TP980. Other opcodes:
+        Per-probe push notifications (temperature-return opcodes 0x61/0x10,
+        probe index in byte 1) — there is NO polling state machine on this
+        family; the sequential per-probe target-temp flow belongs to TP980.
+        Other opcodes:
         0x02 unit, 0x04 alarm setting, 0x05 alarm close, 0x06 device close,
         0x67 color. Battery: raw×33 for both probes and box
         (per the app's TP940 parser) — note this is the INVERSE of the
@@ -359,9 +361,9 @@ device:
       temperature_encoding: ieee754_float32
       temperature_encoding_detail: >
         IEEE 754 float32 read LITTLE-ENDIAN (Nordic Data.FORMAT_UINT32) at
-        offsets 5/9/13 (tp980TempReturn). The wire value is °F with a +54
-        offset: convert via fToC(raw - 54) — the same
-        fahrenheit_to_celsius(x - 54) the thermopro-ble parser applies for
+        offsets 5/9/13 (in the TP980 temperature-return path). The wire value
+        is °F with a +54 offset: convert as °C = (raw - 54 - 32) * 5/9 — the
+        same fahrenheit_to_celsius(x - 54) the thermopro-ble parser applies for
         TP97x.
       features:
         - temperature_history_upload
@@ -372,16 +374,16 @@ device:
       protocol_notes: |
         History upload: multi-chunk transfer with a first frame (opcode 0x02)
         and continuation frames, 6 bytes/record. Probe reading uses the
-        setTemp(0..3) / readNextProTemp sequential state machine
+        sequential per-probe target-temp / read-next-probe state machine
         (the app's TP980 parser — an earlier revision of this spec
         misattributed it to TP940). Notification opcodes: 0x11 temp
         return, 0x12 probe connect, 0x13 temp alarm close, 0x14 ambient temp
         alarm close, 0x17 charge state change, 0x18 device close, 0x19 temp
         unit change, 0x1A probe color check, 0x20 temp auto-return, and
         decimal 80-84 = 0x50-0x54 for WiFi scan/connect/check plus cloud
-        binding (did, boundUser). Battery: u16 LE millivolt bands <2311 → 0%,
+        binding (did, bound-user). Battery: u16 LE millivolt bands <2311 → 0%,
         2311-2450 → 33%, 2451-2600 → 66%, ≥2601 → 100%
-        (TP980ChangeUtils.getBattery:477-484).
+        (per the app's TP980 battery decoder).
 
 services:
   # DEFAULT family config (TPBleConfig) — TP920/TP25W, TP980 and all

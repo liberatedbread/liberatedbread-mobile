@@ -3356,6 +3356,7 @@
                               "enum": [
                                 "uint8",
                                 "uint16",
+                                "uint24",
                                 "int8",
                                 "int16",
                                 "int32",
@@ -3439,6 +3440,7 @@
                           "bool",
                           "uint8",
                           "uint16",
+                          "uint24",
                           "int8",
                           "int16",
                           "int32",
@@ -3446,7 +3448,7 @@
                           "bytes",
                           "string"
                         ],
-                        "description": "Field value type. int32/uint32 are consumed by the mobile Rust ValueType enum (4-byte fixed width, endianness honored) — do not work around them with prose or paired uint16 fields."
+                        "description": "Field value type. int32/uint32/uint24 are consumed by the mobile Rust ValueType enum (fixed width, endianness honored; uint24 is a 3-byte unsigned field, e.g. KingSmith WiLink telemetry) — do not work around them with prose or paired uint16 fields."
                       },
                       "endianness": {
                         "type": "string",
@@ -3976,11 +3978,11 @@
         },
         "keepalive": {
           "type": "object",
-          "description": "Some cameras only produce frames while a monitor session is held open. Describe the call to start/maintain it (the Snapmaker U1 needs camera.start_monitor over WebSocket, re-sent every ~5-10 s, before its monitor.jpg refreshes).",
+          "description": "Some cameras only produce frames while a monitor session is held open. Describe the call to start/maintain it (the Snapmaker U1 needs camera.start_monitor over WebSocket, re-sent every ~5-10 s, before its monitor.jpg refreshes). `start`/`stop` are the human-readable form; the machine-readable `transport`/`url_template`/`start_method`/`start_params`/`stop_method`/`stop_params` fields let a consumer build the session without parsing prose.",
           "properties": {
             "start": {
               "type": "string",
-              "description": "The call that starts the feed, e.g. 'JSON-RPC camera.start_monitor over ws://{address}/websocket, params {domain:lan, interval:0}'."
+              "description": "Human-readable form of the start call, e.g. 'JSON-RPC camera.start_monitor over ws://{address}/websocket, params {domain:lan, interval:0}'."
             },
             "interval_seconds": {
               "type": "integer",
@@ -3988,7 +3990,34 @@
             },
             "stop": {
               "type": "string",
-              "description": "The call that stops it, e.g. 'camera.stop_monitor'."
+              "description": "Human-readable form of the stop call, e.g. 'camera.stop_monitor'."
+            },
+            "transport": {
+              "type": "string",
+              "enum": [
+                "websocket_jsonrpc"
+              ],
+              "description": "Machine-readable session transport. 'websocket_jsonrpc': open a WebSocket to `url_template` and exchange JSON-RPC 2.0 frames ({jsonrpc:'2.0', method, params, id}). The only form a consumer implements today (the Snapmaker's)."
+            },
+            "url_template": {
+              "type": "string",
+              "description": "The session endpoint, with {address} substituted, e.g. 'ws://{address}/websocket'."
+            },
+            "start_method": {
+              "type": "string",
+              "description": "JSON-RPC method to start/maintain the session, e.g. 'camera.start_monitor'."
+            },
+            "start_params": {
+              "type": "object",
+              "description": "JSON-RPC params object for `start_method`, sent verbatim (a consumer fills a per-call id itself), e.g. {domain: 'lan', interval: 0, expect_pw: false}."
+            },
+            "stop_method": {
+              "type": "string",
+              "description": "JSON-RPC method to stop the session on close, e.g. 'camera.stop_monitor'."
+            },
+            "stop_params": {
+              "type": "object",
+              "description": "JSON-RPC params object for `stop_method`, e.g. {domain: 'lan'}."
             }
           }
         },

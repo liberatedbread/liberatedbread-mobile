@@ -38,7 +38,12 @@ device:
   identification:
     service_uuids:
       - "0000ffe0-0000-1000-8000-00805f9b34fb"
-    local_name_prefix: "ihoment_H610"
+    # Only H6101/H6104 — a bare "ihoment_H610" prefix also swallowed the
+    # H610x RGBIC strips (e.g. ihoment_H6102), which are a different family
+    # on the 1910 GATT profile (govee-rgbic-light.yaml).
+    local_name_prefixes:
+      - "ihoment_H6101"
+      - "ihoment_H6104"
     manufacturer_data:
       company_id: 60552
       company_id_hex: "0xEC88"
@@ -55,8 +60,11 @@ device:
       - type: "ble_scan"
         ble:
           local_name:
-            match: "prefix"
-            value: "ihoment_H610"
+            # Anchored to just H6101/H6104 so it does not over-match the
+            # H610x RGBIC strips (ihoment_H6102 etc.) that a bare
+            # "ihoment_H610" prefix would also catch.
+            match: "regex"
+            value: "^ihoment_H610[14]"
           service_uuids:
             - "0000ffe0-0000-1000-8000-00805f9b34fb"
           manufacturer_data:

@@ -17,6 +17,12 @@ device:
       the hardware-tested open implementation brother_ql.
   protocol: "wifi"
   category: "printer"
+  # The printer's built-in web admin page (port 80). Gives a recognised-but-
+  # not-yet-driven unit a useful tap — the generic ipp-network-printer already
+  # has one, so without this a BETTER match (this spec) opened a WORSE screen
+  # than the catch-all. Until the brother_ql_raster control path ships, this is
+  # the label printer's one working action from the app.
+  admin_url: "http://{address}/"
   notes: >
     Wide-format (up to 4 in / 103.6 mm media) direct-thermal label printer,
     300 dpi, ~110 mm/s, auto cutter, continuous prints to ~3 m. Connectivity:
@@ -80,9 +86,17 @@ device:
       this spec exists to document the protocol, not to compete with it.
 
   identification:
-    # Bluetooth Classic (and Wireless Direct) name: "QL-1110NWB" + last 4 of
-    # the serial, observed live as QL-1110NWB0000.
-    local_name_prefix: "QL-1110NWB"
+    # Two names to match, so both faces of the printer are recognised:
+    #   - Bluetooth Classic / Wireless Direct: "QL-1110NWB" + last 4 of the
+    #     serial, observed live as QL-1110NWB0000.
+    #   - On the LAN, its Bonjour instance name begins "Brother QL-1110NWB"
+    #     (e.g. "Brother QL-1110NWB._pdl-datastream._tcp"); the bare
+    #     "QL-1110NWB" prefix does not match that, so the Wi-Fi unit went
+    #     unrecognised and fell through to the generic ipp-network-printer.
+    # A match on ANY of these is a match (union, not conjunction).
+    local_name_prefixes:
+      - "Brother QL-1110NWB"
+      - "QL-1110NWB"
     mac_prefixes:
       - prefix: "60:98:66"
         notes: >
@@ -93,10 +107,43 @@ device:
 
   discovery:
     methods:
+      # _pdl-datastream and _ipp are SHARED printer service types, so each is
+      # narrowed to THIS model by its make-and-model TXT key (`ty`, which reads
+      # "Brother QL-1110NWB…"). Without a txt_match these methods would only
+      # rank last, and the generic ipp-network-printer catch-all — which narrows
+      # the same types by their always-present TXT keys — would outrank this
+      # spec and strip the label printer of its controls. Narrowing here makes
+      # this the more-specific claimant (and puts the type in the consumer's
+      # narrowed set, which is what makes the catch-all's platform_fallback
+      # stand aside). The Bonjour instance name ("Brother QL-1110NWB…", matched
+      # by local_name_prefixes) corroborates.
       - type: "mdns"
         mdns:
           service_type: "_pdl-datastream._tcp.local."
           port: 9100
+          txt_record_keys: ["ty"]
+          txt_match:
+            - key: "ty"
+              match: "contains"
+              value: "QL-1110NWB"
+              description: "Make/model TXT — narrows the shared raw-print type
+                to this Brother model."
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+            display:
+              source: "name"
+      - type: "mdns"
+        mdns:
+          service_type: "_ipp._tcp.local."
+          port: 631
+          txt_record_keys: ["ty", "rp"]
+          txt_match:
+            - key: "ty"
+              match: "contains"
+              value: "QL-1110NWB"
+              description: "Make/model TXT — narrows the shared IPP type to this
+                Brother model."
           identity_mapping:
             stable_keys:
               - source: "hostname"

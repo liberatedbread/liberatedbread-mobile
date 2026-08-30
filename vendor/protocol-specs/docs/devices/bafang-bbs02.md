@@ -202,7 +202,7 @@ and trailing checksum — the full frame is 27 bytes).
 
 ## Device spec
 
-[`device-specs/devices/bafang-bbs02.yaml`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/device-specs/devices/bafang-bbs02.yaml)
+[`device-specs/devices/bafang-bbs02.yaml`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/bafang-bbs02.yaml)
 carries this protocol as a machine-readable `bus` spec (`protocol: uart`,
 `style: request_response`), with every read and write above catalogued, the field tables
 encoded as `fields` entries, and the four writes flagged `advanced`.

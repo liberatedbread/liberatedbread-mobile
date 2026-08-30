@@ -1,7 +1,7 @@
 # INNOVV K7 — Hardware Capture Plan
 
 Purpose: establish, against real hardware, what the INNOVV K7's local Wi-Fi
-surface actually is, so `device-specs/devices/innovv-k7-dashcam.yaml` can be
+surface actually is, so an INNOVV K7 device spec can be
 written from captured bytes rather than from family resemblance. Each capture
 below is mapped to the question it answers.
 
@@ -18,8 +18,11 @@ whether we fall back to section 6.
 - K7 firmware version (INNOVV app → settings, or the on-camera menu). Every
   finding below is only true for the firmware it was captured on.
 - The camera's AP **SSID exactly as broadcast** (expected `INNOVV*` or
-  `K7*` — record the real string, including case and any MAC-derived suffix)
-  and its passphrase.
+  `K7*` — note the real string locally, including case and any MAC-derived
+  suffix) and its passphrase. **Do not commit the real SSID or passphrase** —
+  they identify your unit and the passphrase is a live credential. Placeholder
+  both before anything lands in a note or the repo (`INNOVV-<suffix>`,
+  `<passphrase>`), keeping the format, per the clean-room rules.
 - Whether the AP is 2.4 GHz, 5.8 GHz, or both, and whether the band is
   switchable. Some phones will not join a 5.8 GHz-only AP in some regions.
 - The address the phone gets from the camera's DHCP, and the **gateway** —
@@ -111,6 +114,10 @@ curl -si "http://$CAM/?custom=1&cmd=3021"    # save settings to flash
 curl -si "http://$CAM/?custom=1&cmd=3029"    # show SSID/password
 curl -si "http://$CAM/?custom=1&cmd=2016"    # current recording time
 ```
+
+The `cmd=3029` response contains the AP SSID and passphrase — placeholder
+them (do not commit real credentials) before pasting any of this output into
+a note or the repo, per the clean-room rules.
 
 ## 3. Fetching a file — the semantics offload depends on
 
@@ -221,8 +228,9 @@ connected?" prompt, and what happens if the user misses it.
 ## 8. What to file back
 
 For each capture: the raw file (XML body, response headers, pcap/flow export,
-`ffprobe` output), plus camera firmware version, AP SSID and band, laptop OS
-and `curl` version, and which section number produced it. Anything confirmed
+`ffprobe` output), plus camera firmware version, AP SSID (placeholdered —
+never the real string or passphrase) and band, laptop OS and `curl` version,
+and which section number produced it. Anything confirmed
 against hardware this way lands in the spec with `testing.status: verified`;
 anything still inferred from the Novatek family stays marked as inferred, with
 the reason.

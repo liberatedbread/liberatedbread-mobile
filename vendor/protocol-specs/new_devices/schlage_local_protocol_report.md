@@ -131,7 +131,7 @@ Enums: lockState 0=unlocked, 1=locked, 2=jammed, 3=unknown, 4=motorJammed, 5=pas
 
 - **Commissioning is BLE-driven.** In 3.6.0 the app itself encrypted the WiFi payload: `key = SHA-256(secret + "|" + id[6:])`, AES/CBC/NoPadding with a **zero IV**, over `be64(counter) ‖ JSON({ssid,password})` zero-padded to 16. In 6.3.1 this moved server-side: the encrypted "payload0" (JITR cert blob) is fetched from `factory.allegion.yonomi.cloud` (`GET …payload0?deviceType=…&physicalId=<SERIAL>`) and pushed to the lock over BLE trait 6 prop 2. So **onboarding a lock to WiFi requires Schlage's cloud once** (to mint its AWS IoT identity); after that, BLE remains fully functional cloud-free.
 - **BR400 WiFi adapter (legacy Sense):** commissioned over its own AP via local REST (`POST v2/prov/registration`, `GET v1/prov/networks`, `GET bridge/ble/scan`, `GET bridge/v1/commission/status`, `GET bridge/info`), then rediscovered by mDNS — commissioning-only, not a runtime control channel.
-- **Runtime local WiFi control: none.** Exhaustive search of both APKs found no socket/HTTP/mDNS runtime path to any lock. Path selection (`SenseDeviceServiceProvider`): no network / guest user / failed cloud session → **BLE**; WiFi-mode locks → cloud REST+MQTT. Identical command semantics on both paths.
+- **Runtime local WiFi control: none.** Exhaustive search of both APKs found no socket/HTTP/mDNS runtime path to any lock. Path selection (the app's device service-provider logic): no network / guest user / failed cloud session → **BLE**; WiFi-mode locks → cloud REST+MQTT. Identical command semantics on both paths.
 
 ---
 
@@ -148,7 +148,7 @@ Enums: lockState 0=unlocked, 1=locked, 2=jammed, 3=unknown, 4=motorJammed, 5=pas
 - The connection-negotiation CBOR map's exact bytes were verified semantically but not byte-for-byte (built through obfuscated helpers; the Go library's uint16-BE description is wire-equivalent). The 12-byte clientRandom trailer is byte-verified.
 - Newer firmware ("Arrive"/WKD) may skip the ConnectionRequest/Confirm step (`ConnectDirect` in the Go lib); the 6.3.1 app always performs it on the Sense/Denali path.
 - HomeKit-mode pairing (HAP) is Apple's documented protocol (SRP setup, Ed25519 identities, Curve25519 STS, ChaCha20-Poly1305 sessions) and was not re-derived here.
-- 6.3.1 is commercially shielded (native string decryption in `libh0.so`, encrypted assets); all protocol-relevant Java under `com.allegion.leopard.*` was nonetheless unobfuscated and fully readable.
+- 6.3.1 is commercially shielded (native string decryption in a bundled native library, encrypted assets); all protocol-relevant Java under the app's own package namespace was nonetheless unobfuscated and fully readable.
 - APK provenance: apk.gold mirrors (3.6.0 and 6.3.1, md5-verified against mirror listings). Decompiled with jadx 1.5.1 / apktool 2.12.0. The standalone "Schlage Sense" app is discontinued (merged into Schlage Home); 3.6.0 covers the Sense stack.
 
 ## 10. Artifacts
@@ -157,7 +157,7 @@ Enums: lockState 0=unlocked, 1=locked, 2=jammed, 3=unknown, 4=motorJammed, 5=pas
 - `…/schlage/dumps/cbor_command_table.md`, `sense_gatt_profile.json`, `firmware_gatt_profile.json`, `sense_gatt_profile-3.6.0.json`
 - `…/schlage/INVENTORY.md`, `uuids_631.txt`, `interesting_classes_631.txt`
 - `…/schlage/key-sources-6.3.1/`, `key-sources-3.6.0/` — extracted protocol source files
-- `…/schlage/decomp-6.3.1-allegion/`, `decomp-3.6.0/` — full `com.allegion` source subtrees (5,608 files)
+- `…/schlage/decomp-6.3.1-allegion/`, `decomp-3.6.0/` — full vendor-app source subtrees (5,608 files)
 
 ---
 

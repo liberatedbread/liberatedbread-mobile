@@ -311,6 +311,18 @@ camera:
       is disabled for this method in the Snapmaker fork — WebSocket only.)
     interval_seconds: 5
     stop: "JSON-RPC camera.stop_monitor (params {domain:\"lan\"}); send on close."
+    # Machine-readable form of the same handshake, so a consumer can hold the
+    # monitor session without parsing the prose above. VERIFIED LIVE 2026-08-14.
+    transport: "websocket_jsonrpc"
+    url_template: "ws://{address}/websocket"
+    start_method: "camera.start_monitor"
+    start_params:
+      domain: "lan"
+      interval: 0
+      expect_pw: false
+    stop_method: "camera.stop_monitor"
+    stop_params:
+      domain: "lan"
 
 entities:
   - platform: "sensor"
