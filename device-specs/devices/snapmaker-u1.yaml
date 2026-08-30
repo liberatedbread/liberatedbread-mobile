@@ -321,6 +321,11 @@ camera:
     url_template: "ws://{address}/websocket"
     start_method: "camera.start_monitor"
     start_params:
+      # req_id is part of the verified request shape (prose above). It is a
+      # client request-correlation id; the monitor keepalive is fire-and-forget
+      # (no response is read), so a constant is sufficient and keeps the
+      # machine-readable params matching the documented frame.
+      req_id: 0
       domain: "lan"
       interval: 0
       expect_pw: false
