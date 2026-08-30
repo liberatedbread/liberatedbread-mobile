@@ -78,15 +78,27 @@ def extract_valid_package_ids(text: str) -> list[str]:
     return result
 
 
-def check_apk_on_disk(package_ids: list[str]) -> str:
-    """Cross-reference workspace/apks/apkeep/ — return YES if .apk/.xapk exists for any pkg."""
+def check_apk_on_disk(package_ids: list[str]) -> str | None:
+    """Cross-reference workspace/apks/apkeep/ — return YES if an artifact exists for any pkg.
+
+    apkeep filenames vary by source and version: a bare ``<pkg>.apk``, a split
+    bundle ``<pkg>.apks``/``<pkg>.xapk``, or a version-bearing name such as
+    ``<pkg>@1.2.3.apk`` or ``<pkg>_1.2.3.apks``. Match any of these, not just the
+    two exact paths, or a populated workspace is wrongly reported as NO and that
+    error propagates into the APK index and maturity-tier counts.
+    """
     if not APKEEP_DIR.is_dir():
         return None  # can't check
+    exts = (".apk", ".apks", ".xapk")
+    on_disk = [f.name for f in APKEEP_DIR.iterdir() if f.is_file() and f.name.endswith(exts)]
     for pid in package_ids:
         if pid in ("TBD", "N/A"):
             continue
-        for ext in (".apk", ".xapk"):
-            if (APKEEP_DIR / f"{pid}{ext}").exists():
+        for name in on_disk:
+            stem = next((name[: -len(e)] for e in exts if name.endswith(e)), name)
+            # Exact, or the package id followed by a version separator — but not
+            # a longer package (com.foo must not match com.foobar).
+            if stem == pid or stem.startswith((f"{pid}@", f"{pid}_", f"{pid}-")):
                 return "YES"
     return "NO"
 
