@@ -426,7 +426,7 @@ python scripts/vector_status.py 192.168.1.50 \
 - [os-vector/wire-os](https://github.com/os-vector/wire-os) — Open firmware for unlocked (OSKR/dev) robots
 - [codaris/Anki.Vector.SDK](https://github.com/codaris/Anki.Vector.SDK) — .NET SDK (★92)
 - [developer.anki.com/vector/docs/](https://developer.anki.com/vector/docs/) — Official SDK docs (archived)
-- [Protocol target spec](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/vector-robot.md) — Full RE target spec
+- [Protocol target spec](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/targets/vector-robot.md) — Full RE target spec
 
 ## Contributors
 

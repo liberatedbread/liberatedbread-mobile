@@ -1,7 +1,9 @@
 # Tooling configuration for the repository's Python helper scripts.
-# There is no installable package here — the scripts under scripts/ and tools/
-# are run directly and depend only on the standard library plus the packages in
-# requirements.txt.
+# There is no installable package here — the scripts under scripts/ are run
+# directly. The runtime scripts depend only on the standard library plus the
+# packages in requirements.txt; the test scripts additionally use the packages
+# in requirements-dev.txt (pytest, and cryptography for the Rabbit Air LAN
+# crypto proof).
 
 [tool.ruff]
 line-length = 100

@@ -21,8 +21,8 @@ device:
     (H61A0, H61C2-H61C5), bulb string lights (H7002, H7005), TV lights
     (H6046, H6049, H6053, H6054, H6056, H6198, H6199, H6168), table/floor
     lamps (H6050-H6052, H6055, H6058, H6059, H6073, H6078, H605B-H605D,
-    H6148, H6601-H6604, H6608, H8604), car lights (H6118, H6184, H6192,
-    H6194), permanent outdoor lights (H705D-H705F, H7067-H7069,
+    H6148, H6601-H6604, H6608, H8604), car lights (H6184, H6192),
+    permanent outdoor lights (H705D-H705F, H7067-H7069,
     H706A-H706C, H805A-H805D, H806A/H806C, H808A, H608A, H3401, H801B)
     and the H1161 pickup box. Current SKUs not individually listed are
     routed through the same generic channel in the app — this spec covers
@@ -256,6 +256,8 @@ device:
     # RGBIC / DreamColor strips and neon
     - model: "H6102"
       identification: { local_name_prefix: "GVH6102" }
+    - model: "H6116"
+      identification: { local_name_prefix: "GVH6116" }
     - model: "H6117"
       identification: { local_name_prefix: "GVH6117" }
     - model: "H6119"
@@ -264,6 +266,8 @@ device:
       identification: { local_name_prefix: "GVH6125" }
     - model: "H6126"
       identification: { local_name_prefix: "GVH6126" }
+    - model: "H6127"
+      identification: { local_name_prefix: "GVH6127" }
     - model: "H612A"
       identification: { local_name_prefix: "GVH612A" }
     - model: "H612B"
@@ -403,9 +407,8 @@ device:
       identification: { local_name_prefix: "GVH8604" }
     - model: "H1161"
       identification: { local_name_prefix: "GVH1161" }
-    # Car lights
-    - model: "H6118"
-      identification: { local_name_prefix: "GVH6118" }
+    # Car lights (H6118/H6194 are the non-segmented car lights and live in
+    # govee-rgb-light.yaml, which carries their goodsType-6 broadcast fact).
     - model: "H6192"
       identification: { local_name_prefix: "GVH6192" }
     # Permanent outdoor / landscape

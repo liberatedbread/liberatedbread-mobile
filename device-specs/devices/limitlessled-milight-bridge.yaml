@@ -352,19 +352,21 @@ commands:
     notes: "Send a zone ON first; hue applies to the most-recently-addressed zone(s)."
     verification: "reported"
   night_mode:
-    description: "Very dim white — send OFF then, ~100 ms later, OFF|0x80."
+    description: "Very dim white — a two-frame sequence: send OFF then, ~100 ms later, OFF|0x80. Each frame is one legacy_command."
     transport: "udp"
-    action: "legacy_command_sequence"
+    action: "legacy_command"
     arguments:
       sequence: "<off_cmd> 00 55, then (<off_cmd>|0x80) 00 55 after 100 ms"
-    notes: "Example zone 1 RGBW: 46 00 55 then C6 00 55."
+    notes: "Two legacy_command frames back to back. Example zone 1 RGBW: 46 00 55 then C6 00 55."
     verification: "reported"
 
 entities:
   - platform: "light"
     name: "Mi-Light RGBW Zone"
     features: ["brightness", "color"]
-    state_topic: "udp://{host}:8899"
+    # No state_topic: the legacy protocol is write-only (see
+    # protocol_details.limitlessled_protocol.reply_to_commands). The bridge
+    # never reports light state back, so there is nothing to read.
     commands:
       turn_on: "turn_on"
       turn_off: "turn_off"
@@ -374,7 +376,7 @@ entities:
 helpful_urls:
   - url: "https://www.home-assistant.io/integrations/limitlessled/"
     title: "Home Assistant LimitlessLED integration"
-    description: "HA core integration driving MiLight/LimitlessLED bridges with the UDP v6 protocol documented here."
+    description: "HA core integration driving MiLight/LimitlessLED bridges via the legacy write-only command set (the ledcontroller library) documented here."
   - title: "NeonHorizon/milight — V6 bridge drivers and protocol notes"
     url: "https://github.com/NeonHorizon/milight"
     kind: "implementation"

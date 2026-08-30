@@ -1,8 +1,8 @@
-site_name: OpenGreenIoT Protocol Docs
+site_name: Liberated Bread Protocol Specs
 site_description: Reverse-engineered IoT device protocol documentation
 site_author: Pigs Can Fly Labs LLC
-repo_name: PigsCanFlyLabs/opengreeniot-protocol-docs
-repo_url: https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs
+repo_name: liberatedbread/liberatedbread-protocol-specs
+repo_url: https://github.com/liberatedbread/liberatedbread-protocol-specs
 copyright: Copyright &copy; 2026 Pigs Can Fly Labs LLC
 
 theme:

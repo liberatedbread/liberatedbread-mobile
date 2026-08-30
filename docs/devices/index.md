@@ -6,6 +6,7 @@ A catalog of IoT devices we've documented (or are documenting).
 |--------|---------|
 | Research | Initial investigation |
 | In Progress | Actively reverse engineering |
+| Spec Available | Validated spec published; not yet replayed against hardware |
 | Complete | Protocol fully documented |
 
 ## Guides
@@ -15,6 +16,8 @@ A catalog of IoT devices we've documented (or are documenting).
 - [WiFi Discovery](wifi-discovery.md) — finding devices already on the network
 - [Wemo Setup, Factory Reset and Rebinding](wemo-setup.md) — the worked provisioning example
 - [Frigidaire Local API Audit](frigidaire-local-api-audit.md) — why some devices cannot be rescued
+- [June Oven LAN & IP Recon](june-oven-lan-recon.md) — the IP-level playbook for the oven's closed
+  local surface: what it exposes on the network and what can be done with it
 - [Initial Device Setup](../protocols/device-setup.md) — provisioning patterns across devices
 
 ## Devices
@@ -66,7 +69,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Omron BLE Blood Pressure Monitors](omron-connect.md) | BLE | Complete | BLE button pairing + client key (high) | Omron Healthcare |
 | [Aranet4 CO2 Sensor](aranet4.md) | BLE | Complete | None needed (broadcast); bonding for history (high) | SAF Tehnika JSC |
 | [Bluetti Power Station](bluetti-power-station.md) | BLE | Complete | None needed | Bluetti (Shenzhen Poweroak) |
-| [Johnson JLX LDM330/LDM130 Laser Distance Meters](jlx-laser-distance-meter.md) | BLE | Spec Available | None needed (medium) | Johnson Level & Tool (Winho OEM) |
+| [Johnson JLX LDM330/LDM130 Laser Distance Meters](jlx-laser-distance-meter.md) | BLE | Spec Available | None needed (medium) | Johnson Level & Tool (Precaster Enterprises OEM) |
 | [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | [SoftAP + SOAP](wemo-setup.md) (medium) | Belkin |
 | [Anki Vector Robot](vector-robot.md) | WiFi + BLE | Research | BLE provisioning (high) | Anki / Digital Dream Labs |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Cloud account only (low) | Frigidaire (Electrolux) |

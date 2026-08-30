@@ -158,7 +158,7 @@ Uploads are gated by the device, and getting this wrong is the most common failu
 
 ## Open Questions
 
-- Whether SPOTLED and [iLEDColor](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/iledcolor-led-panel.md)
+- Whether SPOTLED and [iLEDColor](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/targets/iledcolor-led-panel.md)
   panels share this protocol. New Lunchbox DreamPanel v3 boards moved to iLEDColor; probing one
   for the `0xFF20` service is the cheapest possible test.
 - CCCD handle `0x0F` is observed, not guaranteed — discover it properly rather than hardcoding.

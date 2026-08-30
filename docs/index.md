@@ -1,8 +1,8 @@
-# OpenGreenIoT Protocol Documentation
+# Liberated Bread Protocol Documentation
 
 > Own your devices, don't let them own you.
 
-Welcome to the OpenGreenIoT protocol documentation -- where we figure out how your IoT
+Welcome to the Liberated Bread protocol documentation -- where we figure out how your IoT
 devices actually work so they can keep working after the manufacturer has moved on.
 
 ## The Mission
