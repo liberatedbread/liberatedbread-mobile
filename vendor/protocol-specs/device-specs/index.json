@@ -205,6 +205,41 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Aqara Hub family (M1S Gen 2, M2, AC Partner P3)",
+    "path": "device-specs/devices/aqara-hub.yaml",
+    "protocol": "wifi",
+    "category": "hub",
+    "manufacturer": "Lumi United (Aqara)",
+    "manufacturer_status": "active",
+    "protocol_handler": "aqara_lan",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Aqara Hub M2 — official help center (reset procedure, FAQ)",
+        "url": "https://store-support.aqara.com/products/aqara-smart-hub-m2",
+        "description": "Vendor help center for the M2: the 10-second button hold that unbinds and network-resets the hub, plus add/accessory troubleshooting.\n"
+      },
+      {
+        "title": "Aqara Hub M1S Gen 2 user manual",
+        "url": "https://www.manualslib.com/manual/3613999/Aqara-M1s-Gen-2.html",
+        "kind": "manual",
+        "description": "Manual for the M1S Gen 2 (HM1S-G02): button semantics used in device.setup.factory_reset (single press night light, 10 s hold = reset network connection, 10 presses = factory defaults).\n"
+      },
+      {
+        "title": "Home Assistant AqaraGateway custom integration (niceboygithub)",
+        "url": "https://github.com/niceboygithub/AqaraGateway",
+        "description": "Third-party local-control project for older Aqara hub firmware via the developer-mode (telnet/miio-style) protocol — the only known local CONTROL path for this family; depends on firmware the current app no longer speaks to. Prior art, unverified by this project.\n"
+      },
+      {
+        "title": "Aqara Hub M1S Gen 2 product/spec page",
+        "url": "https://www.aqara.com.cn/en/product/hub-m1s-gen-2/specs/",
+        "description": "Vendor spec sheet: 2.4 GHz 802.11b/g/n + Zigbee 3.0, model HM1S-G02.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Aranet4 CO2 Sensor (and Aranet2 / Radiation / Radon family)",
     "path": "device-specs/devices/aranet4.yaml",
     "protocol": "ble",

@@ -203,6 +203,7 @@ nav:
           - Fronius Solar Inverter (Solar API): devices/fronius-solar-api.md
           - OpenEVSE Charging Station: devices/openevse.md
           - Xiaomi miIO Protocol: devices/xiaomi-miio.md
+          - Aqara Hub family: devices/aqara-hub.md
           - Roborock Robot Vacuum (local): devices/roborock-local.md
           - Valetudo (rooted vacuum): devices/valetudo.md
           - Parrot Drones (AR.Drone / ARSDK): devices/parrot-arsdk-drone.md

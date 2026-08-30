@@ -68,6 +68,7 @@
 		<string>_airplay._tcp</string>
 		<string>_androidtvremote2._tcp</string>
 		<string>_ankivector._tcp</string>
+		<string>_aqara._tcp</string>
 		<string>_arsdk._udp</string>
 		<string>_dyson_mqtt._tcp</string>
 		<string>_enphase-envoy._tcp</string>

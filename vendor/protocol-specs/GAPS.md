@@ -77,7 +77,7 @@ gets what this app had to special-case. Twelve asks across five handlers:
 | ledbadge_bitmap | Slot-mode enumeration is not in the YAML. |
 | ledbadge_bitmap | The 8192-byte flash ceiling is not declared. |
 
-## Validation: 200/200 passing (199 device specs + 1 example)
+## Validation: 201/201 passing (200 device specs + 1 example)
 
 Pinned by `test_gaps_md_states_the_real_spec_count` in
 `scripts/test_device_specs.py`: this line said 92/92 for a fortnight after

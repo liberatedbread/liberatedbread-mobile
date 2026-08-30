@@ -1,0 +1,93 @@
+# FOREO Peach 2 — Device Spec (static-analysis derived, hardware-unverified)
+# Source: FOREO For You app 4.4.1 (559), sha256
+# 90a4ec8f5c22c1085d1500f6bf1954c28edcd81531f0eed94bf8a13aa494ae79
+
+device:
+  id: foreo-peach-2
+  name: FOREO Peach 2 IPL hair removal (family: Peach 2 / go / Pro MAX / Duo)
+  manufacturer: FOREO AB (mfr by VIS Shanghai)
+  category: ipl_hair_removal
+  safety_class: IPL_CLASS_UNRATED   # 7.3 J/cm2 optical output; skin-contact + eye-safety interlocks in firmware
+
+transport:
+  type: bluetooth_le
+  local_only: true        # unlock + all control computable offline; server used only for registration bookkeeping
+
+bluetooth_le:
+  pairing:
+    bonding: none         # app never bonds; plaintext GATT
+    name_patterns: ["PEACH2", "PEACH 2", "PEACH2GO", "PEACH2ProMAX", "PEACH2 Pro MAX"]
+    notes: >
+      Device ships locked (will not power on) until activated over BLE.
+      Activation bytes derive solely from the device BLE MAC (keyless
+      permutation) — no FOREO server round-trip needed by the firmware.
+  services:
+    - uuid16: "0xFFF0"    # hypothesis: containing service; app resolves dynamically
+      characteristics:
+        - uuid16: "0xFFF1"
+          access: [write, read]
+          role: command channel (opcode || payload, no framing; read-back verify, FFFFFFFF = busy)
+    - uuid16: "0x0A10"
+      access: [write]
+      role: security access — write 01 A1 <MAC[3..5]> once after every connect
+    - uuid16: "0x0A20"
+      access: [read, write]
+      role: activation — locked if value starts 00; write 01 02 <8-byte chipId(MAC)>
+    - uuid16: "0x0A30"
+      access: [read, write]
+      role: wake-up — write 01 unless already enabled
+    - uuid16: "0x0A05"
+      access: [read]
+      role: serial number
+    - uuid16: "0x0A07"
+      access: [read]
+      role: chip id
+    - uuid16: "0x0A0C"
+      access: [read]
+      role: skin-sensor polling (calibration)
+    - uuid16: "0x0A08"
+      access: [write]
+      role: OTA trigger (reboot to TI OAD mode, service f000ffc0-0451-4000-b000-000000000000)
+    - uuid16: "0x180F"
+      characteristics:
+        - uuid16: "0x2A19"
+          access: [read, notify]
+          role: battery level
+    - uuid16: "0x180A"
+      characteristics:
+        - uuid16: "0x2A28"
+          access: [read]
+          role: SW revision; last char selects old (a-c) vs new command dialect
+
+protocol:
+  framing: none — first byte 0A=write / 0B=read, second byte sub-opcode; queries answered by reading 0xFFF1 back
+  commands:
+    "0A01 <level>": set IPL intensity (0-5)
+    "0B01": read IPL intensity
+    "0AD0 01": removal mode Basic (new firmware)
+    "0AD0 06": removal mode Pro (new firmware; paywalled in app, firmware accepts unconditionally)
+    "0BD0": read removal mode (>= 6 => Pro)
+    "0AA2 0202020202": flash mode Basic (old firmware)
+    "0AA2 0303030303": flash mode Pro (old firmware)
+    "0AA2 0101010101": flash mode Face (old firmware)
+    "0AC4 <val>": set cooling level (new firmware)
+    "0AC0 <val>": set cooling level (old); 0AC0 0A = auto-fan
+    "0AB4/0BB4": head-NTC threshold set/read
+    "0AB5/0BB5": body-NTC threshold set/read
+    "0AD1/0BD1": flash voltage table set/read
+  activation:
+    security_access: "write 01 A1 <mac3 mac4 mac5> to 0x0A10 after every connect"
+    unlock: "read 0x0A20; if byte0 == 00, write 01 02 <chipId>; chipId = keyless nibble permutation of BLE MAC (see research-notes/foreo-peach-2.md)"
+    wake: "read 0x0A30; unless starts 01, write 01"
+
+paywall:
+  mechanism: server-side subscription (Recurly), enforced app-side only
+  gated: [pro_removal_mode]
+  bypass: replacement app writes 0AD0 06 directly; no credential required by firmware
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  protocol_recovered: true   # static analysis; not yet hardware-verified
+  hci_snoop_needed: true     # confirm on real unit (user plans purchase)
+  community_support: none known

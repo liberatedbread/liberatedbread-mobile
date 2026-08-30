@@ -1,0 +1,92 @@
+# Braun Silk-expert Pro 5 — Device Spec (static-analysis derived, hardware-unverified)
+# Source: Braun IPL app 3.3.3 (7067), sha256
+# 0ad7cfaa1249b64420de941d5467bd260111f365f4fdc86bd2cb4c80bd842b0c
+
+device:
+  id: braun-silk-expert-pro5
+  name: Braun Silk-expert Pro 5 IPL hair removal (PL5xxx)
+  manufacturer: Braun / Procter & Gamble
+  category: ipl_hair_removal
+  safety_class: IPL_CLASS_UNRATED
+
+transport:
+  type: bluetooth_le        # + Wi-Fi (AWS IoT) on some SKUs, provisioned over BLE
+  local_only: true          # device fully functional standalone; app = coaching/tracking
+
+bluetooth_le:
+  discovery:
+    ad_structure: manufacturer_data   # 0xFF
+    company_id: "0x00DC"              # Procter & Gamble
+    device_type: "0x61"               # "Victoria3" = Silk-expert Pro 5 generation
+    protocol_version_byte: "0x65"
+    notes: no name filter; parsed from raw scan record
+  pairing:
+    bonding: required     # app bonds explicitly; device has BONDING operation state
+    mtu: 515
+  uuid_template: "A0F0XXXX-5047-4D53-8208-4F72616C2D42"
+  characteristics:
+    - suffix: "0x3C00"
+      name: command
+      access: [write]
+      role: all command opcodes
+    - suffix: "0x3C01"
+      name: read
+      access: [read, indicate]
+      role: GET responses + live state
+    - suffix: "0x3C02"
+      name: write
+      access: [write]
+      role: SET payloads (UTF-8: SSID/password/certs)
+    - suffix: "0x3C03"
+      name: status
+      access: [notify]
+      role: "acks: {opcode, cmdId, status} status 0=OK 1=BUSY 2=ERROR"
+    - suffix: "0x3C04"
+      name: push
+      access: [notify]
+      role: "unsolicited events: {cmd, reason:u16be}"
+    - suffix: "0x4C00"
+      name: raw
+      access: [notify]
+      role: FlatBuffers raw sensor stream (IMU, skin/contact sensors, temp, shot count)
+
+protocol:
+  framing: "GET: C0 cmdId -> read 3C01; SET: C1 cmdId + payload on 3C02 + C2 cmdId; EXECUTE: C3 cmdId -> status notify"
+  opcodes:
+    2: DEVICE_VERSION
+    3: DEVICE_DATA       # byte2 device state, byte3 wifi state, byte6 raw-stream state
+    4: SESSION_DATA      # opstate, session UUID, head, energy level, skin tone, flashes
+    5: MEASURE_SKIN_TONE
+    6: ENTER_PROVISIONING
+    7: SESSION_START
+    8: SESSION_FINISH
+    9: SESSION_PAUSE
+    10: SESSION_RESUME
+    11: START_PATCH_TEST
+    12: OTA_UPDATE_START
+    49: DEVICE_RESET
+    50: PROTOCOL_NAME
+    51: READ_RAW
+  push_reasons:
+    "0x0001": command_end_success
+    "0x0002": command_end_fail
+    "0x0003": buffer_data_updated
+    "0x1001": device_standby
+    "0x1002": device_sleep
+    "0x1003": session_start_by_device
+    "0x1004": session_end_by_device
+    "0x1005": ota_update_ready
+    "0x1006": ota_update_in_progress
+    "0x1007": ota_update_reboot
+
+cloud:
+  required_for_ble_control: false
+  stack: AWS Cognito login + AppSync GraphQL; Wi-Fi provisioning writes per-device AWS key/cert
+  notes: flashes-available counter is cloud-side; everything else local
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  protocol_recovered: true   # static analysis; not yet hardware-verified
+  hci_snoop_needed: true
+  community_support: none known
