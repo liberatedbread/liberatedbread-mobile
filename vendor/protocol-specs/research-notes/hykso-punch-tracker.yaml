@@ -48,7 +48,7 @@ ble:
 
 protocol:
   note: >
-    BLE entry point HyksoBleActivity; small unobfuscated app (~9 MB base). Punch
+    BLE entry point is a single dedicated activity; small unobfuscated app (~9 MB base). Punch
     classification (jab/cross/hook/uppercut), count, velocity. Frame format and
     any per-tracker calibration TBD.
   expected_measurements:

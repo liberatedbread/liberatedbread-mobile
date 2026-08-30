@@ -68,13 +68,13 @@ ble:
 
 protocol:
   note: >
-    20-byte command payloads built by com.dopplerlabs.here.ble.HereBlePayloadGenerator.
+    20-byte command payloads built by the app's dedicated BLE payload-generator class.
     Opcodes recovered (TOGGLE_ANC=3, ADJUST_PGA_GAIN=4, WRITE_CODEC_REGISTER=13,
     ENABLE/DISABLE_ADAPTIVE_CONFIG=30/31, DIRECTIONALITY=32/33, NOISE_REDUCTION=34/35,
     WRITE_CORRECTIONS_BIQUAD=36, ENABLE_MUSIC_EQ=43, SET_MUSIC_EQ_GAIN=44,
     DEVICE_STATE_DIGEST_REQUEST=42/RESPONSE=45, EFFECT_TOGGLE_OFFSET=128, ...).
     "encrypted" flags in the bundled attributes.json are metadata only; no crypto
-    in the app layer. Each bud addressed as an independent BLE peripheral (HereOneBud).
+    in the app layer. Each bud is addressed as an independent BLE peripheral.
   packet_size: 20
   opcodes_recovered: true
   payload_field_layout: TBD  # confirm via HCI snoop

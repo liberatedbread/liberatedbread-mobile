@@ -39,9 +39,9 @@ ble:
 
 protocol:
   note: >
-    No published opcode map. App compiles drag-and-drop programs into Instruction
-    sequences sent over BLE (Java, largely unobfuscated class names:
-    com.dashrobotics.kamigami2.models.Instruction/Game). Direct drive, RGB LED,
+    No published opcode map. App compiles drag-and-drop programs into
+    instruction sequences sent over BLE (Java; its instruction and game
+    model classes are largely unobfuscated). Direct drive, RGB LED,
     sounds, IR fire/hit between robots. Berkeley BML lab drove Kamigami swarms
     via BLE in research (BML-MultiRobot/kamigami_common, ROS — mostly sim).
   references:

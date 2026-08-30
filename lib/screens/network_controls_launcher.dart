@@ -9,6 +9,7 @@ import '../providers/roomba_provider.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_credential_store.dart';
 import 'hub_device_screen.dart';
+import 'label_printer_screen.dart';
 import 'network_device_screen.dart';
 import 'roomba_adoption_screen.dart';
 
@@ -25,6 +26,13 @@ Future<void> openNetworkControls({
   required WidgetRef ref,
   required NetworkDevice device,
   required NetworkControls controls,
+  // The matched spec's category (`device.category`) and identity
+  // (`specKeyFor`), when the caller knows them — the scan row has them from its
+  // guess, a saved device persists them. They drive the device-targeted ad
+  // banner (label supplies for a label printer, filters for a Rabbit Air) and
+  // are otherwise inert; null just falls back to the global promotion.
+  String? category,
+  String? specKey,
 }) async {
   if (!await _adopted(
       context: context, ref: ref, device: device, controls: controls)) {
@@ -33,13 +41,27 @@ Future<void> openNetworkControls({
   if (!context.mounted) return;
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
-      // A hub (instanced children, link-button pairing) gets the paired
-      // screen; everything else — SOAP devices and Roku's plain-HTTP remote
-      // alike — keeps the ordinary control screen, whose load path a Hue
+      // A raster label printer resolves no entities — its surface is a byte
+      // stream — so it gets its own screen (status + print) rather than the
+      // entity panel. A hub (instanced children, link-button pairing) gets the
+      // paired screen; everything else — SOAP devices and Roku's plain-HTTP
+      // remote alike — keeps the ordinary control screen, whose load path a Hue
       // bridge would not survive.
-      builder: (_) => controls.isHub
-          ? HubDeviceScreen(device: device, controls: controls)
-          : NetworkDeviceScreen(device: device, controls: controls),
+      builder: (_) => controls.rasterPrintHandler != null
+          ? LabelPrinterScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            )
+          : controls.isHub
+              ? HubDeviceScreen(device: device, controls: controls)
+              : NetworkDeviceScreen(
+                  device: device,
+                  controls: controls,
+                  category: category,
+                  specKey: specKey,
+                ),
     ),
   );
 }

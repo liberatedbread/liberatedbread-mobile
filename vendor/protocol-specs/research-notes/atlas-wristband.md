@@ -4,8 +4,8 @@
 Wrist-worn strength-training tracker (Atlas Wearables, Austin TX; Kickstarter 2014,
 Wristband 2 in 2016): 3-axis IMU + optical HR, on-device touchscreen, automatic
 exercise recognition and rep counting. Dual-MCU design (STM32 + nRF51822 — the app
-has distinct `expectedSTMVersion` / `expectedNRFVersion` firmware checks and an
-`awFirmwareUpdate` path). Reviews: PCMag 2016-02-12, TechCrunch 2016-07-06.
+carries a separate expected-firmware-version check for each MCU and a firmware
+update path). Reviews: PCMag 2016-02-12, TechCrunch 2016-07-06.
 
 ## Why it's abandoned
 - Company went quiet after ~2017; `atlaswearables.com` unreachable (verified
@@ -17,16 +17,17 @@ has distinct `expectedSTMVersion` / `expectedNRFVersion` firmware checks and an
 
 ## Local BLE feasibility — STRONG, with a big head start
 - Band works standalone for basic tracking; app is needed for exercise library,
-  learning mode (`awSendLearn`), sync, and firmware.
+  learning mode, sync, and firmware.
 - The app speaks the **open-source Firefly Ice protocol** (Firefly Design):
   The app's plugin layer instantiates `FDFireflyIceManager` / `FDFireflyIceChannelBLE`
   with service UUID `577FB8B4-553E-4807-9779-8647481D49B3`. The Firefly Ice BLE
   layer is published (github.com/fireflydesign), so framing, reliability, and
   characteristic layout can be read from source instead of reverse-engineered.
-- App is Cordova/Ionic — all device logic callable from JS in `assets/www`
-  (`plugins/com.atlaswearables.cordova.AWPlugin/www/AWPlugin.js`): getDeviceInfo,
-  setPreferences, fullSync, fastSync, sendLearn, firmwareUpdate, restartDevice.
-- A second UUID `a327cf3c-f033-4a54-8b7f-03c56ba3203f` appears in the JS (role TBD).
+- App is Cordova/Ionic — all device logic is callable from JS through the app's
+  bundled device-plugin layer, which exposes operations for device info,
+  preferences, full and fast sync, learn mode, firmware update, and restart.
+- A second UUID `a327cf3c-f033-4a54-8b7f-03c56ba3203f` appears in the plugin JS
+  (role TBD).
 
 ## Cloud dependence
 - Account/workout-history sync to Atlas cloud (dead). Exercise DB and ML models
@@ -44,6 +45,6 @@ has distinct `expectedSTMVersion` / `expectedNRFVersion` firmware checks and an
 - Map Atlas-specific RPCs (learn mode, exercise DB download, HR streaming) onto the
   Firefly Ice command set.
 - Whether exercise-recognition models live on the band (STM32) or phone.
-- Advertised name format: app parses `deviceNameSegments[1]` as device UUID — name
-  prefix pattern TBD.
+- Advertised name format: the app splits the advertised name on a separator and
+  reads the second segment as the device UUID — name prefix pattern TBD.
 - Firmware update source (bundled in APK assets vs dead server).

@@ -299,13 +299,15 @@ class WsSession {
 
   /// Fill the connect path's placeholders and query-encode what goes in.
   ///
-  /// Three placeholders exist in the catalogue: the one the spec names as its
-  /// `credential_name` (`{samsung_token}`), and the two well-known ones the
-  /// Samsung paths actually spell — `{token}` (the same credential) and
+  /// Three placeholders can appear in the catalogue: the one the spec names as
+  /// its `credential_name` (Samsung's is `{samsung_token}`, which its connect
+  /// path spells), plus two well-known ones — `{token}` (the same credential,
+  /// kept as a fallback for any spec that still spells it that way) and
   /// `{client_name}` (this client's name, base64 of the UTF-8 display name).
-  /// The spec's path writes `{token}` while its credential_name says
-  /// `samsung_token`, so filling ONLY `{credentialName}` — as this used to —
-  /// sent the literal braces to the TV and pairing could never succeed.
+  /// Filling ONLY `{credentialName}` — as this once did before `{client_name}`
+  /// was handled — left the name placeholder as literal braces on the wire, and
+  /// filling ONLY `{token}` misses a spec whose path spells the credential name
+  /// directly; so all three are substituted and pairing works either way.
   String _fillPath(String path) {
     final credential = _credential ?? '';
     var filled = path;

@@ -27,9 +27,15 @@ const Map<String, List<String>> _permissionToManifestEntries = {
   'bluetoothScan': ['android.permission.BLUETOOTH_SCAN'],
   'bluetoothConnect': ['android.permission.BLUETOOTH_CONNECT'],
   // permission_handler maps locationWhenInUse to the ACCESS_*_LOCATION pair,
-  // and BLE scanning on API 23-30 specifically needs the FINE variant: with
-  // only COARSE declared, scan results come back empty on those releases.
-  'locationWhenInUse': ['android.permission.ACCESS_FINE_LOCATION'],
+  // but it only asks for each variant that is DECLARED in the manifest. BLE
+  // scanning on API 23-30 needs the FINE variant (COARSE-only returns empty
+  // results there), AND Android 12+ silently ignores a FINE request that is not
+  // accompanied by COARSE — so both must be declared or the runtime request is
+  // dropped on 31+ with no dialog. Map to the pair; each is asserted present.
+  'locationWhenInUse': [
+    'android.permission.ACCESS_FINE_LOCATION',
+    'android.permission.ACCESS_COARSE_LOCATION',
+  ],
 };
 
 Set<String> _declaredPermissions(String manifest) => {
@@ -118,7 +124,7 @@ void main() {
       }
     });
 
-    test('BLE scan/connect and fine location are declared', () {
+    test('BLE scan/connect and the location pair are declared', () {
       // Pinned independently of the source scan so that gutting
       // requestPermissions() cannot make this group vacuously pass.
       expect(
@@ -127,12 +133,14 @@ void main() {
           'android.permission.BLUETOOTH_SCAN',
           'android.permission.BLUETOOTH_CONNECT',
           'android.permission.ACCESS_FINE_LOCATION',
+          'android.permission.ACCESS_COARSE_LOCATION',
         ]),
-        reason: 'BLUETOOTH_SCAN, BLUETOOTH_CONNECT and ACCESS_FINE_LOCATION '
-            'are what Android 12+ needs to discover and talk to a peripheral '
-            '(and ACCESS_FINE_LOCATION is what makes scan results non-empty '
-            'on API 23-30). Dropping any of them leaves the scan screen '
-            'permanently empty on a real phone.',
+        reason: 'BLUETOOTH_SCAN, BLUETOOTH_CONNECT and the '
+            'ACCESS_FINE/COARSE_LOCATION pair are what Android 12+ needs to '
+            'discover and talk to a peripheral (FINE is also what makes scan '
+            'results non-empty on API 23-30, and COARSE must accompany it or '
+            'the 12+ runtime request is silently dropped). Dropping any of them '
+            'leaves the scan screen permanently empty on a real phone.',
       );
     });
 

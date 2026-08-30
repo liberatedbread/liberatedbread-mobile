@@ -28,7 +28,7 @@ also sold the cabled GL1.
 - App is heavily identifier-obfuscated (single-letter classes throughout);
   no ELM327 `AT` command strings surfaced — consistent with the proprietary
   framing reported by third-party devs.
-- `ScanService` / `DeviceListActivity` handle discovery/pairing.
+- A scan service and a device-list activity handle discovery/pairing.
 - Hardware had a push-button pairing step (BT1 shipped with a pairing button;
   no fixed PIN dependency documented).
 

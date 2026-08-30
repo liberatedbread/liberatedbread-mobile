@@ -148,6 +148,210 @@ void main() {
     });
   });
 
+  group('targeted banners (targets[])', () {
+    String withTargets(List<Map<String, Object?>> targets) => jsonEncode({
+          'version': 1,
+          'banner': {
+            'id': 'global',
+            'message': 'Shop.',
+            'url': 'https://liberatedbread.com/shop/',
+          },
+          'targets': targets,
+        });
+
+    Map<String, Object?> target({
+      String id = 't1',
+      Object? match = const {
+        'spec_keys': ['Brother QL|Brother']
+      },
+      int? priority,
+      bool? enabled,
+      String url = 'https://liberatedbread.com/shop/labels/',
+    }) =>
+        {
+          'id': id,
+          'message': 'Labels.',
+          'cta': 'Buy',
+          'url': url,
+          if (match != null) 'match': match,
+          if (priority != null) 'priority': priority,
+          if (enabled != null) 'enabled': enabled,
+        };
+
+    test('parses spec_keys and categories under version 1 (additive)', () {
+      final config = AdBannerConfig.tryParse(withTargets([
+        target(match: {
+          'spec_keys': ['Brother QL|Brother'],
+          'categories': ['printer'],
+        }),
+      ]));
+      expect(config, isNotNull);
+      expect(config!.banner?.id, 'global');
+      expect(config.targets, hasLength(1));
+      final m = config.targets.single.match!;
+      expect(m.specKeys, ['Brother QL|Brother']);
+      expect(m.categories, ['printer']);
+    });
+
+    test('bestFor prefers spec_key, then category, then the global banner', () {
+      final config = AdBannerConfig.tryParse(withTargets([
+        target(id: 'byspec', match: {
+          'spec_keys': ['Brother QL|Brother']
+        }),
+        target(id: 'bycat', match: {
+          'categories': ['printer']
+        }),
+      ]))!;
+      expect(
+        config.bestFor(category: 'printer', specKey: 'Brother QL|Brother')?.id,
+        'byspec',
+      );
+      expect(
+          config.bestFor(category: 'printer', specKey: 'Other|X')?.id, 'bycat');
+      expect(
+          config.bestFor(category: 'light', specKey: 'Bulb|X')?.id, 'global');
+    });
+
+    test('within a tier, higher priority wins', () {
+      final config = AdBannerConfig.tryParse(withTargets([
+        target(id: 'low', priority: 1),
+        target(id: 'high', priority: 10),
+      ]))!;
+      expect(config.bestFor(specKey: 'Brother QL|Brother')?.id, 'high');
+    });
+
+    test('exclude skips a tier and falls through', () {
+      final config = AdBannerConfig.tryParse(withTargets([
+        target(id: 'byspec', match: {
+          'spec_keys': ['Brother QL|Brother']
+        }),
+        target(id: 'bycat', match: {
+          'categories': ['printer']
+        }),
+      ]))!;
+      expect(
+        config.bestFor(
+            category: 'printer',
+            specKey: 'Brother QL|Brother',
+            exclude: {'byspec'})?.id,
+        'bycat',
+      );
+      expect(
+        config.bestFor(
+            category: 'printer',
+            specKey: 'Brother QL|Brother',
+            exclude: {'byspec', 'bycat', 'global'}),
+        isNull,
+      );
+    });
+
+    test('a target with no match axis is dropped, not treated as global', () {
+      final config = AdBannerConfig.tryParse(withTargets([
+        target(id: 'nomatch', match: null),
+        target(
+            id: 'empty',
+            match: const {'spec_keys': <String>[], 'categories': <String>[]}),
+        target(id: 'good'),
+      ]))!;
+      expect(config.targets.map((t) => t.id), ['good']);
+    });
+
+    test('an invalid or disabled target is dropped without failing the doc',
+        () {
+      final config = AdBannerConfig.tryParse(withTargets([
+        target(id: 'nonhttps', url: 'http://liberatedbread.com/x/'),
+        target(id: 'off', enabled: false),
+        target(id: 'good'),
+      ]))!;
+      // The document still parses (global banner intact) and only 'good' stays.
+      expect(config.banner?.id, 'global');
+      expect(config.targets.map((t) => t.id), ['good']);
+    });
+
+    test('caps the number of targets', () {
+      final many = [
+        for (var i = 0; i < AdBannerConfig.maxTargets + 10; i++)
+          target(id: 't$i'),
+      ];
+      final config = AdBannerConfig.tryParse(withTargets(many))!;
+      expect(config.targets.length, AdBannerConfig.maxTargets);
+    });
+
+    test('absent targets is simply no targets (old configs unaffected)', () {
+      final config = AdBannerConfig.tryParse(jsonEncode({
+        'version': 1,
+        'banner': {
+          'id': 'global',
+          'message': 'Shop.',
+          'url': 'https://liberatedbread.com/shop/',
+        },
+      }))!;
+      expect(config.targets, isEmpty);
+    });
+  });
+
+  group('AdBannerConfig.bundled', () {
+    test('the label-supplies promo targets the Brother QL label printer', () {
+      // The specKey is `deviceName|manufacturer` verbatim from the catalogue;
+      // if the spec renames upstream this asserts the bundled fallback drifted.
+      final banner = AdBannerConfig.bundled.bestFor(
+        category: 'printer',
+        specKey: 'Brother QL-1110NWB Label Printer|Brother Industries',
+      );
+      expect(banner?.id, 'label-supplies-2026');
+    });
+
+    test('a 3D printer does NOT get the label-supplies promo', () {
+      // Both are category `printer`; spec-key targeting is what keeps a 3D
+      // printer from being told to buy label rolls.
+      final banner = AdBannerConfig.bundled.bestFor(
+        category: 'printer',
+        specKey: 'Snapmaker U1 Multi-Color 3D Printer|Snapmaker',
+      );
+      expect(banner?.id, isNot('label-supplies-2026'));
+    });
+
+    test('a Rabbit Air gets the filter promo', () {
+      final banner = AdBannerConfig.bundled.bestFor(
+        category: 'climate',
+        specKey: 'Rabbit Air MinusA2 (SPA-700A/SPA-780A) / A3 (SPA-1000N) / '
+            'BioGS 2.0 (SPA-550A/SPA-625A)|Rabbit Air',
+      );
+      expect(banner?.id, 'air-filter-2026');
+    });
+
+    test('every bundled config survives its own parser', () {
+      // Round-trip the bundled config through the JSON contract so bundled
+      // content the parser would reject cannot ship.
+      final json = jsonEncode({
+        'version': 1,
+        'banner': {
+          'id': AdBanner.fallback.id,
+          'message': AdBanner.fallback.message,
+          'cta': AdBanner.fallback.cta,
+          'url': AdBanner.fallback.url.toString(),
+        },
+        'targets': [
+          for (final t in AdBanner.bundledTargets)
+            {
+              'id': t.id,
+              'message': t.message,
+              'cta': t.cta,
+              'url': t.url.toString(),
+              'priority': t.priority,
+              'match': {
+                'spec_keys': t.match!.specKeys,
+                'categories': t.match!.categories,
+              },
+            },
+        ],
+      });
+      final parsed = AdBannerConfig.tryParse(json);
+      expect(parsed, isNotNull);
+      expect(parsed!.targets, hasLength(AdBanner.bundledTargets.length));
+    });
+  });
+
   group('AdBanner.fallback', () {
     test('points at the shop page over https', () {
       expect(AdBanner.fallback.url.toString(), AppConstants.shopUrl);

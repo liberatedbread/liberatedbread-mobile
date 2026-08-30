@@ -55,7 +55,7 @@ partially inferred):
 | `2E 7E` → reply `2F …` | Status query (temp, water sensor, on-base) |
 | `1F <keepWarmMin> <temp> <babyTemp> 7E` | Set kettle defaults |
 | `19 <value> 00 7E` | Set scalar setting (keep-warm time?) |
-| `6E 7E` | Firmware-update init (FirmwareUpdateService) |
+| `6E 7E` | Firmware-update init (the app's firmware-update service) |
 | `70 <len32> 7E` + 261-byte blocks `7E 7E 7E` | Firmware image upload |
 
 Cross-check against iBrew's published command list before writing the spec.

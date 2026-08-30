@@ -497,9 +497,9 @@
     },
     "glyph_ref": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._/-]*\\.(svg|png)$",
+      "pattern": "^(?!glyphs/)[a-z0-9][a-z0-9._/-]*\\.(svg|png)$",
       "description": "Path to an instruction glyph, relative to this repository's `glyphs/` directory -- `devices/wemo-mini/reset-button.svg`, not `glyphs/devices/...`. A glyph is a small ORIGINAL drawing of the physical thing a step refers to: which button, where it sits on the case, what the LED does when the step takes. It exists because the hardest part of a reset or a pairing-mode entry is not the timing, which prose carries fine, but identifying the right unlabelled button on a device the reader is holding for the first time.",
-      "$comment": "The `glyphs/` prefix is deliberately absent so a consumer that vendors this repo as a git subtree, or serves the set from its own asset bundle, rebases every reference at once by prepending its own root. Two invariants are enforced by scripts/validate_glyphs.py rather than by this pattern, which can only check shape: the file exists under `glyphs/`, and it has an entry in `glyphs/MANIFEST.yaml` carrying its alt text and its clean-room origin. Glyphs are advisory by construction -- a step must read correctly with no picture beside it, so a consumer that ships none loses only the picture. That is also why no field ever REQUIRES a glyph: a spec whose reset is documented but undrawn is complete, not half-written."
+      "$comment": "The `glyphs/` prefix is deliberately absent so a consumer that vendors this repo as a git subtree, or serves the set from its own asset bundle, rebases every reference at once by prepending its own root. The `(?!glyphs/)` negative lookahead makes that a rule the pattern enforces rather than only a convention the description states: a reference written `glyphs/devices/...` would have its root prepended twice and resolve to nothing, and the failure is silent because glyphs are advisory. Two further invariants are enforced by scripts/validate_glyphs.py rather than by this pattern, which can only check shape: the file exists under `glyphs/`, and it has an entry in `glyphs/MANIFEST.yaml` carrying its alt text and its clean-room origin. Glyphs are advisory by construction -- a step must read correctly with no picture beside it, so a consumer that ships none loses only the picture. That is also why no field ever REQUIRES a glyph: a spec whose reset is documented but undrawn is complete, not half-written."
     },
     "physical_procedure": {
       "type": "object",
@@ -2248,7 +2248,7 @@
             "methods": {
               "type": "array",
               "minItems": 1,
-              "description": "The routes onto the network that a reader CHOOSES BETWEEN, ordered easiest first: the recommended one (`role: primary`) and its alternatives, then routes selected by which hardware the reader happens to own rather than by preference (`role: variant`), and last anything that no longer works (`role: historical`). Easiest means fewest obstacles for the reader, not fewest packets: no vendor account beats an account, no extra hardware beats a hub or a second radio, and a flow this project has actually run beats one nobody has. Every entry in a list of two or more carries a `name` and a `role`, because a bare list of `type` values cannot say which of them a reader is supposed to do. A route that takes several phases is ONE entry with `stages` -- never several entries.",
+              "description": "The routes onto the network that a reader CHOOSES BETWEEN, ordered easiest first: the recommended one (`role: primary`) and its alternatives, then routes selected by which hardware the reader happens to own rather than by preference (`role: variant`), and last anything that no longer works (`role: historical`). Easiest means fewest obstacles for the reader, not fewest packets: no vendor account beats an account, no extra hardware beats a hub or a second radio, and a flow this project has actually run beats one nobody has. Every entry in a list of two or more carries a `name` and a `role`, because a bare list of `type` values cannot say which of them a reader is supposed to do. A route that takes several phases is ONE entry with `stages` -- never several entries. At most one entry may be `role: primary` -- there is only one route to recommend.",
               "if": {
                 "minItems": 2
               },
@@ -2261,7 +2261,19 @@
                   ]
                 }
               },
-              "$comment": "This list was for a long time described only as `first is preferred`, and preference turned out to be too weak a word for what specs were putting in it. The entries were not all the same kind of thing: some were genuine alternatives (three ways to hand the same device WiFi credentials), some were consecutive phases of one route filed side by side (join WiFi on the touchscreen, THEN pair the app), one was a one-time account binding whose only product was a key the next entry needed, one applied solely to hardware sold before 2019, and one had not worked since the cloud was switched off. Rendered as an undifferentiated list, all of those read as `pick one` -- so a reader picks the defunct one, or does the first half of a route and stops. `role` says which kind each entry is, `stages` holds the routes that have more than one phase, and `name` is what a reader chooses by; `type` answers `what protocol does it speak`, which is a different question and never was a label.",
+              "$comment": "This list was for a long time described only as `first is preferred`, and preference turned out to be too weak a word for what specs were putting in it. The entries were not all the same kind of thing: some were genuine alternatives (three ways to hand the same device WiFi credentials), some were consecutive phases of one route filed side by side (join WiFi on the touchscreen, THEN pair the app), one was a one-time account binding whose only product was a key the next entry needed, one applied solely to hardware sold before 2019, and one had not worked since the cloud was switched off. Rendered as an undifferentiated list, all of those read as `pick one` -- so a reader picks the defunct one, or does the first half of a route and stops. `role` says which kind each entry is, `stages` holds the routes that have more than one phase, and `name` is what a reader chooses by; `type` answers `what protocol does it speak`, which is a different question and never was a label. The `contains` block enforces the one part of the ordering rule a schema can state: at most one `primary`. minContains is 0 because most specs have no primary at all (a device with a single obvious route, or a set of hardware-selected variants); maxContains 1 rejects the two-recommendations mistake. The rest of the ordering rule -- primary first, historical last, rank non-decreasing -- is monotonic across the sequence and lives in test_setup_methods_are_ordered_for_a_reader.",
+              "minContains": 0,
+              "maxContains": 1,
+              "contains": {
+                "required": [
+                  "role"
+                ],
+                "properties": {
+                  "role": {
+                    "const": "primary"
+                  }
+                }
+              },
               "items": {
                 "$ref": "#/$defs/setup_method"
               }

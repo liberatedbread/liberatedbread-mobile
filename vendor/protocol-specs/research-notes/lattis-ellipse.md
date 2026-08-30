@@ -17,8 +17,8 @@
 
 ## Local BLE feasibility
 Lock/unlock is GATT writes over BLE; no internet needed for an already-provisioned
-phone (auth material cached locally in Realm/`KeyCache`). BUT the pairing/auth scheme
-uses a **server-signed message** (`signedMessage` handed to `SecurityHandlerV2`), so
+phone (auth material cached locally in a Realm-backed key cache). BUT the pairing/auth
+scheme uses a **server-signed message** (handed to the SDK's v2 security handler), so
 first-time provisioning of a new phone almost certainly required the Lattis backend —
 with the consumer backend's status unknown, re-pairing may be impossible. Mitigations:
 - Physical touchpad code (`BUTTON_LOCK_SEQUENCE` characteristic configures it) works

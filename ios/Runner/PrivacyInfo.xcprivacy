@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  App-level privacy manifest for Liberated Bread.
+
+  The app collects no data and tracks no one. Its only outbound request is an
+  anonymous GET for the promotional banner config
+  (https://liberatedbread.com/app/banner.json, see lib/core/constants.dart);
+  everything else is direct local-network device control (BLE and LAN) and, when
+  the user configures it, their own Home Assistant server. No advertising SDK,
+  no analytics, no identifiers leave the device.
+
+  Required-reason APIs (NSPrivacyAccessedAPITypes) used by bundled plugins
+  (UserDefaults via shared_preferences, file-timestamp via path_provider, etc.)
+  are declared in those plugins' OWN privacy manifests, which travel in their
+  frameworks (the Podfile uses use_frameworks!). This app's first-party code
+  (ios/Runner/AppDelegate.swift) uses none, so the app-level list is empty.
+
+  IMPORTANT (Xcode, on a Mac): this file must be a member of the "Runner"
+  target's Copy Bundle Resources build phase, or it is not bundled and does
+  nothing. Add it in Xcode (drag into the Runner group, tick the Runner target)
+  or via the project file; it cannot be wired up from the Linux build here.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array/>
+</dict>
+</plist>

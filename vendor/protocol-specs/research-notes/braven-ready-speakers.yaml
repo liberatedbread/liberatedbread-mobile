@@ -32,13 +32,13 @@ bluetooth_classic:
 protocol:
   name: Qualcomm GAIA
   framing_reference: research-notes/qualcomm-gaia-audio-ecosystem.yaml
-  app_package: com.braven.gaia.library (GaiaLink)
+  app_transport: bundled GAIA library link class
   features_observed:
-    - speaker_settings (SpeakerFragment)
-    - rename_speaker (ChangeNameDialog)
+    - speaker_settings (dedicated settings screen)
+    - rename_speaker (rename dialog)
     - eq_audio_control (per Play listing)
     - remote_power_off / smart_lock (per ZAGG manual)
-    - firmware_dfu (UpdateVMFragment + vmupgradelibrary)
+    - firmware_dfu (update screen backed by vmupgradelibrary)
   braven_command_table: not_yet_mapped  # one focused DEX pass needed
 
 status:

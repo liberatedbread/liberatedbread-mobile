@@ -1622,4 +1622,22 @@ class FakeSpecCodec implements SpecCodec {
         responseCharacteristicUuid: storedResponseChar,
         cid: cid,
       );
+
+  // Brother QL: printer tests drive the real codec (pure, deterministic) with a
+  // fake print-service seam, so these are unused here.
+  @override
+  Future<Uint8List> brotherQlStatusRequest() =>
+      throw UnimplementedError('brotherQlStatusRequest');
+
+  @override
+  Future<BrotherQlStatusDto> decodeBrotherQlStatus(
+          {required List<int> reply}) =>
+      throw UnimplementedError('decodeBrotherQlStatus');
+
+  @override
+  Future<Uint8List> renderBrotherQlTestLabel({
+    required String specYaml,
+    required BrotherQlJobParamsDto params,
+  }) =>
+      throw UnimplementedError('renderBrotherQlTestLabel');
 }

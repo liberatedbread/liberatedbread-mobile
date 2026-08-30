@@ -67,7 +67,7 @@ protocol:
   note: >
     Per-device managers under com.android.jaxjox.fitness.device
     (kettlebell, dumbbell, foamroller, smartscale, pushup, heartrate).
-    New KettleBellManager (KettlebellConnect 2.0) delegates to obfuscated helper
+    The new kettlebell-manager class (KettlebellConnect 2.0) delegates to obfuscated helper
     classes — its UUID set not yet pinned. Frame formats TBD; HCI snoop needed.
   commands: TBD
 

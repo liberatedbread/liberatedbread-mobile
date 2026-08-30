@@ -309,11 +309,19 @@ class NetworkControls {
   /// port, URL scheme). Null only in fixtures that never send.
   final NetworkCapabilitiesDto? capabilities;
 
+  /// The `protocol_handler` when this device is a raster label printer the app
+  /// can drive (`brother_ql_raster`) — non-null routes the tap to the label
+  /// printer screen instead of the entity control screen. A printer resolves no
+  /// entities, so this is what keeps it from falling through to the details
+  /// sheet.
+  final String? rasterPrintHandler;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
     this.hiddenNames = const [],
     this.capabilities,
+    this.rasterPrintHandler,
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -359,12 +367,20 @@ final networkControlsProvider = FutureProvider.autoDispose
       specYaml: match.first.yaml,
       ssdpTargets: request.ssdpTargets,
     );
-    if (surface.entities.isEmpty) return null;
+    // A raster label printer (Brother QL) resolves no entities — its surface is
+    // a raster byte stream, not commands — so admit it on its protocol_handler
+    // rather than letting the empty-entity check drop it to the details sheet.
+    final rasterPrintHandler =
+        match.first.spec.protocolHandler == 'brother_ql_raster'
+            ? match.first.spec.protocolHandler
+            : null;
+    if (surface.entities.isEmpty && rasterPrintHandler == null) return null;
     return NetworkControls(
       specYaml: match.first.yaml,
       entities: surface.entities,
       hiddenNames: surface.hiddenNames,
       capabilities: await codec.networkCapabilities(specYaml: match.first.yaml),
+      rasterPrintHandler: rasterPrintHandler,
     );
   } catch (e) {
     Log.spec.warning(

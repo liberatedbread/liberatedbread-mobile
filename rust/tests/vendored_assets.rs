@@ -1997,9 +1997,24 @@ fn the_vendored_samsung_spec_resolves_a_remote_over_its_websocket() {
         .expect("samsung declares a websocket surface");
     assert_eq!(surface.port, 8002);
     assert_eq!(surface.scheme, "wss");
-    // The token rides the connect path, so the placeholder has to survive to
-    // the caller that holds it — this crate never sees a credential.
-    assert!(surface.path.contains("{token}"), "{}", surface.path);
+    // The token rides the connect path, so its placeholder has to survive to
+    // the caller that holds it — this crate never sees a credential. The Dart
+    // filler (ws_control_service `_fillPath`) substitutes `{<credential_name>}`
+    // and `{client_name}`, so assert the path spells exactly those: a spec that
+    // renames the placeholder without the pairing block (or the reverse) leaves
+    // the braces unfilled and pairing silently never succeeds, which is the
+    // drift this guard exists to catch. (Upstream spells it `{samsung_token}`;
+    // asserting the name dynamically keeps the guard correct across a rename.)
+    let cred_name = surface
+        .credential_name
+        .as_deref()
+        .expect("the pairing block names the credential the path carries");
+    assert!(
+        surface.path.contains(&format!("{{{cred_name}}}")),
+        "connect path must carry the credential placeholder {{{cred_name}}}: {}",
+        surface.path
+    );
+    assert!(surface.path.contains("{client_name}"), "{}", surface.path);
     // Older sets listen on the plain port and authenticate by name alone.
     assert_eq!(surface.fallback_port, Some(8001));
     assert_eq!(surface.fallback_scheme.as_deref(), Some("ws"));

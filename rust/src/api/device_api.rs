@@ -4478,6 +4478,161 @@ pub fn encode_image_frame(
     })
 }
 
+/// A decoded Brother QL 32-byte status reply, for the printer card.
+#[derive(Debug, Clone)]
+pub struct BrotherQlStatusDto {
+    /// Loaded media width in mm, 0 when no media is loaded.
+    pub media_width_mm: u8,
+    /// "continuous", "die_cut", or None for no media / unknown.
+    pub media_type: Option<String>,
+    /// Loaded media length in mm (0 for continuous).
+    pub media_length_mm: u8,
+    /// Status kind (offset 18) and phase (offset 19), passed through for a
+    /// caller polling job completion (status 0x01 = printing complete).
+    pub status_type: u8,
+    pub phase: u8,
+    /// Human-readable errors decoded from the reply's error bytes; empty when
+    /// the printer reports none.
+    pub errors: Vec<String>,
+    /// No error and media loaded — safe to send a job.
+    pub ready_to_print: bool,
+}
+
+/// The bytes that ask a Brother QL printer for its 32-byte status reply
+/// (`ESC i S`). Written to the same raw stream as a job.
+pub fn brother_ql_status_request() -> Vec<u8> {
+    crate::protocol::brother_ql::status_request().to_vec()
+}
+
+/// Decode a Brother QL 32-byte status reply into media and error information.
+pub fn decode_brother_ql_status(reply: Vec<u8>) -> anyhow::Result<BrotherQlStatusDto> {
+    use crate::protocol::brother_ql::MediaType;
+    let s = crate::protocol::brother_ql::decode_status(&reply)?;
+    Ok(BrotherQlStatusDto {
+        media_width_mm: s.media_width_mm,
+        media_type: s.media_type.map(|t| match t {
+            MediaType::Continuous => "continuous".to_string(),
+            MediaType::DieCut => "die_cut".to_string(),
+        }),
+        media_length_mm: s.media_length_mm,
+        status_type: s.status_type,
+        phase: s.phase,
+        ready_to_print: s.ready_to_print(),
+        errors: s.errors,
+    })
+}
+
+/// The media a Brother QL job prints on, plus the cut choice. Bundled so the
+/// job/test-label calls take one descriptor rather than a fistful of scalars;
+/// a caller fills it from a decoded [`BrotherQlStatusDto`].
+#[derive(Debug, Clone)]
+pub struct BrotherQlJobParamsDto {
+    pub media_width_mm: u8,
+    /// 0 for continuous tape (the row count sets the length).
+    pub media_length_mm: u8,
+    pub media_die_cut: bool,
+    pub auto_cut: bool,
+}
+
+fn brother_ql_media(params: &BrotherQlJobParamsDto) -> crate::protocol::brother_ql::Media {
+    use crate::protocol::brother_ql::{Media, MediaType};
+    Media {
+        media_type: if params.media_die_cut {
+            MediaType::DieCut
+        } else {
+            MediaType::Continuous
+        },
+        width_mm: params.media_width_mm,
+        length_mm: params.media_length_mm,
+    }
+}
+
+/// Render a self-contained test label — a bordered box with a diagonal cross —
+/// sized to the loaded media, and encode it as a raster job. The "Print test
+/// label" action: it proves the whole path (encode + transport + cut) without
+/// the caller supplying an image.
+pub fn render_brother_ql_test_label(
+    spec_yaml: String,
+    params: BrotherQlJobParamsDto,
+) -> anyhow::Result<Vec<u8>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let head = crate::protocol::image_upload::image_feature(&spec)
+        .and_then(|f| f.max_width)
+        .unwrap_or(1296) as usize;
+    // Media width in dots at 300 dpi, kept off the head's ~44-dot right dead
+    // zone so the box's right edge actually prints, and off the head bound so a
+    // narrow label is not overdrawn. `.max(8)` (not `.clamp`, which panics when
+    // its bounds cross on a malformed tiny-head spec) — an oversized result is
+    // then refused cleanly by validate_rgb_canvas rather than crashing.
+    let printable_width = head.saturating_sub(44).max(8);
+    let want_width = (params.media_width_mm as usize * 3000) / 254;
+    let width = want_width.min(printable_width).max(8);
+    // Height. Continuous tape has no label boundary, so a short fixed strip is
+    // safe. A die-cut label DOES have one: the raw mm→dots length overshoots
+    // the printable length by the inter-label gap, so undershoot ~1/8 to keep
+    // the test box inside a single label rather than overrunning onto the next.
+    let height = if params.media_die_cut {
+        let label = (params.media_length_mm as usize * 3000) / 254;
+        (label - label / 8).max(1)
+    } else {
+        400
+    };
+    let rgb = brother_ql_test_canvas(width, height);
+    let options = crate::protocol::brother_ql::JobOptions {
+        auto_cut: params.auto_cut,
+        ..Default::default()
+    };
+    Ok(crate::protocol::brother_ql::encode_print_job(
+        &spec,
+        &rgb,
+        width as u32,
+        height as u32,
+        brother_ql_media(&params),
+        options,
+    )?)
+}
+
+/// A white RGB888 canvas with a black border and a diagonal cross — enough ink
+/// on the page to confirm alignment and that every part of the head fires.
+fn brother_ql_test_canvas(width: usize, height: usize) -> Vec<u8> {
+    let mut rgb = vec![255u8; width * height * 3];
+    let mut set = |x: usize, y: usize| {
+        if x < width && y < height {
+            let i = (y * width + x) * 3;
+            rgb[i] = 0;
+            rgb[i + 1] = 0;
+            rgb[i + 2] = 0;
+        }
+    };
+    let border = 4usize;
+    for y in 0..height {
+        for x in 0..width {
+            let on_edge = x < border
+                || x >= width.saturating_sub(border)
+                || y < border
+                || y >= height.saturating_sub(border);
+            if on_edge {
+                set(x, y);
+            }
+        }
+    }
+    // Two diagonals, a few dots thick, so a mirror/offset bug is obvious.
+    let thick = 3usize;
+    for x in 0..width {
+        let y = x * height / width.max(1);
+        for t in 0..thick {
+            set(x, y.saturating_add(t));
+            set(
+                x,
+                (height.saturating_sub(1))
+                    .saturating_sub(y)
+                    .saturating_add(t),
+            );
+        }
+    }
+    rgb
+}
+
 /// Encode the BLE writes that PERSIST a picture on the device so it plays
 /// standalone after disconnect, dispatched on the spec's `stored_upload`
 /// feature.
@@ -7147,6 +7302,86 @@ device:
             matches[0].confidence,
             MatchConfidence::Strong,
             "a spec that named conditions and had them hold has earned the type"
+        );
+    }
+
+    /// A label printer that NARROWS the shared printer service types to its own
+    /// model is recognised at Strong and is not stolen by a generic printer
+    /// spec that only claims those types unnarrowed. This is the Brother QL
+    /// case: `_ipp`/`_pdl-datastream` are shared, so the Brother earns them with
+    /// a `ty`-contains-model condition, while the generic `ipp-network-printer`
+    /// (unnarrowed shared types today) matches nothing and cannot outrank it.
+    /// (Recognising a printer with NO spec of its own would need the consumer
+    /// to admit an unnarrowed platform_fallback for a shared type — a separate
+    /// change; the guard `test_no_method_is_both_narrowed_and_a_fallback`
+    /// forbids doing it with txt_match + platform_fallback on one method.)
+    #[test]
+    fn a_narrowed_label_printer_is_not_stolen_by_the_generic_printer_spec() {
+        fn printer_types() -> Vec<String> {
+            vec![
+                "_ipp._tcp.local.".into(),
+                "_pdl-datastream._tcp.local.".into(),
+            ]
+        }
+
+        // The generic printer spec as it ships: shared types, no narrowing, so
+        // it admits nothing on its own (is_empty requires a narrowed shared).
+        let mut generic = network_identity();
+        generic.device_name = "Network Printer".into();
+        generic.manufacturer = "Generic".into();
+        generic.integration = Some("identify_only".into());
+        generic.local_name_prefix_clear();
+        generic.ssdp_search_targets = vec![];
+        generic.lan_protocols = vec![];
+        generic.mac_prefixes = vec![];
+        generic.mdns_service_types = printer_types();
+        generic.txt_match_groups = vec![];
+        generic.platform_fallback_types = vec![];
+
+        // The Brother QL: narrows the same types to its model, and is also known
+        // by its Bonjour instance name.
+        let mut brother = network_identity();
+        brother.device_name = "Brother QL-1110NWB".into();
+        brother.manufacturer = "Brother".into();
+        brother.integration = None;
+        brother.ssdp_search_targets = vec![];
+        brother.lan_protocols = vec![];
+        brother.mac_prefixes = vec![];
+        brother.local_name_prefixes = vec!["Brother QL-1110NWB".into()];
+        brother.mdns_service_types = printer_types();
+        brother.txt_match_groups = vec![TxtMatchGroupDto {
+            service_types: vec!["_ipp._tcp".into(), "_pdl-datastream._tcp".into()],
+            conditions: vec![TxtMatchDto {
+                key: "ty".into(),
+                kind: "contains".into(),
+                value: Some("QL-1110NWB".into()),
+            }],
+        }];
+        brother.platform_fallback_types = vec![];
+
+        let brother_device = NetworkDeviceDto {
+            name: "Brother QL-1110NWB".into(),
+            service_types: printer_types(),
+            txt: std::collections::HashMap::from([
+                ("rp".into(), "ipp/print".into()),
+                ("ty".into(), "Brother QL-1110NWB".into()),
+            ]),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![generic.clone(), brother.clone()], brother_device);
+        assert_eq!(
+            matches.first().map(|m| m.device_name.as_str()),
+            Some("Brother QL-1110NWB"),
+            "the narrowed label printer must be the match"
+        );
+        assert_eq!(
+            matches[0].confidence,
+            MatchConfidence::Strong,
+            "narrowing a shared type it also names by instance name is Strong"
+        );
+        assert!(
+            matches.iter().all(|m| m.device_name != "Network Printer"),
+            "the unnarrowed generic printer spec admits nothing and cannot steal it"
         );
     }
 

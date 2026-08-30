@@ -45,14 +45,14 @@ ble:
       name: nordic_secure_dfu_buttonless
 
   pairing:
-    note: App includes dedicated BLE bonding flow (com.pulsepet.gobone.controller.bonding.Bonding) — expect pairing required.
+    note: App includes a dedicated BLE bonding flow (its own bonding-controller class) — expect pairing required.
 
 protocol:
   note: >
     Native, unobfuscated Java app. BLE layer is a Nordic BleManager subclass
-    (GoBoneBLEManager) with named UUID constants. Command payload format TBD —
-    a focused jadx read of GoBoneBLEManager should recover drive/auto-play
-    command frames without hardware.
+    (the app's own BLE-manager class) with named UUID constants. Command
+    payload format TBD — a focused jadx read of that class should recover
+    drive/auto-play command frames without hardware.
   commands:
     drive: TBD
     autoplay_config: TBD

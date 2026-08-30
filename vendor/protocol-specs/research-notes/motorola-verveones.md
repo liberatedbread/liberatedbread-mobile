@@ -30,19 +30,19 @@ the Hubble cloud account layer (device locator, check-in) is dead weight.
   (Java, mostly readable; old dagger-injection era code)
 
 ## Transport (from static analysis)
-- **CSR GAIA**: `com.csr.gaia.android.library.GaiaLink` — GAIA over RFCOMM
-  (older CSR-based Verve models). See `qualcomm-gaia-audio-ecosystem` note for
-  framing.
-- **Airoha SPP**: `com.airoha.android.lib.physical.spp.AirohaSppController` —
+- **CSR GAIA**: the CSR GAIA Android library's link class, bundled in the app —
+  GAIA over RFCOMM (older CSR-based Verve models). See
+  `qualcomm-gaia-audio-ecosystem` note for framing.
+- **Airoha SPP**: the Airoha library's SPP controller, bundled in the app —
   Airoha-chip models (later VerveLoop/VerveOnes ME generations) use vendor SPP
   protocol instead. Airoha's Android "lib" source circulates publicly.
-- BLE also present (`BleServiceUuids`, `BleCharacteristicUuids`) — used for
-  alerts/locator; out of scope for this note.
+- BLE also present (the app carries its own service- and characteristic-UUID
+  registries) — used for alerts/locator; out of scope for this note.
 - The app's Bluetooth service-UUID table enumerates classic profile UUIDs incl. SPP `00001101`.
 
 ## App feature surface
-- Native EQ (`NativeEqualizerActivity`, `NativeEqSettingCard`) — device-side,
-  almost certainly GAIA/SPP commands.
+- Native EQ (a dedicated equalizer screen and setting card in the app) —
+  device-side, almost certainly GAIA/SPP commands.
 - Device locator (map of last-connected location) — cloud-dependent, dead.
 - Account/check-in/gallery UI — cloud-dependent, dead.
 

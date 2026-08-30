@@ -527,7 +527,7 @@ commands:
       mode.
     transport: "tcp-json"
     body: '{"id":1,"method":"set_music","params":[1,"{host}",{port}]}'
-    example_body: '{"id":1,"method":"set_music","params":[1,"192.168.1.20",54321]}'
+    example_body: '{"id":1,"method":"set_music","params":[1,"192.168.1.50",54321]}'
     parameters:
       host:
         type: "string"

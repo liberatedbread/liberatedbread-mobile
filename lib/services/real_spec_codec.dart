@@ -795,4 +795,19 @@ class RealSpecCodec implements SpecCodec {
     required int sequence,
   }) =>
       rust.encodeRemoveAllApps(specYaml: specYaml, sequence: sequence);
+
+  @override
+  Future<Uint8List> brotherQlStatusRequest() => rust.brotherQlStatusRequest();
+
+  @override
+  Future<BrotherQlStatusDto> decodeBrotherQlStatus(
+          {required List<int> reply}) =>
+      rust.decodeBrotherQlStatus(reply: reply);
+
+  @override
+  Future<Uint8List> renderBrotherQlTestLabel({
+    required String specYaml,
+    required BrotherQlJobParamsDto params,
+  }) =>
+      rust.renderBrotherQlTestLabel(specYaml: specYaml, params: params);
 }

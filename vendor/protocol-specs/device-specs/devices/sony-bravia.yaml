@@ -659,7 +659,7 @@ http_endpoints:
     response_body:
       content_type: "application/json"
       example: |
-        {"result": [[{"title": "YouTube", "uri": "com.sony.dtv.com.google.android.youtube.tv.com.google.android.apps.youtube.tv.activity.ShellActivity", "icon": "http://192.168.1.4/DIAL/icon/com.sony.dtv.com.google.android.youtube.tv.com.google.android.apps.youtube.tv.activity.ShellActivity.png"}, {"title": "Screen mirroring", "uri": "com.sony.dtv.screnmirroring.com.screnmirroring.com.StartScreenMirroringHomeActivity", "icon": "http://192.168.1.4/DIAL/icon/com.sony.dtv.screnmirroring.com.screnmirroring.com.StartScreenMirroringHomeActivity.png"}]], "id": 1}
+        {"result": [[{"title": "YouTube", "uri": "com.sony.dtv.com.google.android.youtube.tv.com.google.android.apps.youtube.tv.activity.ShellActivity", "icon": "http://192.168.1.50/DIAL/icon/com.sony.dtv.com.google.android.youtube.tv.com.google.android.apps.youtube.tv.activity.ShellActivity.png"}, {"title": "Screen mirroring", "uri": "com.sony.dtv.screnmirroring.com.screnmirroring.com.StartScreenMirroringHomeActivity", "icon": "http://192.168.1.50/DIAL/icon/com.sony.dtv.screnmirroring.com.screnmirroring.com.StartScreenMirroringHomeActivity.png"}]], "id": 1}
   - method: "POST"
     path: "/sony/appControl"
     name: "Set Active App"

@@ -28,7 +28,7 @@ bluetooth_classic:
 
 protocol:
   note: >
-    Mode A serial protocol recovered from Pivot APK (com.bda.controller.service.Device).
+    Mode A serial protocol recovered from the Pivot APK's controller-service device class.
     All frames carry a trailing XOR checksum of all preceding bytes.
     Buttons and d-pad bits are ACTIVE-LOW. Stick axes are int8, Y axes host-negated.
     Poll ~83ms active / 500ms idle; RX silence >2s disconnects.

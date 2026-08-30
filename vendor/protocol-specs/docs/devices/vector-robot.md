@@ -395,7 +395,7 @@ run the fully open [WireOS](https://github.com/os-vector/wire-os).
 python scripts/vector_discover.py --timeout 5
 
 # Get robot status (requires cert + GUID from BLE onboarding)
-python scripts/vector_status.py 192.168.1.42 \
+python scripts/vector_status.py 192.168.1.50 \
   --cert ~/.anki_vector/Vector-A1B2-00e00000.cert \
   --guid YOUR_CLIENT_TOKEN_GUID
 ```

@@ -507,12 +507,19 @@ class _SwatchButton extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     // Dark checkmark on light swatches, light on dark ones.
     final luminance = color.computeLuminance();
-    return Semantics(
-      label: colorSwatchName(color),
-      button: true,
-      selected: selected,
-      enabled: enabled,
-      child: _swatch(scheme, luminance),
+    // Merged into ONE node: the InkWell inside publishes its own unlabelled
+    // tappable node, so the swatch was announced twice — once by colour name,
+    // once as a nameless button. Merging keeps the InkWell's tap action on the
+    // node the label rides. Same fix network_light_card already carries for its
+    // network twin of this swatch.
+    return MergeSemantics(
+      child: Semantics(
+        label: colorSwatchName(color),
+        button: true,
+        selected: selected,
+        enabled: enabled,
+        child: _swatch(scheme, luminance),
+      ),
     );
   }
 

@@ -23,7 +23,7 @@ consumer lines; Quell Fibromyalgia (Rx, FDA-authorized 2022) is the current one.
 ## Local BLE feasibility: HIGH (confirmed)
 - App drives therapy **entirely over local BLE**: start/stop therapy, intensity
   up/down, calibration, time sync, settings, history sync. Cloud account exists
-  (`ui/account/CreateAccountFragment`, `quellwebservice/QuellWebService`) but is
+  (dedicated account-creation UI and a web-service client package) but is
   for backup/sync; no evidence device control routes through the cloud.
 - All GATT service/characteristic UUIDs and the full app-control command set were
   recovered from the APK (see YAML). Advertised service UUID:

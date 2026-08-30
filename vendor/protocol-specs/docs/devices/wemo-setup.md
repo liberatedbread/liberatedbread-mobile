@@ -377,7 +377,7 @@ the Wemo app used to offer:
 import pywemo
 
 device = pywemo.discovery.device_from_description(
-    pywemo.setup_url_for_address("192.168.1.42")
+    pywemo.setup_url_for_address("192.168.1.50")
 )
 device.reset(data=False, wifi=True)   # "Change Wi-Fi"
 ```

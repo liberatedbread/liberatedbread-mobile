@@ -24,7 +24,7 @@ Observed identity:
 
 | Field | Value |
 |---|---|
-| Hostname | `WICED-hap-B68A9A.local` |
+| Hostname | `WICED-hap-AABBCC.local` |
 | HAP ID | `0A:01:0A:AA:BB:CC` |
 | Model TXT | `Rachio-AABBCC` |
 

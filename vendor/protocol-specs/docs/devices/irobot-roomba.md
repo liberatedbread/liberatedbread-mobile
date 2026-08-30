@@ -68,9 +68,9 @@ The reply:
 ```json
 {
   "ver": "3",
-  "hostname": "Roomba-3193C60472324700",
-  "robotname": "Dorita",
-  "ip": "192.168.1.103",
+  "hostname": "Roomba-3192000000000000",
+  "robotname": "Robot",
+  "ip": "192.168.1.50",
   "mac": "12:12:12:12:12:12",
   "sw": "v2.4.16-126",
   "sku": "R980020",

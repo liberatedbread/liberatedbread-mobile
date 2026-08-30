@@ -21,13 +21,13 @@ bluetooth_classic:
     - uuid: "00001101-0000-1000-8000-00805f9b34fb"
       name: spp
     - uuid: "00001107-d102-11e1-9b23-00025b00a5a5"
-      name: gaia_service  # from com.nuheara.gaialibrary.GaiaLink
+      name: gaia_service  # from the app's bundled GAIA link layer
   device_name_prefix: "IQbuds"  # from the app's scanner; names: iqbuds/boost/max/2max
   notes: >
-    Vendor command layer in com.nuheara.iqbudsapp.communication (NuhearaCommands,
-    NuhearaPacket, NuhearaPayloadParser; payloads: AudiogramDataPayload, LiveEQPayload,
-    LiveBasicPayload, LocationPayload, ProfilePayload, TapTouchItemPayload,
-    FavouritePayload). GAIA itself is publicly documented by Qualcomm with
+    Vendor command layer in the app's communication package: command,
+    packet and payload-parser classes with typed payloads for audiogram
+    data, live EQ, live basic controls, location, profiles, tap-touch
+    config and favourites. GAIA itself is publicly documented by Qualcomm with
     open-source host implementations available.
 
 ble:

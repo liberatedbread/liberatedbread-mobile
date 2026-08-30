@@ -293,7 +293,7 @@ device:
             example: |
               HTTP/1.1 200 OK
               CACHE-CONTROL: max-age=86400
-              LOCATION: http://192.168.1.42:49153/setup.xml
+              LOCATION: http://192.168.1.50:49153/setup.xml
               ST: urn:Belkin:service:basicevent:1
               USN: uuid:Socket-1_0-221517K0101769::urn:Belkin:service:basicevent:1
           match:

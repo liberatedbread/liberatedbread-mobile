@@ -181,7 +181,7 @@ def test_the_discovery_example_parses_and_yields_a_blid(protocol):
     discovery = protocol["discovery"]
     announcement = json.loads(discovery["response"]["example"])
     blid = blid_from_hostname(announcement["hostname"], ("Roomba-", "iRobot-"))
-    assert blid == "3193C60472324700"
+    assert blid == "3192000000000000"
     assert announcement["proto"] == "mqtt"
 
 

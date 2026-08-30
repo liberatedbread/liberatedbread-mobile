@@ -24,8 +24,8 @@ transport:
 
 bluetooth_classic:
   chipset_variants:
-    csr_models: GAIA over RFCOMM (com.csr.gaia.android.library.GaiaLink)
-    airoha_models: vendor SPP (com.airoha.android.lib.physical.spp.AirohaSppController)
+    csr_models: GAIA over RFCOMM (via the CSR GAIA Android library bundled in the app)
+    airoha_models: vendor SPP (via the Airoha SPP controller library bundled in the app)
   spp_uuids:
     - uuid: "00001101-0000-1000-8000-00805f9b34fb"  # standard SPP (referenced)
       role: control_channel
@@ -36,7 +36,7 @@ protocol:
   names: [Qualcomm GAIA (CSR models), Airoha vendor SPP (later models)]
   framing_reference: research-notes/qualcomm-gaia-audio-ecosystem.yaml
   features_observed:
-    - native_eq (NativeEqualizerActivity / NativeEqSettingCard — device-side)
+    - native_eq (dedicated equalizer screen and setting card — device-side)
     - device_locator (cloud; dead)
     - account_checkin_gallery (cloud; dead)
 
