@@ -1640,4 +1640,9 @@ class FakeSpecCodec implements SpecCodec {
     required BrotherQlJobParamsDto params,
   }) =>
       throw UnimplementedError('renderBrotherQlTestLabel');
+
+  // Camera-view tests drive the real codec's pure parse with a fake feed
+  // service, so the fake reports no camera.
+  @override
+  Future<CameraDto?> cameraForDevice({required String specYaml}) async => null;
 }

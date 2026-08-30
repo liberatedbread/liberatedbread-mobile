@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.9.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -692040380;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 347709260;
 
 // Section: executor
 
@@ -339,6 +339,41 @@ fn wire__crate__api__device_api__build_lifx_zones_request_impl(
                         ))?;
                     Ok(output_ok)
                 })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__camera_for_device_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "camera_for_device",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_spec_yaml = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::camera_for_device(api_spec_yaml)?;
+                        Ok(output_ok)
+                    })(),
+                )
             }
         },
     )
@@ -3986,6 +4021,62 @@ impl SseDecode for crate::api::device_api::BrotherQlStatusDto {
     }
 }
 
+impl SseDecode for crate::api::device_api::CameraDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_streams =
+            <Vec<crate::api::device_api::CameraStreamDto>>::sse_decode(deserializer);
+        let mut var_keepalive =
+            <Option<crate::api::device_api::CameraKeepaliveDto>>::sse_decode(deserializer);
+        return crate::api::device_api::CameraDto {
+            streams: var_streams,
+            keepalive: var_keepalive,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::CameraKeepaliveDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_transport = <Option<String>>::sse_decode(deserializer);
+        let mut var_urlTemplate = <Option<String>>::sse_decode(deserializer);
+        let mut var_startMethod = <Option<String>>::sse_decode(deserializer);
+        let mut var_startParamsJson = <Option<String>>::sse_decode(deserializer);
+        let mut var_stopMethod = <Option<String>>::sse_decode(deserializer);
+        let mut var_stopParamsJson = <Option<String>>::sse_decode(deserializer);
+        let mut var_intervalSeconds = <Option<u32>>::sse_decode(deserializer);
+        return crate::api::device_api::CameraKeepaliveDto {
+            transport: var_transport,
+            url_template: var_urlTemplate,
+            start_method: var_startMethod,
+            start_params_json: var_startParamsJson,
+            stop_method: var_stopMethod,
+            stop_params_json: var_stopParamsJson,
+            interval_seconds: var_intervalSeconds,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::CameraStreamDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <Option<String>>::sse_decode(deserializer);
+        let mut var_transport = <String>::sse_decode(deserializer);
+        let mut var_urlTemplate = <String>::sse_decode(deserializer);
+        let mut var_defaultPort = <Option<u16>>::sse_decode(deserializer);
+        let mut var_servedBy = <Option<String>>::sse_decode(deserializer);
+        let mut var_targetFps = <Option<u32>>::sse_decode(deserializer);
+        return crate::api::device_api::CameraStreamDto {
+            name: var_name,
+            transport: var_transport,
+            url_template: var_urlTemplate,
+            default_port: var_defaultPort,
+            served_by: var_servedBy,
+            target_fps: var_targetFps,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::CharacteristicDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4504,6 +4595,20 @@ impl SseDecode for Vec<crate::api::device_api::BleProvisioningProfileDto> {
             ans_.push(
                 <crate::api::device_api::BleProvisioningProfileDto>::sse_decode(deserializer),
             );
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::CameraStreamDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::CameraStreamDto>::sse_decode(
+                deserializer,
+            ));
         }
         return ans_;
     }
@@ -5568,6 +5673,32 @@ impl SseDecode for Option<bool> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<bool>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::device_api::CameraDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::CameraDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::device_api::CameraKeepaliveDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::CameraKeepaliveDto>::sse_decode(
+                deserializer,
+            ));
         } else {
             return None;
         }
@@ -6678,471 +6809,474 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        9 => wire__crate__api__device_api__credentials_for_device_impl(
+        9 => {
+            wire__crate__api__device_api__camera_for_device_impl(port, ptr, rust_vec_len, data_len)
+        }
+        10 => wire__crate__api__device_api__credentials_for_device_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        10 => wire__crate__api__device_api__decode_brother_ql_status_impl(
+        11 => wire__crate__api__device_api__decode_brother_ql_status_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        11 => {
+        12 => {
             wire__crate__api__device_api__decode_effect_list_impl(port, ptr, rust_vec_len, data_len)
         }
-        12 => wire__crate__api__device_api__decode_lifx_access_point_impl(
+        13 => wire__crate__api__device_api__decode_lifx_access_point_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        13 => {
+        14 => {
             wire__crate__api__device_api__decode_lifx_state_impl(port, ptr, rust_vec_len, data_len)
         }
-        14 => {
+        15 => {
             wire__crate__api__device_api__decode_lifx_zones_impl(port, ptr, rust_vec_len, data_len)
         }
-        15 => wire__crate__api__device_api__decode_stored_upload_event_impl(
+        16 => wire__crate__api__device_api__decode_stored_upload_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        16 => wire__crate__api__device_api__decode_value_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__device_api__device_info_resolution_impl(
+        17 => wire__crate__api__device_api__decode_value_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__device_api__device_info_resolution_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        18 => wire__crate__api__device_api__encode_autorun_mode_impl(
+        19 => wire__crate__api__device_api__encode_autorun_mode_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        19 => wire__crate__api__device_api__encode_bookmark_clear_impl(
+        20 => wire__crate__api__device_api__encode_bookmark_clear_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        20 => wire__crate__api__device_api__encode_bookmark_enable_impl(
+        21 => wire__crate__api__device_api__encode_bookmark_enable_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        21 => wire__crate__api__device_api__encode_command_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__device_api__encode_entity_value_impl(
+        22 => wire__crate__api__device_api__encode_command_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__device_api__encode_entity_value_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        23 => {
+        24 => {
             wire__crate__api__device_api__encode_image_frame_impl(port, ptr, rust_vec_len, data_len)
         }
-        24 => {
+        25 => {
             wire__crate__api__device_api__encode_play_speed_impl(port, ptr, rust_vec_len, data_len)
         }
-        25 => wire__crate__api__device_api__encode_remove_all_apps_impl(
+        26 => wire__crate__api__device_api__encode_remove_all_apps_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        26 => {
+        27 => {
             wire__crate__api__device_api__encode_remove_app_impl(port, ptr, rust_vec_len, data_len)
         }
-        27 => wire__crate__api__device_api__encode_set_playlist_impl(
+        28 => wire__crate__api__device_api__encode_set_playlist_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        28 => wire__crate__api__device_api__encode_stored_animation_impl(
+        29 => wire__crate__api__device_api__encode_stored_animation_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        29 => wire__crate__api__device_api__encode_stored_image_impl(
+        30 => wire__crate__api__device_api__encode_stored_image_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        30 => {
+        31 => {
             wire__crate__api__device_api__encode_stored_play_impl(port, ptr, rust_vec_len, data_len)
         }
-        31 => {
+        32 => {
             wire__crate__api__device_api__encode_stored_text_impl(port, ptr, rust_vec_len, data_len)
         }
-        32 => wire__crate__api__device_api__fill_mqtt_state_topic_impl(
+        33 => wire__crate__api__device_api__fill_mqtt_state_topic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        33 => wire__crate__api__device_api__identify_standard_profiles_impl(
+        34 => wire__crate__api__device_api__identify_standard_profiles_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        34 => wire__crate__api__device_api__kasa_decode_datagram_impl(
+        35 => wire__crate__api__device_api__kasa_decode_datagram_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        35 => {
+        36 => {
             wire__crate__api__device_api__kasa_decode_frame_impl(port, ptr, rust_vec_len, data_len)
         }
-        36 => {
+        37 => {
             wire__crate__api__device_api__kasa_encode_frame_impl(port, ptr, rust_vec_len, data_len)
         }
-        37 => wire__crate__api__device_api__kasa_encrypt_datagram_impl(
+        38 => wire__crate__api__device_api__kasa_encrypt_datagram_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        38 => wire__crate__api__device_api__lifx_default_security_impl(
+        39 => wire__crate__api__device_api__lifx_default_security_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        39 => wire__crate__api__device_api__lifx_port_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__device_api__list_network_instances_impl(
+        40 => wire__crate__api__device_api__lifx_port_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__device_api__list_network_instances_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        41 => {
+        42 => {
             wire__crate__api__device_api__load_device_spec_impl(port, ptr, rust_vec_len, data_len)
         }
-        42 => wire__crate__api__device_api__match_ble_provisioning_name_impl(
+        43 => wire__crate__api__device_api__match_ble_provisioning_name_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        43 => wire__crate__api__device_api__match_device_to_spec_impl(
+        44 => wire__crate__api__device_api__match_device_to_spec_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        44 => wire__crate__api__device_api__match_network_device_impl(
+        45 => wire__crate__api__device_api__match_network_device_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        45 => wire__crate__api__device_api__match_scanned_device_impl(
+        46 => wire__crate__api__device_api__match_scanned_device_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        46 => {
+        47 => {
             wire__crate__api__device_api__match_soft_ap_ssid_impl(port, ptr, rust_vec_len, data_len)
         }
-        47 => wire__crate__api__mock_api__mock_read_characteristic_impl(
+        48 => wire__crate__api__mock_api__mock_read_characteristic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        48 => wire__crate__api__mock_api__mock_reset_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__mock_api__mock_write_characteristic_impl(
+        49 => wire__crate__api__mock_api__mock_reset_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__mock_api__mock_write_characteristic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        50 => wire__crate__api__device_api__mqtt_connect_packet_impl(
+        51 => wire__crate__api__device_api__mqtt_connect_packet_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        51 => wire__crate__api__device_api__mqtt_disconnect_packet_impl(
+        52 => wire__crate__api__device_api__mqtt_disconnect_packet_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        52 => wire__crate__api__device_api__mqtt_parse_incoming_impl(
+        53 => wire__crate__api__device_api__mqtt_parse_incoming_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        53 => wire__crate__api__device_api__mqtt_pingreq_packet_impl(
+        54 => wire__crate__api__device_api__mqtt_pingreq_packet_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        54 => wire__crate__api__device_api__mqtt_publish_packet_impl(
+        55 => wire__crate__api__device_api__mqtt_publish_packet_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        55 => wire__crate__api__device_api__mqtt_subscribe_packet_impl(
+        56 => wire__crate__api__device_api__mqtt_subscribe_packet_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        56 => wire__crate__api__device_api__network_capabilities_impl(
+        57 => wire__crate__api__device_api__network_capabilities_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        57 => wire__crate__api__device_api__network_entities_for_device_impl(
+        58 => wire__crate__api__device_api__network_entities_for_device_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        58 => wire__crate__api__device_api__network_entities_for_state_keys_impl(
+        59 => wire__crate__api__device_api__network_entities_for_state_keys_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        59 => wire__crate__api__device_api__parse_lifx_state_service_impl(
+        60 => wire__crate__api__device_api__parse_lifx_state_service_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        60 => {
+        61 => {
             wire__crate__api__device_api__parse_wemo_ap_list_impl(port, ptr, rust_vec_len, data_len)
         }
-        61 => wire__crate__api__device_api__rabbit_air_ble_command_characteristic_uuid_impl(
+        62 => wire__crate__api__device_api__rabbit_air_ble_command_characteristic_uuid_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        62 => wire__crate__api__device_api__rabbit_air_ble_expected_payload_len_impl(
+        63 => wire__crate__api__device_api__rabbit_air_ble_expected_payload_len_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        63 => wire__crate__api__device_api__rabbit_air_ble_frame_impl(
+        64 => wire__crate__api__device_api__rabbit_air_ble_frame_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        64 => {
+        65 => {
             wire__crate__api__device_api__rabbit_air_ble_mtu_impl(port, ptr, rust_vec_len, data_len)
         }
-        65 => wire__crate__api__device_api__rabbit_air_ble_service_uuid_impl(
+        66 => wire__crate__api__device_api__rabbit_air_ble_service_uuid_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        66 => wire__crate__api__device_api__rabbit_air_decrypt_datagram_impl(
+        67 => wire__crate__api__device_api__rabbit_air_decrypt_datagram_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        67 => wire__crate__api__device_api__rabbit_air_encrypt_datagram_impl(
+        68 => wire__crate__api__device_api__rabbit_air_encrypt_datagram_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        68 => wire__crate__api__device_api__rabbit_air_generate_user_key_impl(
+        69 => wire__crate__api__device_api__rabbit_air_generate_user_key_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        69 => wire__crate__api__device_api__rabbit_air_port_impl(port, ptr, rust_vec_len, data_len),
-        70 => wire__crate__api__device_api__rabbit_air_time_sync_offset_impl(
+        70 => wire__crate__api__device_api__rabbit_air_port_impl(port, ptr, rust_vec_len, data_len),
+        71 => wire__crate__api__device_api__rabbit_air_time_sync_offset_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        71 => wire__crate__api__device_api__read_network_entity_impl(
+        72 => wire__crate__api__device_api__read_network_entity_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        72 => wire__crate__api__device_api__read_network_instance_impl(
+        73 => wire__crate__api__device_api__read_network_instance_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        73 => wire__crate__api__device_api__render_brother_ql_test_label_impl(
+        74 => wire__crate__api__device_api__render_brother_ql_test_label_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        74 => wire__crate__api__device_api__render_lifx_command_impl(
+        75 => wire__crate__api__device_api__render_lifx_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        75 => wire__crate__api__device_api__render_lifx_set_access_point_impl(
+        76 => wire__crate__api__device_api__render_lifx_set_access_point_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        76 => wire__crate__api__device_api__render_network_command_impl(
+        77 => wire__crate__api__device_api__render_network_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        77 => wire__crate__api__device_api__render_network_http_command_impl(
+        78 => wire__crate__api__device_api__render_network_http_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        78 => wire__crate__api__device_api__render_network_http_state_request_impl(
+        79 => wire__crate__api__device_api__render_network_http_state_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        79 => wire__crate__api__device_api__render_network_kasa_command_impl(
+        80 => wire__crate__api__device_api__render_network_kasa_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        80 => wire__crate__api__device_api__render_network_kasa_state_request_impl(
+        81 => wire__crate__api__device_api__render_network_kasa_state_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        81 => wire__crate__api__device_api__render_network_mqtt_command_impl(
+        82 => wire__crate__api__device_api__render_network_mqtt_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        82 => wire__crate__api__device_api__render_network_rabbit_air_command_impl(
+        83 => wire__crate__api__device_api__render_network_rabbit_air_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        83 => wire__crate__api__device_api__render_network_rabbit_air_state_request_impl(
+        84 => wire__crate__api__device_api__render_network_rabbit_air_state_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        84 => wire__crate__api__device_api__render_network_roomba_command_impl(
+        85 => wire__crate__api__device_api__render_network_roomba_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        85 => wire__crate__api__device_api__render_network_state_request_impl(
+        86 => wire__crate__api__device_api__render_network_state_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        86 => wire__crate__api__device_api__render_network_websocket_command_impl(
+        87 => wire__crate__api__device_api__render_network_websocket_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        87 => wire__crate__api__device_api__render_rabbit_air_setup_envelope_impl(
+        88 => wire__crate__api__device_api__render_rabbit_air_setup_envelope_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        88 => wire__crate__api__device_api__render_wemo_connect_requests_impl(
+        89 => wire__crate__api__device_api__render_wemo_connect_requests_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        89 => wire__crate__api__device_api__roomba_connect_packet_impl(
+        90 => wire__crate__api__device_api__roomba_connect_packet_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        90 => wire__crate__api__device_api__roomba_discovery_probe_impl(
+        91 => wire__crate__api__device_api__roomba_discovery_probe_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        91 => wire__crate__api__device_api__roomba_parse_announcement_impl(
+        92 => wire__crate__api__device_api__roomba_parse_announcement_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        92 => wire__crate__api__device_api__roomba_parse_password_reply_impl(
+        93 => wire__crate__api__device_api__roomba_parse_password_reply_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        93 => wire__crate__api__device_api__roomba_password_probe_impl(
+        94 => wire__crate__api__device_api__roomba_password_probe_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        94 => wire__crate__api__device_api__roomba_state_fields_impl(
+        95 => wire__crate__api__device_api__roomba_state_fields_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        95 => {
+        96 => {
             wire__crate__api__device_api__setup_instructions_impl(port, ptr, rust_vec_len, data_len)
         }
-        96 => {
+        97 => {
             wire__crate__api__device_api__soft_ap_profiles_impl(port, ptr, rust_vec_len, data_len)
         }
-        97 => wire__crate__api__device_api__tuya_parse_broadcast_impl(
+        98 => wire__crate__api__device_api__tuya_parse_broadcast_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        98 => {
+        99 => {
             wire__crate__api__device_api__websocket_surface_impl(port, ptr, rust_vec_len, data_len)
         }
-        99 => wire__crate__api__device_api__wemo_network_status_impl(
+        100 => wire__crate__api__device_api__wemo_network_status_impl(
             port,
             ptr,
             rust_vec_len,
@@ -7239,6 +7373,78 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::BrotherQlStatusDt
     for crate::api::device_api::BrotherQlStatusDto
 {
     fn into_into_dart(self) -> crate::api::device_api::BrotherQlStatusDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::CameraDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.streams.into_into_dart().into_dart(),
+            self.keepalive.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::CameraDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::CameraDto>
+    for crate::api::device_api::CameraDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::CameraDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::CameraKeepaliveDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.transport.into_into_dart().into_dart(),
+            self.url_template.into_into_dart().into_dart(),
+            self.start_method.into_into_dart().into_dart(),
+            self.start_params_json.into_into_dart().into_dart(),
+            self.stop_method.into_into_dart().into_dart(),
+            self.stop_params_json.into_into_dart().into_dart(),
+            self.interval_seconds.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::CameraKeepaliveDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::CameraKeepaliveDto>
+    for crate::api::device_api::CameraKeepaliveDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::CameraKeepaliveDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::CameraStreamDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.transport.into_into_dart().into_dart(),
+            self.url_template.into_into_dart().into_dart(),
+            self.default_port.into_into_dart().into_dart(),
+            self.served_by.into_into_dart().into_dart(),
+            self.target_fps.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::CameraStreamDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::CameraStreamDto>
+    for crate::api::device_api::CameraStreamDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::CameraStreamDto {
         self
     }
 }
@@ -9281,6 +9487,42 @@ impl SseEncode for crate::api::device_api::BrotherQlStatusDto {
     }
 }
 
+impl SseEncode for crate::api::device_api::CameraDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<crate::api::device_api::CameraStreamDto>>::sse_encode(self.streams, serializer);
+        <Option<crate::api::device_api::CameraKeepaliveDto>>::sse_encode(
+            self.keepalive,
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::device_api::CameraKeepaliveDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.transport, serializer);
+        <Option<String>>::sse_encode(self.url_template, serializer);
+        <Option<String>>::sse_encode(self.start_method, serializer);
+        <Option<String>>::sse_encode(self.start_params_json, serializer);
+        <Option<String>>::sse_encode(self.stop_method, serializer);
+        <Option<String>>::sse_encode(self.stop_params_json, serializer);
+        <Option<u32>>::sse_encode(self.interval_seconds, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::CameraStreamDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.transport, serializer);
+        <String>::sse_encode(self.url_template, serializer);
+        <Option<u16>>::sse_encode(self.default_port, serializer);
+        <Option<String>>::sse_encode(self.served_by, serializer);
+        <Option<u32>>::sse_encode(self.target_fps, serializer);
+    }
+}
+
 impl SseEncode for crate::api::device_api::CharacteristicDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -9605,6 +9847,16 @@ impl SseEncode for Vec<crate::api::device_api::BleProvisioningProfileDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::device_api::BleProvisioningProfileDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::CameraStreamDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::CameraStreamDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -10379,6 +10631,26 @@ impl SseEncode for Option<bool> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <bool>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::device_api::CameraDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::CameraDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::device_api::CameraKeepaliveDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::CameraKeepaliveDto>::sse_encode(value, serializer);
         }
     }
 }

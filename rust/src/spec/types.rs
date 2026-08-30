@@ -74,8 +74,72 @@ pub struct DeviceSpec {
     /// state is field 0 of the second.
     #[serde(default)]
     pub payload_formats: IndexMap<String, PayloadFormat>,
+    /// Top-level `camera:` — how to obtain a live/snapshot feed. Promoted out of
+    /// `extensions` because a consumer now renders it (the MJPEG snapshot-poll
+    /// viewer, with the WebSocket keepalive the Snapmaker's frames need). Only
+    /// the fields a consumer executes are typed; the rest stay in
+    /// [`Camera::extensions`] as human documentation.
+    #[serde(default)]
+    pub camera: Option<Camera>,
     /// Parsed-but-ignored top-level extension blocks, preserved verbatim so no
     /// information is lost even though nothing interprets them yet.
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// A device's `camera:` block — one or more selectable feeds, plus an optional
+/// keepalive session some cameras need before their frames refresh.
+#[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+pub struct Camera {
+    #[serde(default)]
+    pub streams: Vec<CameraStream>,
+    #[serde(default)]
+    pub keepalive: Option<CameraKeepalive>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// One selectable camera feed.
+#[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+pub struct CameraStream {
+    #[serde(default)]
+    pub name: Option<String>,
+    /// `mjpeg_snapshot_poll` | `mjpeg` | `rtsp` | `rtsps` | `hls` | `webrtc`.
+    pub transport: String,
+    /// Feed URL with `{address}` (and, where variable, `{port}`) placeholders.
+    pub url_template: String,
+    #[serde(default)]
+    pub default_port: Option<u16>,
+    #[serde(default)]
+    pub served_by: Option<String>,
+    /// For `mjpeg_snapshot_poll`: how often to fetch the JPEG.
+    #[serde(default)]
+    pub target_fps: Option<u32>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// The session some cameras hold open before frames flow. The typed fields are
+/// the machine-readable form (`transport: websocket_jsonrpc`); the prose
+/// `start`/`stop` stay in [`extensions`] for humans.
+#[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+pub struct CameraKeepalive {
+    /// Only `websocket_jsonrpc` is executed today. None ⇒ prose-only, unusable.
+    #[serde(default)]
+    pub transport: Option<String>,
+    #[serde(default)]
+    pub url_template: Option<String>,
+    #[serde(default)]
+    pub start_method: Option<String>,
+    #[serde(default)]
+    pub start_params: Option<serde_yaml::Value>,
+    #[serde(default)]
+    pub stop_method: Option<String>,
+    #[serde(default)]
+    pub stop_params: Option<serde_yaml::Value>,
+    /// Re-send the start call at least this often to keep frames flowing.
+    #[serde(default)]
+    pub interval_seconds: Option<u32>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }

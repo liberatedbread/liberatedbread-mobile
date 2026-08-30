@@ -810,4 +810,8 @@ class RealSpecCodec implements SpecCodec {
     required BrotherQlJobParamsDto params,
   }) =>
       rust.renderBrotherQlTestLabel(specYaml: specYaml, params: params);
+
+  @override
+  Future<CameraDto?> cameraForDevice({required String specYaml}) =>
+      rust.cameraForDevice(specYaml: specYaml);
 }

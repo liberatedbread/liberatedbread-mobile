@@ -90,7 +90,10 @@ export '../src/rust/api/device_api.dart'
         WemoConnectAttemptDto,
         WemoJoinStatus,
         BrotherQlStatusDto,
-        BrotherQlJobParamsDto;
+        BrotherQlJobParamsDto,
+        CameraDto,
+        CameraStreamDto,
+        CameraKeepaliveDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -912,6 +915,10 @@ abstract class SpecCodec {
     required String specYaml,
     required BrotherQlJobParamsDto params,
   });
+
+  /// The device's `camera:` feed(s) and optional keepalive, or null when the
+  /// spec declares no camera.
+  Future<CameraDto?> cameraForDevice({required String specYaml});
 }
 
 /// Play/loop-mode values for [SpecCodec.encodeAutorunMode].

@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -752,6 +752,12 @@ Future<Uint8List> renderBrotherQlTestLabel(
     RustLib.instance.api.crateApiDeviceApiRenderBrotherQlTestLabel(
         specYaml: specYaml, params: params);
 
+/// The `camera:` block for a device, or None when it declares no camera. The
+/// typed surface behind the MJPEG snapshot-poll viewer (and its WebSocket
+/// keepalive); `camera{}` used to be parsed by nothing.
+Future<CameraDto?> cameraForDevice({required String specYaml}) =>
+    RustLib.instance.api.crateApiDeviceApiCameraForDevice(specYaml: specYaml);
+
 /// Encode the BLE writes that PERSIST a picture on the device so it plays
 /// standalone after disconnect, dispatched on the spec's `stored_upload`
 /// feature.
@@ -1209,6 +1215,120 @@ class BrotherQlStatusDto {
           phase == other.phase &&
           errors == other.errors &&
           readyToPrint == other.readyToPrint;
+}
+
+/// A device's camera feed(s) for the Dart viewer.
+class CameraDto {
+  final List<CameraStreamDto> streams;
+
+  /// The session to hold open before frames flow (Snapmaker), if any.
+  final CameraKeepaliveDto? keepalive;
+
+  const CameraDto({
+    required this.streams,
+    this.keepalive,
+  });
+
+  @override
+  int get hashCode => streams.hashCode ^ keepalive.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CameraDto &&
+          runtimeType == other.runtimeType &&
+          streams == other.streams &&
+          keepalive == other.keepalive;
+}
+
+class CameraKeepaliveDto {
+  /// Only "websocket_jsonrpc" is executed by the client today.
+  final String? transport;
+  final String? urlTemplate;
+  final String? startMethod;
+
+  /// The JSON-RPC params object, serialised to a JSON string (the caller adds
+  /// a per-call id). None when the spec declared none.
+  final String? startParamsJson;
+  final String? stopMethod;
+  final String? stopParamsJson;
+  final int? intervalSeconds;
+
+  const CameraKeepaliveDto({
+    this.transport,
+    this.urlTemplate,
+    this.startMethod,
+    this.startParamsJson,
+    this.stopMethod,
+    this.stopParamsJson,
+    this.intervalSeconds,
+  });
+
+  @override
+  int get hashCode =>
+      transport.hashCode ^
+      urlTemplate.hashCode ^
+      startMethod.hashCode ^
+      startParamsJson.hashCode ^
+      stopMethod.hashCode ^
+      stopParamsJson.hashCode ^
+      intervalSeconds.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CameraKeepaliveDto &&
+          runtimeType == other.runtimeType &&
+          transport == other.transport &&
+          urlTemplate == other.urlTemplate &&
+          startMethod == other.startMethod &&
+          startParamsJson == other.startParamsJson &&
+          stopMethod == other.stopMethod &&
+          stopParamsJson == other.stopParamsJson &&
+          intervalSeconds == other.intervalSeconds;
+}
+
+class CameraStreamDto {
+  final String? name;
+
+  /// e.g. "mjpeg_snapshot_poll", "mjpeg", "rtsp".
+  final String transport;
+
+  /// URL with `{address}` (and `{port}`) placeholders the caller fills.
+  final String urlTemplate;
+  final int? defaultPort;
+  final String? servedBy;
+  final int? targetFps;
+
+  const CameraStreamDto({
+    this.name,
+    required this.transport,
+    required this.urlTemplate,
+    this.defaultPort,
+    this.servedBy,
+    this.targetFps,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      transport.hashCode ^
+      urlTemplate.hashCode ^
+      defaultPort.hashCode ^
+      servedBy.hashCode ^
+      targetFps.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CameraStreamDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          transport == other.transport &&
+          urlTemplate == other.urlTemplate &&
+          defaultPort == other.defaultPort &&
+          servedBy == other.servedBy &&
+          targetFps == other.targetFps;
 }
 
 class CharacteristicDto {

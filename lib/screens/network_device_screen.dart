@@ -29,6 +29,7 @@ import '../services/roomba_controller.dart';
 import '../services/spec_codec.dart';
 import '../services/tls_trust.dart';
 import '../widgets/ad_banner_bar.dart';
+import '../widgets/camera_view_card.dart';
 import '../widgets/device_credentials_card.dart';
 import '../widgets/entity_cards/sensor_level_chip.dart';
 import '../widgets/network_light_card.dart';
@@ -1399,6 +1400,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
           children: [
+            // Live camera, for a device whose spec declares one (Snapmaker U1).
+            // Renders nothing otherwise.
+            CameraViewCard(
+              specYaml: widget.controls.specYaml,
+              host: widget.device.host,
+            ),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
