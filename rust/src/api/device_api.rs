@@ -7305,6 +7305,86 @@ device:
         );
     }
 
+    /// A label printer that NARROWS the shared printer service types to its own
+    /// model is recognised at Strong and is not stolen by a generic printer
+    /// spec that only claims those types unnarrowed. This is the Brother QL
+    /// case: `_ipp`/`_pdl-datastream` are shared, so the Brother earns them with
+    /// a `ty`-contains-model condition, while the generic `ipp-network-printer`
+    /// (unnarrowed shared types today) matches nothing and cannot outrank it.
+    /// (Recognising a printer with NO spec of its own would need the consumer
+    /// to admit an unnarrowed platform_fallback for a shared type — a separate
+    /// change; the guard `test_no_method_is_both_narrowed_and_a_fallback`
+    /// forbids doing it with txt_match + platform_fallback on one method.)
+    #[test]
+    fn a_narrowed_label_printer_is_not_stolen_by_the_generic_printer_spec() {
+        fn printer_types() -> Vec<String> {
+            vec![
+                "_ipp._tcp.local.".into(),
+                "_pdl-datastream._tcp.local.".into(),
+            ]
+        }
+
+        // The generic printer spec as it ships: shared types, no narrowing, so
+        // it admits nothing on its own (is_empty requires a narrowed shared).
+        let mut generic = network_identity();
+        generic.device_name = "Network Printer".into();
+        generic.manufacturer = "Generic".into();
+        generic.integration = Some("identify_only".into());
+        generic.local_name_prefix_clear();
+        generic.ssdp_search_targets = vec![];
+        generic.lan_protocols = vec![];
+        generic.mac_prefixes = vec![];
+        generic.mdns_service_types = printer_types();
+        generic.txt_match_groups = vec![];
+        generic.platform_fallback_types = vec![];
+
+        // The Brother QL: narrows the same types to its model, and is also known
+        // by its Bonjour instance name.
+        let mut brother = network_identity();
+        brother.device_name = "Brother QL-1110NWB".into();
+        brother.manufacturer = "Brother".into();
+        brother.integration = None;
+        brother.ssdp_search_targets = vec![];
+        brother.lan_protocols = vec![];
+        brother.mac_prefixes = vec![];
+        brother.local_name_prefixes = vec!["Brother QL-1110NWB".into()];
+        brother.mdns_service_types = printer_types();
+        brother.txt_match_groups = vec![TxtMatchGroupDto {
+            service_types: vec!["_ipp._tcp".into(), "_pdl-datastream._tcp".into()],
+            conditions: vec![TxtMatchDto {
+                key: "ty".into(),
+                kind: "contains".into(),
+                value: Some("QL-1110NWB".into()),
+            }],
+        }];
+        brother.platform_fallback_types = vec![];
+
+        let brother_device = NetworkDeviceDto {
+            name: "Brother QL-1110NWB".into(),
+            service_types: printer_types(),
+            txt: std::collections::HashMap::from([
+                ("rp".into(), "ipp/print".into()),
+                ("ty".into(), "Brother QL-1110NWB".into()),
+            ]),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![generic.clone(), brother.clone()], brother_device);
+        assert_eq!(
+            matches.first().map(|m| m.device_name.as_str()),
+            Some("Brother QL-1110NWB"),
+            "the narrowed label printer must be the match"
+        );
+        assert_eq!(
+            matches[0].confidence,
+            MatchConfidence::Strong,
+            "narrowing a shared type it also names by instance name is Strong"
+        );
+        assert!(
+            matches.iter().all(|m| m.device_name != "Network Printer"),
+            "the unnarrowed generic printer spec admits nothing and cannot steal it"
+        );
+    }
+
     /// The OUI is evidence on Wi-Fi, exactly as it is on BLE.
     ///
     /// Twelve specs declare `mac_prefixes` and the network matcher had no axis
