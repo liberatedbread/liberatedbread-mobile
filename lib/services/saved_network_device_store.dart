@@ -81,6 +81,14 @@ class SavedNetworkDevice {
   /// forms, as it always has.
   final String? credentialIdentity;
 
+  /// EVERY identity this device's pins/credentials have been written under, not
+  /// just the current [credentialIdentity]. A host-only device that moves to a
+  /// new DHCP host is re-keyed (its primary becomes `host:newHost`), which used
+  /// to orphan the material written under `host:oldHost` — Remove cleared only
+  /// the current key. This accumulates the old keys so forget clears them too.
+  /// Empty on records written before this field existed.
+  final Set<String> credentialIdentities;
+
   const SavedNetworkDevice({
     required this.id,
     required this.name,
@@ -100,6 +108,7 @@ class SavedNetworkDevice {
     this.category,
     this.specKey,
     this.credentialIdentity,
+    this.credentialIdentities = const {},
   });
 
   /// The stable identity for [device] — see the class doc for the ladder.
@@ -166,6 +175,8 @@ class SavedNetworkDevice {
         if (specKey != null) 'specKey': specKey,
         if (credentialIdentity != null)
           'credentialIdentity': credentialIdentity,
+        if (credentialIdentities.isNotEmpty)
+          'credentialIdentities': [...credentialIdentities],
       };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
@@ -228,6 +239,7 @@ class SavedNetworkDevice {
               (json['credentialIdentity'] as String).isNotEmpty
           ? json['credentialIdentity'] as String
           : null,
+      credentialIdentities: _strings(json['credentialIdentities']).toSet(),
     );
   }
 

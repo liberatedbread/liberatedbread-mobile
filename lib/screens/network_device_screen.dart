@@ -164,6 +164,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// The pushed-state stream of a non-Roomba MQTT device, held so dispose
   /// stops listening when the screen goes.
   StreamSubscription<MqttMessage>? _mqttStateSub;
+
+  /// A pending re-subscribe after the MQTT state stream errored (a broker drop),
+  /// and the growing backoff between attempts. Without this a transient drop
+  /// froze every pushed reading until the screen was reopened.
+  Timer? _mqttRetry;
+  Duration _mqttBackoff = Duration.zero;
   bool _polling = false;
 
   /// Bumped on every write to [_keyboardFocused]. A poll captures it before its
@@ -236,6 +242,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
     _keyboardPoll?.cancel();
     _statePoll?.cancel();
+    _mqttRetry?.cancel();
     unawaited(_keyboardSub?.cancel());
     unawaited(_mqttStateSub?.cancel());
     unawaited(_sender.close());
@@ -1037,6 +1044,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// sender's session, so state and sends share one broker connection and
   /// one client identity.
   Future<void> _subscribeMqttState() async {
+    // A fresh attempt supersedes any scheduled retry.
+    _mqttRetry?.cancel();
+    _mqttRetry = null;
     final declaredTopics = <String>{
       for (final entity in _entities)
         if (!entity.isInstanced &&
@@ -1103,12 +1113,31 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         _scheduleDecode();
       }, onError: (Object e) {
         Log.net.debug('mqtt state stream on ${widget.device.host}: $e');
+        // A broker drop errors the stream; re-subscribe so pushed readings
+        // resume instead of freezing until the screen is reopened.
+        _scheduleMqttResubscribe();
       });
+      // Subscribed cleanly: reset the backoff for the next drop.
+      _mqttBackoff = Duration.zero;
     } on Exception catch (e) {
       // Unpaired (no client id yet) or unreachable. The credentials card is
       // the ask; the readings stay honestly unknown until it is answered.
       Log.net.debug('mqtt state unavailable on ${widget.device.host}: $e');
     }
+  }
+
+  /// Re-subscribe the MQTT state stream after it errored, on a bounded,
+  /// growing backoff. Only one retry is ever pending, and none is scheduled
+  /// once the screen is disposed.
+  void _scheduleMqttResubscribe() {
+    if (!mounted || _mqttRetry != null) return;
+    _mqttBackoff = _mqttBackoff == Duration.zero
+        ? const Duration(seconds: 2)
+        : Duration(seconds: (_mqttBackoff.inSeconds * 2).clamp(2, 30));
+    _mqttRetry = Timer(_mqttBackoff, () {
+      _mqttRetry = null;
+      if (mounted) unawaited(_subscribeMqttState());
+    });
   }
 
   /// Whether a decode pass is running, and whether pushes arrived during it.

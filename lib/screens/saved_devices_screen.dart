@@ -115,6 +115,9 @@ class SavedDevicesScreen extends ConsumerWidget {
       host: saved.host,
       // What the record says its pins were actually keyed by at write time.
       recordedIdentity: saved.credentialIdentity,
+      // …and every identity it was ever keyed under (host changes re-key it),
+      // so a pin/credential left under an old host key is cleared too.
+      recordedIdentities: saved.credentialIdentities,
     );
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }

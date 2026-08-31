@@ -101,6 +101,15 @@ class SavedNetworkDevicesNotifier
       // the mac-keyed pin would outlive the record's memory of it.
       credentialIdentity: _strongerIdentity(
           existing?.credentialIdentity, device.credentialIdentity),
+      // Every identity this device's material was ever keyed under. The primary
+      // above may flip when a host-only device changes host; retaining the old
+      // keys here is what lets forget clear the pin/credentials left behind
+      // under them, instead of orphaning them in secure storage forever.
+      credentialIdentities: {
+        ...?existing?.credentialIdentities,
+        if (existing?.credentialIdentity != null) existing!.credentialIdentity!,
+        device.credentialIdentity,
+      },
     );
     await save(record);
     return record;

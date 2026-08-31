@@ -312,6 +312,56 @@ void main() {
         reason: 'a mac: identity is never downgraded by a thin sighting');
   });
 
+  test('a host change retains the old credential identity for cleanup',
+      () async {
+    final c = await container();
+    final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
+    // _sighting has a hostname but no mac: the RECORD stays stable (hn:tv.local)
+    // while the credential identity is host-based and flips when DHCP moves it.
+    final first = await savedNetwork.touch(_sighting(host: '192.168.1.20'));
+    final oldIdentity = first.credentialIdentity!;
+    final moved = await savedNetwork.touch(_sighting(host: '192.168.1.77'));
+
+    expect(moved.id, first.id, reason: 'matched by hostname — same record');
+    expect(moved.credentialIdentity, isNot(oldIdentity),
+        reason: 'the primary key follows the new host');
+    expect(moved.credentialIdentities,
+        containsAll(<String>{oldIdentity, moved.credentialIdentity!}),
+        reason: 'the old key is retained so forget can clear it');
+  });
+
+  test('forgetting clears credentials left under a previous host key',
+      () async {
+    final c = await container();
+    final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
+    final groups = c.read(deviceGroupsProvider.notifier);
+    final first = await savedNetwork.touch(_sighting(host: '192.168.1.20'));
+    final oldIdentity = first.credentialIdentity!;
+    final moved = await savedNetwork.touch(_sighting(host: '192.168.1.77'));
+
+    final settings = InMemorySettingsStore();
+    final pins = CertificatePinStore(settings);
+    final credentials = DeviceCredentialStore(settings);
+    // Material written under the OLD host key, before the device moved.
+    await pins.save(oldIdentity, 'fp-old');
+    await credentials.save(oldIdentity, 'token', 't');
+
+    await forgetNetworkDevice(
+      savedDevices: savedNetwork,
+      groups: groups,
+      deviceId: moved.id,
+      trust: TlsTrust(pins),
+      credentials: credentials,
+      host: moved.host,
+      recordedIdentity: moved.credentialIdentity,
+      recordedIdentities: moved.credentialIdentities,
+    );
+
+    expect(await pins.pin(oldIdentity), isNull,
+        reason: 'the orphaned old-host pin must be cleared, not left forever');
+    expect(await credentials.credentials(oldIdentity), isEmpty);
+  });
+
   test('member id namespace round-trips and never collides with bare ids', () {
     final memberId = networkMemberId('hn:tv.local');
     expect(isNetworkMemberId(memberId), isTrue);

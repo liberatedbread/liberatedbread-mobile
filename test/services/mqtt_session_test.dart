@@ -317,6 +317,21 @@ void main() {
     expect(socket.destroyed, isTrue,
         reason: 'destroy must follow even when flush never completes');
   });
+
+  group('mqttConnectorFor', () {
+    // The connector production actually uses is chosen by port (the sender
+    // injects none), so assert the choice by function identity — a plaintext
+    // 1883 broker (Dyson) must not get the TLS handshake that used to kill it.
+    test('port 1883 gets the plaintext connector', () {
+      expect(identical(mqttConnectorFor(1883), plainConnect), isTrue);
+    });
+
+    test('TLS broker ports keep the TLS connector', () {
+      // 8883 = Roomba/Bambu (TLS today), 36669 = Hisense TLS generations.
+      expect(identical(mqttConnectorFor(8883), tlsConnect), isTrue);
+      expect(identical(mqttConnectorFor(36669), tlsConnect), isTrue);
+    });
+  });
 }
 
 /// A socket whose flush never completes — the shape of a wedged peer with a

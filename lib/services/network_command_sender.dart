@@ -544,7 +544,11 @@ class NetworkCommandSender {
 
     final session = MqttSession(
       codec: _codec,
-      connect: _mqttConnect,
+      // Production injects no connector, so choose one by port: a plaintext
+      // broker (1883, e.g. Dyson) must NOT get a TLS handshake, which is what
+      // the unconditional TLS default did — every Dyson subscription died at the
+      // handshake. A test-injected connector still wins.
+      connect: _mqttConnect ?? mqttConnectorFor(port),
       label: 'mqtt $host',
     );
     await session.connect(

@@ -124,6 +124,7 @@ Future<void> forgetNetworkDevice({
   String? deviceMac,
   required String host,
   String? recordedIdentity,
+  Set<String> recordedIdentities = const {},
 }) async {
   await groups.pruneDevice(networkMemberId(deviceId));
   await savedDevices.remove(deviceId);
@@ -152,6 +153,10 @@ Future<void> forgetNetworkDevice({
   final identities = <String>{
     if (recordedIdentity != null && recordedIdentity.isNotEmpty)
       recordedIdentity,
+    // Every identity the record accumulated over its life — the key it is
+    // currently under plus any it was re-keyed away from (a host-only device
+    // that changed DHCP host), so material left under an old key is cleared too.
+    ...recordedIdentities.where((i) => i.isNotEmpty),
     identityFor(mac: deviceMac, host: host),
     identityFor(host: host),
   };
