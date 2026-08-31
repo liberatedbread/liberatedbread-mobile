@@ -33,6 +33,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
@@ -127,7 +128,10 @@ void main() {
 
   setUp(() async {
     await ble.reset();
-    SharedPreferences.setMockInitialValues({});
+    // Seed the disclaimer as accepted so the app boots past the first-launch
+    // gate straight to the BLE path these tests exercise.
+    SharedPreferences.setMockInitialValues(
+        {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
     _prefs = await SharedPreferences.getInstance();
   });
 

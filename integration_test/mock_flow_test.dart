@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/services/mock_ble_service.dart';
@@ -52,7 +53,8 @@ void main() {
     // before runApp; pumping LiberatedBreadApp directly bypasses that, and
     // ScanScreen's History section (savedDevicesProvider) needs it on first
     // build.
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues(
+        {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
     final prefs = await SharedPreferences.getInstance();
     await tester.pumpWidget(
       ProviderScope(

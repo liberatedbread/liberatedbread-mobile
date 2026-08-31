@@ -50,6 +50,7 @@ enum DeviceCategory {
   /// AP drawn as a generic box would say less than the thing people already
   /// picture.
   network(Icons.router_outlined, 'Network'),
+  personalCare(Icons.spa_outlined, 'Personal care'),
   printer(Icons.print_outlined, 'Printer'),
 
   /// A published-protocol reference (SAE J1979, ISO 14229, ISO 15765-2), not a
@@ -90,9 +91,14 @@ enum DeviceCategory {
 
   const DeviceCategory(this.icon, this.label);
 
-  /// The spec's spelling of this category — the wire value, which for
-  /// [DeviceCategory.switch_] is `switch` (Dart reserves the bare word).
-  String get wireName => this == DeviceCategory.switch_ ? 'switch' : name;
+  /// The spec's spelling of this category — the wire value. It differs from the
+  /// Dart member name for [DeviceCategory.switch_] (`switch`, a reserved word)
+  /// and [DeviceCategory.personalCare] (the snake_case `personal_care`).
+  String get wireName => switch (this) {
+        DeviceCategory.switch_ => 'switch',
+        DeviceCategory.personalCare => 'personal_care',
+        _ => name,
+      };
 
   /// [label] pluralized: "Lights" reads right where "Light" would not, in
   /// section titles for the automatic by-kind groups. Categories whose label
@@ -105,6 +111,8 @@ enum DeviceCategory {
         DeviceCategory.fitness ||
         DeviceCategory.health ||
         DeviceCategory.irrigation ||
+        // "Personal care" is a mass noun; "Personal cares" reads wrong.
+        DeviceCategory.personalCare ||
         // "Networks" would name the wrong thing: the group holds routers and
         // access points, not networks. Same mass-noun treatment as Climate.
         DeviceCategory.network ||
