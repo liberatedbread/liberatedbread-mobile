@@ -40,6 +40,25 @@ device:
     vendor cloud) but none of that reaches the hardware: the pair-device call
     to the cloud is telemetry only, and a replacement client needs no account.
 
+  safety_advisory:
+    severity: "danger"
+    summary: >
+      IPL fires intense light pulses — improper use can cause permanent skin
+      burns, scarring, or eye injury.
+    detail: >
+      This is an IPL/HPL (home pulsed light) hair-removal handset. Used wrongly
+      it can cause permanent harm: burns, blistering, discoloration or scarring
+      of the skin, and serious eye injury from looking into a flash. Always
+      follow Silk'n's own instructions — patch-test first, match the device's
+      energy level to your skin tone, never treat broken, tanned, tattooed or
+      moled skin, and keep it away from the eyes. Over Bluetooth this app reads
+      treatment telemetry and can clear the optional device lock; the flash and
+      its intensity are set on the device itself. This app is EXPERIMENTAL and is
+      not affiliated with, endorsed by, or supported by Silk'n / Home
+      Skinovations — the manufacturer's manual and safety guidance govern.
+    acknowledge_required: true
+    advisory_url: "https://www.manualslib.com/manual/2132171/Home-Skinovations-Silk-N-Infinity.html"
+    advisory_archive_url: "https://web.archive.org/web/20260831005752/https://www.manualslib.com/manual/2132171/Home-Skinovations-Silk-N-Infinity.html"
   identification:
     local_names: ["Infinity", "SilknV_F", "Silkn7_App"]
 

@@ -5,6 +5,9 @@
 - Decompiled Java/Kotlin sources, smali, resources.arsc outputs
 - Vendor images, fonts, animations, strings copied from the vendor app/UI
 - Vendor documentation text beyond short, fair-use quotations (prefer paraphrase)
+- The vendor app's internal class, method and source-path names — even inside
+  otherwise-derived prose — see
+  [Paraphrase the vendor app's internals](#paraphrase-the-vendor-apps-internals)
 - Identifiers belonging to the researcher's own network or unit — see
   [Scrub your own identifiers](#scrub-your-own-identifiers)
 
@@ -14,6 +17,34 @@
 - Wire protocols: message formats, opcodes, CRCs, state machines
 - Local network endpoints, ports, multicast discovery outputs (summarized)
 - Test matrices and reproduction steps
+
+## Paraphrase the vendor app's internals
+
+Decompiling the vendor app is how much of this knowledge is found, and the
+protocol facts it yields — GATT UUIDs, opcodes, message formats, endpoints —
+are exactly what we are here to write down. The app's own *internal structure*
+is not one of those facts. It is the vendor's expression, it identifies the
+closed source rather than the device, and it teaches an implementer nothing the
+protocol fact next to it does not already say.
+
+**Scrub — do not name:**
+
+- Class, interface and method names lifted from the decompiled app.
+- Source-file and package paths (`com.vendor.app…`).
+- Variable, constant and resource identifiers copied verbatim from the source.
+
+**Replace with the role.** Describe what the code *does*, not what the vendor
+called it: "the app's BLE scanner", not the scanner class's actual name; "the
+write that starts a cycle", not the method's actual name. The role is the
+derived fact, and it is the part an implementer can act on. Keeping a real
+class name in the note adds nothing an implementer needs and drags the vendor's
+protected expression into a public document.
+
+**Citing *open-source* work by file is fine — that is attribution.** Naming a
+public project and its files (`MatrixEditor/fsapi-tools`, a GitHub repo's
+`README`) credits the author's own published work; that is the opposite of the
+problem. The rule is about the vendor's *closed* app, where reproducing its
+internal names both copies protected expression and buys the reader nothing.
 
 ## Scrub your own identifiers
 

@@ -267,7 +267,7 @@ to any lock.
 - **DIY (e.g. Python + bleak):** implement fragmentation, phases A/C, AES-EAX
   with the nonce construction above, HKDF with the recovered salt, and the
   CBOR tables. All constants are on this page and in
-  [`device-specs/devices/schlage-smart-locks.yaml`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/device-specs/devices/schlage-smart-locks.yaml).
+  [`device-specs/devices/schlage-smart-locks.yaml`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/schlage-smart-locks.yaml).
 - One active BLE session at a time; while your client is connected, the
   official app falls back to cloud.
 

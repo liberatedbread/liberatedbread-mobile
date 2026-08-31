@@ -58,6 +58,25 @@ device:
     0x61 is the Silk-expert Pro 5 generation (the app's codename for it is
     "Victoria3").
 
+  safety_advisory:
+    severity: "danger"
+    summary: >
+      IPL fires intense light pulses — improper use can cause permanent skin
+      burns, scarring, or eye injury.
+    detail: >
+      This is an IPL (intense pulsed light) hair-removal handset. Used wrongly it
+      can cause permanent harm: burns, blistering, discoloration or scarring of
+      the skin, and serious eye injury from looking into a flash. Always follow
+      Braun's own instructions — run the built-in skin-tone sensor and patch
+      test, match the energy level to your skin tone, never treat broken,
+      tanned, tattooed or moled skin, and keep it away from the eyes. Over
+      Bluetooth this app can set the energy level and start, pause or finish a
+      session. This app is EXPERIMENTAL and is not affiliated with, endorsed by,
+      or supported by Braun or Procter & Gamble — the manufacturer's manual and
+      safety guidance govern.
+    acknowledge_required: true
+    advisory_url: "https://us.braun.com/en-us/female-grooming-tips/hair-removal/ipl-safety"
+    advisory_archive_url: "https://web.archive.org/web/20260515164732/https://us.braun.com/en-us/female-grooming-tips/hair-removal/ipl-safety"
   identification:
     manufacturer_data:
       company_id: 220

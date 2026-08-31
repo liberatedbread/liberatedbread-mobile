@@ -5,6 +5,20 @@
 > **Manufacturer**: Braun (Procter & Gamble)
 > **Manufacturer Status**: Active — and it barely matters: the device works fully standalone
 
+## Safety
+
+!!! danger "IPL can permanently damage skin and eyes"
+    This is an intense-pulsed-light hair-removal handset (a SensoAdapt skin-tone sensor that gates each flash). Improper use
+    can cause permanent skin burns, blistering, discoloration or scarring, and
+    serious eye injury. Patch-test first, match the intensity to your skin tone
+    (IPL is unsafe on the darkest skin tones), never treat broken, tanned,
+    tattooed or moled skin, and keep it away from the eyes. This project ships an
+    **experimental, unaffiliated** third-party client — the manufacturer's own
+    instructions govern.
+
+- Manufacturer safety guidance: <https://us.braun.com/en-us/female-grooming-tips/hair-removal/ipl-safety>
+- Archived copy (web.archive.org), if the page above is offline: <https://web.archive.org/web/20260515164732/https://us.braun.com/en-us/female-grooming-tips/hair-removal/ipl-safety>
+
 ## Overview
 
 The Braun Silk-expert Pro 5 (PL5xxx family, Type 6031) is a mains-powered IPL

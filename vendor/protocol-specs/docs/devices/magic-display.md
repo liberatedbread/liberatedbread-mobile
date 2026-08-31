@@ -7,7 +7,7 @@
 
 ## Overview
 
-Bluetooth-controlled LED displays for shoes, bags, hats, and crafts. Uses a Quintic (NXP QN-series) BLE chipset with QPP (Quintic Private Profile). All traffic is AES-128 encrypted via native `libAES.so`. Shares the same BLE UUIDs as Shining Mask/Glasses (both use the Quintic QPP platform) but has a distinct command set and device identification.
+Bluetooth-controlled LED displays for shoes, bags, hats, and crafts. Uses a Quintic (NXP QN-series) BLE chipset with QPP (Quintic Private Profile). All traffic is AES-128 encrypted via the vendor's bundled native AES library. Shares the same BLE UUIDs as Shining Mask/Glasses (both use the Quintic QPP platform) but has a distinct command set and device identification.
 
 ## Hardware
 
@@ -41,9 +41,9 @@ Bluetooth-controlled LED displays for shoes, bags, hats, and crafts. Uses a Quin
 
 ### Encryption
 
-- **Algorithm**: AES-128 via native `libAES.so` (`keyExpansionDefault()`)
+- **Algorithm**: AES-128 via the vendor's bundled native AES library (its default key-expansion routine)
 - **Mode**: ECB with fixed default key compiled into the native binary
-- **Key (recovered)**: `34522a5b7a6e492c08090a9d8d2a23f8` — 16 bytes at `.so` file offset `0x3020` in the APK split's arm64 `libAES.so`; identical to the public iDeal LED family key. App-derived, not yet verified against hardware.
+- **Key (recovered)**: `34522a5b7a6e492c08090a9d8d2a23f8` — 16 bytes at a fixed offset in the APK split's arm64 build of the bundled AES library; identical to the public iDeal LED family key. App-derived, not yet verified against hardware.
 - **All** command/notify traffic and WRITE2/WRITE3 data is encrypted before write; responses decrypted on receive. OTA traffic on `0xFEE8` is **not** encrypted.
 
 ### Device Discovery
@@ -131,7 +131,7 @@ The app — never the device — contacts `http://api.e-toys.cn/api/` for an OTA
 
 - [x] APK decompilation (jadx)
 - [ ] HCI snoop capture (pending)
-- [x] Native library (libAES.so) key extraction (arm64 `libAES.so`, offset `0x3020`)
+- [x] Native AES library key extraction (arm64 build, fixed offset)
 
 ## References
 

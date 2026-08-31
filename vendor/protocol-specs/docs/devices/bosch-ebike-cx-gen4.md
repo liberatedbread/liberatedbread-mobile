@@ -95,7 +95,7 @@ page has been observed on our own bus.
 
 ## Device spec
 
-[`device-specs/devices/bosch-ebike-cx-gen4.yaml`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/device-specs/devices/bosch-ebike-cx-gen4.yaml)
+[`device-specs/devices/bosch-ebike-cx-gen4.yaml`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/bosch-ebike-cx-gen4.yaml)
 carries what is known as a machine-readable `bus` spec (`protocol: can`,
 `style: broadcast`): bitrate, the full D-Sub 9 breakout as `wiring` entries, and a message
 catalogue containing exactly one frame, marked `hypothesis` and `advanced`.

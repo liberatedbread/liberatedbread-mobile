@@ -43,9 +43,9 @@ listed on the product page (or the app already installed on the owner's phone) b
 
 | App | Android package | Device family | Transport | Target starter |
 |-----|-----------------|---------------|-----------|----------------|
-| iLEDColor | `com.led.iledcolor` | Matrix panels; **current** Lunchbox DreamPanel v3 boards | BLE | [`targets/iledcolor-led-panel.md`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/iledcolor-led-panel.md) |
-| LED space | `com.yj.led` | YSP-001 Wi-Fi backpack screens, LED vests, LED clothing | Wi-Fi (AP) | [`targets/led-space.md`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/led-space.md) |
-| Divoom | `com.divoom.Divoom` | Pixoo-16/32/64, Timebox, Ditoo pixel displays | Wi-Fi HTTP + BLE | [`targets/divoom-pixoo.md`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/divoom-pixoo.md) |
+| iLEDColor | `com.led.iledcolor` | Matrix panels; **current** Lunchbox DreamPanel v3 boards | BLE | [`targets/iledcolor-led-panel.md`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/targets/iledcolor-led-panel.md) |
+| LED space | `com.yj.led` | YSP-001 Wi-Fi backpack screens, LED vests, LED clothing | Wi-Fi (AP) | [`targets/led-space.md`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/targets/led-space.md) |
+| Divoom | `com.divoom.Divoom` | Pixoo-16/32/64, Timebox, Ditoo pixel displays | Wi-Fi HTTP + BLE | [`targets/divoom-pixoo.md`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/targets/divoom-pixoo.md) |
 
 ## Platform clusters
 

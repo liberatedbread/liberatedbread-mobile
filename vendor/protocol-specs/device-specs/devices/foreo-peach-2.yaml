@@ -65,6 +65,26 @@ device:
         local_name_prefix: "PEACH2ProMAX"
     - model: "Peach 2 Duo"
 
+  safety_advisory:
+    severity: "danger"
+    summary: >
+      IPL fires intense light pulses — improper use can cause permanent skin
+      burns, blistering, scarring, or eye injury.
+    detail: >
+      This is an IPL (intense pulsed light) hair-removal handset with an optical
+      output up to 7.3 J/cm². Used wrongly it can cause permanent harm: burns,
+      blistering, discoloration or scarring of the skin, and serious eye injury
+      from looking into a flash. Always follow FOREO's own instructions —
+      patch-test first, match the intensity level to your skin tone (darker skin
+      needs a lower level), never treat broken, tanned, tattooed or moled skin,
+      and keep it away from the eyes. This app only sets intensity and mode over
+      Bluetooth; the flash itself is triggered on the device against its
+      skin-contact interlock. This app is EXPERIMENTAL and is not affiliated
+      with, endorsed by, or supported by FOREO — the manufacturer's manual and
+      safety guidance govern.
+    acknowledge_required: true
+    advisory_url: "https://www.foreo.com/mysa/find-out-if-peach-2-is-suitable-for-you"
+    advisory_archive_url: "https://web.archive.org/web/20260831005900/https://www.foreo.com/mysa/find-out-if-peach-2-is-suitable-for-you"
   identification:
     local_name_prefixes:
       - "PEACH2"

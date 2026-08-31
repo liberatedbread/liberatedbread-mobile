@@ -103,7 +103,7 @@ capture that disagrees with this page most likely means OSF is installed — che
 
 ## Device spec
 
-[`device-specs/devices/tsdz2-tongsheng.yaml`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/device-specs/devices/tsdz2-tongsheng.yaml)
+[`device-specs/devices/tsdz2-tongsheng.yaml`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/tsdz2-tongsheng.yaml)
 carries this protocol as a machine-readable `bus` spec (`protocol: uart`, `style: stream`).
 Both packet shapes are catalogued with their `start_byte`, `length`, `rate_hz` and full
 field tables, and the entities bind to decoded fields via `state_field`

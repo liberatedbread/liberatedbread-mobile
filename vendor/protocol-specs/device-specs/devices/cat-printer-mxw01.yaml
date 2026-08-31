@@ -228,12 +228,53 @@ services:
       - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
         name: "Notify (Printer → Client)"
         properties: ["notify"]
+        # This `format` describes the 0xA1 get_status RESPONSE frame ONLY. The
+        # characteristic MULTIPLEXES several response frames — all shaped
+        # [0x22 0x21 cmd_id 0x00 payload_len_le16][payload][crc8][0xFF] — so a
+        # consumer MUST select the status frame by cmd_id == 0xA1 (raw offset 2)
+        # before applying these offsets; 0xA9/0xAB/0xB0/0xB1 replies and the
+        # 0xAA print_complete notification have different layouts. Offsets are
+        # into the raw value and include the 6-byte header, so payload[N] is at
+        # offset N+6 (matching the STATUS RESPONSE note in device.notes).
+        format:
+          - name: "cmd_id"
+            offset: 2
+            length: 1
+            type: "uint8"
+            notes: "Response command id. 0xA1 marks the get_status frame the entities below read; other values are different frames on this same channel."
+          - name: "state"
+            offset: 6
+            length: 1
+            type: "uint8"
+            notes: "payload[0]: paper/print motion state."
+            values: { "0": "standby", "1": "printing", "2": "feeding paper", "3": "ejecting paper" }
+          - name: "battery_level"
+            offset: 9
+            length: 1
+            type: "uint8"
+            notes: "payload[3]: battery level (approximate). The dedicated 0xAB get_battery_level reply carries the same level at its own payload[0]."
+          - name: "head_temperature"
+            offset: 10
+            length: 1
+            type: "uint8"
+            notes: "payload[4]: printhead temperature (approximate)."
+          - name: "error_flag"
+            offset: 12
+            length: 1
+            type: "uint8"
+            notes: "payload[6]: 0 = OK, non-zero = error."
+          - name: "error_bitmask"
+            offset: 13
+            length: 1
+            type: "uint8"
+            notes: "payload[7]: valid when error_flag != 0 — bit0 (0x01) no paper, bit2 (0x04) overheated, bit3 (0x08) low battery."
         notes: >
           Command responses (0xA1 status, 0xA9 print accept, 0xAB
           battery, 0xB0/0xB1 info) and the unsolicited 0xAA
           print_complete notification. Subscribe before sending
           commands. Responses may omit the CRC/footer — parse by
-          declared length.
+          declared length. The `format` above decodes the 0xA1 status
+          frame; match cmd_id (offset 2) before trusting the other offsets.
       - uuid: "0000ae03-0000-1000-8000-00805f9b34fb"
         name: "Data (Client → Printer)"
         properties: ["write_without_response"]
@@ -246,9 +287,29 @@ entities:
   - platform: "cover"
     name: "Print Feed"
     state_characteristic: "0000ae02-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "state"
+    notes: >
+      Reads the `state` field of the 0xA1 get_status frame (payload[0]:
+      0 standby, 1 printing, 2 feeding paper, 3 ejecting paper). This is what
+      separates it from Battery Level, which reads a different field of the
+      same multiplexed characteristic — select the status frame by cmd_id ==
+      0xA1 (raw offset 2) first. It reports paper-motion state, not a literal
+      open/closed position, and is read-only: no cover-motion commands are
+      documented for this model.
   - platform: "sensor"
     name: "Battery Level"
     state_characteristic: "0000ae02-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_level"
+    notes: >
+      Reads the `battery_level` field of the SAME 0xA1 get_status frame
+      (payload[3], approximate). Distinguished from Print Feed by field/offset
+      within the one status frame; select the frame by cmd_id == 0xA1 (raw
+      offset 2). No unit is stated — the byte's scale (raw vs percent) is not
+      established across clients. A dedicated 0xAB get_battery_level command
+      returns the same level at its own payload[0] if a discrete poll is
+      preferred.
 
 helpful_urls:
   - title: "MaikelChan/CatPrinterBLE"

@@ -153,7 +153,7 @@ is the **commercial** catalog. Product families with firmware release notes ther
   "during the next scheduled WiFi connection", or pushed **locally over BLE** from
   the ENGAGE mobile app — same architecture as leopard's BLE-push/WiFi-pull duality.
 
-## 4. Live LAN observations (2026-08-15, one /24 home segment)
+## 4. Live LAN observations (2026-08-15, a private /16 home segment)
 
 - `nmap -sn` ping sweep of the whole segment: **51 hosts up**, ~225 s.
 - ARP + OUI resolution against `registries/ieee-oui.tsv` for all 51: no Allegion
