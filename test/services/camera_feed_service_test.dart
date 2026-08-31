@@ -148,4 +148,59 @@ void main() {
       await sub.cancel();
     });
   });
+
+  group('keepalive reconnect', () {
+    test('re-opens the monitor session after the socket closes', () async {
+      var upgrades = 0;
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final host = '${server.address.address}:${server.port}';
+      server.listen((req) async {
+        if (req.uri.path == '/websocket' &&
+            WebSocketTransformer.isUpgradeRequest(req)) {
+          upgrades++;
+          final first = upgrades == 1;
+          // ignore: close_sinks
+          final ws = await WebSocketTransformer.upgrade(req);
+          ws.listen((_) {}, onError: (_) {}, cancelOnError: false);
+          // Drop the first monitor session the way a printer/network blip does;
+          // the client should re-open it.
+          if (first) await ws.close();
+        } else {
+          req.response.statusCode = 404;
+          await req.response.close();
+        }
+      });
+      addTearDown(() => server.close(force: true));
+
+      const service =
+          CameraFeedService(reconnectDelay: Duration(milliseconds: 200));
+      final sub = service
+          .frames(
+            host: host,
+            stream: const CameraStreamDto(
+              transport: 'mjpeg_snapshot_poll',
+              urlTemplate: 'http://{address}/monitor.jpg',
+              targetFps: 1,
+            ),
+            keepalive: const CameraKeepaliveDto(
+              transport: 'websocket_jsonrpc',
+              urlTemplate: 'ws://{address}/websocket',
+              startMethod: 'camera.start_monitor',
+              startParamsJson: '{"domain":"lan"}',
+              stopMethod: 'camera.stop_monitor',
+              intervalSeconds: 1,
+            ),
+          )
+          .listen((_) {});
+
+      final deadline = DateTime.now().add(const Duration(seconds: 3));
+      while (upgrades < 2 && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(upgrades, greaterThanOrEqualTo(2),
+          reason: 'the keepalive should reconnect after the socket closed');
+
+      await sub.cancel();
+    });
+  });
 }

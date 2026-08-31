@@ -78,6 +78,7 @@ export '../src/rust/api/device_api.dart'
         SoftApProfileDto,
         BleProvisioningProfileDto,
         SecurityAdvisoryDto,
+        SafetyAdvisoryDto,
         SetupInstructionsDto,
         SetupMethodDto,
         SetupStageDto,

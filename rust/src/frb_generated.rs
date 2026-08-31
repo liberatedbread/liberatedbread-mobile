@@ -4172,6 +4172,8 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
         let mut var_integration = <Option<String>>::sse_decode(deserializer);
         let mut var_securityAdvisory =
             <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_decode(deserializer);
+        let mut var_safetyAdvisory =
+            <Option<crate::api::device_api::SafetyAdvisoryDto>>::sse_decode(deserializer);
         let mut var_notes = <Option<String>>::sse_decode(deserializer);
         let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
         let mut var_localNames = <Vec<String>>::sse_decode(deserializer);
@@ -4206,6 +4208,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             admin_url: var_adminUrl,
             integration: var_integration,
             security_advisory: var_securityAdvisory,
+            safety_advisory: var_safetyAdvisory,
             notes: var_notes,
             local_name_prefixes: var_localNamePrefixes,
             local_names: var_localNames,
@@ -5857,6 +5860,19 @@ impl SseDecode for Option<crate::api::device_api::RoombaAnnouncementDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::SafetyAdvisoryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::SafetyAdvisoryDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::device_api::SecurityAdvisoryDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -6193,6 +6209,26 @@ impl SseDecode for crate::api::device_api::RoombaRequestDto {
         return crate::api::device_api::RoombaRequestDto {
             topic: var_topic,
             payload: var_payload,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::SafetyAdvisoryDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_severity = <String>::sse_decode(deserializer);
+        let mut var_summary = <String>::sse_decode(deserializer);
+        let mut var_detail = <Option<String>>::sse_decode(deserializer);
+        let mut var_acknowledgeRequired = <bool>::sse_decode(deserializer);
+        let mut var_advisoryUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_advisoryArchiveUrl = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::SafetyAdvisoryDto {
+            severity: var_severity,
+            summary: var_summary,
+            detail: var_detail,
+            acknowledge_required: var_acknowledgeRequired,
+            advisory_url: var_advisoryUrl,
+            advisory_archive_url: var_advisoryArchiveUrl,
         };
     }
 }
@@ -7546,6 +7582,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DeviceSpecDto {
             self.admin_url.into_into_dart().into_dart(),
             self.integration.into_into_dart().into_dart(),
             self.security_advisory.into_into_dart().into_dart(),
+            self.safety_advisory.into_into_dart().into_dart(),
             self.notes.into_into_dart().into_dart(),
             self.local_name_prefixes.into_into_dart().into_dart(),
             self.local_names.into_into_dart().into_dart(),
@@ -8743,6 +8780,31 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::RoombaRequestDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::SafetyAdvisoryDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.severity.into_into_dart().into_dart(),
+            self.summary.into_into_dart().into_dart(),
+            self.detail.into_into_dart().into_dart(),
+            self.acknowledge_required.into_into_dart().into_dart(),
+            self.advisory_url.into_into_dart().into_dart(),
+            self.advisory_archive_url.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::SafetyAdvisoryDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::SafetyAdvisoryDto>
+    for crate::api::device_api::SafetyAdvisoryDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::SafetyAdvisoryDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::ScanMatch {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -9582,6 +9644,10 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
         <Option<String>>::sse_encode(self.integration, serializer);
         <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_encode(
             self.security_advisory,
+            serializer,
+        );
+        <Option<crate::api::device_api::SafetyAdvisoryDto>>::sse_encode(
+            self.safety_advisory,
             serializer,
         );
         <Option<String>>::sse_encode(self.notes, serializer);
@@ -10775,6 +10841,16 @@ impl SseEncode for Option<crate::api::device_api::RoombaAnnouncementDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::SafetyAdvisoryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::SafetyAdvisoryDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::device_api::SecurityAdvisoryDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -11022,6 +11098,18 @@ impl SseEncode for crate::api::device_api::RoombaRequestDto {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.topic, serializer);
         <String>::sse_encode(self.payload, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::SafetyAdvisoryDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.severity, serializer);
+        <String>::sse_encode(self.summary, serializer);
+        <Option<String>>::sse_encode(self.detail, serializer);
+        <bool>::sse_encode(self.acknowledge_required, serializer);
+        <Option<String>>::sse_encode(self.advisory_url, serializer);
+        <Option<String>>::sse_encode(self.advisory_archive_url, serializer);
     }
 }
 

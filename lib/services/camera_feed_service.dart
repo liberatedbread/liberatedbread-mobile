@@ -27,9 +27,13 @@ class CameraFeedService {
   final Duration connectTimeout;
   final Duration fetchTimeout;
 
+  /// How long to wait before re-opening a keepalive socket the device closed.
+  final Duration reconnectDelay;
+
   const CameraFeedService({
     this.connectTimeout = const Duration(seconds: 6),
     this.fetchTimeout = const Duration(seconds: 5),
+    this.reconnectDelay = const Duration(seconds: 3),
   });
 
   /// A JPEG-frame stream for [stream] on [host], holding [keepalive] open if the
@@ -50,6 +54,7 @@ class CameraFeedService {
         keepalive: keepalive,
         connectTimeout: connectTimeout,
         fetchTimeout: fetchTimeout,
+        reconnectDelay: reconnectDelay,
         sink: controller,
       );
       unawaited(session!.start());
@@ -94,6 +99,7 @@ class _FeedSession {
   final CameraKeepaliveDto? keepalive;
   final Duration connectTimeout;
   final Duration fetchTimeout;
+  final Duration reconnectDelay;
   final StreamController<Uint8List> sink;
 
   final HttpClient _http = HttpClient();
@@ -102,6 +108,7 @@ class _FeedSession {
   WebSocket? _ws;
   Timer? _pollTimer;
   Timer? _keepaliveTimer;
+  Timer? _reconnectTimer;
   int _rpcId = 1;
   bool _stopped = false;
 
@@ -111,6 +118,7 @@ class _FeedSession {
     required this.keepalive,
     required this.connectTimeout,
     required this.fetchTimeout,
+    required this.reconnectDelay,
     required this.sink,
   });
 
@@ -150,15 +158,46 @@ class _FeedSession {
       return;
     }
     _ws = ws;
+    // If the printer closes the monitor socket (or the network blips), the
+    // periodic sendStart would keep writing to a dead socket — surfacing an
+    // uncaught error and never re-establishing the session. Watch for closure
+    // and reconnect instead. We never read monitor frames off this socket.
+    ws.listen(
+      (_) {},
+      onDone: () => _onKeepaliveClosed(ws),
+      onError: (_) => _onKeepaliveClosed(ws),
+      cancelOnError: true,
+    );
     void sendStart() {
       final ws = _ws;
       if (ws == null || _stopped) return;
-      ws.add(buildJsonRpcFrame(startMethod, k.startParamsJson, _rpcId++));
+      try {
+        ws.add(buildJsonRpcFrame(startMethod, k.startParamsJson, _rpcId++));
+      } catch (e) {
+        // Closed between the guard and the write; the done/error listener drives
+        // the reconnect.
+        Log.spec.debug('camera keepalive send failed', error: e);
+      }
     }
 
     sendStart();
     final interval = Duration(seconds: (k.intervalSeconds ?? 5).clamp(1, 60));
     _keepaliveTimer = Timer.periodic(interval, (_) => sendStart());
+  }
+
+  /// The keepalive socket closed. Unless the feed is stopping (or this is a
+  /// stale socket we already replaced), re-open the monitor session after a
+  /// short backoff so the JPEG keeps refreshing. The poll loop keeps running
+  /// throughout — a dead keepalive only means the frames stop updating.
+  void _onKeepaliveClosed(WebSocket closed) {
+    if (_stopped || !identical(_ws, closed)) return;
+    _keepaliveTimer?.cancel();
+    _keepaliveTimer = null;
+    _ws = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(reconnectDelay, () {
+      if (!_stopped) unawaited(_startKeepalive());
+    });
   }
 
   Future<void> _tick() async {
@@ -196,6 +235,7 @@ class _FeedSession {
     _stopped = true;
     _pollTimer?.cancel();
     _keepaliveTimer?.cancel();
+    _reconnectTimer?.cancel();
     final ws = _ws;
     _ws = null;
     if (ws != null) {

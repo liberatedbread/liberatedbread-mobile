@@ -982,6 +982,12 @@ pub struct DeviceInfo {
     /// surface. See [`SecurityAdvisory`].
     #[serde(default)]
     pub security_advisory: Option<SecurityAdvisory>,
+    /// A physical-safety hazard in OPERATING the device — distinct from a
+    /// security flaw. Unlike [`SecurityAdvisory`] it does not suppress control;
+    /// the consumer keeps the controls and shows a persistent banner around
+    /// them (an IPL handset can permanently burn skin). See [`SafetyAdvisory`].
+    #[serde(default)]
+    pub safety_advisory: Option<SafetyAdvisory>,
     pub notes: Option<String>,
     pub identification: Option<Identification>,
     /// Device variants sharing service UUIDs but differing in command sets.
@@ -1271,6 +1277,55 @@ pub struct AdvisoryMitigation {
     /// Where to do it, when there is a link.
     #[serde(default)]
     pub url: Option<String>,
+}
+
+/// A physical-safety hazard in operating the device (an IPL hair-removal
+/// handset can permanently burn skin or injure eyes). The sibling of
+/// [`SecurityAdvisory`], with a deliberately different consumer contract: it
+/// does NOT withhold control. The device is meant to be used, carefully, so the
+/// app keeps the full control surface and shows this as a persistent banner —
+/// optionally behind a one-time acknowledgement — rather than a warning page.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SafetyAdvisory {
+    pub severity: SafetySeverity,
+    /// One line, shown at the top of the safety banner.
+    pub summary: String,
+    /// The fuller safety explanation for the banner / acknowledgement.
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// When true, the consumer requires a one-time acknowledgement per device
+    /// before the controls become interactive — informed consent that still
+    /// leads to full control.
+    #[serde(default)]
+    pub acknowledge_required: bool,
+    /// A safety reference (the manufacturer's safety guide, a writeup).
+    #[serde(default)]
+    pub advisory_url: Option<String>,
+    /// A Wayback Machine snapshot of `advisory_url`, shown as a fallback when
+    /// the live page is gone.
+    #[serde(default)]
+    pub advisory_archive_url: Option<String>,
+}
+
+/// How dangerous misuse is. `caution` is minor/temporary harm; `warning` is a
+/// real injury that takes care to avoid; `danger` is permanent or serious
+/// injury — burns, scarring, eye damage.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SafetySeverity {
+    Caution,
+    Warning,
+    Danger,
+}
+
+impl std::fmt::Display for SafetySeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SafetySeverity::Caution => write!(f, "caution"),
+            SafetySeverity::Warning => write!(f, "warning"),
+            SafetySeverity::Danger => write!(f, "danger"),
+        }
+    }
 }
 
 /// Why this device needs open-source rescue.

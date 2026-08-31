@@ -16,6 +16,7 @@ import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/device_control_panel.dart';
+import '../widgets/safety_advisory_gate.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
@@ -455,6 +456,27 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 .watch(bleSetupModeMatchProvider(widget.device.name))
                 .valueOrNull !=
             null;
+        // The matched spec's physical-safety advisory, if it declares one (an
+        // IPL handset). Read from the same cached match the control panel uses,
+        // so it costs no extra FFI. Unlike a security advisory it does not
+        // suppress the controls — [SafetyAdvisoryGate] shows a banner over them
+        // and, when the spec asks, gates them behind a one-time acknowledgement.
+        final safety = ref
+            .watch(matchedDeviceSpecProvider(SpecMatchRequest.forServices(
+              deviceId: widget.device.id,
+              deviceName: widget.device.displayName,
+              services: _services,
+            )))
+            .valueOrNull
+            ?.chosen
+            ?.spec
+            .safetyAdvisory;
+        final panel = DeviceControlPanel(
+          deviceId: widget.device.id,
+          deviceName: widget.device.displayName,
+          services: _services,
+          manufacturerData: widget.device.manufacturerData,
+        );
         return Column(
           children: [
             _ConnectedHeader(
@@ -488,12 +510,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                       device: widget.device,
                       services: _services,
                     )
-                  : DeviceControlPanel(
-                      deviceId: widget.device.id,
-                      deviceName: widget.device.displayName,
-                      services: _services,
-                      manufacturerData: widget.device.manufacturerData,
-                    ),
+                  : safety == null
+                      ? panel
+                      : SafetyAdvisoryGate(
+                          advisory: safety,
+                          ackKey: widget.device.id,
+                          child: panel,
+                        ),
             ),
           ],
         );

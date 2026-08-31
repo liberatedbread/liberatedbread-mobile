@@ -3559,6 +3559,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SafetyAdvisoryDto dco_decode_box_autoadd_safety_advisory_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_safety_advisory_dto(raw);
+  }
+
+  @protected
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_scanned_device_dto(raw);
@@ -3760,8 +3766,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 28)
-      throw Exception('unexpected arr length: expect 28 but see ${arr.length}');
+    if (arr.length != 29)
+      throw Exception('unexpected arr length: expect 29 but see ${arr.length}');
     return DeviceSpecDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
@@ -3773,25 +3779,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       integration: dco_decode_opt_String(arr[7]),
       securityAdvisory:
           dco_decode_opt_box_autoadd_security_advisory_dto(arr[8]),
-      notes: dco_decode_opt_String(arr[9]),
-      localNamePrefixes: dco_decode_list_String(arr[10]),
-      localNames: dco_decode_list_String(arr[11]),
-      serviceUuids: dco_decode_list_String(arr[12]),
-      companyIds: dco_decode_list_prim_u_16_strict(arr[13]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[14]),
-      mdnsServiceTypes: dco_decode_list_String(arr[15]),
-      ssdpSearchTargets: dco_decode_list_String(arr[16]),
-      lanProtocols: dco_decode_list_String(arr[17]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[18]),
-      nameMatchers: dco_decode_list_name_match_dto(arr[19]),
-      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[20]),
-      platformFallbackTypes: dco_decode_list_String(arr[21]),
-      services: dco_decode_list_service_dto(arr[22]),
-      protocolHandler: dco_decode_opt_String(arr[23]),
-      entities: dco_decode_list_entity_dto(arr[24]),
-      hiddenEntityNames: dco_decode_list_String(arr[25]),
-      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[26]),
-      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[27]),
+      safetyAdvisory: dco_decode_opt_box_autoadd_safety_advisory_dto(arr[9]),
+      notes: dco_decode_opt_String(arr[10]),
+      localNamePrefixes: dco_decode_list_String(arr[11]),
+      localNames: dco_decode_list_String(arr[12]),
+      serviceUuids: dco_decode_list_String(arr[13]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[14]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[15]),
+      mdnsServiceTypes: dco_decode_list_String(arr[16]),
+      ssdpSearchTargets: dco_decode_list_String(arr[17]),
+      lanProtocols: dco_decode_list_String(arr[18]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[19]),
+      nameMatchers: dco_decode_list_name_match_dto(arr[20]),
+      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[21]),
+      platformFallbackTypes: dco_decode_list_String(arr[22]),
+      services: dco_decode_list_service_dto(arr[23]),
+      protocolHandler: dco_decode_opt_String(arr[24]),
+      entities: dco_decode_list_entity_dto(arr[25]),
+      hiddenEntityNames: dco_decode_list_String(arr[26]),
+      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[27]),
+      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[28]),
     );
   }
 
@@ -4841,6 +4848,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SafetyAdvisoryDto? dco_decode_opt_box_autoadd_safety_advisory_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_safety_advisory_dto(raw);
+  }
+
+  @protected
   SecurityAdvisoryDto? dco_decode_opt_box_autoadd_security_advisory_dto(
       dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -5113,6 +5127,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return RoombaRequestDto(
       topic: dco_decode_String(arr[0]),
       payload: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  SafetyAdvisoryDto dco_decode_safety_advisory_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return SafetyAdvisoryDto(
+      severity: dco_decode_String(arr[0]),
+      summary: dco_decode_String(arr[1]),
+      detail: dco_decode_opt_String(arr[2]),
+      acknowledgeRequired: dco_decode_bool(arr[3]),
+      advisoryUrl: dco_decode_opt_String(arr[4]),
+      advisoryArchiveUrl: dco_decode_opt_String(arr[5]),
     );
   }
 
@@ -5732,6 +5762,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SafetyAdvisoryDto sse_decode_box_autoadd_safety_advisory_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_safety_advisory_dto(deserializer));
+  }
+
+  @protected
   ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -5970,6 +6007,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_integration = sse_decode_opt_String(deserializer);
     var var_securityAdvisory =
         sse_decode_opt_box_autoadd_security_advisory_dto(deserializer);
+    var var_safetyAdvisory =
+        sse_decode_opt_box_autoadd_safety_advisory_dto(deserializer);
     var var_notes = sse_decode_opt_String(deserializer);
     var var_localNamePrefixes = sse_decode_list_String(deserializer);
     var var_localNames = sse_decode_list_String(deserializer);
@@ -6001,6 +6040,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         adminUrl: var_adminUrl,
         integration: var_integration,
         securityAdvisory: var_securityAdvisory,
+        safetyAdvisory: var_safetyAdvisory,
         notes: var_notes,
         localNamePrefixes: var_localNamePrefixes,
         localNames: var_localNames,
@@ -7473,6 +7513,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SafetyAdvisoryDto? sse_decode_opt_box_autoadd_safety_advisory_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_safety_advisory_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   SecurityAdvisoryDto? sse_decode_opt_box_autoadd_security_advisory_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -7782,6 +7834,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_topic = sse_decode_String(deserializer);
     var var_payload = sse_decode_String(deserializer);
     return RoombaRequestDto(topic: var_topic, payload: var_payload);
+  }
+
+  @protected
+  SafetyAdvisoryDto sse_decode_safety_advisory_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_severity = sse_decode_String(deserializer);
+    var var_summary = sse_decode_String(deserializer);
+    var var_detail = sse_decode_opt_String(deserializer);
+    var var_acknowledgeRequired = sse_decode_bool(deserializer);
+    var var_advisoryUrl = sse_decode_opt_String(deserializer);
+    var var_advisoryArchiveUrl = sse_decode_opt_String(deserializer);
+    return SafetyAdvisoryDto(
+        severity: var_severity,
+        summary: var_summary,
+        detail: var_detail,
+        acknowledgeRequired: var_acknowledgeRequired,
+        advisoryUrl: var_advisoryUrl,
+        advisoryArchiveUrl: var_advisoryArchiveUrl);
   }
 
   @protected
@@ -8426,6 +8497,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_safety_advisory_dto(
+      SafetyAdvisoryDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_safety_advisory_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_scanned_device_dto(
       ScannedDeviceDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -8606,6 +8684,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.integration, serializer);
     sse_encode_opt_box_autoadd_security_advisory_dto(
         self.securityAdvisory, serializer);
+    sse_encode_opt_box_autoadd_safety_advisory_dto(
+        self.safetyAdvisory, serializer);
     sse_encode_opt_String(self.notes, serializer);
     sse_encode_list_String(self.localNamePrefixes, serializer);
     sse_encode_list_String(self.localNames, serializer);
@@ -9758,6 +9838,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_safety_advisory_dto(
+      SafetyAdvisoryDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_safety_advisory_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_security_advisory_dto(
       SecurityAdvisoryDto? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -10009,6 +10100,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.topic, serializer);
     sse_encode_String(self.payload, serializer);
+  }
+
+  @protected
+  void sse_encode_safety_advisory_dto(
+      SafetyAdvisoryDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.severity, serializer);
+    sse_encode_String(self.summary, serializer);
+    sse_encode_opt_String(self.detail, serializer);
+    sse_encode_bool(self.acknowledgeRequired, serializer);
+    sse_encode_opt_String(self.advisoryUrl, serializer);
+    sse_encode_opt_String(self.advisoryArchiveUrl, serializer);
   }
 
   @protected

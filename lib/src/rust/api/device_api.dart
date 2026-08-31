@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -1566,6 +1566,11 @@ class DeviceSpecDto {
   /// A known security problem with this device, when the spec declares one —
   /// the app warns rather than controls. See [`SecurityAdvisoryDto`].
   final SecurityAdvisoryDto? securityAdvisory;
+
+  /// A physical-safety hazard in operating the device (an IPL handset), when
+  /// the spec declares one — the app warns AND keeps the controls. See
+  /// [`SafetyAdvisoryDto`].
+  final SafetyAdvisoryDto? safetyAdvisory;
   final String? notes;
 
   /// Every BLE local name prefix this device family advertises under, in
@@ -1663,6 +1668,7 @@ class DeviceSpecDto {
     this.adminUrl,
     this.integration,
     this.securityAdvisory,
+    this.safetyAdvisory,
     this.notes,
     required this.localNamePrefixes,
     required this.localNames,
@@ -1695,6 +1701,7 @@ class DeviceSpecDto {
       adminUrl.hashCode ^
       integration.hashCode ^
       securityAdvisory.hashCode ^
+      safetyAdvisory.hashCode ^
       notes.hashCode ^
       localNamePrefixes.hashCode ^
       localNames.hashCode ^
@@ -1729,6 +1736,7 @@ class DeviceSpecDto {
           adminUrl == other.adminUrl &&
           integration == other.integration &&
           securityAdvisory == other.securityAdvisory &&
+          safetyAdvisory == other.safetyAdvisory &&
           notes == other.notes &&
           localNamePrefixes == other.localNamePrefixes &&
           localNames == other.localNames &&
@@ -3826,6 +3834,52 @@ class RoombaRequestDto {
           runtimeType == other.runtimeType &&
           topic == other.topic &&
           payload == other.payload;
+}
+
+/// A physical-safety hazard in operating the device, flattened for FFI. Unlike a
+/// [`SecurityAdvisoryDto`] the app keeps the controls and shows this as a
+/// banner; when `acknowledge_required` is set it asks once before enabling them.
+/// See [`SafetyAdvisory`].
+class SafetyAdvisoryDto {
+  /// `caution`, `warning`, or `danger` — the app colours the banner by this.
+  final String severity;
+  final String summary;
+  final String? detail;
+  final bool acknowledgeRequired;
+  final String? advisoryUrl;
+
+  /// A Wayback Machine snapshot of `advisory_url`, offered as a fallback.
+  final String? advisoryArchiveUrl;
+
+  const SafetyAdvisoryDto({
+    required this.severity,
+    required this.summary,
+    this.detail,
+    required this.acknowledgeRequired,
+    this.advisoryUrl,
+    this.advisoryArchiveUrl,
+  });
+
+  @override
+  int get hashCode =>
+      severity.hashCode ^
+      summary.hashCode ^
+      detail.hashCode ^
+      acknowledgeRequired.hashCode ^
+      advisoryUrl.hashCode ^
+      advisoryArchiveUrl.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SafetyAdvisoryDto &&
+          runtimeType == other.runtimeType &&
+          severity == other.severity &&
+          summary == other.summary &&
+          detail == other.detail &&
+          acknowledgeRequired == other.acknowledgeRequired &&
+          advisoryUrl == other.advisoryUrl &&
+          advisoryArchiveUrl == other.advisoryArchiveUrl;
 }
 
 /// One spec that a scanned device might be, and why we think so.

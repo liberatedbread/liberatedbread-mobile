@@ -31,4 +31,20 @@ class AppConstants {
 
   /// The affiliate shop page the bundled fallback banner points at.
   static const String shopUrl = 'https://liberatedbread.com/shop/';
+
+  /// The disclaimer / terms of use the first-launch gate makes the user accept.
+  static const String disclaimerUrl = 'https://liberatedbread.com/disclaimer/';
+
+  /// The privacy policy, linked alongside the disclaimer on the gate. (Kept
+  /// https to match the disclaimer — a legal link should not downgrade.)
+  static const String privacyUrl = 'https://liberatedbread.com/privacy/';
+
+  /// The accepted-terms version stored on the device (see [termsAcceptedKey]).
+  /// Bumping this re-shows the first-launch gate when the disclaimer materially
+  /// changes.
+  static const int termsVersion = 1;
+
+  /// SharedPreferences key holding the highest [termsVersion] the user has
+  /// accepted. Absent or lower than [termsVersion] means the gate is shown.
+  static const String termsAcceptedKey = 'terms_accepted_version';
 }

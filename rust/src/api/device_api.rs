@@ -17,7 +17,7 @@ use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
     name_has_prefix, normalize_service_type, Characteristic, CharacteristicProperty, Command,
     DeviceSpec, Entity, FormatField, Identification, MacPrefix, MacPrefixConfidence, Parameter,
-    SecurityAdvisory, Service,
+    SafetyAdvisory, SecurityAdvisory, Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
@@ -51,6 +51,35 @@ impl From<&SecurityAdvisory> for SecurityAdvisoryDto {
     }
 }
 
+/// A physical-safety hazard in operating the device, flattened for FFI. Unlike a
+/// [`SecurityAdvisoryDto`] the app keeps the controls and shows this as a
+/// banner; when `acknowledge_required` is set it asks once before enabling them.
+/// See [`SafetyAdvisory`].
+#[derive(Debug, Clone)]
+pub struct SafetyAdvisoryDto {
+    /// `caution`, `warning`, or `danger` — the app colours the banner by this.
+    pub severity: String,
+    pub summary: String,
+    pub detail: Option<String>,
+    pub acknowledge_required: bool,
+    pub advisory_url: Option<String>,
+    /// A Wayback Machine snapshot of `advisory_url`, offered as a fallback.
+    pub advisory_archive_url: Option<String>,
+}
+
+impl From<&SafetyAdvisory> for SafetyAdvisoryDto {
+    fn from(a: &SafetyAdvisory) -> Self {
+        Self {
+            severity: a.severity.to_string(),
+            summary: a.summary.clone(),
+            detail: a.detail.clone(),
+            acknowledge_required: a.acknowledge_required,
+            advisory_url: a.advisory_url.clone(),
+            advisory_archive_url: a.advisory_archive_url.clone(),
+        }
+    }
+}
+
 /// A parsed device specification, ready for use by the Flutter app.
 #[derive(Debug, Clone)]
 pub struct DeviceSpecDto {
@@ -77,6 +106,10 @@ pub struct DeviceSpecDto {
     /// A known security problem with this device, when the spec declares one —
     /// the app warns rather than controls. See [`SecurityAdvisoryDto`].
     pub security_advisory: Option<SecurityAdvisoryDto>,
+    /// A physical-safety hazard in operating the device (an IPL handset), when
+    /// the spec declares one — the app warns AND keeps the controls. See
+    /// [`SafetyAdvisoryDto`].
+    pub safety_advisory: Option<SafetyAdvisoryDto>,
     pub notes: Option<String>,
     /// Every BLE local name prefix this device family advertises under, in
     /// spec order. Plural because a family sold as several rebadged models has
@@ -1035,6 +1068,11 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .security_advisory
                 .as_ref()
                 .map(SecurityAdvisoryDto::from),
+            safety_advisory: spec
+                .device
+                .safety_advisory
+                .as_ref()
+                .map(SafetyAdvisoryDto::from),
             notes: spec.device.notes.clone(),
             local_name_prefixes: ident
                 .map(Identification::local_name_prefixes)
@@ -6468,6 +6506,80 @@ device:
         assert!(load_device_spec(SCAN_YAML.into())
             .unwrap()
             .security_advisory
+            .is_none());
+    }
+
+    #[test]
+    fn a_safety_advisory_reaches_the_spec_dto_without_suppressing_control() {
+        const YAML: &str = r#"
+device:
+  name: "Zappy IPL"
+  manufacturer: "Nobody"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "personal_care"
+  type: "ipl-hair-removal"
+  safety_advisory:
+    severity: "danger"
+    summary: "Intense light pulses can permanently burn skin."
+    detail: "Patch-test and match intensity to your skin tone."
+    acknowledge_required: true
+    advisory_url: "https://example.test/safety"
+    advisory_archive_url: "https://web.archive.org/web/2/https://example.test/safety"
+  identification:
+    local_name_prefix: "ZAP_"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "ZAP_"
+  setup:
+    required: false
+    confidence: low
+    notes: "none"
+    methods:
+      - type: "none"
+        description: "passive"
+        verified: false
+    factory_reset: { applicable: false, confidence: low, effect: "n/a" }
+    rejoin: { in_place_supported: true, requires_factory_reset: false }
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+"#;
+        let dto = load_device_spec(YAML.into()).unwrap();
+        let adv = dto
+            .safety_advisory
+            .as_ref()
+            .expect("safety advisory parsed");
+        assert_eq!(adv.severity, "danger");
+        assert_eq!(
+            adv.summary,
+            "Intense light pulses can permanently burn skin."
+        );
+        assert!(adv.acknowledge_required);
+        assert_eq!(
+            adv.advisory_url.as_deref(),
+            Some("https://example.test/safety")
+        );
+        assert_eq!(
+            adv.advisory_archive_url.as_deref(),
+            Some("https://web.archive.org/web/2/https://example.test/safety")
+        );
+        // A safety advisory does NOT convert the device to a warning-only,
+        // identify-only device the way a security advisory does: it stays
+        // controllable, and carries no security advisory of its own.
+        assert!(dto.security_advisory.is_none());
+    }
+
+    #[test]
+    fn a_spec_with_no_safety_advisory_carries_none() {
+        assert!(load_device_spec(SCAN_YAML.into())
+            .unwrap()
+            .safety_advisory
             .is_none());
     }
 
