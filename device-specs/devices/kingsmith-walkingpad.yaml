@@ -318,18 +318,15 @@ services:
           - offset: 5
             length: 3
             name: "time_s"
-            type: "uint24"
-            endianness: "big"
+            type: "bytes"
           - offset: 8
             length: 3
             name: "distance_10m"
-            type: "uint24"
-            endianness: "big"
+            type: "bytes"
           - offset: 11
             length: 3
             name: "steps"
-            type: "uint24"
-            endianness: "big"
+            type: "bytes"
           - offset: 14
             length: 1
             name: "app_speed_raw"

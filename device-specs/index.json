@@ -889,6 +889,35 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Braun Silk-expert Pro 5 (PL5xxx)",
+    "path": "device-specs/devices/braun-silk-expert-pro5.yaml",
+    "protocol": "ble",
+    "category": "personal_care",
+    "manufacturer": "Braun (Procter & Gamble)",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Braun IPL on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.pg.grooming.braun.ipl",
+        "description": "The vendor companion app this spec was recovered from (analysed at v3.3.3, versionCode 7067). Only needed for the cloud extras — the device works without it."
+      },
+      {
+        "title": "Braun Silk-expert Pro 5 service page (Type 6031)",
+        "url": "https://service.braun.com/us/en/products/6031",
+        "kind": "vendor_support",
+        "description": "Vendor support page for the whole Silk-expert Pro 5 (PL5xxx, Type 6031) family — manuals per language, spare parts, and head/compatibility listings.\n"
+      },
+      {
+        "title": "Braun Silk-expert Pro 5 manual",
+        "url": "https://www.manualslib.com/manual/2134553/Braun-Silk-Expert-Pro-5.html",
+        "kind": "manual",
+        "description": "Vendor manual for the Silk-expert Pro 5 (PL5xxx, Type 6031). Documents the on-device safety behaviour this spec relies on — flashing is gated by the hardware skin-tone sensors, not the app — the patch test (cmdId 11), and the 400,000-flash end-of-life signal.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Brava Oven",
     "path": "device-specs/devices/brava-oven.yaml",
     "protocol": "wifi",
@@ -1952,6 +1981,29 @@
         "url": "https://flowtoys2.freshdesk.com/support/solutions/folders/6000008575",
         "kind": "vendor_support",
         "description": "Vendor support library — the same folder this project's research cache mirrors.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "FOREO Peach 2 IPL hair removal",
+    "path": "device-specs/devices/foreo-peach-2.yaml",
+    "protocol": "ble",
+    "category": "personal_care",
+    "manufacturer": "FOREO AB",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "FOREO PEACH 2 full user manual",
+        "url": "https://www.foreo.com/manuals/peach-2",
+        "kind": "manual",
+        "description": "Vendor-hosted online manual for the Peach 2. Corroborates the ship-locked behaviour and the in-app registration requirement this spec's activation flow replaces, and the five hardware-button intensity levels vs the six app levels.\n"
+      },
+      {
+        "title": "FOREO For You on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.foreo.foreoapp",
+        "description": "The companion app analysed for this spec (package com.foreo.foreoapp; analysed at 4.4.1 / versionCode 559 — the store listing always shows the current release).\n"
       }
     ],
     "schema_version": "2020-12"
@@ -5313,6 +5365,29 @@
         "url": "https://web.archive.org/web/20250109103726/https://fccid.io/2AOLN-16/User-Manual/User-Manual-5007895.pdf",
         "kind": "manual",
         "description": "The vendor manual as filed with the FCC by Shenzhen Shining Bright Technology — the only authoritative document for this hardware. Archived because fccid.io refuses automated requests.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Silk'n Infinity / Silk'n 7",
+    "path": "device-specs/devices/silkn-infinity.yaml",
+    "protocol": "ble",
+    "category": "personal_care",
+    "manufacturer": "Home Skinovations (Silk'n)",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Hair Removal – Silk'n on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.ewavemobile.silkn",
+        "description": "The vendor companion app this spec was recovered from (analysed at v6.1, versionCode 38). Account-gated and cloud-centric, but everything it does with the hardware is reproducible from this spec without an account."
+      },
+      {
+        "title": "Silk'n Infinity product page",
+        "url": "https://silkn.com/",
+        "kind": "vendor_support",
+        "description": "Vendor's site (Home Skinovations) — entry point for the Infinity and Silk'n 7 product pages and their official user guides. The analysed app also bundles ~40 device user-manual PDFs in its assets, so the manuals exist in a redistributable-adjacent form even if the site restructures."
       }
     ],
     "schema_version": "2020-12"

@@ -1377,47 +1377,6 @@
             }
           }
         },
-        "safety_advisory": {
-          "type": "object",
-          "description": "A PHYSICAL-SAFETY hazard inherent in OPERATING the device -- distinct from `security_advisory`, which is about a security flaw. The crucial difference for a consumer: a safety_advisory does NOT suppress control. The device is meant to be used, carefully, so the app keeps the full control surface and shows this as a persistent banner around it (optionally behind a one-time acknowledgement), rather than replacing the controls with a warning page the way security_advisory does. The archetype is an IPL hair-removal handset, whose light pulses can permanently burn skin or injure eyes at the wrong intensity. Use for a real, inherent hazard of operating the device, stated plainly and about safety (not marketing). A device may carry both a security_advisory and a safety_advisory.",
-          "required": [
-            "severity",
-            "summary"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "severity": {
-              "type": "string",
-              "enum": [
-                "caution",
-                "warning",
-                "danger"
-              ],
-              "description": "'caution': misuse causes discomfort or minor, temporary harm. 'warning': misuse can cause real injury that takes care to avoid. 'danger': misuse can cause permanent or serious injury -- burns, scarring, eye damage -- e.g. an IPL handset fired at the wrong intensity for the skin tone. The consumer colours the banner by this: danger reads as the error/red role, warning and caution as progressively softer."
-            },
-            "summary": {
-              "type": "string",
-              "description": "One line, shown at the top of the safety banner: what the hazard is, plainly. 'Intense light pulses can permanently burn skin or injure eyes if misused.'"
-            },
-            "detail": {
-              "type": "string",
-              "description": "The fuller safety explanation for the banner/acknowledgement: how to use it safely (patch-test, match intensity to skin tone, keep it away from eyes), who must not use it, and -- for a third-party app -- that this app is experimental and unaffiliated with the manufacturer, so the manufacturer's own instructions govern."
-            },
-            "acknowledge_required": {
-              "type": "boolean",
-              "default": false,
-              "description": "When true, the consumer makes the user acknowledge the hazard once per device before the controls become interactive -- an informed-consent gate that still leads to FULL control, unlike security_advisory which withholds control. Omit or false for a persistent banner with no gate."
-            },
-            "advisory_url": {
-              "type": "string",
-              "description": "A safety reference -- the manufacturer's safety guide / instructions-for-use, a dermatological-safety writeup, or the like. Prefer the manufacturer's own page."
-            },
-            "advisory_archive_url": {
-              "type": "string",
-              "description": "A Wayback Machine (web.archive.org) snapshot of `advisory_url`, so the safety reference survives the manufacturer taking the page down or restructuring the site. A consumer shows it as a fallback ('archived copy') beside the live link."
-            }
-          }
-        },
         "identification": {
           "type": "object",
           "description": "How to identify this device during scanning. This is the canonical machine-readable summary of the signals a scanner can see BEFORE connecting: local name, advertised service UUIDs, manufacturer-data company ID and MAC OUI. `device.discovery` carries the full evidence and the payload-level matching rules; anything here should also be derivable from there. Kept separate because a scanner needs a cheap answer to \"is this thing worth showing the user?\" on every advertisement, and the signals differ sharply in strength -- see `mac_prefixes`.",
@@ -3398,7 +3357,6 @@
                               "enum": [
                                 "uint8",
                                 "uint16",
-                                "uint24",
                                 "int8",
                                 "int16",
                                 "int32",
@@ -3482,7 +3440,6 @@
                           "bool",
                           "uint8",
                           "uint16",
-                          "uint24",
                           "int8",
                           "int16",
                           "int32",
@@ -3490,7 +3447,7 @@
                           "bytes",
                           "string"
                         ],
-                        "description": "Field value type. int32/uint32/uint24 are consumed by the mobile Rust ValueType enum (fixed width, endianness honored; uint24 is a 3-byte unsigned field, e.g. KingSmith WiLink telemetry) — do not work around them with prose or paired uint16 fields."
+                        "description": "Field value type. int32/uint32 are consumed by the mobile Rust ValueType enum (4-byte fixed width, endianness honored) — do not work around them with prose or paired uint16 fields."
                       },
                       "endianness": {
                         "type": "string",
@@ -4020,11 +3977,11 @@
         },
         "keepalive": {
           "type": "object",
-          "description": "Some cameras only produce frames while a monitor session is held open. Describe the call to start/maintain it (the Snapmaker U1 needs camera.start_monitor over WebSocket, re-sent every ~5-10 s, before its monitor.jpg refreshes). `start`/`stop` are the human-readable form; the machine-readable `transport`/`url_template`/`start_method`/`start_params`/`stop_method`/`stop_params` fields let a consumer build the session without parsing prose.",
+          "description": "Some cameras only produce frames while a monitor session is held open. Describe the call to start/maintain it (the Snapmaker U1 needs camera.start_monitor over WebSocket, re-sent every ~5-10 s, before its monitor.jpg refreshes).",
           "properties": {
             "start": {
               "type": "string",
-              "description": "Human-readable form of the start call, e.g. 'JSON-RPC camera.start_monitor over ws://{address}/websocket, params {domain:lan, interval:0}'."
+              "description": "The call that starts the feed, e.g. 'JSON-RPC camera.start_monitor over ws://{address}/websocket, params {domain:lan, interval:0}'."
             },
             "interval_seconds": {
               "type": "integer",
@@ -4032,34 +3989,7 @@
             },
             "stop": {
               "type": "string",
-              "description": "Human-readable form of the stop call, e.g. 'camera.stop_monitor'."
-            },
-            "transport": {
-              "type": "string",
-              "enum": [
-                "websocket_jsonrpc"
-              ],
-              "description": "Machine-readable session transport. 'websocket_jsonrpc': open a WebSocket to `url_template` and exchange JSON-RPC 2.0 frames ({jsonrpc:'2.0', method, params, id}). The only form a consumer implements today (the Snapmaker's)."
-            },
-            "url_template": {
-              "type": "string",
-              "description": "The session endpoint, with {address} substituted, e.g. 'ws://{address}/websocket'."
-            },
-            "start_method": {
-              "type": "string",
-              "description": "JSON-RPC method to start/maintain the session, e.g. 'camera.start_monitor'."
-            },
-            "start_params": {
-              "type": "object",
-              "description": "JSON-RPC params object for `start_method`, sent verbatim (a consumer fills a per-call id itself), e.g. {domain: 'lan', interval: 0, expect_pw: false}."
-            },
-            "stop_method": {
-              "type": "string",
-              "description": "JSON-RPC method to stop the session on close, e.g. 'camera.stop_monitor'."
-            },
-            "stop_params": {
-              "type": "object",
-              "description": "JSON-RPC params object for `stop_method`, e.g. {domain: 'lan'}."
+              "description": "The call that stops it, e.g. 'camera.stop_monitor'."
             }
           }
         },

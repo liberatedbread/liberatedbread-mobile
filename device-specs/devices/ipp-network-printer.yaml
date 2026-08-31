@@ -81,12 +81,6 @@ device:
         mdns:
           service_type: "_ipp._tcp.local."
           port: 631
-          # The deliberate catch-all for the shared printer service types: an
-          # identify_only spec that recognises any printer by these standard
-          # types, but stands aside for any product spec that narrows the SAME
-          # type with a txt_match (e.g. brother-ql-1110nwb). No txt_match here:
-          # a fallback is the platform claimant, not a conditional one.
-          platform_fallback: true
           txt_record_keys: ["rp", "ty", "pdl", "UUID", "adminurl", "note", "product"]
           identity_mapping:
             stable_keys:
@@ -100,7 +94,6 @@ device:
         mdns:
           service_type: "_ipps._tcp.local."
           port: 631
-          platform_fallback: true
           txt_record_keys: ["rp", "ty", "pdl", "UUID", "adminurl", "note", "product"]
           identity_mapping:
             stable_keys:
@@ -114,7 +107,6 @@ device:
         mdns:
           service_type: "_pdl-datastream._tcp.local."
           port: 9100
-          platform_fallback: true
           txt_record_keys: ["ty", "note", "product"]
           identity_mapping:
             stable_keys:
@@ -126,7 +118,6 @@ device:
         mdns:
           service_type: "_printer._tcp.local."
           port: 515
-          platform_fallback: true
           txt_record_keys: ["ty", "note", "product"]
           identity_mapping:
             stable_keys:
