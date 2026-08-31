@@ -341,9 +341,9 @@ services:
               l11: {type: "uint8", min: 0, max: 15}
           set_rhythm_mode_2:
             description: "Alternate rhythm mode (opcode 0x0200): animated style 0-1, animation speed 0-7"
-            template: [0x06, 0x00, 0x00, 0x02, "{time}", "{style}"]
+            template: [0x06, 0x00, 0x00, 0x02, "{speed}", "{style}"]
             parameters:
-              time: {type: "uint8", min: 0, max: 7}
+              speed: {type: "uint8", min: 0, max: 7, notes: "Animation speed 0-7 (the byte the app labels a timing value)"}
               style: {type: "uint8", allowed: [0, 1]}
           show_slot:
             description: >
@@ -375,7 +375,11 @@ services:
               Upload a static image (opcode 0x0002). The image is resized
               client-side to the panel geometry and encoded as PNG (RGB,
               no palette). Sent in ~12 KB windows; EVERY window is a
-              complete frame: u16-LE length (= frame length + 2), then
+              complete frame: u16-LE length — the total frame length
+              INCLUDING these 2 length bytes, exactly as the framing rule
+              above defines it (i.e. these 2 length bytes + the 2 opcode
+              bytes + the 11 header bytes below + this window's PNG chunk),
+              NOT the payload length — then
               02 00, option byte (0x00 first window, 0x02 continuation),
               u32-LE total PNG size, u32-LE CRC32 of the PNG data, tail
               bytes 00 <save_slot> (save_slot 0 = show only, 1-9 = store

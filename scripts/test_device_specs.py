@@ -2781,29 +2781,82 @@ PLACEHOLDER_LAN_ADDRESSES = frozenset(
     {"192.168.1.50", "192.168.1.51", "192.168.1.52", "192.168.1.53"}
 )
 
-# Addresses that are the device's, not the researcher's. Keyed by address so
-# a reviewer can see at a glance why each one is allowed; a new product-fixed
-# address is added here (or declared in a gateway_ip-style field, which
-# allows it in that file without touching this table).
+# Addresses that are the device's, not the researcher's — each BOUND to the
+# file(s) that ESTABLISH it. Binding is the whole point: a factory-default
+# address teaches nothing outside the product that fixes it, so vouching for it
+# everywhere (the union this used to be) let a researcher's own 192.168.1.188
+# pass in any file merely because some unrelated product ships that default.
+#
+# An owner token is either a spec/note *stem* — which matches
+# device-specs/devices/<stem>.yaml AND any same-stem doc or note beside it, e.g.
+# docs/devices/<stem>.md — or an explicit repo-relative path, used for a doc
+# whose stem does not match its device's (docs/devices/frigidaire-ac.md documents
+# frigidaire-window-ac) and for a shared doc no single spec owns
+# (docs/CLEANROOM_RULES.md, docs/AUTODETECTION.md). A table address is vouched
+# for ONLY in its owning files; the same address in any other file is a leak
+# until it earns its own owner here or is declared in a gateway_ip / ap_ip /
+# setup_endpoint field of the file itself. A device that declares its address in
+# such a field needs no entry here at all — several below carry a stem only so
+# the device's cross-stem docs are covered too.
 PRODUCT_FIXED_LAN_ADDRESSES = {
-    "192.168.0.1": "Frigidaire v2.0 cleartext exception target; Particle SoftAP UI",
-    "192.168.1.1": "AR.Drone 1.0/2.0 AP; Govee SoftAP provisioning socket",
-    "192.168.1.10": "VEVOR VT256 thermal imager's fixed AP address",
-    "192.168.1.188": "Dericam/Wanscam-family static factory-default IP",
-    "192.168.1.254": "Novatek dashcam AP default (INNOVV K-series web UI)",
-    "192.168.4.1": "ESP-style SoftAP default (SP108E, LED Space, BanlanX…)",
-    "192.168.6.1": "Frigidaire/Electrolux NIU setup endpoint",
-    "192.168.8.1": "Valetudo provisioning AP; June oven's captive-DNS answer",
-    "192.168.5.1": "Aqara hub setup-AP HTTPS default (from the Aqara Home 4.2.1 app binary; the address is the app's built-in default, the path is a placeholder)",
-    "192.168.10.1": "Rachio Gen 2 / Rabbit Air setup AP gateway",
-    "192.168.42.1": "Parrot Bebop/Anafi family AP",
-    "192.168.60.1": "Dyson setup-AP MQTT broker (non-EC categories)",
-    "192.168.100.1": "OpenGarage device-AP web UI",
-    "192.168.186.2": "iRobot Create 3 over USB-C RNDIS Ethernet",
-    "10.10.100.254": "HF-LPB100 module SoftAP (Mi-Light bridge and kin)",
-    "10.22.22.1": "Wemo setup AP",
-    "172.16.0.1": "LIFX SoftAP gateway",
-    "172.30.1.1": "Enphase Envoy AP-mode gateway",
+    # Frigidaire v2.0 cleartext exception target (garadget's Particle/Photon
+    # SoftAP shares the address but is vouched for by garadget.yaml's ap_ip).
+    "192.168.0.1": frozenset({
+        "frigidaire-portable-ac", "frigidaire-window-ac",
+        "docs/devices/frigidaire-local-api-audit.md", "docs/devices/frigidaire-ac.md",
+    }),
+    # AR.Drone 1.0/2.0 AP; Govee SoftAP provisioning socket.
+    "192.168.1.1": frozenset({
+        "parrot-arsdk-drone", "govee-rgb-light", "govee-rgbic-light",
+        "govee-home-apk-v7.5.30",
+    }),
+    # VEVOR VT256 thermal imager's fixed AP address.
+    "192.168.1.10": frozenset({"vevor-vt256-thermal-imager"}),
+    # Dericam/Wanscam-family static factory-default IP.
+    "192.168.1.188": frozenset({"dericam"}),
+    # Novatek dashcam AP default (INNOVV K-series web UI).
+    "192.168.1.254": frozenset({"innovv-k7-capture-plan"}),
+    # ESP-style SoftAP default (SP108E, LED Space, BanlanX, ESPHome fallback…).
+    "192.168.4.1": frozenset({
+        "banlanx-sp6xxe", "govee-rgbic-light", "led-shop-sp108e", "led-space",
+        "autobaba-led-backpack", "flowtoys-props", "esphome-device",
+        "govee-home-apk-v7.5.30", "docs/AUTODETECTION.md",
+    }),
+    # Frigidaire/Electrolux NIU setup endpoint.
+    "192.168.6.1": frozenset({
+        "frigidaire-portable-ac", "frigidaire-window-ac",
+        "docs/devices/frigidaire-local-api-audit.md", "docs/devices/frigidaire-ac.md",
+    }),
+    # Valetudo provisioning AP; June oven's captive-DNS answer.
+    "192.168.8.1": frozenset({"valetudo", "docs/devices/june-oven-lan-recon.md"}),
+    # Aqara hub setup-AP HTTPS default (from the Aqara Home 4.2.1 app binary; the
+    # address is the app's built-in default, the path is a placeholder).
+    "192.168.5.1": frozenset({"aqara-hub"}),
+    # Rachio Gen 2 / Rabbit Air setup AP gateway; Schlage BR400 bridge softAP.
+    "192.168.10.1": frozenset({
+        "rachio-controller", "rabbit-air-purifier", "schlage-wifi-local-surface",
+    }),
+    # Parrot Bebop/Anafi family AP.
+    "192.168.42.1": frozenset({"parrot-arsdk-drone"}),
+    # Dyson setup-AP MQTT broker (non-EC categories).
+    "192.168.60.1": frozenset({"dyson-air-purifier"}),
+    # OpenGarage device-AP web UI.
+    "192.168.100.1": frozenset({"opengarage"}),
+    # iRobot Create 3 over USB-C RNDIS Ethernet.
+    "192.168.186.2": frozenset({"irobot-create3"}),
+    # HF-LPB100 module SoftAP (Mi-Light bridge and kin).
+    "10.10.100.254": frozenset({
+        "limitlessled-milight-bridge", "govee-home-apk-v7.5.30",
+        "docs/CLEANROOM_RULES.md",
+    }),
+    # Wemo setup AP.
+    "10.22.22.1": frozenset({
+        "wemo-devices", "docs/devices/wemo-setup.md", "docs/protocols/device-setup.md",
+    }),
+    # LIFX SoftAP gateway.
+    "172.16.0.1": frozenset({"lifx-z"}),
+    # Enphase Envoy AP-mode gateway.
+    "172.30.1.1": frozenset({"enphase-envoy"}),
 }
 
 # Two of the product-fixed addresses are ALSO the commonest home-router
@@ -2887,27 +2940,64 @@ def _declared_fixed_addresses(path: Path, parsed_specs=None) -> frozenset:
     return frozenset(found)
 
 
+def _table_owned_addresses(path: Path) -> frozenset:
+    """Product-fixed table addresses whose owner set names THIS file.
+
+    An owner token is a *stem* — matched against the file's own stem, so a spec
+    and any same-stem doc/note both qualify, which is the `docs/devices/<stem>.md`
+    sibling case — or an explicit repo-relative path, for a doc whose stem does
+    not match its device's or a shared doc no single spec owns.
+    """
+    rel = path.relative_to(REPO_ROOT).as_posix()
+    stem = path.stem
+    return frozenset(
+        address
+        for address, owners in PRODUCT_FIXED_LAN_ADDRESSES.items()
+        if stem in owners or rel in owners
+    )
+
+
+def _allowed_addresses_for(path: Path, parsed_specs=None) -> frozenset:
+    """Every RFC1918 address a given file may carry: placeholders, the
+    product-fixed addresses THIS file owns, and anything it declares in a
+    gateway_ip / ap_ip / setup_endpoint field.
+
+    research-notes/ is held stricter: the common home-gateway lookalikes are
+    not vouched for by the table there (a live session's paste lands there
+    first), only by a declaration — the file's own, or its .yaml sibling's for
+    the .md half of a note pair.
+    """
+    declared = _declared_fixed_addresses(path, parsed_specs)
+    allowed = (
+        PLACEHOLDER_LAN_ADDRESSES
+        | _table_owned_addresses(path)
+        | declared
+    )
+    rel = path.relative_to(REPO_ROOT)
+    if rel.parts[0] == "research-notes":
+        # The table stops vouching for the gateway lookalikes here; a
+        # declaration in the file itself still does. A note pair shares that
+        # declaration — garadget.md's SoftAP address is vouched for by
+        # garadget.yaml's ap_ip — so the prose half does not have to strip a
+        # genuine product fact.
+        allowed -= RESEARCHER_GATEWAY_LOOKALIKES - declared
+        sibling = path.with_suffix(".yaml")
+        if path.suffix == ".md" and sibling.exists():
+            allowed |= _declared_fixed_addresses(sibling, parsed_specs)
+    return allowed
+
+
 def test_lan_addresses_are_placeholders_or_product_facts(specs):
-    """No researcher-network address may reach a published file again."""
+    """No researcher-network address may reach a published file again.
+
+    A product-fixed address is vouched for ONLY in the file(s) that establish
+    it — see PRODUCT_FIXED_LAN_ADDRESSES. The same address elsewhere is a leak
+    until it earns an owner or is declared in the file's own fixed-address field.
+    """
     offenders = []
     for path in _rfc1918_scan_paths():
-        declared = _declared_fixed_addresses(path, specs)
-        allowed = (
-            PLACEHOLDER_LAN_ADDRESSES
-            | set(PRODUCT_FIXED_LAN_ADDRESSES)
-            | declared
-        )
+        allowed = _allowed_addresses_for(path, specs)
         rel = path.relative_to(REPO_ROOT)
-        if rel.parts[0] == "research-notes":
-            # The blanket table stops vouching for the gateway lookalikes
-            # here; a declaration in the file itself still does. A note
-            # pair shares that declaration — garadget.md's SoftAP address
-            # is vouched for by garadget.yaml's ap_ip — so the prose half
-            # does not have to strip a genuine product fact.
-            allowed -= RESEARCHER_GATEWAY_LOOKALIKES - declared
-            sibling = path.with_suffix(".yaml")
-            if path.suffix == ".md" and sibling.exists():
-                allowed |= _declared_fixed_addresses(sibling, specs)
         for lineno, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), start=1
         ):
@@ -2941,6 +3031,61 @@ def test_lan_addresses_are_placeholders_or_product_facts(specs):
         + "\n  ".join(offenders)
         + "\nUse 192.168.1.50 (.51-.53 for distinct hosts). If the address "
         "is fixed by the product, declare it in a gateway_ip / ap_ip / "
-        "setup_endpoint field or add it to PRODUCT_FIXED_LAN_ADDRESSES "
-        "with a note saying whose it is."
+        "setup_endpoint field, or add this file's stem (or path) to that "
+        "address's owner set in PRODUCT_FIXED_LAN_ADDRESSES — the table "
+        "vouches for an address only in the files that establish it."
+    )
+
+
+def test_a_product_fixed_address_is_bound_to_its_owning_file(specs):
+    """The table vouches for an address only where the product establishes it.
+
+    This is the whole of S-1: the blanket union this replaced put every table
+    address into `allowed` for every file, so a researcher's own address passed
+    in ANY file the moment it coincided with some product's factory default.
+    Prove both directions on a real address — ACCEPTED in an owning file,
+    REFUSED in one that does not establish it.
+    """
+    # esphome-device establishes the 192.168.4.1 fallback-hotspot address; the
+    # Hue bridge is cabled and establishes no SoftAP address at all.
+    owner = DEVICES_DIR / "esphome-device.yaml"
+    non_owner = DEVICES_DIR / "hue-bridge.yaml"
+    assert "192.168.4.1" in _allowed_addresses_for(owner, specs), (
+        "the gate must ACCEPT a product-fixed address in its owning file"
+    )
+    assert "192.168.4.1" not in _allowed_addresses_for(non_owner, specs), (
+        "the gate must REFUSE a product-fixed address in a file that does not "
+        "establish it — otherwise the table is a repo-wide clean-room bypass"
+    )
+    # And a research-note-owned address stays bound: Dericam's static default
+    # is vouched for in the Dericam note and nowhere else.
+    dericam = REPO_ROOT / "research-notes" / "dericam.yaml"
+    assert "192.168.1.188" in _allowed_addresses_for(dericam, specs)
+    assert "192.168.1.188" not in _allowed_addresses_for(non_owner, specs)
+
+
+def test_every_product_fixed_owner_names_a_real_file():
+    """An owner token that matches no file vouches for nothing.
+
+    A typo in an owner stem or path would silently reinstate exactly the
+    repo-wide leak this binding exists to stop: the address would be vouched
+    for in no file (so a genuine use fails) while the misspelled token sits
+    there looking correct. Every token must resolve to a scanned file — by
+    stem or by explicit path.
+    """
+    scanned = list(_rfc1918_scan_paths())
+    stems = {path.stem for path in scanned}
+    rels = {path.relative_to(REPO_ROOT).as_posix() for path in scanned}
+    dangling = {
+        address: sorted(
+            owner
+            for owner in owners
+            if owner not in stems and owner not in rels
+        )
+        for address, owners in PRODUCT_FIXED_LAN_ADDRESSES.items()
+    }
+    dangling = {address: owners for address, owners in dangling.items() if owners}
+    assert not dangling, (
+        f"PRODUCT_FIXED_LAN_ADDRESSES owner tokens matching no scanned file "
+        f"(a stem must name a spec/note, a path must exist): {dangling}"
     )

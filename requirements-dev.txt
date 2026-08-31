@@ -1,6 +1,9 @@
 # Development-only tooling: linting and tests for the helper scripts under
 # scripts/ and tools/. Runtime dependencies live in requirements.txt.
 pytest~=8.3
-ruff~=0.14
+# Pinned exactly: ruff's lint rules shift between releases, so a floating
+# constraint can turn a green `ruff check .` red on an unrelated PR. 0.14.14 is
+# what `~=0.14` last resolved to; bump deliberately.
+ruff==0.14.14
 # AES-128-CBC for scripts/test_rabbit_air_spec.py (Rabbit Air LAN crypto proof)
 cryptography~=46.0

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SESSION="${SESSION:-ogiot}"
+SESSION="${SESSION:-lbread}"
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "ERROR: tmux not found."
@@ -16,7 +16,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 tmux new-session -d -s "$SESSION" -n "overview" -c "$ROOT_DIR"
-tmux send-keys -t "$SESSION:overview" "cd \"$ROOT_DIR\" && echo 'Open Green IoT RE session' && ls" C-m
+tmux send-keys -t "$SESSION:overview" "cd \"$ROOT_DIR\" && echo 'Liberated Bread RE session' && ls" C-m
 
 new_agent_window() {
   local name="$1"

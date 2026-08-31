@@ -579,13 +579,22 @@ entities:
       pushed live via STATUS/UPDATEDPS — subscribe, don't just poll.
   - platform: "sensor"
     name: "Gas Level"
-    device_class: "volatile_organic_compounds_parts"
+    # No device_class: this is a combustible-gas %LEL relative level, and no
+    # Home Assistant sensor device_class represents that. The former
+    # "volatile_organic_compounds_parts" was wrong — that class is a VOC
+    # concentration in ppb, a different measurand with a fixed unit, whereas
+    # this reading is unitless (and is ppm on the C2 variant, which has no
+    # matching class either). A generic sensor (device_class None) is correct;
+    # the entity stays identifiable from platform + name.
     state_command: "dp_query"
     state_field: "dps.5"
     notes: >
       Scale is variant-dependent: DY-RQ400A reports 0–100 ≈ percent of the
       7±3 %LEL trip point (treat as a relative level, unitless); the C2
       combo reports ppm. Confirm against the unit before attaching a unit.
+      Left with no device_class because none fits a unitless %LEL level (the
+      HA "gas" class is a gas-meter volume, and the VOC classes are ppb/µg/m³
+      concentrations — neither is a combustible-gas relative level).
   - platform: "binary_sensor"
     name: "CO Alarm"
     device_class: "carbon_monoxide"

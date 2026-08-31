@@ -100,7 +100,7 @@ value experiment on this page:
 
 ## Device spec
 
-[`device-specs/devices/niu-escooter.yaml`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/device-specs/devices/niu-escooter.yaml)
+[`device-specs/devices/niu-escooter.yaml`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/niu-escooter.yaml)
 records this device as what it is: **cloud-only**, via a `cloud` block carrying
 `required: true`, the hosts, the OAuth2 shape, the endpoint list, an explicit
 `failure_mode`, and `data_leaves_device` naming location and ride history as personal data.

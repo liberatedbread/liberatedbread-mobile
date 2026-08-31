@@ -11,7 +11,7 @@
 ## BLE UUIDs (Recovered from DEX)
 
 ### Nordic UART Service (Primary)
-From the app:
+From the app's main BLE service:
 | UUID | Role |
 |------|------|
 | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | RX Service (Nordic UART) |
@@ -19,7 +19,7 @@ From the app:
 | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | TX Characteristic (Notify from device) |
 
 ### SMART_BRACELET Service (Alternate/Custom)
-From the app:
+From the app's GATT-attributes (UUID lookup) table:
 | UUID | Role |
 |------|------|
 | `0000fff0-0000-1000-8000-00805f9b34fb` | SMART_BRACELET Service |

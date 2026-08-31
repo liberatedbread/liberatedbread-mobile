@@ -100,9 +100,9 @@ Other STATUS byte[3] types: `0x9A` = lock firmware version (`[patch,minor,major]
 | 0x12 | Bolt position / status query | App's local command path |
 | 0x13 | **Lock** | App's local command path |
 | 0x14 | **Unlock** | App's local command path |
-| 0x15 | Tap-to-enroll (locks *and* Kevo Plus gateway) | `…DelegateImpl.tapToEnrollCommand`, `GatewaySetupActivity` |
-| 0x19 | Lock history request | `LockHistoryCommand` |
-| 0x9B | Firmware upgrade begin (command = `[ver LE…, 0x9B]`) | `…DelegateImpl.firmwareUpgradeCommand` |
+| 0x15 | Tap-to-enroll (locks *and* Kevo Plus gateway) | App's tap-to-enroll command path (also gateway setup) |
+| 0x19 | Lock history request | App's lock-history command |
+| 0x9B | Firmware upgrade begin (command = `[ver LE…, 0x9B]`) | App's firmware-upgrade command path |
 | 0x00 / 0xFF | null command / dequeue sentinel | delegates |
 
 Idle default pending set = `[0x10, 0x19]` (toggle + history upload). Battery arrives in the 0x04 STATUS; no separate battery opcode. Result codes (CERTIFICATE-char result certs, field 0xBD): `1=SUCCESS, 2=CONTINUE, 3=UNINITIALIZED, 4=COMMAND_TIMEOUT, 0=FAILURE, -1=FAILURE_SLEEPING, -3=FAILURE_BAD_UDATA, -4=FAILURE_GATT, -5=FAILURE_NO_OWNER, -6=FAILURE_RESOURCES, -7=PROTOCOL_ERROR, -8=FAILURE_DOOR_OPEN, -9=FAILURE_IR, -10=FAILURE_BAD_DATA, -11=FAILURE_HAS_OWNER, -12=FAILURE_LOW_BATT, -13=INVALID_CERTIFICATE, -14=FAILURE_RANGE, -15=FAILURE_INSIDE, -16=UNAUTHORIZED`.

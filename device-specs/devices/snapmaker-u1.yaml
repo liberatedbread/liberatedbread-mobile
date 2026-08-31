@@ -89,6 +89,10 @@ device:
   identification:
     mdns_service_type: "_snapmaker._tcp.local."
     default_port: 80
+    # The mDNS SRV advertises port 1884 — the on-device MQTT broker, not the
+    # control surface. Local control is Moonraker on 80 (default_port). So the
+    # advertised port must NOT drive control; consumers use default_port instead.
+    advertised_port_unreliable: true
     identity_keys:
       primary: "sn"
       display: "device_name"
@@ -311,6 +315,23 @@ camera:
       is disabled for this method in the Snapmaker fork — WebSocket only.)
     interval_seconds: 5
     stop: "JSON-RPC camera.stop_monitor (params {domain:\"lan\"}); send on close."
+    # Machine-readable form of the same handshake, so a consumer can hold the
+    # monitor session without parsing the prose above. VERIFIED LIVE 2026-08-14.
+    transport: "websocket_jsonrpc"
+    url_template: "ws://{address}/websocket"
+    start_method: "camera.start_monitor"
+    start_params:
+      # req_id is part of the verified request shape (prose above). It is a
+      # client request-correlation id; the monitor keepalive is fire-and-forget
+      # (no response is read), so a constant is sufficient and keeps the
+      # machine-readable params matching the documented frame.
+      req_id: 0
+      domain: "lan"
+      interval: 0
+      expect_pw: false
+    stop_method: "camera.stop_monitor"
+    stop_params:
+      domain: "lan"
 
 entities:
   - platform: "sensor"

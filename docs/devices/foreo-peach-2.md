@@ -5,6 +5,20 @@
 > **Manufacturer**: FOREO AB
 > **Manufacturer Status**: Active — but the device's cloud touchpoints are bookkeeping only; nothing about control needs them
 
+## Safety
+
+!!! danger "IPL can permanently damage skin and eyes"
+    This is an intense-pulsed-light hair-removal handset (an optical output up to 7.3 J/cm²). Improper use
+    can cause permanent skin burns, blistering, discoloration or scarring, and
+    serious eye injury. Patch-test first, match the intensity to your skin tone
+    (IPL is unsafe on the darkest skin tones), never treat broken, tanned,
+    tattooed or moled skin, and keep it away from the eyes. This project ships an
+    **experimental, unaffiliated** third-party client — the manufacturer's own
+    instructions govern.
+
+- Manufacturer safety guidance: <https://www.foreo.com/mysa/find-out-if-peach-2-is-suitable-for-you>
+- Archived copy (web.archive.org), if the page above is offline: <https://web.archive.org/web/20260831005900/https://www.foreo.com/mysa/find-out-if-peach-2-is-suitable-for-you>
+
 ## Overview
 
 The FOREO Peach 2 is a mains-powered IPL (intense pulsed light) hair-removal
