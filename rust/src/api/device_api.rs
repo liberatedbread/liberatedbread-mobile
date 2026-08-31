@@ -2164,6 +2164,12 @@ pub struct NetworkCapabilitiesDto {
     /// handler is the spec's own answer to "which conversation is this", so a
     /// consumer forks on it rather than on a device name.
     pub protocol_handler: Option<String>,
+    /// `mqtt.auth.client_id: generated` — the client picks an arbitrary client
+    /// id the broker accepts (a Dyson purifier), so a consumer synthesizes one
+    /// rather than refusing to connect for lack of a paired id. False (the
+    /// default, and `required`) keeps the pre-existing rule: a set that pairs on
+    /// a specific client id has no session without it.
+    pub mqtt_client_id_generated: bool,
 }
 
 /// Which of a spec's `device.variants[]` the BLE device in front of us could be.
@@ -2224,6 +2230,13 @@ pub fn network_capabilities(spec_yaml: String) -> anyhow::Result<NetworkCapabili
             .is_some_and(|t| t.self_signed),
         advertised_port_unreliable: ident.is_some_and(|i| i.advertised_port_unreliable),
         protocol_handler: spec.protocol_handler.clone(),
+        mqtt_client_id_generated: spec
+            .mqtt
+            .as_ref()
+            .and_then(|m| m.auth.as_ref())
+            .and_then(|a| a.client_id.as_deref())
+            .map(|c| c == "generated")
+            .unwrap_or(false),
     })
 }
 

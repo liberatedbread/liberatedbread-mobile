@@ -424,7 +424,9 @@ class FakeSpecCodec implements SpecCodec {
   }) async =>
       networkCapabilitiesResult ??
       const NetworkCapabilitiesDto(
-          tlsSelfSigned: false, advertisedPortUnreliable: false);
+          mqttClientIdGenerated: false,
+          tlsSelfSigned: false,
+          advertisedPortUnreliable: false);
 
   @override
   Future<List<NetworkCredentialDto>> credentialsForDevice(

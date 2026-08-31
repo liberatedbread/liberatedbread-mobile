@@ -81,8 +81,52 @@ pub struct DeviceSpec {
     /// [`Camera::extensions`] as human documentation.
     #[serde(default)]
     pub camera: Option<Camera>,
+    /// Top-level `mqtt:` — broker-login declaration for a device whose readings
+    /// ride MQTT but which declares no `commands` (so no `credential:` parameter
+    /// names its login). Lets `required_credentials` surface a credentials card
+    /// for e.g. a Dyson purifier that would otherwise be a silent dead end.
+    #[serde(default)]
+    pub mqtt: Option<Mqtt>,
     /// Parsed-but-ignored top-level extension blocks, preserved verbatim so no
     /// information is lost even though nothing interprets them yet.
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// A device's top-level `mqtt:` block.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Mqtt {
+    #[serde(default)]
+    pub auth: Option<MqttAuth>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// How a client authenticates to the device's MQTT broker.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MqttAuth {
+    /// Broker-login credentials the user must supply. Each becomes a
+    /// credentials-card field, because a readings-only MQTT device declares no
+    /// command to name them via a `credential:` parameter.
+    #[serde(default)]
+    pub credentials: Vec<MqttCredential>,
+    /// `generated` (the client picks an arbitrary client id the broker accepts —
+    /// a Dyson purifier) or `required` (the device authorises a specific id, so
+    /// it must be supplied). Absent is treated as `required`, preserving the
+    /// pre-existing behaviour for sets that pair on a client id.
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// One broker-login credential the user must supply.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MqttCredential {
+    pub name: String,
+    /// What the value is and where a person gets it — shown on the card.
+    #[serde(default)]
+    pub description: Option<String>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }

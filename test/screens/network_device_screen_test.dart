@@ -457,6 +457,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -762,6 +763,7 @@ void main() {
               // The spec's ecp2 block + declared port 8060, as the
               // capabilities resolver hands them over for a real Roku.
               capabilities: NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
                   signedSession: 'ecp2',
                   defaultPort: 8060,
                   tlsSelfSigned: false,
@@ -964,6 +966,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: [channelEntity],
                   capabilities: NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -1125,6 +1128,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -1181,6 +1185,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -1264,6 +1269,7 @@ void main() {
                     specYaml: 'yaml',
                     entities: [channelEntity, keyboardEntity],
                     capabilities: NetworkCapabilitiesDto(
+                        mqttClientIdGenerated: false,
                         signedSession: 'ecp2',
                         defaultPort: 8060,
                         tlsSelfSigned: false,
@@ -1369,6 +1375,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -1560,6 +1567,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -1856,6 +1864,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -3178,6 +3187,7 @@ void main() {
     ];
 
     const roombaCapabilities = NetworkCapabilitiesDto(
+        mqttClientIdGenerated: false,
         protocolHandler: roombaProtocolHandler,
         tlsSelfSigned: false,
         advertisedPortUnreliable: false);
@@ -3281,7 +3291,9 @@ void main() {
               entities: roombaEntities,
               // Same transport, no robot handler.
               capabilities: NetworkCapabilitiesDto(
-                  tlsSelfSigned: false, advertisedPortUnreliable: false),
+                  mqttClientIdGenerated: false,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false),
             ),
           ),
         ),
@@ -3343,7 +3355,9 @@ void main() {
               specYaml: 'yaml',
               entities: wsEntities,
               capabilities: NetworkCapabilitiesDto(
-                  tlsSelfSigned: true, advertisedPortUnreliable: false),
+                  mqttClientIdGenerated: false,
+                  tlsSelfSigned: true,
+                  advertisedPortUnreliable: false),
             ),
           ),
         ),
@@ -3390,7 +3404,9 @@ void main() {
               specYaml: 'yaml',
               entities: roombaEntities,
               capabilities: NetworkCapabilitiesDto(
-                  tlsSelfSigned: false, advertisedPortUnreliable: false),
+                  mqttClientIdGenerated: false,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false),
             ),
           ),
         ),

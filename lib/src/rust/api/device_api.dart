@@ -2887,6 +2887,13 @@ class NetworkCapabilitiesDto {
   /// consumer forks on it rather than on a device name.
   final String? protocolHandler;
 
+  /// `mqtt.auth.client_id: generated` — the client picks an arbitrary client
+  /// id the broker accepts (a Dyson purifier), so a consumer synthesizes one
+  /// rather than refusing to connect for lack of a paired id. False (the
+  /// default, and `required`) keeps the pre-existing rule: a set that pairs on
+  /// a specific client id has no session without it.
+  final bool mqttClientIdGenerated;
+
   const NetworkCapabilitiesDto({
     this.signedSession,
     this.defaultPort,
@@ -2895,6 +2902,7 @@ class NetworkCapabilitiesDto {
     required this.tlsSelfSigned,
     required this.advertisedPortUnreliable,
     this.protocolHandler,
+    required this.mqttClientIdGenerated,
   });
 
   @override
@@ -2905,7 +2913,8 @@ class NetworkCapabilitiesDto {
       tlsVerification.hashCode ^
       tlsSelfSigned.hashCode ^
       advertisedPortUnreliable.hashCode ^
-      protocolHandler.hashCode;
+      protocolHandler.hashCode ^
+      mqttClientIdGenerated.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2918,7 +2927,8 @@ class NetworkCapabilitiesDto {
           tlsVerification == other.tlsVerification &&
           tlsSelfSigned == other.tlsSelfSigned &&
           advertisedPortUnreliable == other.advertisedPortUnreliable &&
-          protocolHandler == other.protocolHandler;
+          protocolHandler == other.protocolHandler &&
+          mqttClientIdGenerated == other.mqttClientIdGenerated;
 }
 
 /// One value a client must hold to drive this device.

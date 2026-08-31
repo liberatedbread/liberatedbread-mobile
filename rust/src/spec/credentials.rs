@@ -166,6 +166,37 @@ pub fn required_credentials(spec: &DeviceSpec) -> Vec<CredentialRequirement> {
         }
     }
 
+    // A device whose readings ride MQTT but which declares no commands names its
+    // broker login nowhere a `credential:` parameter could reach — so before
+    // this arm a readings-only Dyson came back EMPTY, the screen never wired the
+    // credential store, and the readings stayed Unknown with no card to fix
+    // them. The spec's `mqtt.auth` declares the login explicitly; report each as
+    // must-be-asked (needed_by non-empty, no issuing flow — the user types it).
+    if let Some(auth) = spec.mqtt.as_ref().and_then(|m| m.auth.as_ref()) {
+        // What cannot be read without it: the device's MQTT-borne readings.
+        let needed_by: Vec<String> = if spec.entities.is_empty() {
+            vec!["MQTT state".to_string()]
+        } else {
+            spec.entities.iter().map(|e| e.name.clone()).collect()
+        };
+        for cred in &auth.credentials {
+            let entry = found
+                .entry(cred.name.clone())
+                .or_insert_with(|| CredentialRequirement {
+                    name: cred.name.clone(),
+                    description: None,
+                    needed_by: Vec::new(),
+                    issued_by: None,
+                });
+            if entry.description.is_none() {
+                entry.description = cred.description.clone();
+            }
+            if entry.needed_by.is_empty() {
+                entry.needed_by = needed_by.clone();
+            }
+        }
+    }
+
     for requirement in found.values_mut() {
         requirement.needed_by.sort();
         requirement.needed_by.dedup();
@@ -388,6 +419,55 @@ commands:
         assert!(
             !token.must_be_asked_for(),
             "a pairing-minted token is never typed by a person"
+        );
+    }
+
+    #[test]
+    fn an_mqtt_auth_login_is_declared_and_asked_for() {
+        // A readings-only MQTT device (a Dyson purifier): entities, no commands,
+        // so nothing names its broker login via a `credential:` parameter. The
+        // `mqtt.auth` block declares it, and unlike a websocket pairing token it
+        // IS asked for — the user types it (no flow mints it).
+        let yaml = r#"
+device:
+  name: Test Purifier
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+  transport: mqtt
+mqtt:
+  auth:
+    client_id: generated
+    credentials:
+      - name: username
+        description: The device serial, from its sticker.
+      - name: password
+        description: Derived from the sticker Wi-Fi password.
+entities:
+  - name: Air Quality
+    platform: sensor
+    state_topic: "{serial}/status/current"
+"#;
+        let spec = parse_device_spec(yaml).expect("test spec should parse");
+        let found = required_credentials(&spec);
+        let names: Vec<&str> = found.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["password", "username"], "both are reported");
+        for cred in &found {
+            assert!(
+                cred.must_be_asked_for(),
+                "{} rides no issuing flow, so it is asked for",
+                cred.name
+            );
+            assert!(!cred.needed_by.is_empty(), "the MQTT readings need it");
+        }
+        assert_eq!(
+            found
+                .iter()
+                .find(|c| c.name == "username")
+                .unwrap()
+                .description
+                .as_deref(),
+            Some("The device serial, from its sticker.")
         );
     }
 

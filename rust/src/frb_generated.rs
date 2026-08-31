@@ -5431,6 +5431,7 @@ impl SseDecode for crate::api::device_api::NetworkCapabilitiesDto {
         let mut var_tlsSelfSigned = <bool>::sse_decode(deserializer);
         let mut var_advertisedPortUnreliable = <bool>::sse_decode(deserializer);
         let mut var_protocolHandler = <Option<String>>::sse_decode(deserializer);
+        let mut var_mqttClientIdGenerated = <bool>::sse_decode(deserializer);
         return crate::api::device_api::NetworkCapabilitiesDto {
             signed_session: var_signedSession,
             default_port: var_defaultPort,
@@ -5439,6 +5440,7 @@ impl SseDecode for crate::api::device_api::NetworkCapabilitiesDto {
             tls_self_signed: var_tlsSelfSigned,
             advertised_port_unreliable: var_advertisedPortUnreliable,
             protocol_handler: var_protocolHandler,
+            mqtt_client_id_generated: var_mqttClientIdGenerated,
         };
     }
 }
@@ -8243,6 +8245,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkCapabiliti
             self.tls_self_signed.into_into_dart().into_dart(),
             self.advertised_port_unreliable.into_into_dart().into_dart(),
             self.protocol_handler.into_into_dart().into_dart(),
+            self.mqtt_client_id_generated.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -10534,6 +10537,7 @@ impl SseEncode for crate::api::device_api::NetworkCapabilitiesDto {
         <bool>::sse_encode(self.tls_self_signed, serializer);
         <bool>::sse_encode(self.advertised_port_unreliable, serializer);
         <Option<String>>::sse_encode(self.protocol_handler, serializer);
+        <bool>::sse_encode(self.mqtt_client_id_generated, serializer);
     }
 }
 

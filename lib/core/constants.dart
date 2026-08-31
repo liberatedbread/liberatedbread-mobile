@@ -17,10 +17,13 @@ class AppConstants {
   static const String tailscaleHaKbUrl =
       'https://tailscale.com/kb/1123/home-assistant';
 
-  /// Default source for the downloadable device-spec pack. Points at a JSON
-  /// manifest (see [SpecPackService]); user-overridable in spec-pack settings.
+  /// Default source for the downloadable device-spec pack. Points at the
+  /// manifest CI publishes on the protocol-specs repo's main (see
+  /// [SpecPackService] and the repo's scripts/generate_pack.py); each listed
+  /// spec path resolves same-origin against this URL. User-overridable in
+  /// spec-pack settings.
   static const String defaultSpecPackUrl =
-      'https://raw.githubusercontent.com/PigsCanFlyLabs/opengreeniot-device-specs/main/pack.json';
+      'https://raw.githubusercontent.com/liberatedbread/liberatedbread-protocol-specs/main/pack.json';
 
   /// Remote config for the bottom ad banner (see [AdBannerService]). Fetched
   /// in the background on launch so the promotion can change without an

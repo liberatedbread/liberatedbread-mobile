@@ -4554,8 +4554,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkCapabilitiesDto dco_decode_network_capabilities_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return NetworkCapabilitiesDto(
       signedSession: dco_decode_opt_String(arr[0]),
       defaultPort: dco_decode_opt_box_autoadd_u_16(arr[1]),
@@ -4564,6 +4564,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       tlsSelfSigned: dco_decode_bool(arr[4]),
       advertisedPortUnreliable: dco_decode_bool(arr[5]),
       protocolHandler: dco_decode_opt_String(arr[6]),
+      mqttClientIdGenerated: dco_decode_bool(arr[7]),
     );
   }
 
@@ -7131,6 +7132,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_tlsSelfSigned = sse_decode_bool(deserializer);
     var var_advertisedPortUnreliable = sse_decode_bool(deserializer);
     var var_protocolHandler = sse_decode_opt_String(deserializer);
+    var var_mqttClientIdGenerated = sse_decode_bool(deserializer);
     return NetworkCapabilitiesDto(
         signedSession: var_signedSession,
         defaultPort: var_defaultPort,
@@ -7138,7 +7140,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         tlsVerification: var_tlsVerification,
         tlsSelfSigned: var_tlsSelfSigned,
         advertisedPortUnreliable: var_advertisedPortUnreliable,
-        protocolHandler: var_protocolHandler);
+        protocolHandler: var_protocolHandler,
+        mqttClientIdGenerated: var_mqttClientIdGenerated);
   }
 
   @protected
@@ -9535,6 +9538,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self.tlsSelfSigned, serializer);
     sse_encode_bool(self.advertisedPortUnreliable, serializer);
     sse_encode_opt_String(self.protocolHandler, serializer);
+    sse_encode_bool(self.mqttClientIdGenerated, serializer);
   }
 
   @protected
