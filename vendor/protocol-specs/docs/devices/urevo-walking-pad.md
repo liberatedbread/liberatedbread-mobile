@@ -85,8 +85,8 @@ snoop confirms what it actually emits.
 
 ### BluePack A frame grammar (FT + UR classes)
 
-Both directions, recovered from the BluePack A serialiser, its factory,
-and its checksum helper:
+Both directions, recovered from `BluePackA.toUInt8List`,
+`BluePackFactory.create` and `BluePackA.getCheckSum`:
 
 ```
 02 <cmd> <sub> <payload...> <checksum> 03

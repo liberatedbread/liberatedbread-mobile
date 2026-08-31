@@ -1,4 +1,4 @@
-# Contributing to Liberated Bread Protocol Specs
+# Contributing to OpenGreenIoT Protocol Docs
 
 First off -- thanks for wanting to help keep IoT devices alive!
 
