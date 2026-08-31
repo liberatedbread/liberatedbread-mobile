@@ -1,0 +1,542 @@
+# Silk'n Infinity / Silk'n 7 (IPL hair removal) — Device Spec (BLE, fully local)
+# Reverse-engineered by static analysis of the companion app "Hair Removal –
+# Silk'n" (com.ewavemobile.silkn) v6.1 (versionCode 38), 2026-08.
+#
+# Nothing here has been replayed against the hardware by this project; every
+# protocol fact is static-analysis-derived and marked `hypothesis` until one
+# HCI capture or one on-device run confirms it.
+
+device:
+  name: "Silk'n Infinity / Silk'n 7"
+  manufacturer: "Home Skinovations (Silk'n)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No hardware on the bench. All protocol facts were recovered by static
+      analysis of the vendor's Android companion app (v6.1, 2026-08); nothing
+      has been replayed against a device and no over-the-air capture exists
+      yet. One HCI snoop of a single treatment session would confirm the
+      opcode set, the telemetry endianness and the lock default.
+  protocol: "ble"
+  category: "personal_care"
+  type: "ipl-hair-removal"
+  notes: >
+    Home IPL (intense pulsed light) hair-removal devices: the Infinity family
+    (advertising as `Infinity` or `SilknV_F`) and the newer Silk'n 7
+    (advertising as `Silkn7_App`). The device is fully functional standalone —
+    energy level and flash triggering are physical controls only, and the BLE
+    link is telemetry plus ONE opt-in lock characteristic.
+
+    The BLE protocol is unauthenticated: no bonding, no pairing, no challenge,
+    no encryption, and no paywall anywhere in the app. The app counts flashes
+    via notifications, surfaces device errors, polls the skin-color sensor,
+    and can lock the device between sessions if (and only if) the user enabled
+    lock mode in the app. The app CANNOT fire flashes or set intensity — no
+    write path exists to anything but the lock characteristic.
+
+    The app itself is account-centric (a blocking no-network dialog at
+    startup, login before the main screen, per-pulse data uploaded to the
+    vendor cloud) but none of that reaches the hardware: the pair-device call
+    to the cloud is telemetry only, and a replacement client needs no account.
+
+  safety_advisory:
+    severity: "danger"
+    summary: >
+      IPL fires intense light pulses — improper use can cause permanent skin
+      burns, scarring, or eye injury.
+    detail: >
+      This is an IPL/HPL (home pulsed light) hair-removal handset. Used wrongly
+      it can cause permanent harm: burns, blistering, discoloration or scarring
+      of the skin, and serious eye injury from looking into a flash. Always
+      follow Silk'n's own instructions — patch-test first, match the device's
+      energy level to your skin tone, never treat broken, tanned, tattooed or
+      moled skin, and keep it away from the eyes. Over Bluetooth this app reads
+      treatment telemetry and can clear the optional device lock; the flash and
+      its intensity are set on the device itself. This app is EXPERIMENTAL and is
+      not affiliated with, endorsed by, or supported by Silk'n / Home
+      Skinovations — the manufacturer's manual and safety guidance govern.
+    acknowledge_required: true
+    advisory_url: "https://www.manualslib.com/manual/2132171/Home-Skinovations-Silk-N-Infinity.html"
+    advisory_archive_url: "https://web.archive.org/web/20260831005752/https://www.manualslib.com/manual/2132171/Home-Skinovations-Silk-N-Infinity.html"
+  identification:
+    local_names: ["Infinity", "SilknV_F", "Silkn7_App"]
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            values: ["Infinity", "SilknV_F", "Silkn7_App"]
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: medium
+    notes: >
+      Nothing to provision — no network, no account, no credentials. The
+      device advertises under one of three exact local names and accepts a
+      bare BLE connection from any central. Confidence medium: read from the
+      app's BLE layer (scan filter, connection and subscription sequence),
+      not replayed here.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for the exact advertised name `Infinity`, `SilknV_F` or
+          `Silkn7_App`, connect (no pairing), subscribe to the
+          TreatmentDynamicInformation and DeviceErrors characteristics, and
+          optionally clear the app-managed lock with one write. The device
+          needs nothing else.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power on the device and scan for one of the exact local names `Infinity`, `SilknV_F`, `Silkn7_App`."
+            actor: "client"
+            expect: "Advertisement matching one of the three names (the name selects the telemetry layout — see protocol_details)."
+          - action: "Connect. No pairing or bonding is requested or required."
+            actor: "client"
+            expect: "GATT service 720411ac-adfe-2015-0820-835742ad3835 with five characteristics, plus standard DIS (0x180A)."
+          - action: "Read LockUnlockDevice (...9033). If it reports Locked, write 30 30 (Released + Unlocked) once."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "release_and_unlock"
+            expect: "Lock reports Released/Unlocked and does not re-engage."
+          - action: "Enable notifications on TreatmentDynamicInformation (...9011) and DeviceErrors (...9022)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Enable notifications on ...9011 and ...9022"
+            expect: "A 20-byte TreatmentDynamicInformation notification per pulse."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Unknown whether any owner-accessible reset exists. The state a reset
+        would clear is the treatment counters (total and per-level pulse
+        counts) and the lock mode/state; the companion app contains no reset
+        function and no write path to the counters, so if a reset exists at
+        all it is a physical button procedure nobody has documented.
+      description: >
+        `unknown`, stated plainly: nothing in the app performs or references a
+        factory reset, and no hardware procedure has been established or tried.
+        The practical good news is that there is almost nothing to reset — the
+        lock clears with one documented write (release_and_unlock), and the
+        counters are cosmetic history, not an adoption barrier.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        There is nothing to rebind: no bond is stored on either side, so a new
+        phone or client simply scans and connects. The only residue a previous
+        app install can leave behind is the opt-in lock — if the old client
+        locked the device on disconnect, write release_and_unlock (30 30) once
+        from the new one.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Treatment counters (total pulse count, per-level counters, max-pulses limit)"
+        - "Lock mode/state (only ever set if a user enabled lock mode in the app; default Released/Unlocked)"
+      issued_to_client:
+        - "Nothing — no pairing, no bonding, no per-device credentials of any kind"
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: false
+      recovery: >
+        No bond exists to clear, so the worst case is the vendor app holding
+        the connection in the background — close it (or power-cycle the
+        device) and connect again.
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: >
+        Nothing to unpair: the link stores no bond on either side, so there is
+        no bond-clearing procedure to document. `supported: false` means
+        'inapplicable', not 'locked out'.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Open GATT: every characteristic in this spec is readable (and the lock
+      characteristic writable) on a bare, unpaired connection, per the app's
+      BLE layer, which never initiates pairing. The only stateful obstacle a
+      replacement client can meet is the app-managed opt-in lock, which is a
+      GATT value, not a pairing state — see the LockUnlockDevice
+      characteristic. Confidence medium: static analysis, not yet confirmed
+      against hardware.
+
+cloud:
+  required: false
+  vendor_service: "Silk'n cloud (account, treatment history and telemetry for the companion app)"
+  hosts:
+    - "https://ws.silknglobal.com/ (REST: signup/login, treatments CRUD, pair-device telemetry, per-pulse data upload, malfunction reports)"
+  auth:
+    type: "other"
+    notes: >
+      Account login against the REST host; the token shape was not mapped
+      further because none of it is on the device path — the hardware never
+      contacts any of this, and a local client needs no account.
+  failure_mode: >
+    Nothing breaks on the device. The cloud exists solely inside the phone
+    app: account, treatment-history sync, per-pulse upload and malfunction
+    reports. The app itself refuses to start without a network (blocking
+    no-network dialog, login gate), so a cloud shutdown strands THE APP, not
+    the hardware — the device keeps working from its physical controls, and
+    any BLE client built from this spec replaces the app's entire on-device
+    feature set without an account.
+  data_leaves_device:
+    - "Per-pulse treatment data (flash counts, energy levels, timestamps) uploaded by the phone app"
+    - "Device error / malfunction reports"
+    - "Account identity and profile data (app-side; the app gates its main screen behind login)"
+  notes: >
+    The app's pair-device call to the cloud is telemetry only — no pairing
+    state, key or authorisation comes back down to the hardware.
+
+local_access:
+  status: "native"
+  summary: >
+    Fully local by design: the device works standalone from its physical
+    controls, and the complete BLE surface (telemetry, errors, skin sensor,
+    lock) is open GATT with no pairing, no auth and no account — every
+    documented function is reachable from any BLE host using this spec alone.
+  covers:
+    - "Per-pulse telemetry: total flash counter, per-level counters, current energy level, max-pulses limit (notify, 20-byte frames)"
+    - "Device error codes (read + notify)"
+    - "Skin-color sensor readings: raw and threshold RGB (read, polled by the app every 20 pulses)"
+    - "Trigger and function-button state (read)"
+    - "Serial number (standard DIS 0x2A25)"
+    - "Lock/unlock — clearing the app's opt-in lock with one write"
+  not_covered:
+    - "Firing flashes or setting the energy level — no BLE write path exists for either; both are physical-control-only by design, so a replacement app is telemetry-only just like the vendor's"
+    - "Firmware update — no OTA/DFU path was found in the app"
+    - "Resetting the on-device treatment counters — no such command was found"
+
+services:
+  - uuid: "720411ac-adfe-2015-0820-835742ad3835"
+    name: "Silk'n Hair Removal Service"
+    notes: >
+      The only application service. Its five characteristics are synthetic
+      constants sharing the 12345678-9012-3456-7890-1234567890xx prefix and
+      ending 11/22/33/44/55. No encryption, no authentication, no handshake:
+      subscribe and read. There is exactly ONE writable characteristic (the
+      lock); the app cannot fire flashes or set intensity, and neither can
+      any other client — no such opcode exists.
+    characteristics:
+      - uuid: "12345678-9012-3456-7890-123456789011"
+        name: "TreatmentDynamicInformation"
+        properties: ["read", "notify"]
+        notes: >
+          20-byte frame, notified once per pulse. TWO layouts exist, selected
+          by the advertised local name; the `format` below is the
+          Infinity/SilknV_F (big-endian) layout. Devices advertising
+          `Silkn7_App` use a little-endian variant in which the per-level
+          counters are omitted from the payload and incremented app-side on
+          each opcode==1 (per-pulse) event — see
+          protocol_details.treatment_dynamic_information for that variant.
+          Byte 19 is unused/unknown in both layouts.
+        format:
+          - offset: 0
+            length: 1
+            name: "opcode"
+            type: "uint8"
+            values:
+              1: "per-pulse event"
+            notes: "Only opcode 1 is established. 0 is likely a status snapshot — inferred, needs one capture."
+          - offset: 1
+            length: 4
+            name: "max_pulses"
+            type: "uint32"
+            endianness: "big"
+            unit: "pulses"
+            notes: "Lifetime flash capacity of the lamp/cartridge."
+          - offset: 5
+            length: 4
+            name: "total_counter"
+            type: "uint32"
+            endianness: "big"
+            unit: "pulses"
+            notes: "Total flashes fired over the device's life."
+          - offset: 9
+            length: 1
+            name: "current_level"
+            type: "uint8"
+            notes: "Currently selected energy level (set by the device's physical button — never over BLE)."
+          - offset: 10
+            length: 2
+            name: "level_1_counter"
+            type: "uint16"
+            endianness: "big"
+            unit: "pulses"
+          - offset: 12
+            length: 2
+            name: "level_2_counter"
+            type: "uint16"
+            endianness: "big"
+            unit: "pulses"
+          - offset: 14
+            length: 2
+            name: "level_3_counter"
+            type: "uint16"
+            endianness: "big"
+            unit: "pulses"
+          - offset: 16
+            length: 2
+            name: "level_4_counter"
+            type: "uint16"
+            endianness: "big"
+            unit: "pulses"
+          - offset: 18
+            length: 2
+            name: "level_5_counter"
+            type: "uint16"
+            endianness: "big"
+            unit: "pulses"
+
+      - uuid: "12345678-9012-3456-7890-123456789022"
+        name: "DeviceErrors"
+        properties: ["read", "notify"]
+        notes: >
+          Five u8 error-code slots. Codes observed in the app's handling span
+          roughly 10–70 and cover: high-voltage subsystem, temperature, fan,
+          ignition, color-sensor calibration, stuck buttons, checksum, and
+          micro-current faults. The exact code-to-fault table is not fully
+          recovered — see remaining_unknowns. A zero slot means no error.
+        format:
+          - offset: 0
+            length: 1
+            name: "error_1"
+            type: "uint8"
+          - offset: 1
+            length: 1
+            name: "error_2"
+            type: "uint8"
+          - offset: 2
+            length: 1
+            name: "error_3"
+            type: "uint8"
+          - offset: 3
+            length: 1
+            name: "error_4"
+            type: "uint8"
+          - offset: 4
+            length: 1
+            name: "error_5"
+            type: "uint8"
+
+      - uuid: "12345678-9012-3456-7890-123456789033"
+        name: "LockUnlockDevice"
+        properties: ["read", "write"]
+        notes: >
+          The ONLY writable characteristic, and the whole of the app's control
+          surface. Two bytes: a mode byte (0x30 Released / 0x31 Lock) and a
+          state byte (0x30 Unlocked / 0x31 Locked). The lock is opt-in and
+          app-managed: the app locks the device between sessions only if the
+          user enabled lock mode, unlocks from its treatment-start screen, and
+          re-locks on disconnect. A never-paired device ships Released +
+          Unlocked. A replacement client that writes 30 30 (Released +
+          Unlocked) once is never bothered by the lock again. Whether the
+          firmware honours mode=Released on every Infinity revision is the one
+          open question here.
+        commands:
+          release_and_unlock:
+            description: >
+              Released + Unlocked: clears the app-managed lock and sets the
+              mode that keeps it cleared. The one write a replacement client
+              should issue on first connect if the device reads back Locked.
+            value: [0x30, 0x30]
+            verification: "reported"
+          lock:
+            description: >
+              Lock mode + Locked state: what the app writes between sessions
+              when the user enabled lock mode. Useful only for replicating the
+              vendor app's behaviour; a local-control client has no reason to
+              send it.
+            value: [0x31, 0x31]
+            verification: "reported"
+        format:
+          - offset: 0
+            length: 1
+            name: "mode"
+            type: "uint8"
+            values:
+              48: "Released (0x30) — lock mode off"
+              49: "Lock (0x31) — lock mode on"
+          - offset: 1
+            length: 1
+            name: "state"
+            type: "uint8"
+            values:
+              48: "Unlocked (0x30)"
+              49: "Locked (0x31)"
+
+      - uuid: "12345678-9012-3456-7890-123456789044"
+        name: "DeviceIO"
+        properties: ["read"]
+        notes: "One byte of physical-control state; bit 7 set while the trigger is pressed, bit 6 while the function button is pressed. Read-only snapshot — buttons cannot be driven over BLE."
+        format:
+          - offset: 0
+            length: 1
+            name: "button_state"
+            type: "uint8"
+            notes: "bit7 = trigger pressed, bit6 = function button pressed; other bits unknown."
+
+      - uuid: "12345678-9012-3456-7890-123456789055"
+        name: "ColorMeasurements"
+        properties: ["read"]
+        notes: >
+          Skin-color sensor: seven u16 values — raw RGB and threshold RGB
+          triplets plus a seventh value whose meaning is not established. The
+          app polls this every 20 pulses (the sensor gates whether a flash is
+          safe; the enforcement is on-device, the readout is informational).
+          Endianness of the u16 fields is NOT established — confirm against
+          hardware before decoding.
+        format:
+          - offset: 0
+            length: 2
+            name: "raw_r"
+            type: "uint16"
+            notes: "Raw red channel; endianness unconfirmed."
+          - offset: 2
+            length: 2
+            name: "raw_g"
+            type: "uint16"
+            notes: "Raw green channel; endianness unconfirmed."
+          - offset: 4
+            length: 2
+            name: "raw_b"
+            type: "uint16"
+            notes: "Raw blue channel; endianness unconfirmed."
+          - offset: 6
+            length: 2
+            name: "threshold_r"
+            type: "uint16"
+            notes: "Red threshold the firmware compares against; endianness unconfirmed."
+          - offset: 8
+            length: 2
+            name: "threshold_g"
+            type: "uint16"
+            notes: "Green threshold; endianness unconfirmed."
+          - offset: 10
+            length: 2
+            name: "threshold_b"
+            type: "uint16"
+            notes: "Blue threshold; endianness unconfirmed."
+          - offset: 12
+            length: 2
+            name: "field_7"
+            type: "uint16"
+            notes: "Meaning not established."
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information Service (standard)"
+    notes: "Standard DIS (0x180A); only the serial number string is used by the app."
+    characteristics:
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number String"
+        properties: ["read"]
+
+protocol_details:
+  treatment_dynamic_information:
+    variant_selection: >
+      The 20-byte TreatmentDynamicInformation frame has two layouts, chosen by
+      the advertised local name the client connected to. A client must keep
+      the scan-result name, not just the address.
+    infinity_layout: >
+      Advertised name `Infinity` or `SilknV_F`: big-endian — u8 opcode @0,
+      u32 max_pulses @1, u32 total_counter @5, u8 current_level @9, then five
+      u16 per-level counters @10/12/14/16/18 (see the characteristic `format`).
+    silkn7_layout: >
+      Advertised name `Silkn7_App`: little-endian variant of the same header
+      fields, with the per-level counters OMITTED from the payload — the app
+      increments its own per-level tallies whenever a notification arrives
+      with opcode==1 (per-pulse event). A replacement client must do the same
+      to keep per-level statistics on this variant.
+    session_flow:
+      description: >
+        Post-connect sequence, as the app drives it:
+        1. Connect (no pairing) and read LockUnlockDevice (...9033).
+        2. If the user enabled lock mode, the app writes Locked here and
+           re-locks on disconnect; it writes Unlocked from its
+           treatment-start and treatment-finish screens. A replacement client
+           can instead write release_and_unlock (30 30) once and ignore the
+           lock thereafter.
+        3. Enable notifications on TreatmentDynamicInformation (...9011) and
+           DeviceErrors (...9022); a 20-byte frame arrives per pulse.
+        4. Poll ColorMeasurements (...9055) every 20 pulses; read DeviceIO
+           (...9044) for button state and DIS 0x2A25 for the serial.
+      verification: "reported"
+      verification_note: "Read from the app's BLE layer; no capture and no hardware replay yet."
+  lock_semantics: >
+    The lock is advisory and app-managed, not a security feature: it exists so
+    the app can prevent flashes between supervised sessions, it is opt-in
+    (default off), and any client can clear it with a single unauthenticated
+    write. The mode byte is the durable half — Released (0x30) tells the
+    firmware to ignore the lock state — so writing 30 30 once is a permanent
+    clear from the client's point of view. Whether every Infinity firmware
+    revision honours mode=Released is unconfirmed.
+  control_surface: >
+    Lock/unlock is the ENTIRE write surface. No opcode to fire a flash,
+    request a pulse, or set the energy level exists anywhere in the app;
+    energy levels are physical-button only. This is a safety property of the
+    hardware design as much as a protocol fact — a replacement app is
+    telemetry-plus-lock, exactly like the vendor's.
+
+remaining_unknowns:
+  - "TreatmentDynamicInformation opcode values beyond 1 (0 is likely a status snapshot) — needs one HCI capture of a treatment session"
+  - "Identity of the `SilknV_F` advertised name (an Infinity 'Fast' variant?) — inferred from the name alone"
+  - "Whether lock mode=Released truly makes the firmware ignore the lock state on all Infinity firmware revisions"
+  - "Endianness of the ColorMeasurements u16 fields, and the meaning of its seventh u16"
+  - "The exact DeviceErrors code table (10–70 range and fault categories known; per-code meanings not fully recovered)"
+  - "Which lock writes beyond 30 30 / 31 31 the firmware accepts (e.g. mode=Lock with state=Unlocked, the plausible mid-session app write)"
+  - "Whether any factory-reset procedure exists on the hardware (the app has none)"
+  - "Whether the primary service UUID is advertised pre-connection (the app's scan filter is name-only)"
+  - "SHA-256 of the analysed APK was never recorded (the archive is not in this repo's workspace); re-fetch com.ewavemobile.silkn 6.1 (38) and pin it"
+
+helpful_urls:
+  - title: "Hair Removal – Silk'n on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.ewavemobile.silkn"
+    description: >-
+      The vendor companion app this spec was recovered from (analysed at
+      v6.1, versionCode 38). Account-gated and cloud-centric, but everything
+      it does with the hardware is reproducible from this spec without an
+      account.
+  - title: "Silk'n Infinity product page"
+    url: "https://silkn.com/"
+    kind: "vendor_support"
+    description: >-
+      Vendor's site (Home Skinovations) — entry point for the Infinity and
+      Silk'n 7 product pages and their official user guides. The analysed app
+      also bundles ~40 device user-manual PDFs in its assets, so the manuals
+      exist in a redistributable-adjacent form even if the site restructures.
+
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.ewavemobile.silkn (Hair Removal – Silk'n) v6.1 (versionCode 38), targetSdk 33"
+      sha256: "dba1533c81e9edaad81949b302e9eb4be9dc2c2e49775f1410ae0cca2dfa39da"
+      obtained_via: "third-party APK mirror (APKPure via apkeep), 2026-08-29"
+      description: >
+        Static analysis of the companion app (2026-08). Source of every
+        protocol fact here: the exact-match scan filter on the three
+        advertised names, the primary service and its five synthetic
+        characteristics, both TreatmentDynamicInformation layouts and their
+        name-based selection, the DeviceErrors code range, the 2-byte
+        lock/unlock semantics and the app's lock-on-disconnect behaviour, the
+        every-20-pulses color-sensor poll, the cloud hosts, and the negative
+        findings — no bonding or auth anywhere, no write path to flash firing
+        or intensity, no billing/paywall code, no OTA/DFU path.
+    - type: "not_examined"
+      description: >
+        No hardware unit, HCI capture or third-party implementation was
+        available. The ~40 device user-manual PDFs bundled in the app's
+        assets were noted as a manual source but not mined for this spec.
