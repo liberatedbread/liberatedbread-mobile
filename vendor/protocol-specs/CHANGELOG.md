@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`personal_care` joins the `device.category` closed vocabulary** (additive,
+  minor). The first IPL hair-removal specs (FOREO Peach 2, Braun Silk-expert
+  Pro 5, Silk'n Infinity) landed on a vocabulary with no grooming/cosmetic
+  bucket — they were filed `other`/`health`, and `health` misfiles a cosmetic
+  device as medical. `personal_care` covers IPL handsets, microcurrent toners
+  and the like; `health` stays for medical-adjacent devices (oximeters,
+  blood-pressure monitors). Consumers that do not recognise the value degrade
+  to the generic icon, exactly as an unknown category does today.
+
 - **`name` and `role` on every setup method, where a device has more than
   one.** `setup.methods` was described only as "first is preferred", and
   preference turned out to be too weak a word for what the 25 multi-method

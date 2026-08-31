@@ -1287,6 +1287,7 @@
             "motor",
             "mouse",
             "network",
+            "personal_care",
             "printer",
             "reference",
             "robot",
@@ -1303,7 +1304,7 @@
             "wearable",
             "other"
           ],
-          "description": "Broad device class from a CLOSED vocabulary, unlike free-form `type`. This is the field a consumer branches on: the mobile app picks the icon it draws beside a scan result from this value, so a device whose category is missing or unrecognised shows up as an anonymous Bluetooth address next to devices that announce what they are. That is the whole reason the vocabulary is closed -- 'smart-scale', 'kitchen-scale' and 'body-composition-scale' are three useful `type` values and one `category` ('scale'). Pick the category a person would use to describe the device across the room, not the most precise one: an LED strip controller is a 'light', an LED matrix panel is a 'display', an e-bike mid-drive is a 'motor'. Use 'reference' for published-protocol reference specs (the ones whose `type` starts with 'reference-'); they document a standard, not a device. Use 'other' only when nothing else fits, and treat it as a prompt to propose a new value rather than a resting place. Values not in this list are rejected on purpose: a typo'd or invented category is indistinguishable from an unknown one at the consumer, and silently degrades to the generic icon."
+          "description": "Broad device class from a CLOSED vocabulary, unlike free-form `type`. This is the field a consumer branches on: the mobile app picks the icon it draws beside a scan result from this value, so a device whose category is missing or unrecognised shows up as an anonymous Bluetooth address next to devices that announce what they are. That is the whole reason the vocabulary is closed -- 'smart-scale', 'kitchen-scale' and 'body-composition-scale' are three useful `type` values and one `category` ('scale'). Pick the category a person would use to describe the device across the room, not the most precise one: an LED strip controller is a 'light', an LED matrix panel is a 'display', an e-bike mid-drive is a 'motor', an IPL hair-removal handset or a microcurrent face toner is a 'personal_care' (cosmetic/grooming devices; 'health' is reserved for medical-adjacent ones like oximeters and blood-pressure monitors). Use 'reference' for published-protocol reference specs (the ones whose `type` starts with 'reference-'); they document a standard, not a device. Use 'other' only when nothing else fits, and treat it as a prompt to propose a new value rather than a resting place. Values not in this list are rejected on purpose: a typo'd or invented category is indistinguishable from an unknown one at the consumer, and silently degrades to the generic icon."
         },
         "notes": {
           "type": "string",
@@ -1373,6 +1374,47 @@
                   "description": "Where to do it, when there is a link (the vendor's patch page or app)."
                 }
               }
+            }
+          }
+        },
+        "safety_advisory": {
+          "type": "object",
+          "description": "A PHYSICAL-SAFETY hazard inherent in OPERATING the device -- distinct from `security_advisory`, which is about a security flaw. The crucial difference for a consumer: a safety_advisory does NOT suppress control. The device is meant to be used, carefully, so the app keeps the full control surface and shows this as a persistent banner around it (optionally behind a one-time acknowledgement), rather than replacing the controls with a warning page the way security_advisory does. The archetype is an IPL hair-removal handset, whose light pulses can permanently burn skin or injure eyes at the wrong intensity. Use for a real, inherent hazard of operating the device, stated plainly and about safety (not marketing). A device may carry both a security_advisory and a safety_advisory.",
+          "required": [
+            "severity",
+            "summary"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "severity": {
+              "type": "string",
+              "enum": [
+                "caution",
+                "warning",
+                "danger"
+              ],
+              "description": "'caution': misuse causes discomfort or minor, temporary harm. 'warning': misuse can cause real injury that takes care to avoid. 'danger': misuse can cause permanent or serious injury -- burns, scarring, eye damage -- e.g. an IPL handset fired at the wrong intensity for the skin tone. The consumer colours the banner by this: danger reads as the error/red role, warning and caution as progressively softer."
+            },
+            "summary": {
+              "type": "string",
+              "description": "One line, shown at the top of the safety banner: what the hazard is, plainly. 'Intense light pulses can permanently burn skin or injure eyes if misused.'"
+            },
+            "detail": {
+              "type": "string",
+              "description": "The fuller safety explanation for the banner/acknowledgement: how to use it safely (patch-test, match intensity to skin tone, keep it away from eyes), who must not use it, and -- for a third-party app -- that this app is experimental and unaffiliated with the manufacturer, so the manufacturer's own instructions govern."
+            },
+            "acknowledge_required": {
+              "type": "boolean",
+              "default": false,
+              "description": "When true, the consumer makes the user acknowledge the hazard once per device before the controls become interactive -- an informed-consent gate that still leads to FULL control, unlike security_advisory which withholds control. Omit or false for a persistent banner with no gate."
+            },
+            "advisory_url": {
+              "type": "string",
+              "description": "A safety reference -- the manufacturer's safety guide / instructions-for-use, a dermatological-safety writeup, or the like. Prefer the manufacturer's own page."
+            },
+            "advisory_archive_url": {
+              "type": "string",
+              "description": "A Wayback Machine (web.archive.org) snapshot of `advisory_url`, so the safety reference survives the manufacturer taking the page down or restructuring the site. A consumer shows it as a fallback ('archived copy') beside the live link."
             }
           }
         },

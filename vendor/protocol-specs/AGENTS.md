@@ -140,11 +140,121 @@ helpful_urls:
    the reader CHOOSES: two things they must both do, in order, are one method
    with `stages`, not two methods. `type` is the mechanism, not a label — two
    methods on one device routinely share it. See
-   [docs/api/spec-format.md](docs/api/spec-format.md#methods). The index picks
-   the spec up on its own once this merges — do not commit
-   `device-specs/index.json`.
+   [docs/api/spec-format.md](docs/api/spec-format.md#methods), and read
+   [Writing a spec someone can implement](#writing-a-spec-someone-can-implement)
+   before the protocol blocks. The index picks the spec up on its own once this
+   merges — do not commit `device-specs/index.json`.
 4. For net-new reverse engineering, follow the per-target clean-room workflow in
    [prompts/AGENT_META_PROMPT.md](prompts/AGENT_META_PROMPT.md).
+
+## Writing a spec someone can implement
+
+The bar is one sentence long: **someone holding the hardware and none of your
+context can build a working client from the YAML alone.** Everything below is a
+way that fails in practice, each one drawn from a spec in this tree that had to
+be repaired. [docs/api/spec-format.md](docs/api/spec-format.md) is the field
+reference; this is the craft.
+
+**A fact in prose is a fact no consumer can read.** This is the most common
+defect in the catalogue and the most expensive one downstream. Prose sitting
+*beside* a field is context and is welcome; prose standing *instead of* a field
+is a fact that only a human re-reading the document will ever find. GAPS.md's
+"Mobile handlers' schema asks" is the receipt: twelve places where a mobile
+handler had to hard-code a value, tell two commands apart by their name, or
+parse a payload out of a paragraph, because the spec described the bytes
+without declaring them. If you find yourself writing "the density byte is 0x01
+for light, 0x02 for normal", that is a `parameters` block with an enum, not a
+sentence.
+
+**An undeclared key is invisible, not merely untidy.** The schema root and
+`device` are closed worlds (`additionalProperties: false`), so a made-up
+sibling key fails validation outright. The subtler version passes every gate:
+protocol facts filed under `data_format` instead of `commands`/`format`, under
+`device.payload_formats` instead of the root `payload_formats`, under
+`description` instead of a characteristic's `notes` — all valid YAML, all
+invisible to anything that reads specs by key. Look in `schema.json` before you
+invent a name. If the field genuinely does not exist, put the block under
+`protocol_details` — the declared escape hatch, exempt from the closed-world
+rule — and propose the real field in
+[docs/contributing/spec-evolution.md](docs/contributing/spec-evolution.md).
+
+**Say how sure you are, separately for each kind of sure.** Three mechanisms
+that are routinely confused:
+
+- `verification: confirmed | reported | hypothesis` on an individual fact.
+- `verified` on a setup method or reset procedure, plus `setup.confidence`.
+- `device.testing` on the spec as a whole — "has *this project* driven hardware
+  from this document?" `untested` is the honest default and the usual answer.
+  A new spec needs the block; a reference spec must not carry one. `detail`
+  refines `status` (`capture-verified` only under `untested`, `minimally-` /
+  `mostly-verified` only under `verified`), and anything above a bare
+  `untested` has to name its evidence in `notes` so a reviewer can check it.
+
+Byte-level detail recovered from a decompiled app is `reported`, however
+convincing it looks — `confirmed` means someone ran it against the device. An
+unverified reset procedure or pairing procedure must cite a `basis`; that is
+enforced, because "we think you hold it for ten seconds" and "we held it for
+ten seconds" are different documents.
+
+**Write down what you do not know.** `remaining_unknowns` and
+`evidence.open_questions` cost a line each and are the difference between the
+next person resuming your work and repeating it. Record negative findings the
+same way: `m6-fitness-band` documents an app-to-device match that was
+positively *refuted* by a firmware dump, and that note is worth more than the
+correct answer alone, because it is the wrong turn everyone else was about to
+take.
+
+**Numbers are not implementable until they carry units, endianness and
+scaling.** Every value a client parses needs all three. Units use the canonical
+spelling, are never empty, and name exactly one quantity (`temperature_c`, not
+`temp_c_or_f`); endianness is declared the same way everywhere; a temperature
+that is really `u16 LE − 30` says so, along with its sentinel values. A `bytes`
+parameter bounds its *length* with `min_length`/`max_length` — `min`/`max` mean
+a value range everywhere else in the schema, and the consumer that read
+`fardriver-controller`'s `{type: bytes, min: 1, max: 26}` that way rejected the
+parameter and dropped the entire spec with it.
+
+**A matcher that cannot match fails silently.** A `local_name` matcher needs a
+`value` or a non-empty `values`; a `match: regex` needle must compile;
+`local_name_prefix` is never the empty string; `mac_prefixes` must be usable
+OUIs, and a high-confidence one has to show its working. These are load-bearing
+in both directions — one spec is *found* by its matcher and another *withholds*
+a warning based on one — and a broken needle produces no error, just a device
+that never appears.
+
+**Steps are executed by somebody. Say who.** Every step needs an `action`, and
+`actor` is one of `user`, `client`, `device`. It is the field that decides
+whether a setup wizard can automate a step or must stop and ask a person to
+press something.
+
+**Answer the standing questions even when the answer is "no".** A missing block
+is indistinguishable from a question nobody asked, so the negative answers are
+the point: a BLE spec's `pairing` block usually says nothing pairs;
+`factory_reset` may be `applicable: false` or `"unknown"`; `rejoin` answers
+"my router changed, now what?"; `credentials.wifi_passphrase_protection` may be
+`plaintext`. Each of those is a fact somebody would otherwise spend an evening
+establishing.
+
+**Bind the control surface to something a client can render.** `commands` and
+`entities` use documented vocabularies for keys and roles, entity names are
+unique per variant, command templates may only reference parameters they
+declare, and a `locate` command is never `advanced` — a locator is offered as a
+one-tap button with no user in the loop to confirm it, so it must never be
+something a user needs protecting from.
+
+**Test vectors are the highest-leverage thing a spec can carry**, and the
+standard to hold them to is `scripts/test_wemo_spec.py`: it transcribes the
+published algorithm using nothing but the standard library, imports none of our
+code, and asserts the transcription reproduces the spec's own vectors. If that
+test cannot be written, the spec is underspecified no matter what else passes.
+Use documentation-range MACs and invented serials so the vectors identify no
+real unit.
+
+**Byte-level notes are where vendor class names sneak in.** The clean-room rule
+above is easiest to break in exactly the place your notes are densest — a
+parser you traced through the app. Name the role, not the symbol: "the app's
+temperature parser applies `(high << 4) + low`", never the class and method it
+lived in. Citing an *open-source* project by file stays fine.
 
 ## Downstream
 

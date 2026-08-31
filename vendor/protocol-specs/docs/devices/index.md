@@ -117,6 +117,9 @@ spec's `device.setup` block; the patterns are explained in
 | [Rabbit Air Purifiers](rabbit-air-purifier.md) | WiFi (UDP 9009) | Complete | BLE-assisted / SoftAP via vendor app (medium) | Rabbit Air (vendor publishes the LAN library) |
 | [Beurer PO60 Pulse Oximeter](beurer-po60-pulse-oximeter.md) | BLE | Spec Available | BLE passkey bonding (medium) | Beurer |
 | [Beurer Series 800 (BM92) Blood Pressure Monitor](beurer-series800-blood-pressure.md) | BLE (standard BP profile) | Spec Available | BLE bonding (medium) | Beurer |
+| [FOREO Peach 2 IPL](foreo-peach-2.md) | BLE | Spec Available | None — offline MAC-derived unlock (low) | FOREO |
+| [Braun Silk-expert Pro 5 IPL](braun-silk-expert-pro5.md) | BLE | Spec Available | BLE bonding (medium) | Braun / P&G |
+| [Silk'n Infinity / Silk'n 7 IPL](silkn-infinity.md) | BLE | Spec Available | None needed | Silk'n (Home Skinovations) |
 | [Hyperice Hypervolt Plus](hyperice-hypervolt-plus.md) | BLE | Spec Available | None needed | Hyperice |
 | [BIO-key TouchLock Fingerprint Locks](biokey-touchlock-fingerprint-lock.md) | BLE | Spec Available | BLE enrollment (medium) | BIO-key / Champion OEM |
 | [Safetech Quicklock Padlock](safetech-smart-padlock.md) | BLE | Spec Available | Static password (low) | Safetech (defunct) / Itonsoft OEM |

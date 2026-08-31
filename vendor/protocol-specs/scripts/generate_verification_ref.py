@@ -150,9 +150,13 @@ def parse_metadata_section(text: str) -> dict:
         is_field_header = bool(re.match(r"-\s+.+?:", line))
 
         if not in_pkg_section:
-            # Check if this line contains any package_id(s) label
+            # Check if this line contains any package_id(s) label. Both the
+            # plural ``package_id(s):`` and the singular ``package_id:`` are in
+            # use across targets (astral-hoops, aurora-led-shoes, banlanx-sp6xxe,
+            # hello-fairy, …), each optionally prefixed with ``app`` /
+            # ``controlling app``, so the ``(s)`` is optional.
             pkg_match = re.match(
-                r"-\s*(?:(?:controlling\s+)?app\s+)?package_id\(s\)\s*:\s*(.*)",
+                r"-\s*(?:(?:controlling\s+)?app\s+)?package_id(?:\(s\))?\s*:\s*(.*)",
                 stripped, re.IGNORECASE
             )
             if pkg_match:

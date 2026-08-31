@@ -1,0 +1,736 @@
+# Braun Silk-expert Pro 5 (PL5xxx) — Device Spec (BLE, fully local)
+# Reverse-engineered by static analysis of the Braun IPL Android app
+# (com.pg.grooming.braun.ipl) v3.3.3 (versionCode 7067), 2026-08.
+#
+# Nothing here has been replayed against a Silk-expert Pro 5 by this project;
+# every protocol fact is static-analysis-derived. The headline finding: the
+# device is fully functional standalone — the app never fires flashes or gates
+# intensity, and there is NO activation/lock step anywhere in the BLE layer.
+
+device:
+  name: "Braun Silk-expert Pro 5 (PL5xxx)"
+  manufacturer: "Braun (Procter & Gamble)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No hardware on the bench. All protocol facts were recovered by static
+      analysis of the Braun IPL app v3.3.3 (versionCode 7067, base APK sha256
+      0ad7cfaa1249b64420de941d5467bd260111f365f4fdc86bd2cb4c80bd842b0c,
+      acquired 2026-08-29). No HCI snoop or on-device replay exists yet —
+      the open questions at the bottom of this file are the verification list.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "personal_care"
+  type: "ipl-hair-removal"
+  model: "Silk-expert Pro 5 (PL5xxx, Type 6031)"
+  notes: >
+    Mains-powered IPL (intense pulsed light) hair-removal device — the PL5xxx
+    family, Braun Type 6031 — with BLE, and on some SKUs also Wi-Fi
+    (provisioned over BLE, after which the device phones home via AWS IoT
+    MQTT). Companion app: Braun IPL. The BLE stack is P&G's shared "grooming"
+    SDK — the same A0F0XXXX-5047-4D53-8208-4F72616C2D42 UUID template the
+    Oral-B iO brushes use (the trailing bytes are ASCII for the Oral-B brand
+    name; P&G reuses the scheme across its grooming line).
+
+    THE DEVICE WORKS STANDALONE. Flashing, skin-tone sensing and intensity
+    gating all happen on the device itself (per the vendor manual, the unit
+    only activates when both skin-tone sensors touch skin; the hardware
+    enforces a 400,000-flash lifetime). Over BLE the app does bookkeeping
+    only: session start/pause/resume/finish markers, read-back of session
+    results (skin tone, mounted head, energy level, flash count), triggering
+    a skin-tone measurement, patch-test and OTA lifecycle commands, and Wi-Fi
+    provisioning. There is no activation or unlock step — BLE commands carry
+    no credential, and nothing in the BLE layer references accounts or tokens;
+    the only access control is ordinary BLE bonding.
+
+    Connection parameters from the app's BLE layer: connect with
+    autoConnect=false, negotiate MTU 515, then subscribe to Status/Push/Raw
+    notifications and Read indications. The app explicitly bonds and tracks
+    the bonded state; the device has a BONDING value in its operation-state
+    enum. Whether the GATT characteristics actually REFUSE an unbonded client
+    is inferred, not established (see remaining_unknowns).
+
+    Discovery: the app applies no name or service-UUID scan filter. It parses
+    the manufacturer-data AD structure (0xFF) from raw scan records: the two
+    company-ID bytes little-endian (P&G = 0x00DC, wire bytes DC 00), then one
+    BLE protocol-version byte (0x65 observed), then one device-type byte —
+    0x61 is the Silk-expert Pro 5 generation (the app's codename for it is
+    "Victoria3").
+
+  safety_advisory:
+    severity: "danger"
+    summary: >
+      IPL fires intense light pulses — improper use can cause permanent skin
+      burns, scarring, or eye injury.
+    detail: >
+      This is an IPL (intense pulsed light) hair-removal handset. Used wrongly it
+      can cause permanent harm: burns, blistering, discoloration or scarring of
+      the skin, and serious eye injury from looking into a flash. Always follow
+      Braun's own instructions — run the built-in skin-tone sensor and patch
+      test, match the energy level to your skin tone, never treat broken,
+      tanned, tattooed or moled skin, and keep it away from the eyes. Over
+      Bluetooth this app can set the energy level and start, pause or finish a
+      session. This app is EXPERIMENTAL and is not affiliated with, endorsed by,
+      or supported by Braun or Procter & Gamble — the manufacturer's manual and
+      safety guidance govern.
+    acknowledge_required: true
+    advisory_url: "https://us.braun.com/en-us/female-grooming-tips/hair-removal/ipl-safety"
+    advisory_archive_url: "https://web.archive.org/web/20260515164732/https://us.braun.com/en-us/female-grooming-tips/hair-removal/ipl-safety"
+  identification:
+    manufacturer_data:
+      company_id: 220
+      company_id_hex: "0x00DC"
+      description: >
+        Procter & Gamble (SIG-assigned 220); the advertisement carries the ID
+        little-endian, so the wire bytes read `DC 00` — this field is the
+        DECODED value a scanner compares against. Shared with the Oral-B iO
+        line (same vendor, same SDK): the device-TYPE byte in the payload is
+        what separates an IPL from a toothbrush, so a company-ID match alone
+        is only "some P&G grooming device" — check the payload per
+        `device.discovery`.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 220
+            match: "masked"
+            pattern: "0061"
+            mask: "00FF"
+            description: >
+              Match on the payload after the two company-ID bytes: byte 0 =
+              BLE protocol version (0x65 observed; masked out because it may
+              move with firmware), byte 1 = device type, and 0x61 is the
+              Silk-expert Pro 5 generation. No local-name or service-UUID
+              filter exists in the vendor app — this AD-structure parse is
+              the whole discovery story.
+    identity:
+      stable_keys: ["address"]
+      display: "address"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: medium
+    notes: >
+      Nothing has to be provisioned: the device flashes standalone out of the
+      box, and every BLE function (session tracking, skin-tone readout,
+      head/energy state) works on a bare connection plus bonding. The second
+      method below — Wi-Fi provisioning — is OPTIONAL and only feeds the
+      cloud features; skip it and the device simply never talks to any cloud.
+      Confidence medium: both flows were read from the vendor app, neither
+      has been replayed against hardware here.
+    methods:
+      - type: "ble_direct"
+        name: "Standalone over BLE — session tracking, no account"
+        role: "primary"
+        verified: false
+        description: >
+          Scan for the manufacturer-data signature (company ID 0x00DC, device
+          type 0x61), connect, bond, negotiate MTU 515, subscribe to the
+          Status/Push notification and Read indication characteristics, and
+          speak the GET/SET/EXECUTE verb protocol on the A0F03Cxx
+          command channel. This is the whole of the useful surface: session
+          markers, session results, skin-tone measurement trigger, and device
+          state. No account, no network, no activation step.
+        ble:
+          pairing_required: true
+          pin_source: "no PIN seen in the app — bonding appears to be Just Works; unconfirmed on hardware"
+        steps:
+          - action: "Power the device (it is mains-powered; it advertises whenever on)."
+            actor: "user"
+          - action: >
+              Scan for manufacturer-data AD structure 0xFF with company ID
+              0x00DC (wire bytes DC 00) and device-type byte 0x61.
+            actor: "client"
+            expect: "Advertisement whose manufacturer payload is at least 2 bytes, second byte 0x61."
+          - action: "Connect with autoConnect=false and negotiate MTU 515."
+            actor: "client"
+          - action: "Bond with the device (the vendor app bonds explicitly; no passkey entry is involved app-side)."
+            actor: "client"
+            expect: "Bonded, encrypted link. Whether bonding is mandatory is unverified — see device.pairing."
+          - action: >
+              Enable notifications on Status (A0F03C03) and Push (A0F03C04),
+              indications on Read (A0F03C01), and — only if the raw sensor
+              stream is wanted — notifications on Raw (A0F04C00).
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "enable_notifications"
+          - action: "GET DEVICE_DATA (C0 03) and GET SESSION_DATA (C0 04) to confirm the channel works."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "get_device_data / get_session_data"
+            expect: "Responses readable from A0F03C01; layouts in the services block."
+      - type: "ble_provisioning"
+        name: "Wi-Fi provisioning for the optional cloud features"
+        role: "alternative"
+        verified: false
+        description: >
+          Only for SKUs with Wi-Fi, and only needed for the cloud extras (the
+          flashes-available counter screen, vendor telemetry). The client
+          sends EXECUTE ENTER_PROVISIONING (C3 06), then SETs the provisioning
+          namespace over the same verb channel: WIFI_SSID=2, WIFI_PSWD=3,
+          TEST_WIFI=4, HOST_PORT=5, AWS_KEY=6, AWS_CERT=7, AWS_ROOT_CA=8,
+          END_CONFIG=9, WIFI_AP_LIST=10 (GET; 35-byte records: SSID bytes
+          0-32, RSSI byte 33, encryption byte 34), DEVICE_UUID=11,
+          TIMEZONE=13, THING_NAME=14. Payloads are UTF-8 written to A0F03C02.
+          In the VENDOR flow the per-device AWS IoT key/certificate are
+          fetched from the vendor's GraphQL API with an account — that one
+          step is cloud-gated. A replacement client can instead provision its
+          own MQTT endpoint and certificates (HOST_PORT/AWS_KEY/AWS_CERT/
+          AWS_ROOT_CA), which needs no vendor account at all.
+        ble:
+          pairing_required: true
+        steps:
+          - action: "Complete the standalone BLE connect-and-bond flow above first."
+            actor: "client"
+          - action: "EXECUTE ENTER_PROVISIONING (write C3 06 to the Command characteristic)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "enter_provisioning"
+            expect: "Status notification C3 06 00 (OK); operation state becomes PROVISIONING (5)."
+          - action: "Optionally GET WIFI_AP_LIST (C0 0A in the provisioning namespace) to scan visible APs."
+            actor: "client"
+          - action: >
+              SET WIFI_SSID and WIFI_PSWD: write C1 <cmdId> to Command, write
+              the UTF-8 payload to Write (A0F03C02), commit with C2 <cmdId>.
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "provisioning_set"
+          - action: >
+              For vendor-cloud operation, SET AWS_KEY / AWS_CERT /
+              AWS_ROOT_CA / THING_NAME / HOST_PORT with the per-device
+              credentials obtained from the vendor GraphQL API — or with your
+              own MQTT endpoint's credentials for a cloud-free setup. Finish
+              with END_CONFIG=9.
+            actor: "client"
+          - action: "EXECUTE TEST_WIFI (C3 04) to verify the join."
+            actor: "client"
+            expect: "Status notification reports the result; DEVICE_DATA byte 3 carries the Wi-Fi state."
+    factory_reset:
+      applicable: true
+      confidence: medium
+      effect: >
+        Not established on hardware. The app's opcode table carries
+        DEVICE_RESET (EXECUTE cmdId 49), and the device-state enum includes
+        0=FACTORY, so the command presumably returns the unit to factory
+        state — clearing the BLE bond and any provisioned Wi-Fi/AWS
+        credentials — but exactly what it clears is unverified.
+      description: >
+        The reset is a BLE command, not a button sequence: no physical reset
+        procedure appears anywhere in the vendor app, and none is known on
+        the hardware. Session history and the bond are the state at stake.
+        Given the device never requires the app to function, a reset is only
+        interesting when moving a provisioned (Wi-Fi) unit to a new owner or
+        clearing a bond the device still expects.
+      procedures:
+        - name: "DEVICE_RESET command over BLE"
+          verified: false
+          basis: >
+            Static analysis of the vendor app's command table — the opcode is
+            wired up in the app, but this project has not sent it to a device.
+          power_state: "on"
+          steps:
+            - action: "Connect and bond (standalone BLE flow above)."
+              actor: "client"
+            - action: "EXECUTE DEVICE_RESET: write C3 31 (0xC3, cmdId 49) to the Command characteristic."
+              actor: "client"
+              request:
+                protocol: "ble_gatt"
+                action: "device_reset"
+              expect: "Status notification C3 31 00; the device presumably drops the bond and disconnects."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE-only use has nothing to rejoin: a new phone just bonds (remove a
+        stale bond from the old phone's OS Bluetooth settings if the device
+        refuses). For a Wi-Fi-provisioned unit, moving networks is
+        re-running the provisioning method over BLE — the device stays
+        reachable over BLE throughout, so the old network does not need to
+        be up.
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "BLE bond (link-layer keys) per paired phone"
+        - "Wi-Fi SSID/passphrase (Wi-Fi SKUs, only if provisioned)"
+        - "Per-device AWS IoT key/certificate and thing name (Wi-Fi SKUs, only if provisioned)"
+      issued_to_client:
+        - "Nothing beyond the BLE bond itself; the per-device AWS credentials are issued by the vendor cloud to be written TO the device, not kept by the client"
+      notes: >
+        During provisioning the Wi-Fi passphrase and certificates cross the
+        BLE link as UTF-8 with no application-layer encryption of their own —
+        the bonded (encrypted) BLE link is the only protection, and whether
+        the device insists on bonding is itself unverified (see
+        device.pairing).
+
+  pairing:
+    required: "unknown"
+    confidence: "low"
+    security_mode: "unknown"
+    bonding: "required"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        If the device refuses a new phone, remove the old bond from the
+        previous phone's OS Bluetooth settings and try again; failing that,
+        the DEVICE_RESET command is the heavy option.
+    unpair:
+      supported: "unknown"
+      requires_factory_reset: false
+      notes: >
+        No unpair procedure short of DEVICE_RESET was found in the app;
+        whether the device offers one on-air is unestablished.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The device advertises whenever powered; no pairing-mode button press
+        appears in the app. The BONDING operation state (value 4) exists in
+        the device state machine, but nothing gates entering it on a physical
+        action.
+    notes: >
+      The vendor app bonds explicitly on every connect and tracks the bonded
+      state, and the device has a BONDING operation state — so bonding is
+      clearly part of the intended flow and a client should bond. What static
+      analysis cannot answer is whether the GATT characteristics REFUSE an
+      unbonded client; that needs an HCI snoop or an on-device attempt. No
+      passkey or PIN appears anywhere in the app's BLE layer, so if pairing
+      is authenticated at all it is not via a code the user sees. No command
+      carries a credential: bonding is the entire access-control story, and
+      whoever bonds can read session data and skin-tone measurements.
+
+cloud:
+  required: false
+  vendor_service: "Braun IPL cloud (AWS Cognito login, AWS AppSync GraphQL device registry, AWS IoT MQTT device telemetry; Contentful CMS; Firebase/RudderStack/UXCam analytics app-side)"
+  auth:
+    type: "other"
+    notes: >
+      AWS Cognito account login in the app; the device registry is an AppSync
+      GraphQL API. During Wi-Fi provisioning the app fetches a PER-DEVICE AWS
+      IoT key/certificate pair from GraphQL and writes them over BLE — that
+      fetch is the single cloud-gated step in the whole picture. Shape only;
+      no endpoints mapped, because none of this is on the local-control path.
+    verification: "reported"
+  failure_mode: >
+    Almost nothing breaks. The device flashes standalone regardless of any
+    cloud, and BLE session tracking is unaffected. What is lost with the
+    vendor cloud: Wi-Fi provisioning of a unit aimed at the VENDOR's AWS IoT
+    endpoint (the per-device certificate issuance needs the GraphQL API), and
+    the app's "flashes available" counter, which is read from the cloud
+    rather than from the device. A replacement client can still provision
+    Wi-Fi against its own MQTT endpoint with its own certificates.
+  data_leaves_device:
+    - "Session results (skin tone, energy level, flash counts) synced by the app to the device registry when signed in"
+    - "Device telemetry over AWS IoT MQTT, only on Wi-Fi SKUs the user has provisioned"
+    - "Account identity and analytics (app-side: Firebase, RudderStack, UXCam)"
+  notes: >
+    Braun/P&G are alive and shipping, so this is a closed-protocol entry
+    rather than an abandonment rescue — but the design means a total cloud
+    shutdown would still leave the device fully usable.
+
+local_access:
+  status: "native"
+  summary: >
+    Fully local by construction: the hardware flashes standalone and the
+    complete BLE surface — session lifecycle markers, session-result
+    read-back, skin-tone trigger, device state, raw sensor stream, and even
+    Wi-Fi provisioning against your own endpoint — is reachable from any BLE
+    host that bonds and speaks the three-verb protocol below.
+  covers:
+    - "Session bookkeeping: SESSION_START / FINISH / PAUSE / RESUME markers (EXECUTE cmdId 7-10)"
+    - "Session results: operation state, session UUID, mounted head, energy level, skin tone, flashes fired (GET SESSION_DATA, cmdId 4)"
+    - "Device state, Wi-Fi state, raw-stream flag (GET DEVICE_DATA, cmdId 3); firmware/protocol identification (cmdId 2 and 50)"
+    - "Triggering a skin-tone measurement (cmdId 5) and a patch test (cmdId 11)"
+    - "Raw FlatBuffers sensor stream (IMU, skin/contact sensors, temperature, shot count) via READ_RAW (cmdId 51) on A0F04C00"
+    - "Wi-Fi provisioning, including to a self-hosted MQTT endpoint with your own certificates (no vendor account)"
+  not_covered:
+    - "The 'flashes available' counter — read from the vendor cloud, not from the device over BLE"
+    - "Firing flashes or gating intensity — the app never could; the device owns that (there is nothing to unlock)"
+    - "OTA firmware content: OTA_UPDATE_START (cmdId 12) exists, but no firmware image is public and the transfer format is undocumented"
+    - "Vendor-cloud telemetry without the vendor GraphQL API (per-device certificate issuance is cloud-gated)"
+
+services:
+  # CONTAINING SERVICE UUID NOT RECOVERED — see notes. Like the Oral-B iO
+  # charger characteristics in oral-b-io-smartbrush.yaml, the A0F03Cxx command
+  # channel is a P&G grooming-SDK building block; the app never pins a service
+  # UUID for it that static analysis could read out.
+  - uuid: "A0F03C00-5047-4D53-8208-4F72616C2D42"
+    name: "P&G Grooming Command Service (Silk-expert Pro 5)"
+    verification: "hypothesis"
+    notes: >
+      CONTAINING SERVICE UUID UNKNOWN — this entry's UUID is a stand-in equal
+      to the Command characteristic's, following the led-helmet-display
+      precedent. The app locates characteristics by their full UUIDs, all of
+      which ARE recovered and listed below on the
+      A0F0XXXX-5047-4D53-8208-4F72616C2D42 template. Clients MUST locate the
+      characteristics by enumeration, not by this service UUID, and MUST NOT
+      match this entry as an advertised service. One service block is used
+      for all six characteristics purely to keep the map in one place; the
+      real on-air grouping (one service or several) is in remaining_unknowns.
+    characteristics:
+      - uuid: "A0F03C00-5047-4D53-8208-4F72616C2D42"
+        name: "Command (write)"
+        properties: ["write"]
+        notes: >
+          All command verbs are written here as two bytes {opcode, cmdId} —
+          no crypto, checksum or framing beyond that. Three verbs:
+          GET (0xC0) — response is then read from A0F03C01;
+          SET — write {0xC1, cmdId} here, write the payload bytes to
+          A0F03C02, then commit with {0xC2, cmdId};
+          EXECUTE (0xC3) — outcome arrives as a Status notification
+          {0xC3, cmdId, status} on A0F03C03 (status 0=OK, 1=BUSY, 2=ERROR).
+          The provisioning commands (namespace below) ride the same verbs.
+        commands:
+          get_device_version:
+            description: "GET DEVICE_VERSION — response on A0F03C01 is a hex string."
+            value: [0xC0, 2]
+            verification: "reported"
+          get_device_data:
+            description: >
+              GET DEVICE_DATA — response on A0F03C01: byte 2 = device state
+              (0=FACTORY, 1=BONDED, 2=NORMAL, 3=OTA_READY,
+              254=UNRECOVERABLE_ERROR), byte 3 = Wi-Fi state, byte 6 =
+              raw-stream-enabled flag. Other bytes unestablished.
+            value: [0xC0, 3]
+            verification: "reported"
+          get_session_data:
+            description: >
+              GET SESSION_DATA — 23-byte response on A0F03C01 with the layout
+              declared in that characteristic's `format`: operation state,
+              session UUID, mounted head, energy level, skin tone, flashes.
+            value: [0xC0, 4]
+            verification: "reported"
+          measure_skin_tone:
+            description: "EXECUTE MEASURE_SKIN_TONE — ask the device to run its skin-tone sensors; result shows up in SESSION_DATA bytes 19-20."
+            value: [0xC3, 5]
+            verification: "reported"
+          enter_provisioning:
+            description: "EXECUTE ENTER_PROVISIONING — switch to Wi-Fi provisioning mode (operation state 5); the provisioning opcode namespace then applies."
+            value: [0xC3, 6]
+            verification: "reported"
+          session_start:
+            description: "EXECUTE SESSION_START — bookkeeping marker; the device flashes with or without it."
+            value: [0xC3, 7]
+            verification: "reported"
+          session_finish:
+            description: "EXECUTE SESSION_FINISH."
+            value: [0xC3, 8]
+            verification: "reported"
+          session_pause:
+            description: "EXECUTE SESSION_PAUSE."
+            value: [0xC3, 9]
+            verification: "reported"
+          session_resume:
+            description: "EXECUTE SESSION_RESUME."
+            value: [0xC3, 10]
+            verification: "reported"
+          start_patch_test:
+            description: "EXECUTE START_PATCH_TEST — the pre-treatment skin-reaction test the vendor manual recommends."
+            value: [0xC3, 11]
+            verification: "reported"
+          ota_update_start:
+            description: "EXECUTE OTA_UPDATE_START — begin a firmware update (operation state 10; OTA lifecycle push reasons 0x1005-0x1007)."
+            value: [0xC3, 12]
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Starts a firmware update. The transfer format is undocumented
+              and no firmware image is public, so this is a research hook —
+              a botched update can brick the device.
+          device_reset:
+            description: "EXECUTE DEVICE_RESET — return the unit to factory state (what exactly it clears is unverified; see device.setup.factory_reset)."
+            value: [0xC3, 49]
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Presumably clears the BLE bond and any provisioned Wi-Fi/AWS
+              credentials. Irreversible for anyone relying on the existing
+              provisioning.
+          get_protocol_name:
+            description: "GET PROTOCOL_NAME — response on A0F03C01 is a UTF-8 protocol identifier."
+            value: [0xC0, 50]
+            verification: "reported"
+          read_raw:
+            description: "EXECUTE/enable READ_RAW — start the FlatBuffers raw sensor stream on A0F04C00."
+            value: [0xC3, 51]
+            verification: "reported"
+
+      - uuid: "A0F03C01-5047-4D53-8208-4F72616C2D42"
+        name: "Read (read + indicate)"
+        properties: ["read", "indicate"]
+        notes: >
+          Responses to GET commands, plus live state. The declared `format`
+          is the SESSION_DATA response (GET cmdId 4) — 23 bytes. The other
+          documented response, DEVICE_DATA (GET cmdId 3), has: byte 2 =
+          device state (0=FACTORY, 1=BONDED, 2=NORMAL, 3=OTA_READY,
+          254=UNRECOVERABLE_ERROR), byte 3 = Wi-Fi state, byte 6 =
+          raw-stream-enabled; its full length and remaining bytes are
+          unestablished, so it gets prose rather than a second format.
+        format:
+          - offset: 0
+            length: 1
+            name: "operation_state"
+            type: "uint8"
+            values:
+              3: "IDLE"
+              4: "BONDING"
+              5: "PROVISIONING"
+              6: "SKIN_TONE_MEASUREMENT"
+              7: "SESSION_RUNNING"
+              9: "PATCH_TEST"
+              10: "OTA"
+              255: "NOT_SET"
+            notes: "SESSION_DATA byte 0. Gaps in the enum (0-2, 8, 11-254) are unassigned in the app."
+          - offset: 1
+            length: 16
+            name: "session_uuid"
+            type: "bytes"
+            notes: "Session identifier as two big-endian 64-bit halves."
+          - offset: 17
+            length: 1
+            name: "mounted_head"
+            type: "uint8"
+            values:
+              0: "none"
+            notes: >
+              Ranges rather than a flat enum: 1-31 standard head, 33-63
+              precision, 65-95 large, 97-103 mini-precision, 129-135
+              smart-flex. 0 = no head mounted.
+          - offset: 18
+            length: 1
+            name: "energy_level"
+            type: "uint8"
+            values:
+              0: "NORMAL"
+              1: "SENSITIVE"
+              2: "EXTRA_SENSITIVE"
+              255: "NOT_SET"
+          - offset: 19
+            length: 2
+            name: "skin_tone"
+            type: "uint16"
+            endianness: "big"
+            notes: "Raw sensor value; the app buckets it into 10 skin tones (the bucketing table itself was not extracted)."
+          - offset: 21
+            length: 2
+            name: "flashes_this_session"
+            type: "uint16"
+            endianness: "big"
+            notes: "Flashes fired in the current session."
+
+      - uuid: "A0F03C02-5047-4D53-8208-4F72616C2D42"
+        name: "Write (write)"
+        properties: ["write"]
+        notes: >
+          Payload channel for SET commands: after writing {0xC1, cmdId} to
+          Command, write the payload bytes here, then commit with {0xC2,
+          cmdId}. Payloads are UTF-8 — SSID, Wi-Fi password, and the AWS
+          key/certificate/Root-CA blobs during provisioning.
+
+      - uuid: "A0F03C03-5047-4D53-8208-4F72616C2D42"
+        name: "Status (notify)"
+        properties: ["notify"]
+        notes: "Command acknowledgements, always 3 bytes: {opcode, cmdId, status}."
+        format:
+          - offset: 0
+            length: 1
+            name: "opcode"
+            type: "uint8"
+            notes: "Echoes the verb: 0xC3 for EXECUTE outcomes (and presumably the SET verbs)."
+          - offset: 1
+            length: 1
+            name: "cmd_id"
+            type: "uint8"
+          - offset: 2
+            length: 1
+            name: "status"
+            type: "uint8"
+            values:
+              0: "OK"
+              1: "BUSY"
+              2: "ERROR"
+
+      - uuid: "A0F03C04-5047-4D53-8208-4F72616C2D42"
+        name: "Push (notify)"
+        properties: ["notify"]
+        notes: >
+          Unsolicited events from the device. Byte 0 is unestablished; byte 1
+          carries the command value the event relates to; bytes 2-3 are a
+          big-endian u16 reason code (see protocol_details.push_reasons).
+          Reasons 0x1003/0x1004 are how a client learns the device started or
+          ended a session ON ITS OWN — the important one, since flashing is
+          always device-driven.
+        format:
+          - offset: 1
+            length: 1
+            name: "command"
+            type: "uint8"
+            notes: "Command value this event relates to. Byte 0 unestablished."
+          - offset: 2
+            length: 2
+            name: "reason"
+            type: "uint16"
+            endianness: "big"
+            values:
+              1: "command end — success"
+              2: "command end — failure"
+              4097: "device standby (0x1001)"
+              4098: "device sleep (0x1002)"
+              4099: "session started BY DEVICE (0x1003)"
+              4100: "session ended BY DEVICE (0x1004)"
+              4101: "OTA update ready (0x1005)"
+              4102: "OTA update in progress (0x1006)"
+              4103: "OTA update reboot (0x1007)"
+
+      - uuid: "A0F04C00-5047-4D53-8208-4F72616C2D42"
+        name: "Raw (notify)"
+        properties: ["notify"]
+        notes: >
+          Raw sensor stream: FlatBuffers frames carrying IMU, skin/contact
+          sensor, temperature and shot-count data, enabled with READ_RAW
+          (cmdId 51; DEVICE_DATA byte 6 reports whether the stream is on).
+          The FlatBuffers schema was NOT extracted — the app carries parse
+          code, so the layout is recoverable, but it is not in this spec yet.
+
+# Vendor-specific protocol detail this schema does not model. Namespaced so
+# the top level can stay closed; nothing here is a declared contract.
+protocol_details:
+  uuid_scheme: >
+    All characteristics are 128-bit UUIDs on the template
+    A0F0XXXX-5047-4D53-8208-4F72616C2D42, where XXXX is the 16-bit short ID.
+    The trailing bytes 4F 72 61 6C 2D 42 are ASCII for the Oral-B brand name —
+    this is P&G's shared grooming SDK, the same scheme oral-b-io-smartbrush
+    documents, where 3C00-3C03 play the same Command/Read/Write/Status roles
+    for the iO charger.
+  command_protocol:
+    verbs:
+      get: "Write {0xC0, cmdId} to A0F03C00; read the response from A0F03C01."
+      set: "Write {0xC1, cmdId} to A0F03C00; write payload bytes to A0F03C02; commit with {0xC2, cmdId}."
+      execute: "Write {0xC3, cmdId} to A0F03C00; await the Status notification {0xC3, cmdId, status} on A0F03C03."
+    status_codes:
+      0: "OK"
+      1: "BUSY"
+      2: "ERROR"
+    framing: >
+      None. Commands are exactly two bytes {opcode, cmdId}; no length prefix,
+      checksum, sequence number or credential. Multi-byte fields inside
+      responses (skin tone, flash count, push reasons) are big-endian.
+    transport: >
+      Connect with autoConnect=false, negotiate MTU 515, subscribe to Status
+      and Push notifications and Read indications (Raw only when the sensor
+      stream is wanted). The app explicitly bonds.
+  operational_opcodes:
+    2: "DEVICE_VERSION (GET; hex string)"
+    3: "DEVICE_DATA (GET; byte 2 device state, byte 3 Wi-Fi state, byte 6 raw-stream flag)"
+    4: "SESSION_DATA (GET; 23-byte layout in the Read characteristic's format)"
+    5: "MEASURE_SKIN_TONE (EXECUTE)"
+    6: "ENTER_PROVISIONING (EXECUTE)"
+    7: "SESSION_START (EXECUTE)"
+    8: "SESSION_FINISH (EXECUTE)"
+    9: "SESSION_PAUSE (EXECUTE)"
+    10: "SESSION_RESUME (EXECUTE)"
+    11: "START_PATCH_TEST (EXECUTE)"
+    12: "OTA_UPDATE_START (EXECUTE)"
+    49: "DEVICE_RESET (EXECUTE)"
+    50: "PROTOCOL_NAME (GET; UTF-8)"
+    51: "READ_RAW (enable raw stream)"
+  provisioning_opcodes:
+    notes: >
+      Separate cmdId namespace, same verbs, active after ENTER_PROVISIONING.
+      SET payloads are UTF-8 written to A0F03C02.
+    table:
+      2: "WIFI_SSID (SET)"
+      3: "WIFI_PSWD (SET)"
+      4: "TEST_WIFI (EXECUTE)"
+      5: "HOST_PORT (SET)"
+      6: "AWS_KEY (SET)"
+      7: "AWS_CERT (SET)"
+      8: "AWS_ROOT_CA (SET)"
+      9: "END_CONFIG (SET/EXECUTE — ends provisioning)"
+      10: "WIFI_AP_LIST (GET; 35-byte records: SSID bytes 0-32, RSSI byte 33, encryption byte 34)"
+      11: "DEVICE_UUID"
+      13: "TIMEZONE (SET)"
+      14: "THING_NAME (SET)"
+  push_reasons:
+    "0x0001": "command end — success"
+    "0x0002": "command end — failure"
+    "0x0003": "buffer data updated"
+    "0x1001": "device standby"
+    "0x1002": "device sleep"
+    "0x1003": "session started by device"
+    "0x1004": "session ended by device"
+    "0x1005": "OTA update ready"
+    "0x1006": "OTA update in progress"
+    "0x1007": "OTA update reboot"
+  device_state_enum:
+    0: "FACTORY"
+    1: "BONDED"
+    2: "NORMAL"
+    3: "OTA_READY"
+    254: "UNRECOVERABLE_ERROR"
+  verification_note: >
+    Every byte-level fact in this file comes from static analysis of the
+    vendor app and is `reported` at best; nothing has been replayed against
+    hardware by this project.
+
+remaining_unknowns:
+  - "The containing GATT service UUID(s) for the A0F03Cxx/A0F04C00 characteristics — the services block uses a flagged stand-in; enumerate on a real device"
+  - "Whether the characteristics require a bonded/encrypted link (inferred from explicit bonding plus the BONDING operation state; confirm with HCI snoop or an unbonded attempt)"
+  - "Which PL5xxx SKUs carry Wi-Fi versus BLE-only"
+  - "The FlatBuffers schema of the Raw stream (A0F04C00) — parse code exists in the app, schema not extracted"
+  - "What DEVICE_RESET (cmdId 49) actually clears, and whether any physical reset procedure exists on the hardware"
+  - "Byte 0 of Push notifications, and the full length/layout of DEVICE_DATA beyond bytes 2, 3 and 6"
+  - "The skin-tone bucketing table (raw u16 to the app's 10 tones)"
+  - "Whether the BLE address is public or random-static (identity.stable_keys assumes a stable address)"
+  - "OTA transfer format and firmware image source (cmdId 12 starts it; nothing further recovered)"
+
+helpful_urls:
+  - title: "Braun IPL on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.pg.grooming.braun.ipl"
+    description: >-
+      The vendor companion app this spec was recovered from (analysed at
+      v3.3.3, versionCode 7067). Only needed for the cloud extras — the
+      device works without it.
+  - title: "Braun Silk-expert Pro 5 service page (Type 6031)"
+    url: "https://service.braun.com/us/en/products/6031"
+    kind: "vendor_support"
+    description: >
+      Vendor support page for the whole Silk-expert Pro 5 (PL5xxx, Type 6031)
+      family — manuals per language, spare parts, and head/compatibility
+      listings.
+  - title: "Braun Silk-expert Pro 5 manual"
+    url: "https://www.manualslib.com/manual/2134553/Braun-Silk-Expert-Pro-5.html"
+    kind: "manual"
+    description: >
+      Vendor manual for the Silk-expert Pro 5 (PL5xxx, Type 6031). Documents
+      the on-device safety behaviour this spec relies on — flashing is gated
+      by the hardware skin-tone sensors, not the app — the patch test
+      (cmdId 11), and the 400,000-flash end-of-life signal.
+
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.pg.grooming.braun.ipl (Braun IPL) v3.3.3 (versionCode 7067), base APK"
+      sha256: "0ad7cfaa1249b64420de941d5467bd260111f365f4fdc86bd2cb4c80bd842b0c"
+      obtained_via: "third-party APK mirror (APKPure via apkeep), 2026-08-29"
+      description: >
+        Sole source of every protocol fact here: the UUID template and
+        characteristic set, the C0/C1/C2/C3 verb protocol and both opcode
+        namespaces, the SESSION_DATA/DEVICE_DATA layouts, MTU 515, the
+        bonding behaviour, the discovery parse (company ID 0x00DC, device
+        type 0x61), and the cloud split (Cognito + AppSync GraphQL + AWS IoT
+        MQTT, with per-device certificate issuance during provisioning).
+        Negative findings worth recording: no activation/lock step, no
+        credential on any BLE command, and no command that fires a flash or
+        gates intensity — the app never had those.
+  app_static_analysis: >
+    Working notes and the decompile live in the research workspace and are
+    deliberately not committed (clean-room rules); the recovered facts are
+    transcribed in full above.

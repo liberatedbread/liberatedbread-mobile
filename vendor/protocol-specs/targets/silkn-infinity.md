@@ -28,7 +28,7 @@
 3) Replacement MVP: subscribe `…9011`/`…9022`, parse counters, clear lock.
 
 ## Evidence checklist
-- APK: com.ewavemobile.silkn 6.1 (38), sha256 TBD (workspace/apks/apkeep)
+- APK: com.ewavemobile.silkn 6.1 (38), sha256 dba1533c81e9edaad81949b302e9eb4be9dc2c2e49775f1410ae0cca2dfa39da
 - HCI snoop log: TBD
 
 ## Spec output (clean-room)
