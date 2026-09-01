@@ -72,6 +72,79 @@ def test_singular_package_id_is_parsed():
     assert meta["package_ids"] == ["com.astral.astral"]
 
 
+def test_cctld_package_id_is_valid():
+    # de.wgsoft.motoscan (bmw-motorcycle-motoscan) was silently dropped by a
+    # fixed prefix allowlist that had no "de." — any short TLD-style first
+    # segment must pass, not just the handful someone thought of.
+    for pid in ("de.wgsoft.motoscan", "com.example.app", "io.flutter.app", "re.notifica.go"):
+        assert gvr.is_valid_reverse_domain_pkg(pid), pid
+    assert gvr.extract_valid_package_ids(
+        "de.wgsoft.motoscan (MotoScan for BMW Motorcycles)"
+    ) == ["de.wgsoft.motoscan"]
+
+
+def test_non_package_text_is_still_rejected():
+    assert not gvr.is_valid_reverse_domain_pkg("motoscan.de")  # forwards, not reversed
+    assert not gvr.is_valid_reverse_domain_pkg("WGSoft.de")  # capitalised prose
+    assert not gvr.is_valid_reverse_domain_pkg("e.g.")  # abbreviation
+    assert not gvr.is_valid_reverse_domain_pkg("nodots")
+
+
+def test_hyphenated_domain_fragment_is_not_a_package():
+    # fardriver-controller's metadata mentions the vendor download domain
+    # "far-driver.com" in prose; the extractor must not carve "driver.com"
+    # out of the middle of it.
+    text = "UNKNOWN — the app is a direct APK download from far-driver.com, not Play."
+    assert gvr.extract_valid_package_ids(text) == []
+
+
+def test_bare_can_transport_buckets_with_obd():
+    # "CAN, 500 kbit/s" (bosch-ebike-cx-gen4) has neither "obd" nor "can bus"
+    # in it; a substring check also must not fire on the "can" inside "scan".
+    counts = gvr.compute_transport_counts([
+        {"transport": "CAN, 500 kbit/s"},
+        {"transport": "OBD-II connector; ISO 15765-4 (CAN)"},
+        {"transport": "BLE (advertisement scan only)"},
+    ])
+    assert counts == {"OBD-II / CAN": 2, "BLE / Bluetooth": 1}
+
+
+def test_uncategorised_transport_label_is_not_truncated():
+    counts = gvr.compute_transport_counts([
+        {"transport": "UART (9600 baud TTL, 6-pin connector under the seat)"},
+    ])
+    assert counts == {"UART": 1}
+
+
+def test_previous_apk_collected_carried_forward(tmp_path, monkeypatch):
+    # Without workspace/ the disk probe cannot re-verify a committed YES; the
+    # committed value must be readable back so a regen does not downgrade it.
+    ref = tmp_path / "VERIFICATION_REFERENCE.md"
+    ref.write_text(
+        "# VERIFICATION REFERENCE\n"
+        "\n"
+        "## 1. APK Source Index\n"
+        "\n"
+        "| target_id | package_id(s) | APK method | APK collected? | CSV notes |\n"
+        "|---|---|---|---|---|\n"
+        "| some-target | com.example.app | apkeep | YES | note, with commas |\n"
+        "| other-target | ? | ? | NO | — |\n"
+        "\n"
+        "## 2. Reference URL Catalog\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(gvr, "OUTPUT_PATH", ref)
+    assert gvr.read_previous_apk_collected() == {
+        "some-target": "YES",
+        "other-target": "NO",
+    }
+
+
+def test_previous_apk_collected_missing_file_is_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(gvr, "OUTPUT_PATH", tmp_path / "does-not-exist.md")
+    assert gvr.read_previous_apk_collected() == {}
+
+
 def test_plural_package_ids_still_parsed():
     # The existing plural spelling with indented sub-bullets must keep working.
     text = (

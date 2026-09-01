@@ -70,8 +70,10 @@ device:
       Braun's own instructions — run the built-in skin-tone sensor and patch
       test, match the energy level to your skin tone, never treat broken,
       tanned, tattooed or moled skin, and keep it away from the eyes. Over
-      Bluetooth this app can set the energy level and start, pause or finish a
-      session. This app is EXPERIMENTAL and is not affiliated with, endorsed by,
+      Bluetooth this app reads back the energy level and session results and
+      can start, pause or finish a session; flash energy and firing are
+      controlled on the device itself.
+      This app is EXPERIMENTAL and is not affiliated with, endorsed by,
       or supported by Braun or Procter & Gamble — the manufacturer's manual and
       safety guidance govern.
     acknowledge_required: true

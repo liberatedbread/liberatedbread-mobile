@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://opengreeniot.pigscanfly.ca/device-spec.schema.json",
-  "title": "OpenGreenIoT Device Spec",
-  "description": "Schema for OpenGreenIoT device specification files (BLE and WiFi). CLOSED at the top level and at `device`: every key a spec writes there must be declared here, and bespoke per-device material goes under `protocol_details`. Deeper objects remain open for now, so a spec can still annotate a service or an endpoint freely. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
+  "title": "Liberated Bread Device Spec",
+  "description": "Schema for Liberated Bread device specification files (BLE and WiFi). CLOSED at the top level and at `device`: every key a spec writes there must be declared here, and bespoke per-device material goes under `protocol_details`. Deeper objects remain open for now, so a spec can still annotate a service or an endpoint freely. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
   "type": "object",
   "required": [
     "device"

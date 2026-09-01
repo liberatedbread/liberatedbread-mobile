@@ -430,4 +430,4 @@ python scripts/vector_status.py 192.168.1.50 \
 
 ## Contributors
 
-- @opengreeniot — protocol consolidation, local-first tools
+- @liberatedbread — protocol consolidation, local-first tools

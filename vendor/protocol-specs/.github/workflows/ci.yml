@@ -121,7 +121,17 @@ jobs:
           fi
           msg="pack.json is generated and committed by CI on main."
           msg="$msg Drop it from this branch:"
-          msg="$msg git rm --cached pack.json && git commit -m 'drop generated pack'"
+          # Once CI has published pack.json on main, the merge base carries a
+          # copy: restoring THAT version is the remediation that makes this
+          # diff empty (mirroring the index.json gate above). `git rm` there
+          # would leave a deletion diff against the base and fail the gate
+          # again; it is the right advice only while the base predates the
+          # first publish and the branch added the file outright.
+          if git cat-file -e "$base:pack.json" 2>/dev/null; then
+            msg="$msg git checkout $base -- pack.json && git commit -m 'drop generated pack'"
+          else
+            msg="$msg git rm --cached pack.json && git commit -m 'drop generated pack'"
+          fi
           echo "::error file=pack.json::$msg"
           exit 1
 
@@ -170,13 +180,20 @@ jobs:
           path: pack.json
       - name: Commit them if the specs moved
         run: |
-          if git diff --quiet -- device-specs/index.json pack.json; then
+          # Stage BOTH files before deciding whether anything changed. Until
+          # the first publish lands it, pack.json is untracked on a fresh
+          # checkout — and `git diff` (worktree vs index) never reports an
+          # untracked file, so an unstaged change-check sees only index.json
+          # and silently skips the commit that would create pack.json on
+          # main. `git diff --cached` after `git add` sees a modified tracked
+          # file and a newly-added one alike.
+          git add device-specs/index.json pack.json
+          if git diff --cached --quiet; then
             echo "index.json and pack.json already match the specs; nothing to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add device-specs/index.json pack.json
           git commit -m "chore: rebuild device-specs/index.json + pack.json [skip ci]"
           # A push that lands on main while this job runs rejects ours. Rebase
           # onto it and rebuild rather than retrying the stale commit: both files
@@ -193,11 +210,14 @@ jobs:
             git reset --hard origin/main
             python scripts/generate_index.py
             python scripts/generate_pack.py
-            if git diff --quiet -- device-specs/index.json pack.json; then
+            # Same staged check as above: `commit -a` and an unstaged diff are
+            # both blind to a pack.json that is not tracked on main yet.
+            git add device-specs/index.json pack.json
+            if git diff --cached --quiet; then
               echo "Another run already published these; done."
               exit 0
             fi
-            git commit -am "chore: rebuild device-specs/index.json + pack.json [skip ci]"
+            git commit -m "chore: rebuild device-specs/index.json + pack.json [skip ci]"
           done
           echo "::error::could not push the rebuilt files after 3 attempts" >&2
           exit 1
