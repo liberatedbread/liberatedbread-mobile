@@ -52,6 +52,50 @@ Steps 1–4.
 
 ---
 
+## App ID capabilities — what to enable, now vs later
+
+When you **Register an App ID** (Explicit, `ca.pigscanfly.liberatedbread`), enable
+**none** of the capabilities in that list. The app's one special entitlement,
+**Multicast Networking**, is *not* in the list — it's request-gated (Step 1) and
+appears only after Apple grants it. Everything else the app does on iOS today —
+Bluetooth, mDNS/SSDP discovery, viewing a Wi-Fi camera's MJPEG feed in local mode
+— uses **Info.plist** keys (usage strings + `NSBonjourServices`) + multicast, not
+App-ID capabilities.
+
+Capabilities are not a one-time decision: you can enable more on the App ID
+later and regenerate the profile in minutes (only multicast is slow). A natural
+moment to add any future ones is when you enable **Multicast Networking** on the
+App ID after its grant (you're regenerating the profile then anyway).
+
+**Realistic future capabilities for this app** (add when the feature actually
+ships; keep them OUT of `Runner.entitlements` until then, or App Review will ask
+why an unused entitlement is present):
+
+- **Access Wi-Fi Information** + **Hotspot** (Hotspot Configuration) — *only* if
+  you add **iOS onboarding of a new Wi-Fi device via its own SoftAP** (e.g.
+  getting a Wi-Fi camera onto the network the first time). Note two iOS realities:
+  (1) *using* a Wi-Fi device already on the LAN needs neither — that's plain LAN
+  HTTP, already covered; (2) iOS has **no public API to list nearby SSIDs**, so
+  the Android scan-and-match flow (`WifiNetworkScanner`, `visibleSsids()`) is
+  inert on iOS — an iOS onboarding flow must *join a known SSID/prefix* via
+  `NEHotspotConfiguration` (Hotspot) and read the *current* SSID via
+  `CNCopyCurrentNetworkInfo` (Access Wi-Fi Information).
+- **In-App Purchase** — if you monetize (paid spec packs / remove ads).
+- **Associated Domains** — if liberatedbread.com should deep-link into the app.
+- **Push Notifications** — only with a backend doing remote push (local
+  notifications need no capability).
+
+**Do NOT enable** (common misfires for a "controls home devices" app): HomeKit,
+Matter/Thread/Media Device Discovery (the app uses its own BLE/LAN protocols, not
+Apple's ecosystem); Network Extensions / Custom Network Protocol / Multipath /
+Personal VPN (those are VPN/filter/system-network providers, not app sockets);
+Wireless Accessory Configuration (needs MFi); Wi-Fi Aware; iCloud / App Groups /
+Sign In with Apple. Background BLE is not here anyway — it's an Info.plist
+`UIBackgroundModes` (`bluetooth-central`) key, only if you need BLE with the
+screen off.
+
+---
+
 ## Step 1 — File the multicast entitlement request  ⏳ *(do first; grant takes days)*
 
 The app's Wi-Fi discovery (mDNS + SSDP) needs `com.apple.developer.networking.multicast`.
