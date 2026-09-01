@@ -434,6 +434,11 @@ class FakeSpecCodec implements SpecCodec {
       networkCredentials;
 
   @override
+  Future<String> deriveCredentialValue(
+          {required String derivation, required String value}) async =>
+      'derived:$derivation:$value';
+
+  @override
   Future<SoapRequestDto> renderNetworkCommand({
     required String specYaml,
     required String commandName,

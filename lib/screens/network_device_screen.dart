@@ -675,11 +675,23 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// state poll that failed on it can succeed, and the card that asked for it
   /// can leave.
   Future<void> _saveCredential(String name, String value) async {
+    // A declared derivation means the person typed the human-readable secret
+    // (Dyson's sticker Wi-Fi password) and the wire value is computed from it;
+    // storing what was typed would hand the broker the wrong password forever.
+    final derivation = _missingCredentials
+        .where((c) => c.name == name)
+        .map((c) => c.derivation)
+        .firstOrNull;
+    final stored = derivation == null
+        ? value
+        : await ref
+            .read(specCodecProvider)
+            .deriveCredentialValue(derivation: derivation, value: value);
     // A failed write (a locked keystore) propagates: the credentials card
     // catches it and tells the person, which nothing here used to.
     await ref
         .read(deviceCredentialStoreProvider)
-        .save(_credentialIdentity, name, value);
+        .save(_credentialIdentity, name, stored);
     // The screen can be gone by the time the keychain answers, and the
     // refresh below reads providers through a ref that death disposed.
     if (!mounted) return;

@@ -172,6 +172,11 @@ class RealSpecCodec implements SpecCodec {
       rust.credentialsForDevice(specYaml: specYaml);
 
   @override
+  Future<String> deriveCredentialValue(
+          {required String derivation, required String value}) =>
+      rust.deriveCredentialValue(derivation: derivation, value: value);
+
+  @override
   Future<SoapRequestDto> renderNetworkCommand({
     required String specYaml,
     required String commandName,

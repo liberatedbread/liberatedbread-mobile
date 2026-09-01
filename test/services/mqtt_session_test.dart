@@ -332,6 +332,32 @@ void main() {
       expect(identical(mqttConnectorFor(36669), tlsConnect), isTrue);
     });
   });
+
+  group('selectMqttConnector', () {
+    test('the spec declaration wins over the port convention', () {
+      // A spec that DECLARES its broker's transport security is believed on
+      // any port — the port rule is only the fallback convention.
+      expect(
+          identical(selectMqttConnector(declared: 'plaintext', port: 8883),
+              plainConnect),
+          isTrue);
+      expect(
+          identical(
+              selectMqttConnector(declared: 'tls', port: 1883), tlsConnect),
+          isTrue);
+    });
+
+    test('no declaration falls back to the port convention', () {
+      expect(
+          identical(
+              selectMqttConnector(declared: null, port: 1883), plainConnect),
+          isTrue);
+      expect(
+          identical(
+              selectMqttConnector(declared: null, port: 8883), tlsConnect),
+          isTrue);
+    });
+  });
 }
 
 /// A socket whose flush never completes — the shape of a wedged peer with a

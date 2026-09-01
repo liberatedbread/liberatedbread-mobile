@@ -96,6 +96,12 @@ pub struct DeviceSpec {
 /// A device's top-level `mqtt:` block.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Mqtt {
+    /// `plaintext` | `tls` — what the broker's socket speaks, declared so a
+    /// consumer picks its connector from the spec rather than inferring it
+    /// from the port number. Absent: the consumer falls back to the port
+    /// convention (1883 plaintext, everything else TLS).
+    #[serde(default)]
+    pub transport_security: Option<String>,
     #[serde(default)]
     pub auth: Option<MqttAuth>,
     #[serde(flatten)]
@@ -127,6 +133,11 @@ pub struct MqttCredential {
     /// What the value is and where a person gets it — shown on the card.
     #[serde(default)]
     pub description: Option<String>,
+    /// A transformation the client applies to what the person types before
+    /// storing it (`base64_sha512` — Dyson's local MQTT password is derived
+    /// from the sticker Wi-Fi password). Absent: stored as typed.
+    #[serde(default)]
+    pub derivation: Option<String>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
@@ -366,6 +377,15 @@ pub struct SpecCommand {
     /// invocation has already decided.
     #[serde(default)]
     pub arguments: IndexMap<String, serde_yaml::Value>,
+    /// Ordered wire frames for a command whose single invocation is more than
+    /// one frame (milight's night_mode: OFF then, ~100 ms later, OFF|0x80),
+    /// declared instead of [`Self::arguments`]. Typed so the sequence survives
+    /// parsing as data rather than prose; NO transport executes it yet — the
+    /// milight/raw-UDP sender does not exist — and a consumer without
+    /// multi-frame support must treat the command as documentation rather than
+    /// render the first frame alone.
+    #[serde(default)]
+    pub frames: Vec<CommandFrame>,
     /// Values the caller supplies, keyed by the placeholder name.
     #[serde(default)]
     pub parameters: IndexMap<String, SpecCommandParameter>,
@@ -427,6 +447,21 @@ pub struct QuerySource {
     pub item: String,
     /// Attribute carrying the entry's raw value.
     pub value: String,
+}
+
+/// One wire frame of a multi-frame [`SpecCommand`] (see [`SpecCommand::frames`]).
+#[derive(Debug, Clone, Deserialize)]
+pub struct CommandFrame {
+    /// The frame's command byte(s), spelled the way a single command's
+    /// `arguments.command` is.
+    pub command: String,
+    /// The frame's argument value, exactly as a single command's
+    /// `arguments.argument`.
+    #[serde(default)]
+    pub argument: Option<serde_yaml::Value>,
+    /// Milliseconds to wait after this frame before sending the next.
+    #[serde(default)]
+    pub delay_after_ms: Option<u64>,
 }
 
 /// One parameter of a [`SpecCommand`].

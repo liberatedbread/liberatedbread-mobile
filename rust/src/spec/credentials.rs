@@ -71,6 +71,10 @@ pub struct CredentialRequirement {
     /// a touchscreen, out of an account — and a client that needs it has to
     /// ask.
     pub issued_by: Option<CredentialIssuance>,
+    /// A transformation the client applies to what the person types before
+    /// storing it (`base64_sha512`). Only an `mqtt.auth` credential declares
+    /// one today; everywhere else the typed value is the stored value.
+    pub derivation: Option<String>,
 }
 
 impl CredentialRequirement {
@@ -106,6 +110,7 @@ pub fn required_credentials(spec: &DeviceSpec) -> Vec<CredentialRequirement> {
                     description: None,
                     needed_by: Vec::new(),
                     issued_by: None,
+                    derivation: None,
                 });
             // The first description wins, and the rest are the same sentence:
             // Frigidaire repeats its applianceId prose on all thirteen
@@ -126,6 +131,7 @@ pub fn required_credentials(spec: &DeviceSpec) -> Vec<CredentialRequirement> {
                 description: None,
                 needed_by: Vec::new(),
                 issued_by: None,
+                derivation: None,
             })
             .issued_by = Some(issuance);
     }
@@ -148,6 +154,7 @@ pub fn required_credentials(spec: &DeviceSpec) -> Vec<CredentialRequirement> {
                     description: None,
                     needed_by: Vec::new(),
                     issued_by: None,
+                    derivation: None,
                 });
             if entry.description.is_none() {
                 entry.description = pairing.prompt_notes.clone();
@@ -187,9 +194,13 @@ pub fn required_credentials(spec: &DeviceSpec) -> Vec<CredentialRequirement> {
                     description: None,
                     needed_by: Vec::new(),
                     issued_by: None,
+                    derivation: None,
                 });
             if entry.description.is_none() {
                 entry.description = cred.description.clone();
+            }
+            if entry.derivation.is_none() {
+                entry.derivation = cred.derivation.clone();
             }
             if entry.needed_by.is_empty() {
                 entry.needed_by = needed_by.clone();
@@ -443,6 +454,7 @@ mqtt:
         description: The device serial, from its sticker.
       - name: password
         description: Derived from the sticker Wi-Fi password.
+        derivation: base64_sha512
 entities:
   - name: Air Quality
     platform: sensor
@@ -469,6 +481,23 @@ entities:
                 .as_deref(),
             Some("The device serial, from its sticker.")
         );
+        // The password declares a derivation (the person types the sticker
+        // password, the client hashes it); the username declares none.
+        assert_eq!(
+            found
+                .iter()
+                .find(|c| c.name == "password")
+                .unwrap()
+                .derivation
+                .as_deref(),
+            Some("base64_sha512")
+        );
+        assert!(found
+            .iter()
+            .find(|c| c.name == "username")
+            .unwrap()
+            .derivation
+            .is_none());
     }
 
     #[test]

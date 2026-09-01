@@ -275,6 +275,11 @@ abstract class SpecCodec {
   /// obtainable at no other time).
   Future<List<NetworkCredentialDto>> credentialsForDevice(String specYaml);
 
+  /// Apply a spec-declared credential derivation (`base64_sha512`) to what the
+  /// person typed — the sticker password in, the wire value out.
+  Future<String> deriveCredentialValue(
+      {required String derivation, required String value});
+
   /// Render a named command from the spec's `commands` block into a POSTable
   /// SOAP request. [values] carries what the user picked plus any read-back
   /// values fetched from the device; the spec's defaults fill the rest.

@@ -83,6 +83,10 @@ getrandom = "0.2"
 # crates already vendored above for Rabbit Air.
 md-5 = "0.10"
 base64 = "0.22"
+# Credential derivation the catalogue declares (mqtt.auth credentials with
+# `derivation: base64_sha512` — Dyson's local MQTT password is the SHA-512 of
+# the sticker Wi-Fi password, base64-encoded).
+sha2 = "0.10"
 
 # Release profile tuned for the mobile cdylib/staticlib the app ships: the
 # library rides inside every APK/IPA download, so binary size wins over the

@@ -154,6 +154,17 @@ Future<MqttSocket> plainConnect(String host, int port, Duration timeout) async {
 MqttConnect mqttConnectorFor(int port) =>
     port == 1883 ? plainConnect : tlsConnect;
 
+/// The connector for a broker whose spec declares its transport security
+/// (`mqtt.transport_security`), falling back to the port convention
+/// ([mqttConnectorFor]) when the spec says nothing. The declaration wins
+/// because it is the device's own statement; the port is only a convention.
+MqttConnect selectMqttConnector({String? declared, required int port}) =>
+    switch (declared) {
+      'plaintext' => plainConnect,
+      'tls' => tlsConnect,
+      _ => mqttConnectorFor(port),
+    };
+
 /// Adapts a `dart:io` socket to the narrow [MqttSocket] surface.
 class SocketAdapter implements MqttSocket {
   final Socket _socket;

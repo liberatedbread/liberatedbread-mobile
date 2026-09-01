@@ -557,6 +557,18 @@ Future<List<NetworkCredentialDto>> credentialsForDevice(
     RustLib.instance.api
         .crateApiDeviceApiCredentialsForDevice(specYaml: specYaml);
 
+/// Apply a spec-declared credential derivation to what the person typed.
+///
+/// `base64_sha512` — the only derivation the schema declares — is base64 of the
+/// SHA-512 digest of the entered value: Dyson's local MQTT password, computed
+/// from the sticker Wi-Fi password so the person types what is printed rather
+/// than a hash. An unknown name errors instead of silently storing the raw
+/// value under a credential the broker expects derived.
+Future<String> deriveCredentialValue(
+        {required String derivation, required String value}) =>
+    RustLib.instance.api.crateApiDeviceApiDeriveCredentialValue(
+        derivation: derivation, value: value);
+
 /// The UDP port every LIFX device listens on. Exposed so the Dart client need
 /// not hardcode it separately from the protocol module.
 Future<int> lifxPort() => RustLib.instance.api.crateApiDeviceApiLifxPort();
@@ -2894,6 +2906,11 @@ class NetworkCapabilitiesDto {
   /// a specific client id has no session without it.
   final bool mqttClientIdGenerated;
 
+  /// `mqtt.transport_security` — `plaintext` | `tls`, the spec's own
+  /// declaration of what the broker's socket speaks. Absent: the consumer
+  /// falls back to the port convention (1883 plaintext, everything else TLS).
+  final String? mqttTransportSecurity;
+
   const NetworkCapabilitiesDto({
     this.signedSession,
     this.defaultPort,
@@ -2903,6 +2920,7 @@ class NetworkCapabilitiesDto {
     required this.advertisedPortUnreliable,
     this.protocolHandler,
     required this.mqttClientIdGenerated,
+    this.mqttTransportSecurity,
   });
 
   @override
@@ -2914,7 +2932,8 @@ class NetworkCapabilitiesDto {
       tlsSelfSigned.hashCode ^
       advertisedPortUnreliable.hashCode ^
       protocolHandler.hashCode ^
-      mqttClientIdGenerated.hashCode;
+      mqttClientIdGenerated.hashCode ^
+      mqttTransportSecurity.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2928,7 +2947,8 @@ class NetworkCapabilitiesDto {
           tlsSelfSigned == other.tlsSelfSigned &&
           advertisedPortUnreliable == other.advertisedPortUnreliable &&
           protocolHandler == other.protocolHandler &&
-          mqttClientIdGenerated == other.mqttClientIdGenerated;
+          mqttClientIdGenerated == other.mqttClientIdGenerated &&
+          mqttTransportSecurity == other.mqttTransportSecurity;
 }
 
 /// One value a client must hold to drive this device.
@@ -2952,12 +2972,17 @@ class NetworkCredentialDto {
   /// it and no declared flow can mint it.
   final bool mustBeAskedFor;
 
+  /// A transformation the client applies to what the person types before
+  /// storing it — see [`derive_credential_value`]. Absent: store as typed.
+  final String? derivation;
+
   const NetworkCredentialDto({
     required this.name,
     this.description,
     required this.neededBy,
     this.issuedBy,
     required this.mustBeAskedFor,
+    this.derivation,
   });
 
   @override
@@ -2966,7 +2991,8 @@ class NetworkCredentialDto {
       description.hashCode ^
       neededBy.hashCode ^
       issuedBy.hashCode ^
-      mustBeAskedFor.hashCode;
+      mustBeAskedFor.hashCode ^
+      derivation.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2977,7 +3003,8 @@ class NetworkCredentialDto {
           description == other.description &&
           neededBy == other.neededBy &&
           issuedBy == other.issuedBy &&
-          mustBeAskedFor == other.mustBeAskedFor;
+          mustBeAskedFor == other.mustBeAskedFor &&
+          derivation == other.derivation;
 }
 
 /// The setup flow that mints a credential, when the spec declares one.

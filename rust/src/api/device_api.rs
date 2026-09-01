@@ -2170,6 +2170,10 @@ pub struct NetworkCapabilitiesDto {
     /// default, and `required`) keeps the pre-existing rule: a set that pairs on
     /// a specific client id has no session without it.
     pub mqtt_client_id_generated: bool,
+    /// `mqtt.transport_security` — `plaintext` | `tls`, the spec's own
+    /// declaration of what the broker's socket speaks. Absent: the consumer
+    /// falls back to the port convention (1883 plaintext, everything else TLS).
+    pub mqtt_transport_security: Option<String>,
 }
 
 /// Which of a spec's `device.variants[]` the BLE device in front of us could be.
@@ -2237,6 +2241,10 @@ pub fn network_capabilities(spec_yaml: String) -> anyhow::Result<NetworkCapabili
             .and_then(|a| a.client_id.as_deref())
             .map(|c| c == "generated")
             .unwrap_or(false),
+        mqtt_transport_security: spec
+            .mqtt
+            .as_ref()
+            .and_then(|m| m.transport_security.clone()),
     })
 }
 
@@ -3278,6 +3286,9 @@ pub struct NetworkCredentialDto {
     /// Whether a client should ask a person for this value: something needs
     /// it and no declared flow can mint it.
     pub must_be_asked_for: bool,
+    /// A transformation the client applies to what the person types before
+    /// storing it — see [`derive_credential_value`]. Absent: store as typed.
+    pub derivation: Option<String>,
 }
 
 /// Every credential this spec refers to, by name.
@@ -3296,6 +3307,7 @@ pub fn credentials_for_device(spec_yaml: String) -> anyhow::Result<Vec<NetworkCr
             name: requirement.name,
             description: requirement.description,
             needed_by: requirement.needed_by,
+            derivation: requirement.derivation,
             issued_by: requirement
                 .issued_by
                 .map(|issued| NetworkCredentialIssuanceDto {
@@ -3306,6 +3318,24 @@ pub fn credentials_for_device(spec_yaml: String) -> anyhow::Result<Vec<NetworkCr
                 }),
         })
         .collect())
+}
+
+/// Apply a spec-declared credential derivation to what the person typed.
+///
+/// `base64_sha512` — the only derivation the schema declares — is base64 of the
+/// SHA-512 digest of the entered value: Dyson's local MQTT password, computed
+/// from the sticker Wi-Fi password so the person types what is printed rather
+/// than a hash. An unknown name errors instead of silently storing the raw
+/// value under a credential the broker expects derived.
+pub fn derive_credential_value(derivation: String, value: String) -> anyhow::Result<String> {
+    match derivation.as_str() {
+        "base64_sha512" => {
+            use base64::Engine as _;
+            use sha2::{Digest, Sha512};
+            Ok(base64::engine::general_purpose::STANDARD.encode(Sha512::digest(value.as_bytes())))
+        }
+        other => anyhow::bail!("unknown credential derivation `{other}`"),
+    }
 }
 
 // ── LIFX (binary UDP) ───────────────────────────────────────────────────────
@@ -6594,6 +6624,51 @@ device:
             .unwrap()
             .safety_advisory
             .is_none());
+    }
+
+    #[test]
+    fn derive_credential_value_computes_base64_sha512() {
+        // Known vector: python3 -c "import hashlib,base64;
+        //   print(base64.b64encode(hashlib.sha512(b'sticker-wifi-pw').digest()))"
+        assert_eq!(
+            derive_credential_value("base64_sha512".into(), "sticker-wifi-pw".into()).unwrap(),
+            "08P8i36NRiuuDL2rz4OlFke8SpjYarYQA+FDRKOwe0PQTFOsI2B3Jd4/s2baRuiwoMf1pitKRDV9jFtJliUrhA=="
+        );
+        // An unknown derivation errors rather than silently storing the raw
+        // value under a credential the broker expects derived.
+        assert!(derive_credential_value("rot13".into(), "x".into()).is_err());
+    }
+
+    #[test]
+    fn a_multi_frame_command_parses_its_frames() {
+        // milight's night_mode: two frames with a delay between them, declared
+        // as data (`frames`) rather than prose. No transport executes this yet;
+        // this pins that the sequence survives parsing for the one that will.
+        const YAML: &str = r#"
+device:
+  name: "Frame Bridge"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+commands:
+  night_mode:
+    description: "Two frames."
+    transport: "udp"
+    action: "legacy_command"
+    frames:
+      - command: "0x41"
+        argument: 0
+        delay_after_ms: 100
+      - command: "0xC1"
+        argument: 0
+"#;
+        let spec = parse_device_spec(YAML).expect("test spec should parse");
+        let frames = &spec.commands["night_mode"].frames;
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].command, "0x41");
+        assert_eq!(frames[0].delay_after_ms, Some(100));
+        assert_eq!(frames[1].command, "0xC1");
+        assert_eq!(frames[1].delay_after_ms, None);
     }
 
     #[test]
