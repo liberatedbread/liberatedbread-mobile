@@ -87,8 +87,8 @@ SERVICE_UUIDS_URL = f"{NORDIC_BASE}/service_uuids.json"
 # Both hosts reject urllib's default "Python-urllib/x.y" agent, and IEEE in
 # particular rate-limits unidentified clients. Say who we are.
 USER_AGENT = (
-    "opengreeniot-protocol-docs/1.0 (+https://github.com/PigsCanFlyLabs/"
-    "opengreeniot-protocol-docs) registry-sync"
+    "liberatedbread-protocol-specs/1.0 (+https://github.com/liberatedbread/"
+    "liberatedbread-protocol-specs) registry-sync"
 )
 
 

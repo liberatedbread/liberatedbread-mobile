@@ -27,8 +27,11 @@ exiting non-zero if they differ, without writing anything. The volatile
 ``Generated:`` timestamp line is ignored in that comparison so a stale verdict
 means the target docs actually drifted, not merely that the clock moved. See
 the NOT REPRODUCIBLE note in the generated file: the "APK collected?" column
-probes the gitignored workspace/ directory, so --check is only meaningful when
-run against the same workspace state the committed file was generated from.
+probes the gitignored workspace/ directory. When that directory is absent the
+committed column values are carried forward rather than recomputed, so a regen
+(or --check) on a workspace-less clone no longer downgrades rows another
+machine verified — but only a machine with the workspace can truly refresh
+them.
 """
 from __future__ import annotations
 
@@ -48,15 +51,31 @@ APKEEP_DIR = REPO_ROOT / "workspace" / "apks" / "apkeep"
 # Regex for valid Android package names: at least 2 dot-separated segments,
 # each starting with a letter/underscore, containing alphanumeric/underscore.
 # Use non-capturing groups so findall() returns the full match.
-ANDROID_PKG_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+")
+# The lookbehind keeps the match anchored to a token boundary: without it,
+# "far-driver.com" (a vendor download domain in prose) yields the fragment
+# "driver.com" as though it were a standalone package id.
+ANDROID_PKG_RE = re.compile(
+    r"(?<![a-zA-Z0-9_.-])[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+"
+)
 
-# Valid reverse-domain prefixes for filtering out false-positives
-VALID_PKG_PREFIXES = ("com.", "org.", "cn.", "co.", "io.", "net.", "edu.", "gov.", "uk.")
+# A real package id starts with a reverse-domain TLD segment: 2-6 lowercase
+# letters (com, org, io, de, ...). A fixed prefix allowlist was tried first and
+# silently dropped `de.wgsoft.motoscan` — every ccTLD it had not thought of
+# made the committed reference report a declared package id as unknown. The
+# shape check still rejects what the allowlist was for: prose abbreviations
+# ("e.g."), capitalised words, and vendor domains written forwards
+# ("motoscan.de" — first segment too long to be a TLD).
+VALID_TLD_SEGMENT_RE = re.compile(r"[a-z]{2,6}")
 
 
 def is_valid_reverse_domain_pkg(text: str) -> bool:
     """Return True if text looks like a real reverse-domain package ID (not speculative text)."""
-    return text.startswith(VALID_PKG_PREFIXES) and len(text) >= 8
+    first_segment, dot, _ = text.partition(".")
+    return (
+        bool(dot)
+        and VALID_TLD_SEGMENT_RE.fullmatch(first_segment) is not None
+        and len(text) >= 8
+    )
 
 
 def extract_valid_package_ids(text: str) -> list[str]:
@@ -401,7 +420,9 @@ def compute_transport_counts(records: list[dict]) -> dict[str, int]:
         t = rec["transport"].strip().lower() if rec["transport"] else "unknown"
         # Collapse similar transports. OBD is checked first: vehicle targets are reached
         # through a Bluetooth dongle, so they would otherwise land in BLE / Bluetooth.
-        if "obd" in t or "iso 15765" in t or "can bus" in t:
+        # \bcan\b catches a bare "CAN, 500 kbit/s" (bosch-ebike) as well as
+        # "CAN bus" without matching the letters inside "scan" or "American".
+        if "obd" in t or "iso 15765" in t or re.search(r"\bcan\b", t):
             key = "OBD-II / CAN"
         elif "ble" in t and "wi-fi" in t:
             key = "BLE + Wi-Fi"
@@ -412,7 +433,17 @@ def compute_transport_counts(records: list[dict]) -> dict[str, int]:
         elif "bluetooth classic" in t or "bt" in t:
             key = "Bluetooth Classic"
         else:
-            key = t.capitalize() if len(t) < 30 else t[:30]
+            # An uncategorised transport is keyed by its first clause — a raw
+            # 30-char truncation committed labels like "uart (9600 baud ttl,
+            # 6-pin ton" to the reference. Short leading tokens are acronyms
+            # (UART, SPI, I2C); longer ones are words.
+            key = re.split(r"[,(]", t, maxsplit=1)[0].strip()
+            if not key:
+                key = "Unknown"
+            elif len(key) <= 4:
+                key = key.upper()
+            else:
+                key = key.capitalize()
         counts[key] += 1
     return dict(counts)
 
@@ -426,6 +457,37 @@ def compute_maturity_counts(records: list[dict]) -> dict[str, int]:
 
 
 # ── record collection ─────────────────────────────────────────────────────
+
+def read_previous_apk_collected(path: Path | None = None) -> dict[str, str]:
+    """Map target_id -> the "APK collected?" cell of the committed reference.
+
+    The disk probe behind that column reads the gitignored ``workspace/``
+    directory, so a clone without it cannot recompute the column. Regenerating
+    there must not silently downgrade rows another machine verified against
+    its workspace — the committed values are the only record of those probes,
+    so they are read back here and carried forward (see the NOT REPRODUCIBLE
+    note in the generated file).
+    """
+    if path is None:
+        path = OUTPUT_PATH
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8")
+    m = re.search(r"## 1\. APK Source Index\s*\n(.*?)(?=\n## |\Z)", text, re.DOTALL)
+    if not m:
+        return {}
+    previous: dict[str, str] = {}
+    for line in m.group(1).splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.split("|")]
+        # cells[0] is the empty string before the leading pipe; the header row
+        # and the |---| separator row are not data.
+        if len(cells) < 6 or cells[1] in ("", "target_id") or set(cells[1]) <= {"-"}:
+            continue
+        previous[cells[1]] = cells[4]
+    return previous
+
 
 def collect_records() -> tuple[list[dict], dict[str, list[dict]]]:
     """Scan every target doc + targets.csv, touching no output files.
@@ -441,6 +503,14 @@ def collect_records() -> tuple[list[dict], dict[str, list[dict]]]:
     csv_path = TARGETS_DIR / "targets.csv"
     csv_data = read_csv_data(csv_path)
 
+    # Without workspace/ the disk probe returns None for every target; fall
+    # back on what the committed reference already says rather than
+    # downgrading disk-verified rows (empty when the workspace IS present —
+    # then the live probe governs).
+    previous_collected: dict[str, str] = {}
+    if not APKEEP_DIR.is_dir():
+        previous_collected = read_previous_apk_collected()
+
     doc_records: list[dict] = []
 
     for mdf in md_files:
@@ -454,6 +524,14 @@ def collect_records() -> tuple[list[dict], dict[str, list[dict]]]:
         package_ids = meta["package_ids"]
         apk_method = extract_apk_method(text)
         apk_collected = extract_apk_collected(text, package_ids)
+        prev_collected = previous_collected.get(primary_id)
+        if prev_collected == "YES":
+            # A committed YES came from a machine that had the artifact on
+            # disk; with workspace/ absent nothing here can re-prove OR refute
+            # it, so it stands.
+            apk_collected = "YES"
+        elif apk_collected == "?" and prev_collected:
+            apk_collected = prev_collected
         hci_exists = extract_hci_exists(text)
         pcap_exists = extract_pcap_exists(text)
         urls = extract_reference_urls(text)
@@ -543,10 +621,11 @@ def render_report(
     # reflect one working copy's download cache, so say so here.
     lines.append(
         "> **NOT REPRODUCIBLE**: the \"APK collected?\" column probes the "
-        "gitignored `workspace/` directory, so regenerating this file "
-        "elsewhere rewrites rows and shifts the maturity counts. It cannot "
-        "be CI-checked the way `device-specs/index.json` is. Tracked in "
-        "issue #18."
+        "gitignored `workspace/` directory. Where that directory is absent "
+        "the generator carries the previously committed value forward "
+        "instead of downgrading it, but only a machine with the workspace "
+        "can genuinely refresh the column — it cannot be CI-checked the way "
+        "`device-specs/index.json` is. Tracked in issue #18."
     )
     lines.append("")
     lines.append(f"Generated: {generated_at}")
