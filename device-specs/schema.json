@@ -5050,9 +5050,18 @@
     },
     "mqtt": {
       "type": "object",
-      "description": "MQTT-transport declarations that are not commands or entities. Today: the broker-login `auth` block, for a device whose readings ride MQTT but which declares no `commands` (so no `credential:` parameter names its login).",
+      "description": "MQTT-transport declarations that are not commands or entities: the broker's transport security, and the broker-login `auth` block for a device whose readings ride MQTT but which declares no `commands` (so no `credential:` parameter names its login).",
       "additionalProperties": false,
       "properties": {
+        "transport_security": {
+          "type": "string",
+          "enum": [
+            "plaintext",
+            "tls"
+          ],
+          "description": "What the broker's socket speaks, declared explicitly so a consumer picks its connector from the SPEC rather than inferring it from the port number (the port convention -- 1883 plaintext, everything else TLS -- remains the consumer's fallback for specs that do not declare this). `plaintext`: no TLS at all; a TLS handshake against it fails before MQTT login (Dyson's 1883 broker). `tls`: TLS, typically with a self-signed device certificate.",
+          "$comment": "Per-generation transport security (hisense-vidaa's plain/tls_selfsigned/mtls generations on one port) stays in the vendor-namespaced protocol_details block; this field is for devices whose broker speaks exactly one thing."
+        },
         "auth": {
           "type": "object",
           "description": "How a client authenticates to the device's MQTT broker. Without this, a readings-only MQTT device (a Dyson purifier: entities, no commands) is a silent dead end -- nothing tells a consumer what login to ask for, so no credentials card appears and the readings stay unknown. This is the MQTT analogue of a websocket surface's `pairing.credential_name`.",
@@ -5074,7 +5083,14 @@
                   },
                   "description": {
                     "type": "string",
-                    "description": "What the value is and where a person gets it -- shown on the credentials card."
+                    "description": "What the value is and where a person gets it -- shown on the credentials card. When `derivation` is set, describe the value the person TYPES (the sticker password), not the derived wire value."
+                  },
+                  "derivation": {
+                    "type": "string",
+                    "enum": [
+                      "base64_sha512"
+                    ],
+                    "description": "A transformation the CLIENT applies to what the person types, before storing or sending it -- so the person enters the human-readable secret and the client computes the wire value. `base64_sha512`: base64 of the SHA-512 digest of the entered value (Dyson's local MQTT password, derived from the sticker Wi-Fi password). Omitted: the entered value IS the wire value."
                   }
                 }
               }
@@ -5157,6 +5173,37 @@
                 "number",
                 "boolean"
               ]
+            }
+          },
+          "frames": {
+            "type": "array",
+            "minItems": 2,
+            "description": "Ordered wire frames for a command whose single invocation is MORE THAN ONE frame -- milight's night_mode is OFF then, ~100 ms later, OFF|0x80. Each item is shaped like a one-frame command's `arguments` (`command` + `argument`), plus `delay_after_ms`: the pause before the NEXT frame. Declared INSTEAD of `arguments` -- a command carries one or the other. A consumer without multi-frame support must treat the whole command as documentation rather than render the first frame alone.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "command"
+              ],
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "The frame's command byte(s), spelled the way this block spells a single command's `arguments.command`."
+                },
+                "argument": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ],
+                  "description": "The frame's argument value, exactly as a single command's `arguments.argument`."
+                },
+                "delay_after_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Milliseconds to wait after sending this frame before the next one. Omit on the last frame."
+                }
+              }
             }
           },
           "body": {

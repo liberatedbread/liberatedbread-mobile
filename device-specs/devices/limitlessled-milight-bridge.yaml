@@ -352,12 +352,16 @@ commands:
     notes: "Send a zone ON first; hue applies to the most-recently-addressed zone(s)."
     verification: "reported"
   night_mode:
-    description: "Very dim white — a two-frame sequence: send OFF then, ~100 ms later, OFF|0x80. Each frame is one legacy_command."
+    description: "Very dim white — a two-frame sequence: send OFF then, ~100 ms later, OFF|0x80."
     transport: "udp"
     action: "legacy_command"
-    arguments:
-      sequence: "<off_cmd> 00 55, then (<off_cmd>|0x80) 00 55 after 100 ms"
-    notes: "Two legacy_command frames back to back. Example zone 1 RGBW: 46 00 55 then C6 00 55."
+    frames:
+      - command: "0x41 (all) or 0x46/0x48/0x4A/0x4C (zone 1-4)"
+        argument: 0
+        delay_after_ms: 100
+      - command: "0xC1 (all) or 0xC6/0xC8/0xCA/0xCC (zone 1-4)"
+        argument: 0
+    notes: "Each frame renders exactly like a single legacy_command's arguments (<cmd> 00 55 to port 8899); delay_after_ms is the pause before the NEXT frame. Example zone 1 RGBW: 46 00 55 then, 100 ms later, C6 00 55 (0x46|0x80)."
     verification: "reported"
 
 entities:
