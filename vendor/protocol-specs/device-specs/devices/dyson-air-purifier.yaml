@@ -240,6 +240,10 @@ evidence:
         See the ble block for what the service is for.
 
 mqtt:
+  # The broker speaks plaintext MQTT on 1883; 8883 (TLS) is closed (verified
+  # live 2026-08-14). Declared so a consumer picks the plaintext connector from
+  # the spec rather than inferring it from the port number.
+  transport_security: "plaintext"
   auth:
     # A readings-only device: no command names the broker login via a
     # `credential:` parameter, so declare it here — otherwise the app has no
@@ -254,9 +258,10 @@ mqtt:
           the Wi-Fi/BLE name, e.g. F6V-US-XXXXXXXX).
       - name: "password"
         description: >
-          The local MQTT password: base64 of the SHA-512 digest of the sticker
-          Wi-Fi password. Deriving it from the sticker password automatically is
-          a separate backlog item; until then, enter the derived value.
+          The Wi-Fi password printed on the machine's sticker. Enter it as
+          printed — the client derives the local MQTT password from it (base64
+          of its SHA-512 digest).
+        derivation: "base64_sha512"
 
 mqtt_topics:
   - topic: "{productType}/{serial}/status/current"
