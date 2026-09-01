@@ -198,6 +198,32 @@ fn manifest_and_spec_files_agree() {
     }
 }
 
+/// The vendored milight spec's `night_mode` is the catalogue's one multi-frame
+/// command. Pin that the sequence arrives as structured `frames` (two of them,
+/// with the 100 ms delay), so a spec refresh that regresses it to the old
+/// opaque prose — the shape nothing can ever execute — fails here instead of
+/// shipping documentation where data was.
+#[test]
+fn the_vendored_milight_night_mode_carries_structured_frames() {
+    let raw = fs::read_to_string(
+        repo_root()
+            .join("vendor/protocol-specs/device-specs/devices/limitlessled-milight-bridge.yaml"),
+    )
+    .expect("the milight spec should be vendored");
+    let spec = parse_device_spec(&raw).expect("the vendored milight spec should parse");
+    let frames = &spec.commands["night_mode"].frames;
+    assert_eq!(frames.len(), 2, "OFF, then OFF|0x80");
+    assert_eq!(
+        frames[0].delay_after_ms,
+        Some(100),
+        "the pause between the two frames is part of the protocol"
+    );
+    assert!(
+        frames[1].delay_after_ms.is_none(),
+        "nothing follows the last frame"
+    );
+}
+
 /// The shipped asset and the vendored test fixture are the same document by
 /// construction: `tests/specs/` holds verbatim upstream copies, and the asset
 /// is what the app actually loads at runtime. Pin semantic identity — both
