@@ -12,7 +12,7 @@ H60A0), non-segmented strips (H6110, H614B/H614E, H6159, H6160, H6178), car
 lights (H6114, H6118, H6194) and assorted older strips. All speak the
 shared Govee 20-byte BLE protocol on service `00010203-…-1910`,
 characteristic `…2b11` (write and notify on the same characteristic).
-"Classic" means color is whole-device only — there are no per-segment
+"Classic" means colour is whole-device only — there are no per-segment
 commands; units that report segment support instead answer the extended
 commands in [Govee RGBIC / DreamColor Lights](govee-rgbic-light.md), which
 is the superset spec.

@@ -178,7 +178,7 @@ services:
                 min: 0
                 max: 255
           set_foreground_color:
-            description: "Set text foreground color (R,G,B)"
+            description: "Set text foreground colour (R,G,B)"
             template: [0x06, 0x46, 0x43, "{flag}", "{red}", "{green}", "{blue}"]
             parameters:
               flag:

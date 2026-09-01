@@ -14,7 +14,7 @@ account and no cloud, and even their firmware updates are public downloads — a
 friendly target for local control. The full machine-readable protocol is in
 [`device-specs/devices/astral-hoops.yaml`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/astral-hoops.yaml).
 
-Everything the app does works locally: mode and color control, per-prop settings, custom
+Everything the app does works locally: mode and colour control, per-prop settings, custom
 POV pattern upload, and firmware OTA all run over the BLE connection. The app's only network
 use is fetching firmware images and pattern packs from public HTTPS URLs.
 
@@ -121,7 +121,7 @@ been replayed against a live unit by this project.
 - `&M` payload semantics and the mode/item index tables (they live in app UI resources).
 - Whether the XMODEM block path in the bootloader is still used, or legacy.
 - Exact gamma-correction table used for pattern upload (a standard LED gamma ramp is a close
-  approximation; capture for bit-exact colors).
+  approximation; capture for bit-exact colours).
 
 ## Tools Used
 

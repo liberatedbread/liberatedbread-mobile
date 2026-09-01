@@ -202,7 +202,7 @@ protocol_details:
     legacy_command_frame:
       description: >
         Every legacy (v1-v5) command is exactly 3 bytes: the command byte, the
-        argument byte (0x00 for all commands except brightness and color), and
+        argument byte (0x00 for all commands except brightness and colour), and
         the constant terminator 0x55. Send to UDP 8899 (TCP 8899 also accepts
         them on the observed unit). Repeat safe commands ~3 times with a
         >=100 ms pause between sends — the bridge-to-bulb RF hop drops packets
@@ -337,7 +337,7 @@ commands:
         description: "0x02 dimmest .. 0x1B brightest. Send a zone ON first; the level applies to the most-recently-addressed zone(s)."
     verification: "reported"
   set_color:
-    description: "Set RGBW color — command 0x40 with a hue byte."
+    description: "Set RGBW colour — command 0x40 with a hue byte."
     transport: "udp"
     action: "legacy_command"
     arguments:
@@ -348,7 +348,7 @@ commands:
         type: "uint8"
         min: 0
         max: 255
-        description: "Color wheel starting at violet: 0x00 violet, 0x10 royal blue, 0x60 green, 0xB0 red, 0xF0 lavender."
+        description: "Colour wheel starting at violet: 0x00 violet, 0x10 royal blue, 0x60 green, 0xB0 red, 0xF0 lavender."
     notes: "Send a zone ON first; hue applies to the most-recently-addressed zone(s)."
     verification: "reported"
   night_mode:

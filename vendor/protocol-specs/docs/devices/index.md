@@ -1,6 +1,6 @@
 # Device Registry
 
-A catalog of IoT devices we've documented (or are documenting).
+A catalogue of IoT devices we've documented (or are documenting).
 
 | Status | Meaning |
 |--------|---------|

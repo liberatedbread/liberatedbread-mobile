@@ -307,7 +307,7 @@ protocol_details:
         KEYLIST array can string several key events into one request.
         Codesets are families: 0 ASCII (channel digits 0-9 are codes
         48-57), 2 transport, 3 D-pad, 4 navigation, 5 audio, 6 video, 7
-        input, 8 channel, 9 color/exit, 11 power. The full (codeset, code)
+        input, 8 channel, 9 colour/exit, 11 power. The full (codeset, code)
         table this spec implements lives in the `commands` block below;
         pyvizio const.py is the source of record. Home Assistant
         additionally documents a `guide` command whose codeset/code pair
@@ -665,7 +665,7 @@ commands:
     arguments: {CODESET: 4, CODE: 15, ACTION: "KEYPRESS"}
     verification: "reported"
   press_exit:
-    description: "Exit the current menu (color codeset)."
+    description: "Exit the current menu (colour codeset)."
     transport: "http"
     method: "PUT"
     path: "/key_command/"

@@ -52,7 +52,7 @@ device:
     (MTU - 3) byte chunks, and after every (buffer_size / chunk_size) chunks a
     ContinueSending notification (type 255) carries the offset to RESUME FROM — use
     that offset, not your own cursor. A PauseSending response means a bad MTU (chunks
-    too large OR too small). GetDisplayInfo returns width, height, color depth (16 mono /
+    too large OR too small). GetDisplayInfo returns width, height, colour depth (16 mono /
     255 RGB), frame limit, brightness and font info — query it instead of hardcoding
     a panel size.
     RESOLVED: the 0xFF20 framed transport is the SPOTLED panel protocol, not an
@@ -64,8 +64,8 @@ device:
     (led_on 0xAA, led_off 0xBB, check_device 0x01, set_color cmd 0x0C) HIGH —
     set_color is 0x0C per two independent sources (monty68/uniled led_chord.py
     SET_COLOR=12; and7ey's gist derived from the LED CHORD app), while 0x04 is
-    SET_RGB_SEQ (color order): sending [r,g,b,0x04] reprograms the chip's RGB
-    sequence instead of setting a color. The 0xFF20 framing, command IDs, record
+    SET_RGB_SEQ (colour order): sending [r,g,b,0x04] reprograms the chip's RGB
+    sequence instead of setting a colour. The 0xFF20 framing, command IDs, record
     types and effect values are HIGH (python-spotled). The detailed per-opcode
     command tables below were transcribed to scratch from a secondary source and
     are NOT all independently re-verified — treat individual effect/brightness
@@ -209,7 +209,7 @@ services:
             description: "SP107E: Turn off (cmd 0xBB)"
             value: [0x00, 0x00, 0x00, 0xBB]
           sp107e_set_color:
-            description: "SP107E: Set static RGB color (cmd 0x0C — NOT 0x04; 0x04 is SET_RGB_SEQ color order and would reprogram the chip's RGB sequence)"
+            description: "SP107E: Set static RGB colour (cmd 0x0C — NOT 0x04; 0x04 is SET_RGB_SEQ colour order and would reprogram the chip's RGB sequence)"
             template: ["{red}", "{green}", "{blue}", 0x0C]
             parameters:
               red:
@@ -250,7 +250,7 @@ services:
             description: "SP110E: Turn off (secondary source, verify)"
             value: [0x00, 0x00, 0x00, 0xAB]
           sp110e_set_color:
-            description: "SP110E: Set static RGB color (secondary source, verify)"
+            description: "SP110E: Set static RGB colour (secondary source, verify)"
             template: ["{red}", "{green}", "{blue}", 0x1E]
             parameters:
               red:
@@ -350,7 +350,7 @@ services:
             value: [0x04, 0x10, 0x00, 0x00]
           spotled_get_display_info:
             description: >
-              SPOTLED: query panel geometry — width, height, color depth
+              SPOTLED: query panel geometry — width, height, colour depth
               (16 mono / 255 RGB), frame limit, brightness, font info (11-byte reply).
               Use this instead of hardcoding a panel size.
             value: [0x04, 0x12, 0x00, 0x00]

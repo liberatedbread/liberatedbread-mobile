@@ -77,7 +77,7 @@ device:
     no documented model-specific code path — listed as
     compatible-but-undocumented.
 
-    Timing and scan behavior (BBQ-4BW, from the app's handler delays):
+    Timing and scan behaviour (BBQ-4BW, from the app's handler delays):
     ~500 ms settle after connect before the handshake write, ~120 ms
     delays between chained init commands, and an auto-connect RSSI
     threshold of > -85 dBm (from its BBQ-4BW handler chain).
@@ -419,10 +419,10 @@ services:
               description: "Turn LCD backlight off."
             - name: "get_probe_color"
               hex: "17000000000000"
-              description: "Query probe LED colors."
+              description: "Query probe LED colours."
             - name: "set_probe_color"
               hex_pattern: "17XXXXXXXX0000"
-              description: "Set probe LED colors (8 hex chars, 2 per probe)."
+              description: "Set probe LED colours (8 hex chars, 2 per probe)."
 
       - uuid: "0000ff03-0000-1000-8000-00805f9b34fb"
         name: "response_channel_a"
@@ -477,7 +477,7 @@ services:
               # not dispatched anywhere in the BBQ-4BW handler.
               description: "Light switch response. 0x01=on, 0x00=off."
             - prefix: "17"
-              description: "Probe color response. 8 hex chars, 2 per probe."
+              description: "Probe colour response. 8 hex chars, 2 per probe."
             - prefix: "fffe"
               description: "Device power-off notification."
 
@@ -597,7 +597,7 @@ ble:
       write fcXXXXXXXXXXXX to ff02 →
       read ff04 (status) → read ff01 (temps) → read 2a19 (battery) →
       query all settings (target temp per probe, unit, display time, compensation,
-      sound, firmware, alarm, wifi, light, probe color).
+      sound, firmware, alarm, wifi, light, probe colour).
 
       Timing: the app waits ~500 ms after connect before the first write,
       and chains subsequent init commands with ~120 ms handler delays;

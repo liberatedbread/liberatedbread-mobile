@@ -27,7 +27,7 @@ you have.
     the unit is a new-board revision and uses **iLEDColor**; older units stay on **SPOTLED**.
     The two apps are not interchangeable.
 
-The v1 skin is a strip/pixel product — LED CHORD sets colors, effects and speed on an SPI
+The v1 skin is a strip/pixel product — LED CHORD sets colours, effects and speed on an SPI
 controller. From v2 onward the product is a genuine addressable **matrix panel** where the app
 is a bitmap/GIF design tool: you draw, import an image or GIF from your camera roll, or pull from
 the app's content library, and the app renders it to the panel's pixel geometry and uploads frames
@@ -36,7 +36,7 @@ over BLE. Dream Skin 3.0 is advertised at 2048 LEDs (double the 2.0 panel).
 !!! warning "Unverified: panel geometry"
     The 2048-LED figure is a vendor claim. The pixel arrangement (64×32 is the obvious candidate)
     has **not** been confirmed here. Do not hardcode it — the SPOTLED protocol has a
-    `GetDisplayInfoCommand` that returns the panel's real width/height/color depth; query it.
+    `GetDisplayInfoCommand` that returns the panel's real width/height/colour depth; query it.
 
 ## Hardware
 
@@ -53,8 +53,8 @@ over BLE. Dream Skin 3.0 is advertised at 2048 LEDs (double the 2.0 panel).
 
 ### LED CHORD (`com.spled.pzse`) — v1
 
-Generic SP107E/SP110E controller app. Not a design tool: it picks from a fixed catalog of
-built-in effects and sets color, brightness and speed. Rated ~3.3 on Play.
+Generic SP107E/SP110E controller app. Not a design tool: it picks from a fixed catalogue of
+built-in effects and sets colour, brightness and speed. Rated ~3.3 on Play.
 
 ### SPOTLED (`com.led.spotled`) — v2 and early v3
 
@@ -99,7 +99,7 @@ The essentials for a Lunchbox panel:
 
 - Bootstrap by enabling notifications, then `GetBufferSize` (`04 14 00 00`) and `GetDisplayInfo`
   (`04 12 00 00`). Both are required — chunk pacing and rendering depend on them.
-- **Query geometry, never assume it.** `GetDisplayInfo` returns real width, height, color depth
+- **Query geometry, never assume it.** `GetDisplayInfo` returns real width, height, colour depth
   (16 mono / 255 RGB), frame limit and brightness. The 2048-LED figure on the v3 box is marketing.
 - Content is uploaded to `0xFF22` as bitmap frames wrapped in a 15-byte header plus typed records
   (brightness is record type 14, screen mode 15, animation frames 96).

@@ -9,7 +9,7 @@
 
 The Brava Oven is a countertop smart oven that cooks with six infrared
 lamps ("Pure Light Cooking") across three zones, watched by an internal
-camera, with a wired temperature probe and a color touchscreen instead of
+camera, with a wired temperature probe and a colour touchscreen instead of
 knobs. It is documented here because its maker is gone and the oven is one
 of the most cloud-dependent devices in this registry: **every smart
 function — recipes, app control, telemetry, camera, even account linking —

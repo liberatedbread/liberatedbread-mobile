@@ -8,7 +8,7 @@
 ## Overview
 
 The AdMore Light Bar Pro is a Bluetooth-enabled motorcycle brake light bar that provides
-tail light, brake light, progressive amber turn signals, hazard flasher, and license plate
+tail light, brake light, progressive amber turn signals, hazard flasher, and licence plate
 illumination. The PRO model includes an accelerometer for deceleration-triggered brake light
 activation and a BLE interface for configuring settings via the free AdMore Connect app.
 

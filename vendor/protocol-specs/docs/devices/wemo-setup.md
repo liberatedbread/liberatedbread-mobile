@@ -1,7 +1,7 @@
 # Wemo Setup, Factory Reset and Rebinding
 
 > **Status**: In Progress — flow documented from public implementations, not yet replayed against hardware
-> **Applies to**: every Wemo device family in [the catalog](wemo-devices.md)
+> **Applies to**: every Wemo device family in [the catalogue](wemo-devices.md)
 > **Prerequisite**: none — the Belkin cloud is not involved at any point
 
 [Discovery and control](wemo-devices.md) assume a Wemo device is already on your

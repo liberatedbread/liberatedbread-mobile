@@ -143,7 +143,7 @@ NORMAL OPERATION (subsequent connections):
 
 ### gRPC Service: ExternalInterface (69 RPCs)
 
-Complete catalog from `external_interface.proto`. All listed with their REST gateway
+Complete catalogue from `external_interface.proto`. All listed with their REST gateway
 endpoints where available.
 
 #### Version & Authentication
@@ -332,7 +332,7 @@ repo (v1.2.18, 2026-05-10):
    `ep`). Works from any starting firmware version.
 4. **Clear user data** via the diagnostics menu (double-press button,
    lift/wheel navigation to CLEAR USER DATA → CONFIRM) — technically
-   optional but strongly recommended; skipping it causes "weird behavior".
+   optional but strongly recommended; skipping it causes "weird behaviour".
 5. **Authenticate** against the local wire-pod instance (via the same web
    page or, on some builds, wire-pod's inbuilt BLE): ACTIVATE, then save
    settings. The wiki warns this step commonly needs several retries

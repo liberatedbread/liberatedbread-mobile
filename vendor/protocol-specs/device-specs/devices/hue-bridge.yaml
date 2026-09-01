@@ -583,7 +583,7 @@ http_endpoints:
       guidance is roughly ten light writes a second and far fewer
       whole-bridge reads. Real replies carry more keys per light than the
       example (capabilities, config, swupdate); the example is the
-      load-bearing subset, with one color light that is on and one dimmable
+      load-bearing subset, with one colour light that is on and one dimmable
       light that is off.
     response_body:
       content_type: "application/json"
@@ -618,7 +618,7 @@ http_endpoints:
     path: "/api/{username}/lights/{id}/state"
     name: "Set Light State"
     description: >
-      Set on/off, brightness, color, color temperature, effects, or alert
+      Set on/off, brightness, colour, colour temperature, effects, or alert
       state for a light. The reply acknowledges each changed attribute (see
       the example) rather than reporting resulting state, so a client reads
       Lights back after writing. Sending bri (or any modifiable attribute)
@@ -639,21 +639,21 @@ http_endpoints:
           type: "integer"
           min: 0
           max: 65535
-          description: "Hue angle scaled to 16 bits (65535 ≈ 360°). Color lights only."
+          description: "Hue angle scaled to 16 bits (65535 ≈ 360°). Colour lights only."
         - name: "sat"
           type: "integer"
           min: 0
           max: 254
-          description: "Saturation, 0 white to 254 full color. Color lights only."
+          description: "Saturation, 0 white to 254 full colour. Colour lights only."
         - name: "xy"
           type: "array"
-          description: "CIE 1931 [x, y] point, each 0.0–1.0. The colormode color apps usually drive."
+          description: "CIE 1931 [x, y] point, each 0.0–1.0. The colormode colour apps usually drive."
         - name: "ct"
           type: "integer"
           min: 153
           max: 500
           unit: "mired"
-          description: "Color temperature in mireds: 153 ≈ 6500 K cold, 500 = 2000 K warm."
+          description: "Colour temperature in mireds: 153 ≈ 6500 K cold, 500 = 2000 K warm."
         - name: "transitiontime"
           type: "integer"
           unit: "100ms"
@@ -715,7 +715,7 @@ entities:
       state. Brightness is 1–254 (see light_set_brightness). state.reachable
       is worth honouring when rendering: a bulb powered off at the wall
       keeps its last state here with reachable false, and a toggle drawn
-      live for it is a lie. Color and color temperature are deliberately
+      live for it is a lie. Colour and colour temperature are deliberately
       not bound yet — a set_color role needs multi-value parameters
       (xy or ct plus colormode) that no consumer resolves today; the state
       fields are documented on Set Light State for when one does.

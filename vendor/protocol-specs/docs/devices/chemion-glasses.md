@@ -8,7 +8,7 @@
 ## Overview
 
 CHEMION glasses are sunglasses with a 9×24 LED matrix across the front; the CHEMION
-HAT is a cap with a 12×32 color LED matrix. Both are driven from the CHEMION phone app
+HAT is a cap with a 12×32 colour LED matrix. Both are driven from the CHEMION phone app
 (Android package `com.neofect.chemion`), which doubles as a design tool and a storefront
 for downloadable content packs. The store and login live in the vendor cloud — **the
 control protocol does not**. Everything the app does to the device is one BLE frame

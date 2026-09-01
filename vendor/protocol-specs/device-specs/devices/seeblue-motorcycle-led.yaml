@@ -175,7 +175,7 @@ services:
                 min: 0
                 max: 255
           direct_set_color_1:
-            description: "Direct protocol 0x01 command 1: set RGB color 1"
+            description: "Direct protocol 0x01 command 1: set RGB colour 1"
             protocol_id: 0x01
             command_id: 1
             template: [0x01, "{red}", "{green}", "{blue}"]
@@ -223,12 +223,12 @@ services:
                 min: 1
                 max: 255
           direct_command_5_reserved:
-            description: "Direct protocol 0x01 command 5: not observed in analyzed APKs; reserved gap between mode and color 2"
+            description: "Direct protocol 0x01 command 5: not observed in analyzed APKs; reserved gap between mode and colour 2"
             protocol_id: 0x01
             command_id: 5
             observed: false
           direct_set_color_2:
-            description: "Direct protocol 0x01 command 6: set RGB color 2"
+            description: "Direct protocol 0x01 command 6: set RGB colour 2"
             protocol_id: 0x01
             command_id: 6
             template: [0x06, "{red}", "{green}", "{blue}"]
@@ -322,7 +322,7 @@ services:
               zones full-brightness white, first mode, speed 0). The Direct
               dialect's only power path is the full-state snapshot, so a
               constant ON necessarily writes a whole defined state; a client
-              wanting to preserve the current colors/mode should send
+              wanting to preserve the current colours/mode should send
               full_settings_snapshot itself.
             verification: "reported"
             protocol_id: 0x10
@@ -364,7 +364,7 @@ services:
             ui_id: 0
             value: [0x05, 0x00, 0x00]
           ledglow_v2_color_a:
-            description: "LEDGlow V2 UI change ID 2: color A RGB"
+            description: "LEDGlow V2 UI change ID 2: colour A RGB"
             protocol_id: 0x10
             ui_id: 2
             template: [0x05, 0x02, "{red}", "{green}", "{blue}"]
@@ -382,7 +382,7 @@ services:
                 min: 0
                 max: 255
           ledglow_v2_color_b:
-            description: "LEDGlow V2 UI change ID 3: color B RGB"
+            description: "LEDGlow V2 UI change ID 3: colour B RGB"
             protocol_id: 0x10
             ui_id: 3
             template: [0x05, 0x03, "{red}", "{green}", "{blue}"]
@@ -400,7 +400,7 @@ services:
                 min: 0
                 max: 255
           ledglow_v2_color_c:
-            description: "LEDGlow V2 UI change ID 4: color C RGB"
+            description: "LEDGlow V2 UI change ID 4: colour C RGB"
             protocol_id: 0x10
             ui_id: 4
             template: [0x05, 0x04, "{red}", "{green}", "{blue}"]
@@ -448,7 +448,7 @@ services:
                 min: 0
                 max: 255
           ledglow_v2_million_color_a:
-            description: "LEDGlow V2 UI change ID 8: million color A"
+            description: "LEDGlow V2 UI change ID 8: million colour A"
             protocol_id: 0x10
             ui_id: 8
             template: [0x05, 0x08, "{value}"]
@@ -458,7 +458,7 @@ services:
                 min: 0
                 max: 255
           ledglow_v2_million_color_b:
-            description: "LEDGlow V2 UI change ID 9: million color B"
+            description: "LEDGlow V2 UI change ID 9: million colour B"
             protocol_id: 0x10
             ui_id: 9
             template: [0x05, 0x09, "{value}"]
@@ -468,7 +468,7 @@ services:
                 min: 0
                 max: 255
           ledglow_v2_million_color_c:
-            description: "LEDGlow V2 UI change ID 10: million color C"
+            description: "LEDGlow V2 UI change ID 10: million colour C"
             protocol_id: 0x10
             ui_id: 10
             template: [0x05, 0x0A, "{value}"]
@@ -607,7 +607,7 @@ services:
                 min: 0
                 max: 255
           ledglow_v2_courtesy_color:
-            description: "LEDGlow V2 system UI ID 0xF6: courtesy color"
+            description: "LEDGlow V2 system UI ID 0xF6: courtesy colour"
             protocol_id: 0x10
             ui_id: 0xF6
             template: [0x05, 0xF6, "{red}", "{green}", "{blue}"]
@@ -625,7 +625,7 @@ services:
                 min: 0
                 max: 255
           ledglow_v2_backlight_color:
-            description: "LEDGlow V2 system UI ID 0xF7: backlight color"
+            description: "LEDGlow V2 system UI ID 0xF7: backlight colour"
             protocol_id: 0x10
             ui_id: 0xF7
             template: [0x05, 0xF7, "{red}", "{green}", "{blue}"]
@@ -702,7 +702,7 @@ entities:
       set_brightness: "ledglow_v2_brightness_a"
       set_effect: "ledglow_v2_mode"
     notes: >
-      Binds zone A of the v2 dialect's three color/brightness zones; zones
+      Binds zone A of the v2 dialect's three colour/brightness zones; zones
       B and C remain command-only.
 
 helpful_urls:

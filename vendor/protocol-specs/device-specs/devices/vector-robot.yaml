@@ -427,7 +427,7 @@ http_endpoints:
   - method: "POST"
     path: "/v1/set_eye_color"
     name: "SetEyeColor"
-    description: "Set Vector eye color."
+    description: "Set Vector eye colour."
   - method: "POST"
     path: "/v1/go_to_pose"
     name: "GoToPose"

@@ -91,7 +91,7 @@ LAN control path was found.
 - **User discovery path**: Pair the AC in the Frigidaire/Electrolux app, then
   enumerate appliances from the authenticated Electrolux cloud/OCP account.
 - **Replacement implication**: A local-first replacement likely needs confirmed
-  cloud API behavior, DNS redirection plus protocol capture, or firmware work.
+  cloud API behaviour, DNS redirection plus protocol capture, or firmware work.
   A LAN scan alone is not expected to produce a usable post-pairing control
   endpoint.
 

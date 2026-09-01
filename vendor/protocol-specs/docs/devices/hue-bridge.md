@@ -96,7 +96,7 @@ The reply acknowledges each changed attribute
 `state.reachable`: a bulb powered off at the wall keeps its last state with
 `reachable: false`, and a live toggle drawn for it is a lie.
 
-Color and color temperature are documented on the Set Light State endpoint
+Colour and colour temperature are documented on the Set Light State endpoint
 (`hue`/`sat`, `xy`, `ct` in mireds) but deliberately not bound to entity
 roles yet — a `set_color` role needs multi-value parameters no consumer
 resolves today.

@@ -67,7 +67,7 @@ unit — it is a legacy-generation bridge.
 ### Legacy commands (v1–v5, port 8899)
 
 Every command is 3 bytes: `<cmd> <arg> 0x55` (`arg` = 0x00 except brightness
-and color). No acknowledgements — repeat ~3× with ≥100 ms spacing.
+and colour). No acknowledgements — repeat ~3× with ≥100 ms spacing.
 
 #### RGBW bulbs
 

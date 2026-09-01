@@ -53,7 +53,7 @@ via a Tuya IoT developer account (tuya-iot-py-sdk / ha_tuya_ble automate it).
 **Factory reset**: remove the device in the vendor app — the app drives an
 UNBIND (function code `0x0005`) or DEVICE_RESET (`0x0006`) frame over GATT and
 the device returns to pairing-mode advertising. A physical button-hold reset
-likely exists (generic Tuya BLE behavior) but is undocumented for this family —
+likely exists (generic Tuya BLE behaviour) but is undocumented for this family —
 unverified. The nuclear option is flashing SGS01BTHome over SWS, which removes
 all Tuya state; it does NOT support the 2026 SGS01B revision.
 

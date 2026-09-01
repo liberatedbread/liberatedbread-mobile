@@ -138,7 +138,7 @@ sent as buffer arrays whose fragment-header tag byte is `TUTU_DOODLE` (1)
 for incremental strokes or `TUTU_RESTORE` (4) for a full-canvas redraw
 (`TUTU_ERASE` = 2 clears). The buffer payload is a palette-indexed raster
 chunked at ~200 bytes: a 3-byte header `[x][y][colorCount ≤ 16]`, the RGB
-palette (3 bytes/color), then per-pixel palette indices. `M_DOODLE_END`
+palette (3 bytes/colour), then per-pixel palette indices. `M_DOODLE_END`
 (mt=2702) closes the session; `M_DOODLE_SCROLL` (mt=2715) scrolls it.
 `M_DEV_SHOW_PIXEL` (mt=237) previews single pixels while drawing. Music
 mode either starts the controller's own mic (`M_START_DEVICE_MIC`,
@@ -165,7 +165,7 @@ uncommitted cid is a silent no-op. The vendor app refreshes
 `M_START_INSTALL_ANIMATION` / `M_INSTALL_ANIMATION_PACKET` /
 `M_END_INSTALL_ANIMATION` (mt 2918–2920) messages from `p2p.proto` were
 never observed on the wire and are presumed a legacy/alternate flow;
-`.eff` (`type=0` + path) uploads serve CDN catalog effects only.
+`.eff` (`type=0` + path) uploads serve CDN catalogue effects only.
 
 Machine-readable capability: the YAML spec declares
 `features: [image_upload]` (rgb888, device-reported resolution) plus

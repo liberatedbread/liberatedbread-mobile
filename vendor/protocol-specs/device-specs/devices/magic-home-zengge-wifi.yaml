@@ -31,7 +31,7 @@ device:
 
     TRANSPORT: TCP 5577, binary commands. The last byte of every command is a
     checksum = (sum of all preceding bytes) & 0xFF. Several protocol variants
-    exist — the original (no checksum), an 8-byte and a 9-byte color form, and
+    exist — the original (no checksum), an 8-byte and a 9-byte colour form, and
     addressable A1/A2/A3 strip protocols; the newest (A3/CCT/Christmas) wrap the
     inner command in an outer frame beginning B0 B1 B2 B3 00 01.
 
@@ -178,7 +178,7 @@ protocol_details:
       authentication: "none"
       checksum: "last byte = (sum of all preceding bytes) & 0xFF"
       variants: >
-        original (no checksum), 8-byte color, 9-byte color (adds cool white), and
+        original (no checksum), 8-byte colour, 9-byte colour (adds cool white), and
         addressable A1/A2/A3 strip protocols. The newest (A3/CCT/Christmas) wrap
         the inner command in an outer frame beginning B0 B1 B2 B3 00 01.
     discovery:
@@ -211,7 +211,7 @@ commands:
     verification: "reported"
   set_color:
     description: >
-      Set RGB(W) color (8-byte form): 31 RR GG BB WW <write_mode> 0F <checksum>.
+      Set RGB(W) colour (8-byte form): 31 RR GG BB WW <write_mode> 0F <checksum>.
       write_mode selects RGB vs white channel handling (0xF0 RGB-only, 0x0F
       white-only, 0xFF both) per flux_led.
     transport: "tcp-json"
@@ -235,7 +235,7 @@ commands:
         description: "(sum of preceding bytes) & 0xFF; encoder-filled."
     verification: "reported"
   query_state:
-    description: "Query power/color state. Frame: 81 8A 8B <checksum>. Reply begins 0x81 (modern) or 0x66 (original)."
+    description: "Query power/colour state. Frame: 81 8A 8B <checksum>. Reply begins 0x81 (modern) or 0x66 (original)."
     transport: "tcp-json"
     body: "81 8A 8B 96"
     verification: "reported"

@@ -27,7 +27,7 @@ what the app itself reveals.
 |----------|-------|
 | Model Number | YSP-001 (product listings; `dev_model` default `"gy"` in app) |
 | Display | Full-color LED matrix; default geometry 64x64, 160x32 also seen; round panels carry `"CXB5"` in the model string |
-| Chipset | Unknown (ESP-style AP behavior on Wi-Fi units) |
+| Chipset | Unknown (ESP-style AP behaviour on Wi-Fi units) |
 | Radio | Wi-Fi (device AP) or BLE, per board variant |
 | FCC ID | Unknown |
 
@@ -56,7 +56,7 @@ client and re-run UDP discovery. Nothing ties the panel to a network or owner.
 The app does contain a station-mode provisioning command (`param_wifi` set
 with `user`/`pwd`/`ip_svr`/`port_svr`/`sec_hb`) that can move the panel onto a
 home network pointed at a server; that path is not needed for local control
-and its post-provisioning behavior has not been captured.
+and its post-provisioning behaviour has not been captured.
 
 ## Protocol Summary
 

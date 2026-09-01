@@ -65,7 +65,7 @@ only cloud dependency; Tuya has broken this flow for some account types
 before, so verify it works before committing to a local-only install.
 
 **Factory reset**: hold the pairing button ~5 s until the LED enters
-fast-blink pairing mode (generic stock-Tuya behavior, low confidence for this
+fast-blink pairing mode (generic stock-Tuya behaviour, low confidence for this
 exact family — button placement varies per clone). Clears Wi-Fi credentials
 and the cloud binding; the device id / local key pair is reissued on
 re-pairing, so **re-extract the local key afterwards**. MCU-side alarm

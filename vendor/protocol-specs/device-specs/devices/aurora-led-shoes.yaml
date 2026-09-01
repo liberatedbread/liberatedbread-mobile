@@ -36,8 +36,8 @@ device:
 
     MUSIC/MIC MODE: all signal processing is on the phone — the app runs an FFT
     over mic input (35 bins, picks peaks per 11-bin third, maps to RGB) and
-    streams `01 R G B` writes live. The shoe only displays the color it is
-    handed, so any client-side color source works.
+    streams `01 R G B` writes live. The shoe only displays the colour it is
+    handed, so any client-side colour source works.
 
     SPEED SEMANTICS (MEDIUM confidence): the app computes the on-wire byte for
     `10 V` as (seekbar_max - (progress + 15)), i.e. LOWER byte value = FASTER
@@ -143,7 +143,7 @@ device:
       notes: >
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control — anyone nearby can change the
-        shoes' colors.
+        shoes' colours.
   pairing:
     required: false
     confidence: "medium"
@@ -178,10 +178,10 @@ services:
         commands:
           music_color:
             description: >
-              Music/mic-reactive color: set the displayed RGB color live. The
+              Music/mic-reactive colour: set the displayed RGB colour live. The
               vendor app computes R,G,B from phone-mic FFT; the shoe just
-              displays whatever it receives, so any client-side color source
-              can drive this. Stream writes as colors change.
+              displays whatever it receives, so any client-side colour source
+              can drive this. Stream writes as colours change.
             template: [0x01, "{red}", "{green}", "{blue}"]
             parameters:
               red:
@@ -197,7 +197,7 @@ services:
                 min: 0
                 max: 255
           set_color:
-            description: "Set solid (static) RGB color."
+            description: "Set solid (static) RGB colour."
             template: [0x03, "{red}", "{green}", "{blue}"]
             parameters:
               red:
@@ -241,7 +241,7 @@ services:
                 max: 255
           mode_slow_color_change:
             description: >
-              Slow color-change mode. color_id selects the color(s) cycled:
+              Slow color-change mode. color_id selects the colour(s) cycled:
               00 blue, 01 green, 02 red, 03 cyan, 04 purple, 05 yellow,
               06 white, 20 seven-color cycle, 30 red+green, 40 red+blue,
               50 green+blue.
@@ -327,7 +327,7 @@ helpful_urls:
     url: "https://github.com/Jasonchenlijian/FastBle"
     description: >-
       The Android BLE library the app's BLE layer is built on; explains the
-      write-without-response + auto-split-at-MTU write behavior and the CCC
+      write-without-response + auto-split-at-MTU write behaviour and the CCC
       notify-enable flow seen in this profile.
   - title: "CoolLED1248 (sibling jtkj app — different profile)"
     url: "https://play.google.com/store/apps/details?id=com.jtkj.led1248"

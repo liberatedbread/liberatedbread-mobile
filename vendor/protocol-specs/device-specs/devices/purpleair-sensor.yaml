@@ -69,7 +69,7 @@ device:
     the choice is moot.
     pm2.5_aqi + p25aqic: the device computes a US-EPA PM2.5 AQI on channel A
     (plain EPA breakpoint interpolation of the CURRENT reading) and an rgb()
-    color for it — it is NOT NowCast-averaged and NOT Barkjohn-corrected
+    colour for it — it is NOT NowCast-averaged and NOT Barkjohn-corrected
     (those live map/cloud-side only). A consumer wanting a corrected or
     time-averaged AQI must recompute it from the PM fields. NOTE the literal
     dot in the key name "pm2.5_aqi".
@@ -229,7 +229,7 @@ payload_formats:
       - name: "pm2.5_aqi"
         description: "US-EPA PM2.5 AQI computed on channel A."
       - name: "p25aqic"
-        description: "rgb() color string matching the PM2.5 AQI category."
+        description: "rgb() colour string matching the PM2.5 AQI category."
       - name: "pm1_0_atm"
         description: "PM1.0 mass concentration, atmospheric (outdoor) calibration, ug/m3. Also pm2_5_atm, pm10_0_atm."
       - name: "pm1_0_cf_1"
