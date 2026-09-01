@@ -4,7 +4,10 @@
 <plist version="1.0">
 <dict>
   <!-- App Store distribution: signed IPA for upload to App Store Connect.      -->
-  <!-- teamID is filled in (Holden Karau, from the signing cert).               -->
+  <!-- teamID = Pigs Can Fly Labs LLC (the org team that owns the App ID and    -->
+  <!-- the bundle id ca.pigscanfly.*). NOTE: the Mac's existing signing cert is  -->
+  <!-- the *individual* "Holden Karau" team (B6SUD26678) — you need a            -->
+  <!-- Distribution cert + App Store profile issued under THIS org team instead. -->
   <!-- provisioningProfiles maps the bundle id -> the App Store DISTRIBUTION    -->
   <!-- profile NAME. That profile must be created in the Apple Developer portal -->
   <!-- AFTER the com.apple.developer.networking.multicast entitlement is        -->
@@ -14,7 +17,7 @@
   <string>app-store-connect</string>
 
   <key>teamID</key>
-  <string>B6SUD26678</string>
+  <string>GQ358PSWM3</string>
 
   <key>signingStyle</key>
   <string>manual</string>

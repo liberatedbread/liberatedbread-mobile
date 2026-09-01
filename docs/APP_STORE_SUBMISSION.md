@@ -1,7 +1,15 @@
 # App Store submission runbook
 
 First iOS submission for **Liberated Bread** — `ca.pigscanfly.liberatedbread`,
-version `0.1.0+1`, Apple **Team ID `B6SUD26678`** (Holden Karau).
+version `0.1.0+1`. App ID owner: **Pigs Can Fly Labs LLC — Team ID
+`GQ358PSWM3`** (the `ca.pigscanfly.*` bundle belongs to this org team).
+
+> ⚠️ **Team mismatch to fix:** the Mac's current signing cert is the *individual*
+> "Holden Karau" team (`B6SUD26678`). Since the App ID is registered under the
+> LLC (`GQ358PSWM3`), your **Distribution cert and App Store provisioning profile
+> must be issued under the LLC team**, and `ExportOptions-appstore.plist` uses
+> `GQ358PSWM3`. (If you actually intend to ship under the individual team
+> instead, switch the App ID + plist back to `B6SUD26678`.)
 
 Timeline: ~1 month, so this follows **Path A** — file the slow Apple approval
 first, stage everything else, submit once it lands. Everything under "Ready in
@@ -22,8 +30,8 @@ today** because Apple's grant can take days.
 - **Privacy manifest ships** — `PrivacyInfo.xcprivacy` is wired into the Runner
   target (Copy Bundle Resources) and was confirmed inside the built `.app`.
 - **App Store ExportOptions** — `ios/ExportOptions-appstore.plist`
-  (`method=app-store-connect`, `teamID=B6SUD26678`, profile name
-  `"Liberated Bread App Store"`).
+  (`method=app-store-connect`, `teamID=GQ358PSWM3` [Pigs Can Fly Labs LLC],
+  profile name `"Liberated Bread App Store"`).
 - **Bluetooth / Local Network / Bonjour** usage strings + `NSBonjourServices`
   present and in sync with the specs.
 - **First-launch Terms gate** links the disclaimer + privacy URLs, marks the app
@@ -65,9 +73,11 @@ then dead at runtime; re-add in 0.1.1. Ask me to stage that if needed.)*
 
 ## Step 2 — Apple **Distribution** certificate
 
-The Mac has only an "Apple Development" cert. Create a distribution cert:
-Xcode ▸ **Settings ▸ Accounts ▸ (your team) ▸ Manage Certificates ▸ + ▸
-Apple Distribution**. (Or developer.apple.com ▸ Certificates.)
+The Mac has only an "Apple Development" cert on the *individual* team. Create an
+**Apple Distribution** cert **under Pigs Can Fly Labs LLC (GQ358PSWM3)**:
+Xcode ▸ **Settings ▸ Accounts** ▸ select the *Pigs Can Fly Labs LLC* team ▸
+**Manage Certificates ▸ + ▸ Apple Distribution**. (Or developer.apple.com ▸
+Certificates, with the LLC team selected top-right.)
 
 ## Step 3 — App Store Connect app record
 
