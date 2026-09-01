@@ -16,7 +16,7 @@ terminals; the board impersonates a wall panel and speaks the opener's native
 Security+ protocol, exposing local control + door status over ESPHome/MQTT with
 no cloud.
 
-## Generation gate (check the learn-button color first)
+## Generation gate (check the learn-button colour first)
 
 | Generation | Learn button | Wired UART | Local control |
 |-----------|--------------|-----------|---------------|

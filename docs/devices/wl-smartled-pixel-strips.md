@@ -7,7 +7,7 @@
 
 ## Overview
 
-Cheap addressable-pixel ("dream color" / "symphony") LED strip controllers sold under
+Cheap addressable-pixel ("dream colour" / "symphony") LED strip controllers sold under
 dozens of listings, all driven by one of three vendor apps — **duoCo StripX**
 (`wl.smartled.duoco.rgb`), **Lotus Lantern** (`wl.smartled`) or **Magic Lantern**
 (`wl.smartled.rgb`). The three apps are channel skins of a single shared codebase and

@@ -67,10 +67,10 @@ device:
     on/off speed data[21] (1 slow, 2 medium, 3 fast), on/off pixel count
     data[22:24] big-endian (1-600); coexistence data[24]; on-power restore
     data[25] (0 off, 1 on, 2 last state); power data[29] (!=0 on);
-    effect loop data[30]; chip order data[31]; mode data[32] (1 static color,
-    2 static white, 3 dynamic color, 4 dynamic white, 5 sound color,
+    effect loop data[30]; chip order data[31]; mode data[32] (1 static colour,
+    2 static white, 3 dynamic colour, 4 dynamic white, 5 sound colour,
     6 sound white, 7 custom); effect data[33]; effect play data[34];
-    color level data[35]; white level data[36]; static RGBW data[37:41];
+    colour level data[35]; white level data[36]; static RGBW data[37:41];
     speed data[42]; length data[43]; direction data[44]; audio gain data[45];
     audio input data[46]; sound-mode RGB data[47:50]; CCT cold/warm
     data[50:52]; DIY mode data[52]. Decode the light-type byte FIRST — it
@@ -306,14 +306,14 @@ services:
           sp6xxe_set_brightness:
             description: >
               SP6xxE: set brightness (cmd 0x51). `which` selects the level
-              being addressed: 0x00 color level, 0x01 white level — uniled
+              being addressed: 0x00 colour level, 0x01 white level — uniled
               picks it from the active light mode. Ignored in sound modes.
             template: [0x53, 0x51, 0x00, 0x01, 0x00, 0x02, "{which}", "{level}"]
             parameters:
               which:
                 type: "uint8"
                 allowed: [0, 1]
-                labels: ["Color level", "White level"]
+                labels: ["Colour level", "White level"]
                 default: 0
               level:
                 type: "uint8"
@@ -322,7 +322,7 @@ services:
             verification: reported
           sp6xxe_set_rgb_color:
             description: >
-              SP6xxE: set RGB color (cmd 0x57) for dynamic/sound modes. In
+              SP6xxE: set RGB colour (cmd 0x57) for dynamic/sound modes. In
               static modes use sp6xxe_set_static_rgb (cmd 0x52), which also
               carries the brightness level.
             template: [0x53, 0x57, 0x00, 0x01, 0x00, 0x03, "{red}", "{green}", "{blue}"]
@@ -332,7 +332,7 @@ services:
               blue: { type: "uint8", min: 0, max: 255 }
             verification: reported
           sp6xxe_set_static_rgb:
-            description: "SP6xxE: set static RGB color with brightness (cmd 0x52)"
+            description: "SP6xxE: set static RGB colour with brightness (cmd 0x52)"
             template: [0x53, 0x52, 0x00, 0x01, 0x00, 0x04, "{red}", "{green}", "{blue}", "{level}"]
             parameters:
               red: { type: "uint8", min: 0, max: 255 }
@@ -356,8 +356,8 @@ services:
           sp6xxe_set_mode_effect:
             description: >
               SP6xxE: set light mode + effect (cmd 0x53). Mode: 1 static
-              color, 2 static white, 3 dynamic color, 4 dynamic white,
-              5 sound color, 6 sound white, 7 custom. Effect numbers are
+              colour, 2 static white, 3 dynamic colour, 4 dynamic white,
+              5 sound colour, 6 sound white, 7 custom. Effect numbers are
               per-mode and depend on the light-type config — full tables in
               uniled banlanx_6xx.py. After changing mode, send
               sp6xxe_state_query to re-sync.
@@ -424,7 +424,7 @@ services:
               gain: { type: "uint8", min: 1, max: 16 }
             verification: reported
           sp6xxe_set_coexistence:
-            description: "SP6xxE: color/white coexistence — drive SPI pixels and PWM channels simultaneously (cmd 0x0A)"
+            description: "SP6xxE: colour/white coexistence — drive SPI pixels and PWM channels simultaneously (cmd 0x0A)"
             template: [0x53, 0x0A, 0x00, 0x01, 0x00, 0x01, "{state}"]
             parameters:
               state:
@@ -433,7 +433,7 @@ services:
                 labels: ["Off", "On"]
             verification: reported
           sp6xxe_set_on_power:
-            description: "SP6xxE: power-restore behavior (cmd 0x0B)"
+            description: "SP6xxE: power-restore behaviour (cmd 0x0B)"
             template: [0x53, 0x0B, 0x00, 0x01, 0x00, 0x01, "{mode}"]
             parameters:
               mode:
@@ -468,7 +468,7 @@ services:
                 description: "Low byte of the big-endian pixel count (1-600)."
             verification: reported
           sp6xxe_set_chip_order:
-            description: "SP6xxE: LED chip color order (cmd 0x6B; index into the config's order list — RGB/RGBW/RGBCW permutations per uniled chips.py)"
+            description: "SP6xxE: LED chip colour order (cmd 0x6B; index into the config's order list — RGB/RGBW/RGBCW permutations per uniled chips.py)"
             template: [0x53, 0x6B, 0x00, 0x01, 0x00, 0x01, "{order}"]
             parameters:
               order: { type: "uint8", min: 0, max: 255 }
@@ -477,7 +477,7 @@ services:
             description: "SP630E only: reconfigure the output hardware mapping (cmd 0x6A, payload [0x01, type & 0x7F] per uniled; type values in device notes)"
             advanced: true
             advanced_reason: >
-              Re-maps which output driver (SPI/PWM, channel count, color
+              Re-maps which output driver (SPI/PWM, channel count, colour
               order family) the controller drives; a wrong value leaves the
               strip dark or mis-colored until the correct type is restored.
               Read the current light-type byte from a status notification
@@ -512,7 +512,7 @@ services:
               level: { type: "uint8", min: 0, max: 255 }
             verification: reported
           sp601e_set_rgb_color:
-            description: "SP601E: static RGB color per channel (opcode 0x29); trailing 0xFF is fixed"
+            description: "SP601E: static RGB colour per channel (opcode 0x29); trailing 0xFF is fixed"
             template: [0xAA, 0x29, 0x05, "{channel}", "{red}", "{green}", "{blue}", 0xFF]
             parameters:
               channel: { type: "uint8", min: 0, max: 255 }

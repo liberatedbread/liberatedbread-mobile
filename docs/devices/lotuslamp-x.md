@@ -12,7 +12,7 @@ widely-rebadged BLE LED strip and lamp controllers from Shenzhen ELK, sold under
 advertised names starting with `ELK-`, `MELK-`, `ELBU-` and a long list of OEM
 variants (`HX6-`, `HCW-`, `BYC-`, `SHY-`, `MHRS-`, `THUNDEROBOT`, "LED LIGHT
 STRIP", "LED Constellation Lights", …). They are addressable-RGB controllers:
-color, brightness, speed and 213 built-in animations, plus timers, microphone
+colour, brightness, speed and 213 built-in animations, plus timers, microphone
 rhythm and (on some models) mesh groups.
 
 The good news: the devices are fully local. The app speaks BLE only — no Wi-Fi,

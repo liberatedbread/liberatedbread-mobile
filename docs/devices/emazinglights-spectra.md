@@ -106,7 +106,7 @@ original app uses.
 | `0x09` | exitPairingMode | all zero | Leave pairing mode |
 | `0x0A` | syncStarted | index `1` = start, `2` = end | Brackets a sync/OTA session |
 
-A full mode upload is: `0x01` → one `0x02` per color → optional `0x07` →
+A full mode upload is: `0x01` → one `0x02` per colour → optional `0x07` →
 `0x03(1)` → `0x04`. Opcode `0x06` is skipped in the app and presumed reserved.
 
 ### Firmware updates (OTA)

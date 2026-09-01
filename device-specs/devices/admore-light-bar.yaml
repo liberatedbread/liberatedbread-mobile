@@ -452,7 +452,7 @@ services:
                 allowed: [0, 5000, 10000, 15000, 20000, -1]
                 labels: ["OFF", "5s", "10s", "15s", "20s", "ON"]
           set_plate_light:
-            description: "Toggle license plate light"
+            description: "Toggle licence plate light"
             setting_id: "LOS_PLATE_LIGHT_BRIGHTNESS"
             parameters:
               value:
@@ -464,14 +464,14 @@ services:
           # above cannot serve both directions; these are the same setting
           # with the value already chosen.
           set_plate_light_on:
-            description: "License plate light ON (LOS_PLATE_LIGHT_BRIGHTNESS = 8000)."
+            description: "Licence plate light ON (LOS_PLATE_LIGHT_BRIGHTNESS = 8000)."
             setting_id: "LOS_PLATE_LIGHT_BRIGHTNESS"
             parameters:
               value:
                 type: "int32"
                 allowed: [8000]
           set_plate_light_off:
-            description: "License plate light OFF (LOS_PLATE_LIGHT_BRIGHTNESS = 0)."
+            description: "Licence plate light OFF (LOS_PLATE_LIGHT_BRIGHTNESS = 0)."
             setting_id: "LOS_PLATE_LIGHT_BRIGHTNESS"
             parameters:
               value:

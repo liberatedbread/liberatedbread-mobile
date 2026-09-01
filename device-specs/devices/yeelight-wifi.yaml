@@ -43,7 +43,7 @@ device:
     the id, e.g. {"id":1,"result":["ok"]}. Methods include: get_prop, set_power
     ("on"/"off" + effect + mode), toggle, set_bright (1-100), set_ct_abx
     (1700-6500 K), set_rgb (RGB as one int R*65536+G*256+B), set_hsv (hue 0-359,
-    sat 0-100), start_cf / stop_cf (color flow), set_scene, set_default (persist
+    sat 0-100), start_cf / stop_cf (colour flow), set_scene, set_default (persist
     across power cycles), set_name, set_music (a connect-back TCP that lifts the
     rate limits). Debuggable with plain `telnet <ip> 55443`.
 
@@ -199,7 +199,7 @@ commands:
         description: "Brightness percent."
     verification: "reported"
   set_rgb:
-    description: "Set RGB color (packed as R*65536 + G*256 + B)."
+    description: "Set RGB colour (packed as R*65536 + G*256 + B)."
     transport: "tcp-json"
     body: '{"id":1,"method":"set_rgb","params":[{rgb},"smooth",500]}'
     parameters:
@@ -210,7 +210,7 @@ commands:
         description: "Packed RGB integer R*65536+G*256+B."
     verification: "reported"
   set_color_temp:
-    description: "Set correlated color temperature 1700-6500 K."
+    description: "Set correlated colour temperature 1700-6500 K."
     transport: "tcp-json"
     body: '{"id":1,"method":"set_ct_abx","params":[{kelvin},"smooth",500]}'
     parameters:
@@ -218,7 +218,7 @@ commands:
         type: "integer"
         min: 1700
         max: 6500
-        description: "Color temperature in Kelvin."
+        description: "Colour temperature in Kelvin."
     verification: "reported"
   get_state:
     description: "Read properties (power, bright, ct, rgb, hue, sat, color_mode)."

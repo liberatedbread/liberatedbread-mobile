@@ -85,7 +85,7 @@ byte. Each write is a complete command.
 
 So power on = `CC 23 33`, off = `CC 24 33`.
 
-#### Command: Static color
+#### Command: Static colour
 
 **Request** (`56 R G B W F0 AA`):
 

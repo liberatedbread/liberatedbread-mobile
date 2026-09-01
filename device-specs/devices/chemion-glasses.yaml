@@ -33,7 +33,7 @@ device:
       * CHEMION HAT — service 4b0d67ea-2faf-4b3c-8c53-f6af0f0171f5, write
         4b0d67eb-…, notify 4b0d67ec-… (roles by NUS convention; MEDIUM).
         Matrix 12 x 32 at 4 bits per pixel (384 px, 1536-byte / 0x600 frame) —
-        a color device. App descriptor constant 144 (0x90), believed to be
+        a colour device. App descriptor constant 144 (0x90), believed to be
         its slot count (MEDIUM).
 
     FRAME FORMAT (app -> device; one frame per characteristic write, no
@@ -414,7 +414,7 @@ services:
           Write characteristic for the HAT (role by NUS-style convention;
           MEDIUM — verify on air). Same frame format as the glasses:
           [0xFA][cmd][lenHi][lenLo][payload][XOR of payload][0x55][0xA9].
-          Matrix 12 x 32 @ 4bpp color = 1536-byte (0x600) frames, so a full
+          Matrix 12 x 32 @ 4bpp colour = 1536-byte (0x600) frames, so a full
           frame message is ~1546 bytes — it only fits via a negotiated MTU /
           long write (the app's BLE layer permits long writes; no app-level
           chunking). Commands below mirror the glasses set with HAT frame
@@ -437,7 +437,7 @@ services:
           stream_frame:
             description: >
               Realtime stream one frame (msgId 6, cmd type stream 0x03). HAT
-              frame is 1536 bytes (12x32 @ 4bpp color); len = 3 + frame byte
+              frame is 1536 bytes (12x32 @ 4bpp colour); len = 3 + frame byte
               count (0x0603 for a full frame). MEDIUM — the app emits an
               empty payload on this path for the HAT, so the HAT realtime
               route may actually be frame_data_block (msgId 10); verify.
@@ -455,7 +455,7 @@ services:
                 type: "bytes"
                 min_length: 1
                 max_length: 1536
-                description: "Frame pixels, 4 bits per pixel color, 12x32 = 1536 bytes for a full frame. Nibble order / palette MEDIUM."
+                description: "Frame pixels, 4 bits per pixel colour, 12x32 = 1536 bytes for a full frame. Nibble order / palette MEDIUM."
               checksum:
                 type: "uint8"
                 auto: "xor_checksum"
@@ -478,7 +478,7 @@ services:
                 type: "bytes"
                 min_length: 1
                 max_length: 1536
-                description: "Frame pixels, 4 bits per pixel color, 1536 bytes for a full HAT frame. Nibble order / palette MEDIUM."
+                description: "Frame pixels, 4 bits per pixel colour, 1536 bytes for a full HAT frame. Nibble order / palette MEDIUM."
               checksum:
                 type: "uint8"
                 auto: "xor_checksum"
@@ -528,7 +528,7 @@ entities:
       command exists in the app's message map, so waking the device is the
       physical button. Everything else is display content: realtime frame
       streaming (stream_frame), slot upload/play/delete, battery query and
-      heartbeat. No brightness or color commands were found — color lives in
+      heartbeat. No brightness or colour commands were found — colour lives in
       the HAT's 4bpp frame data, and glasses intensity in its 2bpp pixels.
     variants:
       - "CHEMION Original (glasses)"
@@ -539,7 +539,7 @@ entities:
       turn_off: "power_off"
     notes: >
       Same surface as the glasses entity, on the HAT's own service. Content
-      is 12x32 @ 4bpp color frames.
+      is 12x32 @ 4bpp colour frames.
     variants:
       - "CHEMION HAT"
 

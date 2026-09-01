@@ -22,7 +22,7 @@ device:
       the mDNS TXT/SRV still advertises port 80 — the API is served on
       HTTPS 443 with a self-signed certificate only. Not exercised:
       everything behind the JWT (no Enlighten cloud credentials were used),
-      the AP-mode/BLE commissioning flows, and digest-auth-era behavior.
+      the AP-mode/BLE commissioning flows, and digest-auth-era behaviour.
   protocol: "wifi"
   category: "energy"
   transport: "http"
@@ -249,7 +249,7 @@ http_endpoints:
     path: "/auth/check_jwt"
     name: "JWT Check"
     status: "unverified"
-    description: "Firmware-7+ token validation probe: the Android app GETs this path with the entrez JWT as an Authorization: Bearer header to learn whether the gateway accepts the token locally before making further requests. App-derived (static-analysis audit 2026-08). Hardware-probed 2026-08-14 (D8.3.5427): exists and answers 401 + login.html redirect WITHOUT a token; accept-path behavior still unverified (no token was available)."
+    description: "Firmware-7+ token validation probe: the Android app GETs this path with the entrez JWT as an Authorization: Bearer header to learn whether the gateway accepts the token locally before making further requests. App-derived (static-analysis audit 2026-08). Hardware-probed 2026-08-14 (D8.3.5427): exists and answers 401 + login.html redirect WITHOUT a token; accept-path behaviour still unverified (no token was available)."
   - method: "GET"
     path: "/admin/lib/wireless_display.json"
     name: "Wireless Config"

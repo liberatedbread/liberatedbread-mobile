@@ -295,7 +295,7 @@ services:
       - uuid: "A0F0FF2B-5047-4D53-8208-4F72616C2D42"
         name: MyColor
         properties: ["write"]
-        description: LED ring color (RGB)
+        description: LED ring colour (RGB)
       - uuid: "A0F0FF2C-5047-4D53-8208-4F72616C2D42"
         name: ConfigureDashboard
         properties: ["write"]

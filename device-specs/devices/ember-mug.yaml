@@ -192,12 +192,12 @@ device:
         - "Home Assistant bluetooth manifest: local_name `Ember T*` + manufacturer_id 961. Untested, Travel Mug; expect the same firmware split as the Mug 2."
         - "python-ember-mug reads AdvertisementData.manufacturer_data[0x03C1]. Sees fw-394 mugs; blind to fw-367 mugs."
       payload_notes: >
-        python-ember-mug treats short (<4 byte) payloads as a signed model/color
+        python-ember-mug treats short (<4 byte) payloads as a signed model/colour
         byte and longer payloads as bytes 1..3 = model_id, generation, colour_id.
         Known model_id/generation mapping includes Mug 1/2, Travel Mug, Cup, and
-        Tumbler; color IDs map to black/white/red/copper/rose gold/stainless
+        Tumbler; colour IDs map to black/white/red/copper/rose gold/stainless
         steel/sandstone/sage green/grey/blue/gold. The exact manufacturer-data
-        binary contract remains inferred from public library behavior.
+        binary contract remains inferred from public library behaviour.
 
   discovery:
     # HARDWARE: as written before 2026-08-16, this method found a fw-367 mug in no
@@ -438,7 +438,7 @@ services:
         notes: >
           orlopau documents up to 14 bytes ASCII without spaces; python-ember-mug
           accepts UTF-8 writes matching a 1-16 character restricted regex.
-          Cup/Tumbler are modeled as not supporting name; Travel Mug is read-only
+          Cup/Tumbler are modelled as not supporting name; Travel Mug is read-only
           in python-ember-mug's README table.
 
 
@@ -1228,7 +1228,7 @@ services:
         notes: >
           python-ember-mug enum comment says "int/temp lock - Address". App AOT
           strings include `characteristicForControlRegisterAddress`. Payload and
-          temp-lock behavior remain uncertain.
+          temp-lock behaviour remain uncertain.
 
 
           HARDWARE: present, read/write, one byte, reading 00 on a mug nobody has
@@ -1410,7 +1410,7 @@ services:
         name: "LED Color"
         properties: ["read", "write"]
         notes: >
-          LED color characteristic. orlopau documents the byte order as
+          LED colour characteristic. orlopau documents the byte order as
           red, blue, green, alpha (its mug-color.md byte table explicitly
           names byte 3 "Alpha"). python-ember-mug's Colour tuple and app log
           strings label writes as R/G/B/brightness.
@@ -1465,7 +1465,7 @@ services:
         commands:
           set_led_color:
             verification: "confirmed"
-            description: "Set LED color (RGBA)"
+            description: "Set LED colour (RGBA)"
             template: ["{red}", "{green}", "{blue}", "{brightness}"]
             parameters:
               red:

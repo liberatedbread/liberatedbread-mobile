@@ -111,7 +111,7 @@ Full frames: on = `33 01 01 00×16 33`; off = `33 01 00 00×16 32`.
 | 6–18 | 13 | Zero padding |
 | 19 | 1 | XOR checksum |
 
-White / color temperature uses fixed warm/cold shades rather than arbitrary
+White / colour temperature uses fixed warm/cold shades rather than arbitrary
 Kelvin: `33 05 02 FF FF FF 01 <shade R> <shade G> <shade B> 00×9 <xor>` —
 the `0x01` flag selects the warm/cold-white LED set and the shade triple
 comes from the vendor's fixed table. Additional color-mode sub-commands

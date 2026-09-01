@@ -109,7 +109,7 @@ device:
             bit 3 = wave disabled, bit 5 = ring spinning blue,
             bit 6 = waved in last 5 min, bit 7 = pairing mode,
             bit 8 = new 5-min data, bit 9 = new 60-min data,
-            bits 10-11 = ring color (0=auto, 1=white, 2=green, 3=yellow, 4=red),
+            bits 10-11 = ring colour (0=auto, 1=white, 2=green, 3=yellow, 4=red),
             bit 12 = hub connected (GriffinScanResultData),
             bit 15 = POST failed.
             Capture-validated: a Wave Gen 2 advertised flags 0x0021 (bits 0+5,
@@ -123,7 +123,7 @@ device:
             self-check response, corroborating the little-endian decode —
             but note the pulsing bit then lands on "RTC not set" and the
             steady bits on "error"/"wave disabled" in the app's table above,
-            so the app bit NAMES fit the observed behavior poorly on Griffin
+            so the app bit NAMES fit the observed behaviour poorly on Griffin
             firmware; treat the pulse timing as capture-fact and the bit
             labels as MEDIUM confidence.
     service_uuids:
@@ -410,7 +410,7 @@ services:
             value: [0xF8, 0x0C]
 
           set_ring_color:
-            description: "Set LED ring color (vendor command 0x06)."
+            description: "Set LED ring colour (vendor command 0x06)."
             template: [0xF8, 0x06, "{color}"]
             parameters:
               color: { type: "uint8", min: 0, max: 4, description: "0=auto, 1=white, 2=green, 3=yellow, 4=red" }
@@ -471,7 +471,7 @@ services:
           pending hour as twelve 5-minute slots per sensor, oldest first
           (slot 11 matched the combined-characteristic reading taken seconds
           later). Requires a large ATT MTU — the vendor app negotiated 247;
-          behavior at the default MTU 23 is unobserved. Slot arrays for
+          behaviour at the default MTU 23 is unobserved. Slot arrays for
           sensors the model lacks are all-0xFF (Wave 2: the 144-byte region
           at offset 56, sized for six more 12-slot u16 arrays — presumably
           pressure/CO₂/VOC and friends on Wave Plus, unobserved). Layout
@@ -1117,7 +1117,7 @@ commands:
       all-0xFF = none), dataset_number u8, slot_count u8, session_id u16le,
       then TWO u16le both equal to the record count (23,23 later 24,24 in
       the long capture; possibly record_count plus last-record sequence).
-      Long-capture behavior: slot_count is the number of completed 5-minute
+      Long-capture behaviour: slot_count is the number of completed 5-minute
       slots in the pending hour — it read 3, then 8 after ~26 more minutes,
       then 11, tracking wall clock at one per 300 s and wrapping each hour
       as record_count increments (records are hourly rollups). base_time

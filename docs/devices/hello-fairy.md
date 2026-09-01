@@ -86,7 +86,7 @@ for bulk DIY/GIF file transfer.
 | `0x30`-`0x33` | File / DIY transfer | GIF & DIY-mode upload (see spec) |
 
 The HSV sub-mode of `0x03` takes hue (0-360), saturation and value (both
-per-mille, 0-1000) as big-endian u16s — that is the color control.
+per-mille, 0-1000) as big-endian u16s — that is the colour control.
 
 ### Firmware updates (OTA)
 
@@ -110,7 +110,7 @@ the image matching your model string.
 
 - Nothing is wire-verified yet: the whole map comes from static analysis of
   the vendor app. First live capture should cover connect → info → status →
-  power → color.
+  power → colour.
 - The device→app event opcodes (`0xA0`-`0xE0`) are only partially mapped.
 - The vendor app's device-lock ("password") feature: wire mechanism unknown —
   if a unit stops responding after a password was set, this is the suspect.

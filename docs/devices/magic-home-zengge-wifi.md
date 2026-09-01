@@ -11,7 +11,7 @@ Zengge's Wi-Fi LED controllers and bulbs, sold under dozens of brands (Magic Hom
 
 ## Protocol Summary
 
-Plaintext binary on TCP 5577 (last byte = additive checksum), no auth: power `71 23 0F`, color `31 RR GG BB WW ...`, state query `81 8A 8B`. Discovery/config over the Hi-Flying UDP 48899 `HF-A11ASSISTHREAD` channel.
+Plaintext binary on TCP 5577 (last byte = additive checksum), no auth: power `71 23 0F`, colour `31 RR GG BB WW ...`, state query `81 8A 8B`. Discovery/config over the Hi-Flying UDP 48899 `HF-A11ASSISTHREAD` channel.
 
 See `device-specs/devices/magic-home-zengge-wifi.yaml` for the full machine-readable spec.
 

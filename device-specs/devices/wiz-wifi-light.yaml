@@ -40,7 +40,7 @@ device:
       registration    — register a client for pushes; doubles as the discovery probe
       getSystemConfig / setSystemConfig, getUserConfig / setUserConfig — device config
       pulse           — brief fade effect (delta + duration)
-    Params: r/g/b 0-255, dimming, color temperature in Kelvin (range varies by
+    Params: r/g/b 0-255, dimming, colour temperature in Kelvin (range varies by
     bulb class), sceneId 1-35, effect speed. MACs appear as 12-digit lowercase
     hex strings.
 
@@ -158,7 +158,7 @@ commands:
     body: '{"method":"setPilot","params":{"state":false}}'
     verification: "reported"
   set_rgb:
-    description: "Set RGB color."
+    description: "Set RGB colour."
     transport: "udp"
     body: '{"method":"setPilot","params":{"r":{red},"g":{green},"b":{blue}}}'
     parameters:

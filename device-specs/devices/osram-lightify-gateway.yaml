@@ -43,8 +43,8 @@ device:
 
     COMMANDS:
       0x13 list paired devices   0x1E list zones/groups   0x1F list scenes
-      0x31 set brightness        0x32 set power on/off     0x33 set color temp (2000-6500 K)
-      0x36 set RGBW color        0x52 activate scene       0x68 get device info
+      0x31 set brightness        0x32 set power on/off     0x33 set colour temp (2000-6500 K)
+      0x36 set RGBW colour       0x52 activate scene       0x68 get device info
       0x6F get gateway firmware version
     Each works per-device or per-zone via the flag + addressing scheme.
 
@@ -233,7 +233,7 @@ commands:
         description: "Brightness percent."
     verification: "reported"
   set_color:
-    description: "Set RGBW color (command 0x36)."
+    description: "Set RGBW colour (command 0x36)."
     transport: "tcp-json"
     body: "command 0x36, addressing, payload R G B W + transition"
     parameters:
