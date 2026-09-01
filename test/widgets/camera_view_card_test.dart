@@ -67,12 +67,16 @@ void main() {
 
   // Tear the card down by replacing the tree, so its dispose() runs.
   Future<void> disposeCard(WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
+    await tester
+        .pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
     await tester.pump();
   }
 
   testWidgets('a device with no camera renders nothing', (tester) async {
-    final feed = StreamController<Uint8List>();
+    // Broadcast: a cameraless card never subscribes, and a single-subscription
+    // controller's close() would then block teardown forever waiting for a
+    // listener. Broadcast close() completes with no listener.
+    final feed = StreamController<Uint8List>.broadcast();
     addTearDown(feed.close);
     await pump(tester, camera: null, feed: feed);
     await tester.pump(); // let the (async) camera resolve to "none"
@@ -83,7 +87,7 @@ void main() {
   });
 
   testWidgets('a camera stream renders its frames', (tester) async {
-    final feed = StreamController<Uint8List>();
+    final feed = StreamController<Uint8List>.broadcast();
     addTearDown(feed.close);
     await pump(tester, camera: _pollCamera, feed: feed);
     await tester.pump(); // resolve the camera + attach the feed subscription
@@ -102,7 +106,8 @@ void main() {
   testWidgets('leaving the screen cancels the feed subscription',
       (tester) async {
     var cancelled = false;
-    final feed = StreamController<Uint8List>(onCancel: () => cancelled = true);
+    final feed =
+        StreamController<Uint8List>.broadcast(onCancel: () => cancelled = true);
     await pump(tester, camera: _pollCamera, feed: feed);
     await tester.pump(); // resolve + subscribe
 
