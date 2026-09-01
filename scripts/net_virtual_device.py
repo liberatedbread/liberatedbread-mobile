@@ -147,6 +147,34 @@ DEFAULT_SCENARIO = [
             },
         ],
     },
+    # The OTHER Snapmaker failure mode, and the reason addressFromTxt's emit
+    # path exists: a device that answers its direct PTR, TXT and SRV but is
+    # DEAF to the A query for its own hostname (no_a_record), so PTR -> SRV -> A
+    # never yields an address and the normal resolution would drop it. Its TXT
+    # carries `ip=`, which the scan reads to rescue it — the branch at
+    # _resolveServiceType's TXT arm. A distinct service type so only this
+    # responder answers it (like the meta-query-deaf case, no dev-box mDNS
+    # daemon can shadow it), and hidden from the meta-query so a plain scan
+    # never sees it — the scan must be handed the type to find it.
+    {
+        'name': 'Snapmaker U1 (TXT address only)',
+        'address': '198.51.100.14',
+        'mdns': [
+            {
+                'instance': 'Snapmaker U1 - txtonly',
+                'type': '_snaptxt._tcp.local',
+                'target': 'snapmaker-txt.local',
+                'port': 1884,
+                'hide_from_meta_query': True,
+                'no_a_record': True,
+                'txt': {
+                    'ip': '198.51.100.14',
+                    'sn': 'SNAPU1TXT0000',
+                    'device_name': 'Snapmaker U1',
+                },
+            },
+        ],
+    },
 ]
 
 
@@ -324,7 +352,11 @@ class VirtualNetwork:
                             instance, TYPE_SRV,
                             srv_rdata(service['target'], service['port'])))
                 if (lowered == service['target'].lower().rstrip('.')
-                        and qtype in (TYPE_A, TYPE_ANY)):
+                        and qtype in (TYPE_A, TYPE_ANY)
+                        and not service.get('no_a_record')):
+                    # A service flagged no_a_record answers PTR/TXT/SRV but is
+                    # silent on the A query for its own hostname — the device
+                    # whose address the scan can only learn from its TXT `ip=`.
                     answers.append(record(service['target'], TYPE_A,
                                           socket.inet_aton(device['address'])))
         return answers

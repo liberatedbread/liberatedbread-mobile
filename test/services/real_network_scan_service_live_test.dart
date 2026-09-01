@@ -42,6 +42,12 @@ const _wemoHost = '198.51.100.12';
 const _snapHost = '198.51.100.13';
 const _snapType = '_snapmaker._tcp.local.';
 
+/// The OTHER Snapmaker failure: a device that answers PTR + TXT + SRV but is
+/// deaf to the A query for its own hostname, so PTR -> SRV -> A never yields an
+/// address. Its TXT carries `ip=`, which is the only way the scan can place it.
+const _snapTxtHost = '198.51.100.14';
+const _snapTxtType = '_snaptxt._tcp.local.';
+
 /// Long enough for two multicast round trips on loopback, short enough that a
 /// broken run fails in seconds. RealNetworkScanService splits this in half
 /// between enumerating service types and resolving them, so it is the budget
@@ -204,6 +210,31 @@ void main() {
     expect(snap.port, 1884, reason: 'the advertised port, metadata only');
     expect(snap.txt['sn'], 'SNAPU1TEST000');
     expect(snap.sources, contains(NetworkDiscoverySource.mdns));
+  });
+
+  test(
+      'a device that never answers the A query is rescued by the ip in its '
+      'TXT record', () async {
+    // The device answers its direct PTR, TXT and SRV, but no A record for its
+    // hostname, so the normal PTR -> SRV -> A chain resolves no address and
+    // would drop it. The TXT arm reads `ip=` and emits anyway — the
+    // addressFromTxt rescue that keeps a Snapmaker U1 from vanishing.
+    final found = await scan(mdnsTypes: const [_snapTxtType]);
+
+    final snap = deviceAt(found, _snapTxtHost);
+    expect(snap, isNotNull,
+        reason: 'PTR + TXT was enough to place the device, even though the A '
+            'query for its hostname was never answered');
+    // The address is the TXT-reported one, not one an A record supplied.
+    expect(snap!.host, _snapTxtHost);
+    expect(snap.txt['ip'], _snapTxtHost);
+    expect(snap.serviceTypes, contains('_snaptxt._tcp.local'));
+    expect(snap.sources, contains(NetworkDiscoverySource.mdns));
+    // Proof the row came off the TXT arm and not SRV/A: the SRV/A path yielded
+    // no address, so it never emitted the row that would have carried a port.
+    expect(snap.port, isNull,
+        reason: 'only the TXT emit fired; the unanswered A query left the '
+            'SRV/A path with nothing to emit');
   });
 
   test('a scan can be stopped early without leaving the stream open', () async {
