@@ -33,8 +33,13 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
   CameraStreamDto? _pollStream;
   StreamSubscription<Uint8List>? _sub;
   Uint8List? _frame;
-  bool _resolved = false;
   String? _error;
+  Timer? _firstFrameTimeout;
+
+  /// How long to wait for the first frame before telling the user the camera
+  /// is not responding, rather than spinning forever on a declared-but-
+  /// unreachable feed.
+  static const _firstFrameGrace = Duration(seconds: 15);
 
   @override
   void initState() {
@@ -51,10 +56,7 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
       final poll = camera?.streams
           .where((s) => s.transport == 'mjpeg_snapshot_poll')
           .firstOrNull;
-      setState(() {
-        _resolved = true;
-        _pollStream = poll;
-      });
+      setState(() => _pollStream = poll);
       if (poll != null) {
         _sub = ref
             .read(cameraFeedServiceProvider)
@@ -62,26 +64,40 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
                 host: widget.host, stream: poll, keepalive: camera!.keepalive)
             .listen(
           (bytes) {
-            if (mounted) setState(() => _frame = bytes);
+            if (!mounted) return;
+            // A frame arrived: the feed works, so cancel the not-responding
+            // timeout and clear any prior error.
+            _firstFrameTimeout?.cancel();
+            _firstFrameTimeout = null;
+            setState(() {
+              _frame = bytes;
+              _error = null;
+            });
           },
           onError: (Object e) {
             Log.spec.debug('camera feed error', error: e);
           },
         );
+        // The feed service swallows transient fetch failures and keeps polling,
+        // so a camera that never answers surfaces no error — it would spin
+        // forever. Time out the wait for the first frame and say so.
+        _firstFrameTimeout = Timer(_firstFrameGrace, () {
+          if (mounted && _frame == null) {
+            setState(() => _error = 'The camera isn’t responding.');
+          }
+        });
       }
     } on Object catch (e) {
       Log.spec.warning('camera resolve failed', error: e);
       if (mounted) {
-        setState(() {
-          _resolved = true;
-          _error = 'Could not read the camera configuration.';
-        });
+        setState(() => _error = 'Could not read the camera configuration.');
       }
     }
   }
 
   @override
   void dispose() {
+    _firstFrameTimeout?.cancel();
     unawaited(_sub?.cancel());
     _sub = null;
     super.dispose();
@@ -89,8 +105,10 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
 
   @override
   Widget build(BuildContext context) {
-    // No camera on this device (or an unsupported transport): draw nothing.
-    if (_resolved && _pollStream == null && _error == null) {
+    // Draw nothing until we KNOW this device has a supported camera stream (or
+    // reading its config errored). Rendering the card+spinner while resolving
+    // flashed it on every network device screen, cameraless ones included.
+    if (_pollStream == null && _error == null) {
       return const SizedBox.shrink();
     }
     final scheme = Theme.of(context).colorScheme;

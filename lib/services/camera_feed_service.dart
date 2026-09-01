@@ -112,6 +112,14 @@ class _FeedSession {
   int _rpcId = 1;
   bool _stopped = false;
 
+  /// A poll fetch is in flight — the periodic timer skips rather than stacking
+  /// concurrent requests (each would pin a socket).
+  bool _fetching = false;
+
+  /// The keepalive socket has connected at least once — so a later connect
+  /// FAILURE is a lost reconnect worth retrying, not an initial absence.
+  bool _keepaliveEverConnected = false;
+
   _FeedSession({
     required this.host,
     required this.stream,
@@ -147,7 +155,18 @@ class _FeedSession {
           .timeout(connectTimeout);
     } on Object catch (e) {
       Log.spec.debug('camera keepalive connect failed', error: e);
-      return; // Some firmware still refreshes without it; keep polling.
+      // An INITIAL failure does not loop — some firmware refreshes without the
+      // keepalive, so we just keep polling. But a RECONNECT (we had a working
+      // session that dropped) failing to re-open must keep trying, or the
+      // monitor session is gone for good and the poll loop renders a frozen
+      // frame as if it were live.
+      if (_keepaliveEverConnected && !_stopped) {
+        _reconnectTimer?.cancel();
+        _reconnectTimer = Timer(reconnectDelay, () {
+          if (!_stopped) unawaited(_startKeepalive());
+        });
+      }
+      return;
     }
     // The connect awaited; if the feed was stopped meanwhile, do not adopt the
     // socket or schedule the keepalive timer — close it and bail, or it leaks.
@@ -158,6 +177,7 @@ class _FeedSession {
       return;
     }
     _ws = ws;
+    _keepaliveEverConnected = true;
     // If the printer closes the monitor socket (or the network blips), the
     // periodic sendStart would keep writing to a dead socket — surfacing an
     // uncaught error and never re-establishing the session. Watch for closure
@@ -201,14 +221,24 @@ class _FeedSession {
   }
 
   Future<void> _tick() async {
-    if (_stopped) return;
+    // Skip while a fetch is still running: the period can be as low as 200 ms,
+    // and a slow/hung exchange stacking concurrent requests pins one socket
+    // each — the poll loop must be self-throttling.
+    if (_stopped || _fetching) return;
+    _fetching = true;
+    HttpClientRequest? req;
     try {
       final ts = DateTime.now().microsecondsSinceEpoch;
       final sep = stream.urlTemplate.contains('?') ? '&' : '?';
       final url = '${fillCameraUrl(stream.urlTemplate, host)}${sep}ts=$ts';
-      final req = await _http.getUrl(Uri.parse(url)).timeout(fetchTimeout);
+      req = await _http.getUrl(Uri.parse(url)).timeout(fetchTimeout);
       final resp = await req.close().timeout(fetchTimeout);
-      if (resp.statusCode != 200) return;
+      if (resp.statusCode != 200) {
+        // Drain the body or dart:io keeps the connection out of the pool — a
+        // busy printer answering 503 each poll would leak a socket per tick.
+        await resp.drain<void>().timeout(fetchTimeout);
+        return;
+      }
       final bytes = await _collect(resp).timeout(fetchTimeout);
       // A JPEG starts FF D8; ignore anything else (an error page, a partial).
       if (!_stopped &&
@@ -219,7 +249,14 @@ class _FeedSession {
       }
     } on Object catch (e) {
       Log.spec.debug('camera frame fetch failed', error: e);
+      // A timeout only abandons the future; abort so a hung exchange releases
+      // its socket instead of pinning it until stop().
+      try {
+        req?.abort();
+      } catch (_) {}
       // Transient: keep polling; a persistently-dead feed just shows nothing.
+    } finally {
+      _fetching = false;
     }
   }
 

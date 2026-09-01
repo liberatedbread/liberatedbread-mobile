@@ -209,6 +209,7 @@ class FakeSpecCodec implements SpecCodec {
     this.networkEntities,
     this.networkCredentials = const [],
     this.networkHiddenNames = const [],
+    this.cameraResult,
     this.networkCapabilitiesResult,
     this.networkEntitiesForState,
     this.networkRequest,
@@ -1648,8 +1649,11 @@ class FakeSpecCodec implements SpecCodec {
   }) =>
       throw UnimplementedError('renderBrotherQlTestLabel');
 
-  // Camera-view tests drive the real codec's pure parse with a fake feed
-  // service, so the fake reports no camera.
+  /// Returned by [cameraForDevice] — null (no camera) unless a camera-view test
+  /// sets it to exercise the card.
+  final CameraDto? cameraResult;
+
   @override
-  Future<CameraDto?> cameraForDevice({required String specYaml}) async => null;
+  Future<CameraDto?> cameraForDevice({required String specYaml}) async =>
+      cameraResult;
 }

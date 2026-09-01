@@ -443,6 +443,7 @@ void main() {
         () async {
       // The pre-existing rule stands for sets that pair: no client id, no
       // session — a generated one would connect and be silently unauthorised.
+      var connectorInvoked = false;
       final s = sender(
         withCodec: mqttCodec,
         devicePort: 8883,
@@ -453,14 +454,31 @@ void main() {
           mqttClientIdGenerated: false,
         ),
         storedCredentials: const {'username': 'u', 'password': 'p'},
-        mqttConnect: (host, port, timeout) async => broker,
+        mqttConnect: (host, port, timeout) async {
+          connectorInvoked = true;
+          // Answer CONNACK, so if the guard were gone the connect would SUCCEED
+          // — the test then fails on the assertions below instead of passing on
+          // an incidental ack timeout.
+          scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+          return broker;
+        },
       );
       addTearDown(s.close);
 
       await expectLater(
         s.sendAction(action('press', 'press_power', transport: 'mqtt'), {}),
-        throwsA(isA<MqttConnectionException>()),
+        // The refusal IDENTITY, not merely the type: the "not been paired"
+        // message is the guard talking. A different MqttConnectionException
+        // (e.g. an ack timeout) would not have this text.
+        throwsA(isA<MqttConnectionException>()
+            .having((e) => e.message, 'message', contains('paired'))),
       );
+      // The guard must fire BEFORE opening a socket — no CONNECT reaches the
+      // broker. This is what makes the test fail if the guard is deleted.
+      expect(connectorInvoked, isFalse,
+          reason:
+              'the client id is checked before any connection is attempted');
+      expect(broker.written, isEmpty);
     });
 
     /// A value the caller set beats a stored credential of the same name:

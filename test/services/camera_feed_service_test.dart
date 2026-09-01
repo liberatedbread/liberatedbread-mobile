@@ -66,6 +66,16 @@ void main() {
             ..headers.contentType = ContentType('image', 'jpeg')
             ..add(jpeg(frameTag));
           await req.response.close();
+        } else if (req.uri.path == '/notjpeg') {
+          // 200, but the body is NOT a JPEG (no FF D8) — an error page a daemon
+          // serves with a 200. Exercises the magic-byte drop, not the status
+          // early-return.
+          frameTag++;
+          req.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType('text', 'html')
+            ..write('<html>camera busy</html>');
+          await req.response.close();
         } else {
           req.response.statusCode = 404;
           await req.response.close();
@@ -133,11 +143,13 @@ void main() {
           reason: 'polling stopped after cancel');
     });
 
-    test('a non-JPEG poll response is dropped, not emitted', () async {
-      // Point at a 404 path so the body is never a JPEG.
+    test('a 200 response whose body is not a JPEG is dropped, not emitted',
+        () async {
+      // Exercises the FF D8 magic-byte check: the daemon answers 200 with an
+      // HTML error page, which must not be forwarded as a frame.
       const stream = CameraStreamDto(
         transport: 'mjpeg_snapshot_poll',
-        urlTemplate: 'http://{address}/nope.jpg',
+        urlTemplate: 'http://{address}/notjpeg',
         targetFps: 30,
       );
       const service = CameraFeedService();

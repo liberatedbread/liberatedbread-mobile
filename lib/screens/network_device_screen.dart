@@ -1121,6 +1121,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _mqttStateSub = stream.listen((message) {
         final declared = declaredByFilled[message.topic];
         if (declared == null || !mounted) return;
+        // A delivered message is proof the session actually works, so reset the
+        // backoff here — NOT when listen() merely attached, which a flapping
+        // connection reaches every 2 s and would pin the backoff at its floor.
+        _mqttBackoff = Duration.zero;
         _stateByCommand[declared] = httpStateFields(message.payload);
         _scheduleDecode();
       }, onError: (Object e) {
@@ -1129,12 +1133,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // resume instead of freezing until the screen is reopened.
         _scheduleMqttResubscribe();
       });
-      // Subscribed cleanly: reset the backoff for the next drop.
-      _mqttBackoff = Duration.zero;
     } on Exception catch (e) {
-      // Unpaired (no client id yet) or unreachable. The credentials card is
-      // the ask; the readings stay honestly unknown until it is answered.
+      // subscribeMqttState threw. On FIRST load (backoff still zero) that is
+      // "unpaired / unreachable" — the credentials card is the ask, and looping
+      // would train people to paste secrets — so leave it. But mid-RECONNECT
+      // (backoff already engaged by a drop) this is the retry itself failing
+      // because the broker is still down; keep retrying, or the resubscribe
+      // chain dies and readings freeze until the screen is reopened.
       Log.net.debug('mqtt state unavailable on ${widget.device.host}: $e');
+      if (_mqttBackoff != Duration.zero) _scheduleMqttResubscribe();
     }
   }
 

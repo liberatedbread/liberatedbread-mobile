@@ -15,6 +15,7 @@ import 'package:liberated_bread_mobile/providers/ha_provider.dart';
 import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/safety_advisory_gate.dart';
 import 'package:liberated_bread_mobile/screens/device_screen.dart';
 import 'package:liberated_bread_mobile/screens/find_device_screen.dart';
 import 'package:liberated_bread_mobile/screens/setup_instructions_screen.dart';
@@ -486,6 +487,61 @@ void main() {
         .firstWhere((d) => d.id == _device.id);
     expect(saved.category, 'light');
     expect(saved.specKey, 'Example Smart Bulb|Acme Corp');
+  });
+
+  testWidgets(
+      'a matched spec with a safety advisory wraps the controls in the gate',
+      (tester) async {
+    // The IPL wiring: when the resolved spec declares a safety_advisory, the
+    // control panel is wrapped in SafetyAdvisoryGate — and with
+    // acknowledge_required and no stored acknowledgement, the controls stay
+    // behind the consent step.
+    final matched = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallbackTypes: const [],
+      txtMatchGroups: const [],
+      hiddenEntityNames: const [],
+      deviceName: 'Zappy IPL',
+      manufacturer: 'Acme',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: 'personal_care',
+      localNamePrefixes: const [],
+      localNames: const [],
+      serviceUuids: const [],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceTypes: const [],
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      services: const [],
+      entities: const [],
+      safetyAdvisory: const SafetyAdvisoryDto(
+        severity: 'danger',
+        summary: 'Intense light pulses can permanently burn skin.',
+        acknowledgeRequired: true,
+      ),
+    );
+    final fake = FakeBleService(servicesToReturn: const [
+      BleDiscoveredService(
+          uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
+    ]);
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        numberRegistryProvider.overrideWith((ref) async => _registry),
+        matchedDeviceSpecProvider.overrideWith((ref, request) async =>
+            SpecMatchOutcome.auto(MatchedSpec(spec: matched, yaml: 'yaml'))),
+      ],
+      child: MaterialApp(home: DeviceScreen(device: _device)),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SafetyAdvisoryGate), findsOneWidget);
+    expect(find.text('Safety warning'), findsOneWidget);
+    // acknowledge_required + nothing stored: the consent step gates the panel.
+    expect(find.textContaining('I understand'), findsOneWidget);
   });
 
   testWidgets(
