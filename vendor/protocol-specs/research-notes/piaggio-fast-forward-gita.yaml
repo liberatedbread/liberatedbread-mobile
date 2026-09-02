@@ -1,0 +1,144 @@
+# Piaggio Fast Forward gita robots — Structured Note
+# APK source: apkeep (apk-pure); mygita com.piaggiofastforward.mobile 1.7.2 (5254319)
+# XAPK SHA-256: c8f4a09732036b20ecba730da76c826855f1cdfd469ece6cfbb8a069d8320641
+
+device:
+  id: piaggio-fast-forward-gita
+  name: Piaggio Fast Forward gita robot family (gita, gitamini, gitaplus, G1T4-M1N1)
+  manufacturer: Piaggio Fast Forward, Inc. (Piaggio Group subsidiary, Boston; active as of 2026)
+  category: cargo_following_robot
+  safety_class: HIGH  # self-propelled 23–50 kg robot; moving-machinery caution
+
+transport:
+  type: ble
+  local_only: false
+  note: >
+    Robot control and pairing run over local BLE GATT, and following itself is
+    vision-based on the robot (no radio link needed while following). But the
+    app↔robot relationship is bootstrapped through the vendor cloud: account
+    registration issues a BLE session key via a /session-keys endpoint, and
+    firmware OTA is downloaded by the robot itself from JWT-gated cloud
+    endpoints over the robot's own Wi-Fi (provisioned via BLE; no SoftAP).
+    Speaker is classic Bluetooth A2DP paired at OS level, outside the app.
+
+ble:
+  advertising:
+    name_patterns: []  # scan filter is the 16-bit service UUID only; no name filter
+    service_uuids: ["9999"]  # 16-bit service UUID used as the sole scan filter
+    manufacturer:
+      company_id: "0x083B"  # 02107 "Piaggio Fast Forward" (Bluetooth SIG registry)
+      note: >
+        Manufacturer-specific data is a TLV map. Tag (hex): A1 serial (UTF-8),
+        A2 objectId, A3 color, A4 status, A5 battery, A6 model, A7 msgcode,
+        A8 userId, A9 checksum (two's-complement byte sum), AA odometry.
+        Minimum length 25 bytes. Model tag values: 1 gita, 2 mini, 3 pro,
+        4 plus, 5 tag, 11 disney (Star Wars editions). Serial/battery/status
+        are readable from the advertisement alone — no connect needed.
+
+  services:
+    - uuid: "87654321-1234-5678-1234-56789abcdef0"
+      name: pff_robot_service
+      description: Sole vendor GATT service; MTU 185 requested; writes use write-no-response
+      characteristics:
+        - uuid: "87654321-1234-5678-1234-56789abcdef1"
+          name: auth
+          description: Authentication channel (nonce/auth-key ops 7–9)
+          properties: [write]
+        - uuid: "87654321-1234-5678-1234-56789abcdef2"
+          name: command
+          description: Encrypted command channel; AES-128-CBC after ECDH pairing
+          properties: [write]
+        - uuid: "87654321-1234-5678-1234-56789abcdef3"
+          name: wifi_status
+          description: Wi-Fi state notifications
+          properties: [notify]
+        - uuid: "87654321-1234-5678-1234-56789abcdef4"
+          name: device_identity
+          description: Device identity read
+          properties: [read]
+        - uuid: "87654321-1234-5678-1234-56789abcdef5"
+          name: ecdh_pubkey_write
+          description: ECDH secp256k1 public key, phone → robot
+          properties: [write]
+        - uuid: "87654321-1234-5678-1234-56789abcdef6"
+          name: ecdh_pubkey_read
+          description: ECDH secp256k1 public key, robot → phone
+          properties: [read]
+        - uuid: "87654321-1234-5678-1234-56789abcdef7"
+          name: main_notify
+          description: Main notification channel (types 100–126, 140, 141)
+          properties: [notify]
+        - uuid: "87654321-1234-5678-1234-56789abcdef8"
+          name: version
+          description: Firmware/software version read
+          properties: [read]
+        - uuid: "87654321-1234-5678-1234-56789abcdef9"
+          name: registration_feedback
+          description: Registration flow feedback notifications
+          properties: [notify]
+        - uuid: "87654321-1234-5678-1234-56789abcdefa"
+          name: registration
+          description: Cleartext ASCII registration write, framed "##<10-char id>…$$$$$"
+          properties: [write]
+        - uuid: "87654321-1234-5678-1234-56789abcdefb"
+          name: session_key
+          description: Cloud-issued session key write, framed "##<id>…#####"
+          properties: [write]
+
+protocol:
+  note: >
+    Pairing: ECDH secp256k1 key exchange on the …def5/…def6 characteristics,
+    shared secret → SHA-256 → first 16 bytes AES-128 key, next 16 bytes IV.
+    All CMD traffic on …def2 is AES-128-CBC/PKCS7 after that. Plaintext
+    framing: [opcode][0x7F][data…], no-data commands padded to 10 bytes;
+    ciphertext chunked into 181-byte frames each followed by a 1-byte
+    end-flag (1 = last). Opcodes (decimal): 7–9 nonce/auth keys; 50–59
+    Wi-Fi management (51 set Wi-Fi = ASCII "<ssid> password <password>");
+    60–68 registration/session key; 69–77 speaker/mute/stealth/latch/audio;
+    80 install update; 81 get version; 82 re-pair speaker; 83/84 volume;
+    85 download software; 86 uptime; 87 push logs; 88 toggle Wi-Fi;
+    89 remove device; 90–92 OTA status; 93 toggle autonomous "smarts"
+    behaviors; 99 disconnect; 100 activate; 101/102 disable/enable the
+    robot's SSH daemon. Notification types 100–126, 140, 141; multipacket
+    flags 251–255. Per-op payload layouts are not yet decoded — needs one
+    HCI snoop capture of "connect + one action".
+  ota:
+    note: >
+      No DFU in the app and no firmware bytes/URLs embedded. Robot downloads
+      firmware itself over its own Wi-Fi: GET /ota-v2-check?gitaId=X&buildId=Y
+      then GET /ota-v2-infos/<id> (both JWT-gated; verified 400 without auth),
+      then BLE op 85 (download) and op 80 (install), progress on ops 90–92.
+      Version format M.m.p[-b<buildId>][-(prd|stg|dev|cst)]. Legacy v1
+      endpoint /ota-infos?versionName=….
+  cloud:
+    base_urls: ["https://api.mygita.com", "https://api-dev.mygita.com",
+                "https://api-stg.mygita.com", "https://api-cst.mygita.com",
+                "https://knowledge.mygita.com"]
+    auth: "JWT Bearer; POST /auth login+refresh; POST /users signup"
+    note: >
+      Feathers-style REST ($select/$populate/$in). Endpoints include
+      /registrations (robot↔user binding), /gitas (name/color/serial/model),
+      /session-keys (cloud-issued BLE session key), /invites, /info/version
+      (open; reported API 1.16.21, minSupportedAppVersion mygita 1.4.5 on
+      2026-08-29), /logs, /maps, /known-paths, /iot-bridge, /iot-commands,
+      /iot-responses, /iot-statuses, plus fleet endpoints (/organizations,
+      /check-outs, /rma). App also carries MQTT topic constants
+      (<org>/gita/<id>/command|response|status with Ota/PushLog/WifiScan/
+      WifiConnect/GsmConfigure commands) — a cloud↔robot channel used by
+      fleet tooling, implying cellular on some models.
+
+status:
+  apk_acquired: true        # com.piaggiofastforward.mobile 1.7.2 XAPK via apkeep apk-pure
+  apk_decompiled: true      # native layer stock RN; protocol mined from plain-JS bundle
+  uuids_recovered: true
+  protocol_recovered: true  # framing + full opcode map; per-op payload fields TBD
+  hci_snoop_needed: true    # one capture to pin payload layouts + notification semantics
+  cloud_status: active      # vendor alive (Grogu gitamini launched 2026); pre-positioning
+  cloud_dependency: partial # BLE control local; account needed for registration/session key + OTA
+  sources:
+    - https://piaggiofastforward.com/
+    - https://www.theverge.com/2021/9/22/22685649/gita-gitamini-cargo-carrying-robot-piaggio
+    - https://fccid.io/2AY6H-101440
+    - https://device.report/piaggio-fast-forward
+    - https://www.manualslib.com/manual/2132818/Piaggio-Gita.html
+    - https://apkpure.net/tw/mygita/com.piaggiofastforward.mobile/download/1.7.1

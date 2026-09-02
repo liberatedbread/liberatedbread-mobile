@@ -42,7 +42,7 @@ Framing: 6-byte header + payload, total `(size*2)+6` bytes:
   (client tag counter starts at -275); byte 4: attr; byte 5: size in 16-bit words.
 - Responses: tag, cmd, result code, attr, size, payload.
 
-Command IDs (`JciCommands.CommandType`):
+Command IDs (the app's command-type enumeration):
 GetHeadsetVersion=1, ReadPSKey=2, WritePSKey=3, PostMessage=5, CancelMessage=6,
 RegisterNotification=7, CancelNotification=8, EventNotification=10,
 ResetHeadsetJCI=12, ReadHeadsetInternalData=13, ChangeHeadsetFriendlyName=16,

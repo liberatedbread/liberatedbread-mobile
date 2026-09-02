@@ -1,7 +1,7 @@
 # Wemo Setup, Factory Reset and Rebinding
 
 > **Status**: In Progress — flow documented from public implementations, not yet replayed against hardware
-> **Applies to**: every Wemo device family in [the catalog](wemo-devices.md)
+> **Applies to**: every Wemo device family in [the catalogue](wemo-devices.md)
 > **Prerequisite**: none — the Belkin cloud is not involved at any point
 
 [Discovery and control](wemo-devices.md) assume a Wemo device is already on your
@@ -304,7 +304,7 @@ thing we tell people to use. Our contribution is the spec.
     `wemo_discover.py`, `wemo_control.py` and `wemo_setup.py` exist to check
     this spec against real hardware, since every `verified` flag in it is still
     `false`. They are scheduled for deletion once that is done — see
-    [issue #16](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/issues/16),
+    [issue #16](https://github.com/liberatedbread/liberatedbread-protocol-specs/issues/16),
     which lists what needs confirming. If you are provisioning a device rather
     than verifying a document, use pywemo.
 

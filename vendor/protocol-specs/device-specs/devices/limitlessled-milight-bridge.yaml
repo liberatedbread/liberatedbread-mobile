@@ -202,7 +202,7 @@ protocol_details:
     legacy_command_frame:
       description: >
         Every legacy (v1-v5) command is exactly 3 bytes: the command byte, the
-        argument byte (0x00 for all commands except brightness and color), and
+        argument byte (0x00 for all commands except brightness and colour), and
         the constant terminator 0x55. Send to UDP 8899 (TCP 8899 also accepts
         them on the observed unit). Repeat safe commands ~3 times with a
         >=100 ms pause between sends — the bridge-to-bulb RF hop drops packets
@@ -337,7 +337,7 @@ commands:
         description: "0x02 dimmest .. 0x1B brightest. Send a zone ON first; the level applies to the most-recently-addressed zone(s)."
     verification: "reported"
   set_color:
-    description: "Set RGBW color — command 0x40 with a hue byte."
+    description: "Set RGBW colour — command 0x40 with a hue byte."
     transport: "udp"
     action: "legacy_command"
     arguments:
@@ -348,23 +348,29 @@ commands:
         type: "uint8"
         min: 0
         max: 255
-        description: "Color wheel starting at violet: 0x00 violet, 0x10 royal blue, 0x60 green, 0xB0 red, 0xF0 lavender."
+        description: "Colour wheel starting at violet: 0x00 violet, 0x10 royal blue, 0x60 green, 0xB0 red, 0xF0 lavender."
     notes: "Send a zone ON first; hue applies to the most-recently-addressed zone(s)."
     verification: "reported"
   night_mode:
-    description: "Very dim white — send OFF then, ~100 ms later, OFF|0x80."
+    description: "Very dim white — a two-frame sequence: send OFF then, ~100 ms later, OFF|0x80."
     transport: "udp"
-    action: "legacy_command_sequence"
-    arguments:
-      sequence: "<off_cmd> 00 55, then (<off_cmd>|0x80) 00 55 after 100 ms"
-    notes: "Example zone 1 RGBW: 46 00 55 then C6 00 55."
+    action: "legacy_command"
+    frames:
+      - command: "0x41 (all) or 0x46/0x48/0x4A/0x4C (zone 1-4)"
+        argument: 0
+        delay_after_ms: 100
+      - command: "0xC1 (all) or 0xC6/0xC8/0xCA/0xCC (zone 1-4)"
+        argument: 0
+    notes: "Each frame renders exactly like a single legacy_command's arguments (<cmd> 00 55 to port 8899); delay_after_ms is the pause before the NEXT frame. Example zone 1 RGBW: 46 00 55 then, 100 ms later, C6 00 55 (0x46|0x80)."
     verification: "reported"
 
 entities:
   - platform: "light"
     name: "Mi-Light RGBW Zone"
     features: ["brightness", "color"]
-    state_topic: "udp://{host}:8899"
+    # No state_topic: the legacy protocol is write-only (see
+    # protocol_details.limitlessled_protocol.reply_to_commands). The bridge
+    # never reports light state back, so there is nothing to read.
     commands:
       turn_on: "turn_on"
       turn_off: "turn_off"
@@ -374,7 +380,7 @@ entities:
 helpful_urls:
   - url: "https://www.home-assistant.io/integrations/limitlessled/"
     title: "Home Assistant LimitlessLED integration"
-    description: "HA core integration driving MiLight/LimitlessLED bridges with the UDP v6 protocol documented here."
+    description: "HA core integration driving MiLight/LimitlessLED bridges via the legacy write-only command set (the ledcontroller library) documented here."
   - title: "NeonHorizon/milight — V6 bridge drivers and protocol notes"
     url: "https://github.com/NeonHorizon/milight"
     kind: "implementation"

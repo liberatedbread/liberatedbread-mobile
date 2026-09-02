@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -557,6 +557,18 @@ Future<List<NetworkCredentialDto>> credentialsForDevice(
     RustLib.instance.api
         .crateApiDeviceApiCredentialsForDevice(specYaml: specYaml);
 
+/// Apply a spec-declared credential derivation to what the person typed.
+///
+/// `base64_sha512` — the only derivation the schema declares — is base64 of the
+/// SHA-512 digest of the entered value: Dyson's local MQTT password, computed
+/// from the sticker Wi-Fi password so the person types what is printed rather
+/// than a hash. An unknown name errors instead of silently storing the raw
+/// value under a credential the broker expects derived.
+Future<String> deriveCredentialValue(
+        {required String derivation, required String value}) =>
+    RustLib.instance.api.crateApiDeviceApiDeriveCredentialValue(
+        derivation: derivation, value: value);
+
 /// The UDP port every LIFX device listens on. Exposed so the Dart client need
 /// not hardcode it separately from the protocol module.
 Future<int> lifxPort() => RustLib.instance.api.crateApiDeviceApiLifxPort();
@@ -751,6 +763,12 @@ Future<Uint8List> renderBrotherQlTestLabel(
         {required String specYaml, required BrotherQlJobParamsDto params}) =>
     RustLib.instance.api.crateApiDeviceApiRenderBrotherQlTestLabel(
         specYaml: specYaml, params: params);
+
+/// The `camera:` block for a device, or None when it declares no camera. The
+/// typed surface behind the MJPEG snapshot-poll viewer (and its WebSocket
+/// keepalive); `camera{}` used to be parsed by nothing.
+Future<CameraDto?> cameraForDevice({required String specYaml}) =>
+    RustLib.instance.api.crateApiDeviceApiCameraForDevice(specYaml: specYaml);
 
 /// Encode the BLE writes that PERSIST a picture on the device so it plays
 /// standalone after disconnect, dispatched on the spec's `stored_upload`
@@ -1211,6 +1229,120 @@ class BrotherQlStatusDto {
           readyToPrint == other.readyToPrint;
 }
 
+/// A device's camera feed(s) for the Dart viewer.
+class CameraDto {
+  final List<CameraStreamDto> streams;
+
+  /// The session to hold open before frames flow (Snapmaker), if any.
+  final CameraKeepaliveDto? keepalive;
+
+  const CameraDto({
+    required this.streams,
+    this.keepalive,
+  });
+
+  @override
+  int get hashCode => streams.hashCode ^ keepalive.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CameraDto &&
+          runtimeType == other.runtimeType &&
+          streams == other.streams &&
+          keepalive == other.keepalive;
+}
+
+class CameraKeepaliveDto {
+  /// Only "websocket_jsonrpc" is executed by the client today.
+  final String? transport;
+  final String? urlTemplate;
+  final String? startMethod;
+
+  /// The JSON-RPC params object, serialised to a JSON string (the caller adds
+  /// a per-call id). None when the spec declared none.
+  final String? startParamsJson;
+  final String? stopMethod;
+  final String? stopParamsJson;
+  final int? intervalSeconds;
+
+  const CameraKeepaliveDto({
+    this.transport,
+    this.urlTemplate,
+    this.startMethod,
+    this.startParamsJson,
+    this.stopMethod,
+    this.stopParamsJson,
+    this.intervalSeconds,
+  });
+
+  @override
+  int get hashCode =>
+      transport.hashCode ^
+      urlTemplate.hashCode ^
+      startMethod.hashCode ^
+      startParamsJson.hashCode ^
+      stopMethod.hashCode ^
+      stopParamsJson.hashCode ^
+      intervalSeconds.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CameraKeepaliveDto &&
+          runtimeType == other.runtimeType &&
+          transport == other.transport &&
+          urlTemplate == other.urlTemplate &&
+          startMethod == other.startMethod &&
+          startParamsJson == other.startParamsJson &&
+          stopMethod == other.stopMethod &&
+          stopParamsJson == other.stopParamsJson &&
+          intervalSeconds == other.intervalSeconds;
+}
+
+class CameraStreamDto {
+  final String? name;
+
+  /// e.g. "mjpeg_snapshot_poll", "mjpeg", "rtsp".
+  final String transport;
+
+  /// URL with `{address}` (and `{port}`) placeholders the caller fills.
+  final String urlTemplate;
+  final int? defaultPort;
+  final String? servedBy;
+  final int? targetFps;
+
+  const CameraStreamDto({
+    this.name,
+    required this.transport,
+    required this.urlTemplate,
+    this.defaultPort,
+    this.servedBy,
+    this.targetFps,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      transport.hashCode ^
+      urlTemplate.hashCode ^
+      defaultPort.hashCode ^
+      servedBy.hashCode ^
+      targetFps.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CameraStreamDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          transport == other.transport &&
+          urlTemplate == other.urlTemplate &&
+          defaultPort == other.defaultPort &&
+          servedBy == other.servedBy &&
+          targetFps == other.targetFps;
+}
+
 class CharacteristicDto {
   final String uuid;
   final String name;
@@ -1446,6 +1578,11 @@ class DeviceSpecDto {
   /// A known security problem with this device, when the spec declares one —
   /// the app warns rather than controls. See [`SecurityAdvisoryDto`].
   final SecurityAdvisoryDto? securityAdvisory;
+
+  /// A physical-safety hazard in operating the device (an IPL handset), when
+  /// the spec declares one — the app warns AND keeps the controls. See
+  /// [`SafetyAdvisoryDto`].
+  final SafetyAdvisoryDto? safetyAdvisory;
   final String? notes;
 
   /// Every BLE local name prefix this device family advertises under, in
@@ -1543,6 +1680,7 @@ class DeviceSpecDto {
     this.adminUrl,
     this.integration,
     this.securityAdvisory,
+    this.safetyAdvisory,
     this.notes,
     required this.localNamePrefixes,
     required this.localNames,
@@ -1575,6 +1713,7 @@ class DeviceSpecDto {
       adminUrl.hashCode ^
       integration.hashCode ^
       securityAdvisory.hashCode ^
+      safetyAdvisory.hashCode ^
       notes.hashCode ^
       localNamePrefixes.hashCode ^
       localNames.hashCode ^
@@ -1609,6 +1748,7 @@ class DeviceSpecDto {
           adminUrl == other.adminUrl &&
           integration == other.integration &&
           securityAdvisory == other.securityAdvisory &&
+          safetyAdvisory == other.safetyAdvisory &&
           notes == other.notes &&
           localNamePrefixes == other.localNamePrefixes &&
           localNames == other.localNames &&
@@ -2759,6 +2899,18 @@ class NetworkCapabilitiesDto {
   /// consumer forks on it rather than on a device name.
   final String? protocolHandler;
 
+  /// `mqtt.auth.client_id: generated` — the client picks an arbitrary client
+  /// id the broker accepts (a Dyson purifier), so a consumer synthesizes one
+  /// rather than refusing to connect for lack of a paired id. False (the
+  /// default, and `required`) keeps the pre-existing rule: a set that pairs on
+  /// a specific client id has no session without it.
+  final bool mqttClientIdGenerated;
+
+  /// `mqtt.transport_security` — `plaintext` | `tls`, the spec's own
+  /// declaration of what the broker's socket speaks. Absent: the consumer
+  /// falls back to the port convention (1883 plaintext, everything else TLS).
+  final String? mqttTransportSecurity;
+
   const NetworkCapabilitiesDto({
     this.signedSession,
     this.defaultPort,
@@ -2767,6 +2919,8 @@ class NetworkCapabilitiesDto {
     required this.tlsSelfSigned,
     required this.advertisedPortUnreliable,
     this.protocolHandler,
+    required this.mqttClientIdGenerated,
+    this.mqttTransportSecurity,
   });
 
   @override
@@ -2777,7 +2931,9 @@ class NetworkCapabilitiesDto {
       tlsVerification.hashCode ^
       tlsSelfSigned.hashCode ^
       advertisedPortUnreliable.hashCode ^
-      protocolHandler.hashCode;
+      protocolHandler.hashCode ^
+      mqttClientIdGenerated.hashCode ^
+      mqttTransportSecurity.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2790,7 +2946,9 @@ class NetworkCapabilitiesDto {
           tlsVerification == other.tlsVerification &&
           tlsSelfSigned == other.tlsSelfSigned &&
           advertisedPortUnreliable == other.advertisedPortUnreliable &&
-          protocolHandler == other.protocolHandler;
+          protocolHandler == other.protocolHandler &&
+          mqttClientIdGenerated == other.mqttClientIdGenerated &&
+          mqttTransportSecurity == other.mqttTransportSecurity;
 }
 
 /// One value a client must hold to drive this device.
@@ -2814,12 +2972,17 @@ class NetworkCredentialDto {
   /// it and no declared flow can mint it.
   final bool mustBeAskedFor;
 
+  /// A transformation the client applies to what the person types before
+  /// storing it — see [`derive_credential_value`]. Absent: store as typed.
+  final String? derivation;
+
   const NetworkCredentialDto({
     required this.name,
     this.description,
     required this.neededBy,
     this.issuedBy,
     required this.mustBeAskedFor,
+    this.derivation,
   });
 
   @override
@@ -2828,7 +2991,8 @@ class NetworkCredentialDto {
       description.hashCode ^
       neededBy.hashCode ^
       issuedBy.hashCode ^
-      mustBeAskedFor.hashCode;
+      mustBeAskedFor.hashCode ^
+      derivation.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2839,7 +3003,8 @@ class NetworkCredentialDto {
           description == other.description &&
           neededBy == other.neededBy &&
           issuedBy == other.issuedBy &&
-          mustBeAskedFor == other.mustBeAskedFor;
+          mustBeAskedFor == other.mustBeAskedFor &&
+          derivation == other.derivation;
 }
 
 /// The setup flow that mints a credential, when the spec declares one.
@@ -3706,6 +3871,52 @@ class RoombaRequestDto {
           runtimeType == other.runtimeType &&
           topic == other.topic &&
           payload == other.payload;
+}
+
+/// A physical-safety hazard in operating the device, flattened for FFI. Unlike a
+/// [`SecurityAdvisoryDto`] the app keeps the controls and shows this as a
+/// banner; when `acknowledge_required` is set it asks once before enabling them.
+/// See [`SafetyAdvisory`].
+class SafetyAdvisoryDto {
+  /// `caution`, `warning`, or `danger` — the app colours the banner by this.
+  final String severity;
+  final String summary;
+  final String? detail;
+  final bool acknowledgeRequired;
+  final String? advisoryUrl;
+
+  /// A Wayback Machine snapshot of `advisory_url`, offered as a fallback.
+  final String? advisoryArchiveUrl;
+
+  const SafetyAdvisoryDto({
+    required this.severity,
+    required this.summary,
+    this.detail,
+    required this.acknowledgeRequired,
+    this.advisoryUrl,
+    this.advisoryArchiveUrl,
+  });
+
+  @override
+  int get hashCode =>
+      severity.hashCode ^
+      summary.hashCode ^
+      detail.hashCode ^
+      acknowledgeRequired.hashCode ^
+      advisoryUrl.hashCode ^
+      advisoryArchiveUrl.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SafetyAdvisoryDto &&
+          runtimeType == other.runtimeType &&
+          severity == other.severity &&
+          summary == other.summary &&
+          detail == other.detail &&
+          acknowledgeRequired == other.acknowledgeRequired &&
+          advisoryUrl == other.advisoryUrl &&
+          advisoryArchiveUrl == other.advisoryArchiveUrl;
 }
 
 /// One spec that a scanned device might be, and why we think so.

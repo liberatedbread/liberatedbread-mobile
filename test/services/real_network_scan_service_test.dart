@@ -120,6 +120,38 @@ void main() {
     });
   });
 
+  group('addressFromTxt', () {
+    test('reads the Snapmaker case: a self-reported ip= in the TXT', () {
+      // The U1 advertises a PTR + TXT but never answers the A query for its own
+      // hostname, so this TXT ip is the only address the scan can get.
+      final txt = parseTxtRecord([
+        'sn=SNAPMAKERSERIAL',
+        'device_name=U1',
+        'link_mode=lan',
+        'ip=10.0.5.7',
+      ]);
+      expect(addressFromTxt(txt), '10.0.5.7');
+    });
+
+    test('accepts the alternate keys, preferring ip', () {
+      expect(addressFromTxt({'address': '192.168.1.4'}), '192.168.1.4');
+      expect(addressFromTxt({'ipv4': '192.168.1.5'}), '192.168.1.5');
+      expect(addressFromTxt({'ip': '10.0.0.1', 'address': '10.0.0.2'}),
+          '10.0.0.1');
+    });
+
+    test('ignores a key that is named like an address but is not one', () {
+      // `ipaddr=dhcp` is a mode word, not a literal — must not be used as a host.
+      expect(addressFromTxt({'ipaddr': 'dhcp'}), isNull);
+      expect(addressFromTxt({'ip': ''}), isNull);
+    });
+
+    test('returns null when the TXT carries no address', () {
+      expect(addressFromTxt({'sn': 'X', 'device_name': 'U1'}), isNull);
+      expect(addressFromTxt(const {}), isNull);
+    });
+  });
+
   group('service instance names', () {
     test('splits an instance into its name and type', () {
       const instance = 'Philips Hue - AB12CD._hue._tcp.local';

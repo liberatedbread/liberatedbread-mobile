@@ -408,7 +408,7 @@ commands:
         description: "White brightness byte."
     verification: "reported"
   set_color:
-    description: "Set static RGB color (params occupy all three nonce slots)."
+    description: "Set static RGB colour (params occupy all three nonce slots)."
     body: "38 {red} {green} {blue} 22 83"
     parameters:
       red:

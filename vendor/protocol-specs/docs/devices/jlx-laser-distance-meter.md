@@ -170,7 +170,7 @@ client), or drive the meter from Android or iOS.
 | CEM iLDM series | BLE (new) / Classic (old) | Open protocol, transmits unit + remote trigger; ImageMeter-supported. |
 
 See the [ImageMeter supported-devices table](https://www.imagemeter.com/manual/bluetooth/devices/)
-for the broadest cross-brand catalog (70+ models, noting which transmit units
+for the broadest cross-brand catalogue (70+ models, noting which transmit units
 and which are encrypted/unsupported).
 
 ## Tools Used

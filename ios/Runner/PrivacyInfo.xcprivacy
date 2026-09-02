@@ -16,10 +16,12 @@
   frameworks (the Podfile uses use_frameworks!). This app's first-party code
   (ios/Runner/AppDelegate.swift) uses none, so the app-level list is empty.
 
-  IMPORTANT (Xcode, on a Mac): this file must be a member of the "Runner"
-  target's Copy Bundle Resources build phase, or it is not bundled and does
-  nothing. Add it in Xcode (drag into the Runner group, tick the Runner target)
-  or via the project file; it cannot be wired up from the Linux build here.
+  This file IS a member of the "Runner" target's Copy Bundle Resources build
+  phase — wired directly in ios/Runner.xcodeproj/project.pbxproj (search that
+  file for PrivacyInfo.xcprivacy: a PBXFileReference, a PBXBuildFile, an entry
+  in the Runner group, and an entry in the Resources build phase). So it ships
+  in the app bundle. If you regenerate the project, re-add it the same way (in
+  Xcode: drag into the Runner group and tick the Runner target).
 -->
 <plist version="1.0">
 <dict>

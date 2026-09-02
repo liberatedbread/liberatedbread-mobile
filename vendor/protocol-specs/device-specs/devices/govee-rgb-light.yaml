@@ -143,12 +143,10 @@ device:
       identification: { local_name_prefix: "GVH6113" }
     - model: "H6114"
       identification: { local_name_prefix: "GVH6114" }
-    - model: "H6116"
-      identification: { local_name_prefix: "GVH6116" }
+    # H6116/H6127 are RGBIC/segmented and live in govee-rgbic-light.yaml
+    # (their siblings H6117/H6119 and H6125/H6126 are RGBIC variants there).
     - model: "H6118"
       identification: { local_name_prefix: "GVH6118" }
-    - model: "H6127"
-      identification: { local_name_prefix: "GVH6127" }
     - model: "H6138"
       identification: { local_name_prefix: "GVH6138" }
     - model: "H6139"

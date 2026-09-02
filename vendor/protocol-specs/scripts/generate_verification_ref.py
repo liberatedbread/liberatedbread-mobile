@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""
-generate_verification_ref.py
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+"""Generate VERIFICATION_REFERENCE.md from the per-target research docs.
 
-Reads all target .md files in targets/ (excluding TEMPLATE.md) and targets/targets.csv,
-then generates a comprehensive VERIFICATION_REFERENCE.md with:
+Reads every target .md file in targets/ (excluding TEMPLATE.md) plus
+targets/targets.csv, then writes a comprehensive VERIFICATION_REFERENCE.md at
+the repo root with:
   1. APK Source Index
   2. Reference URL Catalog
   3. Evidence Gap Analysis
@@ -11,30 +13,69 @@ then generates a comprehensive VERIFICATION_REFERENCE.md with:
   5. Protocol Maturity Heatmap
   6. App Family Clusters
   7. Targets with Missing APKs
-"""
 
+The script lives in scripts/ but reads targets/ and writes
+VERIFICATION_REFERENCE.md at the repo root (one level up), so all paths are
+anchored to REPO_ROOT rather than the script directory.
+
+Usage:
+    python scripts/generate_verification_ref.py           # write the reference
+    python scripts/generate_verification_ref.py --check   # verify freshness only
+
+--check regenerates the report in memory and compares it to the committed file,
+exiting non-zero if they differ, without writing anything. The volatile
+``Generated:`` timestamp line is ignored in that comparison so a stale verdict
+means the target docs actually drifted, not merely that the clock moved. See
+the NOT REPRODUCIBLE note in the generated file: the "APK collected?" column
+probes the gitignored workspace/ directory. When that directory is absent the
+committed column values are carried forward rather than recomputed, so a regen
+(or --check) on a workspace-less clone no longer downgrades rows another
+machine verified — but only a machine with the workspace can truly refresh
+them.
+"""
+from __future__ import annotations
+
+import argparse
 import csv
 import re
+import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-TARGETS_DIR = Path(__file__).resolve().parent / "targets"
-OUTPUT_PATH = Path(__file__).resolve().parent / "VERIFICATION_REFERENCE.md"
-APKEEP_DIR = Path(__file__).resolve().parent / "workspace" / "apks" / "apkeep"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TARGETS_DIR = REPO_ROOT / "targets"
+OUTPUT_PATH = REPO_ROOT / "VERIFICATION_REFERENCE.md"
+APKEEP_DIR = REPO_ROOT / "workspace" / "apks" / "apkeep"
 
 # Regex for valid Android package names: at least 2 dot-separated segments,
 # each starting with a letter/underscore, containing alphanumeric/underscore.
 # Use non-capturing groups so findall() returns the full match.
-ANDROID_PKG_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+")
+# The lookbehind keeps the match anchored to a token boundary: without it,
+# "far-driver.com" (a vendor download domain in prose) yields the fragment
+# "driver.com" as though it were a standalone package id.
+ANDROID_PKG_RE = re.compile(
+    r"(?<![a-zA-Z0-9_.-])[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+"
+)
 
-# Valid reverse-domain prefixes for filtering out false-positives
-VALID_PKG_PREFIXES = ("com.", "org.", "cn.", "co.", "io.", "net.", "edu.", "gov.", "uk.")
+# A real package id starts with a reverse-domain TLD segment: 2-6 lowercase
+# letters (com, org, io, de, ...). A fixed prefix allowlist was tried first and
+# silently dropped `de.wgsoft.motoscan` — every ccTLD it had not thought of
+# made the committed reference report a declared package id as unknown. The
+# shape check still rejects what the allowlist was for: prose abbreviations
+# ("e.g."), capitalised words, and vendor domains written forwards
+# ("motoscan.de" — first segment too long to be a TLD).
+VALID_TLD_SEGMENT_RE = re.compile(r"[a-z]{2,6}")
 
 
 def is_valid_reverse_domain_pkg(text: str) -> bool:
     """Return True if text looks like a real reverse-domain package ID (not speculative text)."""
-    return text.startswith(VALID_PKG_PREFIXES) and len(text) >= 8
+    first_segment, dot, _ = text.partition(".")
+    return (
+        bool(dot)
+        and VALID_TLD_SEGMENT_RE.fullmatch(first_segment) is not None
+        and len(text) >= 8
+    )
 
 
 def extract_valid_package_ids(text: str) -> list[str]:
@@ -56,15 +97,27 @@ def extract_valid_package_ids(text: str) -> list[str]:
     return result
 
 
-def check_apk_on_disk(package_ids: list[str]) -> str:
-    """Cross-reference workspace/apks/apkeep/ — return YES if .apk/.xapk exists for any pkg."""
+def check_apk_on_disk(package_ids: list[str]) -> str | None:
+    """Cross-reference workspace/apks/apkeep/ — return YES if an artifact exists for any pkg.
+
+    apkeep filenames vary by source and version: a bare ``<pkg>.apk``, a split
+    bundle ``<pkg>.apks``/``<pkg>.xapk``, or a version-bearing name such as
+    ``<pkg>@1.2.3.apk`` or ``<pkg>_1.2.3.apks``. Match any of these, not just the
+    two exact paths, or a populated workspace is wrongly reported as NO and that
+    error propagates into the APK index and maturity-tier counts.
+    """
     if not APKEEP_DIR.is_dir():
         return None  # can't check
+    exts = (".apk", ".apks", ".xapk")
+    on_disk = [f.name for f in APKEEP_DIR.iterdir() if f.is_file() and f.name.endswith(exts)]
     for pid in package_ids:
         if pid in ("TBD", "N/A"):
             continue
-        for ext in (".apk", ".xapk"):
-            if (APKEEP_DIR / f"{pid}{ext}").exists():
+        for name in on_disk:
+            stem = next((name[: -len(e)] for e in exts if name.endswith(e)), name)
+            # Exact, or the package id followed by a version separator — but not
+            # a longer package (com.foo must not match com.foobar).
+            if stem == pid or stem.startswith((f"{pid}@", f"{pid}_", f"{pid}-")):
                 return "YES"
     return "NO"
 
@@ -116,9 +169,13 @@ def parse_metadata_section(text: str) -> dict:
         is_field_header = bool(re.match(r"-\s+.+?:", line))
 
         if not in_pkg_section:
-            # Check if this line contains any package_id(s) label
+            # Check if this line contains any package_id(s) label. Both the
+            # plural ``package_id(s):`` and the singular ``package_id:`` are in
+            # use across targets (astral-hoops, aurora-led-shoes, banlanx-sp6xxe,
+            # hello-fairy, …), each optionally prefixed with ``app`` /
+            # ``controlling app``, so the ``(s)`` is optional.
             pkg_match = re.match(
-                r"-\s*(?:(?:controlling\s+)?app\s+)?package_id\(s\)\s*:\s*(.*)",
+                r"-\s*(?:(?:controlling\s+)?app\s+)?package_id(?:\(s\))?\s*:\s*(.*)",
                 stripped, re.IGNORECASE
             )
             if pkg_match:
@@ -363,7 +420,9 @@ def compute_transport_counts(records: list[dict]) -> dict[str, int]:
         t = rec["transport"].strip().lower() if rec["transport"] else "unknown"
         # Collapse similar transports. OBD is checked first: vehicle targets are reached
         # through a Bluetooth dongle, so they would otherwise land in BLE / Bluetooth.
-        if "obd" in t or "iso 15765" in t or "can bus" in t:
+        # \bcan\b catches a bare "CAN, 500 kbit/s" (bosch-ebike) as well as
+        # "CAN bus" without matching the letters inside "scan" or "American".
+        if "obd" in t or "iso 15765" in t or re.search(r"\bcan\b", t):
             key = "OBD-II / CAN"
         elif "ble" in t and "wi-fi" in t:
             key = "BLE + Wi-Fi"
@@ -374,7 +433,17 @@ def compute_transport_counts(records: list[dict]) -> dict[str, int]:
         elif "bluetooth classic" in t or "bt" in t:
             key = "Bluetooth Classic"
         else:
-            key = t.capitalize() if len(t) < 30 else t[:30]
+            # An uncategorised transport is keyed by its first clause — a raw
+            # 30-char truncation committed labels like "uart (9600 baud ttl,
+            # 6-pin ton" to the reference. Short leading tokens are acronyms
+            # (UART, SPI, I2C); longer ones are words.
+            key = re.split(r"[,(]", t, maxsplit=1)[0].strip()
+            if not key:
+                key = "Unknown"
+            elif len(key) <= 4:
+                key = key.upper()
+            else:
+                key = key.capitalize()
         counts[key] += 1
     return dict(counts)
 
@@ -387,9 +456,45 @@ def compute_maturity_counts(records: list[dict]) -> dict[str, int]:
     return {k: len(v) for k, v in groups.items()}
 
 
-# ── main ─────────────────────────────────────────────────────────────────
+# ── record collection ─────────────────────────────────────────────────────
 
-def main() -> None:
+def read_previous_apk_collected(path: Path | None = None) -> dict[str, str]:
+    """Map target_id -> the "APK collected?" cell of the committed reference.
+
+    The disk probe behind that column reads the gitignored ``workspace/``
+    directory, so a clone without it cannot recompute the column. Regenerating
+    there must not silently downgrade rows another machine verified against
+    its workspace — the committed values are the only record of those probes,
+    so they are read back here and carried forward (see the NOT REPRODUCIBLE
+    note in the generated file).
+    """
+    if path is None:
+        path = OUTPUT_PATH
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8")
+    m = re.search(r"## 1\. APK Source Index\s*\n(.*?)(?=\n## |\Z)", text, re.DOTALL)
+    if not m:
+        return {}
+    previous: dict[str, str] = {}
+    for line in m.group(1).splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.split("|")]
+        # cells[0] is the empty string before the leading pipe; the header row
+        # and the |---| separator row are not data.
+        if len(cells) < 6 or cells[1] in ("", "target_id") or set(cells[1]) <= {"-"}:
+            continue
+        previous[cells[1]] = cells[4]
+    return previous
+
+
+def collect_records() -> tuple[list[dict], dict[str, list[dict]]]:
+    """Scan every target doc + targets.csv, touching no output files.
+
+    Returns ``(doc_records, csv_data)``. Splitting this from rendering lets
+    ``--check`` build the report in memory without writing anything.
+    """
     md_files = sorted([
         f for f in TARGETS_DIR.iterdir()
         if f.suffix == ".md" and f.name not in ("TEMPLATE.md",)
@@ -397,6 +502,14 @@ def main() -> None:
 
     csv_path = TARGETS_DIR / "targets.csv"
     csv_data = read_csv_data(csv_path)
+
+    # Without workspace/ the disk probe returns None for every target; fall
+    # back on what the committed reference already says rather than
+    # downgrading disk-verified rows (empty when the workspace IS present —
+    # then the live probe governs).
+    previous_collected: dict[str, str] = {}
+    if not APKEEP_DIR.is_dir():
+        previous_collected = read_previous_apk_collected()
 
     doc_records: list[dict] = []
 
@@ -411,6 +524,14 @@ def main() -> None:
         package_ids = meta["package_ids"]
         apk_method = extract_apk_method(text)
         apk_collected = extract_apk_collected(text, package_ids)
+        prev_collected = previous_collected.get(primary_id)
+        if prev_collected == "YES":
+            # A committed YES came from a machine that had the artifact on
+            # disk; with workspace/ absent nothing here can re-prove OR refute
+            # it, so it stands.
+            apk_collected = "YES"
+        elif apk_collected == "?" and prev_collected:
+            apk_collected = prev_collected
         hci_exists = extract_hci_exists(text)
         pcap_exists = extract_pcap_exists(text)
         urls = extract_reference_urls(text)
@@ -463,6 +584,21 @@ def main() -> None:
         }
         doc_records.append(rec)
 
+    return doc_records, csv_data
+
+
+# ── rendering ──────────────────────────────────────────────────────────────
+
+def render_report(
+    doc_records: list[dict],
+    csv_data: dict[str, list[dict]],
+    generated_at: str,
+) -> str:
+    """Build the full VERIFICATION_REFERENCE.md text and return it.
+
+    Pure function of the scanned records — writes nothing — so ``--check`` can
+    compare its output against the committed file.
+    """
     # ── Compute summary stats ────────────────────────────────────────
     total_targets = len(doc_records)
     transport_counts = compute_transport_counts(doc_records)
@@ -479,19 +615,20 @@ def main() -> None:
     lines: list[str] = []
     lines.append("# VERIFICATION REFERENCE")
     lines.append("")
-    lines.append("Auto-generated by `generate_verification_ref.py` — do not edit manually.")
+    lines.append("Auto-generated by `scripts/generate_verification_ref.py` — do not edit manually.")
     lines.append("")
     # A reader has no way to tell which rows reflect evidence and which
     # reflect one working copy's download cache, so say so here.
     lines.append(
         "> **NOT REPRODUCIBLE**: the \"APK collected?\" column probes the "
-        "gitignored `workspace/` directory, so regenerating this file "
-        "elsewhere rewrites rows and shifts the maturity counts. It cannot "
-        "be CI-checked the way `device-specs/index.json` is. Tracked in "
-        "issue #18."
+        "gitignored `workspace/` directory. Where that directory is absent "
+        "the generator carries the previously committed value forward "
+        "instead of downgrading it, but only a machine with the workspace "
+        "can genuinely refresh the column — it cannot be CI-checked the way "
+        "`device-specs/index.json` is. Tracked in issue #18."
     )
     lines.append("")
-    lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"Generated: {generated_at}")
     lines.append("")
     lines.append("## Summary")
     lines.append("")
@@ -724,15 +861,32 @@ def main() -> None:
         lines.append("*All targets have known package IDs and collected APKs.*")
     lines.append("")
 
-    # ── Write output ────────────────────────────────────────────────
-    OUTPUT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"✅ Generated: {OUTPUT_PATH}")
-    print(f"   {len(doc_records)} target docs processed")
-    print(f"   {len(url_refs)} unique reference URLs")
-    for gname in ("COMPLETE", "PARTIAL", "EARLY", "STUB"):
-        print(f"   {gname}: {len(groups[gname])} targets")
+    # ── Return output ────────────────────────────────────────────────
+    return "\n".join(lines) + "\n"
 
-    # Summary stats for the Heatmap
+
+# ── freshness + entry point ──────────────────────────────────────────────────
+
+_GENERATED_RE = re.compile(r"^Generated: .*$", re.MULTILINE)
+
+
+def normalize(text: str) -> str:
+    """Blank the volatile ``Generated:`` timestamp so freshness compares content.
+
+    Two runs against identical target docs differ only in that line; ignoring it
+    means ``--check`` reports staleness for real drift, not the passing clock.
+    """
+    return _GENERATED_RE.sub("Generated: <timestamp>", text)
+
+
+def print_summary(doc_records: list[dict]) -> None:
+    """Print the post-generation stats block to stdout."""
+    maturity = compute_maturity_counts(doc_records)
+    unique_urls = {url for rec in doc_records for url in rec["urls"]}
+    print(f"   {len(doc_records)} target docs processed")
+    print(f"   {len(unique_urls)} unique reference URLs")
+    for gname in ("COMPLETE", "PARTIAL", "EARLY", "STUB"):
+        print(f"   {gname}: {maturity.get(gname, 0)} targets")
     total_verified = sum(r["verified_count"] for r in doc_records)
     total_tbd = sum(r["tbd_count"] for r in doc_records)
     total_checked = sum(r["evidence_checked"] for r in doc_records)
@@ -741,5 +895,51 @@ def main() -> None:
     print(f"   Evidence checklist: {total_checked} [x] / {total_unchecked} [ ]")
 
 
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Generate VERIFICATION_REFERENCE.md from the target research docs.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "verify VERIFICATION_REFERENCE.md is up to date and exit non-zero "
+            "if stale, without writing the file (the Generated: timestamp is "
+            "ignored in the comparison)"
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    doc_records, csv_data = collect_records()
+    rel = OUTPUT_PATH.relative_to(REPO_ROOT)
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    new_text = render_report(doc_records, csv_data, generated_at)
+
+    if args.check:
+        current = (
+            OUTPUT_PATH.read_text(encoding="utf-8") if OUTPUT_PATH.exists() else None
+        )
+        if current is None:
+            print(
+                f"ERROR: {rel} does not exist; run without --check to create it.",
+                file=sys.stderr,
+            )
+            return 1
+        if normalize(current) == normalize(new_text):
+            print(f"{rel} is up to date ({len(doc_records)} target doc(s)).")
+            return 0
+        print(
+            f"ERROR: {rel} is stale ({len(doc_records)} target doc(s) on disk). "
+            "Run `python scripts/generate_verification_ref.py` to regenerate it.",
+            file=sys.stderr,
+        )
+        return 1
+
+    OUTPUT_PATH.write_text(new_text, encoding="utf-8")
+    print(f"✅ Generated: {OUTPUT_PATH}")
+    print_summary(doc_records)
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

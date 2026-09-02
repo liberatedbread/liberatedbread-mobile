@@ -270,6 +270,25 @@ Map<String, String> parseTxtRecord(Iterable<String> entries) {
   return txt;
 }
 
+/// The device's own address as published in its mDNS TXT record, or null if the
+/// TXT carries no usable IP literal.
+///
+/// Some devices advertise a PTR + TXT but never answer the A query for their own
+/// hostname, so PTR->SRV->A never yields an address and the normal resolution
+/// drops them (the Snapmaker U1 is the known case — its TXT carries `ip=`, and
+/// its own docs say to read it and hit the device there). This lets the scan use
+/// that self-reported address instead of losing the device. Only a value that
+/// parses as an IP literal is accepted, so a key merely NAMED like an address
+/// but holding something else (`ipaddr=dhcp`) is ignored.
+String? addressFromTxt(Map<String, String> txt) {
+  for (final key in const ['ip', 'ipv4', 'address', 'ipaddress', 'ipaddr']) {
+    final value = txt[key];
+    if (value == null || value.isEmpty) continue;
+    if (InternetAddress.tryParse(value) != null) return value;
+  }
+  return null;
+}
+
 /// Strip the DNS-SD instance name off a full service instance, leaving the
 /// service type: `Hue Bridge._hue._tcp.local` -> `_hue._tcp.local`.
 String serviceTypeOf(String instance) {
@@ -1660,6 +1679,27 @@ class RealNetworkScanService implements NetworkScanService {
                   timeout: timeout)
               .timeout(timeout, onTimeout: (sink) => sink.close())) {
             txt.addAll(parseTxtRecord(record.text.split(RegExp(r'[\r\n]+'))));
+          }
+          // Emit the moment TXT is in, without waiting for the (often absent)
+          // SRV/A. A device that never answers the A query for its own hostname
+          // (the Snapmaker U1) self-reports its address in TXT (see
+          // [addressFromTxt]); waiting for SRV/A to time out first can let
+          // _runMdns tear the client down before a post-resolution fallback
+          // runs — on Android especially, where the source-capture backstop
+          // cannot co-bind :5353 and rescue it. Coalesces by host with any
+          // later resolved row (mergedWith prefers that row's name and SRV
+          // port) and with the source-capture backstop.
+          final txtHost = addressFromTxt(txt);
+          if (txtHost != null) {
+            emit(NetworkDevice(
+              host: txtHost,
+              name: instanceNameOf(instance.domainName),
+              serviceTypes: [serviceTypeOf(instance.domainName)],
+              pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
+              txt: txt,
+              sources: const {NetworkDiscoverySource.mdns},
+              discoveredAt: DateTime.now(),
+            ));
           }
         }(),
         () async {

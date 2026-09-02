@@ -12,7 +12,7 @@ architecture and configuration protocol with the BBS01 and the BBSHD. The contro
 integrated into the motor housing and speaks a simple **1200-baud UART** protocol to the
 display over the kit's main harness.
 
-The important thing for OpenGreenIoT: **the BBS02 has no radio and no official app.**
+The important thing for Liberated Bread: **the BBS02 has no radio and no official app.**
 There is no Bluetooth in the motor, and Bafang's own "Bafang Go"/BESST tooling targets the
 newer CAN-bus M-series (M500/M510/M600), not the BBS family. Everything that talks to a
 BBS02 does so over that UART bus. The app layer is therefore always something *someone
@@ -202,7 +202,7 @@ and trailing checksum — the full frame is 27 bytes).
 
 ## Device spec
 
-[`device-specs/devices/bafang-bbs02.yaml`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/device-specs/devices/bafang-bbs02.yaml)
+[`device-specs/devices/bafang-bbs02.yaml`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/device-specs/devices/bafang-bbs02.yaml)
 carries this protocol as a machine-readable `bus` spec (`protocol: uart`,
 `style: request_response`), with every read and write above catalogued, the field tables
 encoded as `fields` entries, and the four writes flagged `advanced`.

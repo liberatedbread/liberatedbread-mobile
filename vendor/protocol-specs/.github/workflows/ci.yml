@@ -101,6 +101,39 @@ jobs:
           msg="$msg git checkout $base -- device-specs/index.json && git commit -m 'drop generated index'"
           echo "::error file=device-specs/index.json::$msg"
           exit 1
+      # pack.json is the mobile app's spec-pack manifest — same story as the
+      # index: generated, published by CI on main (see publish-index), never
+      # carried in a branch. Build it and throw it away so a broken generator
+      # fails here rather than on main.
+      - name: Build the spec pack (result discarded; CI publishes it on main)
+        run: python scripts/generate_pack.py
+      - name: Reject a hand-carried pack.json
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # Against the merge base, not the base tip: main gains generated
+          # commits of its own, and a branch must not be blamed for those.
+          base="$(git merge-base "origin/$BASE_REF" HEAD)"
+          if git diff --quiet "$base" HEAD -- pack.json; then
+            echo "pack.json untouched by this branch — good."
+            exit 0
+          fi
+          msg="pack.json is generated and committed by CI on main."
+          msg="$msg Drop it from this branch:"
+          # Once CI has published pack.json on main, the merge base carries a
+          # copy: restoring THAT version is the remediation that makes this
+          # diff empty (mirroring the index.json gate above). `git rm` there
+          # would leave a deletion diff against the base and fail the gate
+          # again; it is the right advice only while the base predates the
+          # first publish and the branch added the file outright.
+          if git cat-file -e "$base:pack.json" 2>/dev/null; then
+            msg="$msg git checkout $base -- pack.json && git commit -m 'drop generated pack'"
+          else
+            msg="$msg git rm --cached pack.json && git commit -m 'drop generated pack'"
+          fi
+          echo "::error file=pack.json::$msg"
+          exit 1
 
   # device-specs/index.json is generated, and used to be committed by hand in
   # every branch that added a spec. With several spec PRs open at once that is a
@@ -109,6 +142,13 @@ jobs:
   # after the specs have landed. Downstream consumers (the mobile app vendors
   # this repo as a subtree and bundles index.json as an asset) still read a
   # committed file; it is just written by CI now.
+  #
+  # pack.json is published the same way and in the same commit: the mobile app's
+  # spec-pack feature fetches it from raw.githubusercontent.com and resolves each
+  # listed spec path SAME-ORIGIN against it, so it must be a committed file at the
+  # repo root on main. It is also uploaded as a build artifact for direct
+  # download. Building both in one job means one commit and one push — no two
+  # jobs racing to update main.
   publish-index:
     needs: [lint-and-test, validate-specs]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -116,30 +156,52 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # This job holds `contents: write` (it pushes the rebuilt index to main),
+      # so its actions are pinned to full commit SHAs rather than moving tags —
+      # a moving tag can be repointed at malicious code, and here that code
+      # would run with push access. The read-only jobs above stay on tags.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - name: Regenerate device-specs/index.json
         run: python scripts/generate_index.py
-      - name: Commit it if the specs moved
+      - name: Regenerate pack.json
+        run: python scripts/generate_pack.py
+      # A directly downloadable copy of the manifest for anyone who wants it
+      # without cloning. The committed copy (below) is what the app fetches.
+      # This action is pinned to a full SHA because this job holds
+      # contents: write — see the note at the checkout step above.
+      - name: Upload pack.json as a build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: spec-pack
+          path: pack.json
+      - name: Commit them if the specs moved
         run: |
-          if git diff --quiet -- device-specs/index.json; then
-            echo "index.json already matches the specs; nothing to commit."
+          # Stage BOTH files before deciding whether anything changed. Until
+          # the first publish lands it, pack.json is untracked on a fresh
+          # checkout — and `git diff` (worktree vs index) never reports an
+          # untracked file, so an unstaged change-check sees only index.json
+          # and silently skips the commit that would create pack.json on
+          # main. `git diff --cached` after `git add` sees a modified tracked
+          # file and a newly-added one alike.
+          git add device-specs/index.json pack.json
+          if git diff --cached --quiet; then
+            echo "index.json and pack.json already match the specs; nothing to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add device-specs/index.json
-          git commit -m "chore: rebuild device-specs/index.json [skip ci]"
+          git commit -m "chore: rebuild device-specs/index.json + pack.json [skip ci]"
           # A push that lands on main while this job runs rejects ours. Rebase
-          # onto it and rebuild rather than retrying the stale commit: the
-          # index is a pure function of the specs, so the rebuilt one is right
-          # for whatever main now holds.
+          # onto it and rebuild rather than retrying the stale commit: both files
+          # are pure functions of the specs, so the rebuilt ones are right for
+          # whatever main now holds.
           for attempt in 1 2 3; do
             if git push origin HEAD:main; then
-              echo "Pushed the rebuilt index."
+              echo "Pushed the rebuilt index and pack."
               exit 0
             fi
             echo "Push rejected (attempt $attempt); rebasing on main and rebuilding."
@@ -147,13 +209,17 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             python scripts/generate_index.py
-            if git diff --quiet -- device-specs/index.json; then
-              echo "Another run already published this index; done."
+            python scripts/generate_pack.py
+            # Same staged check as above: `commit -a` and an unstaged diff are
+            # both blind to a pack.json that is not tracked on main yet.
+            git add device-specs/index.json pack.json
+            if git diff --cached --quiet; then
+              echo "Another run already published these; done."
               exit 0
             fi
-            git commit -am "chore: rebuild device-specs/index.json [skip ci]"
+            git commit -m "chore: rebuild device-specs/index.json + pack.json [skip ci]"
           done
-          echo "::error::could not push the rebuilt index after 3 attempts" >&2
+          echo "::error::could not push the rebuilt files after 3 attempts" >&2
           exit 1
 
   build:
@@ -178,10 +244,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      # This job holds `contents: write` (it force-pushes gh-pages), so its
+      # actions are pinned to full commit SHAs rather than moving tags — see the
+      # note on publish-index. The read-only jobs stay on tags.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt

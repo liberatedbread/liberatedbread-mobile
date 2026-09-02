@@ -250,7 +250,7 @@ services:
                 min: 0
                 max: 255
           set_color:
-            description: "Set solid color (COLO + 3 bytes). NOTE the parameter order is G, R, B — not R, G, B."
+            description: "Set solid colour (COLO + 3 bytes). NOTE the parameter order is G, R, B — not R, G, B."
             template: [0x07, 0x43, 0x4F, 0x4C, 0x4F, "{green}", "{red}", "{blue}"]
             parameters:
               green:

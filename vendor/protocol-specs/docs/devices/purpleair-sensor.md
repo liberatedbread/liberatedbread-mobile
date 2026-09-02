@@ -44,7 +44,7 @@ laser): `GET /json` and `/json?live=false` returned the 120-second average,
 
 Key fields: `pm2_5_atm` (outdoor calibration, µg/m³ — use for outdoor;
 `pm2_5_cf_1` for indoor), `p_0_3_um`…`p_10_0_um` (particle counts per
-deciliter), `pm2.5_aqi` + `p25aqic` (on-device US-EPA AQI + color),
+deciliter), `pm2.5_aqi` + `p25aqic` (on-device US-EPA AQI + colour),
 `current_temp_f` (reads ~8 °F high — subtract for ambient), `current_humidity`
 (~4 %RH low), `pressure` (hPa). Dual-laser units repeat PM/count fields with a
 `_b` suffix for a data-quality cross-check.

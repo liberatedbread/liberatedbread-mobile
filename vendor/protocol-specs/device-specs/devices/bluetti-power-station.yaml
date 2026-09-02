@@ -90,7 +90,7 @@ device:
     output toggles (3007/3008) can cut power to whatever is plugged in —
     surface them as explicit switches, never automate blindly. Registers
     3015/3016 (charge SOC window) and time-control programming change
-    charging behavior; treat as advanced.
+    charging behaviour; treat as advanced.
 
     Cloud dependency: none for anything documented here.
   identification:
@@ -404,7 +404,7 @@ payload_formats:
         description: "bool."
       - index: 3015
         name: "battery_range_start"
-        description: "uint, SOC %% window low bound (with 3016 high bound). Advanced: changes charging behavior."
+        description: "uint, SOC %% window low bound (with 3016 high bound). Advanced: changes charging behaviour."
       - index: 3036
         name: "bluetooth_connected"
         description: "bool, read-only mirror."

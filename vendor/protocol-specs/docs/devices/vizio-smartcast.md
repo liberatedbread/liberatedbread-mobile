@@ -121,7 +121,7 @@ in neither pyvizio nor the exiva tables — not catalogued.
 ### Apps
 
 The TV does **not** enumerate its installed apps. Launch and identify by
-the `(APP_ID, NAME_SPACE, MESSAGE)` triple from Vizio's app catalog —
+the `(APP_ID, NAME_SPACE, MESSAGE)` triple from Vizio's app catalogue —
 clients ship a bundled copy (pyvizio's `pyvizio/data/apps.json`).
 `NAME_SPACE` 2 and 4 are interchangeable; `NAME_SPACE` 0 from
 `/app/current` means a cast session. While an app runs, `current_input`

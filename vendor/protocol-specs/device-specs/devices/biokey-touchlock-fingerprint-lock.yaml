@@ -68,6 +68,34 @@ device:
     client can generate valid commands with no secrets beyond enrollment —
     but nobody should treat the lock's electronic path as high-security.
 
+  security_advisory:
+    severity: "reported"
+    summary: >
+      The unlock credential is a predictable, replayable time-derived value —
+      anyone who observes one exchange, or just knows the approximate time, can
+      replay or forge unlock commands; only weak Just Works bonding stands in
+      the way.
+    detail: >
+      There is no real cryptography. The rolling "password" is the current
+      timestamp (yy-MM-dd-HH-mm-ss-SSSS) split into eight two-digit decimal
+      groups, each parsed as a single hex byte, and the previous value is kept
+      as a one-shot fallback. Because it is derived entirely from the clock it
+      is predictable to anyone who knows the approximate time and trivially
+      replayable to anyone who captures a single legitimate unlock. The only
+      barrier is BLE Just Works bonding (no PIN), which the companion app
+      itself drops on every disconnect. Affected: the whole TouchLock BT family
+      and the OEM rebadges that speak the same protocol. This assessment is
+      derived from static analysis of the companion app (see `evidence`); it
+      has not been replayed against hardware and no over-the-air capture exists,
+      so it is reported rather than demonstrated.
+    # No `advisory_url`: there is no public writeup for this specific family.
+    # The finding is original static analysis of the companion app, cited in
+    # the `evidence` block at the end of this spec rather than an external
+    # advisory or CVE.
+    # No `mitigation` block, per the schema's convention that absent means no
+    # fix: the weakness is inherent to the credential scheme, nothing
+    # client-side can harden it, and the consumer hardware line is abandoned.
+
   identification:
     local_name_prefixes:
       - "TSA_BT"
@@ -110,10 +138,14 @@ device:
         ble:
           local_name:
             match: "regex"
-            value: "TSA_BT|TSA_PLUS|XL_BT|XL_PLUS|Bike_BT|Bike_Pr|ULockPr|LOCK"
-            # Mirrors the app's DeviceNameUtils: explicit patterns for the
-            # TSA/XL/bike names, then a case-insensitive "LOCK" substring
-            # fallback (which is what catches Ble_Lock, Joi_Lock, U_Lock).
+            value: "(?i)TSA_BT|TSA_PLUS|XL_BT|XL_PLUS|Bike_BT|Bike_Pr|ULockPr|LOCK"
+            # Mirrors the app's name matcher: explicit patterns for the
+            # TSA/XL/bike names, then a "LOCK" substring fallback. The
+            # leading (?i) makes the whole pattern case-insensitive as the
+            # app's fallback is, so the lowercase names (Ble_Lock, Joi_Lock,
+            # U_Lock) match too — without it the uppercase "LOCK" alternative
+            # never matched their lowercase "_Lock" and three of the ten
+            # models were undiscoverable.
     identity:
       stable_keys: ["address"]
       display: "local_name"

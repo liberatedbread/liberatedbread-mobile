@@ -20,6 +20,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/main.dart' as entrypoint;
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
@@ -43,7 +44,10 @@ void main() {
 
   setUp(() async {
     await ble.reset();
-    SharedPreferences.setMockInitialValues({});
+    // Seed the disclaimer as accepted so main() boots straight to the home
+    // shell; the first-launch gate is covered by app_test.dart.
+    SharedPreferences.setMockInitialValues(
+        {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
     logs = Log.captureRecords();
   });
 
@@ -67,7 +71,10 @@ void main() {
     // overridden" at the first widget that reads it, which is a crash on
     // launch — so this asserts the override is in place and usable
     // synchronously, from inside the mounted tree.
-    SharedPreferences.setMockInitialValues({'saved_devices': '[]'});
+    SharedPreferences.setMockInitialValues({
+      'saved_devices': '[]',
+      AppConstants.termsAcceptedKey: AppConstants.termsVersion,
+    });
 
     await entrypoint.main();
     await tester.pump();

@@ -56,10 +56,10 @@ that is the remaining RE work.
 - Source: apkeep, apk-pure mirror, fetched 2026-08-07 (package id recovered from an
   archived swimmo.com/m/android/ page, 2019 Wayback capture)
 - SHA-256: `6155c32e238c0b5b669d12e83b90b05db77e04d7d1b391703552d40a7ad94711`
-- Native Java, unobfuscated (`com.swimmo.swimmo.*`)
+- Native Java, unobfuscated (vendor-named internal class namespace)
 
 ## What Needs Cloud
-Stock app gates on a Swimmo account (LoginActivity) for history/social features and
+Stock app gates on a Swimmo account (a login screen) for history/social features and
 offers Strava/UA/RunKeeper OAuth export. None of that is in the BLE exchange; a local
 client can pair (device password), pull workouts, set time/config, and trigger DFU
 without any account.

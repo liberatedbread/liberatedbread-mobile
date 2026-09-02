@@ -50,6 +50,7 @@ import 'package:liberated_bread_mobile/app.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/main.dart' as app;
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
+import 'package:liberated_bread_mobile/screens/terms_screen.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -82,6 +83,25 @@ void main() {
     // length in mock_flow_test.dart). Pump until the scan screen exists,
     // which is all the assertions below need rendered.
     const step = Duration(milliseconds: 100);
+
+    // On a fresh install the first-launch disclaimer gate is shown before the
+    // app proper. Accept it so the boot proceeds; where terms were already
+    // accepted the gate never appears and this is a no-op.
+    for (var waited = Duration.zero;
+        waited < const Duration(seconds: 20) &&
+            find.byType(TermsScreen).evaluate().isEmpty &&
+            find.byType(ScanScreen).evaluate().isEmpty;
+        waited += step) {
+      await tester.pump(step);
+    }
+    if (find.byType(TermsScreen).evaluate().isNotEmpty) {
+      final accept = find.text('I understand and agree');
+      await tester.ensureVisible(accept);
+      await tester.pump();
+      await tester.tap(accept);
+      await tester.pump();
+    }
+
     for (var waited = Duration.zero;
         waited < const Duration(seconds: 20) &&
             find.byType(ScanScreen).evaluate().isEmpty;

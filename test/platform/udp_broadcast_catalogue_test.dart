@@ -133,6 +133,16 @@ const Map<String, String> _notPerformed = {
       'decodes 6666 as plaintext and 6667 as AES, per the generic spec and '
       'every published client. One of the two specs is wrong; until that is '
       'settled upstream, a gas sensor beaconing AES on 6666 is dropped.',
+  '10008/unspecified':
+      'aqara-hub.yaml. A multicast "whois"/"iam" exchange: send plaintext JSON '
+          'to the group 230.0.0.1:10008 carrying this host\'s IP and a listen '
+          'port, then read the plaintext-JSON "iam" array the hub unicasts '
+          'back. Needs a transport this app does not have — a multicast SEND to '
+          'a group (not the subnet broadcast the other probes use) plus a bound '
+          'listen socket for the reply — and the spec declares no '
+          '`response_format` (the schema has no value for a bare JSON array), '
+          'so this key reads `unspecified`. The hub\'s mDNS method '
+          '(also declared) is the discovery path that works today.',
 };
 
 /// Ports carrying more than one protocol, and how the listener tells them

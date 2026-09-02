@@ -78,6 +78,7 @@ export '../src/rust/api/device_api.dart'
         SoftApProfileDto,
         BleProvisioningProfileDto,
         SecurityAdvisoryDto,
+        SafetyAdvisoryDto,
         SetupInstructionsDto,
         SetupMethodDto,
         SetupStageDto,
@@ -90,7 +91,10 @@ export '../src/rust/api/device_api.dart'
         WemoConnectAttemptDto,
         WemoJoinStatus,
         BrotherQlStatusDto,
-        BrotherQlJobParamsDto;
+        BrotherQlJobParamsDto,
+        CameraDto,
+        CameraStreamDto,
+        CameraKeepaliveDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -270,6 +274,11 @@ abstract class SpecCodec {
   /// credential no action mentions (Hue's `clientkey`, issued at pairing and
   /// obtainable at no other time).
   Future<List<NetworkCredentialDto>> credentialsForDevice(String specYaml);
+
+  /// Apply a spec-declared credential derivation (`base64_sha512`) to what the
+  /// person typed — the sticker password in, the wire value out.
+  Future<String> deriveCredentialValue(
+      {required String derivation, required String value});
 
   /// Render a named command from the spec's `commands` block into a POSTable
   /// SOAP request. [values] carries what the user picked plus any read-back
@@ -912,6 +921,10 @@ abstract class SpecCodec {
     required String specYaml,
     required BrotherQlJobParamsDto params,
   });
+
+  /// The device's `camera:` feed(s) and optional keepalive, or null when the
+  /// spec declares no camera.
+  Future<CameraDto?> cameraForDevice({required String specYaml});
 }
 
 /// Play/loop-mode values for [SpecCodec.encodeAutorunMode].

@@ -17,10 +17,13 @@ class AppConstants {
   static const String tailscaleHaKbUrl =
       'https://tailscale.com/kb/1123/home-assistant';
 
-  /// Default source for the downloadable device-spec pack. Points at a JSON
-  /// manifest (see [SpecPackService]); user-overridable in spec-pack settings.
+  /// Default source for the downloadable device-spec pack. Points at the
+  /// manifest CI publishes on the protocol-specs repo's main (see
+  /// [SpecPackService] and the repo's scripts/generate_pack.py); each listed
+  /// spec path resolves same-origin against this URL. User-overridable in
+  /// spec-pack settings.
   static const String defaultSpecPackUrl =
-      'https://raw.githubusercontent.com/PigsCanFlyLabs/opengreeniot-device-specs/main/pack.json';
+      'https://raw.githubusercontent.com/liberatedbread/liberatedbread-protocol-specs/main/pack.json';
 
   /// Remote config for the bottom ad banner (see [AdBannerService]). Fetched
   /// in the background on launch so the promotion can change without an
@@ -31,4 +34,20 @@ class AppConstants {
 
   /// The affiliate shop page the bundled fallback banner points at.
   static const String shopUrl = 'https://liberatedbread.com/shop/';
+
+  /// The disclaimer / terms of use the first-launch gate makes the user accept.
+  static const String disclaimerUrl = 'https://liberatedbread.com/disclaimer/';
+
+  /// The privacy policy, linked alongside the disclaimer on the gate. (Kept
+  /// https to match the disclaimer — a legal link should not downgrade.)
+  static const String privacyUrl = 'https://liberatedbread.com/privacy/';
+
+  /// The accepted-terms version stored on the device (see [termsAcceptedKey]).
+  /// Bumping this re-shows the first-launch gate when the disclaimer materially
+  /// changes.
+  static const int termsVersion = 1;
+
+  /// SharedPreferences key holding the highest [termsVersion] the user has
+  /// accepted. Absent or lower than [termsVersion] means the gate is shown.
+  static const String termsAcceptedKey = 'terms_accepted_version';
 }

@@ -239,6 +239,30 @@ evidence:
         major/minor 0) and "E5V/E5R-US-XXXXXXXX". No GATT session was driven.
         See the ble block for what the service is for.
 
+mqtt:
+  # The broker speaks plaintext MQTT on 1883; 8883 (TLS) is closed (verified
+  # live 2026-08-14). Declared so a consumer picks the plaintext connector from
+  # the spec rather than inferring it from the port number.
+  transport_security: "plaintext"
+  auth:
+    # A readings-only device: no command names the broker login via a
+    # `credential:` parameter, so declare it here — otherwise the app has no
+    # credentials card and the readings stay unknown. The login is REQUIRED
+    # (CONNACK 4 on a bad username/password, verified live 2026-08-14); the
+    # client id is arbitrary (the broker accepts any).
+    client_id: "generated"
+    credentials:
+      - name: "username"
+        description: >
+          The device serial number, printed on the machine's sticker (it is also
+          the Wi-Fi/BLE name, e.g. F6V-US-XXXXXXXX).
+      - name: "password"
+        description: >
+          The Wi-Fi password printed on the machine's sticker. Enter it as
+          printed — the client derives the local MQTT password from it (base64
+          of its SHA-512 digest).
+        derivation: "base64_sha512"
+
 mqtt_topics:
   - topic: "{productType}/{serial}/status/current"
     name: "Current Status"

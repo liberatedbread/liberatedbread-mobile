@@ -457,6 +457,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -762,6 +763,7 @@ void main() {
               // The spec's ecp2 block + declared port 8060, as the
               // capabilities resolver hands them over for a real Roku.
               capabilities: NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
                   signedSession: 'ecp2',
                   defaultPort: 8060,
                   tlsSelfSigned: false,
@@ -964,6 +966,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: [channelEntity],
                   capabilities: NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -1125,6 +1128,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -1181,6 +1185,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -1264,6 +1269,7 @@ void main() {
                     specYaml: 'yaml',
                     entities: [channelEntity, keyboardEntity],
                     capabilities: NetworkCapabilitiesDto(
+                        mqttClientIdGenerated: false,
                         signedSession: 'ecp2',
                         defaultPort: 8060,
                         tlsSelfSigned: false,
@@ -1369,6 +1375,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: [keyboardEntity],
                   capabilities: NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -1560,6 +1567,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -1856,6 +1864,7 @@ void main() {
                   specYaml: 'yaml',
                   entities: entities,
                   capabilities: const NetworkCapabilitiesDto(
+                      mqttClientIdGenerated: false,
                       signedSession: 'ecp2',
                       defaultPort: 8060,
                       tlsSelfSigned: false,
@@ -2391,6 +2400,34 @@ void main() {
 
       expect(store.values.values, contains('01P00A123456789'));
       expect(find.text('This device needs one more thing'), findsNothing);
+    });
+
+    testWidgets('a declared derivation stores the derived value, not the typed',
+        (tester) async {
+      // Dyson's password: the person types the sticker Wi-Fi password and the
+      // client stores base64(SHA-512(it)). The fake codec marks the
+      // transformation, so this pins that _saveCredential routed the typed
+      // value through the codec's derivation rather than storing it raw.
+      const passwordNeeded = NetworkCredentialDto(
+        name: 'password',
+        description: 'The Wi-Fi password printed on the sticker.',
+        neededBy: ['MQTT state'],
+        mustBeAskedFor: true,
+        derivation: 'base64_sha512',
+      );
+      final store = await pumpPrinter(tester, declared: const [passwordNeeded]);
+
+      await tester.tap(find.text('Enter password'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'sticker-wifi-pw');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(store.values.values,
+          contains('derived:base64_sha512:sticker-wifi-pw'));
+      expect(store.values.values, isNot(contains('sticker-wifi-pw')),
+          reason: 'the raw sticker password must never be stored as the '
+              'broker password');
     });
 
     testWidgets('one a pairing issues is never asked for', (tester) async {
@@ -3178,6 +3215,7 @@ void main() {
     ];
 
     const roombaCapabilities = NetworkCapabilitiesDto(
+        mqttClientIdGenerated: false,
         protocolHandler: roombaProtocolHandler,
         tlsSelfSigned: false,
         advertisedPortUnreliable: false);
@@ -3281,7 +3319,9 @@ void main() {
               entities: roombaEntities,
               // Same transport, no robot handler.
               capabilities: NetworkCapabilitiesDto(
-                  tlsSelfSigned: false, advertisedPortUnreliable: false),
+                  mqttClientIdGenerated: false,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false),
             ),
           ),
         ),
@@ -3343,7 +3383,9 @@ void main() {
               specYaml: 'yaml',
               entities: wsEntities,
               capabilities: NetworkCapabilitiesDto(
-                  tlsSelfSigned: true, advertisedPortUnreliable: false),
+                  mqttClientIdGenerated: false,
+                  tlsSelfSigned: true,
+                  advertisedPortUnreliable: false),
             ),
           ),
         ),
@@ -3390,7 +3432,9 @@ void main() {
               specYaml: 'yaml',
               entities: roombaEntities,
               capabilities: NetworkCapabilitiesDto(
-                  tlsSelfSigned: false, advertisedPortUnreliable: false),
+                  mqttClientIdGenerated: false,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false),
             ),
           ),
         ),

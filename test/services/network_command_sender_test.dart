@@ -46,6 +46,7 @@ void main() {
   // The ecp2 capability as the resolver hands it over for a real Roku:
   // the spec's own block plus its declared 8060.
   const rokuCapabilities = NetworkCapabilitiesDto(
+    mqttClientIdGenerated: false,
     signedSession: 'ecp2',
     defaultPort: 8060,
     tlsSelfSigned: false,
@@ -161,6 +162,7 @@ void main() {
         discoveredControlPort: 80,
         ssdpTargets: const [],
         capabilities: const NetworkCapabilitiesDto(
+          mqttClientIdGenerated: false,
           defaultPort: 443,
           defaultScheme: 'https',
           advertisedPortUnreliable: true,
@@ -240,6 +242,7 @@ void main() {
       discoveredControlPort: null,
       ssdpTargets: const [],
       capabilities: const NetworkCapabilitiesDto(
+          mqttClientIdGenerated: false,
           defaultPort: 8081,
           tlsSelfSigned: false,
           advertisedPortUnreliable: false),
@@ -254,6 +257,7 @@ void main() {
         discoveredControlPort: 7250,
         ssdpTargets: const [],
         capabilities: const NetworkCapabilitiesDto(
+            mqttClientIdGenerated: false,
             defaultPort: 80,
             tlsSelfSigned: false,
             advertisedPortUnreliable: false),
@@ -405,6 +409,76 @@ void main() {
       expect(mqttCodec.mqttConnectArgs?.username, 'hisenseservice');
       // The topic is addressed to the client id, so the renderer needs it too.
       expect(mqttCodec.mqttRenderCalls.single.values['client_id'], 'phone');
+    });
+
+    test('a generated-client-id broker connects with a synthesized id',
+        () async {
+      // A Dyson-shaped broker: authenticates on username/password, accepts any
+      // client id, and the user stored no client_id. It must connect (with a
+      // synthesized, host-stable id), not be refused for lack of one.
+      final s = sender(
+        withCodec: mqttCodec,
+        devicePort: 1883,
+        capabilities: const NetworkCapabilitiesDto(
+          defaultPort: 1883,
+          tlsSelfSigned: false,
+          advertisedPortUnreliable: false,
+          mqttClientIdGenerated: true,
+        ),
+        storedCredentials: const {'username': 'serial', 'password': 'derived'},
+        mqttConnect: (host, port, timeout) async {
+          scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+          return broker;
+        },
+      );
+      addTearDown(s.close);
+
+      await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});
+
+      expect(mqttCodec.mqttConnectArgs?.clientId, 'liberatedbread-192.0.2.9');
+      expect(mqttCodec.mqttConnectArgs?.username, 'serial');
+    });
+
+    test('a broker that pairs on a client id is refused when none is stored',
+        () async {
+      // The pre-existing rule stands for sets that pair: no client id, no
+      // session — a generated one would connect and be silently unauthorised.
+      var connectorInvoked = false;
+      final s = sender(
+        withCodec: mqttCodec,
+        devicePort: 8883,
+        capabilities: const NetworkCapabilitiesDto(
+          defaultPort: 8883,
+          tlsSelfSigned: true,
+          advertisedPortUnreliable: false,
+          mqttClientIdGenerated: false,
+        ),
+        storedCredentials: const {'username': 'u', 'password': 'p'},
+        mqttConnect: (host, port, timeout) async {
+          connectorInvoked = true;
+          // Answer CONNACK, so if the guard were gone the connect would SUCCEED
+          // — the test then fails on the assertions below instead of passing on
+          // an incidental ack timeout.
+          scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+          return broker;
+        },
+      );
+      addTearDown(s.close);
+
+      await expectLater(
+        s.sendAction(action('press', 'press_power', transport: 'mqtt'), {}),
+        // The refusal IDENTITY, not merely the type: the "not been paired"
+        // message is the guard talking. A different MqttConnectionException
+        // (e.g. an ack timeout) would not have this text.
+        throwsA(isA<MqttConnectionException>()
+            .having((e) => e.message, 'message', contains('paired'))),
+      );
+      // The guard must fire BEFORE opening a socket — no CONNECT reaches the
+      // broker. This is what makes the test fail if the guard is deleted.
+      expect(connectorInvoked, isFalse,
+          reason:
+              'the client id is checked before any connection is attempted');
+      expect(broker.written, isEmpty);
     });
 
     /// A value the caller set beats a stored credential of the same name:

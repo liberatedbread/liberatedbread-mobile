@@ -11,11 +11,11 @@
 poi, staffs, fans, buugeng, hoops, clubs, juggling props, jumpropes and lamps. You
 upload images or timelines from the companion app (`com.ignispixel`, Android/iOS) or
 the desktop Ignis Pixel Utility, and the prop renders them as persistence-of-vision
-pictures while spun. The vendor's public firmware catalog lists ~137 device types.
+pictures while spun. The vendor's public firmware catalogue lists ~137 device types.
 
 The vendor is in business and updates the app and firmware regularly — the catch for
 longevity is that the BLE protocol is unpublished and the app's content library is
-cloud-fed. The good news: **the entire firmware catalog and the desktop updater are
+cloud-fed. The good news: **the entire firmware catalogue and the desktop updater are
 public, unauthenticated HTTPS downloads**, and the BLE transport, framing and message
 format are mapped. What is still missing is the numeric command-opcode table, so a
 third-party client cannot quite be built from today's notes alone — see
@@ -33,7 +33,7 @@ third-party client cannot quite be built from today's notes alone — see
 | Companion app | `com.ignispixel` (Android, Qt6/QML), iOS equivalent, desktop Ignis Pixel Utility |
 
 Device families (the `FW_DevType` the prop reports, matching the `Type=` attribute in
-the firmware catalog): `0x04xx` classic poi · `0x05xx`/`0x06xx` gen2 props (NG poi,
+the firmware catalogue): `0x04xx` classic poi · `0x05xx`/`0x06xx` gen2 props (NG poi,
 hoops, fans, buugeng, staff) · `0x07xx` gen3 "toys" (BubblePoi/JellyPoi, sticks,
 clubs, cubes) · `0x0Axx` jumpropes · `0x25xx`–`0x2Axx` "I" models with the internal
 sync radio.
@@ -136,7 +136,7 @@ full vocabulary.
 - **Numeric opcode map** — the one blocker for a working third-party client. The
   constants sit next to the command-name strings in the app's native code; a scripted
   extraction pass is planned.
-- NUS write chunking / MTU behavior for large image and firmware transfers.
+- NUS write chunking / MTU behaviour for large image and firmware transfers.
 - Exact image-block and extended-command field layouts; whether `.fw` files are
   obfuscated.
 - On-air protocol of the nRF24 sync link.
@@ -145,7 +145,7 @@ full vocabulary.
 ## Tools Used
 
 - [x] APK static analysis (the app's protocol logic is native; disassembled with full symbols)
-- [x] Live firmware-server catalog harvest (Update.xml, hash.md5)
+- [x] Live firmware-server catalogue harvest (Update.xml, hash.md5)
 - [ ] HCI snoop of a live prop (pending)
 
 ## References

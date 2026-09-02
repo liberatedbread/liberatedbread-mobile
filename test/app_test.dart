@@ -6,12 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/screens/groups_screen.dart';
 import 'package:liberated_bread_mobile/screens/home_shell.dart';
 import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
+import 'package:liberated_bread_mobile/screens/terms_screen.dart';
 
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -22,8 +24,48 @@ late SharedPreferences _prefs;
 
 void main() {
   setUp(() async {
+    // Seed the disclaimer as already accepted so these tests exercise the app
+    // proper; the first-launch gate has its own test below that starts empty.
+    SharedPreferences.setMockInitialValues(
+        {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+    _prefs = await SharedPreferences.getInstance();
+  });
+
+  testWidgets(
+      'first launch shows the disclaimer gate, and accepting it opens '
+      'the app', (tester) async {
+    // A tall viewport so the disclaimer's accept button is on-screen (the gate
+    // is a long ListView).
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     SharedPreferences.setMockInitialValues({});
     _prefs = await SharedPreferences.getInstance();
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(FakeBleService()),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+      ],
+      child: const LiberatedBreadApp(),
+    ));
+    await tester.pump();
+
+    // The gate is up; the app proper is not yet reachable.
+    expect(find.byType(TermsScreen), findsOneWidget);
+    expect(find.byType(HomeShell), findsNothing);
+    expect(find.textContaining('Experimental'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('I understand and agree'));
+    await tester.tap(find.text('I understand and agree'));
+    await tester.pumpAndSettle();
+
+    // Accepting records the version and reveals the app.
+    expect(find.byType(TermsScreen), findsNothing);
+    expect(find.byType(HomeShell), findsOneWidget);
+    expect(find.byType(ScanScreen), findsOneWidget);
+    expect(_prefs.getInt(AppConstants.termsAcceptedKey),
+        AppConstants.termsVersion);
   });
 
   testWidgets('app builds and opens on the scan screen', (tester) async {

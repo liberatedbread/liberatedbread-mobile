@@ -7,7 +7,7 @@
 
 ## Overview
 
-The SP6xxE family is a line of addressable-pixel (SPI) and analog (PWM) LED strip
+The SP6xxE family is a line of addressable-pixel (SPI) and analogue (PWM) LED strip
 controllers — SP601E through SP64xE — sold under the BanlanX/Sperll brand and
 driven by the **SceneX** app (`com.spled.scenex`). All of them are controllable
 locally over BLE with no account and no cloud; the vendor cloud

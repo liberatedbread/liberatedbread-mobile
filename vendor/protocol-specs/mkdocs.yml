@@ -1,8 +1,8 @@
-site_name: OpenGreenIoT Protocol Docs
+site_name: Liberated Bread Protocol Specs
 site_description: Reverse-engineered IoT device protocol documentation
 site_author: Pigs Can Fly Labs LLC
-repo_name: PigsCanFlyLabs/opengreeniot-protocol-docs
-repo_url: https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs
+repo_name: liberatedbread/liberatedbread-protocol-specs
+repo_url: https://github.com/liberatedbread/liberatedbread-protocol-specs
 copyright: Copyright &copy; 2026 Pigs Can Fly Labs LLC
 
 theme:
@@ -102,6 +102,9 @@ nav:
           - Johnson JLX Laser Distance Meters: devices/jlx-laser-distance-meter.md
           - Beurer PO60 Pulse Oximeter: devices/beurer-po60-pulse-oximeter.md
           - Beurer Series 800 Blood Pressure Monitor: devices/beurer-series800-blood-pressure.md
+          - FOREO Peach 2 IPL: devices/foreo-peach-2.md
+          - Braun Silk-expert Pro 5 IPL: devices/braun-silk-expert-pro5.md
+          - Silk'n Infinity / Silk'n 7 IPL: devices/silkn-infinity.md
           - Hyperice Hypervolt Plus: devices/hyperice-hypervolt-plus.md
           - BIO-key TouchLock Fingerprint Locks: devices/biokey-touchlock-fingerprint-lock.md
           - Safetech Quicklock Padlock: devices/safetech-smart-padlock.md
@@ -203,6 +206,7 @@ nav:
           - Fronius Solar Inverter (Solar API): devices/fronius-solar-api.md
           - OpenEVSE Charging Station: devices/openevse.md
           - Xiaomi miIO Protocol: devices/xiaomi-miio.md
+          - Aqara Hub family: devices/aqara-hub.md
           - Roborock Robot Vacuum (local): devices/roborock-local.md
           - Valetudo (rooted vacuum): devices/valetudo.md
           - Parrot Drones (AR.Drone / ARSDK): devices/parrot-arsdk-drone.md

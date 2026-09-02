@@ -209,6 +209,7 @@ class FakeSpecCodec implements SpecCodec {
     this.networkEntities,
     this.networkCredentials = const [],
     this.networkHiddenNames = const [],
+    this.cameraResult,
     this.networkCapabilitiesResult,
     this.networkEntitiesForState,
     this.networkRequest,
@@ -424,12 +425,19 @@ class FakeSpecCodec implements SpecCodec {
   }) async =>
       networkCapabilitiesResult ??
       const NetworkCapabilitiesDto(
-          tlsSelfSigned: false, advertisedPortUnreliable: false);
+          mqttClientIdGenerated: false,
+          tlsSelfSigned: false,
+          advertisedPortUnreliable: false);
 
   @override
   Future<List<NetworkCredentialDto>> credentialsForDevice(
           String specYaml) async =>
       networkCredentials;
+
+  @override
+  Future<String> deriveCredentialValue(
+          {required String derivation, required String value}) async =>
+      'derived:$derivation:$value';
 
   @override
   Future<SoapRequestDto> renderNetworkCommand({
@@ -1640,4 +1648,12 @@ class FakeSpecCodec implements SpecCodec {
     required BrotherQlJobParamsDto params,
   }) =>
       throw UnimplementedError('renderBrotherQlTestLabel');
+
+  /// Returned by [cameraForDevice] — null (no camera) unless a camera-view test
+  /// sets it to exercise the card.
+  final CameraDto? cameraResult;
+
+  @override
+  Future<CameraDto?> cameraForDevice({required String specYaml}) async =>
+      cameraResult;
 }

@@ -28,9 +28,13 @@ device:
     in elk-bledom-led-strip.yaml; the packet formats are unrelated.
 
     PROTOCOL: short fixed frames, no pairing, no auth, no session. Power on
-    CC 23 33, off CC 24 33. Static color 56 R G B W F0 AA (the W byte is
-    the white channel; the app scales it with brightness on RGBW hardware)
-    with a variant 57 R G B W F0 75. Effect mode BB <mode> <speed> 44.
+    CC 23 33, off CC 24 33. Static color 56 R G B 00 F0 AA, where byte 6 is
+    a channel-select flag: 0xF0 selects the RGB channels (the white byte is
+    then inert) and, per the Triones lineage, 0x0F selects the white channel
+    (56 00 00 00 W 0F AA). The vendor app was seen emitting a white value in
+    the RGB frame alongside 0xF0, but that byte does nothing under 0xF0. A
+    57 R G B 00 F0 75 variant of the RGB frame also exists. Effect mode
+    BB <mode> <speed> 44.
     Status query EF 01 77; the app parses the reply payload from byte
     offsets 3..9 of the notification value. A mic/music sensitivity frame
     69 00 00 F0 96 is sent on the ffd5/ffd9 layout.
@@ -183,28 +187,48 @@ services:
             verification: "reported"
           set_static_color:
             description: >
-              Set a static RGB(W) color. Byte 5 (white) is the white
-              channel; the app scales it with brightness on RGBW hardware.
-              Pass 0x00 for white on RGB-only strips.
-            template: [0x56, "{red}", "{green}", "{blue}", "{white}", 0xF0, 0xAA]
+              Set a static RGB color. Byte 6 is the channel-select flag:
+              0xF0 selects the RGB channels, so the device applies
+              red/green/blue and IGNORES byte 5 (held at 0x00). In the
+              Triones lineage a single 0xF0 frame cannot also set the white
+              channel — the vendor app was seen to place a white value in
+              byte 5 alongside 0xF0, but under this flag that byte is inert
+              (community Triones docs / HA led_ble). Drive the white channel
+              on RGBW hardware with set_white, which sends 0x0F in byte 6.
+            template: [0x56, "{red}", "{green}", "{blue}", 0x00, 0xF0, 0xAA]
             parameters:
               red: { type: "uint8", min: 0, max: 255 }
               green: { type: "uint8", min: 0, max: 255 }
               blue: { type: "uint8", min: 0, max: 255 }
-              white: { type: "uint8", min: 0, max: 255, default: 0x00 }
             verification: "reported"
+          set_white:
+            description: >
+              Set the white channel on RGBW hardware. Byte 6 is 0x0F, which
+              selects the white channel: the device applies byte 5 (white)
+              and ignores the RGB bytes (held at 0x00). The 0xF0/0x0F
+              channel-select is the community-documented Triones / HA led_ble
+              behavior; this project observed only the 0xF0 (RGB) frame in
+              the vendor app, so the 0x0F white frame is inferred from that
+              lineage and unverified against this hardware.
+            template: [0x56, 0x00, 0x00, 0x00, "{white}", 0x0F, 0xAA]
+            parameters:
+              white: { type: "uint8", min: 0, max: 255 }
+            verification: "hypothesis"
           set_static_color_alt:
             description: >
               Alternate static-color frame emitted on a second app code
               path (same payload layout, 0x57 opcode, 0x75 trailer).
               Purpose of the variant is not established; prefer
-              set_static_color.
-            template: [0x57, "{red}", "{green}", "{blue}", "{white}", 0xF0, 0x75]
+              set_static_color. Byte 6 is 0xF0 (RGB channel-select), so —
+              as with set_static_color — byte 5 is held at 0x00 and the
+              white channel cannot be set from this frame. No 0x0F
+              (white-select) form of the 0x57 opcode was observed, so this
+              spec does not document a white-mode variant for it.
+            template: [0x57, "{red}", "{green}", "{blue}", 0x00, 0xF0, 0x75]
             parameters:
               red: { type: "uint8", min: 0, max: 255 }
               green: { type: "uint8", min: 0, max: 255 }
               blue: { type: "uint8", min: 0, max: 255 }
-              white: { type: "uint8", min: 0, max: 255, default: 0x00 }
             verification: "reported"
           set_mode:
             description: >

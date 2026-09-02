@@ -29,6 +29,7 @@ import '../services/roomba_controller.dart';
 import '../services/spec_codec.dart';
 import '../services/tls_trust.dart';
 import '../widgets/ad_banner_bar.dart';
+import '../widgets/camera_view_card.dart';
 import '../widgets/device_credentials_card.dart';
 import '../widgets/entity_cards/sensor_level_chip.dart';
 import '../widgets/network_light_card.dart';
@@ -163,6 +164,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// The pushed-state stream of a non-Roomba MQTT device, held so dispose
   /// stops listening when the screen goes.
   StreamSubscription<MqttMessage>? _mqttStateSub;
+
+  /// A pending re-subscribe after the MQTT state stream errored (a broker drop),
+  /// and the growing backoff between attempts. Without this a transient drop
+  /// froze every pushed reading until the screen was reopened.
+  Timer? _mqttRetry;
+  Duration _mqttBackoff = Duration.zero;
   bool _polling = false;
 
   /// Bumped on every write to [_keyboardFocused]. A poll captures it before its
@@ -235,6 +242,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
     _keyboardPoll?.cancel();
     _statePoll?.cancel();
+    _mqttRetry?.cancel();
     unawaited(_keyboardSub?.cancel());
     unawaited(_mqttStateSub?.cancel());
     unawaited(_sender.close());
@@ -667,11 +675,23 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// state poll that failed on it can succeed, and the card that asked for it
   /// can leave.
   Future<void> _saveCredential(String name, String value) async {
+    // A declared derivation means the person typed the human-readable secret
+    // (Dyson's sticker Wi-Fi password) and the wire value is computed from it;
+    // storing what was typed would hand the broker the wrong password forever.
+    final derivation = _missingCredentials
+        .where((c) => c.name == name)
+        .map((c) => c.derivation)
+        .firstOrNull;
+    final stored = derivation == null
+        ? value
+        : await ref
+            .read(specCodecProvider)
+            .deriveCredentialValue(derivation: derivation, value: value);
     // A failed write (a locked keystore) propagates: the credentials card
     // catches it and tells the person, which nothing here used to.
     await ref
         .read(deviceCredentialStoreProvider)
-        .save(_credentialIdentity, name, value);
+        .save(_credentialIdentity, name, stored);
     // The screen can be gone by the time the keychain answers, and the
     // refresh below reads providers through a ref that death disposed.
     if (!mounted) return;
@@ -1036,6 +1056,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// sender's session, so state and sends share one broker connection and
   /// one client identity.
   Future<void> _subscribeMqttState() async {
+    // A fresh attempt supersedes any scheduled retry.
+    _mqttRetry?.cancel();
+    _mqttRetry = null;
     final declaredTopics = <String>{
       for (final entity in _entities)
         if (!entity.isInstanced &&
@@ -1098,16 +1121,42 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _mqttStateSub = stream.listen((message) {
         final declared = declaredByFilled[message.topic];
         if (declared == null || !mounted) return;
+        // A delivered message is proof the session actually works, so reset the
+        // backoff here — NOT when listen() merely attached, which a flapping
+        // connection reaches every 2 s and would pin the backoff at its floor.
+        _mqttBackoff = Duration.zero;
         _stateByCommand[declared] = httpStateFields(message.payload);
         _scheduleDecode();
       }, onError: (Object e) {
         Log.net.debug('mqtt state stream on ${widget.device.host}: $e');
+        // A broker drop errors the stream; re-subscribe so pushed readings
+        // resume instead of freezing until the screen is reopened.
+        _scheduleMqttResubscribe();
       });
     } on Exception catch (e) {
-      // Unpaired (no client id yet) or unreachable. The credentials card is
-      // the ask; the readings stay honestly unknown until it is answered.
+      // subscribeMqttState threw. On FIRST load (backoff still zero) that is
+      // "unpaired / unreachable" — the credentials card is the ask, and looping
+      // would train people to paste secrets — so leave it. But mid-RECONNECT
+      // (backoff already engaged by a drop) this is the retry itself failing
+      // because the broker is still down; keep retrying, or the resubscribe
+      // chain dies and readings freeze until the screen is reopened.
       Log.net.debug('mqtt state unavailable on ${widget.device.host}: $e');
+      if (_mqttBackoff != Duration.zero) _scheduleMqttResubscribe();
     }
+  }
+
+  /// Re-subscribe the MQTT state stream after it errored, on a bounded,
+  /// growing backoff. Only one retry is ever pending, and none is scheduled
+  /// once the screen is disposed.
+  void _scheduleMqttResubscribe() {
+    if (!mounted || _mqttRetry != null) return;
+    _mqttBackoff = _mqttBackoff == Duration.zero
+        ? const Duration(seconds: 2)
+        : Duration(seconds: (_mqttBackoff.inSeconds * 2).clamp(2, 30));
+    _mqttRetry = Timer(_mqttBackoff, () {
+      _mqttRetry = null;
+      if (mounted) unawaited(_subscribeMqttState());
+    });
   }
 
   /// Whether a decode pass is running, and whether pushes arrived during it.
@@ -1399,6 +1448,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
           children: [
+            // Live camera, for a device whose spec declares one (Snapmaker U1).
+            // Renders nothing otherwise.
+            CameraViewCard(
+              specYaml: widget.controls.specYaml,
+              host: widget.device.host,
+            ),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),

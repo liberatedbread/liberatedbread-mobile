@@ -42,7 +42,7 @@ device:
     (dual BLE+MCU OTA project, possibly a newer revision — unverified).
 
     HARDWARE PLATFORM: JieLi BLE SoC. The app bundles the JieLi OTA SDK
-    (com.jieli.jl_bt_ota) plus a TIRO wrapper (com.tiro.jlotalibrary);
+    plus the OEM's own wrapper around it;
     firmware images use the JieLi .ufw format (JLUFW update containers
     with plaintext section strings: JLUFW, JLBTSDK, btstack, ble_ota.bin
     / ble_app_ota.bin). SoC MIGRATION OBSERVED: the older helmet image
@@ -57,8 +57,8 @@ device:
     variant code.
 
     FAMILY BOUNDARY — do not conflate. Two older/other "LED helmet display"
-    ecosystems exist: (1) the LOY family (LOY PLAY com.yskj.loy / LOY EYES
-    com.yskj.lysd, Shenzhen Yanse, BLE service FFF0, popled.cn cloud) —
+    ecosystems exist: (1) the LOY family (the LOY PLAY / LOY EYES apps from
+    Shenzhen Yanse, BLE service FFF0, popled.cn cloud) —
     a different OEM with a different protocol; (2) the Shining Mask /
     Shining Glasses / Magic Display family (Quintic QPP platform,
     AES-128-ECB encrypted 16-byte ASCII commands; see shining-mask.yaml,

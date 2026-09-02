@@ -65,12 +65,12 @@ rather than a spec.
 Notes:
 
 - APK mocks sometimes reuse generic `socket:1` or `Humidifier:1` fixture data.
-  The spec records those ambiguities and prefers pywemo/public library behavior
+  The spec records those ambiguities and prefers pywemo/public library behaviour
   for live hardware.
 - Dimmer v1 and v2 share `urn:Belkin:device:dimmer:1`; use UDN prefix and model
   metadata to distinguish them.
 - Motion appears as `motion:1` in the APK and is often described as `sensor:1`
-  in older catalogs.
+  in older catalogues.
 
 ## SOAP Services
 

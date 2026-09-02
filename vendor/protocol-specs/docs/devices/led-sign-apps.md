@@ -43,9 +43,9 @@ listed on the product page (or the app already installed on the owner's phone) b
 
 | App | Android package | Device family | Transport | Target starter |
 |-----|-----------------|---------------|-----------|----------------|
-| iLEDColor | `com.led.iledcolor` | Matrix panels; **current** Lunchbox DreamPanel v3 boards | BLE | [`targets/iledcolor-led-panel.md`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/iledcolor-led-panel.md) |
-| LED space | `com.yj.led` | YSP-001 Wi-Fi backpack screens, LED vests, LED clothing | Wi-Fi (AP) | [`targets/led-space.md`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/led-space.md) |
-| Divoom | `com.divoom.Divoom` | Pixoo-16/32/64, Timebox, Ditoo pixel displays | Wi-Fi HTTP + BLE | [`targets/divoom-pixoo.md`](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/divoom-pixoo.md) |
+| iLEDColor | `com.led.iledcolor` | Matrix panels; **current** Lunchbox DreamPanel v3 boards | BLE | [`targets/iledcolor-led-panel.md`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/targets/iledcolor-led-panel.md) |
+| LED space | `com.yj.led` | YSP-001 Wi-Fi backpack screens, LED vests, LED clothing | Wi-Fi (AP) | [`targets/led-space.md`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/targets/led-space.md) |
+| Divoom | `com.divoom.Divoom` | Pixoo-16/32/64, Timebox, Ditoo pixel displays | Wi-Fi HTTP + BLE | [`targets/divoom-pixoo.md`](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/targets/divoom-pixoo.md) |
 
 ## Platform clusters
 
@@ -80,7 +80,7 @@ with an `libAES.so` in its APK belongs here.
 ### CoolLED generations
 
 `CoolLED*` is one advertising name across at least seven hardware generations with two protocol
-families. The advertisement itself carries panel width, height and color mode, so a client can
+families. The advertisement itself carries panel width, height and colour mode, so a client can
 adapt without user configuration — but the generation determines the command table. See the
 [CoolLEDX doc](coolledx-led-sign.md).
 
@@ -90,7 +90,7 @@ adapt without user configuration — but the generation determines the command t
    Record the exact package ID — display names are reused freely across unrelated apps.
 2. **Scan before connecting.** `./scripts/detect_devices.sh` — capture the advertised local name,
    service UUIDs *and the raw manufacturer data*. Several of these families encode panel geometry
-   and color depth in the advertisement.
+   and colour depth in the advertisement.
 3. **Match against the clusters above** before doing any new work.
 4. **Prefer asking the device over guessing.** SPOTLED has `GetDisplayInfo`; CoolLEDX puts
    geometry in the advertisement; the popled.cn platform has `{get:"dev_info"}`. Hardcoding a

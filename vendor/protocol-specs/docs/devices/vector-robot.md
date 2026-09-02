@@ -143,7 +143,7 @@ NORMAL OPERATION (subsequent connections):
 
 ### gRPC Service: ExternalInterface (69 RPCs)
 
-Complete catalog from `external_interface.proto`. All listed with their REST gateway
+Complete catalogue from `external_interface.proto`. All listed with their REST gateway
 endpoints where available.
 
 #### Version & Authentication
@@ -332,7 +332,7 @@ repo (v1.2.18, 2026-05-10):
    `ep`). Works from any starting firmware version.
 4. **Clear user data** via the diagnostics menu (double-press button,
    lift/wheel navigation to CLEAR USER DATA → CONFIRM) — technically
-   optional but strongly recommended; skipping it causes "weird behavior".
+   optional but strongly recommended; skipping it causes "weird behaviour".
 5. **Authenticate** against the local wire-pod instance (via the same web
    page or, on some builds, wire-pod's inbuilt BLE): ACTIVATE, then save
    settings. The wiki warns this step commonly needs several retries
@@ -426,8 +426,8 @@ python scripts/vector_status.py 192.168.1.50 \
 - [os-vector/wire-os](https://github.com/os-vector/wire-os) — Open firmware for unlocked (OSKR/dev) robots
 - [codaris/Anki.Vector.SDK](https://github.com/codaris/Anki.Vector.SDK) — .NET SDK (★92)
 - [developer.anki.com/vector/docs/](https://developer.anki.com/vector/docs/) — Official SDK docs (archived)
-- [Protocol target spec](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/vector-robot.md) — Full RE target spec
+- [Protocol target spec](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/targets/vector-robot.md) — Full RE target spec
 
 ## Contributors
 
-- @opengreeniot — protocol consolidation, local-first tools
+- @liberatedbread — protocol consolidation, local-first tools

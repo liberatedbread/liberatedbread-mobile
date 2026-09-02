@@ -53,6 +53,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
+  CameraDto dco_decode_box_autoadd_camera_dto(dynamic raw);
+
+  @protected
+  CameraKeepaliveDto dco_decode_box_autoadd_camera_keepalive_dto(dynamic raw);
+
+  @protected
   double dco_decode_box_autoadd_f_64(dynamic raw);
 
   @protected
@@ -94,6 +100,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
+  SafetyAdvisoryDto dco_decode_box_autoadd_safety_advisory_dto(dynamic raw);
+
+  @protected
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw);
 
   @protected
@@ -131,6 +140,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BrotherQlStatusDto dco_decode_brother_ql_status_dto(dynamic raw);
+
+  @protected
+  CameraDto dco_decode_camera_dto(dynamic raw);
+
+  @protected
+  CameraKeepaliveDto dco_decode_camera_keepalive_dto(dynamic raw);
+
+  @protected
+  CameraStreamDto dco_decode_camera_stream_dto(dynamic raw);
 
   @protected
   CharacteristicDto dco_decode_characteristic_dto(dynamic raw);
@@ -210,6 +228,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   List<BleProvisioningProfileDto> dco_decode_list_ble_provisioning_profile_dto(
       dynamic raw);
+
+  @protected
+  List<CameraStreamDto> dco_decode_list_camera_stream_dto(dynamic raw);
 
   @protected
   List<CharacteristicDto> dco_decode_list_characteristic_dto(dynamic raw);
@@ -446,6 +467,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool? dco_decode_opt_box_autoadd_bool(dynamic raw);
 
   @protected
+  CameraDto? dco_decode_opt_box_autoadd_camera_dto(dynamic raw);
+
+  @protected
+  CameraKeepaliveDto? dco_decode_opt_box_autoadd_camera_keepalive_dto(
+      dynamic raw);
+
+  @protected
   double? dco_decode_opt_box_autoadd_f_64(dynamic raw);
 
   @protected
@@ -483,6 +511,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RoombaAnnouncementDto? dco_decode_opt_box_autoadd_roomba_announcement_dto(
+      dynamic raw);
+
+  @protected
+  SafetyAdvisoryDto? dco_decode_opt_box_autoadd_safety_advisory_dto(
       dynamic raw);
 
   @protected
@@ -564,6 +596,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RoombaRequestDto dco_decode_roomba_request_dto(dynamic raw);
+
+  @protected
+  SafetyAdvisoryDto dco_decode_safety_advisory_dto(dynamic raw);
 
   @protected
   ScanMatch dco_decode_scan_match(dynamic raw);
@@ -695,6 +730,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  CameraDto sse_decode_box_autoadd_camera_dto(SseDeserializer deserializer);
+
+  @protected
+  CameraKeepaliveDto sse_decode_box_autoadd_camera_keepalive_dto(
+      SseDeserializer deserializer);
+
+  @protected
   double sse_decode_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
@@ -745,6 +787,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  SafetyAdvisoryDto sse_decode_box_autoadd_safety_advisory_dto(
+      SseDeserializer deserializer);
+
+  @protected
   ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
       SseDeserializer deserializer);
 
@@ -788,6 +834,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   BrotherQlStatusDto sse_decode_brother_ql_status_dto(
       SseDeserializer deserializer);
+
+  @protected
+  CameraDto sse_decode_camera_dto(SseDeserializer deserializer);
+
+  @protected
+  CameraKeepaliveDto sse_decode_camera_keepalive_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  CameraStreamDto sse_decode_camera_stream_dto(SseDeserializer deserializer);
 
   @protected
   CharacteristicDto sse_decode_characteristic_dto(SseDeserializer deserializer);
@@ -869,6 +925,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BleProvisioningProfileDto> sse_decode_list_ble_provisioning_profile_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<CameraStreamDto> sse_decode_list_camera_stream_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -1148,6 +1208,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool? sse_decode_opt_box_autoadd_bool(SseDeserializer deserializer);
 
   @protected
+  CameraDto? sse_decode_opt_box_autoadd_camera_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  CameraKeepaliveDto? sse_decode_opt_box_autoadd_camera_keepalive_dto(
+      SseDeserializer deserializer);
+
+  @protected
   double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
@@ -1192,6 +1260,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RoombaAnnouncementDto? sse_decode_opt_box_autoadd_roomba_announcement_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  SafetyAdvisoryDto? sse_decode_opt_box_autoadd_safety_advisory_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -1282,6 +1354,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RoombaRequestDto sse_decode_roomba_request_dto(SseDeserializer deserializer);
+
+  @protected
+  SafetyAdvisoryDto sse_decode_safety_advisory_dto(
+      SseDeserializer deserializer);
 
   @protected
   ScanMatch sse_decode_scan_match(SseDeserializer deserializer);
@@ -1425,6 +1501,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       BrotherQlJobParamsDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_camera_dto(
+      CameraDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_camera_keepalive_dto(
+      CameraKeepaliveDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer);
 
   @protected
@@ -1476,6 +1560,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       RoombaAnnouncementDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_safety_advisory_dto(
+      SafetyAdvisoryDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_scanned_device_dto(
       ScannedDeviceDto self, SseSerializer serializer);
 
@@ -1519,6 +1607,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_brother_ql_status_dto(
       BrotherQlStatusDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_camera_dto(CameraDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_camera_keepalive_dto(
+      CameraKeepaliveDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_camera_stream_dto(
+      CameraStreamDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_characteristic_dto(
@@ -1613,6 +1712,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_ble_provisioning_profile_dto(
       List<BleProvisioningProfileDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_camera_stream_dto(
+      List<CameraStreamDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_characteristic_dto(
@@ -1908,6 +2011,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_opt_box_autoadd_bool(bool? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_camera_dto(
+      CameraDto? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_camera_keepalive_dto(
+      CameraKeepaliveDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer);
 
   @protected
@@ -1953,6 +2064,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_roomba_announcement_dto(
       RoombaAnnouncementDto? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_safety_advisory_dto(
+      SafetyAdvisoryDto? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_security_advisory_dto(
@@ -2047,6 +2162,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_roomba_request_dto(
       RoombaRequestDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_safety_advisory_dto(
+      SafetyAdvisoryDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_scan_match(ScanMatch self, SseSerializer serializer);

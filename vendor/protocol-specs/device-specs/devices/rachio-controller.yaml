@@ -122,18 +122,13 @@ device:
       Settings → HomeKit; reportedly iOS-only), so HAP pairing depends on the
       vendor app at least once.
     methods:
-      - type: "button_pairing"
-        name: "HomeKit pairing with the app's 8-digit code"
-        role: "primary"
-        verified: false
-        description: >
-          HomeKit pairing using the 8-digit setup code generated and displayed
-          in the Rachio app (Controller Settings → HomeKit; reportedly
-          iOS-only), which provides cloud-free local control once paired.
-        steps:
-          - action: "Perform a HAP pair-setup against the advertised _hap._tcp service using the app-displayed setup code."
-            actor: "client"
-            notes: "Not implemented in this project; the most promising route to local control."
+      # HomeKit HAP pairing is NOT a setup route: the 8-digit code is generated
+      # and shown in the Rachio app (Controller Settings → HomeKit), which means
+      # the controller is already provisioned and online when it happens. It is
+      # a post-provisioning PHASE, fully documented in the top-level `pairing:`
+      # block below — its home — not an alternative to Wi-Fi provisioning. The
+      # two entries here are the SoftAP provisioning routes, selected by which
+      # controller generation the reader owns (hence `variant`, no primary).
       - type: "softap_http"
         name: "Gen 3 setup AP: HTTPS JSON under a pinned CA"
         role: "variant"

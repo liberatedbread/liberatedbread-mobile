@@ -17,7 +17,7 @@ use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
     name_has_prefix, normalize_service_type, Characteristic, CharacteristicProperty, Command,
     DeviceSpec, Entity, FormatField, Identification, MacPrefix, MacPrefixConfidence, Parameter,
-    SecurityAdvisory, Service,
+    SafetyAdvisory, SecurityAdvisory, Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
@@ -51,6 +51,35 @@ impl From<&SecurityAdvisory> for SecurityAdvisoryDto {
     }
 }
 
+/// A physical-safety hazard in operating the device, flattened for FFI. Unlike a
+/// [`SecurityAdvisoryDto`] the app keeps the controls and shows this as a
+/// banner; when `acknowledge_required` is set it asks once before enabling them.
+/// See [`SafetyAdvisory`].
+#[derive(Debug, Clone)]
+pub struct SafetyAdvisoryDto {
+    /// `caution`, `warning`, or `danger` — the app colours the banner by this.
+    pub severity: String,
+    pub summary: String,
+    pub detail: Option<String>,
+    pub acknowledge_required: bool,
+    pub advisory_url: Option<String>,
+    /// A Wayback Machine snapshot of `advisory_url`, offered as a fallback.
+    pub advisory_archive_url: Option<String>,
+}
+
+impl From<&SafetyAdvisory> for SafetyAdvisoryDto {
+    fn from(a: &SafetyAdvisory) -> Self {
+        Self {
+            severity: a.severity.to_string(),
+            summary: a.summary.clone(),
+            detail: a.detail.clone(),
+            acknowledge_required: a.acknowledge_required,
+            advisory_url: a.advisory_url.clone(),
+            advisory_archive_url: a.advisory_archive_url.clone(),
+        }
+    }
+}
+
 /// A parsed device specification, ready for use by the Flutter app.
 #[derive(Debug, Clone)]
 pub struct DeviceSpecDto {
@@ -77,6 +106,10 @@ pub struct DeviceSpecDto {
     /// A known security problem with this device, when the spec declares one —
     /// the app warns rather than controls. See [`SecurityAdvisoryDto`].
     pub security_advisory: Option<SecurityAdvisoryDto>,
+    /// A physical-safety hazard in operating the device (an IPL handset), when
+    /// the spec declares one — the app warns AND keeps the controls. See
+    /// [`SafetyAdvisoryDto`].
+    pub safety_advisory: Option<SafetyAdvisoryDto>,
     pub notes: Option<String>,
     /// Every BLE local name prefix this device family advertises under, in
     /// spec order. Plural because a family sold as several rebadged models has
@@ -1035,6 +1068,11 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .security_advisory
                 .as_ref()
                 .map(SecurityAdvisoryDto::from),
+            safety_advisory: spec
+                .device
+                .safety_advisory
+                .as_ref()
+                .map(SafetyAdvisoryDto::from),
             notes: spec.device.notes.clone(),
             local_name_prefixes: ident
                 .map(Identification::local_name_prefixes)
@@ -2126,6 +2164,16 @@ pub struct NetworkCapabilitiesDto {
     /// handler is the spec's own answer to "which conversation is this", so a
     /// consumer forks on it rather than on a device name.
     pub protocol_handler: Option<String>,
+    /// `mqtt.auth.client_id: generated` — the client picks an arbitrary client
+    /// id the broker accepts (a Dyson purifier), so a consumer synthesizes one
+    /// rather than refusing to connect for lack of a paired id. False (the
+    /// default, and `required`) keeps the pre-existing rule: a set that pairs on
+    /// a specific client id has no session without it.
+    pub mqtt_client_id_generated: bool,
+    /// `mqtt.transport_security` — `plaintext` | `tls`, the spec's own
+    /// declaration of what the broker's socket speaks. Absent: the consumer
+    /// falls back to the port convention (1883 plaintext, everything else TLS).
+    pub mqtt_transport_security: Option<String>,
 }
 
 /// Which of a spec's `device.variants[]` the BLE device in front of us could be.
@@ -2186,6 +2234,17 @@ pub fn network_capabilities(spec_yaml: String) -> anyhow::Result<NetworkCapabili
             .is_some_and(|t| t.self_signed),
         advertised_port_unreliable: ident.is_some_and(|i| i.advertised_port_unreliable),
         protocol_handler: spec.protocol_handler.clone(),
+        mqtt_client_id_generated: spec
+            .mqtt
+            .as_ref()
+            .and_then(|m| m.auth.as_ref())
+            .and_then(|a| a.client_id.as_deref())
+            .map(|c| c == "generated")
+            .unwrap_or(false),
+        mqtt_transport_security: spec
+            .mqtt
+            .as_ref()
+            .and_then(|m| m.transport_security.clone()),
     })
 }
 
@@ -3227,6 +3286,9 @@ pub struct NetworkCredentialDto {
     /// Whether a client should ask a person for this value: something needs
     /// it and no declared flow can mint it.
     pub must_be_asked_for: bool,
+    /// A transformation the client applies to what the person types before
+    /// storing it — see [`derive_credential_value`]. Absent: store as typed.
+    pub derivation: Option<String>,
 }
 
 /// Every credential this spec refers to, by name.
@@ -3245,6 +3307,7 @@ pub fn credentials_for_device(spec_yaml: String) -> anyhow::Result<Vec<NetworkCr
             name: requirement.name,
             description: requirement.description,
             needed_by: requirement.needed_by,
+            derivation: requirement.derivation,
             issued_by: requirement
                 .issued_by
                 .map(|issued| NetworkCredentialIssuanceDto {
@@ -3255,6 +3318,24 @@ pub fn credentials_for_device(spec_yaml: String) -> anyhow::Result<Vec<NetworkCr
                 }),
         })
         .collect())
+}
+
+/// Apply a spec-declared credential derivation to what the person typed.
+///
+/// `base64_sha512` — the only derivation the schema declares — is base64 of the
+/// SHA-512 digest of the entered value: Dyson's local MQTT password, computed
+/// from the sticker Wi-Fi password so the person types what is printed rather
+/// than a hash. An unknown name errors instead of silently storing the raw
+/// value under a credential the broker expects derived.
+pub fn derive_credential_value(derivation: String, value: String) -> anyhow::Result<String> {
+    match derivation.as_str() {
+        "base64_sha512" => {
+            use base64::Engine as _;
+            use sha2::{Digest, Sha512};
+            Ok(base64::engine::general_purpose::STANDARD.encode(Sha512::digest(value.as_bytes())))
+        }
+        other => anyhow::bail!("unknown credential derivation `{other}`"),
+    }
 }
 
 // ── LIFX (binary UDP) ───────────────────────────────────────────────────────
@@ -3517,6 +3598,15 @@ struct MatchAxes {
     /// strength of a discovery method mentioning it, and a bare web server
     /// came back as twenty-one Possible smart devices.
     narrowed_shared: bool,
+    /// Whether this spec matched a shared type it is the declared
+    /// `platform_fallback` for, and no OTHER spec narrowed that type for this
+    /// device. Unlike `narrowed_shared` this admits WITHOUT a TXT narrowing —
+    /// it is how a deliberate catch-all (an `identify_only` generic printer on
+    /// `_ipp._tcp`, say) recognises a device that has no product spec of its
+    /// own, while still standing aside for any product that DID narrow the type.
+    /// A weaker signal than a narrowed match (it names the platform, not the
+    /// product), so it promotes only to Likely.
+    platform_fallback_match: bool,
     /// Likely tier.
     company_ids: Vec<u16>,
     /// Identifies a vendor, not a product — except where the spec says
@@ -3542,6 +3632,9 @@ impl MatchAxes {
             // A shared type counts only where the spec earned it. See
             // [`Self::narrowed_shared`].
             && !self.narrowed_shared
+            // ...or where the spec is the deliberate catch-all for it and no
+            // product claimed it more specifically. See [`platform_fallback_match`].
+            && !self.platform_fallback_match
             && self.company_ids.is_empty()
             && self.mac_prefix.is_none()
     }
@@ -3635,6 +3728,10 @@ impl MatchAxes {
             // and effectively nothing else's is evidence in its own right —
             // the same standing as a local name, which users can rename anyway.
             || self.mac_prefix_confidence() >= MacPrefixConfidence::High
+            // The catch-all recognised the platform (a printer, an ESPHome
+            // node): enough to name the class and hand off, not enough to claim
+            // a specific product — Likely, never Strong.
+            || self.platform_fallback_match
         {
             MatchConfidence::Likely
         } else {
@@ -4046,6 +4143,7 @@ fn match_network_axes(
     let mut service_types: Vec<String> = Vec::new();
     let mut shared_service_types: Vec<String> = Vec::new();
     let mut narrowed_shared = false;
+    let mut platform_fallback_match = false;
     // Sorted into the bucket its genericness earns: a vendor's own type proves
     // a lot, one a whole category answers to proves nothing on its own.
     //
@@ -4087,6 +4185,15 @@ fn match_network_axes(
                 &wanted,
                 is_narrowed(&identity.txt_match_groups, &wanted),
             );
+            // A catch-all that matched a shared type nobody narrowed more
+            // specifically (fallback_ok held because narrowed_types lacks it):
+            // this is what lets an identify_only generic recognise a device with
+            // no product spec, while `fallback_ok` still made it stand aside
+            // wherever a product DID narrow the type.
+            if is_shared_service_type(&wanted) && identity.platform_fallback_types.contains(&wanted)
+            {
+                platform_fallback_match = true;
+            }
         }
     }
     for target in &identity.ssdp_search_targets {
@@ -4141,6 +4248,7 @@ fn match_network_axes(
         service_types,
         shared_service_types,
         narrowed_shared,
+        platform_fallback_match,
         mac_prefix,
         ..MatchAxes::default()
     };
@@ -4590,6 +4698,74 @@ pub fn render_brother_ql_test_label(
         brother_ql_media(&params),
         options,
     )?)
+}
+
+/// A device's camera feed(s) for the Dart viewer.
+#[derive(Debug, Clone)]
+pub struct CameraDto {
+    pub streams: Vec<CameraStreamDto>,
+    /// The session to hold open before frames flow (Snapmaker), if any.
+    pub keepalive: Option<CameraKeepaliveDto>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CameraStreamDto {
+    pub name: Option<String>,
+    /// e.g. "mjpeg_snapshot_poll", "mjpeg", "rtsp".
+    pub transport: String,
+    /// URL with `{address}` (and `{port}`) placeholders the caller fills.
+    pub url_template: String,
+    pub default_port: Option<u16>,
+    pub served_by: Option<String>,
+    pub target_fps: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CameraKeepaliveDto {
+    /// Only "websocket_jsonrpc" is executed by the client today.
+    pub transport: Option<String>,
+    pub url_template: Option<String>,
+    pub start_method: Option<String>,
+    /// The JSON-RPC params object, serialised to a JSON string (the caller adds
+    /// a per-call id). None when the spec declared none.
+    pub start_params_json: Option<String>,
+    pub stop_method: Option<String>,
+    pub stop_params_json: Option<String>,
+    pub interval_seconds: Option<u32>,
+}
+
+/// The `camera:` block for a device, or None when it declares no camera. The
+/// typed surface behind the MJPEG snapshot-poll viewer (and its WebSocket
+/// keepalive); `camera{}` used to be parsed by nothing.
+pub fn camera_for_device(spec_yaml: String) -> anyhow::Result<Option<CameraDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let json = |v: &Option<serde_yaml::Value>| -> Option<String> {
+        v.as_ref()
+            .and_then(|value| serde_json::to_string(value).ok())
+    };
+    Ok(spec.camera.as_ref().map(|c| CameraDto {
+        streams: c
+            .streams
+            .iter()
+            .map(|s| CameraStreamDto {
+                name: s.name.clone(),
+                transport: s.transport.clone(),
+                url_template: s.url_template.clone(),
+                default_port: s.default_port,
+                served_by: s.served_by.clone(),
+                target_fps: s.target_fps,
+            })
+            .collect(),
+        keepalive: c.keepalive.as_ref().map(|k| CameraKeepaliveDto {
+            transport: k.transport.clone(),
+            url_template: k.url_template.clone(),
+            start_method: k.start_method.clone(),
+            start_params_json: json(&k.start_params),
+            stop_method: k.stop_method.clone(),
+            stop_params_json: json(&k.stop_params),
+            interval_seconds: k.interval_seconds,
+        }),
+    }))
 }
 
 /// A white RGB888 canvas with a black border and a diagonal cross — enough ink
@@ -6377,6 +6553,125 @@ device:
     }
 
     #[test]
+    fn a_safety_advisory_reaches_the_spec_dto_without_suppressing_control() {
+        const YAML: &str = r#"
+device:
+  name: "Zappy IPL"
+  manufacturer: "Nobody"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "personal_care"
+  type: "ipl-hair-removal"
+  safety_advisory:
+    severity: "danger"
+    summary: "Intense light pulses can permanently burn skin."
+    detail: "Patch-test and match intensity to your skin tone."
+    acknowledge_required: true
+    advisory_url: "https://example.test/safety"
+    advisory_archive_url: "https://web.archive.org/web/2/https://example.test/safety"
+  identification:
+    local_name_prefix: "ZAP_"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "ZAP_"
+  setup:
+    required: false
+    confidence: low
+    notes: "none"
+    methods:
+      - type: "none"
+        description: "passive"
+        verified: false
+    factory_reset: { applicable: false, confidence: low, effect: "n/a" }
+    rejoin: { in_place_supported: true, requires_factory_reset: false }
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+"#;
+        let dto = load_device_spec(YAML.into()).unwrap();
+        let adv = dto
+            .safety_advisory
+            .as_ref()
+            .expect("safety advisory parsed");
+        assert_eq!(adv.severity, "danger");
+        assert_eq!(
+            adv.summary,
+            "Intense light pulses can permanently burn skin."
+        );
+        assert!(adv.acknowledge_required);
+        assert_eq!(
+            adv.advisory_url.as_deref(),
+            Some("https://example.test/safety")
+        );
+        assert_eq!(
+            adv.advisory_archive_url.as_deref(),
+            Some("https://web.archive.org/web/2/https://example.test/safety")
+        );
+        // A safety advisory does NOT convert the device to a warning-only,
+        // identify-only device the way a security advisory does: it stays
+        // controllable, and carries no security advisory of its own.
+        assert!(dto.security_advisory.is_none());
+    }
+
+    #[test]
+    fn a_spec_with_no_safety_advisory_carries_none() {
+        assert!(load_device_spec(SCAN_YAML.into())
+            .unwrap()
+            .safety_advisory
+            .is_none());
+    }
+
+    #[test]
+    fn derive_credential_value_computes_base64_sha512() {
+        // Known vector: python3 -c "import hashlib,base64;
+        //   print(base64.b64encode(hashlib.sha512(b'sticker-wifi-pw').digest()))"
+        assert_eq!(
+            derive_credential_value("base64_sha512".into(), "sticker-wifi-pw".into()).unwrap(),
+            "08P8i36NRiuuDL2rz4OlFke8SpjYarYQA+FDRKOwe0PQTFOsI2B3Jd4/s2baRuiwoMf1pitKRDV9jFtJliUrhA=="
+        );
+        // An unknown derivation errors rather than silently storing the raw
+        // value under a credential the broker expects derived.
+        assert!(derive_credential_value("rot13".into(), "x".into()).is_err());
+    }
+
+    #[test]
+    fn a_multi_frame_command_parses_its_frames() {
+        // milight's night_mode: two frames with a delay between them, declared
+        // as data (`frames`) rather than prose. No transport executes this yet;
+        // this pins that the sequence survives parsing for the one that will.
+        const YAML: &str = r#"
+device:
+  name: "Frame Bridge"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+commands:
+  night_mode:
+    description: "Two frames."
+    transport: "udp"
+    action: "legacy_command"
+    frames:
+      - command: "0x41"
+        argument: 0
+        delay_after_ms: 100
+      - command: "0xC1"
+        argument: 0
+"#;
+        let spec = parse_device_spec(YAML).expect("test spec should parse");
+        let frames = &spec.commands["night_mode"].frames;
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].command, "0x41");
+        assert_eq!(frames[0].delay_after_ms, Some(100));
+        assert_eq!(frames[1].command, "0xC1");
+        assert_eq!(frames[1].delay_after_ms, None);
+    }
+
+    #[test]
     fn a_spec_with_no_category_still_matches() {
         // Categories arrived after the catalogue did. A spec pack cached by an
         // older build must still rank and still be usable — it just has no
@@ -7305,18 +7600,17 @@ device:
         );
     }
 
-    /// A label printer that NARROWS the shared printer service types to its own
-    /// model is recognised at Strong and is not stolen by a generic printer
-    /// spec that only claims those types unnarrowed. This is the Brother QL
-    /// case: `_ipp`/`_pdl-datastream` are shared, so the Brother earns them with
-    /// a `ty`-contains-model condition, while the generic `ipp-network-printer`
-    /// (unnarrowed shared types today) matches nothing and cannot outrank it.
-    /// (Recognising a printer with NO spec of its own would need the consumer
-    /// to admit an unnarrowed platform_fallback for a shared type — a separate
-    /// change; the guard `test_no_method_is_both_narrowed_and_a_fallback`
-    /// forbids doing it with txt_match + platform_fallback on one method.)
+    /// The printer catch-all rule, both directions:
+    ///  - a generic `platform_fallback` printer spec (identify_only, no
+    ///    `txt_match`) RECOGNISES a printer with no spec of its own — an
+    ///    unnarrowed shared type now admits when the spec is its declared
+    ///    fallback and nobody narrowed it (Likely, "a printer"); and
+    ///  - it STANDS ASIDE for a product that narrows the same shared type: the
+    ///    Brother QL, which earns `_ipp`/`_pdl-datastream` with a
+    ///    `ty`-contains-model condition and is also known by its Bonjour
+    ///    instance name, wins at Strong and the fallback drops out entirely.
     #[test]
-    fn a_narrowed_label_printer_is_not_stolen_by_the_generic_printer_spec() {
+    fn the_generic_printer_fallback_recognises_unknowns_but_yields_to_a_product() {
         fn printer_types() -> Vec<String> {
             vec![
                 "_ipp._tcp.local.".into(),
@@ -7324,8 +7618,8 @@ device:
             ]
         }
 
-        // The generic printer spec as it ships: shared types, no narrowing, so
-        // it admits nothing on its own (is_empty requires a narrowed shared).
+        // The generic printer: the declared platform_fallback for the shared
+        // printer types, no narrowing of its own.
         let mut generic = network_identity();
         generic.device_name = "Network Printer".into();
         generic.manufacturer = "Generic".into();
@@ -7336,7 +7630,7 @@ device:
         generic.mac_prefixes = vec![];
         generic.mdns_service_types = printer_types();
         generic.txt_match_groups = vec![];
-        generic.platform_fallback_types = vec![];
+        generic.platform_fallback_types = vec!["_ipp._tcp".into(), "_pdl-datastream._tcp".into()];
 
         // The Brother QL: narrows the same types to its model, and is also known
         // by its Bonjour instance name.
@@ -7359,6 +7653,7 @@ device:
         }];
         brother.platform_fallback_types = vec![];
 
+        // 1. A real Brother QL: the product wins Strong, the fallback drops out.
         let brother_device = NetworkDeviceDto {
             name: "Brother QL-1110NWB".into(),
             service_types: printer_types(),
@@ -7372,17 +7667,117 @@ device:
         assert_eq!(
             matches.first().map(|m| m.device_name.as_str()),
             Some("Brother QL-1110NWB"),
-            "the narrowed label printer must be the match"
+            "the narrowed label printer must win"
         );
-        assert_eq!(
-            matches[0].confidence,
-            MatchConfidence::Strong,
-            "narrowing a shared type it also names by instance name is Strong"
-        );
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
         assert!(
             matches.iter().all(|m| m.device_name != "Network Printer"),
-            "the unnarrowed generic printer spec admits nothing and cannot steal it"
+            "the fallback must stand aside where the product narrowed the type"
         );
+
+        // 2. An HP with no spec of its own: recognised via the fallback (Likely),
+        //    not left an anonymous row. The Brother does not match it.
+        let hp = NetworkDeviceDto {
+            name: "HP Color LaserJet".into(),
+            service_types: vec!["_ipp._tcp.local.".into()],
+            txt: std::collections::HashMap::from([
+                ("rp".into(), "ipp/print".into()),
+                ("ty".into(), "HP Color LaserJet".into()),
+            ]),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![generic.clone(), brother.clone()], hp);
+        assert_eq!(
+            matches.first().map(|m| m.device_name.as_str()),
+            Some("Network Printer"),
+            "a printer with no product spec is recognised via the fallback"
+        );
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+
+        // 3. A bare web server (also _ipp-less, no rp/ty) is NOT a printer: the
+        //    fallback only admits where the device actually advertises the type.
+        let not_a_printer = NetworkDeviceDto {
+            name: "some-nas".into(),
+            service_types: vec!["_smb._tcp.local.".into()],
+            ..anonymous_host()
+        };
+        assert!(
+            match_network_device(vec![generic, brother], not_a_printer).is_empty(),
+            "the fallback must not claim a device that never advertised a printer type"
+        );
+    }
+
+    /// `camera_for_device` parses the `camera:` block into the typed feed +
+    /// keepalive the viewer consumes (it used to be parsed by nothing), and
+    /// serialises the WebSocket keepalive params to JSON for the FFI.
+    #[test]
+    fn camera_for_device_parses_streams_and_keepalive() {
+        let yaml = r#"
+device:
+  name: "Snapmaker-ish"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "printer"
+camera:
+  streams:
+    - name: "built-in"
+      transport: "mjpeg_snapshot_poll"
+      url_template: "http://{address}/server/files/camera/monitor.jpg"
+      served_by: "device"
+      target_fps: 1
+  keepalive:
+    transport: "websocket_jsonrpc"
+    url_template: "ws://{address}/websocket"
+    start_method: "camera.start_monitor"
+    start_params:
+      domain: "lan"
+      interval: 0
+      expect_pw: false
+    stop_method: "camera.stop_monitor"
+    stop_params:
+      domain: "lan"
+    interval_seconds: 5
+"#;
+        let cam = camera_for_device(yaml.to_string())
+            .unwrap()
+            .expect("has a camera");
+        assert_eq!(cam.streams.len(), 1);
+        let s = &cam.streams[0];
+        assert_eq!(s.transport, "mjpeg_snapshot_poll");
+        assert_eq!(
+            s.url_template,
+            "http://{address}/server/files/camera/monitor.jpg"
+        );
+        assert_eq!(s.target_fps, Some(1));
+
+        let k = cam.keepalive.expect("has keepalive");
+        assert_eq!(k.transport.as_deref(), Some("websocket_jsonrpc"));
+        assert_eq!(k.url_template.as_deref(), Some("ws://{address}/websocket"));
+        assert_eq!(k.start_method.as_deref(), Some("camera.start_monitor"));
+        assert_eq!(k.interval_seconds, Some(5));
+        // Params serialise to a JSON object the caller sends verbatim.
+        let params: serde_json::Value =
+            serde_json::from_str(&k.start_params_json.unwrap()).unwrap();
+        assert_eq!(params["domain"], "lan");
+        assert_eq!(params["interval"], 0);
+        assert_eq!(params["expect_pw"], false);
+        let stop: serde_json::Value = serde_json::from_str(&k.stop_params_json.unwrap()).unwrap();
+        assert_eq!(stop["domain"], "lan");
+    }
+
+    /// A spec with no camera block yields None (not an error).
+    #[test]
+    fn camera_for_device_is_none_without_a_camera_block() {
+        let yaml = r#"
+device:
+  name: "No Camera"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "light"
+"#;
+        assert!(camera_for_device(yaml.to_string()).unwrap().is_none());
     }
 
     /// The OUI is evidence on Wi-Fi, exactly as it is on BLE.

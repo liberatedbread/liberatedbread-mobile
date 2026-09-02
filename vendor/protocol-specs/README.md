@@ -1,6 +1,6 @@
-# OpenGreenIoT Protocol Docs
+# Liberated Bread Protocol Specs
 
-[![Docs Build](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/actions/workflows/ci.yml/badge.svg)](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/actions/workflows/ci.yml)
+[![Docs Build](https://github.com/liberatedbread/liberatedbread-protocol-specs/actions/workflows/ci.yml/badge.svg)](https://github.com/liberatedbread/liberatedbread-protocol-specs/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 > "We didn't reverse engineer it, we... liberated its documentation." -- Every RE engineer, probably
@@ -9,7 +9,7 @@ The **knowledge base** for reverse-engineered IoT device protocols — how
 locally-controllable **BLE** and **Wi-Fi/LAN** devices actually communicate
 (discovery, control and provisioning), so we can keep abandoned hardware alive.
 
-Part of the [OpenGreenIoT](https://github.com/PigsCanFlyLabs/opengreeniot) project by
+Part of the [Liberated Bread](https://github.com/liberatedbread/liberatedbread) project by
 [Pigs Can Fly Labs LLC](https://pigscanfly.ca).
 
 ## What's Here
@@ -52,10 +52,10 @@ surface. They fall into two groups, both tracked for removal:
 - **Verification scaffolding** — `wemo_discover.py`, `wemo_control.py`,
   `wemo_setup.py`. The Wemo spec documents discovery, control and provisioning,
   but nothing here has been run against real hardware yet; these close that gap.
-  Deleted once the spec is confirmed ([#16](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/issues/16)).
+  Deleted once the spec is confirmed ([#16](https://github.com/liberatedbread/liberatedbread-protocol-specs/issues/16)).
 - **Research scaffolding** — the remaining `*_discover.py` helpers, for device
   families whose protocol we are still mapping. Each one holds knowledge that
-  belongs in its spec ([#17](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/issues/17)).
+  belongs in its spec ([#17](https://github.com/liberatedbread/liberatedbread-protocol-specs/issues/17)).
 
 Start with [Reading a Device Spec](docs/api/spec-format.md),
 [Initial Device Setup](docs/protocols/device-setup.md) and
@@ -81,10 +81,10 @@ mkdocs build --strict
 
 ## Related Repos
 
-- [opengreeniot](https://github.com/PigsCanFlyLabs/opengreeniot) - Project coordination
-- [opengreeniot-website](https://github.com/PigsCanFlyLabs/opengreeniot-website) - Website & docs
-- [opengreeniot-mobile](https://github.com/PigsCanFlyLabs/opengreeniot-mobile) - Flutter BLE + Wi-Fi app
-- [opengreeniot-hub](https://github.com/PigsCanFlyLabs/opengreeniot-hub) - Home Assistant integration
+- [liberatedbread](https://github.com/liberatedbread/liberatedbread) - Project coordination
+- [liberatedbread-website](https://github.com/liberatedbread/liberatedbread-website) - Website & docs
+- [liberatedbread-mobile](https://github.com/liberatedbread/liberatedbread-mobile) - Flutter BLE + Wi-Fi app
+- [liberatedbread-hub](https://github.com/liberatedbread/liberatedbread-hub) - Home Assistant integration
 
 ## License
 

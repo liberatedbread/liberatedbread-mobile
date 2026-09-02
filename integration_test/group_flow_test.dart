@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/services/mock_ble_service.dart';
@@ -58,6 +59,7 @@ void main() {
     // already recorded — the state a user who has connected to each bulb
     // once actually has.
     SharedPreferences.setMockInitialValues({
+      AppConstants.termsAcceptedKey: AppConstants.termsVersion,
       'saved_devices_v1': jsonEncode([
         for (final (id, name) in [
           ('AA:BB:CC:DD:EE:01', 'ACME_Living_Room'),

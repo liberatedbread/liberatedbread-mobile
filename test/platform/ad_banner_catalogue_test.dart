@@ -25,7 +25,8 @@ const String _devicesDir = 'vendor/protocol-specs/device-specs/devices';
 final RegExp _deviceBlock =
     RegExp(r'^device:\n(?:[ \t].*\n|\n)*', multiLine: true);
 final RegExp _name = RegExp(r'^  name:\s*(.+)$', multiLine: true);
-final RegExp _manufacturer = RegExp(r'^  manufacturer:\s*(.+)$', multiLine: true);
+final RegExp _manufacturer =
+    RegExp(r'^  manufacturer:\s*(.+)$', multiLine: true);
 
 /// Spec keys deliberately not in the catalogue yet — the promotion ships ahead
 /// of the device spec. Each MUST carry a reason; remove the entry once the spec
@@ -77,8 +78,7 @@ void main() {
             'catalogue — the name/manufacturer scan is probably broken.');
 
     final bundledKeys = <String>{
-      for (final banner in AdBanner.bundledTargets)
-        ...?banner.match?.specKeys,
+      for (final banner in AdBanner.bundledTargets) ...?banner.match?.specKeys,
     };
     expect(bundledKeys, isNotEmpty);
 

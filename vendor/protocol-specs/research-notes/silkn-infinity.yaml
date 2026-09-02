@@ -1,0 +1,58 @@
+# Silk'n Infinity / Silk'n 7 — Device Spec (static-analysis derived)
+# Source: Hair Removal - Silk'n app 6.1 (38), com.ewavemobile.silkn
+
+device:
+  id: silkn-infinity
+  name: Silk'n Infinity / Silk'n 7 IPL hair removal
+  manufacturer: Home Skinovations (Silk'n)
+  category: ipl_hair_removal
+  safety_class: IPL_CLASS_UNRATED
+
+transport:
+  type: bluetooth_le
+  local_only: true        # device fully functional standalone; BLE = telemetry + opt-in lock
+
+bluetooth_le:
+  pairing:
+    bonding: none
+    name_patterns: ["Infinity", "SilknV_F", "Silkn7_App"]   # exact-match scan filter
+  services:
+    - uuid128: "720411AC-ADFE-2015-0820-835742AD3835"   # "Hair Removal" primary service
+      characteristics:
+        - uuid128: "12345678-9012-3456-7890-123456789011"
+          name: treatment_dynamic_information
+          access: [read, notify]
+          payload: 20 bytes, per-pulse; BE for Infinity/SilknV_F, LE for Silkn7_App
+        - uuid128: "12345678-9012-3456-7890-123456789022"
+          name: device_errors
+          access: [read, notify]
+          payload: 5 x u8 error codes (10-70)
+        - uuid128: "12345678-9012-3456-7890-123456789033"
+          name: lock_unlock_device
+          access: [read, write]
+          payload: "2 bytes: mode 0x30=Released/0x31=Lock; state 0x30=Unlocked/0x31=Locked"
+        - uuid128: "12345678-9012-3456-7890-123456789044"
+          name: device_io
+          access: [read]
+          payload: "1 byte: bit7=trigger, bit6=function button"
+        - uuid128: "12345678-9012-3456-7890-123456789055"
+          name: color_measurements
+          access: [read]
+          payload: 7 x u16 (raw RGB + threshold RGB), polled every 20 pulses
+    - uuid16: "0x180A"      # standard DIS
+      characteristics:
+        - uuid16: "0x2A25"
+          name: serial_number_string
+          access: [read]
+
+protocol:
+  control_surface: lock/unlock only — the app has no fire or intensity control
+  lock_semantics: app locks between sessions only if user enabled lock mode; write {0x30,0x30} (Released+Unlocked) to clear permanently
+  telemetry_layout: see research-notes/silkn-infinity.md
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  protocol_recovered: true   # static analysis; not hardware-verified
+  hci_snoop_needed: true     # one capture to confirm opcode set + lock default
+  community_support: none known

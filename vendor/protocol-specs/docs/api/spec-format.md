@@ -344,9 +344,10 @@ value outside the list is rejected:
 |---|---|---|---|---|
 | `appliance` | `camera` | `climate` | `display` | `energy` |
 | `fitness` | `health` | `hub` | `irrigation` | `light` |
-| `lock` | `motor` | `printer` | `reference` | `robot` |
-| `scale` | `sensor` | `speaker` | `switch` | `tool` |
-| `tracker` | `tv` | `vehicle` | `wearable` | `other` |
+| `lock` | `motor` | `personal_care` | `printer` | `reference` |
+| `robot` | `scale` | `sensor` | `speaker` | `switch` |
+| `tool` | `tracker` | `tv` | `vehicle` | `wearable` |
+| `other` | | | | |
 
 The closed list is what makes the field useful downstream. The mobile app
 draws an icon beside every scan result from this value, so it needs the three
@@ -362,6 +363,9 @@ not the most precise one available:
 - an LED strip controller is a `light`; an LED matrix panel is a `display`
 - an e-bike mid-drive is a `motor`; the bike's diagnostic connector is `vehicle`
 - a BBQ probe is a `sensor`, whatever the kitchen has to do with it
+- an IPL hair-removal handset or a microcurrent face toner is `personal_care`
+  (grooming/cosmetic); `health` is for medical-adjacent devices (oximeters,
+  blood-pressure monitors)
 - a bridge or gateway you talk to *instead of* the device is a `hub`
 
 Two rules that are not judgement calls: reference specs (a `type` starting

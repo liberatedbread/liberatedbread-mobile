@@ -74,8 +74,127 @@ pub struct DeviceSpec {
     /// state is field 0 of the second.
     #[serde(default)]
     pub payload_formats: IndexMap<String, PayloadFormat>,
+    /// Top-level `camera:` — how to obtain a live/snapshot feed. Promoted out of
+    /// `extensions` because a consumer now renders it (the MJPEG snapshot-poll
+    /// viewer, with the WebSocket keepalive the Snapmaker's frames need). Only
+    /// the fields a consumer executes are typed; the rest stay in
+    /// [`Camera::extensions`] as human documentation.
+    #[serde(default)]
+    pub camera: Option<Camera>,
+    /// Top-level `mqtt:` — broker-login declaration for a device whose readings
+    /// ride MQTT but which declares no `commands` (so no `credential:` parameter
+    /// names its login). Lets `required_credentials` surface a credentials card
+    /// for e.g. a Dyson purifier that would otherwise be a silent dead end.
+    #[serde(default)]
+    pub mqtt: Option<Mqtt>,
     /// Parsed-but-ignored top-level extension blocks, preserved verbatim so no
     /// information is lost even though nothing interprets them yet.
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// A device's top-level `mqtt:` block.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Mqtt {
+    /// `plaintext` | `tls` — what the broker's socket speaks, declared so a
+    /// consumer picks its connector from the spec rather than inferring it
+    /// from the port number. Absent: the consumer falls back to the port
+    /// convention (1883 plaintext, everything else TLS).
+    #[serde(default)]
+    pub transport_security: Option<String>,
+    #[serde(default)]
+    pub auth: Option<MqttAuth>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// How a client authenticates to the device's MQTT broker.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MqttAuth {
+    /// Broker-login credentials the user must supply. Each becomes a
+    /// credentials-card field, because a readings-only MQTT device declares no
+    /// command to name them via a `credential:` parameter.
+    #[serde(default)]
+    pub credentials: Vec<MqttCredential>,
+    /// `generated` (the client picks an arbitrary client id the broker accepts —
+    /// a Dyson purifier) or `required` (the device authorises a specific id, so
+    /// it must be supplied). Absent is treated as `required`, preserving the
+    /// pre-existing behaviour for sets that pair on a client id.
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// One broker-login credential the user must supply.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MqttCredential {
+    pub name: String,
+    /// What the value is and where a person gets it — shown on the card.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// A transformation the client applies to what the person types before
+    /// storing it (`base64_sha512` — Dyson's local MQTT password is derived
+    /// from the sticker Wi-Fi password). Absent: stored as typed.
+    #[serde(default)]
+    pub derivation: Option<String>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// A device's `camera:` block — one or more selectable feeds, plus an optional
+/// keepalive session some cameras need before their frames refresh.
+#[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+pub struct Camera {
+    #[serde(default)]
+    pub streams: Vec<CameraStream>,
+    #[serde(default)]
+    pub keepalive: Option<CameraKeepalive>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// One selectable camera feed.
+#[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+pub struct CameraStream {
+    #[serde(default)]
+    pub name: Option<String>,
+    /// `mjpeg_snapshot_poll` | `mjpeg` | `rtsp` | `rtsps` | `hls` | `webrtc`.
+    pub transport: String,
+    /// Feed URL with `{address}` (and, where variable, `{port}`) placeholders.
+    pub url_template: String,
+    #[serde(default)]
+    pub default_port: Option<u16>,
+    #[serde(default)]
+    pub served_by: Option<String>,
+    /// For `mjpeg_snapshot_poll`: how often to fetch the JPEG.
+    #[serde(default)]
+    pub target_fps: Option<u32>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// The session some cameras hold open before frames flow. The typed fields are
+/// the machine-readable form (`transport: websocket_jsonrpc`); the prose
+/// `start`/`stop` stay in [`extensions`] for humans.
+#[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+pub struct CameraKeepalive {
+    /// Only `websocket_jsonrpc` is executed today. None ⇒ prose-only, unusable.
+    #[serde(default)]
+    pub transport: Option<String>,
+    #[serde(default)]
+    pub url_template: Option<String>,
+    #[serde(default)]
+    pub start_method: Option<String>,
+    #[serde(default)]
+    pub start_params: Option<serde_yaml::Value>,
+    #[serde(default)]
+    pub stop_method: Option<String>,
+    #[serde(default)]
+    pub stop_params: Option<serde_yaml::Value>,
+    /// Re-send the start call at least this often to keep frames flowing.
+    #[serde(default)]
+    pub interval_seconds: Option<u32>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
@@ -258,6 +377,15 @@ pub struct SpecCommand {
     /// invocation has already decided.
     #[serde(default)]
     pub arguments: IndexMap<String, serde_yaml::Value>,
+    /// Ordered wire frames for a command whose single invocation is more than
+    /// one frame (milight's night_mode: OFF then, ~100 ms later, OFF|0x80),
+    /// declared instead of [`Self::arguments`]. Typed so the sequence survives
+    /// parsing as data rather than prose; NO transport executes it yet — the
+    /// milight/raw-UDP sender does not exist — and a consumer without
+    /// multi-frame support must treat the command as documentation rather than
+    /// render the first frame alone.
+    #[serde(default)]
+    pub frames: Vec<CommandFrame>,
     /// Values the caller supplies, keyed by the placeholder name.
     #[serde(default)]
     pub parameters: IndexMap<String, SpecCommandParameter>,
@@ -319,6 +447,21 @@ pub struct QuerySource {
     pub item: String,
     /// Attribute carrying the entry's raw value.
     pub value: String,
+}
+
+/// One wire frame of a multi-frame [`SpecCommand`] (see [`SpecCommand::frames`]).
+#[derive(Debug, Clone, Deserialize)]
+pub struct CommandFrame {
+    /// The frame's command byte(s), spelled the way a single command's
+    /// `arguments.command` is.
+    pub command: String,
+    /// The frame's argument value, exactly as a single command's
+    /// `arguments.argument`.
+    #[serde(default)]
+    pub argument: Option<serde_yaml::Value>,
+    /// Milliseconds to wait after this frame before sending the next.
+    #[serde(default)]
+    pub delay_after_ms: Option<u64>,
 }
 
 /// One parameter of a [`SpecCommand`].
@@ -918,6 +1061,12 @@ pub struct DeviceInfo {
     /// surface. See [`SecurityAdvisory`].
     #[serde(default)]
     pub security_advisory: Option<SecurityAdvisory>,
+    /// A physical-safety hazard in OPERATING the device — distinct from a
+    /// security flaw. Unlike [`SecurityAdvisory`] it does not suppress control;
+    /// the consumer keeps the controls and shows a persistent banner around
+    /// them (an IPL handset can permanently burn skin). See [`SafetyAdvisory`].
+    #[serde(default)]
+    pub safety_advisory: Option<SafetyAdvisory>,
     pub notes: Option<String>,
     pub identification: Option<Identification>,
     /// Device variants sharing service UUIDs but differing in command sets.
@@ -1207,6 +1356,55 @@ pub struct AdvisoryMitigation {
     /// Where to do it, when there is a link.
     #[serde(default)]
     pub url: Option<String>,
+}
+
+/// A physical-safety hazard in operating the device (an IPL hair-removal
+/// handset can permanently burn skin or injure eyes). The sibling of
+/// [`SecurityAdvisory`], with a deliberately different consumer contract: it
+/// does NOT withhold control. The device is meant to be used, carefully, so the
+/// app keeps the full control surface and shows this as a persistent banner —
+/// optionally behind a one-time acknowledgement — rather than a warning page.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SafetyAdvisory {
+    pub severity: SafetySeverity,
+    /// One line, shown at the top of the safety banner.
+    pub summary: String,
+    /// The fuller safety explanation for the banner / acknowledgement.
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// When true, the consumer requires a one-time acknowledgement per device
+    /// before the controls become interactive — informed consent that still
+    /// leads to full control.
+    #[serde(default)]
+    pub acknowledge_required: bool,
+    /// A safety reference (the manufacturer's safety guide, a writeup).
+    #[serde(default)]
+    pub advisory_url: Option<String>,
+    /// A Wayback Machine snapshot of `advisory_url`, shown as a fallback when
+    /// the live page is gone.
+    #[serde(default)]
+    pub advisory_archive_url: Option<String>,
+}
+
+/// How dangerous misuse is. `caution` is minor/temporary harm; `warning` is a
+/// real injury that takes care to avoid; `danger` is permanent or serious
+/// injury — burns, scarring, eye damage.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SafetySeverity {
+    Caution,
+    Warning,
+    Danger,
+}
+
+impl std::fmt::Display for SafetySeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SafetySeverity::Caution => write!(f, "caution"),
+            SafetySeverity::Warning => write!(f, "warning"),
+            SafetySeverity::Danger => write!(f, "danger"),
+        }
+    }
 }
 
 /// Why this device needs open-source rescue.

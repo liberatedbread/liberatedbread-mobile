@@ -10,9 +10,9 @@
 The single most common cheap BLE LED sign family on AliExpress, Amazon and Temu — sold with no
 brand name, only a product-page screenshot of the **CoolLED1248** app. They turn up as car rear-window
 signs, bike/backpack panels, name badges, bar signs and hat visors. Sizes vary from 12×48 up to
-long banner strips; color capability varies from monochrome through a 7-color mode to full RGB.
+long banner strips; colour capability varies from monochrome through a 7-color mode to full RGB.
 
-The app is a pixel design tool: type text with a color picker, drop in an image or animated GIF,
+The app is a pixel design tool: type text with a colour picker, drop in an image or animated GIF,
 or drive a music-reactive bar visualizer. The design is rendered on the phone and pushed to the
 sign as a bitmap.
 
@@ -108,7 +108,7 @@ you just introduced.
 | Initialize | `0x23` | Takes a battery level byte; confirmed on CoolLEDM |
 
 Text, image and animation payloads are rendered client-side to the panel's advertised
-width/height and color mode before being chunked into frames.
+width/height and colour mode before being chunked into frames.
 
 ### Error Codes
 

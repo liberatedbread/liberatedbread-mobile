@@ -89,8 +89,8 @@ connecting.
 
 All signal processing happens on the phone: the app runs an FFT over microphone input (35 bins,
 picks peaks per 11-bin third, maps to RGB) and streams `01 RR GG BB` writes. The shoe simply
-displays the last color it received, so a replacement app can drive "music mode" from any audio
-pipeline — or any other live color source.
+displays the last colour it received, so a replacement app can drive "music mode" from any audio
+pipeline — or any other live colour source.
 
 ## Open Questions
 

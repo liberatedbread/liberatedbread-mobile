@@ -1,11 +1,12 @@
 # Device Registry
 
-A catalog of IoT devices we've documented (or are documenting).
+A catalogue of IoT devices we've documented (or are documenting).
 
 | Status | Meaning |
 |--------|---------|
 | Research | Initial investigation |
 | In Progress | Actively reverse engineering |
+| Spec Available | Validated spec published; not yet replayed against hardware |
 | Complete | Protocol fully documented |
 
 ## Guides
@@ -15,6 +16,8 @@ A catalog of IoT devices we've documented (or are documenting).
 - [WiFi Discovery](wifi-discovery.md) — finding devices already on the network
 - [Wemo Setup, Factory Reset and Rebinding](wemo-setup.md) — the worked provisioning example
 - [Frigidaire Local API Audit](frigidaire-local-api-audit.md) — why some devices cannot be rescued
+- [June Oven LAN & IP Recon](june-oven-lan-recon.md) — the IP-level playbook for the oven's closed
+  local surface: what it exposes on the network and what can be done with it
 - [Initial Device Setup](../protocols/device-setup.md) — provisioning patterns across devices
 
 ## Devices
@@ -66,7 +69,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Omron BLE Blood Pressure Monitors](omron-connect.md) | BLE | Complete | BLE button pairing + client key (high) | Omron Healthcare |
 | [Aranet4 CO2 Sensor](aranet4.md) | BLE | Complete | None needed (broadcast); bonding for history (high) | SAF Tehnika JSC |
 | [Bluetti Power Station](bluetti-power-station.md) | BLE | Complete | None needed | Bluetti (Shenzhen Poweroak) |
-| [Johnson JLX LDM330/LDM130 Laser Distance Meters](jlx-laser-distance-meter.md) | BLE | Spec Available | None needed (medium) | Johnson Level & Tool (Winho OEM) |
+| [Johnson JLX LDM330/LDM130 Laser Distance Meters](jlx-laser-distance-meter.md) | BLE | Spec Available | None needed (medium) | Johnson Level & Tool (Precaster Enterprises OEM) |
 | [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | [SoftAP + SOAP](wemo-setup.md) (medium) | Belkin |
 | [Anki Vector Robot](vector-robot.md) | WiFi + BLE | Research | BLE provisioning (high) | Anki / Digital Dream Labs |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Cloud account only (low) | Frigidaire (Electrolux) |
@@ -114,6 +117,9 @@ spec's `device.setup` block; the patterns are explained in
 | [Rabbit Air Purifiers](rabbit-air-purifier.md) | WiFi (UDP 9009) | Complete | BLE-assisted / SoftAP via vendor app (medium) | Rabbit Air (vendor publishes the LAN library) |
 | [Beurer PO60 Pulse Oximeter](beurer-po60-pulse-oximeter.md) | BLE | Spec Available | BLE passkey bonding (medium) | Beurer |
 | [Beurer Series 800 (BM92) Blood Pressure Monitor](beurer-series800-blood-pressure.md) | BLE (standard BP profile) | Spec Available | BLE bonding (medium) | Beurer |
+| [FOREO Peach 2 IPL](foreo-peach-2.md) | BLE | Spec Available | None — offline MAC-derived unlock (low) | FOREO |
+| [Braun Silk-expert Pro 5 IPL](braun-silk-expert-pro5.md) | BLE | Spec Available | BLE bonding (medium) | Braun / P&G |
+| [Silk'n Infinity / Silk'n 7 IPL](silkn-infinity.md) | BLE | Spec Available | None needed | Silk'n (Home Skinovations) |
 | [Hyperice Hypervolt Plus](hyperice-hypervolt-plus.md) | BLE | Spec Available | None needed | Hyperice |
 | [BIO-key TouchLock Fingerprint Locks](biokey-touchlock-fingerprint-lock.md) | BLE | Spec Available | BLE enrollment (medium) | BIO-key / Champion OEM |
 | [Safetech Quicklock Padlock](safetech-smart-padlock.md) | BLE | Spec Available | Static password (low) | Safetech (defunct) / Itonsoft OEM |
@@ -157,6 +163,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Fronius Solar Inverter](fronius-solar-api.md) | WiFi (HTTP REST) | Spec Available | Device web UI (low) | Fronius |
 | [OpenEVSE Charging Station](openevse.md) | WiFi (HTTP/MQTT) | Spec Available | SoftAP (low) | OpenEVSE |
 | [Xiaomi miIO Protocol](xiaomi-miio.md) | WiFi (UDP 54321) | Spec Available | Mi Home + token (low) | Xiaomi ecosystem |
+| [Aqara Hub family (M1S Gen 2 / M2 / P3)](aqara-hub.md) | WiFi (mDNS + UDP 10008 onboarding) | Spec Available | Cloud account binding (hard); steady-state control cloud-relayed | Lumi United (Aqara) |
 | [Roborock Robot Vacuum (local)](roborock-local.md) | WiFi (TCP 58867) | Spec Available | Cloud login for local key (low) | Roborock |
 | [Valetudo (rooted vacuum)](valetudo.md) | WiFi (HTTP /api/v2) | Spec Available | Requires rooting (low) | Hypfer + community |
 | [Parrot Drones (AR.Drone / ARSDK)](parrot-arsdk-drone.md) | WiFi (UDP) | Spec Available | Join drone AP | Parrot |

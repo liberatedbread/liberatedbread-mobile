@@ -1,0 +1,712 @@
+# FOREO Peach 2 (IPL hair removal) — Device Spec (BLE, fully local)
+# Reverse-engineered by static analysis of the FOREO For You Android app
+# (com.foreo.foreoapp) 4.4.1 (versionCode 559), 2026-08. Nothing here has been
+# replayed against a Peach 2 by this project; every protocol fact is
+# static-analysis-derived and marked `verification: reported`, with inferred
+# details (chiefly the containing GATT service UUIDs) marked `hypothesis`.
+#
+# Two headline findings:
+#   1. The device ships LOCKED and refuses to operate until "activated" over
+#      BLE — and the activation bytes are a keyless permutation of the
+#      device's own BLE MAC. The unlock is fully computable offline; the
+#      FOREO server only records the registration for warranty bookkeeping.
+#   2. The app's "Pro" removal mode is paywalled by a server-side
+#      subscription, but enforcement lives entirely in the app: the firmware
+#      accepts the Pro-mode command (0AD0 06) unconditionally.
+
+device:
+  name: "FOREO Peach 2 IPL hair removal"
+  manufacturer: "FOREO AB"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      No hardware on the bench. All protocol facts were recovered by static
+      analysis of the FOREO For You app 4.4.1 (559); nothing has been replayed
+      against a Peach-family device. The vendor manual corroborates the
+      ship-locked behaviour and the registration requirement.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "personal_care"
+  type: "ipl-hair-removal"
+  notes: >
+    Mains-powered IPL (intense pulsed light) hair-removal device with BLE,
+    Telink-based chipset, companion app FOREO For You. One spec covers the
+    Peach 2 family — Peach 2, Peach 2 go, Peach 2 Pro MAX, Peach 2 Duo —
+    which share one code path in the app and differ in command dialect (see
+    `protocol_details.dialect_selection`) and in which UI modes the app
+    exposes. Optical output up to 7.3 J/cm² with firmware skin-contact and
+    eye-safety interlocks; intensity levels 0–5 over BLE (the hardware
+    buttons expose five levels per the vendor manual, the app six).
+
+    The device ships LOCKED: per the vendor manual it will not turn on until
+    "registered" from the app. The registration the firmware actually checks
+    is a BLE activation write to characteristic 0A20 whose payload is derived
+    purely from the device's own BLE MAC address (see
+    `protocol_details.activation`) — the vendor cloud call the stock app
+    performs first feeds nothing into those bytes. A replacement client can
+    therefore activate a brand-new unit with zero network access.
+
+    Custom 16-bit UUIDs on the standard Bluetooth base
+    (0000xxxx-0000-1000-8000-00805f9b34fb). No pairing/bonding at any point
+    (the app never bonds), no MTU negotiation on the Peach connect path —
+    20-byte writes suffice. No command framing: writes are raw
+    opcode || payload, answers are read back from the command characteristic.
+
+  variants:
+    - model: "Peach 2"
+      identification:
+        local_name_prefix: "PEACH"
+    - model: "Peach 2 go"
+      identification:
+        local_name_prefix: "PEACH2GO"
+    - model: "Peach 2 Pro MAX"
+      identification:
+        local_name_prefix: "PEACH2ProMAX"
+    - model: "Peach 2 Duo"
+
+  safety_advisory:
+    severity: "danger"
+    summary: >
+      IPL fires intense light pulses — improper use can cause permanent skin
+      burns, blistering, scarring, or eye injury.
+    detail: >
+      This is an IPL (intense pulsed light) hair-removal handset with an optical
+      output up to 7.3 J/cm². Used wrongly it can cause permanent harm: burns,
+      blistering, discoloration or scarring of the skin, and serious eye injury
+      from looking into a flash. Always follow FOREO's own instructions —
+      patch-test first, match the intensity level to your skin tone (darker skin
+      needs a lower level), never treat broken, tanned, tattooed or moled skin,
+      and keep it away from the eyes. This app only sets intensity and mode over
+      Bluetooth; the flash itself is triggered on the device against its
+      skin-contact interlock. This app is EXPERIMENTAL and is not affiliated
+      with, endorsed by, or supported by FOREO — the manufacturer's manual and
+      safety guidance govern.
+    acknowledge_required: true
+    advisory_url: "https://www.foreo.com/mysa/find-out-if-peach-2-is-suitable-for-you"
+    advisory_archive_url: "https://web.archive.org/web/20260831005900/https://www.foreo.com/mysa/find-out-if-peach-2-is-suitable-for-you"
+  identification:
+    local_name_prefixes:
+      - "PEACH2"
+      - "PEACH 2"
+      - "PEACH™ 2"
+      - "PEACH2GO"
+      - "PEACH2ProMAX"
+      - "PEACH2 Pro MAX"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values:
+              - "PEACH2"
+              - "PEACH 2"
+              - "PEACH™ 2"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The security-access and activation writes both take bytes of the
+        device's own BLE MAC, so the address is load-bearing for this
+        protocol, not just an identity key. Whether a factory-locked unit
+        advertises under the same names is unverified (the app finds it, so
+        presumably yes) — see `remaining_unknowns`.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: medium
+    notes: >
+      Nothing to provision — no network, no account. The one gate is the
+      ship-lock: a factory-fresh Peach 2 refuses to operate until a client
+      performs the BLE activation below. The stock app routes that through a
+      FOREO account and a server registration call, but the firmware checks
+      nothing the server returns — the activation payload derives from the
+      device's own BLE MAC — so the offline route is primary. Confidence
+      medium: read from the decompiled app, corroborated in its behaviour
+      claims by the vendor manual, not replayed on hardware.
+    methods:
+      - type: "ble_direct"
+        name: "Offline BLE activation (no account, no network)"
+        role: primary
+        verified: false
+        description: >
+          Scan for a PEACH*/PEACH 2 advertisement, connect (no bonding),
+          write the security-access handshake, then activate: read 0A20 and,
+          if its first byte is 00, write 01 02 <8-byte chipId> where chipId
+          is the keyless permutation of the device's BLE MAC documented under
+          `protocol_details.activation`. Finally enable wake-up on 0A30.
+          Idempotent — safe to run on every connect, as the stock app does.
+        ble:
+          advertised_name: "PEACH2 / PEACH 2 / PEACH2GO / PEACH2ProMAX"
+          advertised_name_match: "prefix"
+          pairing_required: false
+        steps:
+          - action: "Plug in and scan for a local name starting PEACH (PEACH2, PEACH 2, PEACH™ 2, PEACH2GO, PEACH2ProMAX)."
+            actor: "client"
+            expect: "Advertisement with one of the family local names."
+          - action: "Connect (no bonding) and discover services."
+            actor: "client"
+          - action: "Write security access: 01 A1 <MAC[3]> <MAC[4]> <MAC[5]> to characteristic 0A10 (last three bytes of the device's own BLE MAC)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "security_access"
+            expect: "Write accepted; retried up to 3 times by the stock app. The device does not answer other commands before this."
+          - action: "Read SW revision (2A28) — the device is ready; the value also selects the command dialect."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "read_sw_revision"
+          - action: "Read 0A20; if the value starts with byte 00, write 01 02 <chipId(MAC)> (see protocol_details.activation)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "activate"
+            expect: "Device unlocked; activation persists across power cycles."
+          - action: "Read 0A30; unless the value starts with 01, write 01 (wake-up enabled)."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "set_wakeup"
+      - type: "cloud_account"
+        name: "Stock FOREO For You app registration"
+        role: alternative
+        verified: false
+        description: >
+          The vendor flow: sign into a FOREO account in the app, which POSTs
+          a product registration to the vendor cloud and then performs exactly
+          the BLE activation above. The server call is warranty bookkeeping —
+          none of its response feeds the unlock bytes — so this route adds an
+          account and a network dependency without adding anything the
+          firmware requires. Kept as documentation of what the stock app does,
+          and the only route that records the unit under the owner's warranty
+          account.
+        cloud:
+          provider: "FOREO (FOREO For You account)"
+          local_alternative: >
+            The primary method above: the activation write is computable
+            offline from the device's BLE MAC, so the cloud registration is
+            optional end to end.
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. No factory-reset procedure was found in the app or in
+        the manual text examined. What a reset would clear is likewise
+        unestablished; the activation state (0A20) and the wake-up flag (0A30)
+        are the only persisted device settings this protocol writes.
+      description: >
+        Nobody has established a reset procedure for the Peach 2. The
+        activation write is idempotent and is re-run by the stock app on every
+        connect, so 'resetting' is not part of the normal ownership flow at
+        all: a second-hand unit is adopted by simply connecting and activating
+        it again. Do not guess a procedure on an IPL device — the
+        skin-contact and eye-safety interlocks make improvised button
+        sequences a poor idea. Listed as `unknown` rather than `false`
+        because nothing proves one does not exist.
+    rejoin:
+      requires_factory_reset: false
+      in_place_supported: true
+      notes: >
+        There is no network to rejoin and no bond to move: a new phone just
+        scans, connects, writes the security-access handshake and (idempotent)
+        activation, and drives the device. Nothing on the old phone needs
+        clearing.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Activation state derived from the device BLE MAC (written once to 0A20, idempotent)"
+        - "Wake-up enable flag (0A30)"
+      issued_to_client:
+        - "Nothing. No keys, tokens or bonds are issued in either setup route; the cloud route's account session lives entirely in the phone app."
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: "unknown"
+      recovery: >
+        No bond exists to clear. If a connection stalls, close the vendor app
+        (a single-connection peripheral would otherwise hold the link) and
+        reconnect — the security-access write is required again on every
+        connect.
+      notes: >
+        Typical Telink peripherals accept one central at a time, but nothing
+        in the app code establishes it for this device; treat
+        single_connection as likely, not known.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The device advertises whenever powered and accepts a bare connection;
+        there is no pairing mode to enter. Whether a factory-LOCKED unit
+        advertises identically is unverified (the app finds locked units, so
+        presumably yes).
+    unpair:
+      supported: false
+      requires_factory_reset: false
+      notes: >
+        Nothing to unpair: the app never bonds and the device stores no bond,
+        so moving to a new client needs no reset and no forget-device step.
+    notes: >
+      No link-layer pairing exists on this device — the app never bonds, and
+      characteristics are readable/writable on a bare connection. What looks
+      like security lives entirely above the link layer and is per-connection:
+      the security-access write (01 A1 <last 3 MAC bytes>) to 0A10, required
+      after every service discovery before the device answers commands, and
+      the one-time activation write to 0A20. Neither involves a secret: both
+      derive from the device's own BLE MAC, which any scanning client already
+      holds. Confidence medium: the never-bonds behaviour is consistent
+      through the app's BLE layer, but nothing here has been tried against
+      hardware.
+
+  # The cloud block records the phone-app services for completeness. The
+  # device itself has no radio but BLE and never talks to any of this; the
+  # stock app's server round-trips are bookkeeping the firmware ignores.
+cloud:
+  required: false
+  vendor_service: "FOREO For You cloud (account, product-registration bookkeeping, subscription entitlement)"
+  hosts:
+    - "https://apiadmin.foreo.com"
+    - "https://appadmin.foreo.com"
+    - "https://www.foreo.com/api/… (web API surface)"
+  auth:
+    type: "other"
+    notes: >
+      Account login in the app; session expiry forces re-login. Device
+      registration is an account-scoped POST under
+      users/{uuid}/product_registration. Not mapped further — none of it is
+      on the local-control path.
+    verification: "reported"
+  failure_mode: >
+    Nothing breaks on the device. Unlock, all intensity/mode/cooling control
+    and the Pro removal mode are computable and writable offline; the cloud
+    only records the registration for warranty bookkeeping and serves the
+    subscription entitlement the stock app uses to gate its own UI. A total
+    FOREO cloud shutdown leaves a replacement client fully functional, and
+    leaves even the stock app able to drive an already-activated device
+    offline.
+  data_leaves_device:
+    - "Product registration record (device model/serial attached to the owner's account) — sent by the phone app, only on the stock registration route"
+    - "Subscription entitlement state (server-side, via an external billing provider) — checked by the app, never by the firmware"
+    - "Account identity and profile data (app-side)"
+  notes: >
+    Monetization is a server-side subscription bought via an in-app web flow;
+    the app has no in-app-purchase store integration. The subscription gates
+    the app's "Pro" removal-mode UI for the Peach 2 family, but enforcement
+    is app-side only: if the device reports Pro mode while no subscription is
+    active, the stock app writes Basic mode back to the device. The firmware
+    accepts 0AD0 06 with no credential. See `protocol_details.paywall`.
+
+local_access:
+  status: "native"
+  summary: >
+    Fully local by design: BLE is the only radio, and the complete control
+    surface — including the ship-lock activation that the vendor UI presents
+    as requiring an account — is reachable from any BLE host with no network
+    at all.
+  covers:
+    - "Offline activation (unlock) of a factory-fresh unit — chipId derived from the device's BLE MAC, written to 0A20"
+    - "IPL intensity set/read, levels 0–5 (0A01/0B01)"
+    - "Removal mode Basic/Pro set/read (0AD0/0BD0 on new firmware; 0AA2/0BA2 flash-mode bytes on old firmware) — Pro accepted by the firmware unconditionally"
+    - "Cooling/fan level set/read (0AC4/0AC0 family, dialect-dependent)"
+    - "Serial number (0A05), chip ID (0A07), SW revision (2A28), battery level (2A19)"
+    - "Skin-sensor/accelerometer calibration polling (0A0C)"
+    - "Temperature-enable and head/body NTC threshold opcodes (0AB2/0AB4/0AB5 families; payload layouts unpinned — see remaining_unknowns)"
+  not_covered:
+    - "OTA firmware update — a trigger write (0A08) and the TI OAD service are present in the app, but no image-fetch or transfer flow was traced, and whether the current app can OTA a Peach at all is unconfirmed"
+    - "Firing flashes from the app is not a BLE operation on this device family in the flows traced — flashing is hardware-triggered against the skin-contact interlock"
+
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "FOREO Peach Command Service (service UUID hypothesized)"
+    verification: "hypothesis"
+    notes: >
+      CONTAINING SERVICE NOT PINNED ON HARDWARE. The app never hard-codes the
+      service: it enumerates the discovered GATT table and selects
+      characteristics by UUID. FFF1 is very likely under service FFF0 (the
+      usual Telink arrangement), but no capture confirms it — clients MUST
+      locate characteristics by enumeration, not by this service UUID. All
+      command traffic is raw `opcode || payload` with no header, length or
+      checksum; queries are written and then answered by READING FFF1 back.
+      A read-back starting with FF FF FF FF means the device was busy — the
+      app retries up to 5 times. Every write is verified by the same
+      read-back.
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "Command channel"
+        properties: ["write", "read"]
+        notes: >
+          All Peach commands are written here and all answers read back from
+          the same characteristic. First byte 0A = write/set, 0B = read/query;
+          second byte = sub-opcode. Dialect selection (old vs new firmware
+          command set) is in `protocol_details.dialect_selection`.
+        commands:
+          set_intensity:
+            description: "Set IPL intensity level, 0–5 (six levels; the hardware buttons expose five per the vendor manual)."
+            template: [0x0A, 0x01, "{level}"]
+            verification: "reported"
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 5
+          get_intensity:
+            description: "Read IPL intensity; the level is the first byte of the FFF1 read-back."
+            value: [0x0B, 0x01]
+            verification: "reported"
+          set_removal_mode_basic:
+            description: "New-firmware removal mode: Basic."
+            value: [0x0A, 0xD0, 0x01]
+            verification: "reported"
+          set_removal_mode_pro:
+            description: >
+              New-firmware removal mode: Pro. This is the paywalled mode the
+              stock app gates behind a subscription — the firmware accepts the
+              command unconditionally, with no credential.
+            value: [0x0A, 0xD0, 0x06]
+            verification: "reported"
+          get_removal_mode:
+            description: "Read removal mode; a read-back value >= 6 means Pro."
+            value: [0x0B, 0xD0]
+            verification: "reported"
+          set_flash_mode:
+            description: >
+              OLD-firmware flash mode; the mode byte is repeated five times
+              (Basic = 02 x5, Pro = 03 x5, Face = 01 x5). New firmware uses
+              set_removal_mode_* instead — see
+              `protocol_details.dialect_selection`.
+            template: [0x0A, 0xA2, "{mode}", "{mode}", "{mode}", "{mode}", "{mode}"]
+            verification: "reported"
+            parameters:
+              mode:
+                type: "uint8"
+                allowed: [1, 2, 3]
+                labels: ["Face", "Basic", "Pro"]
+          get_flash_mode:
+            description: "Read flash mode (old firmware)."
+            value: [0x0B, 0xA2]
+            verification: "reported"
+          set_cooling:
+            description: >
+              Set cooling/fan level. Opcode 0AC4 on new firmware (value via a
+              firmware-specific map that was not recovered — see
+              `remaining_unknowns`), 0AC0 on old firmware, where 0AC0 0A is
+              auto-fan.
+            template: [0x0A, 0xC4, "{value}"]
+            verification: "reported"
+            parameters:
+              value:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "Value-to-level map is firmware-specific and not recovered; old dialect uses opcode C0 with 0x0A = auto-fan."
+          get_cooling:
+            description: "Read cooling level; 0BC0 on old firmware, 0BC4 0007 on new."
+            value: [0x0B, 0xC0]
+            verification: "reported"
+          set_temperature_enable:
+            description: "Temperature-enable set. Payload layout not recovered — only the 0AB2 opcode is known."
+            verification: "hypothesis"
+          get_temperature_enable:
+            description: "Temperature-enable read."
+            value: [0x0B, 0xB2]
+            verification: "reported"
+          set_head_ntc_threshold:
+            description: "Head-NTC (temperature) threshold set. Payload layout not recovered — only the 0AB4 opcode is known."
+            verification: "hypothesis"
+          get_head_ntc_threshold:
+            description: "Head-NTC threshold read."
+            value: [0x0B, 0xB4]
+            verification: "reported"
+          set_body_ntc_threshold:
+            description: "Body-NTC threshold set. Payload layout not recovered — only the 0AB5 opcode is known."
+            verification: "hypothesis"
+          get_body_ntc_threshold:
+            description: "Body-NTC threshold read."
+            value: [0x0B, 0xB5]
+            verification: "reported"
+          set_flash_voltage_table:
+            description: "Flash voltage table set. Payload layout not recovered — only the 0AD1 opcode is known."
+            verification: "hypothesis"
+          get_flash_voltage_table:
+            description: "Flash voltage table read."
+            value: [0x0B, 0xD1]
+            verification: "reported"
+
+  - uuid: "00000a20-0000-1000-8000-00805f9b34fb"
+    name: "FOREO Security/Activation characteristics (containing service unknown — stand-in UUID)"
+    verification: "hypothesis"
+    notes: >
+      CONTAINING SERVICE UUID UNKNOWN — this entry's UUID is a stand-in equal
+      to the activation characteristic's. The app resolves every one of these
+      characteristics by UUID from the discovered GATT table, so clients MUST
+      do the same and MUST NOT match this entry as a service. All are 16-bit
+      UUIDs on the standard base.
+    characteristics:
+      - uuid: "00000a10-0000-1000-8000-00805f9b34fb"
+        name: "Security access"
+        properties: ["write"]
+        notes: >
+          Session handshake, written once after EVERY service discovery; the
+          device does not answer other commands before it. The stock app
+          retries the write up to 3 times.
+        commands:
+          security_access:
+            description: >
+              Handshake: 01 A1 followed by the last three bytes of the
+              device's own BLE MAC (printed order m0..m5; send m3 m4 m5).
+            template: [0x01, 0xA1, "{mac3}", "{mac4}", "{mac5}"]
+            verification: "reported"
+            parameters:
+              mac3:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Byte 3 of the device BLE MAC (4th printed octet)."
+              mac4:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Byte 4 of the device BLE MAC."
+              mac5:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Byte 5 of the device BLE MAC (last octet)."
+      - uuid: "00000a20-0000-1000-8000-00805f9b34fb"
+        name: "Activate (unlock/register)"
+        properties: ["read", "write"]
+        notes: >
+          Read first: a value whose first byte is 00 means the device is
+          still locked. The unlock write is idempotent — the stock app re-runs
+          the whole activation on every connect. chipId derivation is under
+          `protocol_details.activation` with test vectors. (Other FOREO models
+          use an older variant — 01 01 <ASCII serial> to this same
+          characteristic; the Peach family uses the chip-id variant.)
+        commands:
+          activate:
+            description: >
+              Unlock a locked unit: 01 02 followed by the 8-byte chipId
+              derived from the device's BLE MAC (keyless permutation, fully
+              offline — see `protocol_details.activation`).
+            template: [0x01, 0x02, "{chip_id}"]
+            verification: "reported"
+            parameters:
+              chip_id:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                description: "8-byte chipId = keyless nibble permutation of the 6-byte BLE MAC; algorithm and test vectors in protocol_details.activation."
+      - uuid: "00000a30-0000-1000-8000-00805f9b34fb"
+        name: "Wake-up"
+        properties: ["read", "write"]
+        notes: "Read after activation; unless the value starts with 01, write 01 to enable wake-up."
+        commands:
+          set_wakeup:
+            description: "Enable wake-up."
+            value: [0x01]
+            verification: "reported"
+      - uuid: "00000a05-0000-1000-8000-00805f9b34fb"
+        name: "Serial number"
+        properties: ["read"]
+        notes: "Format not pinned beyond being read by the app."
+      - uuid: "00000a07-0000-1000-8000-00805f9b34fb"
+        name: "Chip ID"
+        properties: ["read"]
+        notes: "Distinct from the MAC-derived chipId written to 0A20 — this is a device-reported identifier the app reads."
+      - uuid: "00000a0c-0000-1000-8000-00805f9b34fb"
+        name: "Skin-sensor / accelerometer polling"
+        properties: ["read"]
+        notes: "Polled during calibration. Response layout not recovered."
+      - uuid: "00000a08-0000-1000-8000-00805f9b34fb"
+        name: "OTA trigger"
+        properties: ["write"]
+        notes: >
+          Reboots the device into OTA mode, after which the TI OAD service
+          below takes over. Payload not recovered; whether the current app can
+          OTA a Peach at all is unconfirmed — see `remaining_unknowns`.
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: "Standard battery service; exposed even though the unit is mains-powered."
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read", "notify"]
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information Service"
+    notes: "Standard DIS. SW revision (2A28) is read at every connect and selects the old/new command dialect (see protocol_details.dialect_selection)."
+    characteristics:
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+
+  - uuid: "f000ffc0-0451-4000-b000-000000000000"
+    name: "TI OAD (Over-the-Air Download)"
+    notes: >
+      Present in the app for firmware update after the 0A08 OTA-trigger
+      reboot, with image characteristics …ffc1/…ffc2. No transfer flow was
+      traced and no characteristics are documented — whether app 4.4.1 can
+      actually OTA a Peach is unconfirmed, so no layout is claimed here. See
+      `remaining_unknowns`.
+
+  - uuid: "0000d0ff-3c17-d293-8e48-14fe2e4da212"
+    name: "Legacy Telink service (declared, apparently unused)"
+    notes: >
+      Declared in the app but no use of any of its characteristics was found
+      in 4.4.1 — listed so an implementer does not wait for traffic that
+      never comes. No characteristics documented because none are used.
+
+protocol_details:
+  command_protocol:
+    framing: >
+      No framing: no header, length or checksum. Writes to FFF1 are raw
+      `opcode || payload`. First byte 0A = write/set, 0B = read/query; second
+      byte = sub-opcode.
+    query_model: >
+      Write `0B xx` to FFF1, then READ FFF1 back and parse the returned
+      bytes. A read-back starting with FF FF FF FF means the device was busy;
+      the app retries up to 5 times. Every write is verified by the same
+      read-back.
+    read_back_formats: >
+      Only partially recovered: intensity is the first byte of the 0B01
+      read-back; removal mode >= 6 means Pro (0BD0). Read-back layouts for
+      0BC4 (new cooling), 0BA2, 0BB2/0BB4/0BB5 and 0BD1 are not pinned — see
+      `remaining_unknowns`.
+  dialect_selection:
+    description: >
+      Two command dialects exist. Peach 2 go, Peach 2 Pro MAX and Peach 2 Duo
+      always use the NEW dialect. A plain Peach 2 uses the OLD dialect when
+      the last character of its SW revision string (2A28) is in a–c,
+      otherwise the new dialect. Old vs new differs in removal/flash mode
+      (0AA2 flash-mode bytes vs 0AD0 removal mode) and cooling (0AC0 vs
+      0AC4, 0BC0 vs 0BC4 0007).
+    verification: "reported"
+    verification_note: "Read from the app's dialect-switch logic; suffixes beyond a–c are an edge case called out in remaining_unknowns."
+  activation:
+    description: >
+      Run after every connect: (1) security access — write
+      01 A1 <MAC[3]> <MAC[4]> <MAC[5]> to 0A10 (retried up to 3x by the
+      stock app); (2) read SW revision 2A28; (3) only on a locked/factory
+      unit — read 0A20, and if its first byte is 00 write
+      01 02 <8-byte chipId>; (4) read 0A30, and unless its first byte is 01
+      write 01. Steps 3–4 are idempotent and the stock app re-runs them on
+      every connect.
+    chip_id_algorithm: >
+      chipId is a fixed, keyless permutation of the 6-byte BLE MAC
+      (m0 m1 m2 m3 m4 m5, in the usual printed order). Let
+      b = [m5, m4, m3, 0x00, 0x00, m2, m1, m0]. Then the 8 output bytes are
+      (all arithmetic mod 256):
+
+        out[0] = (b[2] & 0x0F) | (b[7] & 0xF0)
+        out[1] = (b[5] & 0x0F) | (b[1] & 0xF0)
+        out[2] = (b[7] & 0x0F) + (0xF0 - (b[6] & 0xF0))
+        out[3] = 0xFF - b[6]
+        out[4] = b[5] + 1
+        out[5] = (b[1] & 0x0F) + (0xF0 - (b[2] & 0xF0))
+        out[6] = (b[0] & 0x0F) | (b[5] & 0xF0)
+        out[7] = (b[6] & 0x0F) | (b[0] & 0xF0)
+
+      No key, no nonce, no server input — pure MAC arithmetic.
+      `scripts/test_foreo_peach2_spec.py` transcribes this algorithm and
+      asserts the vectors below.
+    test_vectors:
+      description: >
+        Documentation MAC 00:11:22:33:44:55-style placeholder (AA:BB:CC:DD:EE:FF)
+        — identifies no real unit. A client whose chipId(MAC) does not
+        reproduce these bytes has mis-transcribed the algorithm.
+      input:
+        ble_mac: "AA:BB:CC:DD:EE:FF"
+      vectors:
+        - step: "security_access write to 0A10"
+          bytes: "01 A1 DD EE FF"
+        - step: "chipId (payload of the 01 02 … activation write to 0A20)"
+          bytes: "AD EC 4A 44 CD 2E CF FB"
+        - step: "full activation write to 0A20"
+          bytes: "01 02 AD EC 4A 44 CD 2E CF FB"
+  paywall:
+    mechanism: >
+      Server-side subscription (via an external billing provider), bought
+      through an in-app web flow — the app has no in-app-purchase store
+      integration. Entitlement is fetched from the vendor API, cached locally
+      and checked in the UI.
+    gated_features:
+      - "Pro removal mode (Peach 2 family UI)"
+    enforcement: >
+      App-side only. If the device reports Pro mode while no subscription is
+      active, the stock app writes Basic mode (0AD0 01) back to the device.
+      The firmware accepts the Pro-mode command (0AD0 06) unconditionally —
+      a replacement client writes it directly and nothing on the device
+      checks anything. The same app-side-only pattern gates features on other
+      FOREO devices in the same app. Intensity levels 0–5 and Basic mode are
+      NOT paywalled. Note the UI distinction: the Basic/Pro mode switch is
+      shown for Peach 2 go / Pro MAX always and for a plain Peach 2 on new
+      firmware (SW revision not ending in a–g); it is hidden on Peach 2 Duo.
+      'Peach 2 Pro MAX' is a separate hardware SKU, not this software mode.
+    verification: "reported"
+
+remaining_unknowns:
+  - "Containing GATT service UUIDs: FFF1 is hypothesized under FFF0 and the 0Axx security/activation block's service is unknown — the app resolves everything by characteristic enumeration; confirm with one service discovery on hardware"
+  - "Whether a factory-locked unit advertises under the same PEACH* names and answers the security-access write and 0A20 read immediately, or after a first-connect delay"
+  - "Read-back layouts for 0BD0/0BC4 (new cooling), 0BA2, 0BB2/0BB4/0BB5, 0BD1, and the value map for the 0AC4 new-firmware cooling write"
+  - "Payload layouts for the 0AB2/0AB4/0AB5/0AD1 set opcodes (only the opcodes were recovered)"
+  - "Dialect edge cases: SW-revision suffixes beyond a–c on a plain Peach 2 (the app also uses 'not ending in a–g' in one UI gate — the exact suffix sets need hardware reads)"
+  - "OTA: the 0A08 trigger payload, the image-fetch path on the vendor CDN, and whether app 4.4.1 can OTA a Peach at all"
+  - "Whether the peripheral accepts only one central at a time (likely for the chipset, not established)"
+  - "FOREO Bear 2 (microcurrent, same app) appears to share the activation + subscription pattern per code structure — follow-up target if a unit is acquired"
+
+helpful_urls:
+  - title: "FOREO PEACH 2 full user manual"
+    url: "https://www.foreo.com/manuals/peach-2"
+    kind: "manual"
+    description: >
+      Vendor-hosted online manual for the Peach 2. Corroborates the
+      ship-locked behaviour and the in-app registration requirement this
+      spec's activation flow replaces, and the five hardware-button intensity
+      levels vs the six app levels.
+  - title: "FOREO For You on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.foreo.foreoapp"
+    description: >
+      The companion app analysed for this spec (package com.foreo.foreoapp;
+      analysed at 4.4.1 / versionCode 559 — the store listing always shows
+      the current release).
+
+evidence:
+  artifacts:
+    - type: "static_analysis"
+      artifact: "com.foreo.foreoapp (FOREO For You) 4.4.1 (versionCode 559), base APK"
+      sha256: "90a4ec8f5c22c1085d1500f6bf1954c28edcd81531f0eed94bf8a13aa494ae79"
+      obtained_via: "third-party APK mirror, 2026-08-29"
+      description: >
+        Static analysis of the FOREO For You app (2026-08). Source of every
+        protocol fact here: the GATT map and the characteristic-by-UUID
+        resolution, the command opcode table and dialect switch, the
+        security-access handshake, the MAC-derived activation (chipId)
+        algorithm, and the app-side-only subscription enforcement. Also
+        establishes the negative findings: no bonding anywhere on the Peach
+        path, no MTU negotiation, and no in-app-purchase store integration.
+    - type: "vendor_documentation"
+      description: >
+        FOREO Peach 2 user manual (vendor-hosted, linked in helpful_urls).
+        Corroborates the ship-locked behaviour and the registration
+        requirement, and documents five hardware-button intensity levels
+        versus the app's six.
+  open_questions: >
+    Everything this spec still owes hardware is itemised in
+    `remaining_unknowns`; the shortest summary is that one service discovery
+    and one connect against a real unit would confirm the containing service
+    UUIDs, the locked-unit advertising behaviour, and the unpinned read-back
+    layouts in a single session.

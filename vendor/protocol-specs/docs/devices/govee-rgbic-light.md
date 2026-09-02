@@ -14,7 +14,7 @@ spec). Every modern SKU uses exactly the same transport: service
 `00010203-…-1910`, single characteristic `…2b11` (write + notify, CCCD
 0x2902) — there is no per-SKU UUID configuration. This spec is the superset
 of the [classic RGB family](govee-rgb-light.md): it adds per-segment
-color, Kelvin color temperature, timers, multi-packet transfers and the
+colour, Kelvin colour temperature, timers, multi-packet transfers and the
 optional encrypted session layer.
 
 Documented from static analysis of the Govee Home Android app (v7.5.30),

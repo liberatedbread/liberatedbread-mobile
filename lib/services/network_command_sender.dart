@@ -526,15 +526,23 @@ class NetworkCommandSender {
     // that pairs, the credential is named `mqtt_client_id` — so the lookup
     // always missed and every send reported the device as unpaired moments
     // after the user typed exactly what the card asked for.
-    final clientId = _credentialFor(action, 'client_id', credentials, values);
+    var clientId = _credentialFor(action, 'client_id', credentials, values);
     if (clientId == null || clientId.isEmpty) {
-      // Every topic is addressed to it, so there is no useful session without
-      // one. Named rather than improvised: a generated id would connect and
-      // then be silently unauthorised on a set that pairs.
-      throw const MqttConnectionException(
-        'This device has not been paired yet — there is no client id to '
-        'connect with.',
-      );
+      if (capabilities?.mqttClientIdGenerated ?? false) {
+        // A broker that authenticates on username/password and accepts any
+        // client id (a Dyson purifier): synthesize a stable one instead of
+        // refusing to connect. Stable per host so a reconnect reuses it.
+        clientId = 'liberatedbread-$host';
+      } else {
+        // A set that pairs on a specific client id has no useful session
+        // without it — every topic is addressed to it. Named rather than
+        // improvised: a generated id would connect and then be silently
+        // unauthorised there.
+        throw const MqttConnectionException(
+          'This device has not been paired yet — there is no client id to '
+          'connect with.',
+        );
+      }
     }
     // A session that died leaves its stream controller open; dropping the
     // handle would leak it as surely as dropping a socket.
@@ -544,7 +552,14 @@ class NetworkCommandSender {
 
     final session = MqttSession(
       codec: _codec,
-      connect: _mqttConnect,
+      // Production injects no connector, so choose one from the spec's own
+      // `mqtt.transport_security` declaration, falling back to the port
+      // convention (a plaintext 1883 broker — Dyson — must NOT get the TLS
+      // handshake the unconditional default used to send). A test-injected
+      // connector still wins.
+      connect: _mqttConnect ??
+          selectMqttConnector(
+              declared: capabilities?.mqttTransportSecurity, port: port),
       label: 'mqtt $host',
     );
     await session.connect(

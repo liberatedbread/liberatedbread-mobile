@@ -57,7 +57,7 @@ Format: `[length] [ASCII command name] [arguments...] [padding]`
 
 ### Bitmap Encoding
 
-Each column is 5 bytes: `[row_bitmask_low] [row_bitmask_high] [R] [G] [B]`. Color is per-column, not per-pixel.
+Each column is 5 bytes: `[row_bitmask_low] [row_bitmask_high] [R] [G] [B]`. Colour is per-column, not per-pixel.
 
 ## Tools Used
 

@@ -139,6 +139,32 @@ Future<MqttSocket> plainConnect(String host, int port, Duration timeout) async {
   }
 }
 
+/// Which connector a broker on [port] needs, when the caller injects none.
+///
+/// Port 1883 is the IANA plaintext-MQTT port; a broker there speaks no TLS (a
+/// Dyson purifier's is plaintext on 1883, and its TLS 8883 is closed), so a
+/// [tlsConnect] handshake against it fails before login. Everything else keeps
+/// [tlsConnect] — the LAN-appliance default — which preserves the brokers that
+/// work today (Roomba and Bambu on 8883).
+///
+/// Deriving transport security from the port is a CONVENTION, not a spec
+/// declaration, which is a small exception to this project's spec-driven rule.
+/// The spec-gap — an explicit MQTT transport-security field — is tracked in
+/// THINGS_TO_FIX; until it exists, 1883-means-plaintext is the reliable signal.
+MqttConnect mqttConnectorFor(int port) =>
+    port == 1883 ? plainConnect : tlsConnect;
+
+/// The connector for a broker whose spec declares its transport security
+/// (`mqtt.transport_security`), falling back to the port convention
+/// ([mqttConnectorFor]) when the spec says nothing. The declaration wins
+/// because it is the device's own statement; the port is only a convention.
+MqttConnect selectMqttConnector({String? declared, required int port}) =>
+    switch (declared) {
+      'plaintext' => plainConnect,
+      'tls' => tlsConnect,
+      _ => mqttConnectorFor(port),
+    };
+
 /// Adapts a `dart:io` socket to the narrow [MqttSocket] surface.
 class SocketAdapter implements MqttSocket {
   final Socket _socket;

@@ -31,7 +31,7 @@ This page answers two questions at once:
     Tier 6 are generally within a few dollars of the eBay figures.
 
 !!! note "Clean-room discipline still applies"
-    A public reverse-engineering write-up is a *reference*, not a license to
+    A public reverse-engineering write-up is a *reference*, not a licence to
     copy. Follow [Clean-room Rules](../CLEANROOM_RULES.md): cite the source,
     re-derive the protocol, and never lift code or vendor assets into a spec.
 

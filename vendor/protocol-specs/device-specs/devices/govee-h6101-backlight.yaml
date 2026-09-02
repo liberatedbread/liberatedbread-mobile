@@ -38,7 +38,12 @@ device:
   identification:
     service_uuids:
       - "0000ffe0-0000-1000-8000-00805f9b34fb"
-    local_name_prefix: "ihoment_H610"
+    # Only H6101/H6104 — a bare "ihoment_H610" prefix also swallowed the
+    # H610x RGBIC strips (e.g. ihoment_H6102), which are a different family
+    # on the 1910 GATT profile (govee-rgbic-light.yaml).
+    local_name_prefixes:
+      - "ihoment_H6101"
+      - "ihoment_H6104"
     manufacturer_data:
       company_id: 60552
       company_id_hex: "0xEC88"
@@ -55,8 +60,11 @@ device:
       - type: "ble_scan"
         ble:
           local_name:
-            match: "prefix"
-            value: "ihoment_H610"
+            # Anchored to just H6101/H6104 so it does not over-match the
+            # H610x RGBIC strips (ihoment_H6102 etc.) that a bare
+            # "ihoment_H610" prefix would also catch.
+            match: "regex"
+            value: "^ihoment_H610[14]"
           service_uuids:
             - "0000ffe0-0000-1000-8000-00805f9b34fb"
           manufacturer_data:
@@ -192,7 +200,7 @@ services:
                 checksum_start: 0
                 description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
           set_color:
-            description: "Set RGB color (mode byte 0x02 = manual). Packet: [0x33, 0x05, 0x02, <R>, <G>, <B>, 0x00*13, <xor>]"
+            description: "Set RGB colour (mode byte 0x02 = manual). Packet: [0x33, 0x05, 0x02, <R>, <G>, <B>, 0x00*13, <xor>]"
             encoding: "bytes"
             template: [0x33, 0x05, 0x02, "{red}", "{green}", "{blue}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
             parameters:
@@ -269,7 +277,7 @@ helpful_urls:
     url: "https://github.com/chvolkmann/govee_btled"
     description: >-
       Python client for legacy Govee BLE lights; its LedMode command bytes are the cross-reference
-      for the color/scene/music sub-modes.
+      for the colour/scene/music sub-modes.
   - title: "Reverse-engineering Govee smart lights"
     url: "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/"
     description: >-

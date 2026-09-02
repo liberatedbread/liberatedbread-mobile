@@ -59,7 +59,7 @@ There is no reliable advertised-name prefix across the family — resellers set 
 2. Enable notifications by writing `00 00 00 01` to the CCCD (handle `0x0F` on observed units).
 3. Discover the `0xFF21` command and `0xFF22` data handles under service `0xFF20`.
 4. Issue `GetBufferSize` — required, it determines the upload chunking cadence.
-5. Issue `GetDisplayInfo` — gives width, height, color depth, frame limit and current brightness.
+5. Issue `GetDisplayInfo` — gives width, height, colour depth, frame limit and current brightness.
 
 Steps 4 and 5 are not optional for a working client: chunk pacing and content rendering both
 depend on their results.
@@ -158,7 +158,7 @@ Uploads are gated by the device, and getting this wrong is the most common failu
 
 ## Open Questions
 
-- Whether SPOTLED and [iLEDColor](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/iledcolor-led-panel.md)
+- Whether SPOTLED and [iLEDColor](https://github.com/liberatedbread/liberatedbread-protocol-specs/blob/main/targets/iledcolor-led-panel.md)
   panels share this protocol. New Lunchbox DreamPanel v3 boards moved to iLEDColor; probing one
   for the `0xFF20` service is the cheapest possible test.
 - CCCD handle `0x0F` is observed, not guaranteed — discover it properly rather than hardcoding.
