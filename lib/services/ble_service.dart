@@ -98,6 +98,28 @@ class BlePairingRequiredException implements UserFacingException {
   String toString() => message;
 }
 
+/// A saved device the system has no record of any more.
+///
+/// Distinct from "connect timed out" because the remedy is different, and the
+/// generic advice ("move closer, then retry") is actively wrong here. On Apple
+/// platforms a device id is a system-minted per-app UUID rather than a MAC,
+/// and CoreBluetooth drops it for an unbonded peripheral after a Bluetooth
+/// reset or reboot, or when the peripheral's random address rotated. The link
+/// cannot be opened at any distance until the device advertises again and the
+/// system re-registers it — so the useful instruction is "make sure it is
+/// powered on and in range, then scan", not "move closer".
+class BleDeviceUnheardException implements UserFacingException {
+  @override
+  final String message;
+  const BleDeviceUnheardException(
+      [this.message = 'This device has not been seen since Bluetooth last '
+          'restarted, so it cannot be reconnected directly. Make sure it is '
+          'powered on and in range, then scan for it again.']);
+
+  @override
+  String toString() => message;
+}
+
 /// How hard [BleService.scan] should drive the radio.
 ///
 /// The dial is real only on Android, where scan mode sets the radio's duty

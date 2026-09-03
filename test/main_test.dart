@@ -18,6 +18,7 @@
 // working when the native library cannot be loaded. Both are exactly the sort
 // of claim that quietly stops being true.
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
@@ -25,6 +26,7 @@ import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/main.dart' as entrypoint;
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/screens/home_shell.dart';
+import 'package:liberated_bread_mobile/services/secure_settings_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes/emulated_ble.dart';
@@ -45,10 +47,34 @@ void main() {
   setUp(() async {
     await ble.reset();
     // Seed the disclaimer as accepted so main() boots straight to the home
-    // shell; the first-launch gate is covered by app_test.dart.
-    SharedPreferences.setMockInitialValues(
-        {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+    // shell; the first-launch gate is covered by app_test.dart. The install
+    // marker is seeded too, so the fresh-install keychain wipe is a no-op
+    // here — its own behaviour is covered by
+    // secure_settings_store_test.dart.
+    SharedPreferences.setMockInitialValues({
+      AppConstants.termsAcceptedKey: AppConstants.termsVersion,
+      SecureSettingsStore.freshInstallMarkerKey: true,
+    });
+    // main() now touches the keychain on startup, and this test boots the
+    // real main(), so it has to stand in for that plugin exactly as it does
+    // for SharedPreferences above. Without a handler the channel does not
+    // fail — it never answers, and a Timer-based timeout cannot rescue it
+    // because widget-test timers only advance when the test pumps. The
+    // symptom is the whole suite hanging for ten minutes on this one test.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+      (call) async => call.method == 'readAll' ? <String, String>{} : null,
+    );
     logs = Log.captureRecords();
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+      null,
+    );
   });
 
   tearDown(Log.reset);

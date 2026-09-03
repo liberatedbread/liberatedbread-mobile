@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
 import 'core/log.dart';
 import 'providers/saved_device_provider.dart';
+import 'services/secure_settings_store.dart';
 import 'src/rust/frb_generated.dart';
 
 Future<void> main() async {
@@ -30,6 +31,27 @@ Future<void> main() async {
   // Resolved once here so the saved-device list is readable synchronously
   // during build; widgets never await preferences mid-frame.
   final prefs = await SharedPreferences.getInstance();
+
+  // The keychain outlives the app on iOS: deleting the app removes
+  // SharedPreferences but leaves every secret behind, so a reinstall showed
+  // the first-run Terms gate on top of a store that still held the user's
+  // Home Assistant token, Hue credentials, Roomba password and TLS pins.
+  // Clear it the first time a given install runs. The marker lives in prefs
+  // precisely because prefs ARE removed with the app — the disagreement
+  // between the two stores is the signal.
+  //
+  // Before the gate, so nothing has read a stale credential yet, and
+  // best-effort: a keychain that will not clear must not stop the app
+  // launching.
+  final wiped = await SecureSettingsStore().wipeIfFreshInstall(
+    hasRun: () async =>
+        prefs.getBool(SecureSettingsStore.freshInstallMarkerKey) ?? false,
+    markRun: () async =>
+        prefs.setBool(SecureSettingsStore.freshInstallMarkerKey, true),
+  );
+  if (wiped) {
+    Log.app.info('fresh install: cleared credentials left by a previous one');
+  }
 
   runApp(
     ProviderScope(

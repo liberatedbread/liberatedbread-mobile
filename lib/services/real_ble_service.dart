@@ -372,6 +372,14 @@ const Duration continuousScanRefresh = Duration(minutes: 15);
 /// "searching".
 const Duration continuousScanRetry = Duration(seconds: 30);
 
+/// How long to look for a saved device whose Apple identifier the system has
+/// forgotten, before telling the user it has not been heard.
+///
+/// Short on purpose: this runs inside a reconnect the user is waiting on, and
+/// a device that is powered on and in range advertises within a second or two.
+/// Anything longer turns "not there" into a hang.
+const Duration appleRediscoveryWindow = Duration(seconds: 6);
+
 /// Real BLE implementation using flutter_blue_plus.
 class RealBleService implements BleService {
   StreamSubscription<List<ScanResult>>? _scanSubscription;
@@ -808,6 +816,76 @@ class RealBleService implements BleService {
     return attempt;
   }
 
+  /// On Apple platforms, connecting to a saved device can fail before it
+  /// reaches the radio, because the identifier is not a MAC address.
+  ///
+  /// Android's `getRemoteDevice(mac)` accepts any well-formed address, so
+  /// reconnecting to something the app saved months ago always at least tries.
+  /// CoreBluetooth has no such thing: the id is a system-minted per-app UUID,
+  /// and `connect` resolves it with `retrievePeripheralsWithIdentifiers:`,
+  /// which answers "Peripheral not found" whenever the system no longer holds
+  /// a CBPeripheral for it. That happens routinely — after a Bluetooth reset
+  /// or reboot for an unbonded device, or when a peripheral's random address
+  /// rotated and the OS minted a new UUID.
+  ///
+  /// The saved-devices screen goes straight to connect() with no scan, so the
+  /// user saw the raw plugin error surfaced as "move closer", which is advice
+  /// that cannot work: no amount of proximity re-teaches CoreBluetooth an
+  /// identifier. A short targeted scan does, because a single advertisement
+  /// sighting is exactly what re-registers the peripheral with the system.
+  ///
+  /// Android and Linux keep the direct path — they have no such precondition,
+  /// and a scan there would add seconds to every reconnect for nothing.
+  Future<void> _connectResolvingAppleIdentifier(
+    BluetoothDevice device,
+    String deviceId,
+  ) async {
+    const timeout = Duration(seconds: 15);
+    try {
+      await device.connect(timeout: timeout);
+      return;
+    } catch (error) {
+      if (!_isAppleUnknownPeripheral(error)) rethrow;
+      Log.ble.info(
+        '$deviceId is not known to CoreBluetooth; scanning for it before '
+        'giving up',
+      );
+    }
+
+    // One short scan filtered to this device. A sighting is enough; the
+    // system registers the peripheral and the identifier resolves again.
+    try {
+      await FlutterBluePlus.startScan(
+        withRemoteIds: [deviceId],
+        timeout: appleRediscoveryWindow,
+      );
+      await FlutterBluePlus.isScanning.where((on) => !on).first;
+    } catch (error) {
+      Log.ble.debug('rediscovery scan for $deviceId failed: $error');
+    } finally {
+      await FlutterBluePlus.stopScan().catchError((Object _) {});
+    }
+
+    try {
+      await device.connect(timeout: timeout);
+    } catch (error) {
+      if (!_isAppleUnknownPeripheral(error)) rethrow;
+      // Still unheard. Say the one true thing rather than "move closer":
+      // the device has not advertised since the system forgot it.
+      throw const BleDeviceUnheardException();
+    }
+  }
+
+  /// CoreBluetooth could not resolve the identifier at all.
+  ///
+  /// Matched on the message because flutter_blue_plus_darwin raises this as a
+  /// plain `FlutterError` with code `connect` (FlutterBluePlusPlugin.m), not
+  /// as a typed error with a distinguishable code.
+  static bool _isAppleUnknownPeripheral(Object error) {
+    if (!Platform.isIOS && !Platform.isMacOS) return false;
+    return error.toString().toLowerCase().contains('peripheral not found');
+  }
+
   Future<void> _connectNow(String deviceId) async {
     // Two lines, because the gap between them is the diagnosis: a connect can
     // sit here for the full 15s timeout. Failures surface to the UI, which
@@ -820,7 +898,7 @@ class RealBleService implements BleService {
     // must NOT expire live notify shares — CCCD state survives because the
     // link never dropped.
     final wasConnected = device.isConnected;
-    await device.connect(timeout: const Duration(seconds: 15));
+    await _connectResolvingAppleIdentifier(device, deviceId);
     Log.ble.info('connected to $deviceId');
     // Track overlapping owners: the device screen and a group run can both
     // hold the same physical link, and whichever disconnects first must not
