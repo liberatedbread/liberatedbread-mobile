@@ -1062,14 +1062,19 @@ jobs:
           workspaces: rust
           prefix-key: v1-ios
       - run: flutter pub get
-      # Newer Flutter enables Swift Package Manager by default, and
-      # SPM-capable plugins (flutter_blue_plus_darwin ships a Package.swift)
-      # then bypass CocoaPods entirely — vanishing from Podfile.lock and
-      # breaking the pod-presence assertions below while still being linked.
-      # Pin plugin resolution to CocoaPods so the "every plugin is a pod"
-      # invariant those checks encode stays true.
-      - name: Use CocoaPods for plugin resolution (disable SPM)
-        run: flutter config --no-enable-swift-package-manager
+      # Swift Package Manager is disabled in pubspec.yaml (flutter: config:
+      # enable-swift-package-manager: false), NOT here.
+      #
+      # This step used to run `flutter config --no-enable-swift-package-manager`,
+      # which is a per-MACHINE setting written to ~/.config/flutter. That made
+      # this job the only place in the world where it was off: ios-adhoc.yml
+      # never ran it, and a developer Mac has SPM on by default. So the plugin
+      # linking this job verified was never the linking that reached a phone —
+      # four plugins resolved through SPM there and CocoaPods here, and
+      # verify_ios_pods.sh below failed on every developer Mac for that reason.
+      # The pubspec key travels with the repo and outranks both the global
+      # config and FLUTTER_SWIFT_PACKAGE_MANAGER, so every invocation on every
+      # machine now agrees. See the comment in pubspec.yaml.
       # Start the boot in the background so it overlaps the build below —
       # booted-and-ready cost ~65 serial seconds when it sat between the build
       # and the tests. `simctl boot` only STARTS the boot (it returns in
@@ -1159,6 +1164,43 @@ jobs:
       # a check nobody can run outside a macOS job is a check nobody maintains.
       - name: Verify CocoaPods resolution happened
         run: ./scripts/verify_ios_pods.sh ios
+      # The committed ios/ project must BE what the build uses, not a thing the
+      # toolchain silently rewrites on the way past.
+      #
+      # `flutter build ios` runs migrations against the tracked tree. On the
+      # 3.44.8 bump those rewrote nine files — a new AppDelegate, the UIScene
+      # manifest, CocoaPods build phases, the deletion of AppFrameworkInfo's
+      # MinimumOSVersion — and, because the plist migration round-trips through
+      # plutil, silently deleted the two explanatory comment blocks in
+      # Info.plist that record why there is no location usage string and what
+      # NSBonjourServices is for. Nothing failed. Linux CI never builds for iOS,
+      # so it stayed green; every Mac carried a permanently dirty tree; and the
+      # diff a reviewer read was not the project that shipped.
+      #
+      # This step makes the next such migration a red build in the PR that
+      # bumps Flutter, where someone can look at it, instead of a mystery a
+      # developer notices in `git status` months later. When it fires: run the
+      # build locally, review what the migration did, restore any comments it
+      # ate, and commit the result.
+      - name: Committed ios/ project matches what the build produces
+        run: |
+          drift=0
+          if ! git diff --exit-code -- ios/; then
+            echo "::error file=ios/Runner.xcodeproj/project.pbxproj::Building for iOS modified tracked files under ios/. Flutter ran a project migration, so the committed project is not what CI just built. Run 'flutter build ios --simulator --debug --no-codesign' locally, review the diff (watch for XML comments the plist migration drops), and commit it." >&2
+            drift=1
+          fi
+          # `git diff` is blind to untracked files, so a migration that ADDS a
+          # file (as the SwiftPM one does) would pass the check above. Same
+          # gap, same fix, as the FRB binding check in scripts/test.sh.
+          # .gitignore already covers the build's own ephemeral output, so
+          # anything still listed here is a project file that wants reviewing.
+          untracked="$(git status --porcelain --untracked-files=all -- ios/ | grep '^??' || true)"
+          if [ -n "$untracked" ]; then
+            echo "::error file=ios/Podfile::Building for iOS created untracked files under ios/. Either commit them (a migration added a project file) or add them to .gitignore (build output):" >&2
+            echo "$untracked" >&2
+            drift=1
+          fi
+          exit "$drift"
       # Regression this catches: plist changes are invisible to a compiler. The
       # BLE usage strings are what let CoreBluetooth raise the system prompt at
       # all (real_ble_service.dart relies on that instead of permission_handler

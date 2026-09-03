@@ -66,6 +66,34 @@ dev_dependencies:
   flutter_blue_plus_platform_interface: 4.0.2
 
 flutter:
+  # Plugins link through CocoaPods on Apple platforms, not Swift Package
+  # Manager. This lives HERE, in the project, rather than in a
+  # `flutter config --no-enable-swift-package-manager` on one CI runner,
+  # because a machine-global setting is per-machine: the ios-build job set it,
+  # the ios-adhoc workflow that produces the installable IPA did not, and a
+  # developer Mac has SPM on by default (enabledByDefault on stable). So the
+  # linking configuration CI tested was never the one that reached a phone —
+  # four plugins (flutter_blue_plus_darwin, permission_handler_apple,
+  # shared_preferences_foundation, url_launcher_ios) resolved through SPM
+  # there and CocoaPods here.
+  #
+  # That split is not cosmetic. permission_handler_apple's Package.swift
+  # defines PERMISSION_BLUETOOTH=1 when Info.plist carries a Bluetooth usage
+  # string, while its podspec leaves the macro at 0 unless the Podfile's
+  # post_install adds it — so the same source builds a working Bluetooth
+  # permission strategy under SPM and a compiled-out one under CocoaPods.
+  # ios/Podfile's post_install comment is the record of that hazard.
+  #
+  # flutter_tools resolves this key before the global config and before
+  # FLUTTER_SWIFT_PACKAGE_MANAGER (flutter_features_config.dart: project level
+  # ?? global config, then the environment), so one line here governs every
+  # invocation on every machine. Two of the app's own plugins
+  # (flutter_secure_storage, and rust_builder/liberated_bread_core, which is a
+  # cargokit podspec with no Package.swift) have no SPM support anyway, which
+  # is what the "do not support Swift Package Manager" warning on every build
+  # is telling us. Revisit when the Rust pod grows a Package.swift.
+  config:
+    enable-swift-package-manager: false
   uses-material-design: true
   assets:
     # Everything ships straight out of the vendored protocol-specs subtree.

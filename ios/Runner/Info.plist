@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -22,29 +24,15 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
-	<key>UIMainStoryboardFile</key>
-	<string>Main</string>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
@@ -53,13 +41,16 @@
 	     the only location request in the app is Android-only
 	     (RealBleService.requestPermissions, inside `if (Platform.isAndroid)`).
 	     A location purpose string with no matching location-API use is a
-	     Guideline 5.1.1 review flag, so it is deliberately absent here. -->
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Liberated Bread finds IoT devices on your Wi-Fi network, and connects to your Home Assistant server.</string>
+	     Guideline 5.1.1 review flag, so it is deliberately absent here.
+	     test/platform/ios_info_plist_test.dart asserts the absence, so this
+	     decision survives even if the comment is lost again. -->
 	<!-- iOS 14+ will not deliver mDNS answers for a service type that is not
 	     declared here, and fails silently when one is missing. The generic
 	     DNS-SD meta-query is what lets the scan enumerate service types it has
-	     no spec for; the rest are the types this app's device specs name. -->
+	     no spec for; the rest are the types this app's device specs name.
+	     Regenerate with ./scripts/regen-bonjour-services.sh; the list is
+	     checked against the vendored catalogue by
+	     test/platform/ios_bonjour_catalogue_test.dart. -->
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_adb-tls-connect._tcp</string>
@@ -103,12 +94,47 @@
 		<string>_viziocast._tcp</string>
 		<string>_wled._tcp</string>
 	</array>
-	<key>NSAppTransportSecurity</key>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Liberated Bread finds IoT devices on your Wi-Fi network, and connects to your Home Assistant server.</string>
+	<key>UIApplicationSceneManifest</key>
 	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>FlutterSceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
 	</dict>
-	<key>ITSAppUsesNonExemptEncryption</key>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
 </dict>
 </plist>

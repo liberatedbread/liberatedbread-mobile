@@ -43,7 +43,6 @@ const String _floorIos = '13.0';
 const String _floorMacos = '10.15';
 
 const String _iosPbxproj = 'ios/Runner.xcodeproj/project.pbxproj';
-const String _iosFrameworkPlist = 'ios/Flutter/AppFrameworkInfo.plist';
 const String _iosPodfile = 'ios/Podfile';
 const String _iosPodspec = 'rust_builder/ios/liberated_bread_core.podspec';
 const String _macosPbxproj = 'macos/Runner.xcodeproj/project.pbxproj';
@@ -201,12 +200,27 @@ void main() {
           consequence: 'It sets the deployment target for every build '
               'configuration; without it the app has no declared iOS floor.',
         ),
-        _iosFrameworkPlist: _allMatches(
-          _iosFrameworkPlist,
-          RegExp(r'<key>MinimumOSVersion</key>\s*<string>([0-9.]+)</string>'),
-          consequence: 'It declares the embedded App.framework minimum, which '
-              'the App Store validates against the binary.',
-        ),
+        // ios/Flutter/AppFrameworkInfo.plist is deliberately NOT a declaration
+        // any more, and this comment is the record of why.
+        //
+        // It used to be asserted here for MinimumOSVersion. Two things about
+        // the pinned toolchain make that assertion impossible to satisfy:
+        // IOSDeploymentTargetMigration deletes the key from this file on every
+        // `flutter build ios` (it replaces the whole
+        // <key>MinimumOSVersion</key><string>13.0</string> pair with nothing),
+        // and Flutter's own 3.44.8 app template no longer ships the key at
+        // all. Flutter stamps App.framework's MinimumOSVersion at build time
+        // from its own deployment target instead, so a value committed here is
+        // both ignored by the build and erased by it.
+        //
+        // The failure that produced this comment: Linux CI never builds for
+        // iOS, so it stayed green, while the host suite failed on every Mac
+        // that had run an iOS build even once — and the App Store runbook
+        // recorded that failure as a local artifact of a "stale Mac working
+        // copy", which was backwards. The committed file was the stale one.
+        //
+        // pbxproj (x3 configurations) + the Podfile platform line + the Rust
+        // podspec remain a complete and self-consistent agreement set.
         // The Podfile line ships commented out, matching Flutter's template —
         // the platform comes from the Runner target instead. It is still
         // asserted, because a stale version in a commented line is precisely

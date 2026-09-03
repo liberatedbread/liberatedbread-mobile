@@ -1,0 +1,60 @@
+PODS:
+  - Flutter (1.0.0)
+  - flutter_blue_plus_darwin (0.0.2):
+    - Flutter
+    - FlutterMacOS
+  - flutter_secure_storage (6.0.0):
+    - Flutter
+  - integration_test (0.0.1):
+    - Flutter
+  - liberated_bread_core (0.0.1):
+    - Flutter
+  - permission_handler_apple (9.4.8):
+    - Flutter
+  - shared_preferences_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - url_launcher_ios (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - flutter_blue_plus_darwin (from `.symlinks/plugins/flutter_blue_plus_darwin/darwin`)
+  - flutter_secure_storage (from `.symlinks/plugins/flutter_secure_storage/ios`)
+  - integration_test (from `.symlinks/plugins/integration_test/ios`)
+  - liberated_bread_core (from `.symlinks/plugins/liberated_bread_core/ios`)
+  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+  - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  flutter_blue_plus_darwin:
+    :path: ".symlinks/plugins/flutter_blue_plus_darwin/darwin"
+  flutter_secure_storage:
+    :path: ".symlinks/plugins/flutter_secure_storage/ios"
+  integration_test:
+    :path: ".symlinks/plugins/integration_test/ios"
+  liberated_bread_core:
+    :path: ".symlinks/plugins/liberated_bread_core/ios"
+  permission_handler_apple:
+    :path: ".symlinks/plugins/permission_handler_apple/ios"
+  shared_preferences_foundation:
+    :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
+  url_launcher_ios:
+    :path: ".symlinks/plugins/url_launcher_ios/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  flutter_blue_plus_darwin: 20a08bfeaa0f7804d524858d3d8744bcc1b6dbc3
+  flutter_secure_storage: 1ed9476fba7e7a782b22888f956cce43e2c62f13
+  integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
+  liberated_bread_core: ce8ba93023e54f31c41656f975c34a9ebf9ec4e0
+  permission_handler_apple: 92d754bbaa7361d436db2d6c3c1c2a0fdcec462e
+  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+  url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
+
+PODFILE CHECKSUM: 570e681da630af23d08a5e3d912319887e7a402f
+
+COCOAPODS: 1.17.0
