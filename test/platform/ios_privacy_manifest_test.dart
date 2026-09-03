@@ -87,7 +87,8 @@ void main() {
       );
 
       final declared = <String, List<Object?>>{
-        for (final entry in (types! as List<Object?>).cast<Map<String, Object?>>())
+        for (final entry
+            in (types! as List<Object?>).cast<Map<String, Object?>>())
           entry['NSPrivacyAccessedAPIType']! as String:
               (entry['NSPrivacyAccessedAPITypeReasons'] ?? const <Object?>[])
                   as List<Object?>,
@@ -105,7 +106,8 @@ void main() {
             'Verify with:\n'
             '  nm -u build/ios/iphoneos/Runner.app/Frameworks/'
             'liberated_bread_core.framework/liberated_bread_core '
-            r"| grep -E '^_(stat|fstat|lstat|fstatat)\$'" '\n'
+            r"| grep -E '^_(stat|fstat|lstat|fstatat)\$'"
+            '\n'
             '$_consequence',
       );
 
