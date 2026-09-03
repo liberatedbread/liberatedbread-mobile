@@ -7,7 +7,7 @@ import '../core/constants.dart';
 
 /// The first-launch gate: the user must accept the disclaimer before the app
 /// opens. Shown once (until [AppConstants.termsVersion] is bumped), it states
-/// plainly that this is an experimental, unofficial project and links the full
+/// plainly that this is an independent, unofficial project and links the full
 /// disclaimer and privacy policy.
 ///
 /// Presentation-only — it does not persist anything. The caller ([app.dart]'s
@@ -37,7 +37,10 @@ class TermsScreen extends StatelessWidget {
                     text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
             const SizedBox(height: 20),
 
-            // Experimental / unofficial notice.
+            // Independence / unofficial notice. Deliberately not worded as
+            // "experimental" or "beta" — Guideline 2.2 rejects demos and
+            // betas, and reviewers act on that wording on the first screen
+            // they see. The disclaimer content is unchanged; only the framing.
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -54,7 +57,7 @@ class TermsScreen extends StatelessWidget {
                       Icon(Icons.science_outlined,
                           size: 20, color: scheme.tertiary),
                       const SizedBox(width: 8),
-                      Text('Experimental software',
+                      Text('Independent and unofficial',
                           style: text.titleSmall?.copyWith(
                               color: scheme.tertiary,
                               fontWeight: FontWeight.w600)),
@@ -62,12 +65,12 @@ class TermsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'This is an early, experimental app that talks to consumer '
-                    'devices over Bluetooth and your local network. It is an '
-                    'independent, open-source project — not affiliated with, '
-                    'endorsed by, or supported by any device manufacturer, and '
-                    'it may be incomplete or wrong. You use it at your own '
-                    'risk.',
+                    'This app talks to consumer devices over Bluetooth and '
+                    'your local network. It is an independent, open-source '
+                    'project — not affiliated with, endorsed by, or supported '
+                    'by any device manufacturer. Device support is contributed '
+                    'and may be incomplete or wrong, and it is provided as-is, '
+                    'without warranty. You use it at your own risk.',
                     style: text.bodyMedium,
                   ),
                   const SizedBox(height: 8),

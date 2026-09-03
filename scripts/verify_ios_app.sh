@@ -355,14 +355,17 @@ else
   log "  ok  NSAppTransportSecurity:NSAllowsLocalNetworking = true"
 fi
 
-# iOS 14+ withholds mDNS answers for a service type absent from this array, and
-# does it silently, so a truncated list is a set of devices that simply never
-# appear. The exact contents are cross-checked against the bundled catalogue by
+# NSBonjourServices governs mDNS done through the Bonjour APIs (NWBrowser,
+# NetService), which this app does not use — it drives 5353 itself over a raw
+# socket, gated by the multicast entitlement checked above. So an empty array
+# is not "the Wi-Fi scan finds nothing"; it is a declaration that has gone
+# missing, which matters to App Review and to any future move onto NWBrowser.
+# The exact contents are cross-checked against the bundled catalogue by
 # test/platform/ios_bonjour_catalogue_test.dart; what can only be checked here
 # is that the array survived into the BUILT bundle at all.
 bonjour_count="$("$PLISTBUDDY" -c "Print :NSBonjourServices" "$PLIST" 2>/dev/null | grep -c '_' || true)"
 if [[ "$bonjour_count" -eq 0 ]]; then
-  fail "NSBonjourServices is missing or empty in the built Info.plist — iOS delivers no mDNS answers for undeclared service types, so the Wi-Fi scan finds nothing over mDNS and reports it as an empty network."
+  fail "NSBonjourServices is missing or empty in the built Info.plist. The generated declaration did not survive into the bundle: re-run ./scripts/regen-bonjour-services.sh and check the Info.plist in the build. (This does not by itself break the current raw-socket scan, which the multicast entitlement gates — but it is a declaration App Review reads, and the list a Bonjour-API implementation would depend on.)"
 else
   log "  ok  NSBonjourServices declares $bonjour_count service type(s)"
 fi

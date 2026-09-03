@@ -3,12 +3,30 @@
 <!--
   App-level privacy manifest for Liberated Bread.
 
-  The app collects no data and tracks no one. Its only outbound request is an
-  anonymous GET for the promotional banner config
-  (https://liberatedbread.com/app/banner.json, see lib/core/constants.dart);
-  everything else is direct local-network device control (BLE and LAN) and, when
-  the user configures it, their own Home Assistant server. No advertising SDK,
-  no analytics, no identifiers leave the device.
+  The app collects no data and tracks no one: no advertising SDK, no analytics,
+  no identifiers leave the device, and nothing about what the user controls is
+  reported anywhere.
+
+  It is not, however, offline-only, and the previous wording here ("its only
+  outbound request is an anonymous GET for the banner config") was wrong. Every
+  connection beyond the user's own devices, so that this list and the App
+  Privacy answers can be checked against the code:
+
+    * the banner config GET (lib/core/constants.dart) — anonymous;
+    * a device-profile pack download, if the user installs one
+      (lib/services/spec_pack_service.dart) — from GitHub or a URL they enter;
+    * the user's own Home Assistant server, if they configure it;
+    * a one-time sign-in to iRobot's cloud IF the user chooses the account
+      route for a robot vacuum rather than typing its details in by hand
+      (lib/services/irobot_cloud_service.dart) — this posts their vendor
+      account credentials to the vendor to read the robot's LOCAL password,
+      which is what makes local control possible afterwards. Disclosed on the
+      form that asks for them.
+
+  None of these is a collection of data BY this app, which is why
+  NSPrivacyCollectedDataTypes stays empty; they are listed because a privacy
+  manifest that quietly understates a network surface is worse than one that
+  does not mention it.
 
   Required-reason APIs (NSPrivacyAccessedAPITypes). Most are declared in the
   bundled plugins' OWN privacy manifests, which travel in their frameworks (the

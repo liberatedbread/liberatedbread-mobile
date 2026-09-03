@@ -54,7 +54,12 @@ void main() {
     // The gate is up; the app proper is not yet reachable.
     expect(find.byType(TermsScreen), findsOneWidget);
     expect(find.byType(HomeShell), findsNothing);
-    expect(find.textContaining('Experimental'), findsOneWidget);
+    // The disclaimer heading. Asserted on 'unofficial' rather than on the
+    // word it used to carry: the gate deliberately no longer says
+    // "experimental" or "beta", because Guideline 2.2 rejects demos and betas
+    // and a reviewer reads this screen first. The disclaimer CONTENT is the
+    // point and is unchanged; only the framing moved.
+    expect(find.textContaining('unofficial'), findsOneWidget);
 
     await tester.ensureVisible(find.text('I understand and agree'));
     await tester.tap(find.text('I understand and agree'));

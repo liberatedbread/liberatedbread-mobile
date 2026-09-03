@@ -34,11 +34,15 @@ today** because Apple's grant can take days.
   profile name `"Liberated Bread App Store"`).
 - **Bluetooth / Local Network / Bonjour** usage strings + `NSBonjourServices`
   present and in sync with the specs.
-- **First-launch Terms gate** links the disclaimer + privacy URLs, marks the app
-  experimental.
+- **First-launch Terms gate** links the disclaimer + privacy URLs and states the
+  app is independent and unofficial. Deliberately does NOT say "experimental" or
+  "beta": Guideline 2.2 rejects demos and betas, and reviewers act on that
+  wording wherever they see it — first-run screen, screenshots, description.
 - **Icons** — full set incl. the 1024 marketing icon (RGB, no alpha).
-- **Marketing version** stays `0.1.0` (matches the experimental framing; to ship
-  as 1.0.0 edit only `pubspec.yaml`'s `version:`). The **build number** — the
+- **Marketing version** stays `0.1.0` (to ship as 1.0.0 edit only
+  `pubspec.yaml`'s `version:` — consider doing so, since a 0.x version alongside
+  any "early"/"preview" wording is part of what reads as a beta under Guideline
+  2.2). The **build number** — the
   `+N` half — must increase on every upload; see the note in Step 5. Do not
   freeze it: App Store Connect rejects a second upload carrying a
   `CFBundleVersion` it has already seen, and `pubspec.yaml` is the only source
@@ -232,23 +236,28 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 
 **Promotional text (≤170 chars):**
 > Control the smart devices on your own network — directly over Bluetooth and
-> Wi-Fi, with no account and no cloud. Experimental and open.
+> Wi-Fi, with no account required. Open source.
 
 **Description:**
 > Liberated Bread is a universal remote for the devices on your own network. It
 > talks to them directly — over Bluetooth Low Energy and your local Wi-Fi — with
-> no account, no cloud relay, and no data collection.
+> no account required, no cloud relay, and no data collection.
 >
 > It ships with a catalogue of device profiles and can discover and control a
 > wide range of gear on your LAN, including smart plugs and bulbs, media players
 > and TVs, air purifiers, robot vacuums, treadmills and walking pads, label
 > printers, cameras, and more — plus a bridge to your own Home Assistant server.
 >
-> Privacy by design: nothing you do leaves your device. The app's only outbound
-> internet request is an anonymous check for a promotional banner. Everything
-> else is direct, local device control.
+> Privacy by design: device control is direct and local, and nothing about it
+> is reported anywhere. The app makes no account and collects no data. The only
+> connections it opens beyond your own devices are ones you can see and choose:
+> an anonymous check for an in-app banner, downloading a device-profile pack if
+> you install one, your own Home Assistant server if you configure it, and — if
+> you pick the account route for a robot vacuum instead of entering its details
+> by hand — a one-time sign-in to the vendor's cloud to read your robot's local
+> password.
 >
-> This is experimental software provided as-is. Please read the in-app terms and
+> This is independent, community-maintained software provided as-is. Please read the in-app terms and
 > the disclaimer at https://liberatedbread.com/disclaimer/ before use — some
 > supported devices (for example light-based beauty devices) can cause harm if
 > used incorrectly; always follow the manufacturer's own safety guidance.
@@ -258,7 +267,7 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 > automation,ble,offline
 
 **What's New (first version):**
-> First release. Experimental local control for Bluetooth and Wi-Fi devices on
+> First release. Local control for Bluetooth and Wi-Fi devices on
 > your own network.
 
 > ⚠️ Trademark check: the description lists device *categories*, not brand names,

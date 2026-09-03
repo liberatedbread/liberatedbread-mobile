@@ -17,11 +17,20 @@ it: `multicast_dns` binds UDP 5353 and joins 224.0.0.251 directly, and the SSDP
 half sends M-SEARCH to 239.255.255.250 from its own socket. Since iOS 14 raw
 multicast is blocked without this entitlement.
 
-`NSBonjourServices` in `Info.plist` does **not** cover this. That key applies to
-mDNS performed through the Bonjour APIs (`NWBrowser`, `NetService`), where
-`mDNSResponder` does the multicast for you. This app uses raw sockets, so it
-needs both: the entitlement to send at all, and the service-type list because
-the OS still filters mDNS answers by declared type.
+`NSBonjourServices` in `Info.plist` does **not** cover this, and — this is the
+part that was wrong here for a while — it does not supplement it either. That
+key applies to mDNS performed through the Bonjour APIs (`NWBrowser`,
+`NetService`), where `mDNSResponder` does the multicast for you and the OS
+filters answers by declared type. This app uses raw sockets, so the entitlement
+is the only thing gating discovery; the service-type list governs nothing it
+currently does.
+
+The list is still generated and committed, because it declares the app's intent
+accurately to App Review and because it is precisely what a move to `NWBrowser`
+would need already correct. That move is worth knowing about: a Bonjour-API
+implementation needs **no multicast entitlement at all**, which would remove the
+approval dependency this whole section is about. It would cost the SSDP half,
+which has no Bonjour equivalent.
 
 Unlike most capabilities, you cannot simply tick this one on in the App ID.
 Apple grants it by request:
