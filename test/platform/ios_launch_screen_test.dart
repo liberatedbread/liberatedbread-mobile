@@ -31,7 +31,9 @@ const String _storyboard = 'ios/Runner/Base.lproj/LaunchScreen.storyboard';
     fail('${file.path} is ${bytes.length} bytes — not a PNG.');
   }
   int be32(int at) =>
-      (bytes[at] << 24) | (bytes[at + 1] << 16) | (bytes[at + 2] << 8) |
+      (bytes[at] << 24) |
+      (bytes[at + 1] << 16) |
+      (bytes[at + 2] << 8) |
       bytes[at + 3];
   return (width: be32(16), height: be32(20));
 }
