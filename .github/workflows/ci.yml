@@ -1157,6 +1157,31 @@ jobs:
             --target=integration_test/ci_all_test.dart \
             --dart-define=LIBERATED_BREAD_MOCK=true
 
+      # The step above builds integration_test/ci_all_test.dart, NOT the app.
+      # So until this step existed, lib/main.dart had never been compiled for
+      # iOS anywhere in CI, in any mode: the shipped entrypoint, the whole
+      # release/AOT path, and the arm64 device target were all unverified, and
+      # the first thing to exercise them was the ad-hoc workflow — which is
+      # manually triggered, so a break would surface whenever someone next
+      # wanted an IPA rather than in the PR that caused it.
+      #
+      # AOT is not a formality here. `flutter build ios --debug` compiles Dart
+      # to a JIT kernel and skips the tree-shaker and the const evaluator
+      # entirely, so a release-only compile failure is a real class: the
+      # tree-shaker rejecting a non-const IconData (this app builds icons from
+      # the spec catalogue in lib/core/entity_icon.dart and lib/core/icons/),
+      # or a deferred-loading or transitive-native issue that only the AOT
+      # snapshot surfaces.
+      #
+      # Cost: one more build on a runner that is already warm — same pub cache,
+      # same Rust cache, same CocoaPods. It reuses the aarch64-apple-ios target
+      # the toolchain step already installed. --no-codesign keeps it out of the
+      # signing story entirely, so it needs no secrets and cannot fail on a
+      # provisioning profile.
+      - name: Build iOS (device, release, no codesign) — the shipped entrypoint
+        timeout-minutes: 25
+        run: flutter build ios --release --no-codesign --no-pub
+
       # ── verify the artifact, not just the exit code ─────────────────────────
       # Why a lockfile check is not redundant with a green build, which pods are
       # asserted and which deliberately are not: scripts/verify_ios_pods.sh.
