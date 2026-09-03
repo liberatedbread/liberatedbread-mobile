@@ -49,6 +49,8 @@
 #   CI_JAVA_VERSION           JDK major version Gradle runs on
 #   CI_FRB_VERSION            flutter_rust_bridge_codegen
 #   CI_LLVM_COV_VERSION       cargo-llvm-cov (the rust-coverage job's tool)
+#   CI_IOS_ATTEMPT_TIMEOUT    per-attempt wall clock for the iOS simulator run
+#   CI_IOS_BOOT_TIMEOUT       bound on waiting for the simulator to boot
 #   CI_RUST_ANDROID_TARGETS   space-separated rustup targets for Android
 #   CI_RUST_IOS_TARGETS       space-separated rustup targets for iOS
 #   CI_EMULATOR_API           API level of the AVD CI boots
@@ -158,6 +160,13 @@ ci_versions_load() {
   _ci_set CI_FRB_VERSION '2.9.0' "$(_ci_env FRB_VERSION || true)"
   _ci_set CI_LLVM_COV_VERSION '0.8.7' "$(_ci_env LLVM_COV_VERSION || true)"
 
+  # The iOS simulator job's two bounds. scripts/ci-ios-tests.sh reads them from
+  # here when they are not already in the environment, which is what lets that
+  # script be run on a laptop exactly as its own usage text says. In CI the
+  # workflow's env: block still supplies them directly.
+  _ci_set CI_IOS_ATTEMPT_TIMEOUT '720' "$(_ci_env IOS_SIMULATOR_ATTEMPT_TIMEOUT || true)"
+  _ci_set CI_IOS_BOOT_TIMEOUT '240' "$(_ci_env IOS_SIMULATOR_BOOT_TIMEOUT || true)"
+
   _ci_set CI_RUST_ANDROID_TARGETS \
     'aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android' \
     "$(_ci_env_list RUST_ANDROID_TARGETS || true)"
@@ -185,6 +194,7 @@ ci_versions_print() {
   local v
   for v in CI_FLUTTER_VERSION CI_NDK_VERSION CI_ANDROID_API CI_BUILD_TOOLS_VERSION \
            CI_CMAKE_VERSION CI_JAVA_VERSION CI_FRB_VERSION CI_LLVM_COV_VERSION \
+           CI_IOS_ATTEMPT_TIMEOUT CI_IOS_BOOT_TIMEOUT \
            CI_RUST_ANDROID_TARGETS CI_RUST_IOS_TARGETS \
            CI_EMULATOR_API CI_EMULATOR_TARGET CI_EMULATOR_ARCH CI_EMULATOR_PROFILE \
            CI_EMULATOR_SYSTEM_IMAGE CI_LINUX_DESKTOP_PACKAGES; do

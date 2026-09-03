@@ -47,11 +47,15 @@
 #   ./scripts/ci-ios-tests.sh                   # boot and run, for a laptop
 #
 # Environment:
-#   IOS_SIMULATOR_ATTEMPT_TIMEOUT  Required by --run. Per-attempt wall clock in
-#                                  seconds. Declared in ci.yml's top-level env
-#                                  block; required rather than defaulted here so
-#                                  renaming it there fails with a name instead
-#                                  of silently running unbounded.
+#   IOS_SIMULATOR_ATTEMPT_TIMEOUT  Per-attempt wall clock in seconds. Declared
+#                                  in ci.yml's top-level env block, which is
+#                                  where the workflow gets it. When unset (a
+#                                  laptop run), it is read back out of ci.yml
+#                                  via scripts/ci-versions.sh rather than
+#                                  defaulted here, so ci.yml stays the single
+#                                  source of truth and renaming the key still
+#                                  fails loudly in that script's --strict mode.
+#   IOS_SIMULATOR_BOOT_TIMEOUT     Bound on waiting for the boot. Same rules.
 #   LB_IOS_UDID                    Simulator to use. Defaults to whatever
 #                                  --boot picked, else the first available
 #                                  iPhone.
@@ -95,11 +99,22 @@ warn() { printf '\033[1;33m[ios-ci]\033[0m %s\n' "$*" >&2; }
 # an Xcode image bump that retires a device name must not break the job.
 #
 # `simctl list devices available` prints "    iPhone 17 Pro (UDID) (Shutdown)",
-# so the UDID is the first parenthesised field; `available` already filters out
-# devices whose runtime is not installed.
+# and `available` already filters out devices whose runtime is not installed.
+#
+# Match the UDID by SHAPE, not by position. This used to split the line on
+# parentheses and take the first field, which is correct only while no device
+# name contains parentheses — and Apple ships several that do ("iPhone SE (3rd
+# generation)", "iPad Air 11-inch (M3)"). On such a line the old parse yielded
+# "3rd generation", which then reached `simctl bootstatus` as a device
+# identifier and failed there, several steps from the cause. Whether it fired
+# depended on which device happened to sort first in the runner image.
+#
+# The same UUID-shaped match is what scripts/e2e-walkthrough.sh already uses.
 pick_udid() {
   xcrun simctl list devices available \
-    | awk -F'[()]' '/^ +iPhone/ { print $2; exit }'
+    | grep -E '^ +iPhone' \
+    | grep -oE '[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}' \
+    | head -1
 }
 
 require_udid() {
@@ -325,9 +340,33 @@ require_seconds() {
   esac
 }
 
+# Resolve the two bounds, preferring the environment (which is how the workflow
+# supplies them) and otherwise reading them out of ci.yml.
+#
+# They used to be required outright, so that renaming the key in ci.yml failed
+# with a name rather than silently running unbounded. That intent is kept — the
+# read below is scripts/ci-versions.sh, which is the ONE place this repo parses
+# ci.yml, and whose --strict mode (run by the gate job) fails the PR that
+# renames a key. What is fixed is the side effect: with the variables required
+# and declared only in the workflow, the laptop invocation this script's own
+# usage text documents ("./scripts/ci-ios-tests.sh  # boot and run, for a
+# laptop") aborted immediately, so the one path a developer would reach for
+# never worked.
+resolve_timeouts() {
+  if [ -z "${IOS_SIMULATOR_ATTEMPT_TIMEOUT:-}" ] || [ -z "${IOS_SIMULATOR_BOOT_TIMEOUT:-}" ]; then
+    local self_dir
+    self_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+    # shellcheck source=ci-versions.sh
+    source "$self_dir/ci-versions.sh"
+    IOS_SIMULATOR_ATTEMPT_TIMEOUT="${IOS_SIMULATOR_ATTEMPT_TIMEOUT:-$CI_IOS_ATTEMPT_TIMEOUT}"
+    IOS_SIMULATOR_BOOT_TIMEOUT="${IOS_SIMULATOR_BOOT_TIMEOUT:-$CI_IOS_BOOT_TIMEOUT}"
+  fi
+}
+
 run_mode() {
-  : "${IOS_SIMULATOR_ATTEMPT_TIMEOUT:?must be set in the top-level env block of ci.yml}"
-  : "${IOS_SIMULATOR_BOOT_TIMEOUT:?must be set in the top-level env block of ci.yml}"
+  resolve_timeouts
+  : "${IOS_SIMULATOR_ATTEMPT_TIMEOUT:?could not be resolved from the environment or ci.yml}"
+  : "${IOS_SIMULATOR_BOOT_TIMEOUT:?could not be resolved from the environment or ci.yml}"
   require_seconds IOS_SIMULATOR_ATTEMPT_TIMEOUT "$IOS_SIMULATOR_ATTEMPT_TIMEOUT"
   require_seconds IOS_SIMULATOR_BOOT_TIMEOUT "$IOS_SIMULATOR_BOOT_TIMEOUT"
 
