@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/log.dart';
+import '../core/mono_text.dart';
 
 /// What the app has been saying, on the device it is saying it on.
 ///
@@ -290,7 +291,8 @@ class _RecordTile extends StatelessWidget {
             SelectableText(
               detail,
               style: theme.textTheme.bodySmall
-                  ?.copyWith(color: scheme.error, fontFamily: 'monospace'),
+                  ?.copyWith(color: scheme.error)
+                  .monospaced,
             ),
           ],
         ],

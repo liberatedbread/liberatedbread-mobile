@@ -71,6 +71,29 @@ class BlePairingRequiredException implements UserFacingException {
           'data. Accept the pairing request from your system Bluetooth '
           'settings, then try again.']);
 
+  /// The same refusal, worded for where the prompt actually appears.
+  ///
+  /// The default message says "from your system Bluetooth settings", which is
+  /// true on Android and BlueZ and wrong on Apple platforms. CoreBluetooth
+  /// raises its own "Bluetooth Pairing Request" alert directly over the app in
+  /// response to the failed operation, and an unbonded BLE peripheral does not
+  /// appear under Settings > Bluetooth at all — so on iOS the original text
+  /// sent the user to a screen that shows nothing, at the moment the alert
+  /// they needed was on top of the one they left.
+  ///
+  /// Kept as a factory on the exception rather than resolved at the throw site
+  /// so the wording lives next to the type that carries it, and so tests can
+  /// construct either form without faking a platform.
+  factory BlePairingRequiredException.forPlatform({
+    required bool isApple,
+  }) =>
+      isApple
+          ? const BlePairingRequiredException(
+              'This device needs to be paired before it will share data. '
+              'Tap Pair on the Bluetooth Pairing Request, then try again. '
+              'If you already dismissed it, retrying brings it back.')
+          : const BlePairingRequiredException();
+
   @override
   String toString() => message;
 }

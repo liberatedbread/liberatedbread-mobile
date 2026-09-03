@@ -1112,7 +1112,12 @@ class RealBleService implements BleService {
           }),
         );
       }
-      throw const BlePairingRequiredException();
+      // Apple platforms put the pairing prompt on screen themselves; Android
+      // and BlueZ send the user to system settings. Same refusal, different
+      // next step, so the message has to know which one it is on.
+      throw BlePairingRequiredException.forPlatform(
+        isApple: Platform.isIOS || Platform.isMacOS,
+      );
     });
   }
 

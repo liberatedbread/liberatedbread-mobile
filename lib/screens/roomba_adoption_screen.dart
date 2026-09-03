@@ -15,6 +15,7 @@ import '../services/ha_api_client.dart';
 import '../services/irobot_cloud_service.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_credential_store.dart';
+import '../core/mono_text.dart';
 
 /// Where dorita980 lives. Shown, and tappable, on every step — the protocol
 /// below is entirely koalazak's work and the app says so rather than
@@ -719,8 +720,7 @@ class _Field extends StatelessWidget {
                 // is easy to mis-transcribe.
                 SelectableText(
                   value,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(fontFamily: 'monospace'),
+                  style: theme.textTheme.bodyMedium?.monospaced,
                 ),
               ],
             ),

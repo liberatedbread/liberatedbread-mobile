@@ -7,6 +7,7 @@ import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../providers/ble_provider.dart';
 import '../core/error_text.dart';
+import '../core/mono_text.dart';
 
 /// Raw characteristic widget — shows hex values and provides basic read/write.
 /// This is the fallback for characteristics not matched to a device spec;
@@ -188,7 +189,7 @@ class _RawCharacteristicWidgetState
               Expanded(
                 child: Text(
                   char.uuid,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  style: monoTextStyleOf(fontSize: 12),
                 ),
               ),
               ...properties.map((p) => Padding(
@@ -228,7 +229,7 @@ class _RawCharacteristicWidgetState
                 child: TextField(
                   controller: _writeController,
                   enabled: !_writing,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                  style: monoTextStyleOf(fontSize: 13),
                   decoration: const InputDecoration(
                     isDense: true,
                     labelText: 'Write hex',
@@ -288,7 +289,7 @@ class _RawCharacteristicWidgetState
       children: [
         Text(
           bytesToHex(_value!),
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+          style: monoTextStyleOf(fontSize: 13),
         ),
         if (ascii != null)
           Text(

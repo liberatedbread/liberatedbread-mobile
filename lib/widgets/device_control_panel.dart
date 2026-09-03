@@ -26,6 +26,7 @@ import 'setpoint_control_card.dart';
 import 'switch_control_card.dart';
 import 'treadmill_control_card.dart';
 import 'typed_characteristic_widget.dart';
+import '../core/mono_text.dart';
 
 /// Displays the services/characteristics of a connected device. When the device
 /// matches a bundled device spec, characteristics are rendered as typed
@@ -909,7 +910,7 @@ class _ServiceCardState extends State<_ServiceCard> {
         ),
         subtitle: Text(
           service.uuid,
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+          style: monoTextStyleOf(fontSize: 11),
         ),
         initiallyExpanded: !widget.foldedForReadings,
         // Collapsing must hide the children, never dispose them. Notify-capable
