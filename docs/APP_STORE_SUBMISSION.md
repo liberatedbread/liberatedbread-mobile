@@ -37,8 +37,12 @@ today** because Apple's grant can take days.
 - **First-launch Terms gate** links the disclaimer + privacy URLs, marks the app
   experimental.
 - **Icons** — full set incl. the 1024 marketing icon (RGB, no alpha).
-- **Version** stays `0.1.0+1` (matches the experimental framing; to ship as 1.0.0
-  edit only `pubspec.yaml`'s `version:`).
+- **Marketing version** stays `0.1.0` (matches the experimental framing; to ship
+  as 1.0.0 edit only `pubspec.yaml`'s `version:`). The **build number** — the
+  `+N` half — must increase on every upload; see the note in Step 5. Do not
+  freeze it: App Store Connect rejects a second upload carrying a
+  `CFBundleVersion` it has already seen, and `pubspec.yaml` is the only source
+  of that value.
 
 **On-Mac validation (Mac Mini, Xcode 26.3 / Flutter 3.44.8):**
 - `flutter build ios --release --no-codesign` → builds clean (Runner.app 38.5 MB);
@@ -147,8 +151,18 @@ clean checkout of this branch:
 export PATH="$HOME/.cargo/bin:$HOME/flutter-3.44.8/bin:/opt/homebrew/bin:$PATH"
 git clone -b unfuck git@github.com:liberatedbread/liberatedbread-mobile.git ~/lb && cd ~/lb
 flutter pub get
-flutter build ipa --release --export-options-plist=ios/ExportOptions-appstore.plist
+flutter build ipa --release --build-number=$(date +%Y%m%d%H%M) \
+  --export-options-plist=ios/ExportOptions-appstore.plist
 ```
+
+**`--build-number` is not optional on a re-upload.** `pubspec.yaml`'s
+`version: 0.1.0+1` is the only source of `CFBundleVersion` (`Info.plist` reads
+`$(FLUTTER_BUILD_NUMBER)`), and nothing bumps it. The first upload succeeds; the
+second — a TestFlight build after a rejection, or the re-export once the
+multicast entitlement is granted — is refused by App Store Connect for a
+duplicate build number, and the refusal arrives by email after the upload, not
+during it. Any monotonic value works; the timestamp above needs no state.
+`.github/workflows/ios-adhoc.yml` uses `github.run_number` for the same reason.
 That needs the Step-2 cert + Step-4 profile in the keychain. Then upload the IPA
 (`build/ios/ipa/*.ipa`) one of:
 - **Transporter.app** (Mac App Store) — drag the IPA in, Deliver. Simplest.
@@ -272,10 +286,15 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 ## On-Mac test results
 
 Run on the Mac Mini (Xcode 26.3, Flutter 3.44.8, Rust arm64, iOS 26.3 Simulator /
-iPhone 16e). Summary: **the app builds, launches, and runs on iOS**; every
-failure observed is environmental (a bare simulator has no real devices/LAN, and
-some host tests do real socket/BLE I/O that behaves differently on macOS) — none
-is a defect in the shipped app, and Linux CI is green on all of them.
+iPhone 16e). Summary: **the app builds, launches, and runs on iOS**.
+
+> **Corrected 2026-09-03.** This section previously called every failure below
+> environmental. Three of them were not, and saying so hid real bugs for a
+> release cycle. A failure that only reproduces on one machine is not thereby
+> environmental — it is a failure that only one machine is positioned to see,
+> which is the opposite of harmless when that machine is the only one that
+> builds for the platform you ship. See MAC_NOW.md and PORTABLE.md for the
+> audit that found them.
 
 - **iOS build:** `flutter build ios --release --no-codesign` ✅ — Runner.app
   38.5 MB; Rust FFI linked via cargokit; `PrivacyInfo.xcprivacy` +
@@ -284,19 +303,35 @@ is a defect in the shipped app, and Linux CI is green on all of them.
   captured); the banner fetch fails gracefully offline as designed.
 - **Integration tests on the iOS Simulator:**
   - ✅ `app_launch`, `mock_flow`, `error_flow`, `group_flow`, `native_core` — all pass.
-  - ⚠️ `e2e_walkthrough` — 3 pass, 4 fail: *scan finds devices*, *connect to a
-    device*, *spec-pack install*, *Home Assistant settings*. All four need a real
-    device / LAN / HA server the bare simulator doesn't have. Not app defects.
+  - ❌ `e2e_walkthrough` — 3 pass, 4 fail: *scan finds devices*, *connect to a
+    device*, *spec-pack install*, *Home Assistant settings*. **A test bug, not
+    the environment.** All four pump `LiberatedBreadApp` without overriding
+    `sharedPreferencesProvider`, which `_TermsGate` reads in `initState`
+    (`lib/app.dart:45`), so they throw `UnimplementedError` before touching
+    Bluetooth or the network. The three that pass build their own scope. The
+    other integration suites override it (`mock_flow_test.dart:62`,
+    `group_flow_test.dart:82`). Tracked in PORTABLE.md.
   - `linux_virtual_ble` — not run on iOS (Linux-only harness).
 - **Rust (`cargo test`) on macOS arm64:** ✅ all suites pass.
-- **Dart unit/widget suite on the macOS host:** 1861 pass / 13 skip / **4 fail**,
-  all environmental host quirks (Linux CI passes them):
-  - `platform/deployment_targets_test` — an artifact of Flutter 3.44.8's project
-    migration on the Mac working copy (the committed project is consistent).
-  - `services/real_ble_service_emulated_test` — flutter_blue_plus reports
-    "Device is disconnected" on a macOS host (no CoreBluetooth device).
-  - `services/multicast_lock_test` (×2) — real UDP send on :5353 returns
-    `No route to host (errno 65)` on the macOS host sandbox.
+- **Dart unit/widget suite on the macOS host:** 1863 pass / 13 skip / **2 fail**
+  (was 4; two were fixed by this audit):
+  - `platform/deployment_targets_test` — **fixed.** It asserted a
+    `MinimumOSVersion` key in `ios/Flutter/AppFrameworkInfo.plist` that the
+    pinned toolchain *deletes on every iOS build* and no longer ships in its
+    template. The committed plist was the stale artifact, not the Mac working
+    copy — the earlier note here had it backwards. Linux CI stayed green only
+    because it never builds for iOS.
+  - `services/real_ble_service_emulated_test` — **not** "no CoreBluetooth
+    device": the emulated harness needs no radio. The single failing case
+    depends on a 3-second CCCD spurious-timeout window that only opens on
+    Linux, and lacks the skip its sibling case carries. Tracked in PORTABLE.md.
+  - `services/multicast_lock_test` (×2) — genuinely environmental: real UDP
+    send on :5353 returns `No route to host (errno 65)` under the macOS host
+    sandbox.
 
-Bottom line: nothing in the app blocks iOS; remaining work is purely the Apple
-signing/account steps above.
+Bottom line: the app builds and runs on iOS, but two things block a submission
+today and neither is an Apple account step. The privacy manifest had to declare
+the Rust core's required-reason file-timestamp APIs or App Store Connect refuses
+the upload (ITMS-91053) — fixed, see `ios/Runner/PrivacyInfo.xcprivacy`. And the
+build number must increase per upload (Step 5). The pinned Bluetooth plugin also
+carries two native crashers; see PORTABLE.md.

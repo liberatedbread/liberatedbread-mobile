@@ -239,11 +239,20 @@ jobs:
       # ── build ──────────────────────────────────────────────────────────────
       # Signed IPA uses --profile so the app can launch standalone (debug mode
       # requires a live Dart VM connection and aborts on install without one).
+      # --build-number is not cosmetic. pubspec.yaml's `version: 0.1.0+1` is the
+      # only source of CFBundleVersion (Info.plist takes it from
+      # $(FLUTTER_BUILD_NUMBER)), and nothing bumps it — so without this flag
+      # every run of this workflow produces build 1. Two testers' phones cannot
+      # tell two IPAs apart, iOS may decline to install the second over the
+      # first, and the same freeze on the App Store path gets the second upload
+      # rejected outright for a duplicate build number. github.run_number is
+      # monotonic per workflow, which is all App Store Connect requires.
       - name: Build signed IPA (profile mode)
         if: steps.signing.outputs.available == 'true'
         env:
           MOCK_FLAG: ${{ inputs.mock && '--dart-define=LIBERATED_BREAD_MOCK=true' || '' }}
         run: flutter build ipa --profile $MOCK_FLAG
+          --build-number=${{ github.run_number }}
           --export-options-plist=ios/ExportOptions-adhoc.plist
 
       - name: Build unsigned simulator bundle (no secrets fallback)
