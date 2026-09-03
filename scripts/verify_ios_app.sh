@@ -391,7 +391,20 @@ if [[ -f "$APP/embedded.mobileprovision" ]]; then
     fail "codesign not found. This is a device build (it has an embedded.mobileprovision), so its entitlements cannot be verified and a silently unentitled IPA would pass."
   else
     ENTITLEMENTS="$WORK/entitlements.plist"
-    if codesign -d --entitlements :- --xml "$APP" >"$ENTITLEMENTS" 2>/dev/null &&
+    # `--entitlements -`, not `:-`. The colon form is the old way of saying
+    # "write to this path", and codesign now answers it with
+    #   warning: Specifying ':' in the path is deprecated and will not work
+    #            in a future release
+    # on stderr (verified on Xcode 26.3) while still working. Since that
+    # stderr is discarded below, the warning was invisible here and the
+    # eventual removal would have arrived as this check silently failing to
+    # read any entitlements at all — which is the branch that then reports a
+    # bundle it could not inspect, on the one artifact that reaches a phone.
+    #
+    # `--xml` stays. Without it codesign prints a human-readable [Dict]/[Key]
+    # tree that PlistBuddy cannot parse, so dropping it is not the fix for the
+    # deprecation even though the two often get changed together.
+    if codesign -d --entitlements - --xml "$APP" >"$ENTITLEMENTS" 2>/dev/null &&
        [[ -s "$ENTITLEMENTS" ]]; then
       multicast="$("$PLISTBUDDY" -c "Print :com.apple.developer.networking.multicast" "$ENTITLEMENTS" 2>/dev/null || true)"
       if [[ "$multicast" != "true" ]]; then

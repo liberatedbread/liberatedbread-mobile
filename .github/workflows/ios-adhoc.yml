@@ -278,13 +278,28 @@ jobs:
       # grant produces an installable IPA whose Wi-Fi scan silently finds
       # nothing; the verifier turns that into a red build.
       #
-      # --skip-symbols here, unlike the CI simulator build: this is a profile
-      # build, and Xcode strips the app binary, so asserting on the Rust FFI
-      # symbols in a shipped IPA risks a false failure that cannot be validated
-      # without a signed device build. The unstripped debug bundle in ci.yml's
-      # ios-build job is where the linked-Rust-library assertion lives; adding
-      # an unverifiable variant of it here would be exactly the kind of check
-      # that can fail for the wrong reason.
+      # The symbol check runs HERE TOO, and used to be skipped on a false
+      # premise.
+      #
+      # The old reasoning was that this is a profile build, Xcode strips the app
+      # binary, and so asserting on the Rust FFI symbols "risks a false failure
+      # that cannot be validated without a signed device build". Two things are
+      # wrong with that. The entry points are not in the app binary; they are in
+      # the embedded liberated_bread_core.framework. And they cannot be stripped
+      # even in principle, because flutter_rust_bridge resolves them by NAME at
+      # runtime through dlsym — a build that stripped them would be a build
+      # whose every Rust call fails.
+      #
+      # Measured on a local `flutter build ios --release --no-codesign`, which
+      # strips at least as hard as profile: the framework still exports
+      # _frb_pde_ffi_dispatcher_primary and _frb_get_rust_content_hash, and
+      # verify_ios_app.sh passes on it unmodified.
+      #
+      # That matters because this IPA is the only artifact that reaches a real
+      # phone, and a missing Rust core is precisely the failure this whole
+      # workflow exists to catch — the app installs, launches, and then cannot
+      # parse a single device spec. Skipping the check left the one build that
+      # can exhibit it as the one build that never looked.
       - name: Verify signed IPA contents
         if: steps.signing.outputs.available == 'true'
         run: |
@@ -294,7 +309,7 @@ jobs:
             echo "::error::No .ipa produced under build/ios/ipa"
             exit 1
           fi
-          ./scripts/verify_ios_app.sh "$ipa" --skip-symbols
+          ./scripts/verify_ios_app.sh "$ipa"
 
       # The fallback bundle is a debug build and is not stripped, so the full
       # check — including the linked Rust library — applies.

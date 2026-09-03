@@ -88,6 +88,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 kv="$plist.kv"
+# No sidecar? Read the file itself. The entitlements plist the script extracts
+# with codesign is written by our codesign stub in this same KEY<TAB>VALUE
+# form, so one reader serves both without the stub needing to know the
+# script's private temp path.
+[[ -f "$kv" ]] || kv="$plist"
 [[ -f "$kv" ]] || exit 1
 # A value may span lines (arrays); blank-line terminated in the sidecar.
 awk -F'\t' -v k="$key" '
@@ -98,6 +103,37 @@ awk -F'\t' -v k="$key" '
 ' "$kv"
 STUB
 chmod +x "$BIN/PlistBuddy"
+
+# codesign, so the ENTITLEMENTS branch is exercised at all.
+#
+# That branch only runs when the bundle carries an embedded.mobileprovision,
+# i.e. on a signed device build — which exists nowhere but the ad-hoc workflow,
+# on a 10x-billed macOS runner, behind repository secrets. So the one check
+# standing between a profile that predates the multicast grant and an IPA that
+# installs, launches, and silently discovers nothing over Wi-Fi had never been
+# executed by anything. Stubbing codesign lets every case below run on Linux,
+# which is where this selftest runs.
+#
+# CODESIGN_MODE picks the behaviour:
+#   granted   entitlements XML with the multicast key true
+#   denied    entitlements XML with the key false (a profile predating the grant)
+#   absent    entitlements XML with no multicast key at all
+#   unreadable  non-zero exit, as codesign does on an unsigned bundle
+#   empty     exit 0 but write nothing (the -s guard's case)
+cat > "$BIN/codesign" <<'STUB'
+#!/usr/bin/env bash
+# usage: codesign -d --entitlements :- --xml <app>
+# The script redirects our stdout into its own entitlements plist and reads it
+# back with PlistBuddy, so emit the KEY<TAB>VALUE form that stub understands.
+case "${CODESIGN_MODE:-granted}" in
+  unreadable) exit 1 ;;
+  empty)      exit 0 ;;
+  denied)     printf 'com.apple.developer.networking.multicast\tfalse\n' ;;
+  absent)     printf 'some.other.entitlement\ttrue\n' ;;
+  *)          printf 'com.apple.developer.networking.multicast\ttrue\n' ;;
+esac
+STUB
+chmod +x "$BIN/codesign"
 
 # nm, driven by a per-file manifest so one case can say "the framework exports
 # the entry points, the staticlib does not" — which is exactly the kind of
@@ -445,6 +481,70 @@ else
   else
     bad "expected mangled frb_generated symbols to outnumber the C exports on a real binary ($loose vs $cexp)"
   fi
+fi
+
+# ── entitlements on a signed device build ───────────────────────────────────
+# The branch this covers is the one that decides whether an IPA carrying a
+# provisioning profile older than the multicast grant reaches a tester. Its
+# failure mode is not a crash: the app installs, launches, scans, and reports
+# "nothing answered on this network" forever. Until now nothing exercised it,
+# because it needs both a codesign and an embedded.mobileprovision and so only
+# ever ran on the signed ad-hoc build — which is gated behind secrets on a
+# 10x-billed runner, and skipped the check anyway when they were absent.
+#
+# `signed_app` adds the profile marker to the standard fixture; CODESIGN_MODE
+# drives the stub.
+signed_app() {
+  local app
+  app="$(make_app "$1")"
+  printf 'profile' > "$app/embedded.mobileprovision"
+  printf '%s\n' "$app"
+}
+
+c="$WORK/ent-granted"; mkdir -p "$c"; app="$(signed_app "$c")"
+out="$(CODESIGN_MODE=granted NM_MANIFEST="$(manifest "$c" liberated_bread_core=entry)" run_verify "$app")"; st=$?
+want_pass "$st" "signed bundle whose entitlements grant multicast => exit 0"
+if grep -q 'com.apple.developer.networking.multicast = true' <<<"$out"; then
+  ok "a granted run says so, rather than passing silently"
+else
+  bad "a granted run did not name the entitlement it checked"
+  dump "$out"
+fi
+
+c="$WORK/ent-denied"; mkdir -p "$c"; app="$(signed_app "$c")"
+out="$(CODESIGN_MODE=denied NM_MANIFEST="$(manifest "$c" liberated_bread_core=entry)" run_verify "$app")"; st=$?
+want_fail "$st" "multicast entitlement present but false => non-zero"
+if grep -q 'provisioning profile predates' <<<"$out"; then
+  ok "the failure names the usual cause (a profile predating the grant)"
+else
+  bad "the failure did not point at the provisioning profile"
+  dump "$out"
+fi
+
+c="$WORK/ent-absent"; mkdir -p "$c"; app="$(signed_app "$c")"
+out="$(CODESIGN_MODE=absent NM_MANIFEST="$(manifest "$c" liberated_bread_core=entry)" run_verify "$app")"; st=$?
+want_fail "$st" "multicast entitlement missing entirely => non-zero"
+
+# An unsigned or unreadable signature must not pass quietly: a device build
+# that cannot be inspected cannot be shown to carry the entitlement.
+c="$WORK/ent-unreadable"; mkdir -p "$c"; app="$(signed_app "$c")"
+out="$(CODESIGN_MODE=unreadable NM_MANIFEST="$(manifest "$c" liberated_bread_core=entry)" run_verify "$app")"; st=$?
+want_fail "$st" "codesign cannot read the signature => non-zero"
+
+c="$WORK/ent-empty"; mkdir -p "$c"; app="$(signed_app "$c")"
+out="$(CODESIGN_MODE=empty NM_MANIFEST="$(manifest "$c" liberated_bread_core=entry)" run_verify "$app")"; st=$?
+want_fail "$st" "codesign exits 0 but writes nothing => non-zero (the -s guard)"
+
+# The skip path is a pass, and has to stay one: the simulator bundle CI builds
+# has no profile, and asserting there would fail for the wrong reason.
+c="$WORK/ent-unsigned"; mkdir -p "$c"; app="$(make_app "$c")"
+out="$(NM_MANIFEST="$(manifest "$c" liberated_bread_core=entry)" run_verify "$app")"; st=$?
+want_pass "$st" "no embedded.mobileprovision => entitlements check skipped, not failed"
+if grep -q 'skipping the entitlements check' <<<"$out"; then
+  ok "the skip is announced rather than silent"
+else
+  bad "the skip was silent, so a simulator bundle looks like a verified device build"
+  dump "$out"
 fi
 
 # ── result ──────────────────────────────────────────────────────────────────
