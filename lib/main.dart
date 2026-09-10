@@ -36,19 +36,20 @@ Future<void> main() async {
   // SharedPreferences but leaves every secret behind, so a reinstall showed
   // the first-run Terms gate on top of a store that still held the user's
   // Home Assistant token, Hue credentials, Roomba password and TLS pins.
-  // Clear it the first time a given install runs. The marker lives in prefs
-  // precisely because prefs ARE removed with the app — the disagreement
-  // between the two stores is the signal.
+  // Clear it the first time a given install runs.
   //
-  // Before the gate, so nothing has read a stale credential yet, and
+  // `hasRun` is NOT just the marker. The marker was added after the app had
+  // users, so on the first launch of the build that introduced it the key is
+  // absent for every existing install — and prefs survive an in-place update
+  // on every platform. Reading absence as "fresh install" therefore wiped
+  // every credential of every existing user, once, on upgrade.
+  // SecureSettingsStore.isFreshInstall also requires that the terms gate has
+  // never been accepted here, which no real update can satisfy.
+  //
+  // Runs before the gate, so nothing has read a stale credential yet, and
   // best-effort: a keychain that will not clear must not stop the app
   // launching.
-  final wiped = await SecureSettingsStore().wipeIfFreshInstall(
-    hasRun: () async =>
-        prefs.getBool(SecureSettingsStore.freshInstallMarkerKey) ?? false,
-    markRun: () async =>
-        prefs.setBool(SecureSettingsStore.freshInstallMarkerKey, true),
-  );
+  final wiped = await SecureSettingsStore().reconcileInstall(prefs);
   if (wiped) {
     Log.app.info('fresh install: cleared credentials left by a previous one');
   }

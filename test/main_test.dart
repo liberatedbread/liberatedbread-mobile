@@ -39,6 +39,7 @@ void main() {
   // is reached and nothing here depends on a radio.
   late EmulatedBleAdapter ble;
   late List<LogRecord> logs;
+  late List<String> secureStorageCalls;
 
   setUpAll(() {
     ble = EmulatedBleAdapter.install();
@@ -61,10 +62,14 @@ void main() {
     // fail — it never answers, and a Timer-based timeout cannot rescue it
     // because widget-test timers only advance when the test pumps. The
     // symptom is the whole suite hanging for ten minutes on this one test.
+    secureStorageCalls = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
       const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
-      (call) async => call.method == 'readAll' ? <String, String>{} : null,
+      (call) async {
+        secureStorageCalls.add(call.method);
+        return call.method == 'readAll' ? <String, String>{} : null;
+      },
     );
     logs = Log.captureRecords();
   });
@@ -139,5 +144,59 @@ void main() {
         reason: 'and it is LOUD about it — on desktop this is the first thing '
             'to check when spec parsing does nothing');
     expect(failures.first.message, contains('RustLib.init failed'));
+  });
+
+  group('the fresh-install keychain wipe is wired correctly', () {
+    // These boot the REAL main(), which is the only place the marker key and
+    // the fresh-install predicate are joined up. secure_settings_store_test
+    // proves the predicate; nothing proved the wiring, and a mistyped marker
+    // key there would wipe the keychain on every single launch while every
+    // unit test stayed green.
+
+    testWidgets('an install that has accepted the terms is never wiped',
+        (tester) async {
+      // The upgrade case, and the one that caused real data loss: the marker
+      // did not exist before the build that introduced it, so it is absent
+      // for every existing install on that build's first launch. Preferences
+      // survive an in-place update, so absence of the marker alone must not
+      // mean "fresh".
+      SharedPreferences.setMockInitialValues(
+          {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+      await entrypoint.main();
+      await tester.pump();
+
+      expect(
+        secureStorageCalls,
+        isNot(contains('deleteAll')),
+        reason: 'main() wiped the keychain on an install that had already '
+            'accepted the terms. That is an app update, not a fresh install, '
+            'and the wipe destroys the HA token, Hue credentials, Roomba '
+            'password and every TLS pin with no way back.',
+      );
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(SecureSettingsStore.freshInstallMarkerKey), isTrue,
+          reason: 'The marker must still be adopted, or this decision is '
+              're-made from scratch on every launch.');
+    });
+
+    testWidgets('a genuinely fresh install is wiped exactly once',
+        (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      await entrypoint.main();
+      await tester.pump();
+      expect(secureStorageCalls.where((c) => c == 'deleteAll'), hasLength(1),
+          reason: 'Empty preferences with a non-empty keychain is exactly the '
+              'reinstall case: iOS keeps keychain items when the app is '
+              'deleted, so they would otherwise be silently inherited.');
+
+      // Second boot, same preferences the first one left behind.
+      secureStorageCalls.clear();
+      await entrypoint.main();
+      await tester.pump();
+      expect(secureStorageCalls, isNot(contains('deleteAll')),
+          reason: 'The marker written by the first boot must stop it '
+              'happening again, or every launch deletes what the user just '
+              'entered.');
+    });
   });
 }
