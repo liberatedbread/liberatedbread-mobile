@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import 'spec_codec.dart';
+import 'tls_trust.dart';
 
 /// One MQTT 3.1.1 session over a socket the caller opened.
 ///
@@ -60,10 +61,19 @@ class MqttConnectionException implements UserFacingException {
   /// have to string-match this class's wording.
   final bool ackTimedOut;
 
+  /// True when the handshake failed because the device presented a
+  /// certificate different from the one pinned for it — refused by THIS
+  /// app's policy, not by the network. A [handshakeFailed] the caller must
+  /// not read as a cipher gap: nothing about retrying, rescanning or the
+  /// device's firmware will change the answer, and the one recovery is to
+  /// forget the device and pair it again.
+  final bool certificateChanged;
+
   const MqttConnectionException(
     this.message, {
     this.handshakeFailed = false,
     this.ackTimedOut = false,
+    this.certificateChanged = false,
   });
 
   @override
@@ -92,23 +102,118 @@ class MqttRefusedException implements UserFacingException {
   String toString() => message;
 }
 
+/// What a refused pin reads as, one sentence, device-neutral. The Roomba
+/// connector puts its own words on the same event because it knows what a
+/// changed certificate on a robot usually is (a factory reset that also
+/// minted a new password).
+const mqttCertificateChangedMessage =
+    'This device is presenting a different security certificate than it did '
+    'before. If you reset it or updated its firmware, remove it from Saved '
+    'devices and add it again. If you did not, something else may be '
+    'answering at its address.';
+
+/// Open the TLS socket to an appliance's broker — the ONE place it happens.
+///
+/// [trust] decides the certificate for [identity] when both are given: the
+/// stored pin is loaded first (`prepare`, so the synchronous callback has it
+/// in hand), then `onBadCertificate` is the policy's evaluator. Without a
+/// trust store the socket accepts any certificate, which is what every
+/// caller here did before and what a spec declaring `verification: none`
+/// still asks for. Throws `dart:io`'s exceptions untranslated: each public
+/// connector puts its own device's words on them.
+Future<MqttSocket> openMqttTlsSocket(
+  String host,
+  int port,
+  Duration timeout, {
+  TlsTrust? trust,
+  String? identity,
+  TlsPolicy policy = TlsPolicy.trustOnFirstUse,
+}) async {
+  bool Function(X509Certificate) onBadCertificate = (_) => true;
+  if (trust != null && identity != null) {
+    await trust.prepare(identity);
+    final evaluate = trust.evaluator(
+      identity: identity,
+      policy: policy,
+      fallback: (_, _, _) => true,
+    );
+    onBadCertificate = (cert) => evaluate(cert, host, port);
+  }
+  // Ownership transfers to the adapter, which the session closes.
+  // ignore: close_sinks
+  final socket = await SecureSocket.connect(
+    host,
+    port,
+    timeout: timeout,
+    onBadCertificate: onBadCertificate,
+  );
+  return SocketAdapter(socket);
+}
+
 /// The default connector: TLS, accepting a self-signed certificate.
 ///
 /// A LAN appliance's certificate is self-signed with no chain to anything, so
-/// validating it is not a thing that can succeed. Callers that must not accept
-/// that pass their own connector.
-Future<MqttSocket> tlsConnect(String host, int port, Duration timeout) async {
-  try {
-    // Ownership transfers to the adapter, which the session closes.
-    // ignore: close_sinks
-    final socket = await SecureSocket.connect(
+/// validating it is not a thing that can succeed. Callers whose spec asks for
+/// more than that use [pinnedTlsConnect]; callers that must not accept it at
+/// all pass their own connector.
+Future<MqttSocket> tlsConnect(String host, int port, Duration timeout) =>
+    _translated(
       host,
       port,
-      timeout: timeout,
-      onBadCertificate: (_) => true,
+      timeout,
+      () => openMqttTlsSocket(host, port, timeout),
     );
-    return SocketAdapter(socket);
+
+/// A TLS connector that pins the broker's certificate on first sight under
+/// [identity] and refuses a different one after — the spec's
+/// `trust_on_first_use`, on the MQTT transport.
+///
+/// [identity] is what the CALLER considers stable (a Roomba's BLID, never
+/// its IP: see [identityFor]). A refused pin surfaces as an
+/// [MqttConnectionException] with `certificateChanged` set, so the layer
+/// above can say the one sentence that names the recovery rather than
+/// reporting a device that is switched off.
+MqttConnect pinnedTlsConnect(
+  TlsTrust trust, {
+  required String identity,
+  TlsPolicy policy = TlsPolicy.trustOnFirstUse,
+}) =>
+    (host, port, timeout) => _translated(
+      host,
+      port,
+      timeout,
+      () => openMqttTlsSocket(
+        host,
+        port,
+        timeout,
+        trust: trust,
+        identity: identity,
+        policy: policy,
+      ),
+      trust: trust,
+    );
+
+/// Run [open] and turn what `dart:io` throws into this transport's words.
+Future<MqttSocket> _translated(
+  String host,
+  int port,
+  Duration timeout,
+  Future<MqttSocket> Function() open, {
+  TlsTrust? trust,
+}) async {
+  try {
+    return await open();
   } on HandshakeException catch (e) {
+    // `onBadCertificate` returns a bool and the exception carries no reason,
+    // so a pin the policy refused arrives looking exactly like a cipher gap.
+    // The policy remembers, and is asked first.
+    if (trust?.refused(host) ?? false) {
+      throw const MqttConnectionException(
+        mqttCertificateChangedMessage,
+        handshakeFailed: true,
+        certificateChanged: true,
+      );
+    }
     throw MqttConnectionException(
       'The TLS handshake with $host:$port failed ($e).',
       handshakeFailed: true,

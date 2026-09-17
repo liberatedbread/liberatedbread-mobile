@@ -122,18 +122,22 @@ String certificateFingerprint(X509Certificate certificate) =>
 
 /// Builds the `badCertificateCallback` a policy implies.
 ///
-/// Written for three callers and wired into one so far.
+/// Written for three callers and wired into two.
 ///
 /// `HttpControlClient` reads it, and both specs that ask to be pinned ride
 /// plain HTTP, so the policy reaches every device that currently declares one.
-/// `WsSession` and `MqttSession` still answer this question themselves with an
-/// unconditional yes — honest today, because the specs on those transports
+/// The MQTT transport reads it through `pinnedTlsConnect`, and the Roomba —
+/// whose spec says "validate by pinning on first sight" and whose password
+/// crosses every reconnect — pins under `roomba:<BLID>` through it; the other
+/// MQTT specs declare `verification: none` and keep the accept-anything
+/// connector. `WsSession` still answers this question itself with an
+/// unconditional yes — honest today, because the specs on that transport
 /// declare `verification: none` and mean it (a television's certificate is
-/// self-signed with no chain, and the Roomba regenerates its own), but it is
-/// their answer rather than the spec's. Rust already parses
-/// `websocket.connect.tls.verification` and carries it across the FFI, where
-/// no Dart reads it; the day a spec pairs `trust_on_first_use` with a socket,
-/// that is the wiring to do, and this class is what it wires into.
+/// self-signed with no chain), but it is its answer rather than the spec's.
+/// Rust already parses `websocket.connect.tls.verification` and carries it
+/// across the FFI, where no Dart reads it; the day a spec pairs
+/// `trust_on_first_use` with a socket, that is the wiring to do, and this
+/// class is what it wires into.
 class TlsTrust {
   final CertificatePinStore _pins;
 

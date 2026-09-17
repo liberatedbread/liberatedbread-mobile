@@ -334,6 +334,7 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
           .read(roombaPasswordServiceProvider)
           .fetchPassword(
             widget.host,
+            blid: widget.blid,
             attempts: widget.passwordAttempts,
             onAttempt: (attempt) {
               if (mounted) setState(() => _attempt = attempt);

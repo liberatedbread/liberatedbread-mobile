@@ -200,7 +200,15 @@ Future<void> forgetNetworkDevice({
   // discovery carried no hostname, and the RabbitAir-<MAC>.local a
   // cloud-less unit announces. Same idempotence argument as the identity
   // forms above: over-forgetting costs the re-pair the user asked for.
-  if (blid != null && blid.isNotEmpty) await roomba?.forget(blid);
+  if (blid != null && blid.isNotEmpty) {
+    await roomba?.forget(blid);
+    // And the robot's certificate pin, filed under its BLID (the same key
+    // the password lives under) rather than under the identity sweep above.
+    // A refused pin names Remove as its only recovery, so Remove has to
+    // clear it — a factory-reset robot presents a new certificate, and
+    // without this its re-adoption would fail closed forever.
+    await trust.forget(roombaTlsIdentity(blid), host: host);
+  }
   if (rabbitAir != null) {
     final fallbackHostname = rabbitAirFallbackHostname(deviceMac);
     final scopes = <String>{

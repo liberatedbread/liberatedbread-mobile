@@ -8,6 +8,7 @@ import '../services/rest980_client.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_credential_store.dart';
 import 'ha_provider.dart';
+import 'network_control_provider.dart';
 import 'spec_codec_provider.dart';
 
 /// Adopted robots' BLIDs and passwords, on the same secure settings store the
@@ -38,8 +39,16 @@ final haRoombaClientProvider = Provider<HaRoombaClient?>((ref) {
 
 /// The HOME-button password handshake. A provider so the adoption wizard's
 /// widget tests drive it from a scripted socket rather than a real robot.
+///
+/// Given the shared [tlsTrustProvider] so the robot's certificate is pinned
+/// on first sight, as its spec asks — the freshly minted password crosses
+/// this connection, and the same trust store is what the MQTT session below
+/// and the forget path consult, so one pin serves all three.
 final roombaPasswordServiceProvider = Provider<RoombaPasswordService>(
-  (ref) => RoombaPasswordService(codec: ref.watch(specCodecProvider)),
+  (ref) => RoombaPasswordService(
+    codec: ref.watch(specCodecProvider),
+    trust: ref.watch(tlsTrustProvider),
+  ),
 );
 
 /// The account route to the same credentials.
@@ -62,7 +71,10 @@ final iRobotCloudServiceProvider = Provider<IRobotCloudService>((ref) {
 /// client disconnects and the slot is free again.
 final roombaClientProvider = Provider.autoDispose
     .family<RoombaMqttClient, String>((ref, blid) {
-      final client = RoombaMqttClient(codec: ref.watch(specCodecProvider));
+      final client = RoombaMqttClient(
+        codec: ref.watch(specCodecProvider),
+        trust: ref.watch(tlsTrustProvider),
+      );
       ref.onDispose(client.dispose);
       return client;
     });

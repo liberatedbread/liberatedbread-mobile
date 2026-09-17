@@ -92,6 +92,18 @@ class RoombaCredentials {
   );
 }
 
+/// The identity a robot's TLS certificate is pinned under: `roomba:<BLID>`.
+///
+/// The BLID and never the IP, for the reason [RoombaCredentialStore] keys the
+/// password that way — the IP is a DHCP lease. Uppercased like the store's
+/// keys, because the BLID arrives uppercase from the UDP announcement and
+/// lowercase from iRobot's account API, and a pin written under one spelling
+/// and read under the other is a pin that never matches. One function
+/// because three callers must agree exactly: the password handshake that
+/// writes the pin, the MQTT session that checks it, and the forget path that
+/// clears it. A key computed two ways is a pin nothing can erase.
+String roombaTlsIdentity(String blid) => 'roomba:${blid.toUpperCase()}';
+
 /// Everything the app remembers about one adopted robot, keyed by its BLID.
 ///
 /// The sibling of [HubCredentialStore] for the MQTT transport, and keyed the

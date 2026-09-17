@@ -435,6 +435,9 @@ void main() {
       final roomba = RoombaCredentialStore(settings);
       await settings.write('roomba.ABC123.password', 'local-password');
       await settings.write('roomba.ABC123.name', 'Roomba');
+      // And the certificate pin the robot's TLS sessions check, filed under
+      // the same BLID: a refused pin names Remove as its only recovery.
+      await settings.write('tls.pin.${roombaTlsIdentity('abc123')}', 'fp');
       // A neighbour's robot stays.
       await settings.write('roomba.OTHER1.password', 'other');
 
@@ -456,7 +459,13 @@ void main() {
         isNull,
         reason: 'the local password is the secret Remove promised to drop',
       );
-      expect(settings.values.keys, ['roomba.OTHER1.password']);
+      expect(
+        settings.values.keys,
+        ['roomba.OTHER1.password'],
+        reason:
+            'the pin goes with the password, or a factory-reset robot '
+            'could never be adopted again',
+      );
     },
   );
 
