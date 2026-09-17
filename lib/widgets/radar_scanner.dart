@@ -37,14 +37,18 @@ class RadarScanner extends StatefulWidget {
 
 class _RadarScannerState extends State<RadarScanner>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1600),
-  );
+  // Created in initState, not lazily: a controller first touched in
+  // dispose() (a scanner that never swept) would mint its ticker during
+  // teardown, which the ticker provider refuses.
+  late final AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    );
     if (widget.scanning) _controller.repeat();
   }
 
