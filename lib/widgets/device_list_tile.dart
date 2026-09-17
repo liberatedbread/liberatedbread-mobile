@@ -127,6 +127,14 @@ class DeviceListTile extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onForget;
 
+  /// A second trailing action, drawn before Forget. Used for a per-device
+  /// setting that has nowhere else to live — a Roomba's transport choice,
+  /// which decides who holds the robot's single client slot.
+  final VoidCallback? onConfigure;
+
+  /// What [onConfigure] does, for its tooltip and semantics. Required with it.
+  final String? configureTooltip;
+
   /// What the spec catalogue makes of this device, when it makes anything.
   final String? badge;
 
@@ -167,12 +175,17 @@ class DeviceListTile extends StatelessWidget {
     this.enabled = true,
     this.onTap,
     this.onForget,
+    this.onConfigure,
+    this.configureTooltip,
     this.badge,
     this.badgeIsClaim = false,
     this.description,
     this.stale = false,
     this.staleReason,
-  });
+  }) : assert(
+         onConfigure == null || configureTooltip != null,
+         'a configure action needs a tooltip: it is an icon with no label',
+       );
 
   @override
   Widget build(BuildContext context) {
@@ -280,6 +293,13 @@ class DeviceListTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onConfigure != null)
+                IconButton(
+                  icon: const Icon(Icons.tune),
+                  iconSize: 18,
+                  tooltip: configureTooltip,
+                  onPressed: onConfigure,
+                ),
               if (onForget != null)
                 IconButton(
                   icon: const Icon(Icons.close),

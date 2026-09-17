@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,10 +9,17 @@ import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_group_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
+import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
+import 'package:liberated_bread_mobile/screens/roomba_transport_screen.dart';
 import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
+import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
+import 'package:liberated_bread_mobile/services/settings_store.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
+import '../fakes/fake_spec_codec.dart';
 import '../fakes/in_memory_settings_store.dart';
 
 late SharedPreferences _prefs;
@@ -163,6 +172,136 @@ void main() {
       expect(relativeTime(now.subtract(const Duration(days: 2))), '2d ago');
       // Past a week "42d ago" tells you less than a date does.
       expect(relativeTime(DateTime(2026, 1, 2)), '2026-01-02');
+    });
+  });
+
+  // R-093: the transport chooser was unreachable — its only caller passed no
+  // credentials, so the direct and rest980 sections could never draw, and the
+  // rest980 client's "clear the server address in this robot's settings"
+  // pointed at a setting with no UI. A saved robot now carries the entry.
+  group('a saved Roomba can be re-pointed', () {
+    const blid = 'ABC123';
+    const roombaSpec = 'Roomba|iRobot';
+
+    Widget wrapRoomba({required SettingsStore store}) => ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(FakeBleService()),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        settingsStoreProvider.overrideWithValue(store),
+        specCodecProvider.overrideWithValue(
+          FakeSpecCodec(
+            networkEntities: (_) => const [
+              NetworkEntityDto(
+                isInstanced: false,
+                name: 'Vacuum',
+                platform: 'vacuum',
+                stateCommand: 'state',
+                options: [],
+                actions: [],
+              ),
+            ],
+            networkCapabilitiesResult: const NetworkCapabilitiesDto(
+              protocolHandler: 'roomba_mqtt',
+              tlsSelfSigned: true,
+              advertisedPortUnreliable: false,
+              mqttClientIdGenerated: true,
+            ),
+          ),
+        ),
+        parsedDeviceSpecsProvider.overrideWith(
+          (ref) async => [
+            (
+              spec: DeviceSpecDto(
+                nameMatchers: const [],
+                platformFallbackTypes: const [],
+                txtMatchGroups: const [],
+                hiddenEntityNames: const [],
+                deviceName: 'Roomba',
+                manufacturer: 'iRobot',
+                manufacturerStatus: 'active',
+                protocol: 'wifi',
+                localNamePrefixes: const [],
+                localNames: const [],
+                serviceUuids: const [],
+                companyIds: Uint16List(0),
+                macPrefixes: const [],
+                mdnsServiceTypes: const [],
+                ssdpSearchTargets: const [],
+                lanProtocols: const [],
+                defaultPort: null,
+                entities: const [],
+                services: const [],
+              ),
+              yaml: 'roomba-yaml',
+            ),
+          ],
+        ),
+      ],
+      child: const MaterialApp(home: SavedDevicesScreen()),
+    );
+
+    Future<void> seedRobot() async {
+      SharedPreferences.setMockInitialValues({
+        'saved_network_devices_v1':
+            '[{"id":"r1","name":"Dusty","lastSeen":"2026-07-30T12:00:00.000",'
+            '"host":"192.168.1.40","txt":{"blid":"$blid"},'
+            '"specKey":"$roombaSpec"}]',
+      });
+      _prefs = await SharedPreferences.getInstance();
+    }
+
+    testWidgets('opens the transport chooser with the stored password', (
+      tester,
+    ) async {
+      await seedRobot();
+      final store = InMemorySettingsStore();
+      await RoombaCredentialStore(
+        store,
+      ).save(const RoombaCredentials(blid: blid, password: ':1:9:secret'));
+
+      await tester.pumpWidget(wrapRoomba(store: store));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('How to reach this robot'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(RoombaTransportScreen), findsOneWidget);
+      // With credentials in hand all three paths are offered — the two that
+      // need the local password included.
+      expect(find.text('Straight at the robot'), findsOneWidget);
+    });
+
+    testWidgets('says so when the robot has no password on this phone', (
+      tester,
+    ) async {
+      // Adopted through Home Assistant: the robot is drivable, just not
+      // directly, and a chooser with two dead sections would not say that.
+      await seedRobot();
+
+      await tester.pumpWidget(wrapRoomba(store: InMemorySettingsStore()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('How to reach this robot'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(RoombaTransportScreen), findsNothing);
+      expect(find.textContaining('only be reached through'), findsOneWidget);
+    });
+
+    testWidgets('a device that is not a robot has no such action', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'saved_network_devices_v1':
+            '[{"id":"p1","name":"Desk Lamp","lastSeen":"2026-07-30T12:00:00.000",'
+            '"host":"192.168.1.41"}]',
+      });
+      _prefs = await SharedPreferences.getInstance();
+
+      await tester.pumpWidget(wrapRoomba(store: InMemorySettingsStore()));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('How to reach this robot'), findsNothing);
     });
   });
 }

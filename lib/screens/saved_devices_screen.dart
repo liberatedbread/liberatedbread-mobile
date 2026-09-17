@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/device_category.dart';
+import '../core/error_text.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
@@ -14,10 +15,13 @@ import '../providers/saved_device_provider.dart';
 import '../providers/saved_network_device_provider.dart';
 import '../services/number_registry.dart';
 import '../services/saved_device_store.dart';
+import '../services/roomba_control_service.dart' show roombaProtocolHandler;
+import '../services/roomba_credential_store.dart';
 import '../services/saved_network_device_store.dart';
 import '../widgets/device_list_tile.dart';
 import 'device_screen.dart';
 import 'network_controls_launcher.dart';
+import 'roomba_transport_screen.dart';
 
 /// The devices the user has already paired with.
 ///
@@ -299,6 +303,17 @@ class _NetworkSavedTile extends ConsumerWidget {
               .valueOrNull
         : null;
     final category = DeviceCategory.parse(device.category);
+    // A robot serves ONE local client at a time, and a new connection evicts
+    // the last, so which thing holds that slot — this app, a rest980 server,
+    // or Home Assistant — is a real setting. RoombaTransportScreen is where
+    // it is answered, and until now nothing in the app could reach it with a
+    // robot's credentials, so the choice could be made once at adoption and
+    // never revised. This is that entry point.
+    final blid = device.txt['blid'];
+    final isRoomba =
+        blid != null &&
+        blid.isNotEmpty &&
+        controls?.capabilities?.protocolHandler == roombaProtocolHandler;
     return DeviceListTile(
       title: device.name.isNotEmpty ? device.name : 'Unknown device',
       subtitle: category?.label ?? 'Wi-Fi',
@@ -306,7 +321,62 @@ class _NetworkSavedTile extends ConsumerWidget {
       icon: category?.icon ?? Icons.router_outlined,
       description: device.host,
       onTap: controls == null ? null : () => onOpen(controls),
+      onConfigure: isRoomba ? () => _chooseTransport(context, ref, blid) : null,
+      configureTooltip: isRoomba ? 'How to reach this robot' : null,
       onForget: onForget,
+    );
+  }
+
+  /// Opens the transport chooser for a saved robot.
+  ///
+  /// The screen needs the stored credentials: without them it can only offer
+  /// Home Assistant, because the direct and rest980 paths need the robot's
+  /// local password, and that is the state the one existing caller (the
+  /// adoption flow) leaves it in.
+  Future<void> _chooseTransport(
+    BuildContext context,
+    WidgetRef ref,
+    String blid,
+  ) async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    RoombaCredentials? stored;
+    try {
+      stored = await ref.read(roombaCredentialStoreProvider).credentials(blid);
+    } catch (error) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            friendlyErrorText(
+              error,
+              fallback: "Could not read this robot's stored password.",
+              context: 'roomba transport chooser',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    if (!context.mounted) return;
+    if (stored == null) {
+      // Adopted through Home Assistant, or the password was cleared: the
+      // robot is still drivable, just not directly, and saying so beats a
+      // screen with two sections that cannot work.
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This robot has no stored password on this phone, so it can only '
+            'be reached through Home Assistant.',
+          ),
+        ),
+      );
+      return;
+    }
+    await navigator.push<void>(
+      MaterialPageRoute(
+        builder: (_) => RoombaTransportScreen(credentials: stored),
+      ),
     );
   }
 }
