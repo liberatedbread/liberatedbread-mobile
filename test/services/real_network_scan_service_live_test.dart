@@ -279,4 +279,46 @@ void main() {
     );
     await sub.cancel();
   });
+
+  test(
+    'stopScan ends every scan on the instance, not just the newest',
+    () async {
+      // R-028: one instance is shared (networkScanServiceProvider), and two
+      // callers use it — the Wi-Fi tab and the adoption flow's provisioning
+      // verifier. Only the newest session was tracked, so stopping left the
+      // older one holding its sockets; on Android those binds are exclusive, so
+      // the next scan fails to bind ports nothing appears to be using.
+      final service = RealNetworkScanService(
+        multicastLock: MulticastLock(isSupported: false),
+      );
+      var firstClosed = false;
+      var secondClosed = false;
+      final first = service
+          .scan(timeout: const Duration(minutes: 1))
+          .listen((_) {}, onDone: () => firstClosed = true);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final second = service
+          .scan(timeout: const Duration(minutes: 1))
+          .listen((_) {}, onDone: () => secondClosed = true);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      await service.stopScan();
+      await Future<void>.delayed(const Duration(seconds: 1));
+
+      expect(
+        secondClosed,
+        isTrue,
+        reason: 'the newest scan was always stopped',
+      );
+      expect(
+        firstClosed,
+        isTrue,
+        reason:
+            'the older overlapping scan kept running and kept its sockets '
+            'bound after the user pressed stop',
+      );
+      await first.cancel();
+      await second.cancel();
+    },
+  );
 }

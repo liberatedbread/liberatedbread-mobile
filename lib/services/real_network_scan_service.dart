@@ -940,6 +940,18 @@ class RealNetworkScanService implements NetworkScanService {
   /// still this one before releasing anything shared.
   _ScanSession? _session;
 
+  /// Every scan still running on this instance, newest last.
+  ///
+  /// `networkScanServiceProvider` hands out ONE instance and two callers use
+  /// it — the Wi-Fi tab and the adoption flow's provisioning verifier — so a
+  /// second scan can start while the first is still in its post-enumeration
+  /// wait. [_session] tracks only the newest, which is right for the
+  /// multicast lock (one platform-wide flag, last taker releases it) but
+  /// wrong for stopping: `stopScan()` ended the newest and left the older one
+  /// holding its sockets, so the ports it had bound stayed bound — on Android
+  /// the exclusive binds that makes the NEXT scan fail outright.
+  final Set<_ScanSession> _live = {};
+
   @override
   Stream<NetworkDevice> scan({
     Duration timeout = const Duration(seconds: 8),
@@ -960,6 +972,7 @@ class RealNetworkScanService implements NetworkScanService {
     // never the problem.
     final session = _ScanSession();
     _session = session;
+    _live.add(session);
 
     void emit(NetworkDevice device) {
       if (controller.isClosed) return;
@@ -2586,15 +2599,23 @@ class RealNetworkScanService implements NetworkScanService {
   /// its own turn comes.
   Future<void> _end(_ScanSession session) async {
     session.stop();
+    _live.remove(session);
     if (!identical(_session, session)) return;
     _session = null;
     await multicastLock.release();
   }
 
+  /// Stops every scan running on this instance, not just the newest.
+  ///
+  /// "Stop scanning" means the radio and the sockets are free afterwards.
+  /// With two callers sharing one instance, ending only the current session
+  /// left an older one alive and its ports bound, which is invisible until
+  /// the next scan cannot bind them.
   @override
   Future<void> stopScan() async {
-    final session = _session;
-    if (session != null) await _end(session);
+    for (final session in _live.toList()) {
+      await _end(session);
+    }
   }
 }
 
