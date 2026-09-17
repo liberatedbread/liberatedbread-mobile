@@ -66,7 +66,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => -102041325;
+  int get rustContentHash => -1806396316;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -577,6 +577,14 @@ abstract class RustLibApi extends BaseApi {
 
   Future<List<SoftApProfileDto>> crateApiDeviceApiSoftApProfiles({
     required List<String> specYamls,
+  });
+
+  Future<BleHandshakeDto> crateApiDeviceApiSpecBleHandshake({
+    required String specYaml,
+  });
+
+  Future<List<StateTopicFallbackDto>> crateApiDeviceApiSpecStateTopicFallbacks({
+    required String specYaml,
   });
 
   Future<TuyaBroadcastDto?> crateApiDeviceApiTuyaParseBroadcast({
@@ -4177,6 +4185,72 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<BleHandshakeDto> crateApiDeviceApiSpecBleHandshake({
+    required String specYaml,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(specYaml, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 100,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_ble_handshake_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDeviceApiSpecBleHandshakeConstMeta,
+        argValues: [specYaml],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiSpecBleHandshakeConstMeta =>
+      const TaskConstMeta(
+        debugName: 'spec_ble_handshake',
+        argNames: ['specYaml'],
+      );
+
+  @override
+  Future<List<StateTopicFallbackDto>> crateApiDeviceApiSpecStateTopicFallbacks({
+    required String specYaml,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(specYaml, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 101,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_state_topic_fallback_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiDeviceApiSpecStateTopicFallbacksConstMeta,
+        argValues: [specYaml],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiSpecStateTopicFallbacksConstMeta =>
+      const TaskConstMeta(
+        debugName: 'spec_state_topic_fallbacks',
+        argNames: ['specYaml'],
+      );
+
+  @override
   Future<TuyaBroadcastDto?> crateApiDeviceApiTuyaParseBroadcast({
     required List<int> datagram,
   }) {
@@ -4188,7 +4262,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 100,
+            funcId: 102,
             port: port_,
           );
         },
@@ -4221,7 +4295,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 101,
+            funcId: 103,
             port: port_,
           );
         },
@@ -4254,7 +4328,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 102,
+            funcId: 104,
             port: port_,
           );
         },
@@ -4311,6 +4385,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
+  }
+
+  @protected
+  BleHandshakeDto dco_decode_ble_handshake_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return BleHandshakeDto(
+      steps: dco_decode_list_ble_handshake_step_dto(arr[0]),
+      described: dco_decode_list_String(arr[1]),
+    );
+  }
+
+  @protected
+  BleHandshakeStepDto dco_decode_ble_handshake_step_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return BleHandshakeStepDto(
+      serviceUuid: dco_decode_opt_String(arr[0]),
+      characteristicUuid: dco_decode_String(arr[1]),
+      write: dco_decode_opt_list_prim_u_8_strict(arr[2]),
+      read: dco_decode_bool(arr[3]),
+      subscribe: dco_decode_bool(arr[4]),
+      delayMs: dco_decode_u_32(arr[5]),
+    );
   }
 
   @protected
@@ -4636,8 +4738,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DecodedValueDto dco_decode_decoded_value_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 12)
-      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
+    if (arr.length != 17)
+      throw Exception('unexpected arr length: expect 17 but see ${arr.length}');
     return DecodedValueDto(
       name: dco_decode_String(arr[0]),
       valueType: dco_decode_String(arr[1]),
@@ -4651,6 +4753,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       unit: dco_decode_opt_String(arr[9]),
       valueLabel: dco_decode_opt_String(arr[10]),
       unitSource: dco_decode_opt_String(arr[11]),
+      rawNumber: dco_decode_opt_box_autoadd_f_64(arr[12]),
+      decodedNumber: dco_decode_opt_box_autoadd_f_64(arr[13]),
+      decodedText: dco_decode_opt_String(arr[14]),
+      decimals: dco_decode_opt_box_autoadd_u_32(arr[15]),
+      isOn: dco_decode_opt_box_autoadd_bool(arr[16]),
     );
   }
 
@@ -4836,14 +4943,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   HttpRequestDto dco_decode_http_request_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return HttpRequestDto(
       method: dco_decode_String(arr[0]),
       path: dco_decode_String(arr[1]),
       body: dco_decode_String(arr[2]),
       scheme: dco_decode_opt_String(arr[3]),
       headers: dco_decode_list_http_header_dto(arr[4]),
+      pathFallback: dco_decode_opt_String(arr[5]),
     );
   }
 
@@ -4991,6 +5099,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<String> dco_decode_list_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_String).toList();
+  }
+
+  @protected
+  List<BleHandshakeStepDto> dco_decode_list_ble_handshake_step_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_ble_handshake_step_dto)
+        .toList();
   }
 
   @protected
@@ -5306,6 +5424,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<SpecIdentityDto> dco_decode_list_spec_identity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_spec_identity_dto).toList();
+  }
+
+  @protected
+  List<StateTopicFallbackDto> dco_decode_list_state_topic_fallback_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_state_topic_fallback_dto)
+        .toList();
   }
 
   @protected
@@ -5866,6 +5994,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_list_prim_u_8_strict(raw);
+  }
+
+  @protected
   PanelResolutionDto dco_decode_panel_resolution_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -6264,6 +6398,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  StateTopicFallbackDto dco_decode_state_topic_fallback_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return StateTopicFallbackDto(
+      topic: dco_decode_String(arr[0]),
+      fallback: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
   StoredPlayDto dco_decode_stored_play_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -6546,6 +6692,35 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
     return utf8.decoder.convert(inner);
+  }
+
+  @protected
+  BleHandshakeDto sse_decode_ble_handshake_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_steps = sse_decode_list_ble_handshake_step_dto(deserializer);
+    var var_described = sse_decode_list_String(deserializer);
+    return BleHandshakeDto(steps: var_steps, described: var_described);
+  }
+
+  @protected
+  BleHandshakeStepDto sse_decode_ble_handshake_step_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_serviceUuid = sse_decode_opt_String(deserializer);
+    var var_characteristicUuid = sse_decode_String(deserializer);
+    var var_write = sse_decode_opt_list_prim_u_8_strict(deserializer);
+    var var_read = sse_decode_bool(deserializer);
+    var var_subscribe = sse_decode_bool(deserializer);
+    var var_delayMs = sse_decode_u_32(deserializer);
+    return BleHandshakeStepDto(
+      serviceUuid: var_serviceUuid,
+      characteristicUuid: var_characteristicUuid,
+      write: var_write,
+      read: var_read,
+      subscribe: var_subscribe,
+      delayMs: var_delayMs,
+    );
   }
 
   @protected
@@ -6943,6 +7118,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_unit = sse_decode_opt_String(deserializer);
     var var_valueLabel = sse_decode_opt_String(deserializer);
     var var_unitSource = sse_decode_opt_String(deserializer);
+    var var_rawNumber = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_decodedNumber = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_decodedText = sse_decode_opt_String(deserializer);
+    var var_decimals = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_isOn = sse_decode_opt_box_autoadd_bool(deserializer);
     return DecodedValueDto(
       name: var_name,
       valueType: var_valueType,
@@ -6956,6 +7136,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       unit: var_unit,
       valueLabel: var_valueLabel,
       unitSource: var_unitSource,
+      rawNumber: var_rawNumber,
+      decodedNumber: var_decodedNumber,
+      decodedText: var_decodedText,
+      decimals: var_decimals,
+      isOn: var_isOn,
     );
   }
 
@@ -7202,12 +7387,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_body = sse_decode_String(deserializer);
     var var_scheme = sse_decode_opt_String(deserializer);
     var var_headers = sse_decode_list_http_header_dto(deserializer);
+    var var_pathFallback = sse_decode_opt_String(deserializer);
     return HttpRequestDto(
       method: var_method,
       path: var_path,
       body: var_body,
       scheme: var_scheme,
       headers: var_headers,
+      pathFallback: var_pathFallback,
     );
   }
 
@@ -7376,6 +7563,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <String>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_String(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<BleHandshakeStepDto> sse_decode_list_ble_handshake_step_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <BleHandshakeStepDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_ble_handshake_step_dto(deserializer));
     }
     return ans_;
   }
@@ -7983,6 +8184,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <SpecIdentityDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_spec_identity_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<StateTopicFallbackDto> sse_decode_list_state_topic_fallback_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <StateTopicFallbackDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_state_topic_fallback_dto(deserializer));
     }
     return ans_;
   }
@@ -8776,6 +8991,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_list_prim_u_8_strict(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   PanelResolutionDto sse_decode_panel_resolution_dto(
     SseDeserializer deserializer,
   ) {
@@ -9244,6 +9470,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  StateTopicFallbackDto sse_decode_state_topic_fallback_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_topic = sse_decode_String(deserializer);
+    var var_fallback = sse_decode_String(deserializer);
+    return StateTopicFallbackDto(topic: var_topic, fallback: var_fallback);
+  }
+
+  @protected
   StoredPlayDto sse_decode_stored_play_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_serviceUuid = sse_decode_String(deserializer);
@@ -9559,6 +9795,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_ble_handshake_dto(
+    BleHandshakeDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_ble_handshake_step_dto(self.steps, serializer);
+    sse_encode_list_String(self.described, serializer);
+  }
+
+  @protected
+  void sse_encode_ble_handshake_step_dto(
+    BleHandshakeStepDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.serviceUuid, serializer);
+    sse_encode_String(self.characteristicUuid, serializer);
+    sse_encode_opt_list_prim_u_8_strict(self.write, serializer);
+    sse_encode_bool(self.read, serializer);
+    sse_encode_bool(self.subscribe, serializer);
+    sse_encode_u_32(self.delayMs, serializer);
   }
 
   @protected
@@ -9930,6 +10190,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.unit, serializer);
     sse_encode_opt_String(self.valueLabel, serializer);
     sse_encode_opt_String(self.unitSource, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.rawNumber, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.decodedNumber, serializer);
+    sse_encode_opt_String(self.decodedText, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.decimals, serializer);
+    sse_encode_opt_box_autoadd_bool(self.isOn, serializer);
   }
 
   @protected
@@ -10104,6 +10369,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.body, serializer);
     sse_encode_opt_String(self.scheme, serializer);
     sse_encode_list_http_header_dto(self.headers, serializer);
+    sse_encode_opt_String(self.pathFallback, serializer);
   }
 
   @protected
@@ -10230,6 +10496,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_String(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_ble_handshake_step_dto(
+    List<BleHandshakeStepDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_ble_handshake_step_dto(item, serializer);
     }
   }
 
@@ -10786,6 +11064,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_spec_identity_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_state_topic_fallback_dto(
+    List<StateTopicFallbackDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_state_topic_fallback_dto(item, serializer);
     }
   }
 
@@ -11481,6 +11771,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_list_prim_u_8_strict(
+    Uint8List? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_list_prim_u_8_strict(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_panel_resolution_dto(
     PanelResolutionDto self,
     SseSerializer serializer,
@@ -11820,6 +12123,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_name_match_dto(self.nameMatchers, serializer);
     sse_encode_list_txt_match_group_dto(self.txtMatchGroups, serializer);
     sse_encode_list_String(self.platformFallbackTypes, serializer);
+  }
+
+  @protected
+  void sse_encode_state_topic_fallback_dto(
+    StateTopicFallbackDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.topic, serializer);
+    sse_encode_String(self.fallback, serializer);
   }
 
   @protected

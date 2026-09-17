@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import '../core/error_text.dart';
+import '../core/log.dart';
 import 'spec_codec.dart' show HttpRequestDto;
 import 'tls_trust.dart';
 
@@ -165,7 +166,53 @@ class HttpControlClient {
   /// caller should say so instead of suggesting a rescan. Timeouts and
   /// refused connections are user-facing too: the generic "did not accept
   /// that" fallback blamed the button for what is a sleeping TV.
+  ///
+  /// A 404 is the one status with a second chance, and only when the spec
+  /// asked for one: see [HttpRequestDto.pathFallback].
   Future<String> send(String host, int port, HttpRequestDto request) async {
+    final body = await _sendOnce(host, port, request, request.path);
+    if (body != null) return body;
+    // The primary path answered "no such thing". A spec that declares a
+    // second spelling for this same invocation gets exactly one more try,
+    // against the path Rust rendered beside the first — see
+    // `HttpRequestDto.pathFallback`. ESPHome is why: a ratgdo board running
+    // firmware up to 2025.12 names the cover `/cover/door/open`, 2026.7 and
+    // later `/cover/Door/open`, and only the device knows which it is.
+    final fallback = request.pathFallback;
+    if (fallback == null) {
+      throw HttpControlException(
+        '${request.method} ${request.path} failed: HTTP 404 from $host:$port',
+      );
+    }
+    Log.net.debug(
+      '${request.path} answered 404 on $host; trying the spec\'s second '
+      'spelling $fallback',
+    );
+    final retried = await _sendOnce(host, port, request, fallback);
+    if (retried != null) return retried;
+    // Both spellings are gone. Report the PRIMARY, which is what the spec
+    // says current firmware serves — naming the legacy path would send a
+    // reader looking for the wrong thing.
+    throw HttpControlException(
+      '${request.method} ${request.path} failed: HTTP 404 from $host:$port '
+      '(and its declared fallback $fallback)',
+    );
+  }
+
+  /// Send [request] against [path] and return the body, or `null` for a 404.
+  ///
+  /// A 404 is the ONE status that comes back as a value rather than a throw,
+  /// because it is the one the spec's `path_fallback` contract is written
+  /// against: an unambiguous "there is no such thing here", which a second
+  /// spelling can survive. Every other failure still throws from here — a
+  /// timeout, a refused connection, a 401/403, a 5xx — so a command whose
+  /// first send was merely slow can never be sent twice.
+  Future<String?> _sendOnce(
+    String host,
+    int port,
+    HttpRequestDto request,
+    String path,
+  ) async {
     // Resolved against the device's address rather than assembled with
     // `Uri(path: ...)`, which treats the whole rendered target as path data:
     // a target carrying a query string (the spec's `/input?name=value`) comes
@@ -184,7 +231,7 @@ class HttpControlClient {
       client = _http;
     }
     final scheme = secure ? 'https' : 'http';
-    final uri = Uri.parse('$scheme://$host:$port').resolve(request.path);
+    final uri = Uri.parse('$scheme://$host:$port').resolve(path);
     // The spec's own headers (a Vizio `AUTH` token, rendered by Rust from
     // the stored credential) over the Content-Type inferred from the body.
     final headers = headersFor(request);
@@ -253,9 +300,14 @@ class HttpControlClient {
             response.body.contains('Limited mode'))) {
       throw const ControlRefusedException();
     }
+    // The device says there is no such thing here. Handed back as a value so
+    // the caller can try the spec's second spelling of this same invocation
+    // — and ONLY a 404 is: every other non-2xx throws, because a retry after
+    // a timeout or a 5xx could act on a device that already acted.
+    if (response.statusCode == 404) return null;
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpControlException(
-        '${request.method} ${request.path} failed: '
+        '${request.method} $path failed: '
         'HTTP ${response.statusCode} from $uri',
       );
     }

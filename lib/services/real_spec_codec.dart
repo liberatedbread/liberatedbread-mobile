@@ -200,6 +200,15 @@ class RealSpecCodec implements SpecCodec {
   );
 
   @override
+  Future<List<StateTopicFallbackDto>> specStateTopicFallbacks({
+    required String specYaml,
+  }) => rust.specStateTopicFallbacks(specYaml: specYaml);
+
+  @override
+  Future<BleHandshakeDto> specBleHandshake({required String specYaml}) =>
+      rust.specBleHandshake(specYaml: specYaml);
+
+  @override
   Future<List<NetworkInstanceDto>> listNetworkInstances({
     required String specYaml,
     required String entityName,

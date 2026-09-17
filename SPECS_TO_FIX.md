@@ -669,3 +669,85 @@ every press still goes out unauthenticated.
   `body:` templates and the BLE-vocabulary numeric type names (`uint8`,
   `float`, ...) on http arguments.
 
+
+## From the R-138 / R-140 fix round (2026-09-17)
+
+The app now parses and executes what these two keys promise — `path_fallback`
+/ `state_topic_fallback` ride the rendered request and the sender retries on a
+404, and `initialization` blocks are resolved into an ordered connect-time
+handshake — so these are what the CATALOGUE still gets wrong or cannot say.
+
+### S-01 — `$defs/initialization` does not admit the keys six specs already use
+
+**Where.** vendor/protocol-specs/device-specs/schema.json `$defs/initialization`
+(properties: `characteristic`, `write`, `read`, `delay_ms`);
+smartdawn-smart-lights.yaml:435-439 (`subscribe: true` ×2),
+schlage-smart-locks.yaml:400-430 (`description` ×5),
+kingsmith-walkingpad.yaml:497-512 and xkglow-chrome.yaml:153-156 (`notes`).
+
+**Evidence.**
+
+The step object is open, so the extra keys parse — but they are not
+documented, which means nothing says what a consumer must do with them, and
+two of them change what a step IS. `subscribe: true` is an operation
+(SmartDawn opens both DDP notify channels before anything is sent, and a
+consumer that only knew `write`/`read` would run neither step). A step with
+only `description` is the opposite: prose, not an instruction — schlage's
+session resumption is a fresh SPAKE2 exchange per connect whose bytes no YAML
+can hold, and a consumer that treated it as an executable step would send
+nothing and believe it had handshaked.
+
+**Fix (upstream).**
+
+Add to `$defs/initialization`'s item properties: `subscribe` (boolean, "open
+notifications on this characteristic in this step"), `description`/`notes`
+(string). Say in the array's description that a step with none of `write`,
+`read` or `subscribe` is documentation of a handshake a client must implement
+itself, not a step it can execute — the app reports those separately and
+declines to run them.
+
+### S-02 — kingsmith-walkingpad's initialization characteristic belongs to no declared service, and its "before EACH command" rule is prose a consumer cannot execute
+
+**Where.** vendor/protocol-specs/device-specs/devices/kingsmith-walkingpad.yaml:497-512.
+
+**Evidence.**
+
+The block hangs off the FTMS service `00001826-…`, but its
+`characteristic: d18d2c10-c44c-11e8-a355-529269fb1459` is declared in no
+service in the file (the spec's own note says the parent service UUID "must be
+captured from hardware"). A consumer resolving a step's service from the
+catalogue therefore has only the block's owner, which is the wrong service —
+the write will fail at the platform on an MC-21 unit. Separately, the same
+note says KS Fit "sends this fixed 8-byte frame before EACH Control Point
+command, not just once per connection", and the schema has no way to say that
+as data: `initialization` is defined as "executed after connecting and before
+normal commands", so a client honouring the block literally runs the preamble
+once and every later Control Point write still gets CONTROL_NOT_PERMITTED.
+
+**Fix (upstream).**
+
+1. Capture the vendor service UUID and declare `d18d2c10-…` as a
+   characteristic under it, so the step is addressable.
+2. Give the schema a way to state the cadence — e.g. `when: "connect" |
+   "before_each_command"` on a step, defaulting to `connect` — and mark this
+   step `before_each_command`; or, failing that, declare the preamble as a
+   `framing`/prefix on the Control Point characteristic, which is where a
+   per-write rule belongs.
+
+Until one of those lands the app runs this handshake once per connection and
+an MC-21 unit will still refuse the second and later commands.
+
+### S-03 — hyperice-hypervolt-plus states its handshake characteristic in upper case
+
+**Where.** vendor/protocol-specs/device-specs/devices/hyperice-hypervolt-plus.yaml:209-211
+(`characteristic: "31CB4570-3c31-4e56-8c2b-e8f479d2b056"`) against :224
+(`uuid: "31cb4570-3c31-4e56-8c2b-e8f479d2b056"`).
+
+**Evidence.**
+
+Cosmetic but load-bearing for a consumer that compares UUID strings: the app
+matches case-insensitively, so this resolves, but the file is inconsistent
+with itself and with the rest of the catalogue, which is lower-case
+throughout.
+
+**Fix (upstream).** Lower-case it.

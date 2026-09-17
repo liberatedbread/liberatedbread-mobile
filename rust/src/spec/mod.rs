@@ -3,6 +3,7 @@
 
 pub mod bindings;
 pub mod credentials;
+pub mod initialization;
 pub mod parser;
 pub mod setup;
 pub mod types;

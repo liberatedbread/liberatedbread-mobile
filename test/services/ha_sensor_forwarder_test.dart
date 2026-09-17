@@ -31,6 +31,8 @@ DecodedValueDto _brightness(int value) => DecodedValueDto(
   valueType: 'uint',
   display: '$value',
   uintValue: value,
+  rawNumber: value.toDouble(),
+  decodedNumber: value.toDouble(),
 );
 
 const _power = DecodedValueDto(
@@ -55,6 +57,10 @@ const _battery = DecodedValueDto(
   valueType: 'uint',
   display: '90',
   uintValue: 90,
+  rawNumber: 90.0,
+  decodedNumber: 90.0,
+  decodedText: '90',
+  decimals: 0,
 );
 
 HaSensorForwarder _forwarder(

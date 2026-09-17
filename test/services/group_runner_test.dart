@@ -306,6 +306,10 @@ void main() {
             valueType: 'uint8',
             display: '87',
             uintValue: 87,
+            rawNumber: 87.0,
+            decodedNumber: 87.0,
+            decodedText: '87',
+            decimals: 0,
           ),
         ],
       );

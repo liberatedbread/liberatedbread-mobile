@@ -3,6 +3,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/decoded_number.dart';
 import 'package:liberated_bread_mobile/core/group_actions.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -111,6 +112,16 @@ DecodedValueDto _decoded(
   valueType: 'uint8',
   display: '$uintValue',
   uintValue: uintValue,
+  // Shaped the way the Rust decoder fills a DTO in: the transform is applied
+  // there, and the reading rows read the answer.
+  rawNumber: uintValue?.toDouble(),
+  decodedNumber: uintValue == null ? null : uintValue * (scale ?? 1.0),
+  decodedText: uintValue == null
+      ? null
+      : (uintValue * (scale ?? 1.0)).toStringAsFixed(
+          decimalsForTransform(scale: scale),
+        ),
+  decimals: decimalsForTransform(scale: scale),
   scale: scale,
   unit: unit,
   valueLabel: valueLabel,

@@ -60,6 +60,17 @@ pub struct HttpRequest {
     pub method: String,
     /// Path with every placeholder substituted, starting with `/`.
     pub path: String,
+    /// The SECOND path this same invocation may be spelled with, rendered
+    /// exactly as [`Self::path`] is — the spec's `path_fallback` (or, for a
+    /// state read, the entity's `state_topic_fallback`), and `None` for the
+    /// overwhelming majority of the catalogue that declares neither.
+    ///
+    /// Both candidates are rendered here so the sender has no spec knowledge
+    /// to acquire: it sends [`Self::path`], and ONLY if the device answers an
+    /// unambiguous 404 does it send this one. Not on a timeout, a refusal, or
+    /// a 5xx — a command that acts twice because the first send was merely
+    /// slow is a worse failure than the 404 this exists to survive.
+    pub path_fallback: Option<String>,
     /// Request body: empty when the command declares neither `arguments`
     /// nor `body` (ECP keypresses carry the whole instruction in the path);
     /// a compact JSON object in the spec's declared argument order when it
@@ -116,6 +127,14 @@ pub fn render_command(
     Ok(HttpRequest {
         method: method.to_string(),
         path: substitute(path, command, command_name, values)?,
+        // Substituted on exactly the terms the primary is: a fallback whose
+        // placeholders cannot be filled is no fallback, and failing the whole
+        // render over the SECOND spelling would take down a command whose
+        // first spelling was fine.
+        path_fallback: command
+            .path_fallback
+            .as_deref()
+            .and_then(|path| substitute(path, command, command_name, values).ok()),
         body: render_http_body(command, command_name, values)?,
         headers: render_headers(command, command_name, values)?,
     })
@@ -667,6 +686,9 @@ pub fn render_state_request(
         return Ok(HttpRequest {
             method,
             path: fill_path(spec, &path, values, state_command)?,
+            // An `http_endpoints` entry is named, not addressed by a
+            // firmware-dependent spelling, so it has no second candidate.
+            path_fallback: None,
             body: String::new(),
             headers: Vec::new(),
         });
@@ -678,6 +700,8 @@ pub fn render_state_request(
         return Ok(HttpRequest {
             method: "GET".to_string(),
             path: fill_path(spec, state_command, values, state_command)?,
+            path_fallback: state_topic_fallback(spec, state_command)
+                .and_then(|path| fill_path(spec, path, values, state_command).ok()),
             body: String::new(),
             headers: Vec::new(),
         });
@@ -686,6 +710,22 @@ pub fn render_state_request(
         uuid: "http_endpoints".to_string(),
         command: state_command.to_string(),
     })
+}
+
+/// The second spelling of a bare `state_topic`, as the entity that owns it
+/// declares.
+///
+/// A `state_topic` reaches the renderer as a bare string — it is a LOCATION,
+/// and the caller passes the location, not the entity. The `state_topic_fallback`
+/// beside it is a property of the ENTITY, so it is read back here by the one
+/// thing the caller did hand over: the topic itself. Sound because a fallback
+/// is by definition the same reading spelled twice, so two entities sharing a
+/// `state_topic` share its fallback too; the first declaration wins either way.
+fn state_topic_fallback<'a>(spec: &'a DeviceSpec, topic: &str) -> Option<&'a str> {
+    spec.entities
+        .iter()
+        .find(|entity| entity.state_topic.as_deref() == Some(topic))
+        .and_then(|entity| entity.state_topic_fallback.as_deref())
 }
 
 /// One child behind a hub, as enumerated from a state reply.
@@ -1571,6 +1611,108 @@ entities:
 
         let err = render_state_request(&spec(), "no_such_command", &values(&[])).unwrap_err();
         assert!(err.to_string().contains("no_such_command"));
+    }
+
+    /// The ESPHome rename, as data: both spellings of one invocation are
+    /// rendered, in order, so the sender has a second candidate to try when
+    /// the first answers 404 — and no spec knowledge to acquire to do it.
+    #[test]
+    fn both_spellings_of_a_path_are_rendered_in_order() {
+        const TWO_WAYS: &str = r#"
+device:
+  name: "Opener"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+commands:
+  door_open:
+    description: "Two firmware generations, two correct paths."
+    transport: "http"
+    method: "POST"
+    path: "/cover/Door/open"
+    path_fallback: "/cover/door/open"
+  set_position:
+    description: "A placeholder in both spellings."
+    transport: "http"
+    method: "POST"
+    path: "/cover/Door/set?position={position}"
+    path_fallback: "/cover/door/set?position={position}"
+    parameters:
+      position:
+        type: "string"
+        required: true
+  press_home:
+    description: "One path, one candidate."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Home"
+entities: []
+"#;
+        let spec = parse_device_spec(TWO_WAYS).expect("spec parses");
+
+        let open = render_request(&spec, "door_open", &values(&[])).unwrap();
+        assert_eq!(open.path, "/cover/Door/open");
+        assert_eq!(open.path_fallback.as_deref(), Some("/cover/door/open"));
+
+        // The fallback is substituted exactly as the primary is — a fallback
+        // still carrying `{position}` would 404 for the wrong reason.
+        let set = render_request(&spec, "set_position", &values(&[("position", "50")])).unwrap();
+        assert_eq!(set.path, "/cover/Door/set?position=50");
+        assert_eq!(
+            set.path_fallback.as_deref(),
+            Some("/cover/door/set?position=50")
+        );
+
+        // Nothing invents a second candidate: a blind retry on a command that
+        // states one path is a device that acts twice.
+        let home = render_request(&spec, "press_home", &values(&[])).unwrap();
+        assert_eq!(home.path_fallback, None);
+    }
+
+    /// The reading half of the same rename. A `state_topic` arrives at the
+    /// renderer as a bare location, so the entity that owns it is what the
+    /// second spelling has to be read back from.
+    #[test]
+    fn a_state_topic_carries_the_entity_s_fallback_spelling() {
+        const TWO_WAYS: &str = r#"
+device:
+  name: "Opener"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+commands:
+  door_open:
+    description: "Something to make the device speak HTTP."
+    transport: "http"
+    method: "POST"
+    path: "/cover/Door/open"
+entities:
+  - name: "Garage Door"
+    platform: "cover"
+    state_topic: "/cover/Door"
+    state_topic_fallback: "/cover/door"
+    state_mapping:
+      value: "value"
+  - name: "Obstruction"
+    platform: "binary_sensor"
+    state_topic: "/binary_sensor/Obstruction"
+    state_mapping:
+      value: "state"
+"#;
+        let spec = parse_device_spec(TWO_WAYS).expect("spec parses");
+
+        let door = render_state_request(&spec, "/cover/Door", &values(&[])).unwrap();
+        assert_eq!(
+            (door.method.as_str(), door.path.as_str()),
+            ("GET", "/cover/Door")
+        );
+        assert_eq!(door.path_fallback.as_deref(), Some("/cover/door"));
+
+        // An entity stating one spelling gets one: the read is retried on a
+        // 404, and a second read of a path the spec never claimed is noise.
+        let obstruction =
+            render_state_request(&spec, "/binary_sensor/Obstruction", &values(&[])).unwrap();
+        assert_eq!(obstruction.path_fallback, None);
     }
 
     #[test]

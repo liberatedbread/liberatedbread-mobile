@@ -1042,6 +1042,125 @@ fn specs_this_branch_unlocked_do_not_offer_commands_that_cannot_encode() {
     assert_eq!(unsupported_write_kind(blink_char, blink), None);
 }
 
+/// Six vendored specs declare an `initialization` handshake, and until this
+/// branch every one of them was parsed to nowhere: `Service` had no field for
+/// the per-service blocks, and the top-level ones sat in `extensions`.
+///
+/// Driven against the real files because the whole failure was that the
+/// catalogue said something nothing read.
+#[test]
+fn the_vendored_handshakes_reach_the_connect_time_api() {
+    use liberated_bread_core::api::device_api::spec_ble_handshake;
+
+    let yaml = |file: &str| {
+        fs::read_to_string(spec_path(file)).unwrap_or_else(|e| panic!("reading {file}: {e}"))
+    };
+
+    // SpotLED: three fixed writes to the command characteristic, in order,
+    // addressed to the service that declares it.
+    let spotled =
+        spec_ble_handshake(yaml("spotled-led-panel.yaml")).expect("spotled's handshake resolves");
+    assert_eq!(spotled.steps.len(), 3, "spotled declares three writes");
+    assert!(
+        spotled.steps.iter().all(|s| s.write.is_some()
+            && s.service_uuid.as_deref() == Some("0000ff20-0000-1000-8000-00805f9b34fb")),
+        "every spotled step is an addressed write, got {:?}",
+        spotled.steps
+    );
+    assert_eq!(
+        spotled.steps[0].write.as_deref(),
+        Some(&[0x00, 0x00, 0x00, 0x01][..])
+    );
+
+    // SmartDawn: two subscriptions, opened before anything is sent.
+    let smartdawn = spec_ble_handshake(yaml("smartdawn-smart-lights.yaml"))
+        .expect("smartdawn's handshake resolves");
+    assert_eq!(smartdawn.steps.len(), 2);
+    assert!(smartdawn
+        .steps
+        .iter()
+        .all(|s| s.subscribe && s.write.is_none()));
+
+    // Hyperice declares its one step at the TOP level, upper-case, and the
+    // service is resolved from the spec's own characteristic list.
+    let hyperice = spec_ble_handshake(yaml("hyperice-hypervolt-plus.yaml"))
+        .expect("hyperice's handshake resolves");
+    assert_eq!(hyperice.steps.len(), 1);
+    assert!(hyperice.steps[0].read);
+    assert_eq!(
+        hyperice.steps[0].service_uuid.as_deref(),
+        Some("31cb4500-3c31-4e56-8c2b-e8f479d2b056")
+    );
+
+    // Schlage's session resumption is a fresh SPAKE2 exchange per connect,
+    // stated in prose: reported, never executed.
+    let schlage =
+        spec_ble_handshake(yaml("schlage-smart-locks.yaml")).expect("schlage's handshake resolves");
+    assert_eq!(schlage.steps.len(), 1, "only the RxData read is executable");
+    assert_eq!(
+        schlage.described.len(),
+        4,
+        "the four procedural steps must be reported, not dropped: {:?}",
+        schlage.described
+    );
+
+    // And the overwhelming majority declares none, so a connect pays nothing.
+    let bulb = spec_ble_handshake(yaml("example-bulb.yaml")).expect("the example bulb resolves");
+    assert!(bulb.steps.is_empty() && bulb.described.is_empty());
+}
+
+/// The ratgdo fleet spans an ESPHome change in how a URL names an entity, so
+/// its spec states two paths per action and two topics per reading. Both have
+/// to reach the rendered request, or every board on firmware up to 2025.12
+/// answers 404 to every tap and every state read.
+///
+/// Against the real vendored file, because the point is that the CATALOGUE's
+/// pairs survive parsing and rendering — a spec edit upstream that drops a
+/// `path_fallback`, or a parser that stops reading the key, has to fail here.
+#[test]
+fn the_vendored_ratgdo_renders_both_spellings_of_its_paths() {
+    use liberated_bread_core::api::device_api::{
+        render_network_http_command, render_network_http_state_request,
+    };
+
+    let yaml =
+        || fs::read_to_string(spec_path("ratgdo.yaml")).expect("ratgdo.yaml should be readable");
+
+    let open = render_network_http_command(yaml(), "door_open".into(), Default::default())
+        .expect("ratgdo's door_open renders");
+    assert_eq!(open.path, "/cover/Door/open");
+    assert_eq!(
+        open.path_fallback.as_deref(),
+        Some("/cover/door/open"),
+        "the legacy object_id spelling must ride along, or a pre-2026 board \
+         404s on every Open"
+    );
+
+    // The state read takes the same pair, off the entity rather than the
+    // command: `state_topic` here names a path on the board's own web server.
+    let state = render_network_http_state_request(yaml(), "/cover/Door".into(), Default::default())
+        .expect("ratgdo's cover state renders");
+    assert_eq!(state.path, "/cover/Door");
+    assert_eq!(state.path_fallback.as_deref(), Some("/cover/door"));
+
+    // Every ratgdo command states its pair, percent-encoding and all.
+    let lock = render_network_http_command(yaml(), "lock_remotes".into(), Default::default())
+        .expect("ratgdo's lock_remotes renders");
+    assert_eq!(lock.path, "/lock/Lock%20remotes/lock");
+    assert_eq!(
+        lock.path_fallback.as_deref(),
+        Some("/lock/lock_remotes/lock")
+    );
+
+    // A spec that states one path gets ONE candidate — nothing may invent a
+    // second, because a blind retry is a device that acts twice.
+    let roku = fs::read_to_string(spec_path("roku-ecp.yaml")).expect("roku-ecp.yaml readable");
+    let keypress = render_network_http_command(roku, "press_power_on".into(), Default::default())
+        .expect("roku's power keypress renders");
+    assert_eq!(keypress.path, "/keypress/PowerOn");
+    assert_eq!(keypress.path_fallback, None);
+}
+
 /// The network control surface against the real catalogue: the ratgdo garage
 /// door — one of the three `integration: supported` specs — resolves its
 /// cover, and an `identify_only` spec resolves an EMPTY surface however many

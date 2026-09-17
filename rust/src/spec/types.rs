@@ -49,6 +49,12 @@ pub struct DeviceSpec {
     /// [`DeviceSpec::protocol_handler`] naming an implemented handler.
     #[serde(default)]
     pub features: Vec<Feature>,
+    /// Top-level `initialization:` — the device-wide half of the handshake a
+    /// spec wants run after connecting and before any normal command.
+    /// Promoted out of [`Self::extensions`], where it sat unexecuted, because
+    /// a consumer now runs it: see [`crate::spec::initialization::handshake`].
+    #[serde(default)]
+    pub initialization: Vec<InitializationStep>,
     /// Top-level `commands:` — named invocations for a device with no GATT
     /// characteristic to hang a command on.
     ///
@@ -361,6 +367,21 @@ pub struct SpecCommand {
     /// are — Roku's whole control surface is the path (`/keypress/PowerOn`).
     #[serde(default)]
     pub path: Option<String>,
+    /// A SECOND path for this same invocation, tried only when the primary
+    /// answers an unambiguous "no such thing" — an HTTP 404, never a timeout,
+    /// a refusal or a 5xx.
+    ///
+    /// Exists because a device family can address the same entity two ways
+    /// across firmware generations: ESPHome up to 2025.12 names a cover by
+    /// its slugified object_id (`/cover/door/open`), 2026.7 and later by the
+    /// percent-encoded entity name (`/cover/Door/open`), and a ratgdo board
+    /// in the field may be either. A spec covering that fleet has two correct
+    /// paths and no way to know which board it is talking to until it asks,
+    /// so both are rendered (see [`crate::protocol::http::HttpRequest`]) and
+    /// the sender asks. Never a blind second send: a command that acts twice
+    /// because the first send was merely slow is worse than the 404.
+    #[serde(default)]
+    pub path_fallback: Option<String>,
     /// HTTP method of a `transport: http` command, spelled as the wire wants
     /// it. Stated on the command so it is sendable without joining the
     /// endpoint catalogue by name.
@@ -672,6 +693,14 @@ pub struct Entity {
     /// response body.
     #[serde(default)]
     pub state_topic: Option<String>,
+    /// A SECOND [`Self::state_topic`] for the same reading, on exactly the
+    /// terms a command's [`SpecCommand::path_fallback`] carries: read the
+    /// primary, and fall back only when the device answers that it is not
+    /// there (an HTTP 404). For one family whose firmware generations name
+    /// the same entity differently — never for two genuinely different
+    /// readings, which are two entities.
+    #[serde(default)]
+    pub state_topic_fallback: Option<String>,
     /// Where the reading sits inside what `state_command` returns, when the
     /// returned value is a structure rather than the value itself.
     #[serde(default)]
@@ -1721,6 +1750,69 @@ pub struct Service {
     /// Free-form documentation about the service.
     #[serde(default)]
     pub notes: Option<String>,
+    /// Ordered handshake steps this service wants run after connecting and
+    /// before any normal command — the per-service half of the schema's
+    /// `initialization`. Typed rather than swept into [`Self::extensions`]
+    /// because it is executed: see
+    /// [`crate::spec::initialization::handshake`].
+    #[serde(default)]
+    pub initialization: Vec<InitializationStep>,
+    /// Unknown keys, kept verbatim so the doc comment above is true — the
+    /// struct claimed a sweep it did not have, which is how
+    /// `services[].initialization` was silently dropped for six devices.
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// One step of a spec's `initialization` handshake.
+///
+/// The schema's words: "Ordered handshake / setup steps executed after
+/// connecting and before normal commands", allowed at the top level and
+/// per-service. A step names a characteristic and then says what to do with
+/// it — write these bytes, read it, subscribe to it — optionally waiting
+/// afterwards.
+///
+/// A step that says none of those three is PROSE, not an instruction:
+/// schlage's session resumption describes a SPAKE2 exchange whose bytes are
+/// fresh per session and cannot be written from a spec. Those are counted and
+/// reported rather than executed or silently dropped — see
+/// [`crate::spec::initialization::Handshake`].
+#[derive(Debug, Clone, Deserialize)]
+pub struct InitializationStep {
+    /// The GATT characteristic this step acts on, as the spec spells it
+    /// (case is not significant — hyperice writes it upper-case).
+    pub characteristic: String,
+    /// Bytes to write in this step.
+    #[serde(default)]
+    pub write: Option<Vec<u8>>,
+    /// Read the characteristic in this step — e.g. to capture a handshake
+    /// response or an encryption seed.
+    #[serde(default)]
+    pub read: bool,
+    /// Subscribe to the characteristic's notifications in this step, before
+    /// anything is sent (smartdawn wants both of its notify channels open
+    /// first).
+    #[serde(default)]
+    pub subscribe: bool,
+    /// Milliseconds to wait after this step.
+    #[serde(default)]
+    pub delay_ms: Option<u32>,
+    /// What the step does, when the spec can only say it in prose.
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+impl InitializationStep {
+    /// Whether this step states an action a GATT client can carry out.
+    ///
+    /// The gate between the two kinds of step the catalogue actually holds:
+    /// spotled's three fixed writes, which are executable, and schlage's
+    /// procedural crypto, which is not.
+    pub fn is_executable(&self) -> bool {
+        self.write.is_some() || self.read || self.subscribe
+    }
 }
 
 /// A BLE GATT characteristic.

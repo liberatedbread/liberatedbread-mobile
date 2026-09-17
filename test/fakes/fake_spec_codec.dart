@@ -235,6 +235,9 @@ class FakeSpecCodec implements SpecCodec {
     this.httpRenderError,
     this.networkKasaRequest,
     this.networkRabbitAirRequest,
+    this.stateTopicFallbacks = const [],
+    this.handshake,
+    this.handshakeError,
   }) : encoded = encoded ?? Uint8List(0);
 
   /// Variant names this fake narrows a BLE device to, when a test cares.
@@ -489,6 +492,33 @@ class FakeSpecCodec implements SpecCodec {
     if (httpRenderError != null) throw httpRenderError!;
     return networkHttpRequest?.call(stateCommand, values) ??
         HttpRequestDto(method: 'GET', path: '/fake/$stateCommand', body: '');
+  }
+
+  /// Thrown by [specBleHandshake] when a test wants the connect path to meet
+  /// a codec that cannot answer.
+  final Object? handshakeError;
+
+  /// Returned by [specStateTopicFallbacks] — the spec's declared pairs of
+  /// state-topic spellings.
+  final List<StateTopicFallbackDto> stateTopicFallbacks;
+
+  /// Returned by [specBleHandshake]. Defaults to no handshake, which is what
+  /// all but six vendored specs declare.
+  final BleHandshakeDto? handshake;
+
+  /// Every spec YAML [specBleHandshake] was asked about, in call order.
+  final List<String> handshakeCalls = [];
+
+  @override
+  Future<List<StateTopicFallbackDto>> specStateTopicFallbacks({
+    required String specYaml,
+  }) async => stateTopicFallbacks;
+
+  @override
+  Future<BleHandshakeDto> specBleHandshake({required String specYaml}) async {
+    handshakeCalls.add(specYaml);
+    if (handshakeError != null) throw handshakeError!;
+    return handshake ?? const BleHandshakeDto(steps: [], described: []);
   }
 
   @override

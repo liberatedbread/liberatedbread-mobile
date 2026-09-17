@@ -40,6 +40,37 @@ impl DecodedValue {
             DecodedValue::String(v) => v.clone(),
         }
     }
+
+    /// The number this value carries, or `None` when it is not numeric.
+    ///
+    /// A `Bool` is deliberately NOT numeric here. It has no transform worth
+    /// applying (the codec never attaches a `values:` label to one — the code
+    /// table is resolved from integers only) and its own rendering, "on"/
+    /// "off", is already the right answer; treating it as 0/1 would turn every
+    /// power-state row into a bare "1".
+    ///
+    /// A `Uint` converts from the FULL `u64`, not from the `i64` the FFI
+    /// clamps it into: above `i64::MAX` the clamp is a lie, and a reading is
+    /// the one thing here that must not be.
+    pub fn as_number(&self) -> Option<f64> {
+        match self {
+            DecodedValue::Int(v) => Some(*v as f64),
+            DecodedValue::Uint(v) => Some(*v as f64),
+            _ => None,
+        }
+    }
+
+    /// The integer this value carries, for a `values:` code-table lookup or an
+    /// on/off comparison — both of which are exact-match questions a float
+    /// cannot answer. Saturates at `i64::MAX`, which is also what the FFI
+    /// carries; a code table with a key that large does not exist.
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            DecodedValue::Int(v) => Some(*v),
+            DecodedValue::Uint(v) => Some((*v).min(i64::MAX as u64) as i64),
+            _ => None,
+        }
+    }
 }
 
 /// A characteristic's decoded fields, in the order the characteristic lays them

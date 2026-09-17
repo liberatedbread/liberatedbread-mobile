@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `reading_to_dto`, `regex_for`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -56,6 +56,31 @@ Future<PanelResolutionDto?> deviceInfoResolution({
 /// keep on repeated hits, and this call site has none.
 Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
     RustLib.instance.api.crateApiDeviceApiLoadDeviceSpec(yaml: yaml);
+
+/// The handshake a spec wants run on every BLE connect, before anything else
+/// is read or written.
+///
+/// The schema has called `initialization` "ordered handshake / setup steps
+/// executed after connecting and before normal commands" since the beginning,
+/// and six vendored specs declare one — a SpotLED panel's three writes to
+/// `ff21`, a SmartDawn's two subscriptions, an xkglow's chained read — but
+/// nothing parsed it, so a user tapped a command the spec says only works
+/// after the sequence and the device ignored it. This is the whole decision
+/// in one call: which steps, in which order, against which service, and which
+/// of them a GATT client can carry out at all. The caller is meant to be a
+/// loop with no opinions.
+///
+/// [`BleHandshakeDto::described`] is the honesty half: schlage's session
+/// resumption is a fresh SPAKE2 exchange per connect, stated in prose because
+/// no YAML can hold its bytes. Those steps are reported, never executed, so a
+/// client that ran the executable prefix knows it did not finish a handshake
+/// rather than believing it did.
+///
+/// Empty steps and empty `described` for the overwhelming majority of the
+/// catalogue, which declares no handshake and must not pay a round trip for
+/// one.
+Future<BleHandshakeDto> specBleHandshake({required String specYaml}) =>
+    RustLib.instance.api.crateApiDeviceApiSpecBleHandshake(specYaml: specYaml);
 
 /// Encode a setpoint the user picked into the write that applies it.
 ///
@@ -475,6 +500,26 @@ Future<String> fillMqttStateTopic({
 }) => RustLib.instance.api.crateApiDeviceApiFillMqttStateTopic(
   topic: topic,
   values: values,
+);
+
+/// The second spelling of each state topic the spec declares one for.
+///
+/// A `state_topic_fallback` is the MQTT/state-read sibling of a command's
+/// `path_fallback`: one family whose firmware generations name the same
+/// entity two ways, and a client with no way to know which generation
+/// answered until it asks. On the HTTP path the answer is a 404 and the
+/// renderer carries both candidates on the request itself; a subscription has
+/// no 404 to wait for — a topic that is simply never published looks exactly
+/// like a quiet device — so the honest move is to listen on both spellings
+/// and let the device decide which it uses. This hands the caller the pairs
+/// so it can, and reports them as the spec DECLARED them: filling is the
+/// caller's, through [`fill_mqtt_state_topic`], exactly as for the primary.
+///
+/// Empty for every spec that declares no fallback, which is all but ratgdo.
+Future<List<StateTopicFallbackDto>> specStateTopicFallbacks({
+  required String specYaml,
+}) => RustLib.instance.api.crateApiDeviceApiSpecStateTopicFallbacks(
+  specYaml: specYaml,
 );
 
 /// MQTT CONNECT for a spec-declared broker.
@@ -1233,6 +1278,83 @@ Future<WemoJoinStatus> wemoNetworkStatus({required String code}) =>
 Future<List<WemoAccessPointDto>> parseWemoApList({required String apList}) =>
     RustLib.instance.api.crateApiDeviceApiParseWemoApList(apList: apList);
 
+/// A spec's connect-time handshake: what to run, and what it could not say.
+class BleHandshakeDto {
+  /// The executable steps, in the order they must run.
+  final List<BleHandshakeStepDto> steps;
+
+  /// Steps the spec states only in prose, in order — nothing to execute,
+  /// and a warning worth logging rather than a silence.
+  final List<String> described;
+
+  const BleHandshakeDto({required this.steps, required this.described});
+
+  @override
+  int get hashCode => steps.hashCode ^ described.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BleHandshakeDto &&
+          runtimeType == other.runtimeType &&
+          steps == other.steps &&
+          described == other.described;
+}
+
+/// One step of a connect-time handshake, addressed and ready to run.
+class BleHandshakeStepDto {
+  /// The service the characteristic was found under. `None` when no service
+  /// in the spec declares it and the step named no owning service either —
+  /// there is nothing to address the operation to, and a caller must skip
+  /// it rather than guess a service.
+  final String? serviceUuid;
+
+  /// The characteristic to act on.
+  final String characteristicUuid;
+
+  /// Bytes to write, or `None` for a read/subscribe-only step.
+  final Uint8List? write;
+
+  /// Read the characteristic once the write (if any) has gone out.
+  final bool read;
+
+  /// Open notifications on the characteristic.
+  final bool subscribe;
+
+  /// Milliseconds to wait after the step; 0 for no wait.
+  final int delayMs;
+
+  const BleHandshakeStepDto({
+    this.serviceUuid,
+    required this.characteristicUuid,
+    this.write,
+    required this.read,
+    required this.subscribe,
+    required this.delayMs,
+  });
+
+  @override
+  int get hashCode =>
+      serviceUuid.hashCode ^
+      characteristicUuid.hashCode ^
+      write.hashCode ^
+      read.hashCode ^
+      subscribe.hashCode ^
+      delayMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BleHandshakeStepDto &&
+          runtimeType == other.runtimeType &&
+          serviceUuid == other.serviceUuid &&
+          characteristicUuid == other.characteristicUuid &&
+          write == other.write &&
+          read == other.read &&
+          subscribe == other.subscribe &&
+          delayMs == other.delayMs;
+}
+
 /// One spec's `ble_provisioning` setup method — the answer to "which devices
 /// are set up over Bluetooth instead of from a setup network, and what does one
 /// advertise as while it waits".
@@ -1656,6 +1778,44 @@ class DecodedValueDto {
   /// not present [`Self::unit`] as fact when this reads `device_setting`.
   final String? unitSource;
 
+  /// The raw integer this field carries, as a float — `None` for a bool, a
+  /// string or a byte blob (see [`DecodedValue::as_number`] for why a bool
+  /// is not a number here).
+  ///
+  /// Unlike [`Self::uint_value`] this is NOT clamped into `i64` range: a
+  /// `u64` above `i64::MAX` arrives here as the value the device really
+  /// sent, so a control seeded from it is seeded from the truth.
+  final double? rawNumber;
+
+  /// [`Self::raw_number`] through the spec's linear transform — the number
+  /// a person is reading, and the one to forward to Home Assistant.
+  ///
+  /// Computed here, by [`crate::codec::number`], rather than left for each
+  /// consumer to derive from [`Self::scale`] and [`Self::value_offset`]:
+  /// three consumers derived it three different ways, and one of them wrote
+  /// centidegrees into somebody's long-term statistics.
+  final double? decodedNumber;
+
+  /// The reading as text: [`Self::decoded_number`] at the decimal places
+  /// the transform implies, or the codec's own rendering for a non-numeric
+  /// field. Never carries the unit or the `values:` label — those are
+  /// separate statements ([`Self::unit`], [`Self::value_label`]) a caller
+  /// combines as its layout needs.
+  final String? decodedText;
+
+  /// Decimal places [`Self::decoded_text`] was rendered at, for a consumer
+  /// that has to re-render the number itself (Home Assistant wants a JSON
+  /// number, not a string, and an untransformed field must stay an integer).
+  final int? decimals;
+
+  /// Whether this field on its own reads as "on": a bool speaks for itself,
+  /// and a number is on when it is nonzero. `None` for a string or a blob.
+  ///
+  /// The entity layer can overrule this with `state_mapping.on_value`, which
+  /// names a specific code as the only "on"; this is the answer when it does
+  /// not.
+  final bool? isOn;
+
   const DecodedValueDto({
     required this.name,
     required this.valueType,
@@ -1669,6 +1829,11 @@ class DecodedValueDto {
     this.unit,
     this.valueLabel,
     this.unitSource,
+    this.rawNumber,
+    this.decodedNumber,
+    this.decodedText,
+    this.decimals,
+    this.isOn,
   });
 
   @override
@@ -1684,7 +1849,12 @@ class DecodedValueDto {
       valueOffset.hashCode ^
       unit.hashCode ^
       valueLabel.hashCode ^
-      unitSource.hashCode;
+      unitSource.hashCode ^
+      rawNumber.hashCode ^
+      decodedNumber.hashCode ^
+      decodedText.hashCode ^
+      decimals.hashCode ^
+      isOn.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1702,7 +1872,12 @@ class DecodedValueDto {
           valueOffset == other.valueOffset &&
           unit == other.unit &&
           valueLabel == other.valueLabel &&
-          unitSource == other.unitSource;
+          unitSource == other.unitSource &&
+          rawNumber == other.rawNumber &&
+          decodedNumber == other.decodedNumber &&
+          decodedText == other.decodedText &&
+          decimals == other.decimals &&
+          isOn == other.isOn;
 }
 
 /// A parsed device specification, ready for use by the Flutter app.
@@ -2376,12 +2551,29 @@ class HttpRequestDto {
   /// by hand — an ECP keypress, a Hue config read — need not name it.
   final List<HttpHeaderDto> headers;
 
+  /// The SECOND spelling of [`Self::path`] this same invocation may be
+  /// addressed by, when the spec declares one (`path_fallback` on a
+  /// command, `state_topic_fallback` on an entity) — rendered here so the
+  /// sender needs no spec knowledge of its own.
+  ///
+  /// The contract is the schema's: send `path`, and fall back to this ONLY
+  /// when the device answers an unambiguous "no such thing" — an HTTP 404 —
+  /// never on a timeout, a refusal, or a 5xx. ESPHome is why it exists:
+  /// firmware up to 2025.12 addresses a ratgdo's cover by slugified
+  /// object_id (`/cover/door/open`) and 2026.7 and later by percent-encoded
+  /// entity name (`/cover/Door/open`), and a spec covering that fleet has
+  /// two correct paths and no way to know which board answered until it
+  /// asks. Defaulted on the Dart side so the callers that build a request
+  /// by hand need not name it.
+  final String? pathFallback;
+
   const HttpRequestDto({
     required this.method,
     required this.path,
     required this.body,
     this.scheme,
     this.headers = const [],
+    this.pathFallback,
   });
 
   @override
@@ -2390,7 +2582,8 @@ class HttpRequestDto {
       path.hashCode ^
       body.hashCode ^
       scheme.hashCode ^
-      headers.hashCode;
+      headers.hashCode ^
+      pathFallback.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2401,7 +2594,8 @@ class HttpRequestDto {
           path == other.path &&
           body == other.body &&
           scheme == other.scheme &&
-          headers == other.headers;
+          headers == other.headers &&
+          pathFallback == other.pathFallback;
 }
 
 /// A spec's declared image/animation capability, plus whether this crate can
@@ -4688,6 +4882,28 @@ class SpecIdentityDto {
           nameMatchers == other.nameMatchers &&
           txtMatchGroups == other.txtMatchGroups &&
           platformFallbackTypes == other.platformFallbackTypes;
+}
+
+/// One entity's two spellings of the same state location.
+class StateTopicFallbackDto {
+  /// The `state_topic` as declared — the spelling to try first.
+  final String topic;
+
+  /// The `state_topic_fallback` as declared.
+  final String fallback;
+
+  const StateTopicFallbackDto({required this.topic, required this.fallback});
+
+  @override
+  int get hashCode => topic.hashCode ^ fallback.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StateTopicFallbackDto &&
+          runtimeType == other.runtimeType &&
+          topic == other.topic &&
+          fallback == other.fallback;
 }
 
 /// The single play-by-cid write for RE-triggering an already stored item.

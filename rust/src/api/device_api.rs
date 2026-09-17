@@ -602,6 +602,39 @@ pub struct DecodedValueDto {
     /// iBBQ sends whichever unit the device is currently set to, so a UI must
     /// not present [`Self::unit`] as fact when this reads `device_setting`.
     pub unit_source: Option<String>,
+    /// The raw integer this field carries, as a float — `None` for a bool, a
+    /// string or a byte blob (see [`DecodedValue::as_number`] for why a bool
+    /// is not a number here).
+    ///
+    /// Unlike [`Self::uint_value`] this is NOT clamped into `i64` range: a
+    /// `u64` above `i64::MAX` arrives here as the value the device really
+    /// sent, so a control seeded from it is seeded from the truth.
+    pub raw_number: Option<f64>,
+    /// [`Self::raw_number`] through the spec's linear transform — the number
+    /// a person is reading, and the one to forward to Home Assistant.
+    ///
+    /// Computed here, by [`crate::codec::number`], rather than left for each
+    /// consumer to derive from [`Self::scale`] and [`Self::value_offset`]:
+    /// three consumers derived it three different ways, and one of them wrote
+    /// centidegrees into somebody's long-term statistics.
+    pub decoded_number: Option<f64>,
+    /// The reading as text: [`Self::decoded_number`] at the decimal places
+    /// the transform implies, or the codec's own rendering for a non-numeric
+    /// field. Never carries the unit or the `values:` label — those are
+    /// separate statements ([`Self::unit`], [`Self::value_label`]) a caller
+    /// combines as its layout needs.
+    pub decoded_text: Option<String>,
+    /// Decimal places [`Self::decoded_text`] was rendered at, for a consumer
+    /// that has to re-render the number itself (Home Assistant wants a JSON
+    /// number, not a string, and an untransformed field must stay an integer).
+    pub decimals: Option<u32>,
+    /// Whether this field on its own reads as "on": a bool speaks for itself,
+    /// and a number is on when it is nonzero. `None` for a string or a blob.
+    ///
+    /// The entity layer can overrule this with `state_mapping.on_value`, which
+    /// names a specific code as the only "on"; this is the answer when it does
+    /// not.
+    pub is_on: Option<bool>,
 }
 
 /// One match returned by [`match_device_to_spec`]. Callers pick whichever
@@ -1416,6 +1449,19 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
             unit: None,
             value_label: None,
             unit_source: None,
+            // No `format:` metadata is in hand at this point, so the reading
+            // is its own transform. `decode_value` re-states all four once it
+            // has looked the field's semantics up.
+            raw_number: value.as_number(),
+            decoded_number: value.as_number(),
+            decoded_text: Some(value.display()),
+            decimals: Some(0),
+            is_on: match value {
+                DecodedValue::Bool(v) => Some(*v),
+                _ => value
+                    .as_int()
+                    .map(|raw| crate::codec::number::is_on(raw, None)),
+            },
         };
         match value {
             DecodedValue::Bool(v) => dto.bool_value = Some(*v),
@@ -1449,6 +1495,78 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
 pub fn load_device_spec(yaml: String) -> anyhow::Result<DeviceSpecDto> {
     let spec = parse_device_spec(&yaml)?;
     Ok(DeviceSpecDto::from(&spec))
+}
+
+/// The handshake a spec wants run on every BLE connect, before anything else
+/// is read or written.
+///
+/// The schema has called `initialization` "ordered handshake / setup steps
+/// executed after connecting and before normal commands" since the beginning,
+/// and six vendored specs declare one — a SpotLED panel's three writes to
+/// `ff21`, a SmartDawn's two subscriptions, an xkglow's chained read — but
+/// nothing parsed it, so a user tapped a command the spec says only works
+/// after the sequence and the device ignored it. This is the whole decision
+/// in one call: which steps, in which order, against which service, and which
+/// of them a GATT client can carry out at all. The caller is meant to be a
+/// loop with no opinions.
+///
+/// [`BleHandshakeDto::described`] is the honesty half: schlage's session
+/// resumption is a fresh SPAKE2 exchange per connect, stated in prose because
+/// no YAML can hold its bytes. Those steps are reported, never executed, so a
+/// client that ran the executable prefix knows it did not finish a handshake
+/// rather than believing it did.
+///
+/// Empty steps and empty `described` for the overwhelming majority of the
+/// catalogue, which declares no handshake and must not pay a round trip for
+/// one.
+pub fn spec_ble_handshake(spec_yaml: String) -> anyhow::Result<BleHandshakeDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let handshake = crate::spec::initialization::handshake(&spec);
+    Ok(BleHandshakeDto {
+        steps: handshake
+            .steps
+            .into_iter()
+            .map(|step| BleHandshakeStepDto {
+                service_uuid: step.service_uuid,
+                characteristic_uuid: step.characteristic_uuid,
+                write: step.write,
+                read: step.read,
+                subscribe: step.subscribe,
+                delay_ms: step.delay_ms,
+            })
+            .collect(),
+        described: handshake.described,
+    })
+}
+
+/// A spec's connect-time handshake: what to run, and what it could not say.
+#[derive(Debug, Clone)]
+pub struct BleHandshakeDto {
+    /// The executable steps, in the order they must run.
+    pub steps: Vec<BleHandshakeStepDto>,
+    /// Steps the spec states only in prose, in order — nothing to execute,
+    /// and a warning worth logging rather than a silence.
+    pub described: Vec<String>,
+}
+
+/// One step of a connect-time handshake, addressed and ready to run.
+#[derive(Debug, Clone)]
+pub struct BleHandshakeStepDto {
+    /// The service the characteristic was found under. `None` when no service
+    /// in the spec declares it and the step named no owning service either —
+    /// there is nothing to address the operation to, and a caller must skip
+    /// it rather than guess a service.
+    pub service_uuid: Option<String>,
+    /// The characteristic to act on.
+    pub characteristic_uuid: String,
+    /// Bytes to write, or `None` for a read/subscribe-only step.
+    pub write: Option<Vec<u8>>,
+    /// Read the characteristic once the write (if any) has gone out.
+    pub read: bool,
+    /// Open notifications on the characteristic.
+    pub subscribe: bool,
+    /// Milliseconds to wait after the step; 0 for no wait.
+    pub delay_ms: u32,
 }
 
 /// The bytes that set a `number`/`climate` entity to a value, and where to
@@ -2304,6 +2422,22 @@ pub struct HttpRequestDto {
     /// by hand — an ECP keypress, a Hue config read — need not name it.
     #[frb(default = "const []")]
     pub headers: Vec<HttpHeaderDto>,
+    /// The SECOND spelling of [`Self::path`] this same invocation may be
+    /// addressed by, when the spec declares one (`path_fallback` on a
+    /// command, `state_topic_fallback` on an entity) — rendered here so the
+    /// sender needs no spec knowledge of its own.
+    ///
+    /// The contract is the schema's: send `path`, and fall back to this ONLY
+    /// when the device answers an unambiguous "no such thing" — an HTTP 404 —
+    /// never on a timeout, a refusal, or a 5xx. ESPHome is why it exists:
+    /// firmware up to 2025.12 addresses a ratgdo's cover by slugified
+    /// object_id (`/cover/door/open`) and 2026.7 and later by percent-encoded
+    /// entity name (`/cover/Door/open`), and a spec covering that fleet has
+    /// two correct paths and no way to know which board answered until it
+    /// asks. Defaulted on the Dart side so the callers that build a request
+    /// by hand need not name it.
+    #[frb(default = "null")]
+    pub path_fallback: Option<String>,
 }
 
 /// One rendered request header, name and value as they go on the wire.
@@ -2318,6 +2452,7 @@ impl From<crate::protocol::http::HttpRequest> for HttpRequestDto {
         Self {
             method: request.method,
             path: request.path,
+            path_fallback: request.path_fallback,
             body: request.body,
             scheme: None,
             headers: request
@@ -2931,6 +3066,43 @@ pub fn fill_mqtt_state_topic(
     // Deterministic order even though exact-key lookup makes ties impossible.
     fills.sort();
     Ok(crate::protocol::fill_placeholders_once(&topic, &fills))
+}
+
+/// The second spelling of each state topic the spec declares one for.
+///
+/// A `state_topic_fallback` is the MQTT/state-read sibling of a command's
+/// `path_fallback`: one family whose firmware generations name the same
+/// entity two ways, and a client with no way to know which generation
+/// answered until it asks. On the HTTP path the answer is a 404 and the
+/// renderer carries both candidates on the request itself; a subscription has
+/// no 404 to wait for — a topic that is simply never published looks exactly
+/// like a quiet device — so the honest move is to listen on both spellings
+/// and let the device decide which it uses. This hands the caller the pairs
+/// so it can, and reports them as the spec DECLARED them: filling is the
+/// caller's, through [`fill_mqtt_state_topic`], exactly as for the primary.
+///
+/// Empty for every spec that declares no fallback, which is all but ratgdo.
+pub fn spec_state_topic_fallbacks(spec_yaml: String) -> anyhow::Result<Vec<StateTopicFallbackDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(spec
+        .entities
+        .iter()
+        .filter_map(|entity| {
+            Some(StateTopicFallbackDto {
+                topic: entity.state_topic.clone()?,
+                fallback: entity.state_topic_fallback.clone()?,
+            })
+        })
+        .collect())
+}
+
+/// One entity's two spellings of the same state location.
+#[derive(Debug, Clone)]
+pub struct StateTopicFallbackDto {
+    /// The `state_topic` as declared — the spelling to try first.
+    pub topic: String,
+    /// The `state_topic_fallback` as declared.
+    pub fallback: String,
 }
 
 /// MQTT CONNECT for a spec-declared broker.
@@ -5375,6 +5547,17 @@ pub fn decode_value(
                     let raw = dto.int_value.or(dto.uint_value)?;
                     table.get(&raw.to_string()).cloned()
                 });
+                // The field's number semantics, evaluated once, here. The
+                // caller gets the answer rather than the ingredients — see
+                // `crate::codec::number` for why the ingredients used to
+                // produce three different answers.
+                let semantics =
+                    crate::codec::number::NumberSemantics::from_field(m.scale, m.value_offset);
+                if let Some(raw) = dto.raw_number {
+                    dto.decoded_number = Some(semantics.transform(raw));
+                    dto.decoded_text = Some(semantics.render(raw));
+                    dto.decimals = Some(semantics.decimals());
+                }
             }
             dto
         })
@@ -8316,6 +8499,111 @@ services:
         let dto = DecodedValueDto::from(("counter", &DecodedValue::Uint(u64::MAX)));
         assert_eq!(dto.uint_value, Some(i64::MAX));
         assert_eq!(dto.string_value, Some(u64::MAX.to_string()));
+    }
+
+    #[test]
+    fn a_decoded_reading_arrives_already_transformed() {
+        // The DTO carries the answer, not the ingredients: the consumer that
+        // derived `raw * scale + value_offset` for itself is the one that put
+        // centidegrees into Home Assistant's long-term statistics.
+        let yaml = r#"
+device:
+  name: "Thermo"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  identification:
+    local_name_prefix: "T_"
+services:
+  - uuid: "0000181a-0000-1000-8000-00805f9b34fb"
+    name: "Environmental Sensing"
+    characteristics:
+      - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
+        name: "temperature"
+        properties: ["read"]
+        format:
+          - name: "temperature"
+            type: "int16"
+            offset: 0
+            length: 2
+            scale: 0.01
+            unit: "C"
+"#;
+        let values = decode_value(
+            Some(yaml.to_string()),
+            None,
+            "00002a6e-0000-1000-8000-00805f9b34fb".to_string(),
+            2350i16.to_le_bytes().to_vec(),
+        )
+        .unwrap();
+
+        assert_eq!(values[0].raw_number, Some(2350.0));
+        assert_eq!(values[0].decoded_number, Some(23.5));
+        assert_eq!(values[0].decoded_text.as_deref(), Some("23.50"));
+        assert_eq!(values[0].decimals, Some(2));
+        // The raw reading is still there beside it: decoding stays lossless.
+        assert_eq!(values[0].int_value, Some(2350));
+    }
+
+    #[test]
+    fn an_untransformed_reading_renders_as_the_integer_it_is() {
+        let values = decode_value(
+            Some(TEST_YAML.to_string()),
+            None,
+            "0000fff2-0000-1000-8000-00805f9b34fb".to_string(),
+            vec![1, 80],
+        )
+        .unwrap();
+        // No scale declared, so no decimals invented — "80", not "80.00".
+        assert!(values
+            .iter()
+            .all(|v| v.decimals == Some(0) && v.decoded_number == v.raw_number));
+    }
+
+    #[test]
+    fn a_uint_above_i64_max_reports_the_truthful_number_not_the_clamp() {
+        // uint_value is clamped because FRB has no u64; raw_number and the
+        // rendered text are not, so what a person reads is what the device
+        // sent.
+        let dto = DecodedValueDto::from(("counter", &DecodedValue::Uint(u64::MAX)));
+        assert_eq!(dto.raw_number, Some(u64::MAX as f64));
+        assert_eq!(dto.decoded_text, Some(u64::MAX.to_string()));
+        assert!(dto.raw_number.unwrap() > i64::MAX as f64);
+    }
+
+    #[test]
+    fn the_on_off_verdict_crosses_with_the_reading() {
+        let on = DecodedValueDto::from(("power", &DecodedValue::Bool(true)));
+        assert_eq!(on.is_on, Some(true));
+        let off = DecodedValueDto::from(("power", &DecodedValue::Bool(false)));
+        assert_eq!(off.is_on, Some(false));
+        // A number is on when it is nonzero; the entity layer can still name
+        // a specific `on_value` and overrule that.
+        assert_eq!(
+            DecodedValueDto::from(("level", &DecodedValue::Uint(5))).is_on,
+            Some(true)
+        );
+        assert_eq!(
+            DecodedValueDto::from(("level", &DecodedValue::Uint(0))).is_on,
+            Some(false)
+        );
+        // Neither a string nor a blob has an on/off verdict to give.
+        assert_eq!(
+            DecodedValueDto::from(("mode", &DecodedValue::String("eco".into()))).is_on,
+            None
+        );
+        assert_eq!(
+            DecodedValueDto::from(("blob", &DecodedValue::Bytes(vec![1, 2]))).is_on,
+            None
+        );
+    }
+
+    #[test]
+    fn a_bool_is_not_a_number_and_renders_as_a_word() {
+        let dto = DecodedValueDto::from(("power", &DecodedValue::Bool(true)));
+        assert_eq!(dto.raw_number, None);
+        assert_eq!(dto.decoded_number, None);
+        assert_eq!(dto.decoded_text.as_deref(), Some("on"));
     }
 
     #[test]

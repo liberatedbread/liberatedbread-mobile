@@ -867,6 +867,10 @@ void main() {
           valueType: 'uint',
           display: '55',
           uintValue: 55,
+          rawNumber: 55.0,
+          decodedNumber: 55.0,
+          decodedText: '55',
+          decimals: 0,
         ),
       ],
     );

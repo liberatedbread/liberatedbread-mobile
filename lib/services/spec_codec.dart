@@ -94,7 +94,10 @@ export '../src/rust/api/device_api.dart'
         BrotherQlJobParamsDto,
         CameraDto,
         CameraStreamDto,
-        CameraKeepaliveDto;
+        CameraKeepaliveDto,
+        BleHandshakeDto,
+        BleHandshakeStepDto,
+        StateTopicFallbackDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -310,6 +313,26 @@ abstract class SpecCodec {
     required String stateCommand,
     required Map<String, String> values,
   });
+
+  /// The second spelling of each state topic the spec declares one for, as
+  /// declared (placeholders unfilled). Empty for a spec with no
+  /// `state_topic_fallback` — all but ratgdo, today.
+  ///
+  /// A subscription has no 404 to fall back on, so the MQTT sender listens on
+  /// both spellings rather than waiting out a topic that may simply never be
+  /// published.
+  Future<List<StateTopicFallbackDto>> specStateTopicFallbacks({
+    required String specYaml,
+  });
+
+  /// The ordered handshake the spec wants run on every BLE connect, before
+  /// anything else is read or written — the schema's `initialization`, both
+  /// the device-wide block and each service's.
+  ///
+  /// Rust decides what to send and in what order; the caller is a loop.
+  /// [BleHandshakeDto.described] carries the steps the spec could only state
+  /// in prose, so a client knows when it has run half a handshake.
+  Future<BleHandshakeDto> specBleHandshake({required String specYaml});
 
   /// Enumerate the children an instanced entity's state reply carries, in the
   /// hub's own order.

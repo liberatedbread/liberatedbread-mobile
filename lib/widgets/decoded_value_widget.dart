@@ -226,7 +226,9 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
   /// — while `scale`, `value_offset`, `unit`, `values` and `unit_source` all
   /// crossed the FFI beside it and went unread. A SIG temperature therefore
   /// read "2350" here and "23.5 °C" on the entity card above it, from the
-  /// same characteristic and the same spec.
+  /// same characteristic and the same spec. The transform now arrives already
+  /// applied (`decodedText`, from `rust/src/codec/number.rs`), so the two
+  /// surfaces cannot say different things about one reading.
   ///
   /// The code-table name keeps the raw code beside it, unlike the entity card
   /// which shows the name alone: this is the GATT browser, and someone

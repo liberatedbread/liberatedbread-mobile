@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/decoded_number.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
@@ -69,6 +70,14 @@ FakeSpecCodec _codecReturning(int raw, {double? scale, String? unit}) =>
           valueType: 'uint',
           display: '$raw',
           uintValue: raw,
+          // Shaped the way the Rust decoder fills a DTO in: the transform is
+          // applied there, and the card reads the answer.
+          rawNumber: raw.toDouble(),
+          decodedNumber: raw * (scale ?? 1.0),
+          decodedText: (raw * (scale ?? 1.0)).toStringAsFixed(
+            decimalsForTransform(scale: scale),
+          ),
+          decimals: decimalsForTransform(scale: scale),
           scale: scale,
           unit: unit,
         ),

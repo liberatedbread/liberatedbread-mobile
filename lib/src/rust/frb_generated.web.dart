@@ -39,6 +39,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  BleHandshakeDto dco_decode_ble_handshake_dto(dynamic raw);
+
+  @protected
+  BleHandshakeStepDto dco_decode_ble_handshake_step_dto(dynamic raw);
+
+  @protected
   BleProvisioningProfileDto dco_decode_ble_provisioning_profile_dto(
     dynamic raw,
   );
@@ -235,6 +241,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
+  List<BleHandshakeStepDto> dco_decode_list_ble_handshake_step_dto(dynamic raw);
+
+  @protected
   List<BleProvisioningProfileDto> dco_decode_list_ble_provisioning_profile_dto(
     dynamic raw,
   );
@@ -389,6 +398,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<SpecIdentityDto> dco_decode_list_spec_identity_dto(dynamic raw);
+
+  @protected
+  List<StateTopicFallbackDto> dco_decode_list_state_topic_fallback_dto(
+    dynamic raw,
+  );
 
   @protected
   List<TroubleshootingDto> dco_decode_list_troubleshooting_dto(dynamic raw);
@@ -585,6 +599,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Int64List? dco_decode_opt_list_prim_i_64_strict(dynamic raw);
 
   @protected
+  Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
+
+  @protected
   PanelResolutionDto dco_decode_panel_resolution_dto(dynamic raw);
 
   @protected
@@ -663,6 +680,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw);
+
+  @protected
+  StateTopicFallbackDto dco_decode_state_topic_fallback_dto(dynamic raw);
 
   @protected
   StoredPlayDto dco_decode_stored_play_dto(dynamic raw);
@@ -748,6 +768,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String sse_decode_String(SseDeserializer deserializer);
+
+  @protected
+  BleHandshakeDto sse_decode_ble_handshake_dto(SseDeserializer deserializer);
+
+  @protected
+  BleHandshakeStepDto sse_decode_ble_handshake_step_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   BleProvisioningProfileDto sse_decode_ble_provisioning_profile_dto(
@@ -988,6 +1016,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
+  List<BleHandshakeStepDto> sse_decode_list_ble_handshake_step_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<BleProvisioningProfileDto> sse_decode_list_ble_provisioning_profile_dto(
     SseDeserializer deserializer,
   );
@@ -1198,6 +1231,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<SpecIdentityDto> sse_decode_list_spec_identity_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<StateTopicFallbackDto> sse_decode_list_state_topic_fallback_dto(
     SseDeserializer deserializer,
   );
 
@@ -1446,6 +1484,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Int64List? sse_decode_opt_list_prim_i_64_strict(SseDeserializer deserializer);
 
   @protected
+  Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
   PanelResolutionDto sse_decode_panel_resolution_dto(
     SseDeserializer deserializer,
   );
@@ -1544,6 +1585,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SpecIdentityDto sse_decode_spec_identity_dto(SseDeserializer deserializer);
+
+  @protected
+  StateTopicFallbackDto sse_decode_state_topic_fallback_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   StoredPlayDto sse_decode_stored_play_dto(SseDeserializer deserializer);
@@ -1654,6 +1700,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_ble_handshake_dto(
+    BleHandshakeDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_ble_handshake_step_dto(
+    BleHandshakeStepDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_ble_provisioning_profile_dto(
@@ -1968,6 +2026,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_ble_handshake_step_dto(
+    List<BleHandshakeStepDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_ble_provisioning_profile_dto(
     List<BleProvisioningProfileDto> self,
     SseSerializer serializer,
@@ -2243,6 +2307,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_spec_identity_dto(
     List<SpecIdentityDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_state_topic_fallback_dto(
+    List<StateTopicFallbackDto> self,
     SseSerializer serializer,
   );
 
@@ -2556,6 +2626,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_list_prim_u_8_strict(
+    Uint8List? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_panel_resolution_dto(
     PanelResolutionDto self,
     SseSerializer serializer,
@@ -2690,6 +2766,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_spec_identity_dto(
     SpecIdentityDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_state_topic_fallback_dto(
+    StateTopicFallbackDto self,
     SseSerializer serializer,
   );
 

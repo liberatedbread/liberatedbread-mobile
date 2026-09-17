@@ -11,9 +11,11 @@ import '../providers/device_description_provider.dart';
 import '../providers/device_setup_help_provider.dart';
 import '../providers/device_spec_match_provider.dart';
 import '../providers/ha_provider.dart';
+import '../providers/spec_codec_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
+import '../services/spec_codec.dart' show BleHandshakeDto;
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/safety_advisory_gate.dart';
@@ -26,6 +28,105 @@ import 'setup_instructions_screen.dart';
 
 enum _ScreenState { connecting, discovering, ready, error, disconnected }
 
+/// Execute a spec's connect-time handshake, step by step, and hand back the
+/// notification subscriptions it opened.
+///
+/// A thin executor ON PURPOSE. Every decision — which steps exist, what order
+/// they run in, which service each characteristic lives under, and which of
+/// them can be carried out at all — was made in Rust from the spec's
+/// `initialization` blocks; this loop holds none of it. What it does own is
+/// the two things only a client can: the BLE calls, and the subscriptions'
+/// lifetime, which is the connection's (the caller cancels them when the link
+/// goes).
+///
+/// Within one step the order is subscribe, write, read, wait: a step that
+/// opens notifications is opening them for what follows, and a step that both
+/// writes and reads (SpotLED's `04 14 00 00`) is reading the answer to its
+/// own write.
+///
+/// A step that fails STOPS the handshake — the steps are ordered because they
+/// depend on each other, and running the rest against a device that refused
+/// step two is how a half-initialized device comes to look initialized. The
+/// throw carries no list back, so anything this opened before it is cancelled
+/// here rather than left running with no owner.
+@visibleForTesting
+Future<List<StreamSubscription<List<int>>>> runBleHandshake({
+  required BleService ble,
+  required String deviceId,
+  required BleHandshakeDto handshake,
+}) async {
+  // Prose, not instructions: schlage's session resumption is a fresh SPAKE2
+  // exchange per connect and no spec can hold its bytes. Said out loud rather
+  // than silently skipped, because "the handshake ran" and "the executable
+  // part of the handshake ran" are different claims.
+  for (final described in handshake.described) {
+    Log.ble.warning(
+      'the spec asks for a handshake step this app cannot perform on '
+      '$deviceId: $described',
+    );
+  }
+  final opened = <StreamSubscription<List<int>>>[];
+  try {
+    for (final step in handshake.steps) {
+      final serviceUuid = step.serviceUuid;
+      if (serviceUuid == null) {
+        // No service declares the characteristic and the step named no owner,
+        // so there is nothing to address the operation to. Skipped rather
+        // than guessed: a write to the wrong service is not a handshake.
+        Log.ble.warning(
+          'skipping a handshake step on $deviceId: no service declares '
+          '${step.characteristicUuid}',
+        );
+        continue;
+      }
+      if (step.subscribe) {
+        opened.add(
+          ble
+              .subscribeCharacteristic(
+                deviceId,
+                serviceUuid,
+                step.characteristicUuid,
+              )
+              .listen(
+                // The payloads matter to the device, not to us: what the spec
+                // asks for is that notifications be RUNNING. The service's own
+                // ring keeps what arrives for whoever wants it later.
+                (_) {},
+                onError: (Object e) => Log.ble.debug(
+                  'handshake notification on ${step.characteristicUuid}: $e',
+                ),
+              ),
+        );
+      }
+      final write = step.write;
+      if (write != null) {
+        await ble.writeCharacteristic(
+          deviceId,
+          serviceUuid,
+          step.characteristicUuid,
+          write,
+        );
+      }
+      if (step.read) {
+        await ble.readCharacteristic(
+          deviceId,
+          serviceUuid,
+          step.characteristicUuid,
+        );
+      }
+      if (step.delayMs > 0) {
+        await Future<void>.delayed(Duration(milliseconds: step.delayMs));
+      }
+    }
+  } catch (_) {
+    for (final sub in opened) {
+      unawaited(sub.cancel());
+    }
+    rethrow;
+  }
+  return opened;
+}
+
 class DeviceScreen extends ConsumerStatefulWidget {
   final IoTDevice device;
 
@@ -36,6 +137,11 @@ class DeviceScreen extends ConsumerStatefulWidget {
 }
 
 class _DeviceScreenState extends ConsumerState<DeviceScreen> {
+  /// How long the connect path waits for the spec match before opening the
+  /// screen without having run the device's handshake. See
+  /// [_runSpecHandshake].
+  static const _specMatchWait = Duration(seconds: 3);
+
   /// Set by the first Disconnect tap; see onDisconnect.
   bool _leaving = false;
 
@@ -49,6 +155,25 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   List<BleDiscoveredService> _services = [];
   late final BleService _bleService;
   StreamSubscription<BleConnectionState>? _connSub;
+
+  /// Notification streams the spec's connect-time handshake asked to be
+  /// opened, held for the life of THIS connection. A handshake that says
+  /// `subscribe` means "have notifications running before anything else
+  /// happens" (SmartDawn opens both of its DDP channels first), so the
+  /// subscriptions cannot be dropped the moment the handshake returns — and
+  /// they have to go when the link does, or the next connect stacks another
+  /// set on top.
+  final List<StreamSubscription<List<int>>> _handshakeSubs = [];
+
+  /// The bounded wait for the spec match, and the deadline that bounds it.
+  ///
+  /// Owned as fields rather than left inside a `Future.timeout` because both
+  /// have to be let go when the screen is: a timer still pending after the
+  /// tree is disposed is a leak (and a test failure), and a wait nothing
+  /// completes would strand [_connect] mid-flight — with the link it
+  /// established never torn down.
+  Completer<SpecMatchOutcome>? _matchGate;
+  Timer? _matchDeadline;
   // Watches the spec match for the connected device and records the outcome
   // (category + spec key) on the saved-device record, so grouping can
   // classify this device while it is out of range. A listener rather than a
@@ -146,6 +271,18 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         await _cleanupConnection();
         return;
       }
+      // The spec's own handshake, BEFORE the controls exist — six vendored
+      // specs declare one ("ordered handshake / setup steps executed after
+      // connecting and before normal commands", in the schema's words) and
+      // until this nothing ran them, so a SpotLED panel's first tap went out
+      // without the three writes the device is waiting for. Never fatal: a
+      // handshake that fails is a device that may ignore its commands, and a
+      // screen that refuses to open is a device that certainly does.
+      await _runSpecHandshake(services);
+      if (!mounted) {
+        await _cleanupConnection();
+        return;
+      }
       setState(() {
         _services = services;
         _state = _ScreenState.ready;
@@ -228,9 +365,92 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _connSub = null;
     _matchSub?.close();
     _matchSub = null;
+    _releaseMatchWait();
+    for (final sub in _handshakeSubs) {
+      unawaited(sub.cancel());
+    }
+    _handshakeSubs.clear();
     if (_connected) {
       _connected = false;
       await _bleService.disconnect(widget.device.id).catchError((Object _) {});
+    }
+  }
+
+  /// Stop waiting for the spec match: cancel the deadline and let whoever is
+  /// awaiting it through with no spec.
+  ///
+  /// Both halves matter. The timer must not outlive the tree; and the wait
+  /// must be COMPLETED rather than abandoned, because [_connect] suspends on
+  /// it while owning a live connection it tears down on the way out.
+  void _releaseMatchWait() {
+    _matchDeadline?.cancel();
+    _matchDeadline = null;
+    final gate = _matchGate;
+    _matchGate = null;
+    if (gate != null && !gate.isCompleted) {
+      gate.complete(const SpecMatchOutcome.none());
+    }
+  }
+
+  /// Run the matched spec's `initialization` handshake against this
+  /// connection, if it declares one.
+  ///
+  /// The decision of what to send is entirely the catalogue's, resolved in
+  /// Rust: which steps, in which order, against which service. This waits for
+  /// the match because the handshake is the SPEC's, and the match is where
+  /// the spec comes from — the same cached family entry the control panel
+  /// reads, so it costs no extra FFI.
+  Future<void> _runSpecHandshake(List<BleDiscoveredService> services) async {
+    if (services.isEmpty) return;
+    try {
+      // Bounded, and both bounds answer the same way — no spec, no handshake,
+      // open the screen. The match is what the control panel is waiting on
+      // too, so waiting for it costs the user nothing they were not already
+      // waiting for; but a catalogue that never resolves (an asset read that
+      // hangs) must not hold a connected device behind a spinner, and a
+      // handshake skipped is exactly where this device was yesterday.
+      final gate = _matchGate = Completer<SpecMatchOutcome>();
+      void settle([SpecMatchOutcome outcome = const SpecMatchOutcome.none()]) {
+        if (!gate.isCompleted) gate.complete(outcome);
+      }
+
+      _matchDeadline = Timer(_specMatchWait, settle);
+      unawaited(
+        ref
+            .read(
+              matchedDeviceSpecProvider(
+                SpecMatchRequest.forServices(
+                  deviceId: widget.device.id,
+                  deviceName: widget.device.displayName,
+                  services: services,
+                ),
+              ).future,
+            )
+            .then(settle, onError: (Object _) => settle()),
+      );
+      final outcome = await gate.future;
+      _releaseMatchWait();
+      final chosen = outcome.chosen;
+      if (chosen == null) return;
+      final handshake = await ref
+          .read(specCodecProvider)
+          .specBleHandshake(specYaml: chosen.yaml);
+      if (handshake.steps.isEmpty && handshake.described.isEmpty) return;
+      if (!mounted || !_connected) return;
+      _handshakeSubs.addAll(
+        await runBleHandshake(
+          ble: _bleService,
+          deviceId: widget.device.id,
+          handshake: handshake,
+        ),
+      );
+    } catch (e) {
+      // Logged, not surfaced: the user's question is "do my controls work",
+      // and the answer to a half-run handshake is found by trying one.
+      Log.ble.warning(
+        'the spec handshake for ${widget.device.id} did not complete',
+        error: e,
+      );
     }
   }
 
@@ -319,6 +539,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _connSub = null;
     _matchSub?.close();
     _matchSub = null;
+    _releaseMatchWait();
+    for (final sub in _handshakeSubs) {
+      unawaited(sub.cancel());
+    }
+    _handshakeSubs.clear();
     if (_connected) {
       _connected = false;
       // unawaited() does not swallow errors, so attach a catchError to keep a

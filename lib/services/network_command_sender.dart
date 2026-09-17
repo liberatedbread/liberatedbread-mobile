@@ -479,11 +479,55 @@ class NetworkCommandSender {
     NetworkActionDto? action,
     List<String> topics,
   ) async {
+    // The reading half of the spec's two-spellings rule. On HTTP the device
+    // answers 404 and the sender tries the other path; a subscription has no
+    // 404 — a topic the firmware never publishes on is indistinguishable from
+    // a quiet device — so the honest move is to listen on both and let the
+    // device decide which it uses. Messages arriving on the second spelling
+    // are handed on under the FIRST, because the caller subscribed to a
+    // reading, not to a string.
+    final second = await _fallbackTopics(topics);
     final session = await _openMqtt(action, const {});
     for (final topic in topics) {
       await session.subscribe(topic);
     }
-    return session.messages;
+    for (final topic in second.keys) {
+      await session.subscribe(topic);
+    }
+    if (second.isEmpty) return session.messages;
+    return session.messages.map(
+      (message) => second.containsKey(message.topic)
+          ? MqttMessage(second[message.topic]!, message.payload)
+          : message,
+    );
+  }
+
+  /// Second spelling → the topic it stands in for, for the topics the caller
+  /// asked about.
+  ///
+  /// The spec declares its pairs unfilled, so this can only speak for a topic
+  /// the spec states literally — which is what a `state_topic_fallback` is:
+  /// the same reading spelled the way an older firmware generation named it
+  /// (ESPHome's `/cover/door` beside `/cover/Door`), never a template. A
+  /// placeholder-carrying topic arrives here already filled and matches
+  /// nothing, which is the honest answer rather than a guessed substitution.
+  /// Empty — and free — for every spec that declares no fallback.
+  Future<Map<String, String>> _fallbackTopics(List<String> topics) async {
+    final List<StateTopicFallbackDto> declared;
+    try {
+      declared = await _codec.specStateTopicFallbacks(specYaml: specYaml);
+    } catch (e) {
+      // A fallback nobody can resolve must not cost the primary its
+      // subscription: the reading a spec spells once is the common case.
+      Log.net.debug('could not resolve state-topic fallbacks for $host: $e');
+      return const {};
+    }
+    final wanted = topics.toSet();
+    return {
+      for (final pair in declared)
+        if (wanted.contains(pair.topic) && !wanted.contains(pair.fallback))
+          pair.fallback: pair.topic,
+    };
   }
 
   /// The MQTT session, opened once and reused.

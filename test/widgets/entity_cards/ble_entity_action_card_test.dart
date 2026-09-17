@@ -165,6 +165,10 @@ void main() {
           valueType: 'uint',
           display: '40',
           uintValue: 40,
+          rawNumber: 40.0,
+          decodedNumber: 40.0,
+          decodedText: '40',
+          decimals: 0,
         ),
       ],
     );

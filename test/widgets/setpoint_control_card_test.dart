@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/decoded_number.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -79,6 +80,15 @@ FakeSpecCodec _codecReading(
       valueType: 'uint',
       display: '$raw',
       uintValue: raw,
+      // Shaped the way the Rust decoder fills a DTO in: the transform is
+      // applied there, and the card reads the answer.
+      rawNumber: raw.toDouble(),
+      decodedNumber: raw * (scale ?? 1.0) + (valueOffset ?? 0.0),
+      decodedText: (raw * (scale ?? 1.0) + (valueOffset ?? 0.0))
+          .toStringAsFixed(
+            decimalsForTransform(scale: scale, valueOffset: valueOffset),
+          ),
+      decimals: decimalsForTransform(scale: scale, valueOffset: valueOffset),
       scale: scale,
       valueOffset: valueOffset,
       unit: unit,
@@ -401,6 +411,10 @@ void main() {
           valueType: 'uint',
           display: '40',
           uintValue: 40,
+          rawNumber: 40.0,
+          decodedNumber: 40.0,
+          decodedText: '40',
+          decimals: 0,
         ),
       ],
       encodeEntityValueError: StateError('out of range'),
