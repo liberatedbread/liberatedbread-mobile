@@ -238,6 +238,17 @@ class EmulatedPeripheral {
   /// times out AFTER having succeeded. Set false to reproduce that.
   bool confirmsCccdWrites = true;
 
+  /// Confirm CCCD writes, but only after this long — a peripheral acking late.
+  ///
+  /// Real controllers do this on a congested link or a slow peripheral, and
+  /// it is the only platform-neutral way to hold an enable IN FLIGHT for a
+  /// known window: [confirmsCccdWrites] `= false` also opens a window, but
+  /// its length is `RealBleService`'s confirmation timeout, which is 3 s on
+  /// Linux and 15 s everywhere else, so a test built on it either fails or
+  /// has to skip itself off Linux. Ignored when [confirmsCccdWrites] is
+  /// false; null confirms at the adapter's ordinary [EmulatedBleAdapter.latency].
+  Duration? cccdConfirmDelay;
+
   /// Whether this peripheral's attributes demand an authenticated (paired)
   /// link.
   ///
@@ -474,6 +485,8 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   final _descWrittenController = StreamController<BmDescriptorData>.broadcast();
   final _mtuController = StreamController<BmMtuChangedResponse>.broadcast();
   final _bondController = StreamController<BmBondStateResponse>.broadcast();
+  final _servicesResetController =
+      StreamController<BmBluetoothDevice>.broadcast();
 
   final Map<String, EmulatedPeripheral> _peripherals = {};
 
@@ -583,6 +596,19 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     await _descWrittenController.close();
     await _mtuController.close();
     await _bondController.close();
+    await _servicesResetController.close();
+  }
+
+  /// The peripheral republished its GATT table — what CoreBluetooth reports
+  /// as `didModifyServices` and the darwin plugin forwards as OnServicesReset.
+  /// Nothing here changes the emulated table; the point is what the service
+  /// does with its cache when told.
+  void pushServicesReset(String deviceId) {
+    if (_servicesResetController.isClosed) return;
+    _servicesResetController.add(BmBluetoothDevice(
+      remoteId: DeviceIdentifier(deviceId),
+      platformName: _peripherals[deviceId]?.name,
+    ));
   }
 
   // ── event plumbing ────────────────────────────────────────────────────────
@@ -704,6 +730,10 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
 
   @override
   Stream<BmMtuChangedResponse> get onMtuChanged => _mtuController.stream;
+
+  @override
+  Stream<BmBluetoothDevice> get onServicesReset =>
+      _servicesResetController.stream;
 
   @override
   Stream<BmBondStateResponse> get onBondStateChanged => _bondController.stream;
@@ -1006,7 +1036,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
       // worked.
       return true;
     }
-    _later(() {
+    void confirm() {
       if (_descWrittenController.isClosed) return;
       _descWrittenController.add(BmDescriptorData(
         remoteId: request.remoteId,
@@ -1019,7 +1049,14 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
         errorCode: 0,
         errorString: '',
       ));
-    });
+    }
+
+    final delay = peripheral.cccdConfirmDelay;
+    if (delay != null) {
+      Timer(delay, confirm);
+    } else {
+      _later(confirm);
+    }
     return true;
   }
 }

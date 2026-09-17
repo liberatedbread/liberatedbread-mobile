@@ -23,6 +23,7 @@ import '../widgets/black_hat_icon.dart';
 import '../widgets/device_list_tile.dart';
 import '../widgets/radar_scanner.dart';
 import 'device_screen.dart';
+import 'about_screen.dart';
 import 'diagnostics_screen.dart';
 import 'ha_settings_screen.dart';
 import 'security_warning_screen.dart';
@@ -474,6 +475,17 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
               context,
               MaterialPageRoute<void>(
                   builder: (_) => const DiagnosticsScreen()),
+            ),
+          ),
+          // Privacy policy, disclaimer, licences: the Terms gate shows them
+          // once and never again, and App Review wants the privacy policy
+          // reachable from inside the app.
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'About',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
             ),
           ),
           if (isMockMode) const _MockBadge(),

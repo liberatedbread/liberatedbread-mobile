@@ -1,9 +1,9 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../core/constants.dart';
+import '../core/web_link.dart';
 
 /// The first-launch gate: the user must accept the disclaimer before the app
 /// opens. Shown once (until [AppConstants.termsVersion] is bumped), it states
@@ -124,12 +124,8 @@ class TermsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _open(BuildContext context, String url) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final uri = Uri.tryParse(url);
-    if (uri == null ||
-        !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      messenger.showSnackBar(SnackBar(content: Text('Could not open $url')));
-    }
-  }
+  // These links are constants, but they go through the same guard every
+  // external link does, so there is exactly one way a URL leaves the app.
+  Future<void> _open(BuildContext context, String url) =>
+      openWebLink(context, url);
 }

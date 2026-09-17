@@ -64,4 +64,19 @@ class WifiNetworkScanner {
       return const [];
     }
   }
+
+  /// Open the OS Wi-Fi list, where the user joins a device's setup network.
+  ///
+  /// Android only (`Settings.ACTION_WIFI_SETTINGS`); iOS exposes no public
+  /// route to that pane. Returns whether the platform did it, and never
+  /// throws — the adopt screen's instruction text is the fallback.
+  Future<bool> openWifiSettings() async {
+    if (!isSupported) return false;
+    try {
+      return await channel.invokeMethod<bool>('openWifiSettings') ?? false;
+    } catch (e) {
+      Log.net.debug('could not open Wi-Fi settings: $e');
+      return false;
+    }
+  }
 }

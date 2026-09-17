@@ -28,14 +28,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/core/theme.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/screens/device_screen.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/src/rust/frb_generated.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Port `scripts/e2e_shot_server.py` listens on. The iOS Simulator shares the
 /// host's loopback interface, so 127.0.0.1 reaches the host directly.
@@ -62,7 +65,7 @@ void main() {
   });
 
   testWidgets('01 scan: launch, scan, devices appear', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: LiberatedBreadApp()));
+    await _pumpApp(tester);
     await _soak(tester, const Duration(milliseconds: 300));
 
     // Launching IS starting the scan — nothing is tapped here.
@@ -93,7 +96,7 @@ void main() {
   });
 
   testWidgets('02 device: connect, typed controls, commands', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: LiberatedBreadApp()));
+    await _pumpApp(tester);
     // The scan is already running by the time the first frame lands; this is
     // just waiting for the mock to get through its devices.
     await _soak(tester, const Duration(seconds: 3));
@@ -103,40 +106,49 @@ void main() {
     expect(find.textContaining('...'), findsWidgets);
     await _shot(tester, '05_device_connecting');
 
-    await _soak(tester, const Duration(seconds: 3));
-    // The mock device matches vendor/protocol-specs/device-specs/examples/example-bulb.yaml, so the
-    // spec-typed controls render instead of the raw hex browser.
-    expect(find.text('Control Service'), findsOneWidget);
-    expect(find.text('Power on'), findsWidgets);
+    // The mock device matches vendor/protocol-specs/device-specs/examples/
+    // example-bulb.yaml, so the matched-spec banner and the light card render
+    // instead of the raw hex browser. Waited for, not slept for: on a
+    // simulator the mock's connect + discovery + the catalogue match take
+    // longer than a fixed soak, which failed here on "Discovering services".
+    // The screenshot is taken BEFORE the assertions so a failure leaves a
+    // picture of what was actually on screen.
+    //
+    // These are the current widgets. The step used to look for a "Control
+    // Service" section with "Power on" buttons and a "Send" button — the raw
+    // spec-command view the device screen stopped rendering for a matched
+    // light when the entity cards arrived — and failed on every run since,
+    // recorded in docs/APP_STORE_SUBMISSION.md as an environment problem.
+    await _waitFor(tester, find.text('Example Smart Bulb'));
+    await _waitFor(tester, find.text('Controls'));
     await _shot(tester, '06_device_typed_controls');
+    expect(find.text('Example Smart Bulb'), findsOneWidget);
+    expect(find.text('Controls'), findsOneWidget);
+    expect(find.text('Bulb'), findsOneWidget);
+    expect(find.byType(Switch), findsOneWidget);
+    expect(find.byType(Slider), findsOneWidget);
 
-    // Fixed command: one tap writes the spec-encoded bytes.
-    await tester.tap(find.widgetWithText(ElevatedButton, 'Power on'));
+    // The toggle: one flip writes the spec-encoded on/off command, and the
+    // status line changes to say so.
+    final wasOn = tester.widget<Switch>(find.byType(Switch)).value;
+    await tester.tap(find.byType(Switch));
     await _soak(tester, const Duration(seconds: 1));
-    expect(find.text('Sent'), findsWidgets);
-    await _shot(tester, '07_fixed_command_sent');
+    expect(find.textContaining(wasOn ? 'Off' : 'On'), findsWidgets);
+    await _shot(tester, '07_toggle_sent');
 
-    // Parameterized command: move the brightness slider, then send. The Send
-    // button is an ElevatedButton.icon, whose runtime type is private, so match
-    // on its label instead of its type.
-    await tester.drag(find.byType(Slider).first, const Offset(90, 0));
-    await _soak(tester, const Duration(milliseconds: 500));
-    final send = find.text('Send').first;
-    await tester.ensureVisible(send);
-    await _soak(tester, const Duration(milliseconds: 300));
-    await tester.tap(send);
+    // The brightness slider commits on release.
+    await tester.drag(find.byType(Slider), const Offset(-90, 0));
     await _soak(tester, const Duration(seconds: 1));
-    await _shot(tester, '08_parameterized_command_sent');
+    await _shot(tester, '08_brightness_sent');
 
-    // Decoded (spec-formatted) values live further down the list.
+    // Readings, then the raw GATT services, live further down the list.
     await tester.drag(find.byType(ListView).first, const Offset(0, -600));
     await _soak(tester, const Duration(seconds: 2));
-    await _shot(tester, '09_decoded_values');
+    await _shot(tester, '09_readings');
 
-    // Battery service sits at the bottom.
     await tester.drag(find.byType(ListView).first, const Offset(0, -600));
     await _soak(tester, const Duration(seconds: 2));
-    await _shot(tester, '10_battery_service');
+    await _shot(tester, '10_raw_services');
 
     // Back out to the scan list.
     await tester.pageBack();
@@ -146,7 +158,7 @@ void main() {
   });
 
   testWidgets('03 spec packs: list, validation, install', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: LiberatedBreadApp()));
+    await _pumpApp(tester);
     await _soak(tester, const Duration(seconds: 1));
 
     await tester.tap(find.byTooltip('Device Spec Packs'));
@@ -199,7 +211,7 @@ void main() {
   });
 
   testWidgets('04 home assistant settings', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: LiberatedBreadApp()));
+    await _pumpApp(tester);
     await _soak(tester, const Duration(seconds: 1));
 
     await tester.tap(find.byTooltip('Home Assistant'));
@@ -323,6 +335,28 @@ void main() {
 }
 
 // ── walkthrough helpers ──────────────────────────────────────────────────────
+
+/// Pump the whole app the way main() does: terms already accepted, and
+/// SharedPreferences resolved and injected before the first frame.
+///
+/// The four walkthrough steps that drive the real app used to pump a bare
+/// `ProviderScope(child: LiberatedBreadApp())`, so every one of them threw
+/// `UnimplementedError: sharedPreferencesProvider must be overridden` from
+/// the terms gate's initState before touching Bluetooth or the network — and
+/// docs/APP_STORE_SUBMISSION.md recorded those four as environmental
+/// failures for a release cycle. The three steps that build their own scope
+/// were the ones that passed. mock_flow_test.dart does exactly this.
+Future<void> _pumpApp(WidgetTester tester) async {
+  SharedPreferences.setMockInitialValues(
+      {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+  final prefs = await SharedPreferences.getInstance();
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+      child: const LiberatedBreadApp(),
+    ),
+  );
+}
 
 /// Pump real frames for [total]. Used instead of `pumpAndSettle` because the
 /// app legitimately never settles on several screens (progress spinners, the

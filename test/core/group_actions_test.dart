@@ -253,6 +253,26 @@ void main() {
       expect(writes, isEmpty);
     });
 
+    test('a parameter the group has no value for is omitted, not zeroed', () {
+      // Mirrors the light card. Sending 0.0 for `warmth` wrote a real zero
+      // to every member of the group for a knob nobody chose; omitting it
+      // leaves the spec default (or a visible ParameterMissing) to the
+      // encoder.
+      final spec = _spec(entities: [
+        _entity('Bulb', platform: 'light', actions: [
+          _action('set_brightness',
+              userParams: const ['brightness', 'warmth'], max: 100),
+        ]),
+      ]);
+      final writes = resolveGroupWrites(
+        op: GroupOp.setBrightness,
+        spec: spec,
+        services: [_discovered()],
+        brightnessPercent: 50,
+      );
+      expect(writes.single.params, {'brightness': 50.0});
+    });
+
     test('switch on/off sends no parameters', () {
       final spec = _spec(entities: [
         _entity('Plug', platform: 'switch', actions: [_action('turn_on')]),
@@ -309,7 +329,7 @@ void main() {
       );
     });
 
-    test('brightness fills the named slider parameter and zeroes the rest', () {
+    test('brightness fills the named slider parameter and omits the rest', () {
       final spec = _spec(entities: [
         _entity('Strip', platform: 'light', actions: [
           _action('set_brightness',
@@ -322,7 +342,8 @@ void main() {
         services: [_discovered()],
         brightnessPercent: 40,
       );
-      expect(writes.single.params, {'brightness': 40.0, 'mystery': 0.0});
+      expect(writes.single.params, {'brightness': 40.0},
+          reason: 'a knob nobody chose is left to the encoder, not zeroed');
     });
 
     test("'level' is honoured as the slider parameter name", () {

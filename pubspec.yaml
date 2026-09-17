@@ -98,11 +98,17 @@ flutter:
   assets:
     # Everything ships straight out of the vendored protocol-specs subtree.
     # There is no copy under assets/: the subtree is the single source of truth,
-    # so there is nothing to keep in step and nothing to go stale. Listed as a
-    # directory (not just index.json) so a locally-rebuilt, gitignored
-    # index-temp.json rides along when present — see device_spec_provider's
-    # specManifestTempPath. (README.md/schema.json ship too; both are tiny.)
-    - vendor/protocol-specs/device-specs/
+    # so there is nothing to keep in step and nothing to go stale.
+    #
+    # index.json by name, not its directory: the directory entry also shipped
+    # schema.json (330 KB) and README.md (37 KB), which nothing in the app
+    # reads — five percent of the vendored payload, enumerated in the asset
+    # manifest on every launch. The locally-rebuilt, gitignored index-temp.json
+    # (see device_spec_provider's specManifestTempPath) lives under examples/
+    # for exactly this reason: a directory entry is the only way an asset that
+    # may or may not exist can ride along, and examples/ is a directory that
+    # ships anyway.
+    - vendor/protocol-specs/device-specs/index.json
     - vendor/protocol-specs/device-specs/devices/
     - vendor/protocol-specs/device-specs/examples/
     # Registries listed file by file rather than as a directory so SOURCES.md,

@@ -196,6 +196,11 @@ final bleSetupModeMatchProvider = FutureProvider.autoDispose
   return index == null ? null : devices[index];
 });
 
+/// How often [nearbySetupNetworkProvider] re-reads the OS Wi-Fi list. A
+/// provider so a test can shorten it; production never overrides it.
+final nearbySetupPollIntervalProvider =
+    Provider<Duration>((ref) => const Duration(seconds: 5));
+
 /// The adoptable family whose setup network the OS can currently see, or null.
 ///
 /// The signal behind the spinning icon: it polls the OS Wi-Fi list on a slow
@@ -211,6 +216,17 @@ final nearbySetupNetworkProvider =
     return;
   }
   final codec = ref.watch(specCodecProvider);
+  final interval = ref.watch(nearbySetupPollIntervalProvider);
+  // Observed by the polling loop below. Cancelling an async* generator only
+  // takes effect at its next `yield`, and this one yields only when the match
+  // CHANGES — so once the provider was disposed with a stable answer (no setup
+  // network in sight is the common one) the loop never reached a yield, the
+  // periodic stream underneath it was never cancelled, and the Wi-Fi scan
+  // channel was polled every five seconds for the life of the process, once
+  // more per visit to the adopt screen. The flag ends the periodic stream at
+  // its next tick instead, which cancels its timer.
+  var disposed = false;
+  ref.onDispose(() => disposed = true);
   final devices = await ref.watch(adoptableDevicesProvider.future);
   if (devices.isEmpty) {
     yield null;
@@ -229,13 +245,14 @@ final nearbySetupNetworkProvider =
 
   // Emit the first poll now, then re-poll on a slow cadence — a cheap cache
   // read, not a scan — emitting only when the match changes so a listener does
-  // not rebuild every interval for a hint that has not moved. The generator is
-  // torn down when the provider auto-disposes, which ends the periodic stream.
+  // not rebuild every interval for a hint that has not moved.
   var match = await poll();
   yield match;
   var lastPrefix = match?.profile.ssidPrefix;
-  await for (final _ in Stream<void>.periodic(const Duration(seconds: 5))) {
+  await for (final _
+      in Stream<void>.periodic(interval).takeWhile((_) => !disposed)) {
     match = await poll();
+    if (disposed) return;
     final prefix = match?.profile.ssidPrefix;
     if (prefix != lastPrefix) {
       lastPrefix = prefix;

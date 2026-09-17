@@ -134,8 +134,12 @@ class SecureSettingsStore implements SettingsStore {
   Future<void> write(String key, String value) =>
       _storage.write(key: key, value: value);
 
+  // Through the sweeping store, like readAll and the wipe: the plugin's
+  // delete(key) carries the instance's accessibility class in its query too,
+  // so a class-scoped delete cannot remove an item an earlier build wrote —
+  // "forget this device" would report success and leave the credential.
   @override
-  Future<void> delete(String key) => _storage.delete(key: key);
+  Future<void> delete(String key) => _sweeping.delete(key: key);
 
   @override
   Future<Map<String, String>> readAll() => _sweeping.readAll();

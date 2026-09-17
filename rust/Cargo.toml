@@ -33,6 +33,9 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [dependencies]
 flutter_rust_bridge = "=2.9.0"
+# The `log` facade; flutter_rust_bridge's default `user-utils` feature already
+# wires it to os_log / logcat, so this is only the macros (see api/mod.rs).
+log = "0.4"
 serde = { version = "1", features = ["derive"] }
 # Spec `commands` and `parameters` are YAML mappings whose *declaration order*
 # is meaningful — it is the order the spec author wants the controls listed.
@@ -105,6 +108,14 @@ lto = "thin"
 # One codegen unit removes duplicated inline instantiations across units,
 # shrinking the binary further (at the cost of parallel codegen).
 codegen-units = 1
-# Strip symbol tables from the artifact; debug symbols stay available in the
-# separate build products for symbolication.
+# Line tables for OUR crate. Cargo's release default is debug=false, so the
+# framework dSYM Xcode produced carried compile units for the prebuilt std
+# and nothing for liberated_bread_core: a Rust frame in a TestFlight crash
+# report symbolicated to a bare address. Line tables are what a crash report
+# needs and a fraction of full debuginfo; they live in the .a/.o and Xcode's
+# dwarf-with-dsym step moves them into the dSYM, so the shipped framework
+# does not grow.
+debug = "line-tables-only"
+# Strip symbol tables from the artifact; the DWARF above stays in the separate
+# build products (the dSYM on Apple platforms) for symbolication.
 strip = "symbols"

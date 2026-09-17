@@ -349,6 +349,57 @@ void main() {
     });
   });
 
+  group('migrateCacheDir', () {
+    test('moves a Documents-era cache into the new base once', () async {
+      final legacy = Directory('${tempDir.path}/Documents');
+      final base = Directory('${tempDir.path}/Application Support');
+      final oldPack = Directory('${legacy.path}/spec_packs/pack-a');
+      await oldPack.create(recursive: true);
+      await File('${oldPack.path}/a.yaml').writeAsString('device_name: A');
+
+      final resolved =
+          await SpecPackService.migrateCacheDir(legacyBase: legacy, base: base);
+
+      expect(resolved.path, base.path);
+      expect(await File('${base.path}/spec_packs/pack-a/a.yaml').readAsString(),
+          'device_name: A');
+      expect(await Directory('${legacy.path}/spec_packs').exists(), isFalse,
+          reason: 'moved, not copied: nothing re-downloadable stays in a '
+              'backed-up directory');
+
+      // Second launch: nothing to move, same answer.
+      expect(
+          (await SpecPackService.migrateCacheDir(
+                  legacyBase: legacy, base: base))
+              .path,
+          base.path);
+    });
+
+    test('a fresh install has nothing to move', () async {
+      final legacy = Directory('${tempDir.path}/Documents');
+      final base = Directory('${tempDir.path}/Application Support');
+      final resolved =
+          await SpecPackService.migrateCacheDir(legacyBase: legacy, base: base);
+      expect(resolved.path, base.path);
+      expect(await Directory('${base.path}/spec_packs').exists(), isFalse);
+    });
+
+    test('an existing new-base cache is never overwritten by the old one',
+        () async {
+      final legacy = Directory('${tempDir.path}/Documents');
+      final base = Directory('${tempDir.path}/Application Support');
+      await Directory('${legacy.path}/spec_packs/old').create(recursive: true);
+      await Directory('${base.path}/spec_packs/new').create(recursive: true);
+
+      await SpecPackService.migrateCacheDir(legacyBase: legacy, base: base);
+
+      expect(await Directory('${base.path}/spec_packs/new').exists(), isTrue);
+      expect(await Directory('${base.path}/spec_packs/old').exists(), isFalse);
+      expect(await Directory('${legacy.path}/spec_packs/old').exists(), isTrue,
+          reason: 'left in place rather than merged or clobbered');
+    });
+  });
+
   group('cache management', () {
     test('removePack deletes just that pack', () async {
       final service = _service(tempDir, (request) async {
@@ -543,6 +594,36 @@ void main() {
       final result = await service.install(_manifestUrl);
       expect((result as InstallFailed).error.kind, SpecPackErrorKind.network);
       expect(requestedHosts, isNot(contains('evil.example.net')));
+    });
+
+    test('a same-origin redirect that moves the path re-bases the specs',
+        () async {
+      // /packs/pack.json -> /packs/v2/pack.json: the manifest's relative
+      // entries must resolve under /packs/v2/, where the manifest actually
+      // came from. Resolving against the URL the user typed fetched
+      // /packs/bulb.yaml, which is the 404 below, and the install reported
+      // that none of the specs could be downloaded.
+      final requested = <String>[];
+      final service = _service(tempDir, (request) async {
+        final path = request.url.path;
+        requested.add(path);
+        if (path == '/packs/pack.json') {
+          return http.Response('', 302,
+              headers: {'location': '/packs/v2/pack.json'});
+        }
+        if (path == '/packs/v2/pack.json') {
+          return http.Response(_manifestJson(specs: ['bulb.yaml']), 200);
+        }
+        if (path == '/packs/v2/bulb.yaml') {
+          return http.Response('device_name: Bulb', 200);
+        }
+        return http.Response('not found', 404);
+      });
+      final result = await service.install(_manifestUrl);
+      expect(result, isA<InstallOk>(),
+          reason: '$result — requests were $requested');
+      expect(requested, contains('/packs/v2/bulb.yaml'));
+      expect(requested, isNot(contains('/packs/bulb.yaml')));
     });
 
     test('a same-origin redirect is followed', () async {

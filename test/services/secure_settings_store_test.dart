@@ -69,6 +69,18 @@ void main() {
               'and TLS pins vanish after the write class changed.');
     });
 
+    test('delete(key) goes through the unscoped store', () async {
+      final scoped = _RecordingStorage();
+      final sweeping = _RecordingStorage();
+      await SecureSettingsStore(scoped, sweeping).delete('ha_token');
+      expect(sweeping.deleteCalls, ['ha_token']);
+      expect(scoped.deleteCalls, isEmpty,
+          reason: 'The plugin puts the accessibility class into the delete '
+              'query too, so a class-scoped delete cannot remove an item an '
+              'earlier build wrote: "forget this device" would report '
+              'success and leave the credential in the keychain.');
+    });
+
     test('the wipe deletes through the unscoped store', () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       final scoped = _RecordingStorage();
@@ -205,11 +217,25 @@ void main() {
   });
 }
 
-/// Counts deleteAll(); everything else is unused by these tests.
+/// Records deleteAll(), readAll() and delete(); everything else is unused by
+/// these tests.
 class _RecordingStorage extends FlutterSecureStorage {
   _RecordingStorage() : super();
   int deleteAllCalls = 0;
   int readAllCalls = 0;
+  final List<String> deleteCalls = [];
+
+  @override
+  Future<void> delete({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async =>
+      deleteCalls.add(key);
 
   @override
   Future<Map<String, String>> readAll({

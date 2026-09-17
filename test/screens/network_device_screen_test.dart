@@ -3158,6 +3158,42 @@ void main() {
           contains('fan_speed'));
     });
 
+    testWidgets('an unbounded number keeps a decimal and offers a signed pad',
+        (tester) async {
+      // The dialog is the only path for a number entity with no range. Its
+      // keypad has to be able to type a minus and a decimal (iOS's plain
+      // number pad has neither), and what was typed has to be what is sent:
+      // 21.5 used to go out as '22'.
+      final unbounded = utilityEntities
+          .where((e) => e.platform == 'number')
+          .map((e) => NetworkEntityDto(
+                isInstanced: e.isInstanced,
+                name: e.name,
+                platform: e.platform,
+                unit: e.unit,
+                stateCommand: e.stateCommand,
+                valueField: e.valueField,
+                options: e.options,
+                actions: e.actions,
+              ))
+          .toList();
+      await pumpUtility(tester, entities: unbounded);
+
+      expect(find.byType(Slider), findsNothing);
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.keyboardType,
+          const TextInputType.numberWithOptions(signed: true, decimal: true));
+
+      await tester.enterText(find.byType(TextField), '21.5');
+      await tester.tap(find.text('Send'));
+      await tester.pumpAndSettle();
+      final call = codec.renderNetworkCommandCalls
+          .lastWhere((c) => c.commandName == 'set_speed');
+      expect(call.values['speed'], '21.5');
+    });
+
     testWidgets('a bounded number renders a slider, not the edit dialog',
         (tester) async {
       await pumpUtility(tester,

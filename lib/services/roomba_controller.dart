@@ -128,12 +128,20 @@ class Rest980Controller implements RoombaController {
       : _client = client,
         _baseUrl = baseUrl;
 
+  /// Set by [close]. Checked again AFTER the seed read in [connect], because
+  /// that read can take up to the client's timeout and the device screen
+  /// closes on dispose without waiting for connect to finish: close() found
+  /// no timer to cancel, connect() resumed and installed one, and the poll
+  /// ran every two seconds for the life of the process.
+  bool _closed = false;
+
   @override
   Future<void> connect() async {
-    if (_poll != null) return;
+    if (_poll != null || _closed) return;
     // Poll once up front so the screen has state before the first tick, then
     // settle into the interval.
     await _readState();
+    if (_closed) return;
     _poll = Timer.periodic(pollInterval, (_) => unawaited(_readState()));
   }
 
@@ -181,6 +189,7 @@ class Rest980Controller implements RoombaController {
   /// between `close` and `dispose`) meant it never closed at all, because
   /// nothing ever called `dispose`.
   Future<void> close() async {
+    _closed = true;
     _poll?.cancel();
     _poll = null;
     if (!_state.isClosed) await _state.close();
@@ -221,10 +230,15 @@ class HaRoombaController implements RoombaController {
   })  : _client = client,
         _entityId = entityId;
 
+  /// See the rest980 controller's note: a close() that lands during the seed
+  /// read must win over the timer connect() is about to install.
+  bool _closed = false;
+
   @override
   Future<void> connect() async {
-    if (_poll != null) return;
+    if (_poll != null || _closed) return;
     await _read();
+    if (_closed) return;
     _poll = Timer.periodic(pollInterval, (_) => unawaited(_read()));
   }
 
@@ -304,6 +318,7 @@ class HaRoombaController implements RoombaController {
   /// between `close` and `dispose`) meant it never closed at all, because
   /// nothing ever called `dispose`.
   Future<void> close() async {
+    _closed = true;
     _poll?.cancel();
     _poll = null;
     if (!_state.isClosed) await _state.close();

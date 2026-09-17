@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -314,16 +315,34 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         _instruction(
             context,
             '2',
-            'Open Settings and join that network. Then come back and pick your '
-                'device below.'),
+            _canOpenWifiSettings
+                ? 'Open Wi-Fi settings and join that network. Then come back '
+                    'and pick your device below.'
+                : 'Open the Settings app, tap Wi-Fi and join that network. '
+                    'Then come back and pick your device below.'),
         const SizedBox(height: 12),
+        // Android can open the Wi-Fi list itself. iOS has no public way to
+        // (App-Prefs:WIFI is a private scheme App Review rejects), and
+        // openAppSettings() lands on the app's own page — Local Network and
+        // Bluetooth toggles, no network picker — so the button used to send
+        // the user somewhere the instruction above did not describe. Now the
+        // label says where it goes, and the copy sends them to Wi-Fi by hand.
         Center(
-          child: TextButton.icon(
-            onPressed: () =>
-                unawaited(openAppSettings().catchError((Object _) => false)),
-            icon: const Icon(Icons.settings),
-            label: const Text('Open Settings'),
-          ),
+          child: _canOpenWifiSettings
+              ? TextButton.icon(
+                  onPressed: () => unawaited(ref
+                      .read(wifiNetworkScannerProvider)
+                      .openWifiSettings()
+                      .catchError((Object _) => false)),
+                  icon: const Icon(Icons.wifi),
+                  label: const Text('Open Wi-Fi settings'),
+                )
+              : TextButton.icon(
+                  onPressed: () => unawaited(
+                      openAppSettings().catchError((Object _) => false)),
+                  icon: const Icon(Icons.settings),
+                  label: const Text('Open app settings'),
+                ),
         ),
         if (_error != null) ...[
           const SizedBox(height: 12),
@@ -487,6 +506,13 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         const SizedBox(height: 12),
         TextField(
           controller: _ssidController,
+          // An SSID is a credential-shaped token, and iOS QuickType splits
+          // or "corrects" one on the first space; the same settings every
+          // other credential field in the app uses.
+          autocorrect: false,
+          enableSuggestions: false,
+          keyboardType: TextInputType.visiblePassword,
+          textInputAction: TextInputAction.done,
           decoration: const InputDecoration(
             labelText: 'Wi-Fi network name (SSID)',
             border: OutlineInputBorder(),
@@ -562,6 +588,12 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
           controller: _passwordController,
           obscureText: _obscure,
           autofocus: true,
+          // Once "Show password" turns obscureText off, iOS autocorrect is
+          // live on the password unless it is switched off here.
+          autocorrect: false,
+          enableSuggestions: false,
+          keyboardType: TextInputType.visiblePassword,
+          textInputAction: TextInputAction.done,
           decoration: InputDecoration(
             labelText: 'Wi-Fi password',
             border: const OutlineInputBorder(),
@@ -665,6 +697,10 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       ),
     );
   }
+
+  /// Only Android can deep-link to the OS Wi-Fi list; see the button below.
+  bool get _canOpenWifiSettings =>
+      defaultTargetPlatform == TargetPlatform.android;
 
   Widget _errorBanner(BuildContext context, String message) {
     final scheme = Theme.of(context).colorScheme;

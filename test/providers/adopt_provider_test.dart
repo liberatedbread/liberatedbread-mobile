@@ -20,12 +20,17 @@ import 'package:liberated_bread_mobile/services/wifi_network_scanner.dart';
 
 import '../helpers/host_rust_lib.dart';
 
-/// A scanner that reports a fixed set of SSIDs, standing in for the OS.
+/// A scanner that reports a fixed set of SSIDs, standing in for the OS, and
+/// counts how often it was asked.
 class _FakeScanner extends WifiNetworkScanner {
   final List<String> ssids;
+  int polls = 0;
   _FakeScanner(this.ssids) : super(isSupported: true);
   @override
-  Future<List<String>> visibleSsids() async => ssids;
+  Future<List<String>> visibleSsids() async {
+    polls++;
+    return ssids;
+  }
 }
 
 void main() {
@@ -153,6 +158,40 @@ void main() {
         _FakeScanner(const ['HomeNetwork', 'Starbucks', 'MyPhone']));
     final nearby = await container.read(nearbySetupNetworkProvider.future);
     expect(nearby, isNull);
+  });
+
+  test('disposing the provider stops the Wi-Fi polling', () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    // The hint used to be an async* loop over Stream.periodic, which only
+    // observes cancellation at a yield — and it yielded only when the match
+    // CHANGED. With no setup network in sight (the common case) it never
+    // did, so a disposed provider kept polling the Wi-Fi scan channel every
+    // five seconds for the life of the process, once more per screen visit.
+    final scanner = _FakeScanner(const ['HomeNetwork']);
+    final container = ProviderContainer(overrides: [
+      specCodecProvider.overrideWithValue(const RealSpecCodec()),
+      parsedDeviceSpecsProvider.overrideWith((ref) async => parsed),
+      wifiNetworkScannerProvider.overrideWithValue(scanner),
+      nearbySetupPollIntervalProvider
+          .overrideWithValue(const Duration(milliseconds: 40)),
+    ]);
+    addTearDown(container.dispose);
+
+    final sub = container.listen(nearbySetupNetworkProvider, (_, __) {});
+    await container.read(nearbySetupNetworkProvider.future);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    expect(scanner.polls, greaterThan(2), reason: 'it polls while listened');
+
+    sub.close();
+    // autoDispose tears the provider down once the last listener is gone.
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    final after = scanner.polls;
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(scanner.polls, after,
+        reason: 'a disposed provider must not keep polling the OS');
   });
 
   test('a platform that cannot enumerate Wi-Fi never hints', () async {

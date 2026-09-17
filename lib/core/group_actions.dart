@@ -233,16 +233,26 @@ double brightnessDeviceValue(EntityActionDto action, double percent) {
 /// `brightness`/`level`; on/off actions that carry parameters (a light whose
 /// `turn_on` is really "set full color") get full-on values — white at full
 /// brightness — since a group turn-on has no per-device card state to draw
-/// from. Unrecognized parameters get 0.0, exactly as the light card sends.
-Map<String, double> _paramsFor(EntityActionDto action, {double? brightness}) =>
-    {
-      for (final p in action.userParams)
-        p: switch (p) {
-          'brightness' || 'level' => brightness ?? (action.max ?? 255),
-          'red' || 'green' || 'blue' => 255.0,
-          _ => 0.0,
-        },
+/// from.
+///
+/// A parameter this has no value for is OMITTED, exactly as the light card
+/// does (`LightControlCard._paramsFor`). It used to send 0.0, and 0.0 is a
+/// real value: a spec naming its knob `warmth` would get a zero written to
+/// every member of the group, silently. Omitting hands the decision to the
+/// encoder — the spec's own default, or a visible ParameterMissing.
+Map<String, double> _paramsFor(EntityActionDto action, {double? brightness}) {
+  final values = <String, double>{};
+  for (final p in action.userParams) {
+    final value = switch (p) {
+      'brightness' || 'level' => brightness ?? (action.max ?? 255),
+      'red' || 'green' || 'blue' => 255.0,
+      _ => null,
     };
+    if (value == null) continue;
+    values[p] = value;
+  }
+  return values;
+}
 
 /// Resolve the concrete writes a command op performs on one member, given the
 /// services discovery actually found. Empty means the member cannot take part

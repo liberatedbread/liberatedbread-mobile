@@ -27,7 +27,12 @@ const specManifestPath = '$specsRoot/device-specs/index.json';
 /// is how a printer spec ends up bundled but never loaded. When this temp index
 /// is bundled it takes precedence, so a local build always sees every vendored
 /// spec. See scripts/regen-spec-index.sh.
-const specManifestTempPath = '$specsRoot/device-specs/index-temp.json';
+///
+/// Under examples/ rather than beside index.json: pubspec bundles examples/
+/// as a directory, which is the only way an asset that may not exist can be
+/// included, whereas device-specs/ itself is no longer a directory asset
+/// (that entry shipped schema.json and README.md for nothing).
+const specManifestTempPath = '$specsRoot/device-specs/examples/index-temp.json';
 
 /// Used when the manifest is missing or unreadable, so a broken vendoring
 /// degrades to "mock mode still works" rather than an app with no specs.

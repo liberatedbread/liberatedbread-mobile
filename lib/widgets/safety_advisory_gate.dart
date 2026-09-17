@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/saved_device_provider.dart';
 import '../services/spec_codec.dart';
+import '../core/web_link.dart';
 
 /// Wraps a device's controls with a physical-safety advisory the spec declares
 /// (`device.safety_advisory` — an IPL hair-removal handset can permanently burn
@@ -191,12 +191,9 @@ class _SafetyBanner extends StatelessWidget {
         label: Text(label),
       );
 
-  Future<void> _open(BuildContext context, String url) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final uri = Uri.tryParse(url);
-    if (uri == null ||
-        !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      messenger.showSnackBar(SnackBar(content: Text('Could not open $url')));
-    }
-  }
+  // Through the shared guard: advisory and mitigation URLs arrive verbatim
+  // from spec YAML, which a pack URL over plain http can supply, so only a
+  // web link may reach the OS — never shortcuts://, tel:, itms-services://.
+  Future<void> _open(BuildContext context, String url) =>
+      openWebLink(context, url);
 }

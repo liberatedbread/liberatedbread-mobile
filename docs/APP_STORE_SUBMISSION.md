@@ -312,14 +312,14 @@ iPhone 16e). Summary: **the app builds, launches, and runs on iOS**.
   captured); the banner fetch fails gracefully offline as designed.
 - **Integration tests on the iOS Simulator:**
   - ✅ `app_launch`, `mock_flow`, `error_flow`, `group_flow`, `native_core` — all pass.
-  - ❌ `e2e_walkthrough` — 3 pass, 4 fail: *scan finds devices*, *connect to a
-    device*, *spec-pack install*, *Home Assistant settings*. **A test bug, not
-    the environment.** All four pump `LiberatedBreadApp` without overriding
-    `sharedPreferencesProvider`, which `_TermsGate` reads in `initState`
-    (`lib/app.dart:45`), so they throw `UnimplementedError` before touching
-    Bluetooth or the network. The three that pass build their own scope. The
-    other integration suites override it (`mock_flow_test.dart:62`,
-    `group_flow_test.dart:82`). Tracked in PORTABLE.md.
+  - ✅ `e2e_walkthrough` — 7/7, 30 screenshots (2026-09-16, iPhone 17
+    simulator). It was 3 pass / 4 fail for a release cycle, and the cause was
+    the test, not the environment: four steps pumped `LiberatedBreadApp`
+    without overriding `sharedPreferencesProvider` (they now go through the
+    same `_pumpApp` main() does), and the device step still looked for the
+    raw "Control Service" / "Power on" view that a matched light stopped
+    rendering when the entity cards arrived. The step now waits for the card
+    and screenshots before asserting, so a future failure leaves a picture.
   - `linux_virtual_ble` — not run on iOS (Linux-only harness).
 - **Rust (`cargo test`) on macOS arm64:** ✅ all suites pass.
 - **Dart unit/widget suite on the macOS host:** 1863 pass / 13 skip / **2 fail**
@@ -330,10 +330,13 @@ iPhone 16e). Summary: **the app builds, launches, and runs on iOS**.
     template. The committed plist was the stale artifact, not the Mac working
     copy — the earlier note here had it backwards. Linux CI stayed green only
     because it never builds for iOS.
-  - `services/real_ble_service_emulated_test` — **not** "no CoreBluetooth
-    device": the emulated harness needs no radio. The single failing case
-    depends on a 3-second CCCD spurious-timeout window that only opens on
-    Linux, and lacks the skip its sibling case carries. Tracked in PORTABLE.md.
+  - `services/real_ble_service_emulated_test` — **fixed 2026-09-15** (F-019).
+    It was never "no CoreBluetooth device": the emulated harness needs no
+    radio. The one failing case held an enable in flight by withholding the
+    CCCD ack, which resolves at the service's confirmation timeout — 3 s on
+    Linux, 15 s everywhere else — so it only ever passed on Linux. The
+    emulated peripheral can now ack late (`cccdConfirmDelay`), which is the
+    real-world shape and the same on every host.
   - `services/multicast_lock_test` (×2) — genuinely environmental: real UDP
     send on :5353 returns `No route to host (errno 65)` under the macOS host
     sandbox.

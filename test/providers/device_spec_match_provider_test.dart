@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
@@ -607,6 +608,47 @@ void main() {
 
     expect(r.source, SpecChoiceSource.none);
     expect(r.chosen, isNull);
+  });
+
+  test('an uninitialised bridge is reported once, not once per spec', () async {
+    // With the native library down every parse fails identically. 204
+    // identical warnings drowned the one line that mattered, and any
+    // genuinely malformed spec with it.
+    final records = Log.captureRecords();
+    addTearDown(Log.reset);
+    final codec = FakeSpecCodec(
+        loadError: StateError(
+            'flutter_rust_bridge has not been initialized. Did you call '
+            'RustLib.init()?'));
+    final c = await _container(codec, const {
+      'a.yaml': 'a',
+      'b.yaml': 'b',
+      'c.yaml': 'c',
+    });
+
+    final parsed = await c.read(parsedDeviceSpecsProvider.future);
+
+    expect(parsed, isEmpty);
+    final bridgeLines = records
+        .where((r) => r.message.contains('native codec unavailable'))
+        .toList();
+    expect(bridgeLines, hasLength(1));
+    expect(bridgeLines.single.message, contains('3 spec(s) skipped'));
+    expect(records.where((r) => r.message.startsWith('failed to parse spec')),
+        isEmpty,
+        reason: 'the per-spec warning is for real parse failures');
+  });
+
+  test('a real parse failure is still reported per spec', () async {
+    final records = Log.captureRecords();
+    addTearDown(Log.reset);
+    final codec = FakeSpecCodec(loadError: const FormatException('bad yaml'));
+    final c = await _container(codec, const {'a.yaml': 'a', 'b.yaml': 'b'});
+
+    await c.read(parsedDeviceSpecsProvider.future);
+
+    expect(records.where((r) => r.message.startsWith('failed to parse spec')),
+        hasLength(2));
   });
 
   test('associates the winning spec with its own yaml, not parsed.first',

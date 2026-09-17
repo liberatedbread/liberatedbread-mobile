@@ -904,20 +904,29 @@ class RealBleService implements BleService {
     // hold the same physical link, and whichever disconnects first must not
     // tear it down under the other (see disconnect()).
     _connectionClaims[deviceId] = (_connectionClaims[deviceId] ?? 0) + 1;
+    _watchServicesReset(deviceId, device);
     // A fresh link starts from fresh CCCD state; shares from the previous
     // one must not be inherited (see _expireNotifyShares).
     if (!wasConnected) _expireNotifyShares(deviceId);
     // The MTU decides the usable write payload (ATT MTU - 3). This is not a
     // nicety: SmartDawn's BIN (TUTU) channel does NOT reassemble fragments, so
     // each image chunk (up to ~200 B) must fit in a single write — which needs
-    // a large MTU. Explicitly request 512 (Android honors it; Apple platforms
-    // negotiate the max on their own and treat this as a no-op). Best-effort: a
-    // failure just leaves the default, which the image encoder then rejects
-    // loudly rather than painting a partial frame.
-    try {
-      await device.requestMtu(512);
-    } catch (e) {
-      Log.ble.debug('requestMtu(512) not honored for $deviceId: $e');
+    // a large MTU. Explicitly request 512 where the platform takes requests
+    // (Android honors it). Best-effort: a failure just leaves the default,
+    // which the image encoder then rejects loudly rather than painting a
+    // partial frame.
+    //
+    // Not on Apple platforms. They negotiate the maximum on their own and
+    // fbp does not treat the request as a no-op there — it throws
+    // `androidOnly` — so this logged "not honored" on every iOS connect for
+    // a call that could never work. The negotiated value arrives a little
+    // after connect instead; [mtu] waits for it.
+    if (!Platform.isIOS && !Platform.isMacOS) {
+      try {
+        await device.requestMtu(512);
+      } catch (e) {
+        Log.ble.debug('requestMtu(512) not honored for $deviceId: $e');
+      }
     }
     Log.ble.debug('mtu for $deviceId: ${device.mtuNow}');
     // flutter_blue_plus_linux never updates mtuNow from the value BlueZ
@@ -961,6 +970,7 @@ class RealBleService implements BleService {
     _connectionGeneration[deviceId] = _generationOf(deviceId) + 1;
     _mtuUnknown.remove(deviceId);
     _expireNotifyShares(deviceId);
+    unawaited(_servicesResetSubs.remove(deviceId)?.cancel());
     final device = BluetoothDevice.fromId(deviceId);
     try {
       await device.disconnect();
@@ -1370,6 +1380,35 @@ class RealBleService implements BleService {
   /// Shared notify state per characteristic — see [subscribeCharacteristic].
   final Map<String, _NotifyShare> _notifyShares = {};
 
+  /// One per connected device: the platform's "services changed" events.
+  final Map<String, StreamSubscription<void>> _servicesResetSubs = {};
+
+  /// Drop the cached GATT table when the peripheral republishes it.
+  ///
+  /// `subscribeToServicesChanged: false` in [_loadServices] keeps fbp from
+  /// writing the Service Changed CCCD itself, but on Apple platforms the
+  /// event arrives anyway: CoreBluetooth subscribes on the app's behalf and
+  /// delivers `peripheral:didModifyServices:`, which the darwin plugin
+  /// forwards as `OnServicesReset` and fbp uses to clear ITS cache. Ours
+  /// was cleared only in [disconnect], so a peripheral that changes its
+  /// table mid-connection — after pairing completes, or on a DFU switch —
+  /// left [_findCharacteristic] walking a stale list: characteristics that
+  /// only exist after the change were "not found" until the user
+  /// disconnected by hand. Treated like a link turnover: the generation
+  /// moves so an in-flight discovery cannot repopulate the cache with the
+  /// old table, and notify shares expire because their handles are gone.
+  void _watchServicesReset(String deviceId, BluetoothDevice device) {
+    if (_servicesResetSubs.containsKey(deviceId)) return;
+    _servicesResetSubs[deviceId] = device.onServicesReset.listen((_) {
+      Log.ble.info('$deviceId changed its services; rediscovering on next use');
+      _servicesCache.remove(deviceId);
+      _connectionGeneration[deviceId] = _generationOf(deviceId) + 1;
+      _expireNotifyShares(deviceId);
+    }, onError: (Object e) {
+      Log.ble.debug('services-reset stream for $deviceId failed: $e');
+    });
+  }
+
   String _notifyShareKey(
           String deviceId, String serviceUuid, String charUuid) =>
       '$deviceId|${normalizeUuid(serviceUuid)}|${normalizeUuid(charUuid)}';
@@ -1409,9 +1448,27 @@ class RealBleService implements BleService {
   /// the 512 the connect requested rather than the meaningless default.
   final Set<String> _mtuUnknown = {};
 
+  /// How long [mtu] waits on Apple platforms for the negotiated value.
+  ///
+  /// iOS reports the MTU a few ticks after connect resolves — the darwin
+  /// plugin polls `maximumWriteValueLengthForType` on a 25 ms timer — so a
+  /// caller sizing its writes straight after connect (the Rabbit Air client
+  /// does) read the 23-byte default and split every frame into 18-byte
+  /// chunks for the life of the link. Two seconds is far above the poll and
+  /// well below anything a user notices; a link that never reports keeps
+  /// the default, which is slow but correct.
+  @visibleForTesting
+  static Duration appleMtuSettle = const Duration(seconds: 2);
+
   @override
   Future<int> mtu(String deviceId) async {
-    final reported = BluetoothDevice.fromId(deviceId).mtuNow;
+    final device = BluetoothDevice.fromId(deviceId);
+    var reported = device.mtuNow;
+    if (reported <= 23 && (Platform.isIOS || Platform.isMacOS)) {
+      reported = await device.mtu
+          .firstWhere((m) => m > 23)
+          .timeout(appleMtuSettle, onTimeout: () => device.mtuNow);
+    }
     // The one platform quirk in what "reported" means lives here, next to
     // the requestMtu call that owns the platform knowledge, so every caller
     // sizing writes gets the same answer — see connect() for why a flagged

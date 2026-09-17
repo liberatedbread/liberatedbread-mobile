@@ -73,7 +73,7 @@ fn warn_spec_failure_once(char_uuid: &str, message: &str) {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     if warned.insert(key) {
-        eprintln!(
+        log::warn!(
             "[liberated-bread] mock_read_characteristic: failed to parse spec YAML for {char_uuid}: {message}; falling back to zero buffer"
         );
     }

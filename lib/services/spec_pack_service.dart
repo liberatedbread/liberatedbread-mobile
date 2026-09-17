@@ -263,9 +263,18 @@ class SpecPackService {
 
     // 1. Fetch the manifest.
     final Uint8List manifestBytes;
+    // Where the manifest was actually SERVED from. A same-origin redirect
+    // that moves the path (/pack.json -> /v2/pack.json, a canonicalised
+    // trailing slash) changes the base every relative spec entry resolves
+    // against; resolving against the URL the user typed fetched from the
+    // wrong directory and reported that none of the specs could be
+    // downloaded. The same-origin guard below still uses the original.
+    final Uri manifestBase;
     try {
-      manifestBytes =
+      final fetched =
           await _fetch(manifestUri, SpecPackLimits.maxManifestBytes);
+      manifestBytes = fetched.bytes;
+      manifestBase = fetched.uri;
     } on _FetchException catch (e) {
       Log.packs.warning('manifest fetch failed: ${e.error.message}');
       return InstallFailed(e.toError());
@@ -304,7 +313,7 @@ class SpecPackService {
             specFile, 'spec path must be relative and same-origin'));
         continue;
       }
-      final specUri = manifestUri.resolve(specFile);
+      final specUri = manifestBase.resolve(specFile);
       if (specUri.scheme != 'http' && specUri.scheme != 'https') {
         failures.add(SpecDownloadFailure(specFile, 'unsupported URL scheme'));
         continue;
@@ -324,7 +333,7 @@ class SpecPackService {
           ? remaining
           : SpecPackLimits.maxSpecBytes;
       try {
-        final bytes = await _fetch(specUri, cap);
+        final bytes = (await _fetch(specUri, cap)).bytes;
         // Reject content that is not decodable UTF-8 text (a corrupt/binary
         // "YAML" file); the Rust codec parses YAML later, but must get text.
         final String text;
@@ -614,12 +623,50 @@ class SpecPackService {
   /// Largest number of redirect hops we will follow (all same-origin).
   static const int _maxRedirects = 5;
 
+  /// Where the pack cache lives, moving it once out of where it used to.
+  ///
+  /// Packs were cached under the app's Documents directory, which iOS backs
+  /// up to iCloud and Finder and which Apple reserves for user-created data;
+  /// a pack is app-managed, re-downloadable content (up to 4 MB each, no
+  /// count limit). Application Support is the directory for exactly that.
+  /// Caches would not be backed up at all, but the system may purge it, and
+  /// a pack the user installed vanishing between launches is worse than a
+  /// few megabytes in a backup.
+  ///
+  /// The move is a rename, so it is atomic on the same volume and costs
+  /// nothing after the first launch; a rename that fails leaves the packs
+  /// where they were and the resolver keeps answering the old location, so
+  /// nothing is lost either way. Pure over its two inputs, so the unit test
+  /// can run it against temp directories.
+  static Future<Directory> migrateCacheDir({
+    required Directory legacyBase,
+    required Directory base,
+  }) async {
+    final legacy = Directory('${legacyBase.path}/spec_packs');
+    final target = Directory('${base.path}/spec_packs');
+    if (await legacy.exists() && !await target.exists()) {
+      try {
+        await base.create(recursive: true);
+        await legacy.rename(target.path);
+        Log.packs.info('moved the spec-pack cache out of Documents');
+      } catch (e) {
+        Log.packs.warning(
+            'could not move the spec-pack cache; keeping it '
+            'where it is',
+            error: e);
+        return legacyBase;
+      }
+    }
+    return base;
+  }
+
   /// GET [uri], enforcing [timeout] and a [maxBytes] size cap. Redirects are NOT
   /// auto-followed by the client; we follow them manually and ONLY when they
   /// stay on the original origin, so a redirect can't be used to reach a
   /// cross-origin/internal host. Translates every failure into a
-  /// [_FetchException].
-  Future<Uint8List> _fetch(Uri uri, int maxBytes) async {
+  /// [_FetchException]. Returns the bytes with the URI they were finally
+  /// served from, which after a redirect is not [uri].
+  Future<({Uint8List bytes, Uri uri})> _fetch(Uri uri, int maxBytes) async {
     final origin = uri;
     var current = uri;
     for (var hop = 0;; hop++) {
@@ -695,7 +742,7 @@ class SpecPackService {
         throw _FetchException(
             SpecPackError(SpecPackErrorKind.network, 'Download failed: $e'));
       }
-      return Uint8List.fromList(bytes);
+      return (bytes: Uint8List.fromList(bytes), uri: current);
     }
   }
 

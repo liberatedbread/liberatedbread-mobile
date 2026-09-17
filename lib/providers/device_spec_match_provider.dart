@@ -262,17 +262,39 @@ final parsedDeviceSpecsProvider =
   // catalogue is ~70 of them on the startup path. Future.wait preserves the
   // manifest order, so the resulting list is byte-for-byte what the sequential
   // loop produced.
+  // Counted rather than logged per spec: when the native library is not up
+  // (a host test that pumps the app before RustLib.init, or a device build
+  // whose framework failed to load — main() carries on without it by
+  // design) EVERY parse fails the same way, and 204 identical warnings
+  // drowned the one line that mattered, and any genuinely malformed spec
+  // with it. One error line for the bridge; per-spec warnings stay for
+  // real parse failures.
+  var bridgeDown = 0;
   final parsed = await Future.wait(specYamls.entries.map((entry) async {
     try {
       return (spec: await codec.loadDeviceSpec(entry.value), yaml: entry.value);
     } catch (e) {
+      if (isBridgeUninitialised(e)) {
+        bridgeDown++;
+        return null;
+      }
       // Skip this spec, but say so - a silent drop looks like a matching bug.
       Log.spec.warning('failed to parse spec ${entry.key}', error: e);
       return null;
     }
   }));
+  if (bridgeDown > 0) {
+    Log.spec.error('native codec unavailable: $bridgeDown spec(s) skipped, '
+        'so no device will match a spec until the Rust core loads');
+  }
   return parsed.nonNulls.toList();
 });
+
+/// Whether [error] is flutter_rust_bridge refusing a call because
+/// `RustLib.init()` has not run (or failed) — the one failure that is the
+/// same for every spec and worth reporting once.
+bool isBridgeUninitialised(Object error) =>
+    error.toString().contains('has not been initialized');
 
 /// Resolves the device spec(s) matching a connected device. Matching uses the
 /// device name prefix and the discovered service UUIDs (an [IoTDevice] does

@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
@@ -287,6 +288,47 @@ void main() {
     expect(find.text('Hostname'), findsOneWidget);
     expect(find.text('Philips-hue.local'), findsOneWidget);
     expect(find.text('mDNS'), findsWidgets);
+  });
+
+  testWidgets('copying the details closes the sheet and shows the toast',
+      (tester) async {
+    // A SnackBar raised from inside the modal sheet rendered in the Scaffold
+    // under the barrier, docked exactly where the sheet was, and had expired
+    // by the time the sheet was dismissed — so the confirmation was never
+    // seen. Now the sheet is popped first and the screen shows it.
+    //
+    // Clipboard.setData never answers without a handler on the platform
+    // channel, and the confirmation is only shown once the copy completes.
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+
+    final service = _FakeNetworkScanService(devices: [
+      _device(host: '192.168.1.40', name: 'Mystery Box'),
+    ]);
+    await tester.pumpWidget(_wrap(service, matchFor: (_) => const []));
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mystery Box'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Copy details'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Copy details'));
+    await tester.pumpAndSettle();
+
+    expect(copied, contains('192.168.1.40'));
+    expect(find.byType(BottomSheet), findsNothing,
+        reason: 'the sheet is closed so the SnackBar is not behind it');
+    expect(find.text('Device details copied'), findsOneWidget);
   });
 
   testWidgets('the details sheet cites the MAC its vendor came from',

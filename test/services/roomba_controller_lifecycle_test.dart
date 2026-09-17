@@ -61,6 +61,37 @@ void main() {
     await expectLater(controller.close(), completes);
   });
 
+  test('close during the seed read installs no poll', () {
+    // The device screen closes the controller on dispose without waiting for
+    // connect() to finish, and the seed read can take up to the client's
+    // timeout. close() found no timer to cancel; connect() then resumed and
+    // installed one that polled rest980 every two seconds for the life of
+    // the process — once more per visit to the screen.
+    fakeAsync((async) {
+      final rest = slowRest980(const Duration(seconds: 10));
+      final controller =
+          Rest980Controller(client: rest.client, baseUrl: 'http://10.0.0.5');
+      controller.state.listen((_) {}, onError: (_) {});
+
+      unawaited(controller.connect());
+      async.elapse(const Duration(seconds: 1));
+      expect(rest.calls, hasLength(1), reason: 'the seed read is in flight');
+
+      unawaited(controller.close());
+      // The seed read lands, then a minute passes.
+      async.elapse(const Duration(seconds: 70));
+      expect(rest.calls, hasLength(1),
+          reason: 'nothing may poll after close(), however late connect() '
+              'resumes');
+
+      // And a connect() after close() is a no-op, not a resurrection.
+      unawaited(controller.connect());
+      async.elapse(const Duration(seconds: 10));
+      expect(rest.calls, hasLength(1));
+      async.flushTimers();
+    });
+  });
+
   test('a poll slower than the interval does not stack requests', () {
     // rest980 in front of a busy robot can answer slower than the two-second
     // tick. Unguarded, every tick queued another request and the slowest

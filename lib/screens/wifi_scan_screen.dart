@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../core/device_pictogram.dart';
 import '../core/error_text.dart';
+import '../core/web_link.dart';
 import '../models/network_device.dart';
 import '../widgets/power_strip_icon.dart';
 import '../widgets/three_d_printer_icon.dart';
@@ -456,8 +457,10 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   void _openAdmin(ScanGuess guess, NetworkDevice device) {
     final uri =
         Uri.tryParse(guess.adminUrl!.replaceAll('{address}', device.host));
-    if (uri == null) return;
-    unawaited(ref.read(urlOpenerProvider)(uri));
+    // Spec-supplied, so the same allow-list as the advisory links: only a
+    // web URL leaves the app.
+    if (!isWebLink(uri)) return;
+    unawaited(ref.read(urlOpenerProvider)(uri!));
   }
 
   static String _transportLabel(NetworkDevice device) {
@@ -529,9 +532,19 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                       icon: const Icon(Icons.copy_outlined),
                       tooltip: 'Copy details',
                       onPressed: () async {
-                        final messenger = ScaffoldMessenger.of(sheetContext);
+                        // The screen's messenger, and the sheet is popped
+                        // before the SnackBar shows: a SnackBar raised from
+                        // inside a modal sheet renders in the Scaffold
+                        // UNDER the barrier, at the bottom edge where the
+                        // sheet is docked, and has expired by the time the
+                        // sheet is dismissed — the confirmation was never
+                        // seen. Copying is the last thing anyone does with
+                        // the sheet, so closing it is the natural end.
+                        final messenger = ScaffoldMessenger.of(context);
+                        final navigator = Navigator.of(sheetContext);
                         await Clipboard.setData(
                             ClipboardData(text: _detailsText(device, vendor)));
+                        if (navigator.mounted) navigator.pop();
                         messenger.showSnackBar(const SnackBar(
                             content: Text('Device details copied')));
                       },

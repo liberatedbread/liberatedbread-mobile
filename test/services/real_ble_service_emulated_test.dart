@@ -29,6 +29,12 @@ import '../fakes/emulated_ble.dart';
 const _scanWindow = Duration(milliseconds: 300);
 
 const _bulbId = 'AA:BB:CC:DD:EE:01';
+
+/// On a macOS host RealBleService takes its Apple branches, and mtu() then
+/// waits [RealBleService.appleMtuSettle] for a link that never reports one.
+/// Real devices report within a few ticks; the emulated adapter reports at
+/// connect, so anything left waiting is a device that has none at all.
+const _testMtuSettle = Duration(milliseconds: 50);
 const _lampId = 'AA:BB:CC:DD:EE:02';
 
 /// A device whose characteristics demand an authenticated link — a lock is the
@@ -41,6 +47,7 @@ void main() {
   late RealBleService service;
 
   setUpAll(() {
+    RealBleService.appleMtuSettle = _testMtuSettle;
     TestWidgetsFlutterBinding.ensureInitialized();
     ble = EmulatedBleAdapter.install();
   });
@@ -610,6 +617,30 @@ void main() {
       );
     });
 
+    test('a services-changed event from the platform drops the cached table',
+        () async {
+      // CoreBluetooth delivers didModifyServices whether or not the app
+      // subscribed to Service Changed; the darwin plugin forwards it as
+      // OnServicesReset and fbp clears its own cache. Ours was cleared only
+      // in disconnect(), so a peripheral that republished its table after
+      // pairing left the service walking stale handles until the user
+      // disconnected by hand.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+      await service.discoverServices(_bulbId);
+      await service.discoverServices(_bulbId);
+      expect(ble.platformCalls.where((c) => c == 'discoverServices:$_bulbId'),
+          hasLength(1),
+          reason: 'the second call is served from the cache');
+
+      ble.pushServicesReset(_bulbId);
+      await Future<void>.delayed(Duration.zero);
+      await service.discoverServices(_bulbId);
+      expect(ble.platformCalls.where((c) => c == 'discoverServices:$_bulbId'),
+          hasLength(2),
+          reason: 'after the reset the table must be rediscovered');
+    });
+
     test('caches the tree so later reads do not re-discover', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
       await service.connect(_bulbId);
@@ -868,9 +899,15 @@ void main() {
       // The disable must yield to B's fresh share instead of landing last
       // and silencing it.
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      // No CCCD confirmations: every enable resolves only after the 3s
-      // spurious-timeout window, which is the in-flight window under test.
-      bulb.confirmsCccdWrites = false;
+      // A peripheral that acks its CCCD writes late: every enable stays in
+      // flight for this long, which is the window under test. A late ack —
+      // not a withheld one — because a withheld ack resolves only at the
+      // service's confirmation timeout, which is 3 s on Linux and 15 s
+      // elsewhere, and this test used to be built on the Linux figure: on a
+      // macOS host B's enable was still queued behind A's at the 7 s mark
+      // and the assertion below failed on every run.
+      const ackDelay = Duration(milliseconds: 1500);
+      bulb.cccdConfirmDelay = ackDelay;
       await service.connect(_bulbId);
 
       final first = service
@@ -889,9 +926,9 @@ void main() {
               _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
           .listen(received.add);
 
-      // Both enables ride out their 3s windows (they serialize on fbp's
+      // Both enables ride out their ack delays (they serialize on fbp's
       // operation mutex), plus slack.
-      await Future<void>.delayed(const Duration(milliseconds: 7000));
+      await Future<void>.delayed(ackDelay * 2 + const Duration(seconds: 1));
       expect(
         ble.platformCalls
             .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=false'),

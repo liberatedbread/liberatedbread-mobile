@@ -2452,41 +2452,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   Future<void> _editNumber(
       NetworkEntityDto entity, NetworkActionDto action) async {
-    final controller = TextEditingController(
-        text: _readings[entity.name]?.number?.toStringAsFixed(0) ?? '');
     final min = entity.setpointMin;
     final max = entity.setpointMax;
     final entered = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Set ${entity.name}'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          autofocus: true,
-          decoration: InputDecoration(
-            suffixText: displayUnit(entity.unit),
-            helperText: switch ((min, max)) {
-              (final double lo, final double hi) =>
-                'Between ${lo.toStringAsFixed(0)} and ${hi.toStringAsFixed(0)}',
-              (final double lo, null) => 'At least ${lo.toStringAsFixed(0)}',
-              _ => null,
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Send'),
-          ),
-        ],
+      builder: (context) => _NumberEntryDialog(
+        title: 'Set ${entity.name}',
+        initial: _readings[entity.name]?.number?.toStringAsFixed(0) ?? '',
+        unit: displayUnit(entity.unit),
+        helperText: switch ((min, max)) {
+          (final double lo, final double hi) =>
+            'Between ${lo.toStringAsFixed(0)} and ${hi.toStringAsFixed(0)}',
+          (final double lo, null) => 'At least ${lo.toStringAsFixed(0)}',
+          _ => null,
+        },
       ),
     );
-    controller.dispose();
     if (entered == null || entered.isEmpty || !mounted) return;
     final value = double.tryParse(entered);
     if (value == null ||
@@ -2495,7 +2476,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       setState(() => _error = 'That is not a value the device accepts.');
       return;
     }
-    await _send(entity, action, value: value.toStringAsFixed(0));
+    // As the slider path sends it: 21.5 stays 21.5, not '22'.
+    await _send(entity, action, value: _trimNumber(value));
   }
 
   /// A cover — the garage-door shape: three motion buttons that are always
@@ -2777,6 +2759,75 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               ],
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// The free-text entry for a number entity without a range.
+///
+/// Owns its [TextEditingController]. It used to be created by the caller
+/// and disposed the moment `showDialog` returned — while the dialog's exit
+/// animation was still running, so the TextField still in the tree rebuilt
+/// against a disposed controller ("A TextEditingController was used after
+/// being disposed"). Tying the controller to this State means it outlives
+/// the route's teardown, which is the one lifetime that is always right.
+class _NumberEntryDialog extends StatefulWidget {
+  final String title;
+  final String initial;
+  final String? unit;
+  final String? helperText;
+
+  const _NumberEntryDialog({
+    required this.title,
+    required this.initial,
+    required this.unit,
+    required this.helperText,
+  });
+
+  @override
+  State<_NumberEntryDialog> createState() => _NumberEntryDialogState();
+}
+
+class _NumberEntryDialogState extends State<_NumberEntryDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        // Signed and decimal: this dialog is the only path for a number
+        // entity without a range, and its own helper text promises "at
+        // least -5". iOS maps a plain TextInputType.number to the digits-
+        // only number pad, which has neither a minus nor a decimal key.
+        keyboardType:
+            const TextInputType.numberWithOptions(signed: true, decimal: true),
+        textInputAction: TextInputAction.done,
+        autofocus: true,
+        decoration: InputDecoration(
+          suffixText: widget.unit,
+          helperText: widget.helperText,
+        ),
+        onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Send'),
+        ),
       ],
     );
   }

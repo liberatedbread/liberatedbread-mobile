@@ -30,7 +30,11 @@ final specPackServiceProvider = Provider<SpecPackService>((ref) {
   final codec = ref.watch(specCodecProvider);
   return SpecPackService(
     client: client,
-    cacheDirResolver: getApplicationDocumentsDirectory,
+    // Application Support, not Documents: see SpecPackService.migrateCacheDir.
+    cacheDirResolver: () async => SpecPackService.migrateCacheDir(
+      legacyBase: await getApplicationDocumentsDirectory(),
+      base: await getApplicationSupportDirectory(),
+    ),
     specValidator: (yaml) async {
       try {
         await codec.loadDeviceSpec(yaml);

@@ -10,6 +10,8 @@
 
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -134,7 +136,31 @@ void main() {
     expect(find.text('Adopt a Wi-Fi device'), findsOneWidget); // app bar
     expect(find.textContaining('Factory reset'), findsOneWidget);
     expect(find.textContaining('join that network'), findsOneWidget);
-    expect(find.widgetWithText(TextButton, 'Open Settings'), findsOneWidget);
+    // Widget tests run as Android: the button really opens the Wi-Fi list.
+    expect(
+        find.widgetWithText(TextButton, 'Open Wi-Fi settings'), findsOneWidget);
+    expect(find.textContaining('Open Wi-Fi settings and join'), findsOneWidget);
+  });
+
+  testWidgets('on iOS the settings button says where it really goes',
+      (tester) async {
+    // iOS has no public route to the Wi-Fi pane, and openAppSettings() lands
+    // on the app's own page — so the copy sends the user to Settings > Wi-Fi
+    // by hand, and the button is labelled for the page it does open.
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    try {
+      await tester.pumpWidget(_wrap(devices: [_wemo, _lifx]));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.widgetWithText(TextButton, 'Open app settings'), findsOneWidget);
+      expect(find.textContaining('tap Wi-Fi and join'), findsOneWidget);
+      expect(find.text('Open Wi-Fi settings'), findsNothing);
+    } finally {
+      // Before the body returns: the binding checks that no foundation debug
+      // variable is still overridden, and that runs BEFORE addTearDown.
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('lists every adoptable family with its setup prefix',
@@ -210,6 +236,53 @@ void main() {
       find.textContaining('needed to encrypt a Wi-Fi password'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('the typed SSID and password fields refuse autocorrect',
+      (tester) async {
+    // iOS QuickType splits an SSID on the first space and, once "Show
+    // password" is on, corrects the password too. Every other credential
+    // field in the app already opts out; these two did not.
+    final codec = FakeSpecCodec()
+      ..wemoApList = const [
+        WemoAccessPointDto(
+          ssid: 'HomeNet',
+          channel: '6',
+          auth: 'WPA2PSK',
+          encrypt: 'AES',
+          joinable: true,
+          isOpen: false,
+        ),
+      ];
+    final service = AdoptService(
+      codec: codec,
+      soap: SoapControlClient(httpClient: _apWithNoMetaInfo()),
+      lifx: FakeLifxControlClient(),
+      wemoPorts: const [49153],
+      setupRetryGap: Duration.zero,
+    );
+    await tester.pumpWidget(_wrap(devices: [_wemo], service: service));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Belkin Wemo Smart Devices'));
+    await tester.pumpAndSettle();
+
+    final ssidField = tester.widget<TextField>(find.ancestor(
+      of: find.text('Wi-Fi network name (SSID)'),
+      matching: find.byType(TextField),
+    ));
+    expect(ssidField.autocorrect, isFalse);
+    expect(ssidField.enableSuggestions, isFalse);
+
+    await tester.enterText(find.byWidget(ssidField), 'thebread5 guest');
+    await tester.tap(find.text('Use this network'));
+    await tester.pumpAndSettle();
+
+    final passwordField = tester.widget<TextField>(find.ancestor(
+      of: find.text('Wi-Fi password'),
+      matching: find.byType(TextField),
+    ));
+    expect(passwordField.autocorrect, isFalse);
+    expect(passwordField.enableSuggestions, isFalse);
   });
 
   // ── The Bluetooth-provisioned families ──────────────────────────────────
