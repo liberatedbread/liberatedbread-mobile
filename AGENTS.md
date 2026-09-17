@@ -100,5 +100,7 @@ optional here — they're a feature.
 - [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) — build/run/test guide
 - [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) — E2E architecture + spec format
 - [docs/ios-from-linux.md](docs/ios-from-linux.md) — iPhone workflows from Linux
+- [SPECS_TO_FIX.md](SPECS_TO_FIX.md) — problems whose fix is upstream in the
+  vendored spec catalogue; never patched here
 - [docs/GROUP_CONTROL_AND_VOICE.md](docs/GROUP_CONTROL_AND_VOICE.md) — design
   note: group ops across both transports, and a Siri/Shortcuts surface
