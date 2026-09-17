@@ -160,6 +160,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   // Watches the radio so "Bluetooth is turned off" is a state the screen can
   // leave by itself — see the listener in initState.
   StreamSubscription<bool>? _adapterSub;
+  // Watches for the app losing its Bluetooth permission — see the listener in
+  // initState.
+  StreamSubscription<bool>? _unauthorizedSub;
 
   @override
   void initState() {
@@ -195,7 +198,49 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       // error state must not be able to crash the screen showing it.
       onError: (Object _) {},
     );
+    // A denial that arrives as a transition rather than as a scan's answer:
+    // on iOS the system prompt is raised by the first scan and can be
+    // answered long after it, and a grant can be revoked in Settings later.
+    // The scan in flight hears it too (its adapter wait, or its continuous
+    // watch, reports the permission error), but a screen that is between
+    // scans — stopped by the user, or sitting on an earlier failure — would
+    // otherwise show that older state, with no route to the settings app.
+    // Optional: only a stack that reports authorization through the adapter
+    // state offers it (see BleAuthorizationWatcher).
+    final ble = _bleService;
+    if (ble is BleAuthorizationWatcher) {
+      _unauthorizedSub = ble.adapterUnauthorized().listen(
+        (denied) {
+          if (denied && mounted) _onPermissionDenied();
+        },
+        // Same reasoning as the adapterReady watcher: a host with no BLE
+        // stack errors this stream, and scan() is already the messenger.
+        onError: (Object _) {},
+      );
+    }
     if (widget.active) unawaited(_startScan(ScanIntensity.ambient));
+  }
+
+  /// The platform says this app may not use Bluetooth. Whatever the screen
+  /// was doing, the truthful state is now "permission needed", with the
+  /// open-settings shortcut — the same state a scan reports when it hears the
+  /// denial itself, reached without waiting for one to.
+  void _onPermissionDenied() {
+    if (_permissionDenied) return;
+    // The scan, if any, is dead or dying: the adapter watch inside it ends it
+    // with the same error. Drop it here so its late error cannot flip the
+    // screen twice, and so the burst timer does not restart a scan into a
+    // refusal.
+    unawaited(_scanSub?.cancel());
+    _scanSub = null;
+    _burstDownshift?.cancel();
+    _burstDownshift = null;
+    setState(() {
+      _isScanning = false;
+      _hasScanned = true;
+      _permissionDenied = true;
+      _error = null;
+    });
   }
 
   /// React to the shell switching tabs (see [ScanScreen.active]).
@@ -438,6 +483,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     _offTabStop?.cancel();
     _burstDownshift?.cancel();
     unawaited(_adapterSub?.cancel());
+    unawaited(_unauthorizedSub?.cancel());
     // Fire-and-forget: unawaited() does not swallow errors, so attach a
     // catchError to keep a throw during teardown from surfacing as an
     // unhandled async error.

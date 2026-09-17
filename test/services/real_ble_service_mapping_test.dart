@@ -487,12 +487,18 @@ void main() {
     test('an active scan listens continuously', () {
       // The user pressed Scan and is watching: discovery latency is the
       // product, so the radio stays in Android's low-latency mode and the
-      // firehose is thinned by the divisor instead.
+      // firehose is thinned by the divisor instead — on every platform.
       expect(
         androidScanModeFor(ScanIntensity.active).value,
         AndroidScanMode.lowLatency.value,
       );
-      expect(continuousDivisorFor(ScanIntensity.active), continuousScanDivisor);
+      for (final isApple in const [false, true]) {
+        expect(
+          continuousDivisorFor(ScanIntensity.active, isApple: isApple),
+          continuousScanDivisor,
+          reason: 'isApple: $isApple',
+        );
+      }
     });
 
     test('an ambient scan duty-cycles and stops thinning receptions', () {
@@ -504,7 +510,66 @@ void main() {
         androidScanModeFor(ScanIntensity.ambient).value,
         AndroidScanMode.balanced.value,
       );
-      expect(continuousDivisorFor(ScanIntensity.ambient), 1);
+      expect(continuousDivisorFor(ScanIntensity.ambient, isApple: false), 1);
+    });
+
+    test('on Apple platforms the ambient scan thins harder, not less', () {
+      // The regression this pins (F-020): Apple has no scan-mode knob, so the
+      // duty cycle the Android ambient scan leans on does not exist there —
+      // the divisor is the only thinning available, and an undivided ambient
+      // scan was twice as chatty as the burst it is meant to be cheaper than.
+      expect(
+        continuousDivisorFor(ScanIntensity.ambient, isApple: true),
+        appleAmbientScanDivisor,
+      );
+      expect(
+        appleAmbientScanDivisor,
+        greaterThan(continuousScanDivisor),
+        reason: 'the always-on scan must cost less per second than the burst',
+      );
+      // A once-a-second advertiser must still refresh lastSeen inside the
+      // heartbeat, or the coalescer's own re-emit becomes the bottleneck.
+      expect(
+        const Duration(seconds: appleAmbientScanDivisor),
+        lessThanOrEqualTo(scanHeartbeat),
+      );
+    });
+  });
+
+  group('isAdapterStateSettling (F-002: CoreBluetooth reports late)', () {
+    test('unknown and turningOn are states to wait out', () {
+      // CoreBluetooth answers `unknown` until its asynchronous state callback
+      // fires — on a first launch, not until the user has answered the
+      // system Bluetooth prompt. Judging that answer is what put "Bluetooth
+      // is turned off" on screen underneath the permission alert.
+      expect(isAdapterStateSettling(BluetoothAdapterState.unknown), isTrue);
+      expect(isAdapterStateSettling(BluetoothAdapterState.turningOn), isTrue);
+    });
+
+    test('every other state is an answer', () {
+      for (final state in const [
+        BluetoothAdapterState.on,
+        BluetoothAdapterState.off,
+        BluetoothAdapterState.turningOff,
+        BluetoothAdapterState.unavailable,
+        BluetoothAdapterState.unauthorized,
+      ]) {
+        expect(
+          isAdapterStateSettling(state),
+          isFalse,
+          reason: '$state is a settled state',
+        );
+      }
+    });
+
+    test('a state that never settles still reads as unavailable', () {
+      // What the settle wait answers with after its window: the mapping for
+      // `unknown` is unchanged, so a radio that never reports is still
+      // "turned off", just judged after the wait rather than before it.
+      expect(
+        adapterStateError(BluetoothAdapterState.unknown),
+        isA<BleUnavailableException>(),
+      );
     });
   });
 

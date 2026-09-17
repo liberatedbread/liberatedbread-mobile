@@ -61,6 +61,22 @@ IoTDevice _device(
   );
 }
 
+/// A fake whose platform can refuse the app Bluetooth permission after the
+/// fact — what iOS reports as an `unauthorized` adapter state.
+class _DenyingFakeBleService extends FakeBleService
+    implements BleAuthorizationWatcher {
+  _DenyingFakeBleService(
+    this.unauthorizedStream, {
+    super.devicesToEmit,
+    super.scanStepDelay,
+  });
+
+  final Stream<bool> unauthorizedStream;
+
+  @override
+  Stream<bool> adapterUnauthorized() => unauthorizedStream;
+}
+
 /// The one spec in the catalogue for the ranking tests below.
 final _catalogueSpec = DeviceSpecDto(
   nameMatchers: const [],
@@ -1021,6 +1037,68 @@ void main() {
     );
     await tester.scrollUntilVisible(find.text('Retry'), 80);
     expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets(
+    'a permission refused after the fact lands on the same guidance',
+    (tester) async {
+      // On iOS the denial can arrive as an adapter transition, not as the
+      // answer to any scan: the user reads the system prompt for a while, or
+      // revokes the grant in Settings. A screen between scans — here, one the
+      // user stopped — would otherwise keep showing its older state, with no
+      // route to the settings app (F-002).
+      final denial = StreamController<bool>.broadcast();
+      addTearDown(denial.close);
+      final fake = _DenyingFakeBleService(
+        denial.stream,
+        devicesToEmit: [_device('01', name: 'ACME_A')],
+        scanStepDelay: const Duration(milliseconds: 200),
+      );
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byType(FloatingActionButton)); // stop
+      await tester.pumpAndSettle();
+      expect(find.text('Bluetooth permission needed'), findsNothing);
+
+      denial.add(true);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bluetooth permission needed'), findsOneWidget);
+      expect(
+        find.widgetWithText(ElevatedButton, 'Open settings'),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.stop), findsNothing);
+      // The refusal is a fact about the app, not a reason to start scanning
+      // into it: no automatic restart.
+      final scansAtDenial = fake.scanTimeouts.length;
+      await tester.pump(const Duration(seconds: 5));
+      expect(fake.scanTimeouts.length, scansAtDenial);
+    },
+  );
+
+  testWidgets('a denial mid-scan ends the scan on the guidance, once', (
+    tester,
+  ) async {
+    // The scan in flight hears the same denial from its own adapter watch;
+    // the screen must not flip twice or leave the stop control up.
+    final denial = StreamController<bool>.broadcast();
+    addTearDown(denial.close);
+    final fake = _DenyingFakeBleService(
+      denial.stream,
+      devicesToEmit: [_device('01', name: 'ACME_A')],
+      scanStepDelay: const Duration(milliseconds: 200),
+    );
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byIcon(Icons.stop), findsOneWidget);
+
+    denial.add(true);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bluetooth permission needed'), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsNothing);
+    expect(find.widgetWithText(FloatingActionButton, 'Scan'), findsOneWidget);
   });
 
   testWidgets('tapping a device stops the scan before navigating', (

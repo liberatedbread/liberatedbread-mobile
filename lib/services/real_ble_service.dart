@@ -65,6 +65,31 @@ UserFacingException? adapterStateError(BluetoothAdapterState state) {
   }
 }
 
+/// Whether the platform is still deciding what the adapter state is.
+///
+/// CoreBluetooth answers `unknown` from the moment its central manager is
+/// created until `centralManagerDidUpdateState` fires — asynchronously, and on
+/// a first launch not until the user has answered the system Bluetooth prompt.
+/// Judging that first answer ([adapterStateError] maps it to "turned off") is
+/// what put 'Bluetooth is turned off' on screen underneath the permission
+/// alert, and left it there after a Deny, because the denial arrived later as
+/// `unauthorized` to a scan that had already given up. `turningOn` is the same
+/// story a moment later. Both are states to wait out, not to report.
+///
+/// Extracted as a pure top-level function so the judgement can be unit-tested
+/// without a real Bluetooth adapter.
+bool isAdapterStateSettling(BluetoothAdapterState state) =>
+    state == BluetoothAdapterState.unknown ||
+    state == BluetoothAdapterState.turningOn;
+
+/// How long [RealBleService] waits for the adapter to report a settled state
+/// before treating it as unavailable.
+///
+/// Generous, because the wait covers a person reading a permission alert; a
+/// state that has still not settled by then is a radio that is not coming, and
+/// [adapterStateError] reports it as such.
+const Duration adapterSettleTimeout = Duration(seconds: 90);
+
 /// Decide whether cancelling a scan stream should stop the underlying native
 /// scan.
 ///
@@ -231,24 +256,25 @@ bool useWriteWithoutResponse({
 /// never drifts into the warning state on the strength of a quiet advertisement.
 const Duration scanHeartbeat = Duration(seconds: 5);
 
-/// Per-scan coalescing of flutter_blue_plus scan batches.
+/// Per-scan coalescing of flutter_blue_plus scan results.
 ///
-/// fbp's `scanResults` stream carries the FULL accumulated result list on
-/// every event, so forwarding each batch verbatim would re-emit every known
-/// device on every advertisement — constantly refreshing `discoveredAt` and
-/// flooding the consumer. [next] returns an [IoTDevice] only when the device
-/// is new to this scan, when something about it changed (so rssi updates still
-/// flow to the DeviceManager), or when [scanHeartbeat] has passed since it was
-/// last reported; it returns null for an unchanged entry inside that window.
-/// The first-seen `discoveredAt` is preserved for known ids, while `lastSeen`
-/// advances with each sighting.
+/// The scan asks for every advertisement (continuous updates, one by one), so
+/// a device that advertises ten times a second would otherwise reach the
+/// consumer ten times a second — constantly refreshing `discoveredAt` and
+/// flooding the DeviceManager with no-op updates. [next] returns an
+/// [IoTDevice] only when the device is new to this scan, when something about
+/// it changed (so rssi updates still flow), or when [scanHeartbeat] has passed
+/// since it was last reported; it returns null for an unchanged sighting inside
+/// that window. The first-seen `discoveredAt` is preserved for known ids, while
+/// `lastSeen` advances with each sighting. State is keyed by id, so the cost of
+/// a sighting does not grow with the number of devices already found.
 ///
 /// `seenAt` is the advertisement's own timestamp, not the wall clock at the
-/// moment we process the batch. The difference is load-bearing: fbp re-pushes
-/// its whole accumulated list on every batch, including devices that have since
-/// gone silent, and those entries keep their ORIGINAL timestamp. Reading the
-/// clock here would refresh a dead device's `lastSeen` every time a live one
-/// advertised.
+/// moment it is processed. One-by-one delivery makes the two nearly equal, but
+/// the advertisement's is the truthful one — and it is what fbp would hand
+/// over for a re-pushed entry if the scan were ever switched back to
+/// accumulated lists, where reading the clock would refresh a dead device's
+/// `lastSeen` every time a live one advertised.
 ///
 /// Extracted as a pure class so the coalescing rules can be unit-tested
 /// without a real Bluetooth adapter.
@@ -304,7 +330,7 @@ class ScanResultCoalescer {
 /// would stretch "signal lost" to ~45 seconds of stale-looking-live data.
 const int rssiReadTimeoutSeconds = 3;
 
-/// Report one advertisement in this many, per device — for ACTIVE scans only.
+/// Report one advertisement in this many, per device, on an ACTIVE scan.
 ///
 /// Continuous scanning asks the platform for EVERY advertisement (that is what
 /// `continuousUpdates` means: allowDuplicates on Apple platforms, no
@@ -314,11 +340,25 @@ const int rssiReadTimeoutSeconds = 3;
 /// decides how quickly a device's last-seen stamp refreshes, and a slow
 /// advertiser must still stay comfortably inside the stale threshold.
 ///
-/// Ambient scans do not use it (see [continuousDivisorFor]): the balanced
-/// duty cycle has already thinned receptions at the radio, and stacking the
-/// divisor on top would double a sleepy sensor's already-long reception gaps
-/// for a channel saving that no longer exists.
+/// Ambient scans on Android do not use it (see [continuousDivisorFor]): the
+/// balanced duty cycle has already thinned receptions at the radio, and
+/// stacking the divisor on top would double a sleepy sensor's already-long
+/// reception gaps for a channel saving that no longer exists. Apple platforms
+/// have no such duty cycle — see [appleAmbientScanDivisor].
 const int continuousScanDivisor = 2;
+
+/// The ambient divisor on Apple platforms, where it is the ONLY thinning
+/// there is.
+///
+/// Apple exposes no scan-mode knob, so the duty cycle that lets Android's
+/// ambient scan run undivided does not exist there: `continuousUpdates` is
+/// allowDuplicates, and every advertisement from every device in range crosses
+/// the platform channel unless the divisor drops it. Undivided, the always-on
+/// ambient scan was the most expensive configuration the app has — twice the
+/// channel traffic of the explicit burst it is meant to be cheaper than.
+/// Four keeps a once-a-second advertiser refreshing `lastSeen` every few
+/// seconds, inside [scanHeartbeat] and far inside `DeviceManager.staleAfter`.
+const int appleAmbientScanDivisor = 4;
 
 /// The Android scan mode a [ScanIntensity] asks for.
 ///
@@ -341,12 +381,19 @@ AndroidScanMode androidScanModeFor(ScanIntensity intensity) =>
 
 /// The per-device advertisement divisor a [ScanIntensity] asks for.
 ///
+/// [isApple] is a parameter rather than a platform check so the transport
+/// logic stays platform-neutral and both answers run on any CI host; the one
+/// `Platform` read is at the call site. See [continuousScanDivisor] for why
+/// ambient is 1 where the radio duty-cycles, and [appleAmbientScanDivisor] for
+/// why it is not where it does not.
+///
 /// Extracted as a pure top-level function for the same reason as
-/// [androidScanModeFor]; see [continuousScanDivisor] for why ambient is 1.
-int continuousDivisorFor(ScanIntensity intensity) => switch (intensity) {
-  ScanIntensity.active => continuousScanDivisor,
-  ScanIntensity.ambient => 1,
-};
+/// [androidScanModeFor].
+int continuousDivisorFor(ScanIntensity intensity, {required bool isApple}) =>
+    switch (intensity) {
+      ScanIntensity.active => continuousScanDivisor,
+      ScanIntensity.ambient => isApple ? appleAmbientScanDivisor : 1,
+    };
 
 /// How often a continuous scan restarts the underlying platform scan.
 ///
@@ -379,7 +426,7 @@ const Duration continuousScanRetry = Duration(seconds: 30);
 const Duration appleRediscoveryWindow = Duration(seconds: 6);
 
 /// Real BLE implementation using flutter_blue_plus.
-class RealBleService implements BleService {
+class RealBleService implements BleService, BleAuthorizationWatcher {
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   final Map<String, List<BluetoothService>> _servicesCache = {};
 
@@ -391,6 +438,62 @@ class RealBleService implements BleService {
   /// Overridable for the same reason as [continuousScanRefreshInterval].
   @visibleForTesting
   Duration continuousScanRetryInterval = continuousScanRetry;
+
+  /// Overridable so a test can watch [_settledAdapterState] give up without
+  /// waiting a minute and a half for it.
+  @visibleForTesting
+  Duration adapterSettleWindow = adapterSettleTimeout;
+
+  /// Whether this is an Apple platform, for the scan choices that differ
+  /// there ([continuousDivisorFor]). The one platform read on the scan path;
+  /// injectable so a test can exercise both answers on whatever host CI is.
+  @visibleForTesting
+  bool isApple = Platform.isIOS || Platform.isMacOS;
+
+  /// The adapter state once the platform has actually reported one.
+  ///
+  /// `FlutterBluePlus.adapterState.first` answers with whatever the platform
+  /// says RIGHT NOW, and on Apple platforms that is `unknown` until
+  /// CoreBluetooth's asynchronous state callback fires — on a first launch,
+  /// not until the user has answered the system Bluetooth prompt. So this
+  /// waits out the settling states ([isAdapterStateSettling]) and answers
+  /// with the first real one; a Deny lands here as `unauthorized`, an Allow
+  /// as `on`. Past [adapterSettleWindow] it answers `unknown`, which the
+  /// callers' [adapterStateError] reports as the radio being unavailable.
+  ///
+  /// Listened to explicitly rather than `firstWhere(...).timeout(...)`, so a
+  /// timeout also cancels the wait instead of leaving a listener on the
+  /// adapter stream until the state eventually settles.
+  Future<BluetoothAdapterState> _settledAdapterState() async {
+    final settled = Completer<BluetoothAdapterState>();
+    final sub = FlutterBluePlus.adapterState.listen(
+      (state) {
+        if (settled.isCompleted || isAdapterStateSettling(state)) return;
+        settled.complete(state);
+      },
+      onError: (Object error, StackTrace stack) {
+        if (!settled.isCompleted) settled.completeError(error, stack);
+      },
+      onDone: () {
+        if (settled.isCompleted) return;
+        settled.complete(BluetoothAdapterState.unknown);
+      },
+    );
+    try {
+      return await settled.future.timeout(
+        adapterSettleWindow,
+        onTimeout: () {
+          Log.ble.warning(
+            'adapter state did not settle within '
+            '${adapterSettleWindow.inSeconds}s; treating it as unavailable',
+          );
+          return BluetoothAdapterState.unknown;
+        },
+      );
+    } finally {
+      await sub.cancel();
+    }
+  }
 
   @override
   Future<bool> requestPermissions() async {
@@ -423,7 +526,10 @@ class RealBleService implements BleService {
     //
     // A genuine iOS denial is not lost by returning true: it surfaces as
     // BluetoothAdapterState.unauthorized on the adapter-state check in scan(),
-    // which adapterStateError maps back to BlePermissionDeniedException.
+    // which adapterStateError maps back to BlePermissionDeniedException. That
+    // check WAITS for CoreBluetooth to settle (_settledAdapterState), so it
+    // holds for the first scan too — the one whose start raises the prompt —
+    // and not only for scans issued after the prompt has been answered.
     return true;
   }
 
@@ -536,8 +642,11 @@ class RealBleService implements BleService {
         // Distinguishes "radio is off" from "permission was refused" — on iOS
         // the latter is the only place a denial shows up, since the prompt is
         // raised natively by CoreBluetooth rather than by requestPermissions().
-        // The state is held in a local purely so it can be named in the log.
-        final adapterState = await FlutterBluePlus.adapterState.first;
+        // Waited for, not read: while that prompt is up the state is still
+        // `unknown`, and judging it would report a radio that is merely
+        // undecided as switched off (see _settledAdapterState). The state is
+        // held in a local purely so it can be named in the log.
+        final adapterState = await _settledAdapterState();
         if (await abandonIfCancelled()) return;
         final adapterError = adapterStateError(adapterState);
         if (adapterError != null) {
@@ -567,20 +676,36 @@ class RealBleService implements BleService {
         }
         if (await abandonIfCancelled()) return;
 
-        // scanResults re-emits its latest list to every new listener, so our
-        // subscription's first event is the PREVIOUS scan's accumulated
-        // results (fbp only clears them inside startScan). Capture that exact
-        // instance so it can be dropped instead of resurfacing stale devices.
+        // scanResults re-emits its latest event to every new listener, so our
+        // subscription's first event is the PREVIOUS scan's last one (fbp only
+        // clears it inside startScan). Capture that exact instance so it can
+        // be dropped instead of resurfacing a stale device.
         final replayed = FlutterBluePlus.lastScanResults;
         final coalescer = ScanResultCoalescer();
         sub = FlutterBluePlus.scanResults.listen(
           (results) {
             if (identical(results, replayed)) return;
+            // One advertisement per event (startNative asks for oneByOne), so
+            // the cost of a sighting is one coalescer lookup — not a walk of
+            // everything found so far, which is what fbp's default accumulated
+            // list made it: O(devices) per advertisement, and in a dense room
+            // that was most of the scan's UI-isolate time. The loop stays for
+            // the shape of the API; it runs once.
             for (final result in results) {
               final advertisement = result.advertisementData;
+              // The name on air, not the platform's cached one. CoreBluetooth
+              // hands over `peripheral.name` as platformName, and that is a
+              // system-wide cache: once ANY app on the phone has connected it
+              // holds the GAP Device Name characteristic, and it keeps holding
+              // it after the device is renamed. The advertised local name is
+              // what a spec's local_name_prefix describes and what the user
+              // sees on the device's own app. Fall back when the advertisement
+              // carries none — plenty of peripherals only name themselves in
+              // GATT.
+              final advName = advertisement.advName;
               final device = coalescer.next(
                 id: result.device.remoteId.str,
-                name: result.device.platformName,
+                name: advName.isNotEmpty ? advName : result.device.platformName,
                 rssi: result.rssi,
                 isConnectable: advertisement.connectable,
                 // str128 rather than str: fbp's `str` abbreviates a
@@ -596,10 +721,8 @@ class RealBleService implements BleService {
                 // pixel panel advertising its true resolution).
                 companyIds: advertisement.manufacturerData.keys.toList(),
                 manufacturerData: advertisement.manufacturerData,
-                // When the advertisement was heard, not when this batch was
-                // processed — fbp re-pushes silent devices in every batch with
-                // their original timestamp, and that is exactly the signal a
-                // consumer needs to notice one has gone quiet.
+                // When the advertisement was heard, not when it was processed
+                // — see ScanResultCoalescer.
                 seenAt: result.timeStamp,
               );
               if (device != null) controller.add(device);
@@ -619,11 +742,14 @@ class RealBleService implements BleService {
         // way to tell "still here, still broadcasting" from "switched off ten
         // minutes ago". That distinction is the whole point of `lastSeen`, and
         // it is what a scan that never ends needs in order to stay truthful.
-        // The divisor keeps the resulting firehose affordable.
+        // The divisor keeps the resulting firehose affordable, and oneByOne
+        // keeps each advertisement a single event rather than a fresh copy of
+        // every result so far (see the listener above).
         Future<void> startNative() => FlutterBluePlus.startScan(
           timeout: timeout,
           continuousUpdates: true,
-          continuousDivisor: continuousDivisorFor(intensity),
+          continuousDivisor: continuousDivisorFor(intensity, isApple: isApple),
+          oneByOne: true,
           androidScanMode: androidScanModeFor(intensity),
         );
 
@@ -773,6 +899,15 @@ class RealBleService implements BleService {
       .distinct();
 
   @override
+  Stream<bool> adapterUnauthorized() => FlutterBluePlus.adapterState
+      // The other half of adapterStateError's judgement, for the one consumer
+      // that needs to tell a refusal from a dark radio after the fact: a Deny
+      // on the system prompt arrives here as a transition, not as the answer
+      // to any scan. Same replay-then-distinct shape as adapterReady.
+      .map((state) => state == BluetoothAdapterState.unauthorized)
+      .distinct();
+
+  @override
   Future<void> stopScan() async {
     Log.ble.info('scan stopped by request');
     // Claim the scan that is running NOW, before the platform call is awaited.
@@ -900,6 +1035,21 @@ class RealBleService implements BleService {
     // sit here for the full 15s timeout. Failures surface to the UI, which
     // logs them via friendlyErrorText — logging them here too would duplicate.
     Log.ble.info('connecting to $deviceId');
+    // The same gate scan() keeps, for the same reason: with the radio off the
+    // platform refuses the connect with a plugin error ("bluetooth must be
+    // turned on. (CBManagerStatePoweredOff)"), which the UI cannot tell from
+    // a device out of range — so a Reconnect pressed after Bluetooth was
+    // toggled off in Control Centre told the user to move closer. Judged
+    // once the state has settled, so a saved device opened cold on iOS waits
+    // for the permission prompt rather than failing underneath it.
+    final adapterState = await _settledAdapterState();
+    final adapterError = adapterStateError(adapterState);
+    if (adapterError != null) {
+      Log.ble.warning(
+        'connect to $deviceId refused: adapter state is ${adapterState.name}',
+      );
+      throw adapterError;
+    }
     final device = BluetoothDevice.fromId(deviceId);
     // Whether this call actually turns the link over. flutter_blue_plus
     // treats connect() on an already-connected device as a no-op, so a

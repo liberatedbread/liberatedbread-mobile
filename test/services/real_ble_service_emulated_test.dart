@@ -16,7 +16,8 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:flutter_blue_plus/flutter_blue_plus.dart' show AndroidScanMode;
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'
+    show AndroidScanMode, FlutterBluePlus;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
@@ -179,6 +180,132 @@ void main() {
       );
     });
 
+    group('adapter state still settling (F-002)', () {
+      // CoreBluetooth reports `unknown` until its state callback fires, and
+      // on a first launch that callback waits for the user to answer the
+      // system Bluetooth prompt. The scan has to wait with it: the first
+      // answer is not an answer.
+      test('waits for the platform to report a state, then scans', () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'));
+        ble.adapterState = EmulatedAdapterState.unknown;
+
+        final found = await runScan(
+          during: () async {
+            expect(
+              ble.platformCalls,
+              isNot(contains('startScan')),
+              reason: 'nothing may start until the state has settled',
+            );
+            ble.adapterState = EmulatedAdapterState.on;
+          },
+        );
+
+        expect(found.map((d) => d.name), ['ACME_Bulb']);
+      });
+
+      test(
+        'a Deny answered after the prompt is a denial, not a dead radio',
+        () async {
+          // The broken path this pins: judged early, the scan reported
+          // "Bluetooth is turned off" — and the later `unauthorized` reached a
+          // scan that had already given up, so the settings shortcut never
+          // appeared.
+          ble.adapterState = EmulatedAdapterState.unknown;
+          unawaited(
+            Future<void>.delayed(const Duration(milliseconds: 30), () {
+              ble.adapterState = EmulatedAdapterState.unauthorized;
+            }),
+          );
+
+          await expectLater(
+            service.scan(timeout: _scanWindow),
+            emitsError(isA<BlePermissionDeniedException>()),
+          );
+          expect(ble.platformCalls, isNot(contains('startScan')));
+        },
+      );
+
+      test('turningOn is waited out the same way', () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        ble.adapterState = EmulatedAdapterState.turningOn;
+
+        final found = await runScan(
+          during: () async => ble.adapterState = EmulatedAdapterState.on,
+        );
+
+        expect(found, hasLength(1));
+      });
+
+      test('a state that never settles is reported as unavailable', () async {
+        service.adapterSettleWindow = const Duration(milliseconds: 100);
+        ble.adapterState = EmulatedAdapterState.unknown;
+
+        await expectLater(
+          service.scan(timeout: _scanWindow),
+          emitsError(isA<BleUnavailableException>()),
+        );
+      });
+    });
+
+    group('device name (F-022)', () {
+      test('prefers the advertised local name to the platform cache', () async {
+        // CoreBluetooth's platformName is `peripheral.name`: a system-wide
+        // cache that, once any app has connected, holds the GAP Device Name
+        // rather than what is on air. A rebadged bulb advertises the brand
+        // its spec's local_name_prefix names; its GAP name is the chipset's.
+        ble.add(
+          EmulatedPeripheral.bulb(
+            id: _bulbId,
+            name: 'Nordic_Blinky',
+            advName: 'LEDBLE-TEST',
+          ),
+        );
+
+        final found = await runScan();
+
+        expect(found.single.name, 'LEDBLE-TEST');
+      });
+
+      test(
+        'falls back to the platform name when nothing is advertised',
+        () async {
+          final bulb = ble.add(
+            EmulatedPeripheral.bulb(id: _bulbId, name: 'Nordic_Blinky'),
+          );
+          bulb.advName = null;
+
+          final found = await runScan();
+
+          expect(found.single.name, 'Nordic_Blinky');
+        },
+      );
+    });
+
+    test('each advertisement is delivered on its own (F-020)', () async {
+      // fbp's default hands every listener a fresh copy of EVERYTHING found so
+      // far on every advertisement, and the listener walked it: O(devices) per
+      // sighting, which in a dense room was most of the scan's UI-isolate
+      // time. One-by-one delivery is the setting that makes a sighting cost
+      // one coalescer lookup — observable only at fbp's own stream.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      ble.add(EmulatedPeripheral.bulb(id: _lampId));
+      final batchSizes = <int>[];
+      final tap = FlutterBluePlus.scanResults.listen(
+        (results) => batchSizes.add(results.length),
+      );
+      addTearDown(tap.cancel);
+
+      final found = await runScan();
+
+      expect(found.map((d) => d.id), containsAll([_bulbId, _lampId]));
+      expect(batchSizes, isNotEmpty);
+      expect(
+        batchSizes.where((n) => n > 1),
+        isEmpty,
+        reason: 'an accumulated list means every sighting re-walks the room',
+      );
+    });
+
     test('surfaces a platform scan failure on the stream', () async {
       ble.scanError = const EmulatedGattError(
         2,
@@ -294,6 +421,7 @@ void main() {
       // The energy dial: a scan the app starts by itself must not pin the
       // radio to continuous listening the way the pre-dial default did.
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      service.isApple = false;
 
       final sub = service
           .scan(timeout: null, intensity: ScanIntensity.ambient)
@@ -313,6 +441,34 @@ void main() {
             'top would double a sleepy sensor\'s reception gaps',
       );
     });
+
+    test(
+      'on Apple the ambient scan thins at the divisor instead (F-020)',
+      () async {
+        // No scan-mode knob on Apple platforms, so the divisor is the only
+        // thinning there is — and undivided, the always-on ambient scan shipped
+        // twice the channel traffic of the burst it is meant to be cheaper than.
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        service.isApple = true;
+
+        final ambient = service
+            .scan(timeout: null, intensity: ScanIntensity.ambient)
+            .listen((_) {});
+        addTearDown(ambient.cancel);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(
+          ble.lastScanSettings?.continuousDivisor,
+          appleAmbientScanDivisor,
+        );
+
+        final active = service
+            .scan(timeout: null, intensity: ScanIntensity.active)
+            .listen((_) {});
+        addTearDown(active.cancel);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(ble.lastScanSettings?.continuousDivisor, continuousScanDivisor);
+      },
+    );
 
     test('a re-sighting moves lastSeen but not discoveredAt', () async {
       final bulb = ble.add(
@@ -611,7 +767,93 @@ void main() {
     });
   });
 
+  group('adapterUnauthorized', () {
+    test('replays the current answer, then follows the grant', () async {
+      // A Deny on the iOS prompt arrives as a transition, possibly long after
+      // the scan that raised the prompt — and a revoke in Settings later
+      // still. The screen needs to hear both as "permission needed".
+      final events = <bool>[];
+      final sub = service.adapterUnauthorized().listen(events.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(events, [false]);
+
+      ble.adapterState = EmulatedAdapterState.unauthorized;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      ble.adapterState = EmulatedAdapterState.on;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(events, [false, true, false]);
+      await sub.cancel();
+    });
+
+    test('a dark radio is not a denial', () async {
+      final events = <bool>[];
+      final sub = service.adapterUnauthorized().listen(events.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      ble.adapterState = EmulatedAdapterState.off;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(events, [false]);
+      await sub.cancel();
+    });
+  });
+
   group('connect', () {
+    group('adapter state (F-023)', () {
+      // With the radio off the platform refuses the connect with a plugin
+      // error the UI cannot tell from a device out of range, so Reconnect
+      // after a Control Centre toggle told the user to move closer.
+      test('refuses while the radio is off, and says so', () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        ble.adapterState = EmulatedAdapterState.off;
+
+        await expectLater(
+          service.connect(_bulbId),
+          throwsA(isA<BleUnavailableException>()),
+        );
+        expect(ble.platformCalls, isNot(contains('connect:$_bulbId')));
+      });
+
+      test('a permission refusal is reported as one', () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        ble.adapterState = EmulatedAdapterState.unauthorized;
+
+        await expectLater(
+          service.connect(_bulbId),
+          throwsA(isA<BlePermissionDeniedException>()),
+        );
+        expect(ble.platformCalls, isNot(contains('connect:$_bulbId')));
+      });
+
+      test('waits for a settling state, like scan does', () async {
+        // A saved device opened cold on iOS: the connect must wait for the
+        // permission prompt to be answered, not fail underneath it.
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        ble.adapterState = EmulatedAdapterState.unknown;
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 30), () {
+            ble.adapterState = EmulatedAdapterState.on;
+          }),
+        );
+
+        await service.connect(_bulbId);
+
+        expect(bulb.isConnected, isTrue);
+      });
+
+      test('a state that never settles refuses the connect', () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        service.adapterSettleWindow = const Duration(milliseconds: 100);
+        ble.adapterState = EmulatedAdapterState.unknown;
+
+        await expectLater(
+          service.connect(_bulbId),
+          throwsA(isA<BleUnavailableException>()),
+        );
+      });
+    });
+
     test('connects and reports the connection state', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
 

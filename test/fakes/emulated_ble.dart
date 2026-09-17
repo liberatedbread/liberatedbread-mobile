@@ -207,7 +207,18 @@ class EmulatedPeripheral {
   /// Remote id — a MAC on Android/Linux, a UUID on Apple platforms. Any string
   /// works here; tests use MAC-shaped ones for readability.
   final String id;
+
+  /// What the PLATFORM reports as the peripheral's name — CoreBluetooth's
+  /// cached `peripheral.name`, which once any app on the phone has connected
+  /// is the GAP Device Name characteristic rather than what is on air.
   String name;
+
+  /// The local name carried in the advertisement itself. Defaults to [name],
+  /// as on a fresh Android cache; real devices can advertise something else
+  /// entirely (a rebadged bulb whose GAP name is the chipset vendor's), and
+  /// that is the case worth emulating. Assign null for an advertisement that
+  /// carries no local name at all — a device named only in GATT.
+  String? advName;
   int rssi;
   bool connectable;
 
@@ -284,12 +295,14 @@ class EmulatedPeripheral {
   EmulatedPeripheral({
     required this.id,
     required this.name,
+    String? advName,
     this.rssi = -55,
     this.connectable = true,
     this.mtu = 23,
     this.requiresPairing = false,
     List<EmulatedService>? services,
-  }) : services = services ?? [];
+  }) : advName = advName ?? name,
+       services = services ?? [];
 
   /// A peripheral shaped like the app's example bulb spec: a vendor control
   /// service (write-without-response command + readable/notifiable state) and a
@@ -297,6 +310,7 @@ class EmulatedPeripheral {
   factory EmulatedPeripheral.bulb({
     required String id,
     String name = 'ACME_Living_Room',
+    String? advName,
     int rssi = -45,
     int mtu = 512,
     List<int> state = const [1, 80, 255, 180, 50],
@@ -306,6 +320,7 @@ class EmulatedPeripheral {
     return EmulatedPeripheral(
       id: id,
       name: name,
+      advName: advName,
       rssi: rssi,
       mtu: mtu,
       requiresPairing: requiresPairing,
@@ -414,7 +429,7 @@ class EmulatedPeripheral {
   BmScanAdvertisement get _advertisement => BmScanAdvertisement(
     remoteId: DeviceIdentifier(id),
     platformName: name,
-    advName: name,
+    advName: advName,
     connectable: connectable,
     txPowerLevel: null,
     appearance: null,

@@ -245,3 +245,23 @@ abstract class BleService {
   /// is not connected.
   Future<int> readRssi(String deviceId);
 }
+
+/// An optional [BleService] capability: the platform can tell this app it may
+/// not use Bluetooth, and can do so AFTER the fact.
+///
+/// iOS reports a denied CoreBluetooth authorization as an adapter STATE
+/// (`unauthorized`), and it arrives as a transition: the user answers the
+/// system prompt long after the scan that raised it asked, or revokes the
+/// grant in Settings. The scan screen needs to hear that as "permission
+/// needed", with its open-settings shortcut — not as [BleService.adapterReady]
+/// going false, which it cannot tell apart from the radio being switched off.
+///
+/// A separate interface rather than a member of [BleService], because only a
+/// stack that reports authorization through the adapter state has anything to
+/// say here; a consumer checks for it with `is` and does without otherwise.
+/// Declared as a [BleService] so that check promotes the service in place.
+abstract interface class BleAuthorizationWatcher implements BleService {
+  /// Whether the platform has refused this app permission to use Bluetooth —
+  /// the current answer on listen, then every change.
+  Stream<bool> adapterUnauthorized();
+}
