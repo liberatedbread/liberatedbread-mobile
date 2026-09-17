@@ -492,6 +492,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // in front of the user under a name they did not pick.
     setState(() {
       _stopPreview();
+      // The in-app loop cycle encodes `play_effect` against the spec it was
+      // started under; left running it would go on addressing the old
+      // device's cids and slots through the new spec's YAML.
+      _stopDeviceCycle();
       _streaming = false;
       _streamEpoch++;
       // A new spec means a new device/session: any doodle session we opened
@@ -975,6 +979,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       // reviving on the shared boolean.
       _streaming = false;
       _streamEpoch++;
+      // Likewise the in-app loop cycle: its `play_effect` ticks would swap
+      // the panel back to a loop frame within one interval of the new
+      // design playing (and interleave with the upload writes before that).
+      // An animation save restarts it from _startLoop once its frames are up.
+      _stopDeviceCycle();
     });
     // Wait out the frame already being written, if any — uploader packets
     // spliced into a half-sent doodle frame would corrupt both channels.
@@ -1401,11 +1410,18 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
 
     // ONE notify subscription for the whole save: every frame's commit verdict
     // and the effect-list reply both demux off this single broadcast stream.
+    //
+    // `onCancel` is load-bearing: without it the wrapper stays subscribed to
+    // the BLE stream after its last listener leaves, so the service's
+    // ref-counted notify interest (and the CCCD enable) was never released —
+    // one orphaned subscription per save/replay for the life of the link.
+    // [notifyKeepAlive] below is the last listener; cancelling it in `finally`
+    // is what tears the source down.
     final Stream<List<int>>? notify = respChar == null
         ? null
         : ble
               .subscribeCharacteristic(widget.deviceId, serviceUuid, respChar)
-              .asBroadcastStream();
+              .asBroadcastStream(onCancel: (sub) => sub.cancel());
     final notifyKeepAlive = notify?.listen((_) {});
 
     var confirmedCount = 0;
@@ -1419,7 +1435,15 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       // standalone after disconnect. Destructive to OTHER device-stored designs
       // by design: an animation loop takes over the panel.
       if (notify != null) {
-        await _clearDiyEffects(notify, specYaml, serviceUuid, ddpChar);
+        final wiped = await _clearDiyEffects(
+          notify,
+          specYaml,
+          serviceUuid,
+          ddpChar,
+        );
+        // The replay strip must not go on offering designs that no longer
+        // exist on the device.
+        await _forgetWipedDesigns(wiped, uploadingCid: baseCid);
       }
       for (var i = 0; i < frames.length; i++) {
         final plan = plans[i];
@@ -1474,7 +1498,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         });
         await _sendFramedCommand(specYaml, serviceUuid, ddpChar, 'effect_list');
         await Future<void>.delayed(const Duration(seconds: 3));
-        await elSub.cancel();
+        unawaited(elSub.cancel()); // see _clearDiyEffects
       }
     } finally {
       unawaited(notifyKeepAlive?.cancel());
@@ -1651,6 +1675,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       _error = null;
       _streaming = false;
       _streamEpoch++;
+      // Busy for the whole replay, exactly like a save: an animation replay
+      // RE-UPLOADS every frame (many seconds of uploader writes), and every
+      // Send/Stream/Save/replay/pin control gates on this flag — without it
+      // a second operation would interleave on the same characteristics.
+      _saving = true;
+      // The played design replaces any running loop cycle — a single design
+      // outright, an animation once its frames are re-stored (its loop
+      // restarts the cycle from _startLoop). Either way the OLD cycle's
+      // `play_effect` ticks must not keep landing between these writes.
+      _stopDeviceCycle();
     });
     await _sendTail;
     try {
@@ -1658,8 +1692,6 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         await _replayLoop(design);
         return;
       }
-      // A single design replaces any running loop cycle.
-      _stopDeviceCycle();
       final play = await ref
           .read(specCodecProvider)
           .encodeStoredPlay(
@@ -1702,6 +1734,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -1750,7 +1784,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// device has no "play only this list" command (bookmark_save does NOT
   /// restrict playback); it autoruns whatever diy stills are stored, so the
   /// scope is set by what's present. Destructive to other stored designs.
-  Future<void> _clearDiyEffects(
+  /// Returns the cids it removed, so the caller can drop the replay-list
+  /// entries that pointed at them.
+  Future<List<int>> _clearDiyEffects(
     Stream<List<int>> notify,
     String specYaml,
     String serviceUuid,
@@ -1768,7 +1804,12 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     });
     await _sendFramedCommand(specYaml, serviceUuid, ddpChar, 'effect_list');
     await Future<void>.delayed(const Duration(seconds: 3));
-    await sub.cancel();
+    // Fire-and-forget, as in _awaitUploadVerdict: cancel() detaches the
+    // listener synchronously, which is all that matters here. Awaiting it
+    // stalls under a fake event loop — a broadcast subscription's cancel
+    // resolves via the SDK's root-zone null future — which is what kept this
+    // path out of the widget tests.
+    unawaited(sub.cancel());
     final diyCids = diyEffectCidsToClear(byCid.values);
     Log.ble.info(
       '${widget.deviceId} clearing ${diyCids.length} diy effect(s) '
@@ -1783,6 +1824,51 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       await _writeFramed('remove_app', rm.serviceUuid, rm.write);
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }
+    return diyCids;
+  }
+
+  /// Drop every replay-list entry whose device slots [_clearDiyEffects] just
+  /// removed and that cannot be put back. A picture/text entry carries no
+  /// pixels, only its cid, so once the device forgets that cid the chip would
+  /// play nothing (and Pin would promise a hold that cannot happen). An
+  /// animation that kept its [SavedDesign.frames] re-uploads on replay, so it
+  /// stays; one saved before pixels were kept goes the same way as a picture.
+  /// The design being uploaded right now ([uploadingCid]) is exempt — its own
+  /// old frames are among the wiped cids and are about to be stored afresh.
+  ///
+  /// The store has no per-entry delete, so this is a clear + re-save of the
+  /// survivors — done only when something actually has to go.
+  Future<void> _forgetWipedDesigns(
+    List<int> wipedCids, {
+    required int uploadingCid,
+  }) async {
+    if (wipedCids.isEmpty) return;
+    final wiped = wipedCids.toSet();
+    final store = ref.read(savedDesignsStoreProvider);
+    final designs = store.load(widget.deviceId);
+    final survivors = <SavedDesign>[];
+    final dropped = <String>[];
+    for (final d in designs) {
+      final onDevice = wiped.contains(d.cid) || d.frameCids.any(wiped.contains);
+      final restorable = d.frames.isNotEmpty && d.width > 0 && d.height > 0;
+      if (d.cid != uploadingCid && onDevice && !restorable) {
+        dropped.add('${d.name} (cid ${d.cid})');
+      } else {
+        survivors.add(d);
+      }
+    }
+    if (dropped.isEmpty) return;
+    Log.ble.info(
+      '${widget.deviceId} forgetting ${dropped.length} stored design(s) the '
+      'loop wiped off the device: ${dropped.join(', ')}',
+    );
+    await store.clear(widget.deviceId);
+    // `load` orders by savedAt, so re-saving oldest-first keeps the list as
+    // it was minus the dropped entries.
+    for (final d in survivors.reversed) {
+      await store.save(widget.deviceId, d);
+    }
+    if (mounted) setState(() {}); // the replay strip loses the entries
   }
 
   /// Set up and START an animation's playlist loop, matching the vendor's
@@ -1859,6 +1945,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       _error = null;
       _streaming = false;
       _streamEpoch++;
+      // See _replayStored: pinning an animation re-uploads its frames, so
+      // the editor is busy on the link until that lands.
+      _saving = true;
+      // And the old cycle stops now, for the same reason as in _replayStored.
+      _stopDeviceCycle();
     });
     await _sendTail;
     try {
@@ -1867,8 +1958,6 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         await _relaunchLoop(design);
         await _setAutorunMode(widget.specYaml, AutorunMode.repeat);
       } else {
-        // A single design replaces any running loop cycle.
-        _stopDeviceCycle();
         final play = await ref
             .read(specCodecProvider)
             .encodeStoredPlay(
@@ -1917,6 +2006,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -2265,7 +2356,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                   key: Key('saved-design-${design.cid}'),
                   avatar: const Icon(Icons.replay, size: 18),
                   label: Text(design.name),
-                  tooltip: 'Play "${design.name}" (${design.kind}) again',
+                  // Replaying an animation re-stores its frames, and that
+                  // wipes the other saved designs the same way saving did.
+                  tooltip:
+                      'Play "${design.name}" (${design.kind}) again'
+                      '${design.frameCids.isNotEmpty ? '. $_animationWipesOthersNote' : ''}',
                   onPressed: _saving ? null : () => _replayStored(design),
                 ),
                 IconButton(
@@ -2275,7 +2370,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                   visualDensity: VisualDensity.compact,
                   tooltip:
                       'Keep "${design.name}" showing on the device '
-                      'after you disconnect',
+                      'after you disconnect'
+                      '${design.frameCids.isNotEmpty ? '. $_animationWipesOthersNote' : ''}',
                   onPressed: _saving ? null : () => _saveAsDefault(design),
                 ),
               ],
@@ -2321,6 +2417,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     setState(() {
       _saving = true;
       _error = null;
+      // The designs the cycle addresses are about to be deleted; a tick
+      // after that is a `play_effect` for a cid the device no longer has,
+      // every interval, for as long as the screen stays open.
+      _stopDeviceCycle();
     });
     try {
       final ble = ref.read(bleServiceProvider);
@@ -2376,6 +2476,13 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     }
   }
 }
+
+/// Shown wherever an animation is about to be stored or re-stored: the loop
+/// is scoped by removing every other user-stored design from the device (see
+/// `_clearDiyEffects`), which the user has to know before pressing the button.
+const String _animationWipesOthersNote =
+    'Storing an animation clears the device\'s other saved designs, '
+    'including any stored by the vendor app.';
 
 /// What the user chose in the "Save to device" dialog.
 /// What kind of content to persist on the device.
@@ -2497,6 +2604,19 @@ class _StoredSaveDialogState extends State<_StoredSaveDialog> {
                 isDense: true,
               ),
               textInputAction: TextInputAction.done,
+            ),
+          ],
+          if (_kind == _StoredKind.animation) ...[
+            const SizedBox(height: 12),
+            // Honest about the cost: the loop can only be the device's whole
+            // autorun cycle by removing every other user-stored design first
+            // — including ones the vendor app put there.
+            Text(
+              _animationWipesOthersNote,
+              key: const Key('stored-animation-note'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
           if (showScroll) ...[
