@@ -1012,6 +1012,55 @@ void main() {
       expect(state.canWrite, isFalse);
     });
 
+    test(
+      'a service declaring one uuid twice yields two characteristics',
+      () async {
+        // GATT permits it and real devices do it (a strip with two identical
+        // channel characteristics). flutter_blue_plus could not address the
+        // second until 1.35.6 gave each an instance id; before the bump the two
+        // were indistinguishable and a read of either could answer from the
+        // wrong one.
+        final twin = EmulatedPeripheral(
+          id: _bulbId,
+          name: 'Twin',
+          services: [
+            EmulatedService(
+              uuid: EmulatedUuids.controlService,
+              characteristics: [
+                EmulatedCharacteristic(
+                  uuid: EmulatedUuids.controlCommand,
+                  value: const [1],
+                  canRead: true,
+                ),
+                EmulatedCharacteristic(
+                  uuid: EmulatedUuids.controlCommand,
+                  value: const [2],
+                  canRead: true,
+                ),
+              ],
+            ),
+          ],
+        );
+        ble.add(twin);
+        await service.connect(_bulbId);
+
+        final services = await service.discoverServices(_bulbId);
+
+        final chars = services.single.characteristics
+            .where((c) => c.uuid == EmulatedUuids.controlCommand)
+            .toList();
+        expect(
+          chars,
+          hasLength(2),
+          reason: 'both attributes have to survive discovery to be addressable',
+        );
+        expect(twin.services.single.characteristics.map((c) => c.instanceId), [
+          0,
+          1,
+        ]);
+      },
+    );
+
     test('retries a discovery that comes back empty', () async {
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
       // The BlueZ ServicesResolved race: the first discovery after connect sees

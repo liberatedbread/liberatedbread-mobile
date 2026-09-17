@@ -130,6 +130,16 @@ class EmulatedGattError {
 class EmulatedCharacteristic {
   final String uuid;
 
+  /// Which characteristic this is among those sharing [uuid] in the same
+  /// service, assigned when the GATT table is built.
+  ///
+  /// A GATT table may legitimately carry a UUID twice — flutter_blue_plus
+  /// 1.35.6 added this so a caller can address the second one. Every
+  /// characteristic here gets one, and every response echoes the id it was
+  /// asked about, so a test can stand up a duplicate and prove the app
+  /// reaches the one it meant.
+  int instanceId = 0;
+
   /// Current value. Mutable: writes land here and tests can move it under a
   /// live subscription to simulate a sensor changing.
   List<int> value;
@@ -465,37 +475,53 @@ class EmulatedPeripheral {
     rssi: rssi,
   );
 
-  List<BmBluetoothService> get _gattTable => [
-    for (final service in services)
-      BmBluetoothService(
-        remoteId: DeviceIdentifier(id),
-        serviceUuid: Guid(service.uuid),
-        // null means "primary". flutter_blue_plus filters discovery results
-        // down to primary services, so a non-null value here would make the
-        // service vanish from discoverServices().
-        primaryServiceUuid: null,
-        characteristics: [
-          for (final char in service.characteristics)
-            BmBluetoothCharacteristic(
-              remoteId: DeviceIdentifier(id),
-              serviceUuid: Guid(service.uuid),
-              characteristicUuid: Guid(char.uuid),
-              primaryServiceUuid: null,
-              descriptors: [
-                if (char.exposesCccd)
-                  BmBluetoothDescriptor(
-                    remoteId: DeviceIdentifier(id),
-                    serviceUuid: Guid(service.uuid),
-                    characteristicUuid: Guid(char.uuid),
-                    descriptorUuid: Guid(EmulatedUuids.cccd),
-                    primaryServiceUuid: null,
-                  ),
-              ],
-              properties: char._properties,
-            ),
-        ],
-      ),
-  ];
+  List<BmBluetoothService> get _gattTable {
+    // Numbered per (service, uuid) as the table is built, so a service that
+    // declares the same characteristic twice gets 0 and 1 — and the numbers
+    // stay put for the peripheral's life, because a subscription addressed to
+    // instance 1 has to keep meaning the same attribute.
+    for (final service in services) {
+      final seen = <String, int>{};
+      for (final char in service.characteristics) {
+        final key = char.uuid.toLowerCase();
+        char.instanceId = seen[key] ?? 0;
+        seen[key] = char.instanceId + 1;
+      }
+    }
+    return [
+      for (final service in services)
+        BmBluetoothService(
+          remoteId: DeviceIdentifier(id),
+          serviceUuid: Guid(service.uuid),
+          // null means "primary". flutter_blue_plus filters discovery results
+          // down to primary services, so a non-null value here would make the
+          // service vanish from discoverServices().
+          primaryServiceUuid: null,
+          characteristics: [
+            for (final char in service.characteristics)
+              BmBluetoothCharacteristic(
+                remoteId: DeviceIdentifier(id),
+                serviceUuid: Guid(service.uuid),
+                characteristicUuid: Guid(char.uuid),
+                instanceId: char.instanceId,
+                primaryServiceUuid: null,
+                descriptors: [
+                  if (char.exposesCccd)
+                    BmBluetoothDescriptor(
+                      remoteId: DeviceIdentifier(id),
+                      serviceUuid: Guid(service.uuid),
+                      characteristicUuid: Guid(char.uuid),
+                      instanceId: char.instanceId,
+                      descriptorUuid: Guid(EmulatedUuids.cccd),
+                      primaryServiceUuid: null,
+                    ),
+                ],
+                properties: char._properties,
+              ),
+          ],
+        ),
+    ];
+  }
 }
 
 /// An emulated BLE controller, installed as flutter_blue_plus's platform
@@ -748,6 +774,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
         remoteId: DeviceIdentifier(peripheral.id),
         serviceUuid: _serviceOf(peripheral, char),
         characteristicUuid: Guid(char.uuid),
+        instanceId: char.instanceId,
         primaryServiceUuid: null,
         value: List<int>.of(value),
         success: true,
@@ -1059,6 +1086,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
           remoteId: request.remoteId,
           serviceUuid: request.serviceUuid,
           characteristicUuid: request.characteristicUuid,
+          instanceId: request.instanceId,
           primaryServiceUuid: request.primaryServiceUuid,
           value: failure != null ? const [] : List<int>.of(char.value),
           success: failure == null,
@@ -1095,6 +1123,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
           remoteId: request.remoteId,
           serviceUuid: request.serviceUuid,
           characteristicUuid: request.characteristicUuid,
+          instanceId: request.instanceId,
           primaryServiceUuid: request.primaryServiceUuid,
           value: List<int>.of(request.value),
           success: failure == null,
@@ -1128,6 +1157,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
             remoteId: request.remoteId,
             serviceUuid: request.serviceUuid,
             characteristicUuid: request.characteristicUuid,
+            instanceId: request.instanceId,
             descriptorUuid: Guid(EmulatedUuids.cccd),
             primaryServiceUuid: request.primaryServiceUuid,
             value: const [],
@@ -1159,6 +1189,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
           remoteId: request.remoteId,
           serviceUuid: request.serviceUuid,
           characteristicUuid: request.characteristicUuid,
+          instanceId: request.instanceId,
           descriptorUuid: Guid(EmulatedUuids.cccd),
           primaryServiceUuid: request.primaryServiceUuid,
           value: request.enable ? const [1, 0] : const [0, 0],

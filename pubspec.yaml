@@ -16,7 +16,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_blue_plus: 1.35.4
+  # 1.36.8 is the LAST BSD-3 release: 2.x is a commercial "FlutterBluePlus
+  # License" with build-time telemetry, so the ceiling here is a licence
+  # boundary, not caution. Exact, because the federated interface below has
+  # to match it exactly.
+  flutter_blue_plus: 1.36.8
   flutter_rust_bridge: 2.9.0
   flutter_riverpod: ^2.4.0
   flutter_secure_storage: ^9.2.0
@@ -57,7 +61,7 @@ dev_dependencies:
   # backend by hand, because a test VM has no app startup to do it. Pinned to
   # the exact version flutter_blue_plus 1.35.4 resolves anyway, so this adds
   # no new code — it only makes the transitive dependency importable.
-  flutter_blue_plus_linux: 3.0.2
+  flutter_blue_plus_linux: 7.0.3
   # Test-only, and pinned exactly like flutter_blue_plus above because it is
   # that package's own federated interface — the two move together and a
   # mismatch is a compile error, not a warning.
@@ -68,7 +72,7 @@ dev_dependencies:
   # is NOT re-exported by package:flutter_blue_plus (it exports only
   # DeviceIdentifier, Guid, LogLevel and PhySupport), so it has to be depended
   # on directly rather than reached through the transitive dependency.
-  flutter_blue_plus_platform_interface: 4.0.2
+  flutter_blue_plus_platform_interface: 7.0.0
 
 flutter:
   # Plugins link through CocoaPods on Apple platforms, not Swift Package
