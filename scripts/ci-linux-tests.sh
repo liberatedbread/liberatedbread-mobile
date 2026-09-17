@@ -122,6 +122,12 @@ for t in "${targets[@]}"; do
     continue
   fi
 
+  if has_file_tag "$t" hardware; then
+    echo "SKIP  $t (file-level @Tags(['hardware']) — needs a physical phone; scripts/run-ios-device-tests.sh)"
+    echo "::endgroup::"
+    continue
+  fi
+
   if has_file_tag "$t" bluez; then
     # Not skipped, deferred: it runs below, wrapped in the virtual BlueZ stack.
     # Running it here would fail for want of an org.bluez to talk to, and that
@@ -135,13 +141,13 @@ for t in "${targets[@]}"; do
   log="$(mktemp)"
   if xvfb-run -a flutter test "$t" \
        -d linux \
-       --exclude-tags=e2e,bluez \
+       --exclude-tags=e2e,bluez,hardware \
        --timeout "$TEST_TIMEOUT" \
        --dart-define=LIBERATED_BREAD_MOCK=true 2>&1 | tee "$log"; then
     echo "PASS  $t"
     ran=$((ran + 1))
   elif grep -qE 'No tests ran\.|No tests match the requested tag selectors' "$log"; then
-    echo "SKIP  $t (every test in it is excluded by --exclude-tags=e2e,bluez)"
+    echo "SKIP  $t (every test in it is excluded by --exclude-tags=e2e,bluez,hardware)"
   else
     echo "::error file=$t::Integration test failed on the Linux desktop."
     status=1

@@ -46,6 +46,9 @@ const Map<String, String> _hostOnlyTags = {
       'an emulator is the emulator itself',
   'bluez': 'it needs the virtual BlueZ stack scripts/linux-virtual-ble.sh '
       'starts, which exists only on the Linux desktop target',
+  'hardware': 'it drives the real radio, Wi-Fi and keychain of a PHYSICAL '
+      'phone, which the simulator and emulator do not have; '
+      'scripts/run-ios-device-tests.sh runs it on one',
 };
 
 /// Matches a file-level `@Tags([...])` carrying [tag], tolerantly.

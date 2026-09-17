@@ -91,70 +91,13 @@ fi
 
 # ── list or select device ────────────────────────────────────────────────────
 
-# Use `flutter devices --machine` to enumerate real iOS devices.
-# Filter by targetPlatform == ios (excludes simulators which are ios-simulator).
-pick_device() {
-  local json
-  json="$(flutter devices --machine 2>/dev/null)"
-
-  # Pass the JSON via an env var; stdin carries the heredoc Python program,
-  # so json.load(sys.stdin) would read the script itself, not the device list.
-  DEVICES_JSON="$json" python3 - "$DEVICE_ID" <<'PY'
-import json as _json, os, sys
-
-want = sys.argv[1] if len(sys.argv) > 1 else ""
-try:
-    devices = _json.loads(os.environ["DEVICES_JSON"])
-except Exception as e:
-    sys.stderr.write(f"Failed to parse flutter devices output: {e}\n")
-    sys.exit(1)
-
-iphones = [d for d in devices if d.get("targetPlatform") == "ios"]
-
-if not iphones:
-    sys.stderr.write("No physical iPhones found.\n")
-    sys.stderr.write("Ensure your iPhone is:\n")
-    sys.stderr.write("  - Trusted on this Mac (plugged in and 'Trust' tapped)\n")
-    sys.stderr.write("  - OR paired wirelessly (Xcode → Window → Devices → Connect via network)\n")
-    sys.exit(2)
-
-if want:
-    matches = [d for d in iphones if d.get("id") == want or d.get("name") == want]
-    if not matches:
-        names = ", ".join(f"{d['name']} ({d['id']})" for d in iphones)
-        sys.stderr.write(f"No iPhone matching {want!r}. Available: {names}\n")
-        sys.exit(2)
-    print(matches[0]["id"])
-    sys.exit(0)
-
-# No filter — pick first (USB preferred over wireless).
-iphones.sort(key=lambda d: (0 if d.get("connectionInterface") == "usb" else 1))
-print(iphones[0]["id"])
-PY
-}
-
-list_devices() {
-  local json
-  json="$(flutter devices --machine 2>/dev/null)"
-  DEVICES_JSON="$json" python3 - <<'PY'
-import json as _json, os, sys
-try:
-    devices = _json.loads(os.environ["DEVICES_JSON"])
-except Exception:
-    sys.exit(0)
-iphones = [d for d in devices if d.get("targetPlatform") == "ios"]
-if not iphones:
-    print("No physical iPhones found.")
-else:
-    print("Paired iPhones:")
-    for d in iphones:
-        conn = d.get("connectionInterface", "?")
-        print(f"  {d['name']} ({d['id']})  [{conn}]")
-PY
-}
+# The picker is shared with scripts/run-ios-device-tests.sh, so both agree
+# on what "a paired iPhone" is and where the JSON goes.
+# shellcheck source=ios-device-select.sh
+source "$SCRIPT_DIR/ios-device-select.sh"
 
 if [[ "$LIST_ONLY" == "true" ]]; then
-  list_devices
+  list_ios_devices
   exit 0
 fi
 
@@ -184,7 +127,7 @@ fi
 
 # ── select device ────────────────────────────────────────────────────────────
 
-UDID="$(pick_device)"
+UDID="$(pick_ios_device "$DEVICE_ID")"
 if [[ -z "$UDID" ]]; then
   err "Could not select an iPhone."
   exit 1

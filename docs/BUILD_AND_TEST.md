@@ -602,6 +602,37 @@ read from the entrypoint only, so what actually keeps this suite off a device
 is that `integration_test/ci_all_test.dart` does not import it
 (`test/platform/integration_aggregate_test.dart` asserts both directions).
 
+### Integration tests on a physical iPhone
+
+The Simulator has no Bluetooth radio, does not implement Local Network
+privacy, ignores entitlements, and its keychain is not the one a shipped app
+gets — so every device job in CI runs in mock mode and proves the state
+machines, not the platform. `integration_test/device_hardware_test.dart` is
+the other half: the shipping services against a real phone's radio, Wi-Fi and
+keychain, with the measurements printed as `[hardware]` lines.
+
+```bash
+./scripts/run-ios-device-tests.sh --list                 # paired iPhones
+./scripts/run-ios-device-tests.sh                        # the hardware suite
+./scripts/run-ios-device-tests.sh --all                  # ...then ci_all_test.dart in mock mode
+./scripts/run-ios-device-tests.sh --expect-lan-devices   # a silent Wi-Fi scan is a failure
+./scripts/run-ios-device-tests.sh --live-ble-name "SD-1234"   # connect to that peripheral too
+./scripts/run-ios-device-tests.sh --if-present           # exit 0 when no phone is paired
+```
+
+The suite is opt-in three ways: its `@Tags(['hardware'])` keeps it out of the
+CI aggregate and the Linux per-file loop, every test skips itself unless the
+build carries `--dart-define=LB_HARDWARE=true`, and it refuses to run on the
+Simulator even then. A fresh install raises the Bluetooth and Local Network
+alerts during the run; the suite waits for them to be answered.
+
+`ios/Runner/Runner.entitlements` carries the multicast entitlement Apple grants
+by request. Until a provisioning profile on the Mac includes it, the script
+builds with the file temporarily emptied (restored on every exit path) and
+tells the suite to expect a silent Wi-Fi scan. `--keep-multicast` and
+`--strip-multicast` override the detection. HARDWARE_LATER.md is the checklist
+these runs sign off.
+
 ### Integration tests on the Linux desktop (no emulator)
 
 The flow tests run on the Linux desktop target, which is by far the quickest
