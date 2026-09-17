@@ -900,6 +900,90 @@ void main() {
     );
   });
 
+  // The Apple-only reconnect path (R-008). The remote id on Apple platforms
+  // is a system-minted UUID, not an address, so a saved device the system has
+  // forgotten fails before the radio is touched with "Peripheral not found" —
+  // and the saved-devices screen went straight to connect() with no scan, so
+  // the user was told to move closer, which cannot help. These run on every
+  // host because the platform answer is injected, not read: on CI (all Linux)
+  // the whole sequence would otherwise be dead code.
+  group('Apple identifier rediscovery (R-008)', () {
+    setUp(() {
+      service.isApple = true;
+      appleRediscoveryWindow = const Duration(milliseconds: 120);
+    });
+    tearDown(() => appleRediscoveryWindow = const Duration(seconds: 6));
+
+    test('scans for a forgotten peripheral, then connects', () async {
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId))
+        ..unknownToSystem = true;
+
+      await service.connect(_bulbId);
+
+      expect(bulb.isConnected, isTrue);
+      // Connect, a targeted scan, then connect again — in that order.
+      expect(
+        ble.platformCalls.where(
+          (c) => c == 'connect:$_bulbId' || c == 'startScan',
+        ),
+        ['connect:$_bulbId', 'startScan', 'connect:$_bulbId'],
+      );
+      expect(ble.lastScanSettings?.withRemoteIds, [_bulbId]);
+    });
+
+    test('stops the rediscovery scan before connecting again', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId)).unknownToSystem = true;
+
+      await service.connect(_bulbId);
+
+      final calls = ble.platformCalls;
+      expect(calls, contains('stopScan'));
+      // The scan must be over before the second attempt: an iOS scan left
+      // running through a connect is the battery cost the ambient scan is
+      // tuned to avoid, and fbp refuses some operations mid-scan.
+      expect(
+        calls.indexOf('stopScan'),
+        lessThan(calls.lastIndexOf('connect:$_bulbId')),
+      );
+    });
+
+    test(
+      'a peripheral that never advertises is reported as unheard, not far away',
+      () async {
+        // Powered off, asleep, or out of range: no sighting, so the system
+        // cannot re-register it however close the user stands.
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId))
+          ..unknownToSystem = true
+          ..advertising = false;
+
+        await expectLater(
+          service.connect(_bulbId),
+          throwsA(isA<BleDeviceUnheardException>()),
+        );
+        expect(ble.platformCalls, contains('startScan'));
+        expect(ble.platformCalls, contains('stopScan'));
+      },
+    );
+
+    test('does not scan on a non-Apple platform', () async {
+      // Android resolves an address without the system's help, so a scan here
+      // would add seconds to every reconnect for nothing.
+      service.isApple = false;
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId)).unknownToSystem = true;
+
+      await expectLater(service.connect(_bulbId), throwsA(isA<Object>()));
+      expect(ble.platformCalls, isNot(contains('startScan')));
+    });
+
+    test('a peripheral the system still knows connects without a scan', () {
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+
+      return service.connect(_bulbId).then((_) {
+        expect(ble.platformCalls, isNot(contains('startScan')));
+      });
+    });
+  });
+
   group('discoverServices', () {
     test('maps the GATT table, including per-mode write properties', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));

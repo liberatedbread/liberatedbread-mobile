@@ -52,6 +52,8 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show FlutterError;
+
 import 'package:flutter_blue_plus_platform_interface/flutter_blue_plus_platform_interface.dart';
 
 /// The radio states an [EmulatedBleAdapter] can be put in.
@@ -231,6 +233,30 @@ class EmulatedPeripheral {
   /// Refuse the next connection with this GATT error, the way a peripheral that
   /// is out of range or already connected elsewhere does.
   EmulatedGattError? connectError;
+
+  /// Whether the SYSTEM no longer holds a peripheral object for this id —
+  /// CoreBluetooth's `retrievePeripheralsWithIdentifiers:` answering with
+  /// nothing.
+  ///
+  /// This is the Apple-only precondition behind the reconnect path: the
+  /// remote id there is a system-minted per-app UUID, not an address, so
+  /// after a Bluetooth reset, a reboot of an unbonded device, or an address
+  /// rotation, `connect` fails before it reaches the radio with a plain
+  /// FlutterError whose message contains "Peripheral not found". A single
+  /// advertisement sighting re-registers it, so a scan that HEARS this
+  /// peripheral (one carrying its id in `withRemoteIds`, or an open scan)
+  /// clears the flag — exactly what the app's targeted rediscovery scan is
+  /// for. [advertising] `= false` is the peripheral that stays unheard.
+  ///
+  /// Not expressible with [connectError]: that is delivered as a connection
+  /// -state event with a reason code, which is what a radio-level refusal
+  /// looks like. This one is a thrown platform error instead.
+  bool unknownToSystem = false;
+
+  /// Whether the peripheral is advertising at all. False is a device that is
+  /// off, asleep or out of range: a scan never reports it, so it can never be
+  /// rediscovered.
+  bool advertising = true;
 
   /// Answer this many `discoverServices` requests with an EMPTY service list
   /// before answering truthfully.
@@ -880,7 +906,17 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     // One advertisement per peripheral, each in its own response — real
     // controllers report advertisements one at a time and flutter_blue_plus is
     // what accumulates them into the list the app sees.
+    //
+    // A scan filtered to specific remote ids hears only those, as the
+    // platforms do; an unfiltered scan hears everything, which is what every
+    // other test here asks for.
+    final wanted = request.withRemoteIds.toSet();
     for (final peripheral in _peripherals.values) {
+      if (!peripheral.advertising) continue;
+      if (wanted.isNotEmpty && !wanted.contains(peripheral.id)) continue;
+      // Hearing a peripheral is what re-registers it with the system, which
+      // is the whole reason the app scans before a second connect attempt.
+      peripheral.unknownToSystem = false;
       _later(() => _emitAdvertisement(peripheral));
     }
     return true;
@@ -909,6 +945,16 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     // false means "no state change", which is flutter_blue_plus's signal to
     // skip waiting for a connection event.
     if (peripheral._connected) return false;
+
+    // The system cannot resolve the identifier, so nothing is attempted on
+    // air. flutter_blue_plus_darwin surfaces this as a plain FlutterError
+    // with code `connect` (FlutterBluePlusPlugin.m), not a typed error — the
+    // app matches on the message, so the message is what matters here.
+    if (peripheral.unknownToSystem) {
+      throw FlutterError(
+        'FlutterBluePlus: connect: Peripheral not found (${peripheral.id})',
+      );
+    }
 
     final refusal = peripheral.connectError;
     _later(() {

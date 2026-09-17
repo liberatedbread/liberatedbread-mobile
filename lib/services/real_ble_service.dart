@@ -423,7 +423,12 @@ const Duration continuousScanRetry = Duration(seconds: 30);
 /// Short on purpose: this runs inside a reconnect the user is waiting on, and
 /// a device that is powered on and in range advertises within a second or two.
 /// Anything longer turns "not there" into a hang.
-const Duration appleRediscoveryWindow = Duration(seconds: 6);
+///
+/// Not `const`: an emulated test drives the whole rediscovery sequence, and
+/// the scan it waits on ends when this window does, so a test that could not
+/// shrink it would spend six seconds per case.
+@visibleForTesting
+Duration appleRediscoveryWindow = const Duration(seconds: 6);
 
 /// Real BLE implementation using flutter_blue_plus.
 class RealBleService implements BleService, BleAuthorizationWatcher {
@@ -444,9 +449,12 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
   @visibleForTesting
   Duration adapterSettleWindow = adapterSettleTimeout;
 
-  /// Whether this is an Apple platform, for the scan choices that differ
-  /// there ([continuousDivisorFor]). The one platform read on the scan path;
-  /// injectable so a test can exercise both answers on whatever host CI is.
+  /// Whether this is an Apple platform, for the decisions that differ there:
+  /// the scan divisor ([continuousDivisorFor]), the identifier-rediscovery
+  /// connect path ([_isAppleUnknownPeripheral]) and the wording of a pairing
+  /// refusal. Injectable so a test can exercise both answers on whatever host
+  /// CI is — without it the rediscovery path is dead code on Linux, which is
+  /// every job in .github/workflows/ci.yml.
   @visibleForTesting
   bool isApple = Platform.isIOS || Platform.isMacOS;
 
@@ -1025,8 +1033,8 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
   /// Matched on the message because flutter_blue_plus_darwin raises this as a
   /// plain `FlutterError` with code `connect` (FlutterBluePlusPlugin.m), not
   /// as a typed error with a distinguishable code.
-  static bool _isAppleUnknownPeripheral(Object error) {
-    if (!Platform.isIOS && !Platform.isMacOS) return false;
+  bool _isAppleUnknownPeripheral(Object error) {
+    if (!isApple) return false;
     return error.toString().toLowerCase().contains('peripheral not found');
   }
 
@@ -1080,7 +1088,7 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     // `androidOnly` — so this logged "not honored" on every iOS connect for
     // a call that could never work. The negotiated value arrives a little
     // after connect instead; [mtu] waits for it.
-    if (!Platform.isIOS && !Platform.isMacOS) {
+    if (!isApple) {
       try {
         await device.requestMtu(512);
       } catch (e) {
@@ -1380,9 +1388,7 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
       // Apple platforms put the pairing prompt on screen themselves; Android
       // and BlueZ send the user to system settings. Same refusal, different
       // next step, so the message has to know which one it is on.
-      throw BlePairingRequiredException.forPlatform(
-        isApple: Platform.isIOS || Platform.isMacOS,
-      );
+      throw BlePairingRequiredException.forPlatform(isApple: isApple);
     });
   }
 
@@ -1658,7 +1664,7 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
   Future<int> mtu(String deviceId) async {
     final device = BluetoothDevice.fromId(deviceId);
     var reported = device.mtuNow;
-    if (reported <= 23 && (Platform.isIOS || Platform.isMacOS)) {
+    if (reported <= 23 && isApple) {
       reported = await device.mtu
           .firstWhere((m) => m > 23)
           .timeout(appleMtuSettle, onTimeout: () => device.mtuNow);
