@@ -21,7 +21,24 @@
 #   ./scripts/run-ios-device-tests.sh --expect-lan-devices   # a silent Wi-Fi scan is a FAILURE
 #   ./scripts/run-ios-device-tests.sh --live-ble-name "SD-1234"  # also connect to that peripheral
 #   ./scripts/run-ios-device-tests.sh --live-ble-any             # ...or to the nearest connectable one
+#   ./scripts/run-ios-device-tests.sh --launcher flutter   # `flutter test -d`, see below
 #   ./scripts/run-ios-device-tests.sh -- --verbose    # pass extras to `flutter test`
+#
+# HOW THE SUITE REACHES THE PHONE
+#
+# By default (--launcher xcodebuild) each suite is built as the Runner app's
+# Dart target and run through `xcodebuild test` on the RunnerTests XCTest
+# target (ios/RunnerTests/RunnerTests.m hosts it): the Dart tests come back
+# as individual XCTest cases, an .xcresult bundle lands under
+# build/ios-device-tests/, and nothing needs Xcode.app. That matters because
+# `flutter test -d <udid>` (--launcher flutter) attaches a debugger through
+# Xcode.app on iOS 17+, which needs macOS to let this shell control Xcode —
+# an Automation prompt that a script cannot answer, and a hang when it is
+# never answered. The flutter lane still streams output live and is the one
+# to use from a shell that has that permission.
+#
+# Either way, watch the phone: a fresh install raises the Bluetooth and Local
+# Network alerts and the suite waits for you to answer them.
 #
 # THE MULTICAST ENTITLEMENT
 #
@@ -64,7 +81,7 @@ source "$SCRIPT_DIR/regen-bindings.sh"
 source "$SCRIPT_DIR/regen-spec-index.sh"
 
 usage() {
-  sed -n '5,50p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '5,65p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # ── parse args ───────────────────────────────────────────────────────────────
@@ -77,6 +94,7 @@ EXPECT_LAN=false
 LIVE_BLE_NAME=""
 LIVE_BLE_ANY=false
 MULTICAST_MODE="auto"   # auto | strip | keep
+LAUNCHER="${LB_IOS_LAUNCHER:-xcodebuild}"   # xcodebuild | flutter
 TEST_TIMEOUT="${LB_TEST_TIMEOUT:-900s}"
 PASSTHROUGH=()
 
@@ -98,11 +116,18 @@ while (( $# > 0 )); do
     --timeout)
       [[ $# -lt 2 ]] && { err "--timeout requires a value such as 900s."; exit 2; }
       TEST_TIMEOUT="$2"; shift 2 ;;
+    --launcher)
+      [[ $# -lt 2 ]] && { err "--launcher requires xcodebuild or flutter."; exit 2; }
+      LAUNCHER="$2"; shift 2 ;;
     -h|--help)           usage; exit 0 ;;
     --)                  shift; PASSTHROUGH+=("$@"); break ;;
     *)                   err "unknown argument: $1"; usage >&2; exit 2 ;;
   esac
 done
+case "$LAUNCHER" in
+  xcodebuild|flutter) ;;
+  *) err "--launcher must be xcodebuild or flutter (got '$LAUNCHER')."; exit 2 ;;
+esac
 
 # ── platform and tools ───────────────────────────────────────────────────────
 
@@ -218,31 +243,115 @@ DEFINES=(
 [[ -n "$LIVE_BLE_NAME" ]] && DEFINES+=(--dart-define=LB_LIVE_BLE_NAME="$LIVE_BLE_NAME")
 [[ "$LIVE_BLE_ANY" == "true" ]] && DEFINES+=(--dart-define=LB_LIVE_BLE_ANY=true)
 
+LOG_DIR="build/ios-device-tests"
+mkdir -p "$LOG_DIR"
+
+# The xcodebuild lane points ios/Flutter/Generated.xcconfig at the suite
+# (FLUTTER_TARGET, DART_DEFINES). It is gitignored and Flutter rewrites it on
+# every build, but an Xcode GUI build in between would otherwise build the
+# test app instead of the real one — so put it back on exit.
+XCCONFIG="ios/Flutter/Generated.xcconfig"
+XCCONFIG_BACKUP=""
+restore_xcconfig() {
+  if [[ -n "$XCCONFIG_BACKUP" && -f "$XCCONFIG_BACKUP" ]]; then
+    cp "$XCCONFIG_BACKUP" "$XCCONFIG"
+    rm -f "$XCCONFIG_BACKUP"
+    XCCONFIG_BACKUP=""
+  fi
+}
+# shellcheck disable=SC2329  # invoked by the trap below
+cleanup() { restore_xcconfig; restore_entitlements; }
+trap cleanup EXIT
+
+# The seconds in a `flutter test --timeout` value such as 900s or 15m, for
+# xcodebuild's per-test allowance.
+timeout_seconds() {
+  local v="$1"
+  case "$v" in
+    *ms) echo $(( ${v%ms} / 1000 )) ;;
+    *s)  echo "${v%s}" ;;
+    *m)  echo $(( ${v%m} * 60 )) ;;
+    *h)  echo $(( ${v%h} * 3600 )) ;;
+    *)   echo "$v" ;;
+  esac
+}
+
+# Runs one Dart suite on the phone; $1 is the file, the rest are defines.
+run_suite() {
+  local suite="$1"; shift
+  local name; name="$(basename "$suite" .dart)"
+  local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
+  local logfile="$LOG_DIR/$name-$stamp.log"
+
+  if [[ "$LAUNCHER" == "flutter" ]]; then
+    flutter test "$suite" -d "$UDID" --timeout "$TEST_TIMEOUT" "$@" \
+      "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1 | tee "$logfile"
+    return "${PIPESTATUS[0]}"
+  fi
+
+  if [[ -z "$XCCONFIG_BACKUP" && -f "$XCCONFIG" ]]; then
+    XCCONFIG_BACKUP="$(mktemp)"
+    cp "$XCCONFIG" "$XCCONFIG_BACKUP"
+  fi
+  log "flutter build ios --config-only -t $suite"
+  if ! flutter build ios --config-only --debug -t "$suite" "$@" >"$logfile" 2>&1; then
+    err "flutter build ios --config-only failed; see $logfile"
+    return 1
+  fi
+
+  local bundle="$LOG_DIR/$name-$stamp.xcresult"
+  local allowance; allowance="$(timeout_seconds "$TEST_TIMEOUT")"
+  log "xcodebuild test -scheme Runner -destination id=$UDID (log: $logfile)"
+  # Only the lines a reader acts on reach the terminal: what the suite
+  # measured, each test's verdict, and anything that went wrong. The full
+  # log is in $logfile and the per-test record in the .xcresult bundle.
+  xcodebuild test \
+      -workspace ios/Runner.xcworkspace \
+      -scheme Runner \
+      -configuration Debug \
+      -destination "id=$UDID" \
+      -only-testing:RunnerTests \
+      -resultBundlePath "$bundle" \
+      -test-timeouts-enabled YES \
+      -default-test-execution-time-allowance "$allowance" \
+      -maximum-test-execution-time-allowance "$allowance" \
+      -allowProvisioningUpdates \
+      2>&1 | tee -a "$logfile" \
+      | grep --line-buffered -E \
+          '\[hardware\]|Test Case|Test Suite .*(passed|failed)|error:|\*\* TEST|Executed [0-9]+ test|xcodebuild: error|Failing tests|Testing failed|Unable to|Unlock .* to Continue|destination is not ready' \
+      | grep --line-buffered -vE 'DVTDeveloperAccountManager|Xcode-Username' \
+      | sed -u -E 's/^.*Unlock (.*) to Continue.*$/UNLOCK THE PHONE: xcodebuild is waiting until \1 is unlocked (it carries on by itself once it is)./' \
+      || true
+  local rc="${PIPESTATUS[0]}"
+  if ! grep -q "Test Case '-\[RunnerTests " "$logfile"; then
+    if grep -q "Unlock .* to Continue" "$logfile"; then
+      err "The phone stayed locked, so no test ran. Unlock it and run again; see $logfile"
+    else
+      err "No Dart test reached XCTest (the app may not have launched); see $logfile"
+    fi
+    return 1
+  fi
+  return "$rc"
+}
+
 status=0
 
 log "Hardware suite: integration_test/device_hardware_test.dart"
 log "(watch the phone: a fresh install raises the Bluetooth and Local Network alerts, and the suite waits for you to answer them)"
-if ! flutter test integration_test/device_hardware_test.dart \
-    -d "$UDID" \
-    --timeout "$TEST_TIMEOUT" \
-    "${DEFINES[@]}" \
-    "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"; then
+if ! run_suite integration_test/device_hardware_test.dart "${DEFINES[@]}"; then
   err "Hardware suite failed."
   status=1
 fi
 
 if [[ "$RUN_ALL" == "true" ]]; then
   log "CI aggregate in mock mode: integration_test/ci_all_test.dart"
-  if ! flutter test integration_test/ci_all_test.dart \
-      -d "$UDID" \
-      --timeout "$TEST_TIMEOUT" \
-      --dart-define=LIBERATED_BREAD_MOCK=true \
-      "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"; then
+  if ! run_suite integration_test/ci_all_test.dart --dart-define=LIBERATED_BREAD_MOCK=true; then
     err "Mock-mode aggregate failed on the device."
     status=1
   fi
 fi
 
+restore_xcconfig
 restore_entitlements
 
 # A device build must leave the tree as it found it. The Flutter 3.44.8
