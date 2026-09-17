@@ -128,6 +128,13 @@ log "ci-ios-tests.sh self-test"
 log "verify-ios-app selftest"
 ./scripts/verify-ios-app-selftest.sh
 
+# The device pickers behind run-ios-device*.sh and run-android-device-tests.sh,
+# against canned `flutter devices` output: a booted simulator reports the
+# same platform as a phone, and the picker once offered one as "the first
+# paired iPhone".
+log "device-select selftest"
+./scripts/device-select-selftest.sh
+
 # BEFORE the build, not after. `generate` rewrites rust/src/frb_generated.rs,
 # which is an input to the crate — running it second leaves the freshly built
 # library looking older than its own sources, so the next thing to ask "is this

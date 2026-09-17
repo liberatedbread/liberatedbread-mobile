@@ -38,6 +38,9 @@
 //   LB_LIVE_BLE_NAME=<name>      a BLE peripheral advertising under that name
 //                                is in range: scan for it, connect, discover
 //                                its services, read MTU and RSSI, disconnect
+//   LB_LIVE_BLE_ANY=true         the same, against the strongest CONNECTABLE
+//                                advertiser in range. Read-only: connect,
+//                                discover, disconnect — nothing is written
 //
 // Every test prints what it measured under a `[hardware]` prefix, because a
 // green run is only half the point — the numbers (catalogue parse time on a
@@ -58,6 +61,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'
     show BluetoothAdapterState, FlutterBluePlus;
+import 'package:flutter_riverpod/flutter_riverpod.dart' show ProviderContainer;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
@@ -65,6 +69,10 @@ import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/main.dart' as app;
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
+import 'package:liberated_bread_mobile/providers/network_scan_provider.dart'
+    show NetworkIdentity;
+import 'package:liberated_bread_mobile/providers/scan_match_provider.dart'
+    show specIdentitiesProvider;
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart'
     show specAssetPath, specManifestPath;
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
@@ -77,7 +85,7 @@ import 'package:liberated_bread_mobile/services/real_network_scan_service.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 import 'package:liberated_bread_mobile/services/secure_settings_store.dart';
 import 'package:liberated_bread_mobile/src/rust/api/device_api.dart'
-    show identifyStandardProfiles;
+    show NetworkDeviceDto, identifyStandardProfiles;
 import 'package:liberated_bread_mobile/src/rust/frb_generated.dart'
     show RustLib;
 
@@ -88,6 +96,7 @@ const bool _multicastEntitled = bool.fromEnvironment(
 );
 const bool _expectLanDevices = bool.fromEnvironment('LB_EXPECT_LAN_DEVICES');
 const String _liveBleName = String.fromEnvironment('LB_LIVE_BLE_NAME');
+const bool _liveBleAny = bool.fromEnvironment('LB_LIVE_BLE_ANY');
 
 /// The Battery Service, the same probe native_core_test.dart uses: a standard
 /// profile the Rust side recognises without any spec loaded.
@@ -336,6 +345,42 @@ void main() {
         );
       }
 
+      // What the catalogue makes of each host, through the same matcher the
+      // Wi-Fi tab uses. A recognised printer or hub on the operator's network
+      // is the end-to-end proof that discovery, the identity projection and
+      // the Rust matcher agree on a real device; a row that should have
+      // matched and did not is a finding with its evidence already printed.
+      if (found.isNotEmpty) {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        final identities = await container.read(specIdentitiesProvider.future);
+        const codec = RealSpecCodec();
+        var recognised = 0;
+        for (final d in found.values) {
+          final identity = NetworkIdentity.of(d);
+          final matches = await codec.matchNetworkDevice(
+            identities: identities,
+            device: NetworkDeviceDto(
+              name: identity.name,
+              hostname: identity.hostname,
+              serviceTypes: identity.serviceTypes,
+              ssdpTargets: identity.ssdpTargets,
+              answeredLanProtocols: identity.answeredLanProtocols,
+              port: identity.port,
+              txt: identity.txt,
+              mac: identity.mac,
+            ),
+          );
+          if (matches.isEmpty) continue;
+          recognised++;
+          final best = matches.first;
+          _say('  ${d.host} -> ${best.deviceName} (${best.manufacturer}, '
+              '${best.confidence.name}; ${matches.length} candidate(s))');
+        }
+        _say('catalogue: $recognised of ${found.length} host(s) recognised '
+            'against ${identities.length} identities');
+      }
+
       // The scan's own contract, whatever the network: it ends near its budget,
       // and the only errors it surfaces are its own user-facing types. A raw
       // SocketException or OSError here is a bug in error classification.
@@ -432,10 +477,10 @@ void main() {
     'live BLE: scan for LB_LIVE_BLE_NAME, connect, discover, disconnect',
     (tester) async {
       if (_skipUnlessHardware()) return;
-      if (_liveBleName.isEmpty) {
+      if (_liveBleName.isEmpty && !_liveBleAny) {
         markTestSkipped(
           'pass --dart-define=LB_LIVE_BLE_NAME=<advertised name> '
-          'with a peripheral in range',
+          '(or LB_LIVE_BLE_ANY=true) with a peripheral in range',
         );
         return;
       }
@@ -443,22 +488,36 @@ void main() {
 
       final ble = RealBleService();
       IoTDevice? target;
-      _say('scanning up to 30 s for an advertiser named "$_liveBleName"');
-      await for (final device in ble.scan(
-        timeout: const Duration(seconds: 30),
-      )) {
-        if (device.name == _liveBleName) {
-          target = device;
-          break; // cancels the subscription, which stops the native scan
+      if (_liveBleName.isNotEmpty) {
+        _say('scanning up to 30 s for an advertiser named "$_liveBleName"');
+        await for (final device in ble.scan(
+          timeout: const Duration(seconds: 30),
+        )) {
+          if (device.name == _liveBleName) {
+            target = device;
+            break; // cancels the subscription, which stops the native scan
+          }
         }
+        expect(target, isNotNull,
+            reason: 'no advertiser named "$_liveBleName" was heard in 30 s');
+      } else {
+        // Read-only, so any connectable advertiser is fair game: the
+        // strongest one after a 10 s window. Connect + discover + disconnect
+        // writes nothing, and a peripheral that objects to being connected
+        // to is itself worth knowing about.
+        _say('scanning 10 s for the strongest connectable advertiser');
+        final seen = <String, IoTDevice>{};
+        await for (final device in ble.scan(
+          timeout: const Duration(seconds: 10),
+        )) {
+          if (device.isConnectable) seen[device.id] = device;
+        }
+        expect(seen, isNotEmpty,
+            reason: 'no connectable advertiser was heard in 10 s');
+        target = seen.values.reduce((x, y) => x.rssi >= y.rssi ? x : y);
       }
-      expect(
-        target,
-        isNotNull,
-        reason: 'no advertiser named "$_liveBleName" was heard in 30 s',
-      );
       final id = target!.id;
-      _say('found $_liveBleName as $id (rssi ${target.rssi}); connecting');
+      _say('found "${target.name}" as $id (rssi ${target.rssi}); connecting');
 
       await ble.connect(id);
       try {

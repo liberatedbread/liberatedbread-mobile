@@ -20,6 +20,7 @@
 #   ./scripts/run-ios-device-tests.sh --if-present    # exit 0 (not 2) when no iPhone is paired
 #   ./scripts/run-ios-device-tests.sh --expect-lan-devices   # a silent Wi-Fi scan is a FAILURE
 #   ./scripts/run-ios-device-tests.sh --live-ble-name "SD-1234"  # also connect to that peripheral
+#   ./scripts/run-ios-device-tests.sh --live-ble-any             # ...or to the nearest connectable one
 #   ./scripts/run-ios-device-tests.sh -- --verbose    # pass extras to `flutter test`
 #
 # THE MULTICAST ENTITLEMENT
@@ -74,6 +75,7 @@ RUN_ALL=false
 IF_PRESENT=false
 EXPECT_LAN=false
 LIVE_BLE_NAME=""
+LIVE_BLE_ANY=false
 MULTICAST_MODE="auto"   # auto | strip | keep
 TEST_TIMEOUT="${LB_TEST_TIMEOUT:-900s}"
 PASSTHROUGH=()
@@ -90,6 +92,7 @@ while (( $# > 0 )); do
     --live-ble-name)
       [[ $# -lt 2 ]] && { err "--live-ble-name requires the advertised name."; exit 2; }
       LIVE_BLE_NAME="$2"; shift 2 ;;
+    --live-ble-any)      LIVE_BLE_ANY=true; shift ;;
     --strip-multicast)   MULTICAST_MODE="strip"; shift ;;
     --keep-multicast)    MULTICAST_MODE="keep"; shift ;;
     --timeout)
@@ -213,6 +216,7 @@ DEFINES=(
 )
 [[ "$EXPECT_LAN" == "true" ]] && DEFINES+=(--dart-define=LB_EXPECT_LAN_DEVICES=true)
 [[ -n "$LIVE_BLE_NAME" ]] && DEFINES+=(--dart-define=LB_LIVE_BLE_NAME="$LIVE_BLE_NAME")
+[[ "$LIVE_BLE_ANY" == "true" ]] && DEFINES+=(--dart-define=LB_LIVE_BLE_ANY=true)
 
 status=0
 

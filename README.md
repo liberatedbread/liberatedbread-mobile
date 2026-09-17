@@ -401,6 +401,8 @@ instead, so building is the whole requirement.
 │   ├── run-ios.sh              # Boot the iOS Simulator + run (macOS)
 │   ├── run-ios-device.sh       # Run on a paired physical iPhone (macOS)
 │   ├── run-ios-device-tests.sh # Integration suites on that iPhone: real radio, Wi-Fi, keychain
+│   ├── run-android-device-tests.sh
+│   │                           # The same suites on an attached Android phone
 │   ├── run-linux.sh            # Linux desktop — fastest loop, no emulator
 │   ├── run-remote-mac.sh       # Linux → iPhone via a remote Mac over SSH
 │   ├── e2e-walkthrough.sh      # Scripted screenshot walkthrough (macOS)

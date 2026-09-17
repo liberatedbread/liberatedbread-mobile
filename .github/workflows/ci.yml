@@ -325,6 +325,8 @@ jobs:
       # the Rust library entirely. See the header of the selftest.
       - name: Self-test the iOS bundle verifier
         run: ./scripts/verify-ios-app-selftest.sh
+      - name: device-select selftest
+        run: ./scripts/device-select-selftest.sh
       # The header of this file says every pinned version lives in one `env:`
       # block and that scripts/ci-versions.sh reads it. Nothing enforced the
       # second half. That script is deliberately forgiving — a key it cannot

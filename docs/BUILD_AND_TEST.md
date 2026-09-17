@@ -617,8 +617,18 @@ keychain, with the measurements printed as `[hardware]` lines.
 ./scripts/run-ios-device-tests.sh --all                  # ...then ci_all_test.dart in mock mode
 ./scripts/run-ios-device-tests.sh --expect-lan-devices   # a silent Wi-Fi scan is a failure
 ./scripts/run-ios-device-tests.sh --live-ble-name "SD-1234"   # connect to that peripheral too
+./scripts/run-ios-device-tests.sh --live-ble-any         # ...or to the nearest connectable one (read-only)
 ./scripts/run-ios-device-tests.sh --if-present           # exit 0 when no phone is paired
+./scripts/run-android-device-tests.sh --all              # the same suite on an attached Android phone
 ```
+
+Both runners share the suite and its flags; the Android one needs no
+entitlement handling. Each LAN host the scan finds is also put through the
+catalogue matcher and the verdict printed, so a recognised printer or hub on
+the operator's network is the end-to-end proof that discovery, the identity
+projection and the Rust matcher agree on a real device. The device pickers
+behind both runners are covered by `scripts/device-select-selftest.sh`, which
+runs in `./scripts/test.sh`.
 
 The suite is opt-in three ways: its `@Tags(['hardware'])` keeps it out of the
 CI aggregate and the Linux per-file loop, every test skips itself unless the
