@@ -14,7 +14,9 @@ import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart
 import 'package:liberated_bread_mobile/screens/roomba_transport_screen.dart';
 import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
+import 'package:liberated_bread_mobile/services/panel_resolution_cache.dart';
 import 'package:liberated_bread_mobile/services/settings_store.dart';
+import 'package:liberated_bread_mobile/services/spec_choice_store.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -161,6 +163,35 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(container.read(deviceGroupsProvider).single.deviceIds, ['bb']);
+  });
+
+  testWidgets('forgetting a device drops the preferences kept under its id', (
+    tester,
+  ) async {
+    // R-063: these are keyed by the device id, and a re-saved device gets the
+    // same id, so a spec choice the user removed the device BECAUSE of came
+    // straight back — along with its LED designs and remembered panel size —
+    // with nothing on screen to explain it.
+    SharedPreferences.setMockInitialValues({
+      'saved_devices_v1':
+          '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
+      'spec_choices_v1': '{"aa":"Wrong Bulb|Acme","bb":"Right Bulb|Acme"}',
+      'saved_designs_v1:aa': '[{"cid":1,"name":"Heart"}]',
+      'panel_res_aa': '16x16',
+    });
+    _prefs = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(_wrap());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Forget Probe One'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Forget'));
+    await tester.pumpAndSettle();
+
+    expect(SpecChoiceStore(_prefs).load(), {'bb': 'Right Bulb|Acme'});
+    expect(_prefs.getString('saved_designs_v1:aa'), isNull);
+    expect(PanelResolutionCache(_prefs).get('aa'), isNull);
   });
 
   group('relativeTime', () {

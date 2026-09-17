@@ -11,8 +11,11 @@ import '../providers/device_description_provider.dart';
 import '../providers/device_group_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/roomba_provider.dart';
+import '../providers/panel_resolution_cache_provider.dart';
+import '../providers/saved_designs_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/saved_network_device_provider.dart';
+import '../providers/spec_choice_provider.dart';
 import '../services/number_registry.dart';
 import '../services/saved_device_store.dart';
 import '../services/roomba_control_service.dart' show roombaProtocolHandler;
@@ -128,6 +131,12 @@ class SavedDevicesScreen extends ConsumerWidget {
       deviceId: saved.id,
       // A Rabbit Air set up over BLE files its key under the BLE scope.
       rabbitAir: ref.read(rabbitAirKeyStoreProvider),
+      // The per-device preferences keyed by this id. A re-saved device gets
+      // the same id back, so without these a removal left the old spec
+      // choice, LED designs and panel size to reappear under it.
+      specChoices: ref.read(specChoiceStoreProvider),
+      savedDesigns: ref.read(savedDesignsStoreProvider),
+      panelResolutions: ref.read(panelResolutionCacheProvider),
     );
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }

@@ -31,4 +31,12 @@ class PanelResolutionCache {
   /// Remember [deviceId]'s panel size for next time.
   Future<void> set(String deviceId, int width, int height) =>
       _prefs.setString('$_keyPrefix$deviceId', '${width}x$height');
+
+  /// Drop what is remembered about [deviceId].
+  ///
+  /// Called when the device is forgotten. Without it a panel that was removed
+  /// and later re-saved came back sized to whatever it used to be, which for
+  /// a replaced or re-flashed board is the wrong canvas and looks like the
+  /// editor guessing badly rather than a stale entry nobody can see.
+  Future<void> forget(String deviceId) => _prefs.remove('$_keyPrefix$deviceId');
 }

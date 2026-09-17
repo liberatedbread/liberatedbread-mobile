@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/device_category.dart';
 import '../core/hex.dart';
+import '../services/spec_choice_store.dart';
+import '../services/saved_designs_store.dart';
+import '../services/panel_resolution_cache.dart';
 import '../services/device_group_store.dart';
 import '../services/group_runner.dart';
 import '../services/saved_device_store.dart';
@@ -95,6 +98,27 @@ final deviceGroupsProvider =
       (ref) => DeviceGroupsNotifier(ref.watch(deviceGroupStoreProvider)),
     );
 
+/// The per-device preferences that are not secrets: the spec the user picked
+/// for this device, the LED designs saved against it, and its remembered panel
+/// size.
+///
+/// They live in SharedPreferences keyed by the device id, so nothing above
+/// clears them — and because a re-saved device gets the same id, every one of
+/// them silently came back. The spec choice is the one that misleads: a device
+/// removed because the app had matched it to the wrong spec was re-added
+/// already wrong, with no way to see why. Optional for the same reason the
+/// credential stores are: the caller resolves them from its ref.
+Future<void> _forgetDevicePreferences(
+  String deviceId, {
+  SpecChoiceStore? specChoices,
+  SavedDesignsStore? savedDesigns,
+  PanelResolutionCache? panelResolutions,
+}) async {
+  await specChoices?.remove(deviceId);
+  await savedDesigns?.clear(deviceId);
+  await panelResolutions?.forget(deviceId);
+}
+
 /// Forget a saved device everywhere, in the one crash-safe order.
 ///
 /// Group membership goes first: dying between the two writes then leaves a
@@ -110,9 +134,18 @@ Future<void> forgetDevice({
   required DeviceGroupsNotifier groups,
   required String deviceId,
   RabbitAirKeyStore? rabbitAir,
+  SpecChoiceStore? specChoices,
+  SavedDesignsStore? savedDesigns,
+  PanelResolutionCache? panelResolutions,
 }) async {
   await groups.pruneDevice(deviceId);
   await savedDevices.remove(deviceId);
+  await _forgetDevicePreferences(
+    deviceId,
+    specChoices: specChoices,
+    savedDesigns: savedDesigns,
+    panelResolutions: panelResolutions,
+  );
   // The one secret a BLE record can own: a Rabbit Air driven over BLE files
   // its AES user key under the BLE identity until a handshake reveals the
   // Thing ID (RabbitAirBleControl.bleScope), and nothing else ever clears
@@ -138,9 +171,18 @@ Future<void> forgetNetworkDevice({
   RabbitAirKeyStore? rabbitAir,
   String? blid,
   String? hostname,
+  SpecChoiceStore? specChoices,
+  SavedDesignsStore? savedDesigns,
+  PanelResolutionCache? panelResolutions,
 }) async {
   await groups.pruneDevice(networkMemberId(deviceId));
   await savedDevices.remove(deviceId);
+  await _forgetDevicePreferences(
+    deviceId,
+    specChoices: specChoices,
+    savedDesigns: savedDesigns,
+    panelResolutions: panelResolutions,
+  );
   // And the certificate pin, which is the half that has no other way out.
   //
   // A pin is deliberately never replaced silently: a changed certificate on a
