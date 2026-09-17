@@ -907,13 +907,15 @@ flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and
-every pull request. Seven jobs:
+every pull request. Nine jobs:
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
-| `analyze` | ubuntu-latest | `scripts/ci-format.sh`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh`, `scripts/ci-ios-tests-selftest.sh`. Dart only — no Rust toolchain, nothing compiled |
-| `unit-tests` | ubuntu-latest | builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/`, `flutter test --coverage`, upload coverage to Codecov |
-| `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
+| `analyze` | ubuntu-latest | `scripts/ci-format.sh`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh`, then the selftests of the scripts that only ever run on an expensive job — `scripts/ci-ios-tests-selftest.sh`, `scripts/verify-ios-app-selftest.sh`, `scripts/device-select-selftest.sh` — plus `scripts/ci-versions.sh --strict` (the toolchain pins are still readable by the setup scripts) and `scripts/update-specs.sh --check` (the vendored subtree is unmodified and its assets exist). Checks out full history for that last one, and `pub get --enforce-lockfile` here and nowhere else. Dart only — no Rust toolchain, nothing compiled |
+| `unit-tests` | ubuntu-latest | checks the FRB bindings haven't drifted from `rust/src/api/` (including brand-new untracked generated files), builds the host Rust lib with `scripts/ensure-rust-lib.sh` — in that order, see the comments there — then `flutter test --coverage --exclude-tags=netdisco`, audits the report for files no test imports (`scripts/ci-coverage-audit.sh`), and uploads it to Codecov under the `unit` flag |
+| `network-discovery` | ubuntu-latest | the `netdisco`-tagged suites, via `scripts/ci-netdisco-tests.sh`, against the stdlib responder `scripts/net_virtual_device.py` on ports 5353/1900; uploads their coverage to Codecov under the `netdisco` flag. No Rust toolchain — the code under test is `dart:io` sockets |
+| `rust` | ubuntu-latest | `cargo fmt --all -- --check`, then `cargo clippy --all-targets --all-features --locked -- -D warnings` and `cargo test --all-features --locked` (`--locked` so a forgotten `Cargo.lock` is an error, not a silent update) |
+| `rust-coverage` | ubuntu-latest | `scripts/ci-rust-coverage.sh` — the same suite under `cargo-llvm-cov`, uploaded under the `rust` flag. Gates nothing and is gated by nothing, so a coverage tool never holds up the native matrix |
 | `android-build` | ubuntu-latest | debug **and** release APK, each checked with `scripts/verify_apk.sh`; uploads the debug APK artifact |
 | `android-integration` | ubuntu-latest (API 34 `aosp_atd` emulator) | warms the Gradle/cargokit caches with an `--target-platform android-x64` APK build (the emulator's ABI), frees runner disk, then runs `integration_test/ci_all_test.dart` on the emulator via `scripts/ci-emulator-tests.sh` — twice if the first attempt hits its per-attempt timeout (see below) |
 | `ios-build` | macos-latest | starts a simulator booting in the background, builds the **test entrypoint** for the simulator (`--target=integration_test/ci_all_test.dart`) so the build inside `flutter test`'s 12-minute loading window is incremental rather than a near-repeat, verifies the pods and the bundle, then runs that entrypoint on the simulator via `scripts/ci-ios-tests.sh` |
@@ -921,6 +923,8 @@ every pull request. Seven jobs:
 
 `analyze` and `rust` are the gate: the four native jobs wait on those two, so a
 change that does not compile or does not lint never reaches a platform build.
+`network-discovery` waits on `analyze` alone; `unit-tests` and `rust-coverage`
+wait on nothing and gate nothing.
 
 `unit-tests` deliberately is **not** part of that gate. It used to be — it was
 the second half of a single `flutter` job — and every native job sat behind its
@@ -952,7 +956,7 @@ matters most on `ios-build`, where the budget is billed at 10x.
 | Cache | Where it comes from | Covers |
 |-------|--------------------|--------|
 | Flutter SDK + `~/.pub-cache` | `subosito/flutter-action` (`cache: true`) | every job |
-| `.dart_tool` | an explicit `actions/cache` step | the `analyze` and `unit-tests` jobs |
+| `.dart_tool` | an explicit `actions/cache` step | the `analyze`, `unit-tests` and `network-discovery` jobs |
 | `~/.cargo/bin/flutter_rust_bridge_codegen` | an `actions/cache` keyed on `FRB_VERSION` | the `unit-tests` job — one file, one key, so a cancelled run cannot leave a half-saved snapshot the way `rust-cache`'s `cache-bin` did |
 | `rust/target/` + `~/.cargo` | `Swatinem/rust-cache` | every job that compiles Rust |
 | Gradle user home | `gradle/actions/setup-gradle` | both Android jobs |

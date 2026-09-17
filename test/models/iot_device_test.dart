@@ -91,6 +91,7 @@ void main() {
         String name = 'Test',
         List<String> serviceUuids = const [],
         List<int> companyIds = const [],
+        Map<int, List<int>> manufacturerData = const {},
       }) => IoTDevice(
         id: 'AA:BB:CC:DD:EE:FF',
         name: name,
@@ -99,6 +100,7 @@ void main() {
         discoveredAt: DateTime.now(),
         serviceUuids: serviceUuids,
         companyIds: companyIds,
+        manufacturerData: manufacturerData,
       );
 
       test('ignores signal strength', () {
@@ -122,6 +124,75 @@ void main() {
           device(
             companyIds: const [961],
           ).hasSameIdentity(device(companyIds: const [89])),
+          isFalse,
+        );
+      });
+
+      // R-080: the payload bytes are what a pixel panel advertises its real
+      // width and height in, so a sighting that changes them is not the same
+      // identity even though the company id is unchanged.
+      test('changed manufacturer payload bytes are a changed identity', () {
+        expect(
+          device(
+            companyIds: const [961],
+            manufacturerData: const {
+              961: [16, 16],
+            },
+          ).hasSameIdentity(
+            device(
+              companyIds: const [961],
+              manufacturerData: const {
+                961: [32, 8],
+              },
+            ),
+          ),
+          isFalse,
+        );
+      });
+
+      test('equal manufacturer payloads compare by value, not by map', () {
+        expect(
+          device(
+            manufacturerData: {
+              961: List<int>.of(const [16, 16]),
+            },
+          ).hasSameIdentity(
+            device(
+              manufacturerData: {
+                961: List<int>.of(const [16, 16]),
+              },
+            ),
+          ),
+          isTrue,
+        );
+      });
+
+      test('a payload appearing where there was none is a change', () {
+        expect(
+          device().hasSameIdentity(
+            device(
+              manufacturerData: const {
+                961: [1],
+              },
+            ),
+          ),
+          isFalse,
+        );
+      });
+
+      test('the same bytes under a different company id is a change', () {
+        expect(
+          device(
+            manufacturerData: const {
+              961: [1],
+            },
+          ).hasSameIdentity(
+            device(
+              manufacturerData: const {
+                89: [1],
+              },
+            ),
+          ),
           isFalse,
         );
       });

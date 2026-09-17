@@ -15,6 +15,7 @@ import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/device_manager.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/screens/device_screen.dart';
 import 'package:liberated_bread_mobile/screens/ha_settings_screen.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
 import 'package:liberated_bread_mobile/widgets/device_list_tile.dart';
@@ -59,6 +60,27 @@ IoTDevice _device(
     discoveredAt: seen,
     lastSeen: seen,
   );
+}
+
+/// A fake that holds its scan teardown open until the test lets go — the
+/// window a second tap on the same row lands in.
+class _GatedStopFakeBleService extends FakeBleService {
+  /// Held stops. Nulled by [release], after which stops answer at once — the
+  /// screen's dispose calls one, and it must not be left outstanding.
+  Completer<void>? _gate = Completer<void>();
+
+  _GatedStopFakeBleService({super.devicesToEmit});
+
+  void release() {
+    _gate?.complete();
+    _gate = null;
+  }
+
+  @override
+  Future<void> stopScan() async {
+    await _gate?.future;
+    return super.stopScan();
+  }
 }
 
 /// A fake whose platform can refuse the app Bluetooth permission after the
@@ -1099,6 +1121,97 @@ void main() {
     expect(find.text('Bluetooth permission needed'), findsOneWidget);
     expect(find.byIcon(Icons.stop), findsNothing);
     expect(find.widgetWithText(FloatingActionButton, 'Scan'), findsOneWidget);
+  });
+
+  // R-091: _resumeIfIdle had no idea the permission had been refused, and
+  // every resume runs _startScan, which clears the flag on its way in. So a
+  // glance at another tab, or a phone call, replaced the guidance with a
+  // fresh scan — and on Android that scan asks the platform for the
+  // permission all over again.
+  testWidgets('a refusal survives the app coming back to the foreground', (
+    tester,
+  ) async {
+    final fake = FakeBleService(
+      scanError: const BlePermissionDeniedException(),
+    );
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pumpAndSettle();
+    expect(find.text('Bluetooth permission needed'), findsOneWidget);
+    final scansAtDenial = fake.scanTimeouts.length;
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bluetooth permission needed'), findsOneWidget);
+    expect(
+      find.widgetWithText(ElevatedButton, 'Open settings'),
+      findsOneWidget,
+    );
+    expect(
+      fake.scanTimeouts.length,
+      scansAtDenial,
+      reason: 'the resume must not re-ask the platform',
+    );
+  });
+
+  testWidgets('a refusal survives the tab being re-selected', (tester) async {
+    final fake = FakeBleService(
+      scanError: const BlePermissionDeniedException(),
+    );
+    Widget shell({required bool active}) => ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+      ],
+      child: MaterialApp(home: ScanScreen(active: active)),
+    );
+
+    await tester.pumpWidget(shell(active: true));
+    await tester.pumpAndSettle();
+    expect(find.text('Bluetooth permission needed'), findsOneWidget);
+    final scansAtDenial = fake.scanTimeouts.length;
+
+    await tester.pumpWidget(shell(active: false));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(shell(active: true));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bluetooth permission needed'), findsOneWidget);
+    expect(fake.scanTimeouts.length, scansAtDenial);
+  });
+
+  // R-085: the stop before the push is a platform round trip, and a second
+  // tap landing inside it opened a second DeviceScreen over the first, each
+  // with its own connect to the same peripheral.
+  testWidgets('a double tap opens one device screen, not two', (tester) async {
+    // The stop is held open, as the platform call it stands in for can be —
+    // that wait IS the window the second tap lands in.
+    final fake = _GatedStopFakeBleService(
+      devicesToEmit: [_device('01', name: 'ACME_A')],
+    );
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('ACME_A'));
+    // Deliberately NOT settled: the stop has not answered, so nothing has
+    // been pushed and the row is still sitting there under the finger.
+    await tester.pump();
+    await tester.tap(find.text('ACME_A'), warnIfMissed: false);
+    await tester.pump();
+
+    fake.release();
+    await tester.pumpAndSettle();
+
+    // skipOffstage: false — a route fully covered by another is offstage, so
+    // the default finder would report the second push as one screen.
+    expect(find.byType(DeviceScreen, skipOffstage: false), findsOneWidget);
+    expect(
+      fake.stopScanCount,
+      1,
+      reason: 'the second tap is refused before it stops anything',
+    );
   });
 
   testWidgets('tapping a device stops the scan before navigating', (

@@ -465,6 +465,26 @@ NetworkActionDto? _networkAction(NetworkEntityDto entity, String role) {
   return null;
 }
 
+/// The `set_brightness` action a group op may actually send on [entity], or
+/// null.
+///
+/// ONE definition, consumed by both [supportedNetworkGroupOps] and
+/// [resolveNetworkGroupPlan], because they disagreed: the support check asked
+/// only "is there a sendable set_brightness", while the resolver also requires
+/// a user parameter to put the level in — there is nowhere to write the number
+/// otherwise, and a send with no level would be a bare request that either
+/// does nothing or means something else entirely. A spec declaring
+/// `set_brightness` with an empty `userParams` therefore lit the Brightness
+/// button, opened the percentage sheet, and resolved an empty plan: every
+/// member skipped, nothing sent, and the only feedback was a run that touched
+/// no device.
+NetworkActionDto? _networkBrightnessAction(NetworkEntityDto entity) {
+  if (entity.platform != 'light') return null;
+  final action = _networkAction(entity, 'set_brightness');
+  if (action == null || action.userParams.isEmpty) return null;
+  return action;
+}
+
 /// Whether [entity] declares a power state a gated toggle can read: a
 /// non-empty state command, over a transport the group state-read path
 /// speaks (SOAP and plain HTTP — the two the description-based read serves).
@@ -486,8 +506,7 @@ Set<GroupOp> supportedNetworkGroupOps(List<NetworkEntityDto> entities) {
             _hasReadableState(entity))) {
       ops.add(GroupOp.turnOff);
     }
-    if (entity.platform == 'light' &&
-        _networkAction(entity, 'set_brightness') != null) {
+    if (_networkBrightnessAction(entity) != null) {
       ops.add(GroupOp.setBrightness);
     }
   }
@@ -534,9 +553,8 @@ GroupNetworkPlan resolveNetworkGroupPlan({
           gated.add(GroupNetworkGatedToggle(entity: entity, action: toggle));
         }
       case GroupOp.setBrightness:
-        if (entity.platform != 'light') break;
-        final action = _networkAction(entity, 'set_brightness');
-        if (action != null && action.userParams.isNotEmpty) {
+        final action = _networkBrightnessAction(entity);
+        if (action != null) {
           final percent = (brightnessPercent ?? 100).clamp(0.0, 100.0);
           final min = action.min ?? 0;
           final max = action.max ?? 100;

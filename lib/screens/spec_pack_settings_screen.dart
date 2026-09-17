@@ -359,14 +359,52 @@ class _SpecPackSettingsScreenState
     );
     // mounted before the ref.read: ConsumerState.ref throws after dispose.
     if (confirmed != true || !mounted) return;
-    await ref.read(specPackServiceProvider).clearCache();
-    if (!mounted) return;
-    ref.invalidate(installedSpecPacksProvider);
-    ref.invalidate(cachedSpecPacksProvider);
     setState(() {
-      _successMessage = 'Cleared all installed packs.';
+      _busy = true;
       _errorMessage = null;
+      _successMessage = null;
     });
+    try {
+      await ref.read(specPackServiceProvider).clearCache();
+      if (!mounted) return;
+      ref.invalidate(installedSpecPacksProvider);
+      ref.invalidate(cachedSpecPacksProvider);
+      // Ask what actually survived rather than trusting the call. clearCache
+      // is best-effort BY DESIGN — a delete it cannot do is logged and
+      // swallowed, because a pack cache that will not clear must not become an
+      // exception on a settings screen — so its normal return says nothing
+      // about whether anything was removed. Reporting "Cleared all installed
+      // packs." off that return printed success over a list the user could
+      // still see below it, on the one screen whose whole job is telling them
+      // what is installed.
+      final remaining = await ref.read(installedSpecPacksProvider.future);
+      if (!mounted) return;
+      setState(() {
+        if (remaining.isEmpty) {
+          _successMessage = 'Cleared all installed packs.';
+          _errorMessage = null;
+          return;
+        }
+        _successMessage = null;
+        _errorMessage = remaining.length == 1
+            ? 'Could not remove "${remaining.single.name}". It is still '
+                  'installed.'
+            : '${remaining.length} packs could not be removed and are still '
+                  'installed.';
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _errorMessage = friendlyErrorText(
+            e,
+            context: 'clear spec packs',
+            fallback: 'Something went wrong clearing the installed packs.',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   String _friendlyError(SpecPackError error) {

@@ -27,6 +27,7 @@ import 'package:liberated_bread_mobile/services/ha_roomba_client.dart';
 import 'package:liberated_bread_mobile/services/irobot_cloud_service.dart';
 import 'package:liberated_bread_mobile/services/roomba_control_service.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
+import 'package:liberated_bread_mobile/services/settings_store.dart';
 
 import '../fakes/fake_ha_api_client.dart';
 import '../fakes/fake_spec_codec.dart';
@@ -108,6 +109,38 @@ Future<http.Response> _irobotAccountResponse(http.Request request) async {
   );
 }
 
+/// Records every provider Riverpod tears down, so a test can assert one WAS.
+class _DisposeSpy extends ProviderObserver {
+  final List<ProviderBase<Object?>> disposed;
+  _DisposeSpy(this.disposed);
+
+  @override
+  void didDisposeProvider(
+    ProviderBase<Object?> provider,
+    ProviderContainer container,
+  ) {
+    disposed.add(provider);
+  }
+}
+
+/// A keychain that refuses to write — a locked keystore, a device under MDM,
+/// a simulator with no entitlement. Reads still work, so the screen can ask
+/// what is stored afterwards and find nothing.
+class _RefusingSettingsStore implements SettingsStore {
+  @override
+  Future<String?> read(String key) async => null;
+
+  @override
+  Future<void> write(String key, String value) async =>
+      throw StateError('keychain refused the write');
+
+  @override
+  Future<void> delete(String key) async {}
+
+  @override
+  Future<Map<String, String>> readAll() async => const {};
+}
+
 void main() {
   late InMemorySettingsStore settings;
   final opened = <Uri>[];
@@ -124,11 +157,12 @@ void main() {
     http.Client? cloudClient,
     int passwordAttempts = 1,
     HaRoombaClient? homeAssistant,
+    SettingsStore? store,
   }) {
     final codec = FakeSpecCodec();
     return ProviderScope(
       overrides: [
-        settingsStoreProvider.overrideWithValue(settings),
+        settingsStoreProvider.overrideWithValue(store ?? settings),
         specCodecProvider.overrideWithValue(codec),
         urlOpenerProvider.overrideWithValue((url) async {
           opened.add(url);
@@ -419,6 +453,26 @@ void main() {
     expect((await stored())!.password, _password);
   });
 
+  // R-101: the paste route's try had a finally and no catch, so a keychain
+  // that refused the write threw out of a fire-and-forget button callback —
+  // the spinner cleared, the panel did not change, and nothing said the
+  // password had not been stored.
+  testWidgets('a keychain that refuses the write says so', (tester) async {
+    await tester.pumpWidget(wrap(store: _RefusingSettingsStore()));
+
+    await tester.tap(find.text('I already have the BLID and password'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, _password);
+    await tester.tap(find.text('Save'));
+    await pumpBusy(tester);
+
+    expect(
+      find.textContaining('Could not save that password on this device'),
+      findsOneWidget,
+    );
+    expect(find.text('Adopted — saved to this device'), findsNothing);
+  });
+
   testWidgets('an empty paste is refused rather than saved', (tester) async {
     await tester.pumpWidget(wrap());
 
@@ -497,6 +551,47 @@ void main() {
     expect(await stored(), isNull);
     // No dead-end advice for a retryable failure — the steps are still there.
     expect(find.text('I held HOME — ask the robot'), findsOneWidget);
+  });
+
+  // R-056: the provider's doc promised "constructed per use and disposed with
+  // the ref" while it was a plain root-scope Provider — one http.Client
+  // holding a Gigya sign-in, kept for the life of the app.
+  testWidgets('the iRobot client is closed with the wizard', (tester) async {
+    final disposed = <ProviderBase<Object?>>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        observers: [_DisposeSpy(disposed)],
+        overrides: [
+          settingsStoreProvider.overrideWithValue(settings),
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+          urlOpenerProvider.overrideWithValue((url) async => true),
+          haRoombaClientProvider.overrideWithValue(null),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ),
+    );
+    final navigator = Navigator.of(
+      tester.element(find.byType(SizedBox)),
+      rootNavigator: true,
+    );
+    unawaited(
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const RoombaAdoptionScreen(
+            blid: _blid,
+            host: '192.168.1.103',
+            robotName: 'Dorita',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(disposed, isNot(contains(iRobotCloudServiceProvider)));
+
+    navigator.pop();
+    await tester.pumpAndSettle();
+
+    expect(disposed, contains(iRobotCloudServiceProvider));
   });
 
   testWidgets('credits dorita980 on every step, tappably', (tester) async {

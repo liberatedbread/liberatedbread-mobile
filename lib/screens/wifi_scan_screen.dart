@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../core/device_pictogram.dart';
 import '../core/error_text.dart';
+import '../core/log.dart';
 import '../core/web_link.dart';
 import '../models/network_device.dart';
 import '../widgets/power_strip_icon.dart';
@@ -439,10 +440,26 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
               final specKey = guess == null
                   ? null
                   : '${guess.deviceName}|${guess.manufacturer}';
+              // then(_, onError:) rather than a bare unawaited: the saved
+              // record is a convenience — the controls open either way — but
+              // the write is SharedPreferences, which throws on a full or
+              // read-only store, and an unawaited future that throws is an
+              // unhandled async error, not a silent one. It reaches the zone
+              // handler and in a test run it fails the test that opened the
+              // controls, naming the preferences write rather than anything
+              // the test was about.
               unawaited(
                 ref
                     .read(savedNetworkDevicesProvider.notifier)
-                    .touch(device, category: category, specKey: specKey),
+                    .touch(device, category: category, specKey: specKey)
+                    .then<void>(
+                      (_) {},
+                      onError: (Object e, StackTrace st) => Log.ui.warning(
+                        'could not record ${device.host} as a saved Wi-Fi device',
+                        error: e,
+                        stackTrace: st,
+                      ),
+                    ),
               );
               unawaited(
                 _openControls(

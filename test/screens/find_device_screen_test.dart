@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -20,6 +21,29 @@ import '../fakes/fake_spec_codec.dart';
 
 const _svc = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _chr = '0000fff1-0000-1000-8000-00805f9b34fb';
+
+/// A fake whose two alert writes can be released independently: the ring
+/// write waits on [ringGate], the stop write on a gate nothing completes.
+/// That is the shape R-090 is about — the stack serialises writes, so the
+/// ring's completion arrives while the stop is still outstanding.
+class _GatedAlertBle extends FakeBleService {
+  final Completer<void> ringGate = Completer<void>();
+  final Completer<void> stopGate = Completer<void>();
+
+  _GatedAlertBle({super.rssiValues});
+
+  @override
+  Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) async {
+    await (value.isNotEmpty && value.first == 0x00 ? stopGate : ringGate)
+        .future;
+    return super.writeCharacteristic(deviceId, serviceUuid, charUuid, value);
+  }
+}
 
 const _immediateAlertService = BleDiscoveredService(
   uuid: immediateAlertServiceUuid,
@@ -231,6 +255,43 @@ void main() {
     await tester.pump();
     expect(ble.writes, hasLength(2));
     expect(ble.writes.last.value, [0x00]);
+  });
+
+  // R-090: Stop is exempt from the re-entry guard, so it takes the busy key
+  // over from an in-flight ring write. That write's completion then cleared
+  // it unconditionally — every button re-enabled and "Stopping..." vanished
+  // while the stop was still on the wire.
+  testWidgets('a ring write completing does not clear an in-flight Stop', (
+    tester,
+  ) async {
+    _unmountOnTeardown(tester);
+    _useTallSurface(tester);
+    final ble = _GatedAlertBle(rssiValues: const [-60]);
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_immediateAlertService],
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Ring alert'));
+    await tester.pump();
+    await tester.tap(find.text('Stop ring alert'));
+    await tester.pump();
+    expect(find.text('Stopping...'), findsOneWidget);
+
+    // The ring write lands — after the stop was asked for, before it is done.
+    ble.ringGate.complete();
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.text('Stopping...'),
+      findsOneWidget,
+      reason: 'the stop has not answered yet',
+    );
   });
 
   testWidgets('offers a spec-declared find_me command and encodes it', (

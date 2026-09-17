@@ -30,8 +30,25 @@ class StopSignal {
 
   /// Waits [duration], or until [stop] is called — whichever comes first.
   /// True when the signal was stopped.
+  ///
+  /// The timer is owned rather than raced as a bare `Future.delayed`, and
+  /// cancelled on the way out. `Future.any` abandons the loser, it does not
+  /// cancel it: with a plain delayed future a stop arriving one second into a
+  /// thirty-second backoff returned immediately and still left a thirty-second
+  /// Timer armed, which keeps the event loop alive (a `dart run` that should
+  /// have exited sits there instead) and fails any `fakeAsync` body that
+  /// asserts no pending timers at the end of a scan.
   Future<bool> sleep(Duration duration) async {
-    await Future.any([Future<void>.delayed(duration), _stopped.future]);
+    if (stopped) return true;
+    final elapsed = Completer<void>();
+    final timer = Timer(duration, () {
+      if (!elapsed.isCompleted) elapsed.complete();
+    });
+    try {
+      await Future.any([elapsed.future, _stopped.future]);
+    } finally {
+      timer.cancel();
+    }
     return stopped;
   }
 }

@@ -12,6 +12,7 @@ import '../core/sensor_reading_level.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import '../models/network_device.dart';
+import '../providers/ha_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/roomba_provider.dart';
 import '../providers/spec_codec_provider.dart';
@@ -568,6 +569,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   bool get _ready => _description != null || !_needsDescription;
 
   Future<void> _load() async {
+    // The first call arrives on the far side of the credential lookup — an
+    // FFI hop plus a keychain read — so the screen can already be gone: back
+    // out of a device while it is opening and this ran on a defunct State,
+    // where setState throws and every ref.read below reaches for providers
+    // through a disposed ref. Every other entry into _load is a user gesture
+    // on a mounted screen, so the guard costs them nothing.
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -1020,6 +1028,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   Future<void> _connectViaHomeAssistant(String entityId) async {
+    // Settle the config first. `haRoombaClientProvider` answers from
+    // `haConfigProvider`'s CURRENT value and is deliberately null while that
+    // value is still loading — the right answer for a build method, and the
+    // wrong one here. The config comes out of the keychain at startup, so a
+    // robot adopted onto the Home Assistant route and opened from a cold
+    // start raced it and lost: "Home Assistant is not connected in this app.
+    // Connect it in Settings." on a robot whose HA connection was already
+    // set up, curable only by backing out and coming in again. A config that
+    // has already resolved settles on the same microtask, so the wait costs
+    // the warm case nothing.
+    try {
+      await ref.read(haConfigProvider.future);
+    } catch (_) {
+      // Unreadable is "not connected", which the check below says properly.
+    }
+    if (!mounted) return;
     final haClient = ref.read(haRoombaClientProvider);
     if (haClient == null) {
       throw const RoombaConnectionException(
@@ -1384,14 +1408,34 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           rabbitAirKey: null,
         );
       }
-      // The reply acknowledges the request, it does not report the resulting
-      // state — the Crock-Pot doesn't always take a setting. Read back
-      // whatever state this screen polls; a remote of stateless buttons has
-      // none.
-      if (_stateCommands.isNotEmpty) await _refreshState();
-      // A launch changes which option is current, and nothing else reports
-      // that — re-read the selection the device now names.
-      if (entity.stateSource != null) await _refreshQuerySources();
+      // The read-back has its own catch, because by here the device HAS
+      // accepted the command. Sharing the catch below reported a failed
+      // re-read as "The device did not accept that. Try again." — advice that
+      // is wrong twice over: it did accept it, and trying again would send the
+      // command a second time. What actually went wrong is that the screen no
+      // longer knows what the device is showing.
+      try {
+        // The reply acknowledges the request, it does not report the resulting
+        // state — the Crock-Pot doesn't always take a setting. Read back
+        // whatever state this screen polls; a remote of stateless buttons has
+        // none.
+        if (_stateCommands.isNotEmpty) await _refreshState();
+        // A launch changes which option is current, and nothing else reports
+        // that — re-read the selection the device now names.
+        if (entity.stateSource != null) await _refreshQuerySources();
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          if (e is ControlRefusedException) _controlRefused = true;
+          _error = friendlyErrorText(
+            e,
+            context: 'device control read-back',
+            fallback:
+                'The device took that, but the app could not read back what '
+                'it did — the values here may be out of date.',
+          );
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -2868,7 +2912,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       // The control address, not the advertised one: this screen's whole
       // subject is what it sends and where, and a row naming a port nothing
       // here talks to is what makes a wrong-port bug invisible.
-      ('Address', '${widget.device.host}:${widget.device.controlPort ?? '?'}'),
+      // `_sender.controlPort`, not `widget.device.controlPort`: the sender
+      // owns the rule (a spec's port wins on a device whose announcement is
+      // unreliable — a Roku advertises 7250 and serves 8060, an Envoy
+      // advertises 80 and serves 443 — and it is also the fallback when
+      // discovery captured no port at all). Reading the discovered field here
+      // printed a port nothing on this screen talks to, on exactly the
+      // devices where knowing the difference matters.
+      ('Address', '${widget.device.host}:${_sender.controlPort ?? '?'}'),
       if (description?.serialNumber != null)
         ('Serial', description!.serialNumber!),
       if (description?.firmwareVersion != null)

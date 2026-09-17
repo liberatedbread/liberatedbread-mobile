@@ -131,12 +131,18 @@ class Logger {
 
   /// Run [body], and log how long it took.
   ///
-  /// The pattern this replaces is hand-rolled in the adoption service and
-  /// nowhere else, which is the problem: "how long did the probe take" is the
-  /// first question about every network exchange in this app and only one of
-  /// them can answer it. A failure is logged too, at [LogLevel.warning] with
-  /// its elapsed time, and then rethrown — the caller's error handling is
-  /// unchanged, and the timing line is not lost to the throw.
+  /// Provided for new call sites, and currently used by none: this is the
+  /// shared form of a pattern that is still hand-rolled in `AdoptService`
+  /// (`Stopwatch` plus its private `_elapsed`) and written nowhere else, which
+  /// is the problem it exists to solve — "how long did the probe take" is the
+  /// first question about every network exchange in this app and only one
+  /// place can answer it. Reaching for this instead of a local `Stopwatch` is
+  /// the point; converting the adoption service is a separate change, so do
+  /// not read this doc as saying it already happened.
+  ///
+  /// A failure is logged too, at [LogLevel.warning] with its elapsed time, and
+  /// then rethrown — the caller's error handling is unchanged, and the timing
+  /// line is not lost to the throw.
   ///
   /// The clock starts before [body] is called and stops when its future
   /// completes, so it measures what a person waited for rather than what the

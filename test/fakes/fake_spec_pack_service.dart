@@ -21,10 +21,16 @@ class FakeSpecPackService implements SpecPackService {
   /// When set, [removePack] throws it, to exercise the UI error path.
   final Object? removeError;
 
+  /// When true, [clearCache] returns normally and removes nothing — the real
+  /// service's best-effort behaviour when the delete fails (it logs and
+  /// swallows), which the settings screen has to detect rather than trust.
+  final bool clearCacheSilentlyFails;
+
   FakeSpecPackService({
     List<SpecPack>? packs,
     this.nextResult,
     this.removeError,
+    this.clearCacheSilentlyFails = false,
   }) : packs = [...?packs];
 
   @override
@@ -65,5 +71,8 @@ class FakeSpecPackService implements SpecPackService {
   }
 
   @override
-  Future<void> clearCache() async => packs.clear();
+  Future<void> clearCache() async {
+    if (clearCacheSilentlyFails) return;
+    packs.clear();
+  }
 }

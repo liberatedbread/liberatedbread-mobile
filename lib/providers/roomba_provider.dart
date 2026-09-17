@@ -53,10 +53,18 @@ final roombaPasswordServiceProvider = Provider<RoombaPasswordService>(
 
 /// The account route to the same credentials.
 ///
-/// Constructed per use and disposed with the ref: it holds an `http.Client`,
-/// and the one thing this service must never do is outlive the sign-in it was
-/// created for. Nothing about steady-state control touches it.
-final iRobotCloudServiceProvider = Provider<IRobotCloudService>((ref) {
+/// `autoDispose`, and that is the whole point rather than tidiness: it holds
+/// an `http.Client` carrying a Gigya sign-in, and the one thing this service
+/// must never do is outlive the sign-in it was created for. As a plain
+/// `Provider` the doc said "constructed per use and disposed with the ref"
+/// while the instance was in fact minted once into the root scope and kept,
+/// with its `close` reached only when the whole app went away. Nothing about
+/// steady-state control touches it, so the adoption wizard — which watches it
+/// for as long as it is on screen — is the only thing keeping it alive, and
+/// closing the wizard closes the client.
+final iRobotCloudServiceProvider = Provider.autoDispose<IRobotCloudService>((
+  ref,
+) {
   final service = IRobotCloudService();
   ref.onDispose(service.close);
   return service;

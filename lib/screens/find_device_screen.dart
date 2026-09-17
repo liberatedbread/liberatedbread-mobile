@@ -182,7 +182,16 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _busyActionKey = null);
+      // Only OUR key. Stop is exempt from the re-entry guard above — silencing
+      // a sounding device must never queue behind another write — so a Stop
+      // tapped while a ring write is outstanding deliberately takes the busy
+      // key over. Clearing it unconditionally here meant the ring write's
+      // completion (which lands first; the stack serialises writes) re-enabled
+      // every button and dropped the "Stopping…" state while the stop was
+      // still on the wire, so the user's next tap rang the device again.
+      if (mounted && _busyActionKey == key) {
+        setState(() => _busyActionKey = null);
+      }
     }
   }
 

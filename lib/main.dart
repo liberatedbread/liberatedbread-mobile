@@ -56,11 +56,12 @@ Future<void> main() async {
   // Home Assistant token, Hue credentials, Roomba password and TLS pins.
   // Clear it the first time a given install runs.
   //
-  // `hasRun` is NOT just the marker. The marker was added after the app had
-  // users, so on the first launch of the build that introduced it the key is
-  // absent for every existing install — and prefs survive an in-place update
-  // on every platform. Reading absence as "fresh install" therefore wiped
-  // every credential of every existing user, once, on upgrade.
+  // "Fresh" is NOT just the absence of
+  // SecureSettingsStore.freshInstallMarkerKey. The marker was added after the
+  // app had users, so on the first launch of the build that introduced it the
+  // key is absent for every existing install — and prefs survive an in-place
+  // update on every platform. Reading absence as "fresh install" therefore
+  // wiped every credential of every existing user, once, on upgrade.
   // SecureSettingsStore.isFreshInstall also requires that the terms gate has
   // never been accepted here, which no real update can satisfy.
   //

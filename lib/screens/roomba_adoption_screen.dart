@@ -132,6 +132,11 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Watched, not read: [iRobotCloudServiceProvider] is autoDispose and holds
+    // an http.Client carrying a Gigya sign-in. This watch is what gives it the
+    // lifetime its doc promises — alive while the wizard is, closed when the
+    // wizard is popped — instead of a client that lives as long as the app.
+    ref.watch(iRobotCloudServiceProvider);
     final revealed = _revealed;
     return Scaffold(
       appBar: AppBar(title: Text(widget.robotName ?? 'Adopt this Roomba')),
@@ -489,16 +494,24 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
     if (entity == null || !mounted) return;
     // Adopted with no password of our own: Home Assistant holds it, and the
     // robot is reachable through the entity id alone.
-    await _adopt(
-      RoombaCredentials(
-        blid: widget.blid,
-        password: '',
-        name: widget.robotName,
-        sku: widget.sku,
-        lastIp: widget.host,
-        haEntityId: entity.entityId,
-      ),
-    );
+    try {
+      await _adopt(
+        RoombaCredentials(
+          blid: widget.blid,
+          password: '',
+          name: widget.robotName,
+          sku: widget.sku,
+          lastIp: widget.host,
+          haEntityId: entity.entityId,
+        ),
+      );
+    } catch (e) {
+      // Same hole as the paste route: the record is small and carries no
+      // secret, but it is still a keychain write, and losing it silently
+      // leaves a robot the user believes is routed through Home Assistant
+      // going back to the direct path that has no password.
+      _fail(e, 'Could not save this robot on this device.');
+    }
   }
 
   // ── Route 3: paste what you already have ───────────────────────────────────
@@ -580,6 +593,16 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
           lastIp: widget.host,
         ),
       );
+    } catch (e) {
+      // The two routes above already funnel their failures here; this one and
+      // the Home Assistant one did not, and the only thing that can fail on
+      // this path is the write itself. A keychain that refuses the save (a
+      // locked keystore, a device under MDM, a simulator with no entitlement)
+      // therefore threw out of a fire-and-forget button callback: the spinner
+      // cleared, the panel stayed exactly as it was, and nothing anywhere said
+      // the password had not been stored. The next screen then reported "no
+      // password saved for this robot yet" as if the user had never been here.
+      _fail(e, 'Could not save that password on this device.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }

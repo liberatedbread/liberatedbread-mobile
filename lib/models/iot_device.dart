@@ -78,9 +78,27 @@ class IoTDevice {
   /// and freshness change on every advertisement, and re-running spec matching
   /// on each of those would be pure waste. Identity is what matching actually
   /// reads.
+  ///
+  /// [manufacturerData] IS part of that, despite being the noisiest field
+  /// here: matching passes the payload bytes to the spec codec, and the LED
+  /// editor sizes its canvas from a panel that advertises its real dimensions
+  /// in them. Leaving them out made "same identity" true for a sighting that
+  /// says the panel is now 32x8 rather than 16x16 — the one case the bytes are
+  /// kept for. Same company id with different bytes is a different sighting.
   bool hasSameIdentity(IoTDevice other) =>
       other.id == id &&
       other.name == name &&
       listEquals(other.serviceUuids, serviceUuids) &&
-      listEquals(other.companyIds, companyIds);
+      listEquals(other.companyIds, companyIds) &&
+      _sameManufacturerData(other.manufacturerData);
+
+  bool _sameManufacturerData(Map<int, List<int>> other) {
+    if (other.length != manufacturerData.length) return false;
+    for (final entry in manufacturerData.entries) {
+      final theirs = other[entry.key];
+      if (theirs == null && !other.containsKey(entry.key)) return false;
+      if (!listEquals(theirs, entry.value)) return false;
+    }
+    return true;
+  }
 }

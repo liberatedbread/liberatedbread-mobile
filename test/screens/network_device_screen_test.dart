@@ -3996,6 +3996,174 @@ void main() {
       );
     });
   });
+
+  // ── The three small honesty/lifetime bugs (R-095, R-099, R-100) ──────────
+  group('control screen lifetime and honesty', () {
+    // R-095: the first _load runs on the far side of the credential lookup
+    // (an FFI hop plus a keychain read). Backing out while that is in flight
+    // used to land setState — and a string of ref.reads — on a dead State.
+    testWidgets('backing out during the credential lookup is not an error', (
+      tester,
+    ) async {
+      final slow = _SlowCredentialsCodec();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(slow),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (request) async => http.Response(_setupXml, 200),
+                ),
+              ),
+            ),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
+      final navigator = Navigator.of(
+        tester.element(find.byType(SizedBox)),
+        rootNavigator: true,
+      );
+      unawaited(
+        navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
+              device: _cookerDevice,
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: _entities,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(
+        find.byType(NetworkDeviceScreen),
+        findsNothing,
+        reason: 'the screen is gone before the lookup answers',
+      );
+
+      // Only now does the credential lookup answer — to nobody.
+      slow.gate.complete();
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+    });
+
+    // R-099: the read-back shared the send's catch, so a device that TOOK the
+    // command and then failed to answer the state poll was reported as one
+    // that refused it — with "Try again", which would send it twice.
+    testWidgets('a failed read-back is not reported as a refusal', (
+      tester,
+    ) async {
+      var written = 0;
+      await pump(
+        tester,
+        MockClient((request) async {
+          if (request.url.path == '/setup.xml') {
+            return http.Response(_setupXml, 200);
+          }
+          posts.add(request);
+          final action = request.headers['SOAPACTION'] ?? '';
+          if (action.contains('GetCrockpotState')) {
+            // The opening poll answers; the one after the write does not.
+            return written == 0
+                ? http.Response(_stateResponse(mode: 0, time: 0), 200)
+                : http.Response('gone', 500);
+          }
+          written++;
+          return http.Response(_ackResponse, 200);
+        }),
+      );
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'low'));
+      await tester.pumpAndSettle();
+
+      expect(written, 1, reason: 'the command was sent and acknowledged');
+      expect(find.textContaining('did not accept that'), findsNothing);
+      expect(find.textContaining('could not read back'), findsOneWidget);
+    });
+
+    // R-100: the row is labelled the control address and said so in its own
+    // comment, while reading the port discovery captured — the one the sender
+    // deliberately ignores on a device whose announcement is unreliable.
+    testWidgets('the Address row names the port the sender actually uses', (
+      tester,
+    ) async {
+      final codec = FakeSpecCodec(
+        networkEntities: (_) => const <NetworkEntityDto>[],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (request) async => http.Response('no', 404),
+                ),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+              // Discovery captured 80 — an Envoy's mDNS answer — while the
+              // spec says the API is on 443 and the announcement is not to be
+              // believed.
+              device: NetworkDevice(
+                host: '10.0.0.7',
+                name: 'Gateway',
+                port: 80,
+                sources: const {NetworkDiscoverySource.mdns},
+                discoveredAt: DateTime.utc(2026),
+              ),
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: [],
+                capabilities: NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
+                  defaultPort: 443,
+                  tlsSelfSigned: true,
+                  advertisedPortUnreliable: true,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('10.0.0.7:443'), findsOneWidget);
+      expect(find.text('10.0.0.7:80'), findsNothing);
+    });
+  });
+}
+
+/// A codec whose credential lookup does not answer until [gate] is completed —
+/// standing in for the FFI hop plus keychain read the real one makes.
+class _SlowCredentialsCodec extends FakeSpecCodec {
+  final Completer<void> gate = Completer<void>();
+
+  _SlowCredentialsCodec() : super(networkEntities: _allEntities);
+
+  static List<NetworkEntityDto> _allEntities(List<String> _) => _entities;
+
+  @override
+  Future<List<NetworkCredentialDto>> credentialsForDevice(
+    String specYaml,
+  ) async {
+    await gate.future;
+    return const [];
+  }
 }
 
 /// Records every provider Riverpod tears down, so a test can assert one was

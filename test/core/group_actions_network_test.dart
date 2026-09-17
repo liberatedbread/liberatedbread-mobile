@@ -101,6 +101,26 @@ void main() {
       );
     });
 
+    // R-071: the support check and the resolver have to admit the same
+    // actions. A set_brightness with no user parameter has nowhere to put the
+    // level, so the resolver never sent it — while the button was offered, the
+    // percentage sheet opened, and every member of the run skipped.
+    test('brightness with nowhere to put the level is not offered', () {
+      final entities = [
+        _entity(platform: 'light', actions: [_action('set_brightness')]),
+      ];
+      expect(supportedNetworkGroupOps(entities), isEmpty);
+      expect(
+        resolveNetworkGroupPlan(
+          op: GroupOp.setBrightness,
+          entities: entities,
+          brightnessPercent: 50,
+        ).direct,
+        isEmpty,
+        reason: 'the resolver already refused it; the button now agrees',
+      );
+    });
+
     test('non-control platforms are ignored', () {
       expect(
         supportedNetworkGroupOps([

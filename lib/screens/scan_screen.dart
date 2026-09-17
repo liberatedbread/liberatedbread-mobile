@@ -287,7 +287,22 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// Always ambient: nothing that resumes by itself gets to claim the user
   /// just asked for it — the low-latency burst is the Scan button's alone.
   void _resumeIfIdle() {
-    if (_isScanning || _pausedByUser || !widget.active || _onDeviceScreen) {
+    if (_isScanning ||
+        _pausedByUser ||
+        !widget.active ||
+        _onDeviceScreen ||
+        // A refused permission is the fourth reason to stay off, and it was
+        // missing. Every resume here runs [_startScan], which clears
+        // [_permissionDenied] on its way in — so glancing at another tab and
+        // back, or answering a phone call, replaced "Bluetooth permission
+        // needed" and its Open-settings button with a fresh scan. On Android
+        // that scan asks the platform for the permission again, so a user who
+        // has said no is asked once per tab switch; on a permanent denial the
+        // prompt no longer appears at all and the screen just flickers back
+        // to the same refusal. Leaving this state is a deliberate act — the
+        // Retry button, or coming back from Settings — not something that
+        // happens because a tab regained focus.
+        _permissionDenied) {
       return;
     }
     unawaited(_startScan(ScanIntensity.ambient));
@@ -457,6 +472,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// connect). Stopping first keeps the native scan from running behind the
   /// pushed route, which otherwise makes connections flaky.
   Future<void> _connect(IoTDevice device) async {
+    // Re-entry guard, and [_onDeviceScreen] is exactly the right flag for it:
+    // it is set for the whole time a device screen is open or being opened,
+    // and cleared in the finally below. The stop underneath is a platform
+    // round trip, so a second tap landing during it — an impatient
+    // double-tap on a row that has not visibly reacted yet — used to push a
+    // SECOND DeviceScreen for the same peripheral, each with its own connect,
+    // over the top of the first.
+    if (_onDeviceScreen) return;
     _onDeviceScreen = true;
     await _stopScan(byUser: false);
     if (!mounted) {
