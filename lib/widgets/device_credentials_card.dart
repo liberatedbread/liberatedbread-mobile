@@ -128,9 +128,9 @@ class _CredentialRow extends StatelessWidget {
       // the card still said the value was missing and nothing told the
       // person why. The value they typed is not echoed back; it may be a
       // secret.
-      messenger.showSnackBar(SnackBar(
-        content: Text('Could not store ${credential.name} — $e'),
-      ));
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not store ${credential.name} — $e')),
+      );
     }
   }
 }

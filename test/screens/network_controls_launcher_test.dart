@@ -46,14 +46,14 @@ const _robotEntity = NetworkEntityDto(
 );
 
 NetworkDevice _robot() => NetworkDevice(
-      // RFC 5737 TEST-NET-2: this is a widget test, and the pre-flight must
-      // settle before anything is dialed.
-      host: '198.51.100.12',
-      name: 'Dorita',
-      txt: const {'blid': _blid, 'sku': 'R980020'},
-      sources: const {NetworkDiscoverySource.lanProbe},
-      discoveredAt: DateTime(2026),
-    );
+  // RFC 5737 TEST-NET-2: this is a widget test, and the pre-flight must
+  // settle before anything is dialed.
+  host: '198.51.100.12',
+  name: 'Dorita',
+  txt: const {'blid': _blid, 'sku': 'R980020'},
+  sources: const {NetworkDiscoverySource.lanProbe},
+  discoveredAt: DateTime(2026),
+);
 
 void main() {
   late InMemorySettingsStore settings;
@@ -63,40 +63,45 @@ void main() {
   /// A host with one button that opens [_robot]'s controls through the
   /// launcher — the same call the scan list and the saved-devices list make.
   Widget wrap() => ProviderScope(
-        overrides: [
-          settingsStoreProvider.overrideWithValue(settings),
-          specCodecProvider.overrideWithValue(FakeSpecCodec()),
-        ],
-        child: MaterialApp(
-          home: Consumer(
-            builder: (context, ref, _) => Scaffold(
-              body: ElevatedButton(
-                onPressed: () => openNetworkControls(
-                  context: context,
-                  ref: ref,
-                  device: _robot(),
-                  controls: const NetworkControls(
-                    specYaml: 'yaml',
-                    entities: [_robotEntity],
-                  ),
-                ),
-                child: const Text('Open'),
+    overrides: [
+      settingsStoreProvider.overrideWithValue(settings),
+      specCodecProvider.overrideWithValue(FakeSpecCodec()),
+    ],
+    child: MaterialApp(
+      home: Consumer(
+        builder: (context, ref, _) => Scaffold(
+          body: ElevatedButton(
+            onPressed: () => openNetworkControls(
+              context: context,
+              ref: ref,
+              device: _robot(),
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: [_robotEntity],
               ),
             ),
+            child: const Text('Open'),
           ),
         ),
+      ),
+    ),
+  );
+
+  testWidgets(
+    'a robot with no stored password goes to adoption, not controls',
+    (tester) async {
+      await tester.pumpWidget(wrap());
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(RoombaAdoptionScreen), findsOneWidget);
+      expect(
+        find.byType(NetworkDeviceScreen),
+        findsNothing,
+        reason: 'the control screen can only report errors without a password',
       );
-
-  testWidgets('a robot with no stored password goes to adoption, not controls',
-      (tester) async {
-    await tester.pumpWidget(wrap());
-    await tester.tap(find.text('Open'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(RoombaAdoptionScreen), findsOneWidget);
-    expect(find.byType(NetworkDeviceScreen), findsNothing,
-        reason: 'the control screen can only report errors without a password');
-  });
+    },
+  );
 
   testWidgets('backing out of adoption pushes nothing', (tester) async {
     await tester.pumpWidget(wrap());
@@ -111,41 +116,44 @@ void main() {
     expect(find.text('Open'), findsOneWidget);
   });
 
-  testWidgets('an empty BLID is not an identity, so no robot pre-flight runs',
-      (tester) async {
+  testWidgets('an empty BLID is not an identity, so no robot pre-flight runs', (
+    tester,
+  ) async {
     // A TXT record can carry a bare `blid` flag with no value, which the
     // parser stores as ''. Treating that as a robot identity would open the
     // wizard for a robot nothing can be filed under.
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        settingsStoreProvider.overrideWithValue(settings),
-        specCodecProvider.overrideWithValue(FakeSpecCodec()),
-      ],
-      child: MaterialApp(
-        home: Consumer(
-          builder: (context, ref, _) => Scaffold(
-            body: ElevatedButton(
-              onPressed: () => openNetworkControls(
-                context: context,
-                ref: ref,
-                device: NetworkDevice(
-                  host: '198.51.100.12',
-                  name: 'Dorita',
-                  txt: const {'blid': ''},
-                  sources: const {NetworkDiscoverySource.lanProbe},
-                  discoveredAt: DateTime(2026),
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsStoreProvider.overrideWithValue(settings),
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+        ],
+        child: MaterialApp(
+          home: Consumer(
+            builder: (context, ref, _) => Scaffold(
+              body: ElevatedButton(
+                onPressed: () => openNetworkControls(
+                  context: context,
+                  ref: ref,
+                  device: NetworkDevice(
+                    host: '198.51.100.12',
+                    name: 'Dorita',
+                    txt: const {'blid': ''},
+                    sources: const {NetworkDiscoverySource.lanProbe},
+                    discoveredAt: DateTime(2026),
+                  ),
+                  controls: const NetworkControls(
+                    specYaml: 'yaml',
+                    entities: [_robotEntity],
+                  ),
                 ),
-                controls: const NetworkControls(
-                  specYaml: 'yaml',
-                  entities: [_robotEntity],
-                ),
+                child: const Text('Open'),
               ),
-              child: const Text('Open'),
             ),
           ),
         ),
       ),
-    ));
+    );
     await tester.tap(find.text('Open'));
     await tester.pump();
 

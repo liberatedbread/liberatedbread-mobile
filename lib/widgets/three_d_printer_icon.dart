@@ -16,9 +16,9 @@ class ThreeDPrinterIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox.square(
-        dimension: size,
-        child: CustomPaint(painter: _ThreeDPrinterPainter(color)),
-      );
+    dimension: size,
+    child: CustomPaint(painter: _ThreeDPrinterPainter(color)),
+  );
 }
 
 class _ThreeDPrinterPainter extends CustomPainter {
@@ -52,9 +52,10 @@ class _ThreeDPrinterPainter extends CustomPainter {
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromCenter(
-            center: Offset(s * 0.50, s * 0.36),
-            width: s * 0.24,
-            height: s * 0.14),
+          center: Offset(s * 0.50, s * 0.36),
+          width: s * 0.24,
+          height: s * 0.14,
+        ),
         Radius.circular(s * 0.03),
       ),
       fill,

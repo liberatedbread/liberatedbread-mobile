@@ -82,8 +82,9 @@ class SecureSettingsStore implements SettingsStore {
   // stored under the old one stays readable and deletable, and migrates on its
   // next write (the plugin's write() deletes across classes before re-adding).
   // That means no migration pass is needed.
-  static const IOSOptions iosOptionsAnyAccessibility =
-      IOSOptions(accessibility: null);
+  static const IOSOptions iosOptionsAnyAccessibility = IOSOptions(
+    accessibility: null,
+  );
 
   /// Marker key proving this install has run before.
   ///
@@ -111,21 +112,24 @@ class SecureSettingsStore implements SettingsStore {
       !prefs.containsKey(freshInstallMarkerKey) &&
       !prefs.containsKey(AppConstants.termsAcceptedKey);
 
-  SecureSettingsStore(
-      [FlutterSecureStorage? storage, FlutterSecureStorage? sweeping])
-      : _storage = storage ??
-            const FlutterSecureStorage(
-              aOptions: androidOptions,
-              iOptions: iosOptions,
-            ),
-        // Falls back to the injected [storage] before the default, so a test
-        // that supplies one fake still sees every call through it.
-        _sweeping = sweeping ??
-            storage ??
-            const FlutterSecureStorage(
-              aOptions: androidOptions,
-              iOptions: iosOptionsAnyAccessibility,
-            );
+  SecureSettingsStore([
+    FlutterSecureStorage? storage,
+    FlutterSecureStorage? sweeping,
+  ]) : _storage =
+           storage ??
+           const FlutterSecureStorage(
+             aOptions: androidOptions,
+             iOptions: iosOptions,
+           ),
+       // Falls back to the injected [storage] before the default, so a test
+       // that supplies one fake still sees every call through it.
+       _sweeping =
+           sweeping ??
+           storage ??
+           const FlutterSecureStorage(
+             aOptions: androidOptions,
+             iOptions: iosOptionsAnyAccessibility,
+           );
 
   @override
   Future<String?> read(String key) => _storage.read(key: key);

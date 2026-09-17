@@ -52,15 +52,19 @@ sealed class HaApiException implements Exception {
 /// socket message or a raw server response body) into the UI.
 String friendlyHaMessage(HaApiException e) {
   return switch (e) {
-    HaAuthException() => 'Home Assistant rejected the access token. '
-        'Create a new long-lived token and try again.',
-    HaNotFoundException() => 'That address does not look like a Home '
-        'Assistant server (mobile_app API not found).',
-    HaNetworkException() => 'Could not reach the server. Are you on the '
-        'same network? For access away from home, see the Tailscale tip '
-        'below.',
-    HaServerException() => 'Home Assistant returned an error. Check that it '
-        'is running and up to date, then try again.',
+    HaAuthException() =>
+      'Home Assistant rejected the access token. '
+          'Create a new long-lived token and try again.',
+    HaNotFoundException() =>
+      'That address does not look like a Home '
+          'Assistant server (mobile_app API not found).',
+    HaNetworkException() =>
+      'Could not reach the server. Are you on the '
+          'same network? For access away from home, see the Tailscale tip '
+          'below.',
+    HaServerException() =>
+      'Home Assistant returned an error. Check that it '
+          'is running and up to date, then try again.',
   };
 }
 
@@ -72,7 +76,7 @@ class HaAuthException extends HaApiException {
 /// 404 - no mobile_app endpoint at this URL.
 class HaNotFoundException extends HaApiException {
   const HaNotFoundException()
-      : super('No Home Assistant mobile_app API at this address');
+    : super('No Home Assistant mobile_app API at this address');
 }
 
 /// Could not reach the server at all (DNS, refused, timeout).
@@ -84,7 +88,7 @@ class HaNetworkException extends HaApiException {
 class HaServerException extends HaApiException {
   final int statusCode;
   const HaServerException(this.statusCode, String body)
-      : super('Home Assistant returned HTTP $statusCode: $body');
+    : super('Home Assistant returned HTTP $statusCode: $body');
 }
 
 /// One Home Assistant entity, as `/api/states` reports it.
@@ -130,11 +134,11 @@ class HaEntityState {
   bool get isAvailable => state != 'unavailable' && state != 'unknown';
 
   factory HaEntityState.fromJson(Map<String, dynamic> json) => HaEntityState(
-        entityId: json['entity_id'] as String,
-        state: json['state'] as String? ?? 'unknown',
-        attributes:
-            (json['attributes'] as Map?)?.cast<String, dynamic>() ?? const {},
-      );
+    entityId: json['entity_id'] as String,
+    state: json['state'] as String? ?? 'unknown',
+    attributes:
+        (json['attributes'] as Map?)?.cast<String, dynamic>() ?? const {},
+  );
 }
 
 abstract class HaApiClient {

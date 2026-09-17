@@ -85,9 +85,9 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
 
   /// Every action the entity resolved, in the shape [UnclaimedActions] reads.
   List<({String role, bool takesValue})> get _resolvedActions => [
-        for (final action in widget.entity.actions)
-          (role: action.role, takesValue: action.userParams.isNotEmpty),
-      ];
+    for (final action in widget.entity.actions)
+      (role: action.role, takesValue: action.userParams.isNotEmpty),
+  ];
 
   /// Whether anything is left over for [UnclaimedActions]. The spacing above
   /// it is gated on this, so an entity whose only action is its setpoint lays
@@ -132,7 +132,9 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
     });
     try {
       final write = await encode();
-      await ref.read(bleServiceProvider).writeCharacteristic(
+      await ref
+          .read(bleServiceProvider)
+          .writeCharacteristic(
             widget.deviceId,
             write.serviceUuid,
             write.characteristicUuid,
@@ -150,22 +152,25 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
         _sendingRole = null;
         _errorText = text;
       });
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(text)));
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(text)));
     }
   }
 
   Future<void> _send(double value) => _write(
-        role: _setpointRole,
-        attempt: 'set ${widget.entity.name}',
-        fallback: 'The device did not accept that value.',
-        applied: value,
-        encode: () => ref.read(specCodecProvider).encodeEntityValue(
-              specYaml: widget.specYaml,
-              entityName: widget.entity.name,
-              value: value,
-            ),
-      );
+    role: _setpointRole,
+    attempt: 'set ${widget.entity.name}',
+    fallback: 'The device did not accept that value.',
+    applied: value,
+    encode: () => ref
+        .read(specCodecProvider)
+        .encodeEntityValue(
+          specYaml: widget.specYaml,
+          entityName: widget.entity.name,
+          value: value,
+        ),
+  );
 
   /// Send an action this card draws no control for, exactly as a spec-driven
   /// command goes out anywhere else in the app.
@@ -184,12 +189,14 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
       encode: () async => EntityWriteDto(
         serviceUuid: action.serviceUuid,
         characteristicUuid: action.characteristicUuid,
-        bytes: await ref.read(specCodecProvider).encodeCommand(
-          specYaml: widget.specYaml,
-          charUuid: action.characteristicUuid,
-          commandName: commandName,
-          params: const {},
-        ),
+        bytes: await ref
+            .read(specCodecProvider)
+            .encodeCommand(
+              specYaml: widget.specYaml,
+              charUuid: action.characteristicUuid,
+              commandName: commandName,
+              params: const {},
+            ),
       ),
     );
   }
@@ -260,8 +267,9 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
                         Expanded(
                           child: Text(
                             widget.entity.name,
-                            style: text.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w700),
+                            style: text.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -269,8 +277,11 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
                         if (widget.entity.canNotify)
                           Tooltip(
                             message: 'Updates live',
-                            child: Icon(Icons.bolt,
-                                size: 16, color: scheme.onSurfaceVariant),
+                            child: Icon(
+                              Icons.bolt,
+                              size: 16,
+                              color: scheme.onSurfaceVariant,
+                            ),
                           ),
                       ],
                     ),
@@ -326,11 +337,16 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
   }
 
   Widget _currentValue(
-      EntityLiveValue? value, ColorScheme scheme, TextTheme text) {
+    EntityLiveValue? value,
+    ColorScheme scheme,
+    TextTheme text,
+  ) {
     final style = text.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     if (_errorText != null) {
-      return Text(_errorText!,
-          style: text.bodySmall?.copyWith(color: scheme.error));
+      return Text(
+        _errorText!,
+        style: text.bodySmall?.copyWith(color: scheme.error),
+      );
     }
     if (value == null || value.status == EntityValueStatus.unavailable) {
       // Write-only setpoint: honest about not knowing where the device is.
@@ -341,10 +357,14 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
     }
     return switch (value.status) {
       EntityValueStatus.loading => Text('Reading...', style: style),
-      EntityValueStatus.error =>
-        Text(value.error ?? 'Could not read this value.', style: style),
-      EntityValueStatus.unavailable =>
-        Text('Current value unknown', style: style),
+      EntityValueStatus.error => Text(
+        value.error ?? 'Could not read this value.',
+        style: style,
+      ),
+      EntityValueStatus.unavailable => Text(
+        'Current value unknown',
+        style: style,
+      ),
       EntityValueStatus.live => _reading(value, scheme, text),
     };
   }
@@ -371,8 +391,10 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
         ),
         if (unit != null) ...[
           const SizedBox(width: 4),
-          Text(unit,
-              style: text.titleSmall?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            unit,
+            style: text.titleSmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
         ],
         // A unit that follows a device setting is not a fact about the
         // protocol — the same raw number means °C or °F depending on how the
@@ -380,10 +402,14 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
         if (value.unitIsDeviceSetting) ...[
           const SizedBox(width: 6),
           Tooltip(
-            message: 'The device decides this unit; it is not fixed by the '
+            message:
+                'The device decides this unit; it is not fixed by the '
                 'protocol.',
-            child: Icon(Icons.help_outline,
-                size: 15, color: scheme.onSurfaceVariant),
+            child: Icon(
+              Icons.help_outline,
+              size: 15,
+              color: scheme.onSurfaceVariant,
+            ),
           ),
         ],
       ],
@@ -449,9 +475,10 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
             ),
             const Spacer(),
             if (_sending)
-              Text('Sending...',
-                  style:
-                      text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+              Text(
+                'Sending...',
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
           ],
         ),
         Slider(
@@ -464,30 +491,33 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
           onChanged: _sending
               ? null
               : (v) => setState(() {
-                    _touched = true;
-                    // Snap to the device's declared step even when the range
-                    // is too wide for divisions and the slider runs
-                    // continuous — otherwise the label shows a value the
-                    // write path rounds away, and display and device
-                    // disagree.
-                    _pending = snapToStep(v, min, max, _step);
-                  }),
+                  _touched = true;
+                  // Snap to the device's declared step even when the range
+                  // is too wide for divisions and the slider runs
+                  // continuous — otherwise the label shows a value the
+                  // write path rounds away, and display and device
+                  // disagree.
+                  _pending = snapToStep(v, min, max, _step);
+                }),
           // Sent on release rather than per-frame: each change is a BLE
           // write, and a dragged slider would flood the device. Snapped the
           // same way onChanged snaps the label — the Slider hands back its
           // own unsnapped value here, and the write must match the display.
-          onChangeEnd:
-              _sending ? null : (v) => _send(snapToStep(v, min, max, _step)),
+          onChangeEnd: _sending
+              ? null
+              : (v) => _send(snapToStep(v, min, max, _step)),
         ),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(_fmt(min),
-                style:
-                    text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
-            Text(_fmt(max),
-                style:
-                    text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            Text(
+              _fmt(min),
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            Text(
+              _fmt(max),
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
           ],
         ),
       ],
@@ -521,9 +551,9 @@ class _StepButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => IconButton.outlined(
-        tooltip: label,
-        onPressed: onTap,
-        icon: Icon(icon, size: 18),
-        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-      );
+    tooltip: label,
+    onPressed: onTap,
+    icon: Icon(icon, size: 18),
+    constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+  );
 }

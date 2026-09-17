@@ -43,8 +43,8 @@ void main() {
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
       const codec = RealSpecCodec();
       final ble = RealBleService();
 
@@ -85,24 +85,37 @@ void main() {
         );
         final verdictF = ble
             .subscribeCharacteristic(
-                deviceId, plan.serviceUuid, plan.responseCharacteristicUuid!)
-            .asyncMap((b) =>
-                codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b))
+              deviceId,
+              plan.serviceUuid,
+              plan.responseCharacteristicUuid!,
+            )
+            .asyncMap(
+              (b) =>
+                  codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b),
+            )
             .where((e) => e != null)
             .cast<StoredUploadEventDto>()
-            .firstWhere((e) =>
-                e.kind == StoredUploadEventKind.complete ||
-                e.kind == StoredUploadEventKind.failed ||
-                e.kind == StoredUploadEventKind.startRejected)
+            .firstWhere(
+              (e) =>
+                  e.kind == StoredUploadEventKind.complete ||
+                  e.kind == StoredUploadEventKind.failed ||
+                  e.kind == StoredUploadEventKind.startRejected,
+            )
             .timeout(const Duration(seconds: 30));
         for (final w in plan.uploadWrites) {
           await ble.writeCharacteristic(
-              deviceId, plan.serviceUuid, w.characteristicUuid, w.bytes);
+            deviceId,
+            plan.serviceUuid,
+            w.characteristicUuid,
+            w.bytes,
+          );
         }
         final v = await verdictF;
         // ignore: avoid_print
-        print('VERDICT ${v.kind} code ${v.code}  (looking for cid=$cid = '
-            '0x${cid.toRadixString(16)})');
+        print(
+          'VERDICT ${v.kind} code ${v.code}  (looking for cid=$cid = '
+          '0x${cid.toRadixString(16)})',
+        );
 
         // Now request the effect list and DUMP every DDP notify for ~5s.
         final notifs = <String>[];
@@ -110,10 +123,11 @@ void main() {
             .subscribeCharacteristic(deviceId, _ddpService, _ddpNotify)
             .listen((b) => notifs.add(_hex(b)));
         final el = await codec.encodeCommand(
-            specYaml: specYaml,
-            charUuid: _ddpWrite,
-            commandName: 'effect_list',
-            params: {'sn': nextSeq().toDouble()});
+          specYaml: specYaml,
+          charUuid: _ddpWrite,
+          commandName: 'effect_list',
+          params: {'sn': nextSeq().toDouble()},
+        );
         await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, el);
         await Future<void>.delayed(const Duration(seconds: 5));
         await sub.cancel();

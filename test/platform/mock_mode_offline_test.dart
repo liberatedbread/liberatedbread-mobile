@@ -42,7 +42,8 @@ void main() {
     final source = stripCommentsKeepingStrings(
       readRepoFile(
         _adBannerProvider,
-        consequence: 'It owns the only launch-time network request the app '
+        consequence:
+            'It owns the only launch-time network request the app '
             'makes before the user does anything.',
       ),
     );
@@ -50,7 +51,8 @@ void main() {
     expect(
       source.contains('isMockMode'),
       isTrue,
-      reason: 'AdBannerNotifier.build() must not start the background config '
+      reason:
+          'AdBannerNotifier.build() must not start the background config '
           'fetch when isMockMode is set. Without that guard every device job '
           'reaches liberatedbread.com on launch, and when the provider is '
           'disposed mid-connect dart:io reports the cancelled socket into the '

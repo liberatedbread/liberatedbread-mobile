@@ -11,35 +11,36 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/group_actions.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
-NetworkActionDto _action(String role,
-        {String transport = 'http', List<String> userParams = const []}) =>
-    NetworkActionDto(
-      role: role,
-      commandName: 'cmd_$role',
-      transport: transport,
-      userParams: userParams,
-      readBack: const [],
-      credentials: const [],
-      instanceParams: const [],
-      min: 0,
-      max: 100,
-    );
+NetworkActionDto _action(
+  String role, {
+  String transport = 'http',
+  List<String> userParams = const [],
+}) => NetworkActionDto(
+  role: role,
+  commandName: 'cmd_$role',
+  transport: transport,
+  userParams: userParams,
+  readBack: const [],
+  credentials: const [],
+  instanceParams: const [],
+  min: 0,
+  max: 100,
+);
 
 NetworkEntityDto _entity({
   String platform = 'switch',
   String stateCommand = '',
   String? transport,
   List<NetworkActionDto> actions = const [],
-}) =>
-    NetworkEntityDto(
-      name: 'Power',
-      platform: platform,
-      stateCommand: stateCommand,
-      transport: transport,
-      isInstanced: false,
-      options: const [],
-      actions: actions,
-    );
+}) => NetworkEntityDto(
+  name: 'Power',
+  platform: platform,
+  stateCommand: stateCommand,
+  transport: transport,
+  isInstanced: false,
+  options: const [],
+  actions: actions,
+);
 
 void main() {
   group('supportedNetworkGroupOps', () {
@@ -78,18 +79,23 @@ void main() {
     test('brightness needs a light', () {
       expect(
         supportedNetworkGroupOps([
-          _entity(actions: [
-            _action('set_brightness', userParams: const ['brightness'])
-          ]),
+          _entity(
+            actions: [
+              _action('set_brightness', userParams: const ['brightness']),
+            ],
+          ),
         ]),
         isEmpty,
         reason: 'a switch has no brightness op',
       );
       expect(
         supportedNetworkGroupOps([
-          _entity(platform: 'light', actions: [
-            _action('set_brightness', userParams: const ['brightness'])
-          ]),
+          _entity(
+            platform: 'light',
+            actions: [
+              _action('set_brightness', userParams: const ['brightness']),
+            ],
+          ),
         ]),
         {GroupOp.setBrightness},
       );
@@ -111,16 +117,19 @@ void main() {
       final plan = resolveNetworkGroupPlan(
         op: GroupOp.turnOff,
         entities: [
-          _entity(stateCommand: 'power_state', actions: [
-            _action('turn_off'),
-            _action('toggle'),
-          ]),
+          _entity(
+            stateCommand: 'power_state',
+            actions: [_action('turn_off'), _action('toggle')],
+          ),
         ],
       );
       expect(plan.direct, hasLength(1));
       expect(plan.direct.single.action.role, 'turn_off');
-      expect(plan.gated, isEmpty,
-          reason: 'the discrete off makes the toggle redundant risk');
+      expect(
+        plan.gated,
+        isEmpty,
+        reason: 'the discrete off makes the toggle redundant risk',
+      );
     });
 
     test('a toggle with readable state is gated, never direct', () {
@@ -152,7 +161,7 @@ void main() {
         userParams: [],
         readBack: [],
         credentials: [
-          NetworkSourceParamDto(param: 'username', name: 'username')
+          NetworkSourceParamDto(param: 'username', name: 'username'),
         ],
         instanceParams: [],
       );
@@ -170,9 +179,12 @@ void main() {
     final plan = resolveNetworkGroupPlan(
       op: GroupOp.setBrightness,
       entities: [
-        _entity(platform: 'light', actions: [
-          _action('set_brightness', userParams: const ['brightness'])
-        ]),
+        _entity(
+          platform: 'light',
+          actions: [
+            _action('set_brightness', userParams: const ['brightness']),
+          ],
+        ),
       ],
       brightnessPercent: 50,
     );

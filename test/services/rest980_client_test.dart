@@ -12,7 +12,8 @@ import '../fakes/fake_spec_codec.dart';
 
 /// What rest980 answers `/api/local/info/state` with: dorita980's state
 /// document, which is the robot's `reported` tree at the top level.
-const _restState = '{"batPct":94,"bin":{"full":false,"present":true},'
+const _restState =
+    '{"batPct":94,"bin":{"full":false,"present":true},'
     '"cleanMissionStatus":{"phase":"run","cycle":"clean"},"name":"Dorita"}';
 
 /// The same facts as the robot publishes them on `delta` — wrapped in the
@@ -65,8 +66,13 @@ void main() {
       expect(Rest980Client.supports('clean'), isTrue);
       await expectLater(
         client.action('http://pi.local:3000', 'find'),
-        throwsA(isA<Rest980Exception>()
-            .having((e) => e.message, 'message', contains('directly'))),
+        throwsA(
+          isA<Rest980Exception>().having(
+            (e) => e.message,
+            'message',
+            contains('directly'),
+          ),
+        ),
       );
       expect(called, isFalse, reason: 'no request is sent for an unmapped one');
     });
@@ -90,55 +96,72 @@ void main() {
       expect(viaRest['state.reported.bin.full'], '0');
     });
 
-    test('a reply that is not a state object is refused, not spliced',
-        () async {
-      // The body used to be interpolated raw into {"state":{"reported":BODY}}
-      // — a proxy's error page of `null},"x":{` built a valid document with
-      // injected siblings. Parsed first, such a reply fails by name.
-      final client = Rest980Client(
-        codec: codec,
-        client: MockClient((_) async => http.Response('null},"x":{', 200)),
-      );
-      await expectLater(
-        client.state('http://pi.local:3000'),
-        throwsA(isA<Rest980Exception>()),
-      );
+    test(
+      'a reply that is not a state object is refused, not spliced',
+      () async {
+        // The body used to be interpolated raw into {"state":{"reported":BODY}}
+        // — a proxy's error page of `null},"x":{` built a valid document with
+        // injected siblings. Parsed first, such a reply fails by name.
+        final client = Rest980Client(
+          codec: codec,
+          client: MockClient((_) async => http.Response('null},"x":{', 200)),
+        );
+        await expectLater(
+          client.state('http://pi.local:3000'),
+          throwsA(isA<Rest980Exception>()),
+        );
 
-      final nonObject = Rest980Client(
-        codec: codec,
-        client: MockClient((_) async => http.Response('"just a string"', 200)),
-      );
-      await expectLater(
-        nonObject.state('http://pi.local:3000'),
-        throwsA(isA<Rest980Exception>()),
-      );
-    });
+        final nonObject = Rest980Client(
+          codec: codec,
+          client: MockClient(
+            (_) async => http.Response('"just a string"', 200),
+          ),
+        );
+        await expectLater(
+          nonObject.state('http://pi.local:3000'),
+          throwsA(isA<Rest980Exception>()),
+        );
+      },
+    );
 
     test('normalizes the address people actually type', () {
-      expect(Rest980Client.normalizeBaseUrl('pi.local:3000'),
-          'http://pi.local:3000');
-      expect(Rest980Client.normalizeBaseUrl('http://pi.local:3000/'),
-          'http://pi.local:3000');
-      expect(Rest980Client.normalizeBaseUrl('  https://pi.local/  '),
-          'https://pi.local');
+      expect(
+        Rest980Client.normalizeBaseUrl('pi.local:3000'),
+        'http://pi.local:3000',
+      );
+      expect(
+        Rest980Client.normalizeBaseUrl('http://pi.local:3000/'),
+        'http://pi.local:3000',
+      );
+      expect(
+        Rest980Client.normalizeBaseUrl('  https://pi.local/  '),
+        'https://pi.local',
+      );
       expect(Rest980Client.normalizeBaseUrl(''), '');
     });
 
     /// A 404 means the address points at something that is not rest980. Saying
     /// that is the difference between a 10-second fix and an evening.
-    test('a 404 says the address is wrong, not that the robot is broken',
-        () async {
-      final client = Rest980Client(
-        codec: codec,
-        client: MockClient((_) async => http.Response('Not Found', 404)),
-      );
+    test(
+      'a 404 says the address is wrong, not that the robot is broken',
+      () async {
+        final client = Rest980Client(
+          codec: codec,
+          client: MockClient((_) async => http.Response('Not Found', 404)),
+        );
 
-      await expectLater(
-        client.state('http://pi.local:3000'),
-        throwsA(isA<Rest980Exception>()
-            .having((e) => e.message, 'message', contains('not a rest980'))),
-      );
-    });
+        await expectLater(
+          client.state('http://pi.local:3000'),
+          throwsA(
+            isA<Rest980Exception>().having(
+              (e) => e.message,
+              'message',
+              contains('not a rest980'),
+            ),
+          ),
+        );
+      },
+    );
 
     test('a 5xx points at the server\'s own logs', () async {
       final client = Rest980Client(
@@ -148,8 +171,13 @@ void main() {
 
       await expectLater(
         client.state('http://pi.local:3000'),
-        throwsA(isA<Rest980Exception>()
-            .having((e) => e.message, 'message', contains('logs'))),
+        throwsA(
+          isA<Rest980Exception>().having(
+            (e) => e.message,
+            'message',
+            contains('logs'),
+          ),
+        ),
       );
     });
 
@@ -194,8 +222,11 @@ void main() {
       await controller.connect();
 
       expect(await first, isNotEmpty);
-      expect(requests, greaterThanOrEqualTo(1),
-          reason: 'connect polls once up front so the screen is not blank');
+      expect(
+        requests,
+        greaterThanOrEqualTo(1),
+        reason: 'connect polls once up front so the screen is not blank',
+      );
     });
 
     /// A rest980 that has stopped answering looks exactly like a robot that
@@ -236,10 +267,7 @@ void main() {
 
       await controller.sendCommand('dock');
 
-      expect(paths, [
-        '/api/local/action/stop',
-        '/api/local/action/dock',
-      ]);
+      expect(paths, ['/api/local/action/stop', '/api/local/action/dock']);
     });
 
     test('reports which commands it can send', () {
@@ -263,12 +291,17 @@ void main() {
       final bare = await codec.roombaStateFields(payload: _restState);
       final wrapped = await codec.roombaStateFields(payload: _mqttState);
 
-      expect(bare.containsKey('batPct'), isTrue,
-          reason: 'unwrapped, the keys are not the ones entities bind to');
+      expect(
+        bare.containsKey('batPct'),
+        isTrue,
+        reason: 'unwrapped, the keys are not the ones entities bind to',
+      );
       expect(wrapped.containsKey('state.reported.batPct'), isTrue);
       expect(bare, isNot(wrapped));
       expect(
-          jsonDecode(_mqttState)['state']['reported'], jsonDecode(_restState));
+        jsonDecode(_mqttState)['state']['reported'],
+        jsonDecode(_restState),
+      );
     });
   });
 }

@@ -48,10 +48,14 @@ void main() {
 
   group('normalizeHaBaseUrl', () {
     test('trims whitespace and trailing slashes', () {
-      expect(normalizeHaBaseUrl('  http://ha.local:8123/  '),
-          'http://ha.local:8123');
-      expect(normalizeHaBaseUrl('http://ha.local:8123///'),
-          'http://ha.local:8123');
+      expect(
+        normalizeHaBaseUrl('  http://ha.local:8123/  '),
+        'http://ha.local:8123',
+      );
+      expect(
+        normalizeHaBaseUrl('http://ha.local:8123///'),
+        'http://ha.local:8123',
+      );
     });
 
     test('adds http scheme when missing', () {

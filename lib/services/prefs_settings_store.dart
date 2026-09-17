@@ -23,7 +23,7 @@ class PrefsSettingsStore implements SettingsStore {
 
   @override
   Future<Map<String, String>> readAll() async => {
-        for (final key in _prefs.getKeys())
-          if (_prefs.getString(key) case final String value) key: value,
-      };
+    for (final key in _prefs.getKeys())
+      if (_prefs.getString(key) case final String value) key: value,
+  };
 }

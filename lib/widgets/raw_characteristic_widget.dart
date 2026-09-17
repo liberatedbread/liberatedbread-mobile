@@ -151,24 +151,26 @@ class _RawCharacteristicWidgetState
     final bleService = ref.read(bleServiceProvider);
     _notifySub = bleService
         .subscribeCharacteristic(
-      widget.deviceId,
-      widget.serviceUuid,
-      widget.characteristic.uuid,
-    )
+          widget.deviceId,
+          widget.serviceUuid,
+          widget.characteristic.uuid,
+        )
         .listen(
-      (value) {
-        if (mounted) setState(() => _value = value);
-      },
-      onError: (Object e) {
-        if (mounted) {
-          setState(() => _error = friendlyErrorText(
-                e,
-                context: 'notify ${widget.characteristic.uuid}',
-                fallback: 'Live updates stopped.',
-              ));
-        }
-      },
-    );
+          (value) {
+            if (mounted) setState(() => _value = value);
+          },
+          onError: (Object e) {
+            if (mounted) {
+              setState(
+                () => _error = friendlyErrorText(
+                  e,
+                  context: 'notify ${widget.characteristic.uuid}',
+                  fallback: 'Live updates stopped.',
+                ),
+              );
+            }
+          },
+        );
   }
 
   @override
@@ -187,20 +189,19 @@ class _RawCharacteristicWidgetState
           title: Row(
             children: [
               Expanded(
-                child: Text(
-                  char.uuid,
-                  style: monoTextStyleOf(fontSize: 12),
+                child: Text(char.uuid, style: monoTextStyleOf(fontSize: 12)),
+              ),
+              ...properties.map(
+                (p) => Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Chip(
+                    label: Text(p, style: const TextStyle(fontSize: 10)),
+                    padding: EdgeInsets.zero,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
                 ),
               ),
-              ...properties.map((p) => Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: Chip(
-                      label: Text(p, style: const TextStyle(fontSize: 10)),
-                      padding: EdgeInsets.zero,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  )),
             ],
           ),
           subtitle: _buildValue(),
@@ -256,14 +257,18 @@ class _RawCharacteristicWidgetState
           if (_writeError != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text('Error: $_writeError',
-                  style: const TextStyle(color: Colors.red, fontSize: 12)),
+              child: Text(
+                'Error: $_writeError',
+                style: const TextStyle(color: Colors.red, fontSize: 12),
+              ),
             ),
           if (_writeStatus != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(_writeStatus!,
-                  style: const TextStyle(color: Colors.green, fontSize: 12)),
+              child: Text(
+                _writeStatus!,
+                style: const TextStyle(color: Colors.green, fontSize: 12),
+              ),
             ),
         ],
       ),
@@ -272,25 +277,28 @@ class _RawCharacteristicWidgetState
 
   Widget _buildValue() {
     if (_loading) {
-      return const Text('Reading...',
-          style: TextStyle(fontStyle: FontStyle.italic));
+      return const Text(
+        'Reading...',
+        style: TextStyle(fontStyle: FontStyle.italic),
+      );
     }
     if (_error != null) {
-      return Text('Error: $_error',
-          style: const TextStyle(color: Colors.red, fontSize: 12));
+      return Text(
+        'Error: $_error',
+        style: const TextStyle(color: Colors.red, fontSize: 12),
+      );
     }
     if (_value == null) {
-      return const Text('(no value)',
-          style: TextStyle(color: Colors.grey, fontSize: 12));
+      return const Text(
+        '(no value)',
+        style: TextStyle(color: Colors.grey, fontSize: 12),
+      );
     }
     final ascii = asciiPreview(_value!);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          bytesToHex(_value!),
-          style: monoTextStyleOf(fontSize: 13),
-        ),
+        Text(bytesToHex(_value!), style: monoTextStyleOf(fontSize: 13)),
         if (ascii != null)
           Text(
             '"$ascii"',

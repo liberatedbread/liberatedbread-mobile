@@ -60,8 +60,9 @@ void main() {
     expect(find.textContaining('Bad state: no route'), findsOneWidget);
   });
 
-  testWidgets('the view filter narrows without changing what is captured',
-      (tester) async {
+  testWidgets('the view filter narrows without changing what is captured', (
+    tester,
+  ) async {
     // A reader narrowing to warnings must not stop the app recording debug
     // lines they may want a moment later.
     Log.minLevel = LogLevel.debug;
@@ -81,8 +82,9 @@ void main() {
     expect(Log.minLevel, LogLevel.debug, reason: 'capture is untouched');
   });
 
-  testWidgets('a category chip turns that category up, and only it',
-      (tester) async {
+  testWidgets('a category chip turns that category up, and only it', (
+    tester,
+  ) async {
     Log.minLevel = LogLevel.info;
     Log.net.info('anchor');
     await pump(tester);
@@ -112,8 +114,12 @@ void main() {
         return null;
       },
     );
-    addTearDown(() => tester.binding.defaultBinaryMessenger
-        .setMockMethodCallHandler(SystemChannels.platform, null));
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
 
     Log.minLevel = LogLevel.debug;
     Log.net.debug('chatter');
@@ -147,24 +153,25 @@ void main() {
     expect(find.textContaining('Nothing recorded'), findsOneWidget);
   });
 
-  testWidgets('says so when recording is off rather than looking empty',
-      (tester) async {
+  testWidgets('says so when recording is off rather than looking empty', (
+    tester,
+  ) async {
     Log.buffer = null;
     await pump(tester);
     expect(find.textContaining('recording is off'), findsOneWidget);
   });
 
-  testWidgets('a secret redacted at the call site stays redacted here',
-      (tester) async {
+  testWidgets('a secret redacted at the call site stays redacted here', (
+    tester,
+  ) async {
     // The screen renders records verbatim and offers them to the clipboard, so
     // it is the last place a leaked secret would become someone else's. The
     // rule is upstream — redact at the call site — and this pins that nothing
     // here undoes it.
     Log.minLevel = LogLevel.debug;
-    Log.ha.info('registering ${logFields({
-          'token': redact('s3cret-token'),
-          'webhook': redact(null),
-        })}');
+    Log.ha.info(
+      'registering ${logFields({'token': redact('s3cret-token'), 'webhook': redact(null)})}',
+    );
 
     await pump(tester);
 

@@ -78,8 +78,13 @@ void main() {
         return broker;
       },
     );
-    await session.connect('10.0.0.5', 1883,
-        clientId: clientId, username: username, password: password);
+    await session.connect(
+      '10.0.0.5',
+      1883,
+      clientId: clientId,
+      username: username,
+      password: password,
+    );
     return (session, broker);
   }
 
@@ -97,16 +102,18 @@ void main() {
   /// takes a static login; neither is the Roomba's shape, and a CONNECT
   /// carrying two empty strings is refused by some brokers and read as an
   /// empty username by others.
-  test('a broker that wants no credentials gets a CONNECT that says so',
-      () async {
-    final (session, broker) = await connected(username: null, password: null);
-    addTearDown(session.dispose);
+  test(
+    'a broker that wants no credentials gets a CONNECT that says so',
+    () async {
+      final (session, broker) = await connected(username: null, password: null);
+      addTearDown(session.dispose);
 
-    expect(codec.mqttConnectArgs?.username, isNull);
-    expect(codec.mqttConnectArgs?.password, isNull);
-    // Flags byte: clean session only, neither credential flag set.
-    expect(broker.written.first[9], 0x02);
-  });
+      expect(codec.mqttConnectArgs?.username, isNull);
+      expect(codec.mqttConnectArgs?.password, isNull);
+      // Flags byte: clean session only, neither credential flag set.
+      expect(broker.written.first[9], 0x02);
+    },
+  );
 
   test('subscribes to the topic it is asked for, not a wildcard', () async {
     final (session, broker) = await connected();
@@ -116,7 +123,9 @@ void main() {
     expect(
       broker.written.last,
       await codec.mqttSubscribePacket(
-          topic: '438/SERIAL/status/current', packetId: 1),
+        topic: '438/SERIAL/status/current',
+        packetId: 1,
+      ),
     );
   });
 
@@ -125,7 +134,9 @@ void main() {
     addTearDown(session.dispose);
 
     await session.publish(
-        '/remoteapp/tv/remote_service/c/actions/sendkey', 'KEY_POWER');
+      '/remoteapp/tv/remote_service/c/actions/sendkey',
+      'KEY_POWER',
+    );
     expect(
       broker.written.last,
       await codec.mqttPublishPacket(
@@ -143,65 +154,78 @@ void main() {
     addTearDown(session.dispose);
 
     final received = session.messages.first;
-    broker.send(await codec.mqttPublishPacket(
-      topic: 'state/current',
-      payload: '{"fpwr":"ON"}',
-    ));
+    broker.send(
+      await codec.mqttPublishPacket(
+        topic: 'state/current',
+        payload: '{"fpwr":"ON"}',
+      ),
+    );
 
     final message = await received;
     expect(message.topic, 'state/current');
     expect(message.payload, '{"fpwr":"ON"}');
   });
 
-  test('a refusal names the code and does not read as a network problem',
-      () async {
-    final broker = _ScriptedBroker();
-    final session = MqttSession(
-      codec: codec,
-      connect: (host, port, timeout) async {
-        // 4 = bad username or password.
-        scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x04]));
-        return broker;
-      },
-    );
-    addTearDown(session.dispose);
+  test(
+    'a refusal names the code and does not read as a network problem',
+    () async {
+      final broker = _ScriptedBroker();
+      final session = MqttSession(
+        codec: codec,
+        connect: (host, port, timeout) async {
+          // 4 = bad username or password.
+          scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x04]));
+          return broker;
+        },
+      );
+      addTearDown(session.dispose);
 
-    await expectLater(
-      session.connect('10.0.0.5', 1883, clientId: 'c'),
-      throwsA(isA<MqttRefusedException>()
-          .having((e) => e.code, 'code', 4)
-          .having((e) => e.message, 'message', contains('username'))),
-    );
-    // The socket is released, so a later connect() genuinely reconnects
-    // instead of handing back a session the broker never authenticated.
-    expect(session.isConnected, isFalse);
-  });
+      await expectLater(
+        session.connect('10.0.0.5', 1883, clientId: 'c'),
+        throwsA(
+          isA<MqttRefusedException>()
+              .having((e) => e.code, 'code', 4)
+              .having((e) => e.message, 'message', contains('username')),
+        ),
+      );
+      // The socket is released, so a later connect() genuinely reconnects
+      // instead of handing back a session the broker never authenticated.
+      expect(session.isConnected, isFalse);
+    },
+  );
 
   /// A broker that accepts TCP and then says nothing is a different problem
   /// from one that never accepted, and callers translate it — the Roomba's
   /// means the iRobot app holds the one local slot. Flagged rather than left
   /// to the message text so no caller has to string-match this wording.
-  test('a broker that never sends CONNACK times out, flagged as such',
-      () async {
-    final broker = _ScriptedBroker();
-    final session = MqttSession(
-      codec: codec,
-      // Accepts the socket, then silence.
-      connect: (host, port, timeout) async => broker,
-      ackWait: const Duration(milliseconds: 50),
-    );
-    addTearDown(session.dispose);
+  test(
+    'a broker that never sends CONNACK times out, flagged as such',
+    () async {
+      final broker = _ScriptedBroker();
+      final session = MqttSession(
+        codec: codec,
+        // Accepts the socket, then silence.
+        connect: (host, port, timeout) async => broker,
+        ackWait: const Duration(milliseconds: 50),
+      );
+      addTearDown(session.dispose);
 
-    await expectLater(
-      session.connect('10.0.0.5', 1883, clientId: 'c'),
-      throwsA(isA<MqttConnectionException>()
-          .having((e) => e.ackTimedOut, 'ackTimedOut', isTrue)),
-    );
-    // The socket is released, so a later connect really reconnects rather
-    // than returning early over a session the broker never authenticated.
-    expect(session.isConnected, isFalse);
-    expect(broker.closed, isTrue);
-  });
+      await expectLater(
+        session.connect('10.0.0.5', 1883, clientId: 'c'),
+        throwsA(
+          isA<MqttConnectionException>().having(
+            (e) => e.ackTimedOut,
+            'ackTimedOut',
+            isTrue,
+          ),
+        ),
+      );
+      // The socket is released, so a later connect really reconnects rather
+      // than returning early over a session the broker never authenticated.
+      expect(session.isConnected, isFalse);
+      expect(broker.closed, isTrue);
+    },
+  );
 
   test('a hang-up surfaces on the message stream', () async {
     final (session, broker) = await connected();
@@ -218,38 +242,47 @@ void main() {
   test('a caller can say what a hang-up means', () async {
     final (session, broker) = await connected();
     addTearDown(session.dispose);
-    session.onHangUp =
-        () => const MqttConnectionException('Something else took the device.');
+    session.onHangUp = () =>
+        const MqttConnectionException('Something else took the device.');
 
     final failure = session.messages.first;
     await broker.hangUp();
 
     await expectLater(
       failure,
-      throwsA(isA<MqttConnectionException>().having(
-          (e) => e.message, 'message', 'Something else took the device.')),
+      throwsA(
+        isA<MqttConnectionException>().having(
+          (e) => e.message,
+          'message',
+          'Something else took the device.',
+        ),
+      ),
     );
   });
 
-  test('publishing before connecting is refused, not silently dropped',
-      () async {
-    final session = MqttSession(codec: codec);
-    addTearDown(session.dispose);
+  test(
+    'publishing before connecting is refused, not silently dropped',
+    () async {
+      final session = MqttSession(codec: codec);
+      addTearDown(session.dispose);
 
-    await expectLater(
-      session.publish('t', 'p'),
-      throwsA(isA<MqttConnectionException>()),
-    );
-  });
+      await expectLater(
+        session.publish('t', 'p'),
+        throwsA(isA<MqttConnectionException>()),
+      );
+    },
+  );
 
-  test('close is idempotent and safe on a session that never connected',
-      () async {
-    final session = MqttSession(codec: codec);
-    await session.close();
-    await session.close();
-    expect(session.isConnected, isFalse);
-    await session.dispose();
-  });
+  test(
+    'close is idempotent and safe on a session that never connected',
+    () async {
+      final session = MqttSession(codec: codec);
+      await session.close();
+      await session.close();
+      expect(session.isConnected, isFalse);
+      await session.dispose();
+    },
+  );
 
   test('close sends DISCONNECT and lets go of the socket', () async {
     final (session, broker) = await connected();
@@ -265,38 +298,47 @@ void main() {
   /// `isConnected` stays true and every later send publishes into a corpse
   /// while the screen claims a live stream. The next send's reopen depends
   /// on this.
-  test('a hang-up tears the session down and the next connect reopens',
-      () async {
-    final brokers = <_ScriptedBroker>[];
-    final session = MqttSession(
-      codec: codec,
-      connect: (host, port, timeout) async {
-        // Closed by the session (or by the hang-up the test performs).
-        // ignore: close_sinks
-        final broker = _ScriptedBroker();
-        brokers.add(broker);
-        scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
-        return broker;
-      },
-    );
-    addTearDown(session.dispose);
-    await session.connect('10.0.0.5', 1883, clientId: 'c');
-    final errors = <Object>[];
-    final sub = session.messages.listen((_) {}, onError: errors.add);
-    addTearDown(sub.cancel);
+  test(
+    'a hang-up tears the session down and the next connect reopens',
+    () async {
+      final brokers = <_ScriptedBroker>[];
+      final session = MqttSession(
+        codec: codec,
+        connect: (host, port, timeout) async {
+          // Closed by the session (or by the hang-up the test performs).
+          // ignore: close_sinks
+          final broker = _ScriptedBroker();
+          brokers.add(broker);
+          scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+          return broker;
+        },
+      );
+      addTearDown(session.dispose);
+      await session.connect('10.0.0.5', 1883, clientId: 'c');
+      final errors = <Object>[];
+      final sub = session.messages.listen((_) {}, onError: errors.add);
+      addTearDown(sub.cancel);
 
-    await brokers.single.hangUp();
-    await pumpEventQueue();
+      await brokers.single.hangUp();
+      await pumpEventQueue();
 
-    expect(session.isConnected, isFalse,
-        reason: 'a dead socket must not be served to the next send');
-    expect(errors, hasLength(1));
+      expect(
+        session.isConnected,
+        isFalse,
+        reason: 'a dead socket must not be served to the next send',
+      );
+      expect(errors, hasLength(1));
 
-    await session.connect('10.0.0.5', 1883, clientId: 'c');
-    expect(brokers, hasLength(2), reason: 'the reopen dialled a fresh socket');
-    await session.publish('t', 'p');
-    expect(brokers.last.written, isNotEmpty);
-  });
+      await session.connect('10.0.0.5', 1883, clientId: 'c');
+      expect(
+        brokers,
+        hasLength(2),
+        reason: 'the reopen dialled a fresh socket',
+      );
+      await session.publish('t', 'p');
+      expect(brokers.last.written, isNotEmpty);
+    },
+  );
 
   /// One banner per failure, not one per aftermath event: the queued chunks
   /// draining after a failure must not each add their own error.
@@ -312,8 +354,11 @@ void main() {
     await pumpEventQueue();
 
     expect(session.isConnected, isFalse);
-    expect(errors, hasLength(1),
-        reason: 'aftermath chunks must not re-report the failure');
+    expect(
+      errors,
+      hasLength(1),
+      reason: 'aftermath chunks must not re-report the failure',
+    );
   });
 
   /// A half-open link — the phone walked out of Wi-Fi range, the robot lost
@@ -324,15 +369,14 @@ void main() {
   /// answer.
   group('keepalive', () {
     MqttSession sessionOn(_ScriptedBroker broker) => MqttSession(
-          codec: codec,
-          connect: (host, port, timeout) async {
-            scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
-            return broker;
-          },
-        );
+      codec: codec,
+      connect: (host, port, timeout) async {
+        scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+        return broker;
+      },
+    );
 
-    test(
-        'a PINGREQ the broker never answers fails the session within one '
+    test('a PINGREQ the broker never answers fails the session within one '
         'keepalive period', () {
       fakeAsync((async) {
         final broker = _ScriptedBroker();
@@ -344,19 +388,31 @@ void main() {
         session.messages.listen((_) {}, onError: errors.add);
 
         async.elapse(MqttSession.pingInterval);
-        expect(broker.written.last, [0xC0, 0x00],
-            reason: 'the first ping goes out on schedule');
-        expect(session.isConnected, isTrue,
-            reason: 'one ping in flight is not yet a verdict');
+        expect(broker.written.last, [
+          0xC0,
+          0x00,
+        ], reason: 'the first ping goes out on schedule');
+        expect(
+          session.isConnected,
+          isTrue,
+          reason: 'one ping in flight is not yet a verdict',
+        );
 
         async.elapse(MqttSession.pingInterval);
-        expect(session.isConnected, isFalse,
-            reason: 'a ping unanswered for a whole period is a dead link, '
-                'and the next send must reopen rather than buffer');
+        expect(
+          session.isConnected,
+          isFalse,
+          reason:
+              'a ping unanswered for a whole period is a dead link, '
+              'and the next send must reopen rather than buffer',
+        );
         expect(
           errors.single,
-          isA<MqttConnectionException>()
-              .having((e) => e.message, 'message', contains('keepalive')),
+          isA<MqttConnectionException>().having(
+            (e) => e.message,
+            'message',
+            contains('keepalive'),
+          ),
         );
         expect(broker.closed, isTrue);
 
@@ -376,8 +432,11 @@ void main() {
 
         async.elapse(MqttSession.pingInterval * 4);
 
-        expect(broker.written.where((p) => p.first == 0xC0), hasLength(4),
-            reason: 'every period pinged — none skipped for a false verdict');
+        expect(
+          broker.written.where((p) => p.first == 0xC0),
+          hasLength(4),
+          reason: 'every period pinged — none skipped for a false verdict',
+        );
         expect(session.isConnected, isTrue);
         expect(errors, isEmpty);
 
@@ -419,13 +478,18 @@ void main() {
     // destroy() is this socket's close, and the assertion below proves it ran.
     // ignore: close_sinks
     final socket = _WedgedSocket();
-    final adapter =
-        SocketAdapter(socket, flushDeadline: const Duration(milliseconds: 50));
+    final adapter = SocketAdapter(
+      socket,
+      flushDeadline: const Duration(milliseconds: 50),
+    );
 
     await adapter.close().timeout(const Duration(seconds: 5));
 
-    expect(socket.destroyed, isTrue,
-        reason: 'destroy must follow even when flush never completes');
+    expect(
+      socket.destroyed,
+      isTrue,
+      reason: 'destroy must follow even when flush never completes',
+    );
   });
 
   group('mqttConnectorFor', () {
@@ -448,24 +512,30 @@ void main() {
       // A spec that DECLARES its broker's transport security is believed on
       // any port — the port rule is only the fallback convention.
       expect(
-          identical(selectMqttConnector(declared: 'plaintext', port: 8883),
-              plainConnect),
-          isTrue);
+        identical(
+          selectMqttConnector(declared: 'plaintext', port: 8883),
+          plainConnect,
+        ),
+        isTrue,
+      );
       expect(
-          identical(
-              selectMqttConnector(declared: 'tls', port: 1883), tlsConnect),
-          isTrue);
+        identical(selectMqttConnector(declared: 'tls', port: 1883), tlsConnect),
+        isTrue,
+      );
     });
 
     test('no declaration falls back to the port convention', () {
       expect(
-          identical(
-              selectMqttConnector(declared: null, port: 1883), plainConnect),
-          isTrue);
+        identical(
+          selectMqttConnector(declared: null, port: 1883),
+          plainConnect,
+        ),
+        isTrue,
+      );
       expect(
-          identical(
-              selectMqttConnector(declared: null, port: 8883), tlsConnect),
-          isTrue);
+        identical(selectMqttConnector(declared: null, port: 8883), tlsConnect),
+        isTrue,
+      );
     });
   });
 }

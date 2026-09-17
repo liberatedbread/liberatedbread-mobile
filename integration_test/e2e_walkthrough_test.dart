@@ -70,8 +70,11 @@ void main() {
 
     // Launching IS starting the scan — nothing is tapped here.
     expect(find.text('Searching for devices...'), findsOneWidget);
-    expect(find.text('MOCK'), findsOneWidget,
-        reason: 'run with --dart-define=LIBERATED_BREAD_MOCK=true');
+    expect(
+      find.text('MOCK'),
+      findsOneWidget,
+      reason: 'run with --dart-define=LIBERATED_BREAD_MOCK=true',
+    );
     await _shot(tester, '01_launch_scan_running');
 
     await _soak(tester, const Duration(milliseconds: 600));
@@ -184,8 +187,11 @@ void main() {
     expect(find.textContaining('your connection'), findsOneWidget);
 
     // The host-side fixture pack: a real download + parse + cache round trip.
-    await _type(tester, find.byType(TextField),
-        'http://127.0.0.1:$_shotPort/pack/pack.json');
+    await _type(
+      tester,
+      find.byType(TextField),
+      'http://127.0.0.1:$_shotPort/pack/pack.json',
+    );
     await tester.tap(find.text('Install / Refresh'));
     await _waitFor(tester, find.textContaining('Installed "E2E Demo Pack"'));
     await _soak(tester, const Duration(seconds: 1));
@@ -243,7 +249,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          bleServiceProvider.overrideWithValue(_UnmatchedBleService())
+          bleServiceProvider.overrideWithValue(_UnmatchedBleService()),
         ],
         child: MaterialApp(
           theme: LiberatedBreadTheme.light,
@@ -279,8 +285,10 @@ void main() {
     // arriving on the screen.
     //
     // Permission denied.
-    await _pumpScan(tester,
-        _ScriptedBleService(scanError: const BlePermissionDeniedException()));
+    await _pumpScan(
+      tester,
+      _ScriptedBleService(scanError: const BlePermissionDeniedException()),
+    );
     await _soak(tester, const Duration(seconds: 2));
     expect(find.text('Bluetooth permission needed'), findsOneWidget);
     await _shot(tester, '26_permission_denied');
@@ -294,8 +302,10 @@ void main() {
     // Radio off — the typed failure RealBleService raises when the adapter is
     // not on. The user gets guidance; "Bad state:" (Dart's rendering of a
     // StateError) must never reach the screen.
-    await _pumpScan(tester,
-        _ScriptedBleService(scanError: const BleUnavailableException()));
+    await _pumpScan(
+      tester,
+      _ScriptedBleService(scanError: const BleUnavailableException()),
+    );
     await _soak(tester, const Duration(seconds: 2));
     expect(find.textContaining('Bluetooth is turned off'), findsOneWidget);
     expect(find.textContaining('Bad state'), findsNothing);
@@ -317,8 +327,10 @@ void main() {
     expect(find.text('Retry'), findsOneWidget);
     // An untyped failure takes the generic path: guidance, never the raw
     // exception text the fake threw.
-    expect(find.textContaining('Could not connect to this device'),
-        findsOneWidget);
+    expect(
+      find.textContaining('Could not connect to this device'),
+      findsOneWidget,
+    );
     expect(find.textContaining('link lost'), findsNothing);
     expect(find.textContaining('Bad state'), findsNothing);
     await _shot(tester, '29_device_connect_error');
@@ -347,8 +359,9 @@ void main() {
 /// failures for a release cycle. The three steps that build their own scope
 /// were the ones that passed. mock_flow_test.dart does exactly this.
 Future<void> _pumpApp(WidgetTester tester) async {
-  SharedPreferences.setMockInitialValues(
-      {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+  SharedPreferences.setMockInitialValues({
+    AppConstants.termsAcceptedKey: AppConstants.termsVersion,
+  });
   final prefs = await SharedPreferences.getInstance();
   await tester.pumpWidget(
     ProviderScope(
@@ -420,8 +433,9 @@ Future<void> _shot(WidgetTester tester, String name) async {
   await tester.runAsync(() async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     try {
-      final request = await client
-          .getUrl(Uri.parse('http://127.0.0.1:$_shotPort/shot?name=$name'));
+      final request = await client.getUrl(
+        Uri.parse('http://127.0.0.1:$_shotPort/shot?name=$name'),
+      );
       final response = await request.close();
       final body = await response.transform(const Utf8Decoder()).join();
       if (response.statusCode == 200) {
@@ -433,10 +447,12 @@ Future<void> _shot(WidgetTester tester, String name) async {
     } on SocketException catch (e) {
       // No server listening: supported, no images this run.
       debugPrint(
-          '[e2e] screenshot $name skipped, no shot server: ${e.message}');
+        '[e2e] screenshot $name skipped, no shot server: ${e.message}',
+      );
     } on HttpException catch (e) {
       debugPrint(
-          '[e2e] screenshot $name skipped, no shot server: ${e.message}');
+        '[e2e] screenshot $name skipped, no shot server: ${e.message}',
+      );
     } finally {
       client.close(force: true);
     }
@@ -449,8 +465,10 @@ Future<void> _shot(WidgetTester tester, String name) async {
 void _assertAllShotsCaptured() {
   if (_badShots.isEmpty) return;
   final list = _badShots.map((s) => '  - $s').join('\n');
-  fail('${_badShots.length} screenshot(s) were captured but rejected as not '
-      'showing real UI:\n$list');
+  fail(
+    '${_badShots.length} screenshot(s) were captured but rejected as not '
+    'showing real UI:\n$list',
+  );
 }
 
 /// Mount a fresh [ScanScreen] over [service]. The key is per-call so pumping a
@@ -501,8 +519,7 @@ class _UnmatchedBleService implements BleService {
   Stream<IoTDevice> scan({
     Duration? timeout = const Duration(seconds: 10),
     ScanIntensity intensity = ScanIntensity.active,
-  }) =>
-      const Stream.empty();
+  }) => const Stream.empty();
 
   @override
   Future<void> stopScan() async {}
@@ -546,7 +563,11 @@ class _UnmatchedBleService implements BleService {
 
   @override
   Future<void> writeCharacteristic(
-      String d, String s, String c, List<int> value) async {
+    String d,
+    String s,
+    String c,
+    List<int> value,
+  ) async {
     _values[c] = value;
   }
 
@@ -621,7 +642,11 @@ class _ScriptedBleService implements BleService {
 
   @override
   Future<void> writeCharacteristic(
-      String d, String s, String c, List<int> v) async {}
+    String d,
+    String s,
+    String c,
+    List<int> v,
+  ) async {}
 
   @override
   Stream<List<int>> subscribeCharacteristic(String d, String s, String c) =>

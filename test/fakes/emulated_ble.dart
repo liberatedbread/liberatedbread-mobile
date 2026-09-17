@@ -110,14 +110,18 @@ class EmulatedGattError {
   /// authenticated (paired) link and the link is not one yet. Android's
   /// GATT_INSUFFICIENT_AUTHENTICATION and Apple's
   /// CBATTError.insufficientAuthentication are both this same ATT code.
-  static const insufficientAuthentication =
-      EmulatedGattError(5, 'GATT_INSUFFICIENT_AUTHENTICATION');
+  static const insufficientAuthentication = EmulatedGattError(
+    5,
+    'GATT_INSUFFICIENT_AUTHENTICATION',
+  );
 
   /// ATT error 0x0F: the link is paired but not encrypted to the level the
   /// attribute demands. Reaches the app through the same route as
   /// [insufficientAuthentication] and wants the same recovery.
-  static const insufficientEncryption =
-      EmulatedGattError(15, 'GATT_INSUFFICIENT_ENCRYPTION');
+  static const insufficientEncryption = EmulatedGattError(
+    15,
+    'GATT_INSUFFICIENT_ENCRYPTION',
+  );
 }
 
 /// A characteristic in an emulated peripheral's GATT table.
@@ -172,21 +176,21 @@ class EmulatedCharacteristic {
     bool? exposesCccd,
     this.readError,
     this.writeError,
-  })  : value = List<int>.of(value),
-        exposesCccd = exposesCccd ?? (canNotify || canIndicate);
+  }) : value = List<int>.of(value),
+       exposesCccd = exposesCccd ?? (canNotify || canIndicate);
 
   BmCharacteristicProperties get _properties => BmCharacteristicProperties(
-        broadcast: false,
-        read: canRead,
-        writeWithoutResponse: canWriteWithoutResponse,
-        write: canWriteWithResponse,
-        notify: canNotify,
-        indicate: canIndicate,
-        authenticatedSignedWrites: false,
-        extendedProperties: false,
-        notifyEncryptionRequired: false,
-        indicateEncryptionRequired: false,
-      );
+    broadcast: false,
+    read: canRead,
+    writeWithoutResponse: canWriteWithoutResponse,
+    write: canWriteWithResponse,
+    notify: canNotify,
+    indicate: canIndicate,
+    authenticatedSignedWrites: false,
+    extendedProperties: false,
+    notifyEncryptionRequired: false,
+    indicateEncryptionRequired: false,
+  );
 }
 
 /// A service in an emulated peripheral's GATT table.
@@ -357,8 +361,8 @@ class EmulatedPeripheral {
   /// device that does not exist.
   EmulatedGattError? get _pairingBarrier =>
       requiresPairing && bondState != EmulatedBondState.bonded
-          ? EmulatedGattError.insufficientAuthentication
-          : null;
+      ? EmulatedGattError.insufficientAuthentication
+      : null;
 
   EmulatedCharacteristic? _lookup(Guid service, Guid characteristic) {
     for (final s in services) {
@@ -385,11 +389,17 @@ class EmulatedPeripheral {
 
   /// Drop the link from the peripheral's side, the way a device that is
   /// unplugged or walks out of range does.
-  void dropLink(
-      {int reasonCode = 19, String reason = 'REMOTE_USER_TERMINATED'}) {
+  void dropLink({
+    int reasonCode = 19,
+    String reason = 'REMOTE_USER_TERMINATED',
+  }) {
     if (!_connected) return;
-    _adapter?._setConnectionState(this, false,
-        reasonCode: reasonCode, reason: reason);
+    _adapter?._setConnectionState(
+      this,
+      false,
+      reasonCode: reasonCode,
+      reason: reason,
+    );
   }
 
   /// Advertise once, so a scan in progress sees this device (again).
@@ -402,49 +412,49 @@ class EmulatedPeripheral {
   }
 
   BmScanAdvertisement get _advertisement => BmScanAdvertisement(
-        remoteId: DeviceIdentifier(id),
-        platformName: name,
-        advName: name,
-        connectable: connectable,
-        txPowerLevel: null,
-        appearance: null,
-        manufacturerData: const {},
-        serviceData: const {},
-        serviceUuids: [for (final s in services) Guid(s.uuid)],
-        rssi: rssi,
-      );
+    remoteId: DeviceIdentifier(id),
+    platformName: name,
+    advName: name,
+    connectable: connectable,
+    txPowerLevel: null,
+    appearance: null,
+    manufacturerData: const {},
+    serviceData: const {},
+    serviceUuids: [for (final s in services) Guid(s.uuid)],
+    rssi: rssi,
+  );
 
   List<BmBluetoothService> get _gattTable => [
-        for (final service in services)
-          BmBluetoothService(
-            remoteId: DeviceIdentifier(id),
-            serviceUuid: Guid(service.uuid),
-            // null means "primary". flutter_blue_plus filters discovery results
-            // down to primary services, so a non-null value here would make the
-            // service vanish from discoverServices().
-            primaryServiceUuid: null,
-            characteristics: [
-              for (final char in service.characteristics)
-                BmBluetoothCharacteristic(
-                  remoteId: DeviceIdentifier(id),
-                  serviceUuid: Guid(service.uuid),
-                  characteristicUuid: Guid(char.uuid),
-                  primaryServiceUuid: null,
-                  descriptors: [
-                    if (char.exposesCccd)
-                      BmBluetoothDescriptor(
-                        remoteId: DeviceIdentifier(id),
-                        serviceUuid: Guid(service.uuid),
-                        characteristicUuid: Guid(char.uuid),
-                        descriptorUuid: Guid(EmulatedUuids.cccd),
-                        primaryServiceUuid: null,
-                      ),
-                  ],
-                  properties: char._properties,
-                ),
-            ],
-          ),
-      ];
+    for (final service in services)
+      BmBluetoothService(
+        remoteId: DeviceIdentifier(id),
+        serviceUuid: Guid(service.uuid),
+        // null means "primary". flutter_blue_plus filters discovery results
+        // down to primary services, so a non-null value here would make the
+        // service vanish from discoverServices().
+        primaryServiceUuid: null,
+        characteristics: [
+          for (final char in service.characteristics)
+            BmBluetoothCharacteristic(
+              remoteId: DeviceIdentifier(id),
+              serviceUuid: Guid(service.uuid),
+              characteristicUuid: Guid(char.uuid),
+              primaryServiceUuid: null,
+              descriptors: [
+                if (char.exposesCccd)
+                  BmBluetoothDescriptor(
+                    remoteId: DeviceIdentifier(id),
+                    serviceUuid: Guid(service.uuid),
+                    characteristicUuid: Guid(char.uuid),
+                    descriptorUuid: Guid(EmulatedUuids.cccd),
+                    primaryServiceUuid: null,
+                  ),
+              ],
+              properties: char._properties,
+            ),
+        ],
+      ),
+  ];
 }
 
 /// An emulated BLE controller, installed as flutter_blue_plus's platform
@@ -558,8 +568,12 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   Future<void> reset() async {
     for (final peripheral in _peripherals.values) {
       if (peripheral._connected) {
-        _setConnectionState(peripheral, false,
-            reasonCode: 0, reason: 'test reset');
+        _setConnectionState(
+          peripheral,
+          false,
+          reasonCode: 0,
+          reason: 'test reset',
+        );
       }
       // Bond state is cached per remote id inside flutter_blue_plus and read
       // only when it has none, so a device left bonded would still look bonded
@@ -605,10 +619,12 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   /// does with its cache when told.
   void pushServicesReset(String deviceId) {
     if (_servicesResetController.isClosed) return;
-    _servicesResetController.add(BmBluetoothDevice(
-      remoteId: DeviceIdentifier(deviceId),
-      platformName: _peripherals[deviceId]?.name,
-    ));
+    _servicesResetController.add(
+      BmBluetoothDevice(
+        remoteId: DeviceIdentifier(deviceId),
+        platformName: _peripherals[deviceId]?.name,
+      ),
+    );
   }
 
   // ── event plumbing ────────────────────────────────────────────────────────
@@ -630,12 +646,14 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
 
   void _emitAdvertisement(EmulatedPeripheral peripheral) {
     if (!_scanning || _scanController.isClosed) return;
-    _scanController.add(BmScanResponse(
-      advertisements: [peripheral._advertisement],
-      success: true,
-      errorCode: 0,
-      errorString: '',
-    ));
+    _scanController.add(
+      BmScanResponse(
+        advertisements: [peripheral._advertisement],
+        success: true,
+        errorCode: 0,
+        errorString: '',
+      ),
+    );
   }
 
   void _setConnectionState(
@@ -653,25 +671,29 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
       }
     }
     if (_connectionController.isClosed) return;
-    _connectionController.add(BmConnectionStateResponse(
-      remoteId: DeviceIdentifier(peripheral.id),
-      connectionState: connected
-          ? BmConnectionStateEnum.connected
-          : BmConnectionStateEnum.disconnected,
-      disconnectReasonCode: reasonCode,
-      disconnectReasonString: reason,
-    ));
+    _connectionController.add(
+      BmConnectionStateResponse(
+        remoteId: DeviceIdentifier(peripheral.id),
+        connectionState: connected
+            ? BmConnectionStateEnum.connected
+            : BmConnectionStateEnum.disconnected,
+        disconnectReasonCode: reasonCode,
+        disconnectReasonString: reason,
+      ),
+    );
   }
 
   void _setBondState(EmulatedPeripheral peripheral, EmulatedBondState state) {
     final previous = peripheral.bondState;
     peripheral.bondState = state;
     if (_bondController.isClosed) return;
-    _bondController.add(BmBondStateResponse(
-      remoteId: DeviceIdentifier(peripheral.id),
-      bondState: state,
-      prevState: previous,
-    ));
+    _bondController.add(
+      BmBondStateResponse(
+        remoteId: DeviceIdentifier(peripheral.id),
+        bondState: state,
+        prevState: previous,
+      ),
+    );
   }
 
   void _emitCharacteristicValue(
@@ -680,16 +702,18 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     List<int> value,
   ) {
     if (_charReceivedController.isClosed) return;
-    _charReceivedController.add(BmCharacteristicData(
-      remoteId: DeviceIdentifier(peripheral.id),
-      serviceUuid: _serviceOf(peripheral, char),
-      characteristicUuid: Guid(char.uuid),
-      primaryServiceUuid: null,
-      value: List<int>.of(value),
-      success: true,
-      errorCode: 0,
-      errorString: '',
-    ));
+    _charReceivedController.add(
+      BmCharacteristicData(
+        remoteId: DeviceIdentifier(peripheral.id),
+        serviceUuid: _serviceOf(peripheral, char),
+        characteristicUuid: Guid(char.uuid),
+        primaryServiceUuid: null,
+        value: List<int>.of(value),
+        success: true,
+        errorCode: 0,
+        errorString: '',
+      ),
+    );
   }
 
   Guid _serviceOf(EmulatedPeripheral peripheral, EmulatedCharacteristic char) {
@@ -795,18 +819,17 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   @override
   Future<BmBluetoothAdapterState> getAdapterState(
     BmBluetoothAdapterStateRequest request,
-  ) async =>
-      BmBluetoothAdapterState(adapterState: _adapterState);
+  ) async => BmBluetoothAdapterState(adapterState: _adapterState);
 
   @override
   Future<BmDevicesList> getSystemDevices(
-          BmSystemDevicesRequest request) async =>
-      BmDevicesList(devices: const []);
+    BmSystemDevicesRequest request,
+  ) async => BmDevicesList(devices: const []);
 
   @override
   Future<BmDevicesList> getBondedDevices(
-          BmBondedDevicesRequest request) async =>
-      BmDevicesList(devices: const []);
+    BmBondedDevicesRequest request,
+  ) async => BmDevicesList(devices: const []);
 
   @override
   Future<bool> startScan(BmScanSettings request) async {
@@ -828,12 +851,14 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
       scanError = null;
       _later(() {
         if (_scanController.isClosed) return;
-        _scanController.add(BmScanResponse(
-          advertisements: const [],
-          success: false,
-          errorCode: failure.code,
-          errorString: failure.message,
-        ));
+        _scanController.add(
+          BmScanResponse(
+            advertisements: const [],
+            success: false,
+            errorCode: failure.code,
+            errorString: failure.message,
+          ),
+        );
       });
       return true;
     }
@@ -873,18 +898,24 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     final refusal = peripheral.connectError;
     _later(() {
       if (refusal != null) {
-        _setConnectionState(peripheral, false,
-            reasonCode: refusal.code, reason: refusal.message);
+        _setConnectionState(
+          peripheral,
+          false,
+          reasonCode: refusal.code,
+          reason: refusal.message,
+        );
         return;
       }
       _setConnectionState(peripheral, true);
       // Platforms report the negotiated MTU right after the link comes up;
       // RealBleService.mtu() reads exactly that cached value.
       if (!_mtuController.isClosed) {
-        _mtuController.add(BmMtuChangedResponse(
-          remoteId: DeviceIdentifier(peripheral.id),
-          mtu: peripheral.mtu,
-        ));
+        _mtuController.add(
+          BmMtuChangedResponse(
+            remoteId: DeviceIdentifier(peripheral.id),
+            mtu: peripheral.mtu,
+          ),
+        );
       }
     });
     return true;
@@ -895,8 +926,14 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     platformCalls.add('disconnect:${request.remoteId.str}');
     final peripheral = _peripherals[request.remoteId.str];
     if (peripheral == null || !peripheral._connected) return false;
-    _later(() => _setConnectionState(peripheral, false,
-        reasonCode: 0, reason: 'local disconnect'));
+    _later(
+      () => _setConnectionState(
+        peripheral,
+        false,
+        reasonCode: 0,
+        reason: 'local disconnect',
+      ),
+    );
     return true;
   }
 
@@ -908,10 +945,12 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     final granted = request.mtu < peripheral.mtu ? request.mtu : peripheral.mtu;
     _later(() {
       if (_mtuController.isClosed) return;
-      _mtuController.add(BmMtuChangedResponse(
-        remoteId: DeviceIdentifier(peripheral.id),
-        mtu: granted,
-      ));
+      _mtuController.add(
+        BmMtuChangedResponse(
+          remoteId: DeviceIdentifier(peripheral.id),
+          mtu: granted,
+        ),
+      );
     });
     return true;
   }
@@ -928,13 +967,15 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
 
     _later(() {
       if (_discoverController.isClosed) return;
-      _discoverController.add(BmDiscoverServicesResult(
-        remoteId: DeviceIdentifier(peripheral.id),
-        services: failure != null || empty ? const [] : peripheral._gattTable,
-        success: failure == null,
-        errorCode: failure?.code ?? 0,
-        errorString: failure?.message ?? '',
-      ));
+      _discoverController.add(
+        BmDiscoverServicesResult(
+          remoteId: DeviceIdentifier(peripheral.id),
+          services: failure != null || empty ? const [] : peripheral._gattTable,
+          success: failure == null,
+          errorCode: failure?.code ?? 0,
+          errorString: failure?.message ?? '',
+        ),
+      );
     });
     return true;
   }
@@ -942,24 +983,28 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   @override
   Future<bool> readCharacteristic(BmReadCharacteristicRequest request) async {
     final peripheral = _peripherals[request.remoteId.str];
-    final char =
-        peripheral?._lookup(request.serviceUuid, request.characteristicUuid);
+    final char = peripheral?._lookup(
+      request.serviceUuid,
+      request.characteristicUuid,
+    );
     if (peripheral == null || char == null) return false;
     platformCalls.add('read:${Guid(char.uuid).str128}');
 
     final failure = peripheral._pairingBarrier ?? char.readError;
     _later(() {
       if (_charReceivedController.isClosed) return;
-      _charReceivedController.add(BmCharacteristicData(
-        remoteId: request.remoteId,
-        serviceUuid: request.serviceUuid,
-        characteristicUuid: request.characteristicUuid,
-        primaryServiceUuid: request.primaryServiceUuid,
-        value: failure != null ? const [] : List<int>.of(char.value),
-        success: failure == null,
-        errorCode: failure?.code ?? 0,
-        errorString: failure?.message ?? '',
-      ));
+      _charReceivedController.add(
+        BmCharacteristicData(
+          remoteId: request.remoteId,
+          serviceUuid: request.serviceUuid,
+          characteristicUuid: request.characteristicUuid,
+          primaryServiceUuid: request.primaryServiceUuid,
+          value: failure != null ? const [] : List<int>.of(char.value),
+          success: failure == null,
+          errorCode: failure?.code ?? 0,
+          errorString: failure?.message ?? '',
+        ),
+      );
     });
     return true;
   }
@@ -967,29 +1012,35 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   @override
   Future<bool> writeCharacteristic(BmWriteCharacteristicRequest request) async {
     final peripheral = _peripherals[request.remoteId.str];
-    final char =
-        peripheral?._lookup(request.serviceUuid, request.characteristicUuid);
+    final char = peripheral?._lookup(
+      request.serviceUuid,
+      request.characteristicUuid,
+    );
     if (peripheral == null || char == null) return false;
     platformCalls.add('write:${Guid(char.uuid).str128}');
 
     final failure = peripheral._pairingBarrier ?? char.writeError;
     if (failure == null) {
-      char.writes
-          .add((type: request.writeType, value: List<int>.of(request.value)));
+      char.writes.add((
+        type: request.writeType,
+        value: List<int>.of(request.value),
+      ));
       char.value = List<int>.of(request.value);
     }
     _later(() {
       if (_charWrittenController.isClosed) return;
-      _charWrittenController.add(BmCharacteristicData(
-        remoteId: request.remoteId,
-        serviceUuid: request.serviceUuid,
-        characteristicUuid: request.characteristicUuid,
-        primaryServiceUuid: request.primaryServiceUuid,
-        value: List<int>.of(request.value),
-        success: failure == null,
-        errorCode: failure?.code ?? 0,
-        errorString: failure?.message ?? '',
-      ));
+      _charWrittenController.add(
+        BmCharacteristicData(
+          remoteId: request.remoteId,
+          serviceUuid: request.serviceUuid,
+          characteristicUuid: request.characteristicUuid,
+          primaryServiceUuid: request.primaryServiceUuid,
+          value: List<int>.of(request.value),
+          success: failure == null,
+          errorCode: failure?.code ?? 0,
+          errorString: failure?.message ?? '',
+        ),
+      );
     });
     return true;
   }
@@ -997,8 +1048,10 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   @override
   Future<bool> setNotifyValue(BmSetNotifyValueRequest request) async {
     final peripheral = _peripherals[request.remoteId.str];
-    final char =
-        peripheral?._lookup(request.serviceUuid, request.characteristicUuid);
+    final char = peripheral?._lookup(
+      request.serviceUuid,
+      request.characteristicUuid,
+    );
     if (peripheral == null || char == null) return false;
     platformCalls.add('setNotify:${Guid(char.uuid).str128}=${request.enable}');
 
@@ -1009,17 +1062,19 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     if (barrier != null && request.enable) {
       _later(() {
         if (_descWrittenController.isClosed) return;
-        _descWrittenController.add(BmDescriptorData(
-          remoteId: request.remoteId,
-          serviceUuid: request.serviceUuid,
-          characteristicUuid: request.characteristicUuid,
-          descriptorUuid: Guid(EmulatedUuids.cccd),
-          primaryServiceUuid: request.primaryServiceUuid,
-          value: const [],
-          success: false,
-          errorCode: barrier.code,
-          errorString: barrier.message,
-        ));
+        _descWrittenController.add(
+          BmDescriptorData(
+            remoteId: request.remoteId,
+            serviceUuid: request.serviceUuid,
+            characteristicUuid: request.characteristicUuid,
+            descriptorUuid: Guid(EmulatedUuids.cccd),
+            primaryServiceUuid: request.primaryServiceUuid,
+            value: const [],
+            success: false,
+            errorCode: barrier.code,
+            errorString: barrier.message,
+          ),
+        );
       });
       return true;
     }
@@ -1038,17 +1093,19 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     }
     void confirm() {
       if (_descWrittenController.isClosed) return;
-      _descWrittenController.add(BmDescriptorData(
-        remoteId: request.remoteId,
-        serviceUuid: request.serviceUuid,
-        characteristicUuid: request.characteristicUuid,
-        descriptorUuid: Guid(EmulatedUuids.cccd),
-        primaryServiceUuid: request.primaryServiceUuid,
-        value: request.enable ? const [1, 0] : const [0, 0],
-        success: true,
-        errorCode: 0,
-        errorString: '',
-      ));
+      _descWrittenController.add(
+        BmDescriptorData(
+          remoteId: request.remoteId,
+          serviceUuid: request.serviceUuid,
+          characteristicUuid: request.characteristicUuid,
+          descriptorUuid: Guid(EmulatedUuids.cccd),
+          primaryServiceUuid: request.primaryServiceUuid,
+          value: request.enable ? const [1, 0] : const [0, 0],
+          success: true,
+          errorCode: 0,
+          errorString: '',
+        ),
+      );
     }
 
     final delay = peripheral.cccdConfirmDelay;

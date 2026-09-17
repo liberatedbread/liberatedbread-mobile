@@ -97,12 +97,14 @@ void main() {
     test('a corrupt config never leaks token material into the log', () async {
       // The blob this branch exists to handle is the DECRYPTED config: the
       // long-lived access token and the webhook id.
-      final blob = jsonEncode(const HaConfig(
-        baseUrl: 'http://ha.local:8123',
-        token: 'lltok-$_secretMarker-$_secretMarker',
-        deviceId: 'dev1',
-        webhookId: 'wh-$_secretMarker',
-      ).toJson());
+      final blob = jsonEncode(
+        const HaConfig(
+          baseUrl: 'http://ha.local:8123',
+          token: 'lltok-$_secretMarker-$_secretMarker',
+          deviceId: 'dev1',
+          webhookId: 'wh-$_secretMarker',
+        ).toJson(),
+      );
       // Truncated mid-token, which is exactly the case the branch names.
       final corrupt = blob.substring(0, blob.indexOf(_secretMarker) + 40);
 
@@ -114,8 +116,9 @@ void main() {
 
       final records = Log.captureRecords();
       addTearDown(Log.reset);
-      final store =
-          InMemorySettingsStore({HaConfigNotifier.configKey: corrupt});
+      final store = InMemorySettingsStore({
+        HaConfigNotifier.configKey: corrupt,
+      });
 
       expect(await _loadConfig(store), isNull);
 
@@ -127,16 +130,18 @@ void main() {
       expect(logged, isNot(contains(_secretMarker)));
     });
 
-    test('recovers from a well-formed JSON blob with the wrong shape',
-        () async {
-      // Valid JSON, but base_url is missing -> `as String` TypeError.
-      final store = InMemorySettingsStore({
-        HaConfigNotifier.configKey: jsonEncode({'token': 'tok'}),
-      });
+    test(
+      'recovers from a well-formed JSON blob with the wrong shape',
+      () async {
+        // Valid JSON, but base_url is missing -> `as String` TypeError.
+        final store = InMemorySettingsStore({
+          HaConfigNotifier.configKey: jsonEncode({'token': 'tok'}),
+        });
 
-      expect(await _loadConfig(store), isNull);
-      expect(store.values.containsKey(HaConfigNotifier.configKey), isFalse);
-    });
+        expect(await _loadConfig(store), isNull);
+        expect(store.values.containsKey(HaConfigNotifier.configKey), isFalse);
+      },
+    );
 
     test('recovers from a failed keystore read without clearing', () async {
       final store = _ThrowingReadStore();
@@ -172,32 +177,42 @@ void main() {
           .register(baseUrl: 'http://ha.local:8123', token: 'tok');
 
       expect(
-          api.registeredDevices.single['device_id'], 'preexisting-device-id');
+        api.registeredDevices.single['device_id'],
+        'preexisting-device-id',
+      );
       // The stored id is untouched (not regenerated).
       expect(
-          store.values[HaConfigNotifier.deviceIdKey], 'preexisting-device-id');
-    });
-
-    test('the log records the base url but never the token or webhook',
-        () async {
-      final records = Log.captureRecords();
-      addTearDown(Log.reset);
-      final container = ProviderContainer(
-        overrides: [
-          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-          haApiClientProvider.overrideWithValue(FakeHaApiClient()),
-        ],
+        store.values[HaConfigNotifier.deviceIdKey],
+        'preexisting-device-id',
       );
-      addTearDown(container.dispose);
-      await container.read(haConfigProvider.future);
-
-      await container.read(haConfigProvider.notifier).register(
-          baseUrl: 'http://ha.local:8123', token: 'lltok-$_secretMarker');
-
-      final logged = records.map((r) => r.format()).join('\n');
-      expect(logged, contains('http://ha.local:8123'));
-      expect(logged, isNot(contains(_secretMarker)));
-      expect(logged, contains('<redacted>'));
     });
+
+    test(
+      'the log records the base url but never the token or webhook',
+      () async {
+        final records = Log.captureRecords();
+        addTearDown(Log.reset);
+        final container = ProviderContainer(
+          overrides: [
+            settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+            haApiClientProvider.overrideWithValue(FakeHaApiClient()),
+          ],
+        );
+        addTearDown(container.dispose);
+        await container.read(haConfigProvider.future);
+
+        await container
+            .read(haConfigProvider.notifier)
+            .register(
+              baseUrl: 'http://ha.local:8123',
+              token: 'lltok-$_secretMarker',
+            );
+
+        final logged = records.map((r) => r.format()).join('\n');
+        expect(logged, contains('http://ha.local:8123'));
+        expect(logged, isNot(contains(_secretMarker)));
+        expect(logged, contains('<redacted>'));
+      },
+    );
   });
 }

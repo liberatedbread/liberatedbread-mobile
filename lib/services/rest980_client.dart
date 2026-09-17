@@ -29,9 +29,8 @@ class Rest980Client {
   /// slow box, short enough that a dead server is obvious.
   static const timeout = Duration(seconds: 10);
 
-  Rest980Client({required SpecCodec codec, http.Client? client})
-      : _codec = codec,
-        _client = client ?? http.Client();
+  Rest980Client({required this._codec, http.Client? client})
+    : _client = client ?? http.Client();
 
   /// Our spec's command names → rest980's action endpoints.
   ///
@@ -101,8 +100,11 @@ class Rest980Client {
   /// answers with dorita980's own state document, which is the `reported` tree
   /// the robot published — so the paths line up once the envelope does.
   Future<Map<String, String>> state(String baseUrl) async {
-    final response =
-        await _get(baseUrl, '/api/local/info/state', 'robot state');
+    final response = await _get(
+      baseUrl,
+      '/api/local/info/state',
+      'robot state',
+    );
     _throwForStatus(response, 'robot state');
     // rest980 returns the reported tree at the top level, while the robot
     // publishes it wrapped in {"state":{"reported":{...}}}. Re-wrapping here
@@ -120,15 +122,17 @@ class Rest980Client {
       reported = jsonDecode(response.body);
     } on FormatException {
       throw const Rest980Exception(
-          'The server did not answer robot state with JSON.');
+        'The server did not answer robot state with JSON.',
+      );
     }
     if (reported is! Map<String, dynamic>) {
       throw const Rest980Exception(
-          'The server answered robot state with something other than a '
-          'state document.');
+        'The server answered robot state with something other than a '
+        'state document.',
+      );
     }
     final wrapped = jsonEncode({
-      'state': {'reported': reported}
+      'state': {'reported': reported},
     });
     return _codec.roombaStateFields(payload: wrapped);
   }
@@ -170,7 +174,8 @@ class Rest980Client {
       );
     } on http.ClientException catch (e) {
       throw Rest980Exception(
-          'The rest980 server failed on $what: ${e.message}');
+        'The rest980 server failed on $what: ${e.message}',
+      );
     }
   }
 
@@ -179,8 +184,8 @@ class Rest980Client {
     throw Rest980Exception(
       'The rest980 server answered $what with HTTP ${response.statusCode}. '
       '${response.statusCode == 404 ? 'Check the address — this looks like a '
-          'web server, but not a rest980 one.' : 'Check its logs: it may have '
-          'lost the robot.'}',
+                'web server, but not a rest980 one.' : 'Check its logs: it may have '
+                'lost the robot.'}',
     );
   }
 

@@ -23,13 +23,14 @@ const _cmdChar = CharacteristicDto(
   canNotify: false,
   commands: [
     CommandDto(
-        name: 'power_on',
-        description: '',
-        parameters: [],
-        isFixed: true,
-        isEncodable: true,
-        unsupportedEncoding: null,
-        advanced: false),
+      name: 'power_on',
+      description: '',
+      parameters: [],
+      isFixed: true,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      advanced: false,
+    ),
   ],
   formatFields: [],
 );
@@ -57,56 +58,81 @@ const _plainChar = CharacteristicDto(
 );
 
 Widget _wrap(Widget child) => ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(FakeBleService()),
-        specCodecProvider.overrideWithValue(FakeSpecCodec(decoded: const [])),
-      ],
-      child: MaterialApp(home: Scaffold(body: child)),
-    );
+  overrides: [
+    bleServiceProvider.overrideWithValue(FakeBleService()),
+    specCodecProvider.overrideWithValue(FakeSpecCodec(decoded: const [])),
+  ],
+  child: MaterialApp(home: Scaffold(body: child)),
+);
 
 TypedCharacteristicWidget _widget(
   CharacteristicDto specChar,
   BleDiscoveredCharacteristic discovered,
-) =>
-    TypedCharacteristicWidget(
-      deviceId: 'd',
-      serviceUuid: 's',
-      specYaml: 'y',
-      specChar: specChar,
-      discovered: discovered,
-    );
+) => TypedCharacteristicWidget(
+  deviceId: 'd',
+  serviceUuid: 's',
+  specYaml: 'y',
+  specChar: specChar,
+  discovered: discovered,
+);
 
 void main() {
   testWidgets('writable + commands renders TypedCommandWidget', (tester) async {
-    await tester.pumpWidget(_wrap(_widget(
-      _cmdChar,
-      const BleDiscoveredCharacteristic(
-          uuid: 'c', canRead: false, canWrite: true, canNotify: false),
-    )));
+    await tester.pumpWidget(
+      _wrap(
+        _widget(
+          _cmdChar,
+          const BleDiscoveredCharacteristic(
+            uuid: 'c',
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+          ),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.byType(TypedCommandWidget), findsOneWidget);
     expect(find.byType(DecodedValueWidget), findsNothing);
   });
 
-  testWidgets('readable + format fields renders DecodedValueWidget',
-      (tester) async {
-    await tester.pumpWidget(_wrap(_widget(
-      _fmtChar,
-      const BleDiscoveredCharacteristic(
-          uuid: 'c', canRead: true, canWrite: false, canNotify: false),
-    )));
+  testWidgets('readable + format fields renders DecodedValueWidget', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        _widget(
+          _fmtChar,
+          const BleDiscoveredCharacteristic(
+            uuid: 'c',
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.byType(DecodedValueWidget), findsOneWidget);
     expect(find.byType(TypedCommandWidget), findsNothing);
   });
 
-  testWidgets('no typed metadata falls back to RawCharacteristicWidget',
-      (tester) async {
-    await tester.pumpWidget(_wrap(_widget(
-      _plainChar,
-      const BleDiscoveredCharacteristic(
-          uuid: 'c', canRead: true, canWrite: false, canNotify: false),
-    )));
+  testWidgets('no typed metadata falls back to RawCharacteristicWidget', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        _widget(
+          _plainChar,
+          const BleDiscoveredCharacteristic(
+            uuid: 'c',
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.byType(RawCharacteristicWidget), findsOneWidget);
   });

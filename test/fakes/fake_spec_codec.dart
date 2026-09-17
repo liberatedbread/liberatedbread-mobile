@@ -65,31 +65,35 @@ class FakeSpecCodec implements SpecCodec {
   final Object? encodeStoredError;
 
   final List<
-      ({
-        String? serviceUuid,
-        String charUuid,
-        String commandName,
-        Map<String, double> params,
-      })> encodeCalls = [];
+    ({
+      String? serviceUuid,
+      String charUuid,
+      String commandName,
+      Map<String, double> params,
+    })
+  >
+  encodeCalls = [];
 
   final List<
-      ({
-        // Recorded because it is snapshotted at enqueue time alongside the
-        // geometry: a send that carries one frame's dimensions and another
-        // spec's YAML is the failure the snapshot exists to prevent, and it
-        // is invisible unless the pairing is observable here.
-        String specYaml,
-        int width,
-        int height,
-        List<int> rgb,
-        int frameIndex,
-        int maxPayloadPerWrite,
-      })> encodeImageCalls = [];
+    ({
+      // Recorded because it is snapshotted at enqueue time alongside the
+      // geometry: a send that carries one frame's dimensions and another
+      // spec's YAML is the failure the snapshot exists to prevent, and it
+      // is invisible unless the pairing is observable here.
+      String specYaml,
+      int width,
+      int height,
+      List<int> rgb,
+      int frameIndex,
+      int maxPayloadPerWrite,
+    })
+  >
+  encodeImageCalls = [];
 
   /// Returned by [networkEntitiesForDevice], as a function of the SSDP
   /// targets so one fake can answer per model.
   final List<NetworkEntityDto> Function(List<String> ssdpTargets)?
-      networkEntities;
+  networkEntities;
 
   /// The hidden-entity names [networkEntitiesForDevice]'s surface carries —
   /// declared controls the resolver could not offer.
@@ -107,32 +111,34 @@ class FakeSpecCodec implements SpecCodec {
   /// state replies — the probe-narrowed surface. Null falls back to
   /// [networkEntities], i.e. "the replies changed nothing".
   final List<NetworkEntityDto> Function(
-      Map<String, Map<String, String>> stateKeys)? networkEntitiesForState;
+    Map<String, Map<String, String>> stateKeys,
+  )?
+  networkEntitiesForState;
 
   /// Every [networkEntitiesForStateKeys] call's replies, in order.
   final List<Map<String, Map<String, String>>>
-      networkEntitiesForStateKeysCalls = [];
+  networkEntitiesForStateKeysCalls = [];
 
   /// Returned by [renderNetworkCommand] / [renderNetworkStateRequest]; the
   /// action/soapAction carry the command or state-command name so a transport
   /// test can tell requests apart.
   SoapRequestDto Function(String name, Map<String, String> values)?
-      networkRequest;
+  networkRequest;
 
   /// Every rendered command, in call order, with the values it carried —
   /// including read-back values, which is what the Crock-Pot tests assert on.
   final List<({String commandName, Map<String, String> values})>
-      renderNetworkCommandCalls = [];
+  renderNetworkCommandCalls = [];
 
   /// Returned by [renderNetworkHttpCommand]; the default renders the
   /// keypress shape (`POST /fake/<command>`) so a screen test can assert on
   /// the path without configuring anything.
   HttpRequestDto Function(String name, Map<String, String> values)?
-      networkHttpRequest;
+  networkHttpRequest;
 
   /// Every rendered plain-HTTP command, in call order.
   final List<({String commandName, Map<String, String> values})>
-      renderNetworkHttpCommandCalls = [];
+  renderNetworkHttpCommandCalls = [];
 
   /// Returned by [listNetworkInstances]. Defaults to no children.
   final List<NetworkInstanceDto> instances;
@@ -147,48 +153,54 @@ class FakeSpecCodec implements SpecCodec {
   /// Returned by [readNetworkEntity], as a function of entity name and the
   /// returned values.
   NetworkReadingDto? Function(String entityName, Map<String, String> returned)?
-      networkReading;
+  networkReading;
 
   /// Returned by [renderNetworkKasaCommand] / [renderNetworkKasaStateRequest];
   /// the default echoes the command name into a JSON object so a transport
   /// test can tell requests apart.
   KasaRequestDto Function(String name, Map<String, String> values)?
-      networkKasaRequest;
+  networkKasaRequest;
 
   /// Every rendered Kasa command, in call order, with the values it carried.
   final List<({String commandName, Map<String, String> values})>
-      renderNetworkKasaCommandCalls = [];
+  renderNetworkKasaCommandCalls = [];
 
   /// Returned by [renderNetworkRabbitAirCommand] /
   /// [renderNetworkRabbitAirStateRequest]; the default builds a
   /// structurally-true envelope echoing the command name as `cmd`, so a
   /// transport test can tell requests apart and match on the request id.
   RabbitAirRequestDto Function(
-          String name, Map<String, String> values, int requestId, int deviceTs)?
-      networkRabbitAirRequest;
+    String name,
+    Map<String, String> values,
+    int requestId,
+    int deviceTs,
+  )?
+  networkRabbitAirRequest;
 
   /// Every rendered Rabbit Air command, in call order, with the values it
   /// carried.
   final List<({String commandName, Map<String, String> values})>
-      renderNetworkRabbitAirCommandCalls = [];
+  renderNetworkRabbitAirCommandCalls = [];
 
   /// The write budgets passed to the stored encoders, in call order.
   final List<int?> storedMaxWrites = [];
 
   /// Every [encodeStoredImage] call, in order, for assertions.
   final List<
-      ({
-        String specYaml,
-        int width,
-        int height,
-        List<int> rgb,
-        String name,
-        int cid,
-        int timeSecs,
-        String scroll,
-        int speed,
-        int sequence,
-      })> encodeStoredCalls = [];
+    ({
+      String specYaml,
+      int width,
+      int height,
+      List<int> rgb,
+      String name,
+      int cid,
+      int timeSecs,
+      String scroll,
+      int speed,
+      int sequence,
+    })
+  >
+  encodeStoredCalls = [];
 
   FakeSpecCodec({
     this.spec,
@@ -231,15 +243,14 @@ class FakeSpecCodec implements SpecCodec {
   /// matching no variant — so every test that does not set it sees the whole
   /// entity list, exactly as before this existed.
   List<String> Function(String deviceName, List<String> serviceUuids)?
-      bleVariantNames;
+  bleVariantNames;
 
   @override
   Future<List<String>> bleVariantNamesForDevice({
     required String yaml,
     required String deviceName,
     required List<String> serviceUuids,
-  }) async =>
-      bleVariantNames?.call(deviceName, serviceUuids) ?? const [];
+  }) async => bleVariantNames?.call(deviceName, serviceUuids) ?? const [];
 
   @override
   @override
@@ -257,8 +268,7 @@ class FakeSpecCodec implements SpecCodec {
     required List<DeviceSpecDto> specs,
     required String deviceName,
     required List<String> advertisedServiceUuids,
-  }) async =>
-      matches;
+  }) async => matches;
 
   @override
   Future<List<ScanMatch>> matchScannedDevice({
@@ -310,8 +320,7 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<List<ProfileInfoDto>> identifyStandardProfiles(
     List<String> serviceUuids,
-  ) async =>
-      const [];
+  ) async => const [];
 
   @override
   Future<EntityWriteDto> encodeEntityValue({
@@ -352,7 +361,9 @@ class FakeSpecCodec implements SpecCodec {
           serviceUuid: 'srv',
           writes: [
             ImageWriteDto(
-                characteristicUuid: 'chr', bytes: Uint8List.fromList(rgb)),
+              characteristicUuid: 'chr',
+              bytes: Uint8List.fromList(rgb),
+            ),
           ],
           // One packet consumed, like a real single-packet frame.
           nextFrameIndex: frameIndex + 1,
@@ -402,11 +413,10 @@ class FakeSpecCodec implements SpecCodec {
   Future<NetworkEntitySurfaceDto> networkEntitiesForDevice({
     required String specYaml,
     required List<String> ssdpTargets,
-  }) async =>
-      NetworkEntitySurfaceDto(
-        entities: networkEntities?.call(ssdpTargets) ?? const [],
-        hiddenNames: networkHiddenNames,
-      );
+  }) async => NetworkEntitySurfaceDto(
+    entities: networkEntities?.call(ssdpTargets) ?? const [],
+    hiddenNames: networkHiddenNames,
+  );
 
   @override
   Future<NetworkEntitySurfaceDto> networkEntitiesForStateKeys({
@@ -428,19 +438,21 @@ class FakeSpecCodec implements SpecCodec {
   }) async =>
       networkCapabilitiesResult ??
       const NetworkCapabilitiesDto(
-          mqttClientIdGenerated: false,
-          tlsSelfSigned: false,
-          advertisedPortUnreliable: false);
+        mqttClientIdGenerated: false,
+        tlsSelfSigned: false,
+        advertisedPortUnreliable: false,
+      );
 
   @override
   Future<List<NetworkCredentialDto>> credentialsForDevice(
-          String specYaml) async =>
-      networkCredentials;
+    String specYaml,
+  ) async => networkCredentials;
 
   @override
-  Future<String> deriveCredentialValue(
-          {required String derivation, required String value}) async =>
-      'derived:$derivation:$value';
+  Future<String> deriveCredentialValue({
+    required String derivation,
+    required String value,
+  }) async => 'derived:$derivation:$value';
 
   @override
   Future<SoapRequestDto> renderNetworkCommand({
@@ -459,8 +471,10 @@ class FakeSpecCodec implements SpecCodec {
     required String commandName,
     required Map<String, String> values,
   }) async {
-    renderNetworkHttpCommandCalls
-        .add((commandName: commandName, values: values));
+    renderNetworkHttpCommandCalls.add((
+      commandName: commandName,
+      values: values,
+    ));
     if (httpRenderError != null) throw httpRenderError!;
     return networkHttpRequest?.call(commandName, values) ??
         HttpRequestDto(method: 'POST', path: '/fake/$commandName', body: '');
@@ -482,8 +496,7 @@ class FakeSpecCodec implements SpecCodec {
     required String specYaml,
     required String entityName,
     required String stateReply,
-  }) async =>
-      instances;
+  }) async => instances;
 
   @override
   Future<List<NetworkRoleReadingDto>> readNetworkInstance({
@@ -491,8 +504,7 @@ class FakeSpecCodec implements SpecCodec {
     required String entityName,
     required String stateReply,
     required String instanceId,
-  }) async =>
-      instanceReadings?.call(instanceId) ?? const [];
+  }) async => instanceReadings?.call(instanceId) ?? const [];
 
   @override
   Future<SoapRequestDto> renderNetworkStateRequest({
@@ -503,20 +515,19 @@ class FakeSpecCodec implements SpecCodec {
       _defaultRequest(stateCommand);
 
   static SoapRequestDto _defaultRequest(String name) => SoapRequestDto(
-        service: 'urn:Fake:service:basicevent:1',
-        action: name,
-        soapAction: '"urn:Fake:service:basicevent:1#$name"',
-        path: '/upnp/control/basicevent1',
-        body: '<fake action="$name"/>',
-      );
+    service: 'urn:Fake:service:basicevent:1',
+    action: name,
+    soapAction: '"urn:Fake:service:basicevent:1#$name"',
+    path: '/upnp/control/basicevent1',
+    body: '<fake action="$name"/>',
+  );
 
   @override
   Future<NetworkReadingDto?> readNetworkEntity({
     required String specYaml,
     required String entityName,
     required Map<String, String> returned,
-  }) async =>
-      networkReading?.call(entityName, returned);
+  }) async => networkReading?.call(entityName, returned);
 
   @override
   Future<KasaRequestDto> renderNetworkKasaCommand({
@@ -524,8 +535,10 @@ class FakeSpecCodec implements SpecCodec {
     required String commandName,
     required Map<String, String> values,
   }) async {
-    renderNetworkKasaCommandCalls
-        .add((commandName: commandName, values: values));
+    renderNetworkKasaCommandCalls.add((
+      commandName: commandName,
+      values: values,
+    ));
     return networkKasaRequest?.call(commandName, values) ??
         KasaRequestDto(json: '{"cmd":"$commandName"}');
   }
@@ -591,9 +604,9 @@ class FakeSpecCodec implements SpecCodec {
   TuyaBroadcastDto? tuyaBroadcast;
 
   @override
-  Future<TuyaBroadcastDto?> tuyaParseBroadcast(
-          {required List<int> datagram}) async =>
-      tuyaBroadcast;
+  Future<TuyaBroadcastDto?> tuyaParseBroadcast({
+    required List<int> datagram,
+  }) async => tuyaBroadcast;
 
   // ── Rabbit Air ────────────────────────────────────────────────────────────
   // The fake's stand-in for the AES-128-CBC datagram crypto, round-tripping
@@ -610,13 +623,20 @@ class FakeSpecCodec implements SpecCodec {
     required int requestId,
     required int deviceTs,
   }) async {
-    renderNetworkRabbitAirCommandCalls
-        .add((commandName: commandName, values: values));
+    renderNetworkRabbitAirCommandCalls.add((
+      commandName: commandName,
+      values: values,
+    ));
     return networkRabbitAirRequest?.call(
-            commandName, values, requestId, deviceTs) ??
+          commandName,
+          values,
+          requestId,
+          deviceTs,
+        ) ??
         RabbitAirRequestDto(
-            json: '{"id":$requestId,"cmd":"$commandName","ts":$deviceTs}',
-            requestId: requestId);
+          json: '{"id":$requestId,"cmd":"$commandName","ts":$deviceTs}',
+          requestId: requestId,
+        );
   }
 
   @override
@@ -627,10 +647,15 @@ class FakeSpecCodec implements SpecCodec {
     required int deviceTs,
   }) async =>
       networkRabbitAirRequest?.call(
-          stateCommand, const {}, requestId, deviceTs) ??
+        stateCommand,
+        const {},
+        requestId,
+        deviceTs,
+      ) ??
       RabbitAirRequestDto(
-          json: '{"id":$requestId,"cmd":"$stateCommand","ts":$deviceTs}',
-          requestId: requestId);
+        json: '{"id":$requestId,"cmd":"$stateCommand","ts":$deviceTs}',
+        requestId: requestId,
+      );
 
   @override
   Future<int> rabbitAirPort() async => 9009;
@@ -690,7 +715,8 @@ class FakeSpecCodec implements SpecCodec {
   }) async {
     if (chunkSize < 3) {
       throw const FormatException(
-          'a chunk must carry the 2-byte length prefix plus 1 payload byte');
+        'a chunk must carry the 2-byte length prefix plus 1 payload byte',
+      );
     }
     if (payload.length > 0xFFFF) {
       throw const FormatException('the payload must fit the u16 prefix');
@@ -703,7 +729,9 @@ class FakeSpecCodec implements SpecCodec {
     return [
       for (var i = 0; i < framed.length; i += chunkSize)
         framed.sublist(
-            i, i + chunkSize > framed.length ? framed.length : i + chunkSize),
+          i,
+          i + chunkSize > framed.length ? framed.length : i + chunkSize,
+        ),
     ];
   }
 
@@ -791,15 +819,24 @@ class FakeSpecCodec implements SpecCodec {
   }
 
   @override
-  Future<List<int>> roombaPasswordProbe() async =>
-      const [0xf0, 0x05, 0xef, 0xcc, 0x3b, 0x29, 0x00];
+  Future<List<int>> roombaPasswordProbe() async => const [
+    0xf0,
+    0x05,
+    0xef,
+    0xcc,
+    0x3b,
+    0x29,
+    0x00,
+  ];
 
   @override
   Future<String> roombaParsePasswordReply({required List<int> reply}) async {
     const unsupported = [0xf0, 0x05, 0xef, 0xcc, 0x3b, 0x29, 0x03];
     if (reply.length == unsupported.length &&
-        List.generate(reply.length, (i) => reply[i] == unsupported[i])
-            .every((ok) => ok)) {
+        List.generate(
+          reply.length,
+          (i) => reply[i] == unsupported[i],
+        ).every((ok) => ok)) {
       throw StateError('cannot disclose its password locally; use the account');
     }
     if (reply.length < 8) {
@@ -807,8 +844,8 @@ class FakeSpecCodec implements SpecCodec {
     }
     final body = reply.sublist(2);
     var start = 0;
-    while (
-        start < body.length && !(body[start] >= 0x20 && body[start] < 0x7F)) {
+    while (start < body.length &&
+        !(body[start] >= 0x20 && body[start] < 0x7F)) {
       start++;
     }
     if (start == body.length) throw StateError('no printable bytes');
@@ -820,15 +857,14 @@ class FakeSpecCodec implements SpecCodec {
     required String specYaml,
     required String commandName,
     required int epochSeconds,
-  }) async =>
-      RoombaRequestDto(
-        topic: 'cmd',
-        payload: jsonEncode({
-          'command': commandName,
-          'time': epochSeconds,
-          'initiator': 'localApp',
-        }),
-      );
+  }) async => RoombaRequestDto(
+    topic: 'cmd',
+    payload: jsonEncode({
+      'command': commandName,
+      'time': epochSeconds,
+      'initiator': 'localApp',
+    }),
+  );
 
   @override
   Future<Map<String, String>> roombaStateFields({
@@ -901,8 +937,10 @@ class FakeSpecCodec implements SpecCodec {
 
   /// Returned by [renderNetworkMqttCommand]; if [mqttRenderError] is set, the
   /// call throws it instead.
-  MqttRequestDto mqttRequest =
-      const MqttRequestDto(topic: 'test/topic', payload: 'TEST');
+  MqttRequestDto mqttRequest = const MqttRequestDto(
+    topic: 'test/topic',
+    payload: 'TEST',
+  );
   Object? mqttRenderError;
 
   /// Every command [renderNetworkMqttCommand] was asked for, in order.
@@ -916,7 +954,7 @@ class FakeSpecCodec implements SpecCodec {
   /// function of the command name so one fake can answer per command — which
   /// is what a two-channel device needs.
   WebSocketFrameDto Function(String commandName, int requestId)?
-      websocketFrameFor;
+  websocketFrameFor;
 
   /// Every command [renderNetworkWebsocketCommand] was asked for, in order.
   final websocketRenderCalls =
@@ -933,8 +971,11 @@ class FakeSpecCodec implements SpecCodec {
     required Map<String, String> values,
     required int requestId,
   }) async {
-    websocketRenderCalls
-        .add((commandName: commandName, values: values, requestId: requestId));
+    websocketRenderCalls.add((
+      commandName: commandName,
+      values: values,
+      requestId: requestId,
+    ));
     final build = websocketFrameFor;
     if (build != null) return build(commandName, requestId);
     return WebSocketFrameDto(channel: 'main', text: '{"cmd":"$commandName"}');
@@ -946,8 +987,11 @@ class FakeSpecCodec implements SpecCodec {
     String? username,
     String? password,
   }) async {
-    mqttConnectArgs =
-        (clientId: clientId, username: username, password: password);
+    mqttConnectArgs = (
+      clientId: clientId,
+      username: username,
+      password: password,
+    );
     // Real bytes, not a stub: a test that asserts what went on the wire is
     // asserting this. Flags are built from what is present, the way the Rust
     // codec does, so a credential-free CONNECT differs here too.
@@ -991,8 +1035,10 @@ class FakeSpecCodec implements SpecCodec {
     values.forEach((name, value) {
       if (!topic.contains('{$name}')) return;
       if (value.contains(RegExp(r'[/+#]'))) {
-        throw ArgumentError('the value for {$name} carries a topic separator '
-            'or wildcard ($value); it would rewrite the state topic');
+        throw ArgumentError(
+          'the value for {$name} carries a topic separator '
+          'or wildcard ($value); it would rewrite the state topic',
+        );
       }
       filled = filled.replaceAll('{$name}', value);
     });
@@ -1028,9 +1074,7 @@ class FakeSpecCodec implements SpecCodec {
   Future<List<int>> mqttDisconnectPacket() async => const [0xE0, 0x00];
 
   @override
-  Future<MqttParsedDto> mqttParseIncoming({
-    required List<int> buffer,
-  }) async {
+  Future<MqttParsedDto> mqttParseIncoming({required List<int> buffer}) async {
     final packets = <MqttIncomingDto>[];
     var cursor = 0;
     while (cursor < buffer.length) {
@@ -1056,43 +1100,53 @@ class FakeSpecCodec implements SpecCodec {
 
       switch (header >> 4) {
         case 2:
-          packets.add(MqttIncomingDto(
-            kind: 'connack',
-            topic: '',
-            payload: '',
-            code: body.length > 1 ? body[1] : 0,
-          ));
+          packets.add(
+            MqttIncomingDto(
+              kind: 'connack',
+              topic: '',
+              payload: '',
+              code: body.length > 1 ? body[1] : 0,
+            ),
+          );
         case 9:
-          packets.add(MqttIncomingDto(
-            kind: 'suback',
-            topic: '',
-            payload: '',
-            code: body.length > 1 ? (body[0] << 8) | body[1] : 0,
-          ));
+          packets.add(
+            MqttIncomingDto(
+              kind: 'suback',
+              topic: '',
+              payload: '',
+              code: body.length > 1 ? (body[0] << 8) | body[1] : 0,
+            ),
+          );
         case 3:
           final topicLen = (body[0] << 8) | body[1];
           final topic = utf8.decode(body.sublist(2, 2 + topicLen));
           final skip = ((header >> 1) & 0x03) > 0 ? 2 : 0;
-          packets.add(MqttIncomingDto(
-            kind: 'publish',
-            topic: topic,
-            payload: utf8.decode(body.sublist(2 + topicLen + skip)),
-            code: 0,
-          ));
+          packets.add(
+            MqttIncomingDto(
+              kind: 'publish',
+              topic: topic,
+              payload: utf8.decode(body.sublist(2 + topicLen + skip)),
+              code: 0,
+            ),
+          );
         case 13:
-          packets.add(const MqttIncomingDto(
-            kind: 'pingresp',
-            topic: '',
-            payload: '',
-            code: 0,
-          ));
+          packets.add(
+            const MqttIncomingDto(
+              kind: 'pingresp',
+              topic: '',
+              payload: '',
+              code: 0,
+            ),
+          );
         default:
-          packets.add(MqttIncomingDto(
-            kind: 'other',
-            topic: '',
-            payload: '',
-            code: header >> 4,
-          ));
+          packets.add(
+            MqttIncomingDto(
+              kind: 'other',
+              topic: '',
+              payload: '',
+              code: header >> 4,
+            ),
+          );
       }
       cursor = start + value;
     }
@@ -1132,26 +1186,30 @@ class FakeSpecCodec implements SpecCodec {
 
   /// Every [encodeStoredText] call, in order.
   final List<
-      ({
-        String name,
-        int cid,
-        int textWidth,
-        int textHeight,
-        String scroll,
-        int sequence,
-      })> encodeTextCalls = [];
+    ({
+      String name,
+      int cid,
+      int textWidth,
+      int textHeight,
+      String scroll,
+      int sequence,
+    })
+  >
+  encodeTextCalls = [];
 
   /// Every [encodeStoredAnimation] call, in order.
   final List<
-      ({
-        String name,
-        int cid,
-        int width,
-        int height,
-        int frameCount,
-        int frameMs,
-        int sequence,
-      })> encodeAnimationCalls = [];
+    ({
+      String name,
+      int cid,
+      int width,
+      int height,
+      int frameCount,
+      int frameMs,
+      int sequence,
+    })
+  >
+  encodeAnimationCalls = [];
 
   @override
   Future<StoredUploadPlanDto> encodeStoredText({
@@ -1250,7 +1308,9 @@ class FakeSpecCodec implements SpecCodec {
         StoredPlayDto(
           serviceUuid: 'srv',
           write: ImageWriteDto(
-              characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [2])),
+            characteristicUuid: 'ddp',
+            bytes: Uint8List.fromList(const [2]),
+          ),
         );
   }
 
@@ -1271,12 +1331,14 @@ class FakeSpecCodec implements SpecCodec {
 
   /// Every [renderLifxCommand] call, in order, with the params it carried.
   final List<
-      ({
-        String action,
-        Map<String, double> params,
-        String targetMac,
-        int sequence
-      })> renderLifxCalls = [];
+    ({
+      String action,
+      Map<String, double> params,
+      String targetMac,
+      int sequence,
+    })
+  >
+  renderLifxCalls = [];
 
   @override
   Future<int> lifxPort() async => 56700;
@@ -1305,8 +1367,7 @@ class FakeSpecCodec implements SpecCodec {
   Future<Uint8List> buildLifxStateRequest({
     required String targetMac,
     required int sequence,
-  }) async =>
-      lifxBytes;
+  }) async => lifxBytes;
 
   @override
   Future<Uint8List> buildLifxZonesRequest({
@@ -1314,8 +1375,7 @@ class FakeSpecCodec implements SpecCodec {
     required int start,
     required int end,
     required int sequence,
-  }) async =>
-      lifxBytes;
+  }) async => lifxBytes;
 
   @override
   Future<LifxServiceDto> parseLifxStateService({
@@ -1349,7 +1409,7 @@ class FakeSpecCodec implements SpecCodec {
   /// Every [renderLifxSetAccessPoint] call, in order — so a provisioning test
   /// can assert the SSID/password/security handed over, without a real strip.
   final List<({String ssid, String password, int security, int sequence})>
-      setAccessPointCalls = [];
+  setAccessPointCalls = [];
 
   @override
   Future<int> lifxDefaultSecurity() async => 5;
@@ -1449,8 +1509,8 @@ class FakeSpecCodec implements SpecCodec {
 
   @override
   Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
-          List<String> specYamls) async =>
-      bleProvisioningProfilesResult;
+    List<String> specYamls,
+  ) async => bleProvisioningProfilesResult;
 
   @override
   Future<int?> matchBleProvisioningName({
@@ -1464,8 +1524,9 @@ class FakeSpecCodec implements SpecCodec {
     for (var i = 0; i < profiles.length; i++) {
       final declared = profiles[i].advertisedName.toLowerCase();
       if (declared.isEmpty) continue;
-      final hit =
-          profiles[i].exactName ? name == declared : name.startsWith(declared);
+      final hit = profiles[i].exactName
+          ? name == declared
+          : name.startsWith(declared);
       if (hit) return i;
     }
     return null;
@@ -1475,8 +1536,7 @@ class FakeSpecCodec implements SpecCodec {
   Future<int?> matchSoftApSsid({
     required List<SoftApProfileDto> profiles,
     required String ssid,
-  }) async =>
-      matchSoftApSsidFor?.call(ssid);
+  }) async => matchSoftApSsidFor?.call(ssid);
 
   @override
   Future<List<WemoConnectAttemptDto>> renderWemoConnectRequests({
@@ -1502,8 +1562,7 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<List<WemoAccessPointDto>> parseWemoApList({
     required String apList,
-  }) async =>
-      wemoApList;
+  }) async => wemoApList;
 
   /// Every [encodeSetPlaylist] call's cids, in order.
   final List<List<int>> encodeSetPlaylistCalls = [];
@@ -1521,9 +1580,13 @@ class FakeSpecCodec implements SpecCodec {
       serviceUuid: 'srv',
       writes: [
         ImageWriteDto(
-            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [4])),
+          characteristicUuid: 'ddp',
+          bytes: Uint8List.fromList(const [4]),
+        ),
         ImageWriteDto(
-            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [5])),
+          characteristicUuid: 'ddp',
+          bytes: Uint8List.fromList(const [5]),
+        ),
       ],
     );
   }
@@ -1535,8 +1598,7 @@ class FakeSpecCodec implements SpecCodec {
   Future<List<EffectEntryDto>> decodeEffectList({
     required String specYaml,
     required List<int> bytes,
-  }) async =>
-      effectListEntries;
+  }) async => effectListEntries;
 
   /// Every play-speed value [encodePlaySpeed] was asked to set, in order.
   final List<int> encodePlaySpeedCalls = [];
@@ -1616,10 +1678,12 @@ class FakeSpecCodec implements SpecCodec {
   }
 
   StoredPlayDto _framedStub() => StoredPlayDto(
-        serviceUuid: 'srv',
-        write: ImageWriteDto(
-            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [9])),
-      );
+    serviceUuid: 'srv',
+    write: ImageWriteDto(
+      characteristicUuid: 'ddp',
+      bytes: Uint8List.fromList(const [9]),
+    ),
+  );
 
   /// When set, [_defaultStoredPlan] carries this as its response characteristic
   /// so the widget can subscribe to the notify channel (needed to exercise the
@@ -1632,10 +1696,14 @@ class FakeSpecCodec implements SpecCodec {
         serviceUuid: 'srv',
         uploadWrites: [
           ImageWriteDto(
-              characteristicUuid: 'uploader', bytes: Uint8List.fromList(body)),
+            characteristicUuid: 'uploader',
+            bytes: Uint8List.fromList(body),
+          ),
         ],
         playWrite: ImageWriteDto(
-            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [1])),
+          characteristicUuid: 'ddp',
+          bytes: Uint8List.fromList(const [1]),
+        ),
         responseCharacteristicUuid: storedResponseChar,
         cid: cid,
       );
@@ -1647,16 +1715,15 @@ class FakeSpecCodec implements SpecCodec {
       throw UnimplementedError('brotherQlStatusRequest');
 
   @override
-  Future<BrotherQlStatusDto> decodeBrotherQlStatus(
-          {required List<int> reply}) =>
-      throw UnimplementedError('decodeBrotherQlStatus');
+  Future<BrotherQlStatusDto> decodeBrotherQlStatus({
+    required List<int> reply,
+  }) => throw UnimplementedError('decodeBrotherQlStatus');
 
   @override
   Future<Uint8List> renderBrotherQlTestLabel({
     required String specYaml,
     required BrotherQlJobParamsDto params,
-  }) =>
-      throw UnimplementedError('renderBrotherQlTestLabel');
+  }) => throw UnimplementedError('renderBrotherQlTestLabel');
 
   /// Returned by [cameraForDevice] — null (no camera) unless a camera-view test
   /// sets it to exercise the card.

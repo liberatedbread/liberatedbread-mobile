@@ -28,8 +28,9 @@ import '../core/log.dart';
 class WifiNetworkScanner {
   /// Matches `WIFI_SCAN_CHANNEL` in
   /// android/app/src/main/kotlin/.../MainActivity.kt.
-  static const MethodChannel channel =
-      MethodChannel('ca.pigscanfly.liberatedbread/wifi_scan');
+  static const MethodChannel channel = MethodChannel(
+    'ca.pigscanfly.liberatedbread/wifi_scan',
+  );
 
   /// Whether this platform can enumerate nearby networks at all. Kept as a
   /// field rather than read from [Platform] at each call so tests can drive both
@@ -37,7 +38,7 @@ class WifiNetworkScanner {
   final bool isSupported;
 
   WifiNetworkScanner({bool? isSupported})
-      : isSupported = isSupported ?? Platform.isAndroid;
+    : isSupported = isSupported ?? Platform.isAndroid;
 
   /// The SSIDs the OS currently sees, de-duplicated and with blanks dropped.
   ///

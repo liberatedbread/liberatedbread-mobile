@@ -30,7 +30,10 @@ void main() {
     test('uses the assigned number for Bluetooth-base UUIDs', () {
       expect(
         haUniqueId(
-            'AA:BB:CC', '0000fff2-0000-1000-8000-00805f9b34fb', 'power_state'),
+          'AA:BB:CC',
+          '0000fff2-0000-1000-8000-00805f9b34fb',
+          'power_state',
+        ),
         'ogiot_aa_bb_cc_fff2_power_state',
       );
     });
@@ -224,41 +227,48 @@ void main() {
 
   group('mapDecodedValue reads the spec rather than guessing', () {
     HaSensorRegistration map(DecodedValueDto value) => mapDecodedValue(
-          deviceId: 'd',
-          deviceName: 'Env',
-          specChar: _customChar,
-          value: value,
-        );
+      deviceId: 'd',
+      deviceName: 'Env',
+      specChar: _customChar,
+      value: value,
+    );
 
     test('forwards the DECODED value, not the wire integer', () {
       // The state a device sends and the state HA records for good must be
       // the same quantity. Forwarding the raw byte put centidegrees into
       // long-term statistics, where they are not correctable later — the app
       // rendered 23.5 °C on screen and HA charted 2350.
-      final sensor = map(const DecodedValueDto(
-        name: 'temperature',
-        valueType: 'int',
-        display: '2350',
-        intValue: 2350,
-        scale: 0.01,
-        unit: '°C',
-      ));
+      final sensor = map(
+        const DecodedValueDto(
+          name: 'temperature',
+          valueType: 'int',
+          display: '2350',
+          intValue: 2350,
+          scale: 0.01,
+          unit: '°C',
+        ),
+      );
       expect(sensor.state, 23.5);
       expect(sensor.unitOfMeasurement, '°C');
-      expect(sensor.deviceClass, 'temperature',
-          reason: 'the spec now supplies the unit that makes the class valid');
+      expect(
+        sensor.deviceClass,
+        'temperature',
+        reason: 'the spec now supplies the unit that makes the class valid',
+      );
     });
 
     test('applies an offset scaling', () {
-      final sensor = map(const DecodedValueDto(
-        name: 'temp_raw',
-        valueType: 'uint',
-        display: '100',
-        uintValue: 100,
-        scale: 0.5,
-        valueOffset: 85,
-        unit: '°F',
-      ));
+      final sensor = map(
+        const DecodedValueDto(
+          name: 'temp_raw',
+          valueType: 'uint',
+          display: '100',
+          uintValue: 100,
+          scale: 0.5,
+          valueOffset: 85,
+          unit: '°F',
+        ),
+      );
       expect(sensor.state, 135.0);
       expect(sensor.deviceClass, 'temperature');
       expect(sensor.unitOfMeasurement, '°F');
@@ -268,55 +278,66 @@ void main() {
       // 85 reads better than 85.0 in HA, and this is the common case: 69 of
       // the 92 bundled format fields declare no number semantics at all.
       expect(
-          map(const DecodedValueDto(
+        map(
+          const DecodedValueDto(
             name: 'brightness',
             valueType: 'uint',
             display: '80',
             uintValue: 80,
-          )).state,
-          isA<int>().having((s) => s, 'value', 80));
+          ),
+        ).state,
+        isA<int>().having((s) => s, 'value', 80),
+      );
     });
 
     test('a transform with decimals does not leak float error', () {
       // 23 * 0.1 is 2.3000000000000003 in binary floating point, and that is
       // what reached the server.
-      final sensor = map(const DecodedValueDto(
-        name: 'level',
-        valueType: 'uint',
-        display: '23',
-        uintValue: 23,
-        scale: 0.1,
-      ));
+      final sensor = map(
+        const DecodedValueDto(
+          name: 'level',
+          valueType: 'uint',
+          display: '23',
+          uintValue: 23,
+          scale: 0.1,
+        ),
+      );
       expect(sensor.state, 2.3);
     });
 
-    test('a declared unit overrides the conventional one, and drops the class',
-        () {
-      // `battery_voltage` in millivolts is not a percentage. The name-only
-      // mapping labelled it one, and HA charted volts as a battery level.
-      final sensor = map(const DecodedValueDto(
-        name: 'battery_voltage',
-        valueType: 'uint',
-        display: '3700',
-        uintValue: 3700,
-        unit: 'mV',
-      ));
-      expect(sensor.deviceClass, isNull);
-      expect(sensor.unitOfMeasurement, 'mV');
-      expect(sensor.state, 3700);
-    });
+    test(
+      'a declared unit overrides the conventional one, and drops the class',
+      () {
+        // `battery_voltage` in millivolts is not a percentage. The name-only
+        // mapping labelled it one, and HA charted volts as a battery level.
+        final sensor = map(
+          const DecodedValueDto(
+            name: 'battery_voltage',
+            valueType: 'uint',
+            display: '3700',
+            uintValue: 3700,
+            unit: 'mV',
+          ),
+        );
+        expect(sensor.deviceClass, isNull);
+        expect(sensor.unitOfMeasurement, 'mV');
+        expect(sensor.state, 3700);
+      },
+    );
 
     test('a unit that follows a device setting is never stated', () {
       // The same raw 165 is 165 °C or 165 °F depending on the device's own
       // configuration, so neither the unit nor the class can be claimed.
-      final sensor = map(const DecodedValueDto(
-        name: 'probe_temperature',
-        valueType: 'uint',
-        display: '165',
-        uintValue: 165,
-        unit: 'C',
-        unitSource: 'device_setting',
-      ));
+      final sensor = map(
+        const DecodedValueDto(
+          name: 'probe_temperature',
+          valueType: 'uint',
+          display: '165',
+          uintValue: 165,
+          unit: 'C',
+          unitSource: 'device_setting',
+        ),
+      );
       expect(sensor.unitOfMeasurement, isNull);
       expect(sensor.deviceClass, isNull);
       expect(sensor.state, 165);
@@ -325,13 +346,15 @@ void main() {
     test('an enumerated field forwards its name, not its code', () {
       // HA automations and history key on the state string; "5" is only
       // meaningful with the spec open.
-      final sensor = map(const DecodedValueDto(
-        name: 'liquid_state',
-        valueType: 'uint',
-        display: '5',
-        uintValue: 5,
-        valueLabel: 'heating',
-      ));
+      final sensor = map(
+        const DecodedValueDto(
+          name: 'liquid_state',
+          valueType: 'uint',
+          display: '5',
+          uintValue: 5,
+          valueLabel: 'heating',
+        ),
+      );
       expect(sensor.state, 'heating');
       expect(sensor.deviceClass, isNull, reason: 'a name is not a measurement');
       expect(sensor.unitOfMeasurement, isNull);
@@ -340,13 +363,15 @@ void main() {
     test('spec unit spellings are normalized to what HA accepts', () {
       // Specs write C, °C and degC across the catalogue; HA knows one.
       for (final spelling in ['C', '°C', 'degC']) {
-        final sensor = map(DecodedValueDto(
-          name: 'temperature',
-          valueType: 'int',
-          display: '21',
-          intValue: 21,
-          unit: spelling,
-        ));
+        final sensor = map(
+          DecodedValueDto(
+            name: 'temperature',
+            valueType: 'int',
+            display: '21',
+            intValue: 21,
+            unit: spelling,
+          ),
+        );
         expect(sensor.unitOfMeasurement, '°C', reason: spelling);
         expect(sensor.deviceClass, 'temperature', reason: spelling);
       }

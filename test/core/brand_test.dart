@@ -49,8 +49,11 @@ void main() {
   // then re-run `npm run icons` in tool/branding. See docs/BRANDING.md.
   test('theme constants match tool/branding/brand.json', () {
     final file = File('tool/branding/brand.json');
-    expect(file.existsSync(), isTrue,
-        reason: 'brand.json is the palette source of truth; it must exist');
+    expect(
+      file.existsSync(),
+      isTrue,
+      reason: 'brand.json is the palette source of truth; it must exist',
+    );
 
     final brand = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
 
@@ -60,14 +63,17 @@ void main() {
   });
 
   test('brand.json carries every colour the icon generator needs', () {
-    final brand = jsonDecode(
-      File('tool/branding/brand.json').readAsStringSync(),
-    ) as Map<String, dynamic>;
+    final brand =
+        jsonDecode(File('tool/branding/brand.json').readAsStringSync())
+            as Map<String, dynamic>;
 
     for (final key in ['blush', 'blushDeep', 'breadOrange', 'crust', 'face']) {
       expect(brand[key], isA<String>(), reason: '$key must be defined');
-      expect(brand[key] as String, matches(RegExp(r'^#[0-9A-Fa-f]{6}$')),
-          reason: '$key must be a #RRGGBB hex string');
+      expect(
+        brand[key] as String,
+        matches(RegExp(r'^#[0-9A-Fa-f]{6}$')),
+        reason: '$key must be a #RRGGBB hex string',
+      );
     }
   });
 
@@ -79,58 +85,75 @@ void main() {
     const minimum = 4.5; // AA for normal text; 3:1 is the floor for UI graphics
 
     test('ink is the mascot face colour from brand.json', () {
-      final brand = jsonDecode(
-        File('tool/branding/brand.json').readAsStringSync(),
-      ) as Map<String, dynamic>;
+      final brand =
+          jsonDecode(File('tool/branding/brand.json').readAsStringSync())
+              as Map<String, dynamic>;
       expect(_hex(LiberatedBreadTheme.ink), brand['face']);
     });
 
     test('app bar foreground contrasts with its fill in both themes', () {
       for (final theme in [
         LiberatedBreadTheme.light,
-        LiberatedBreadTheme.dark
+        LiberatedBreadTheme.dark,
       ]) {
         final bar = theme.appBarTheme;
         final ratio = _contrast(bar.foregroundColor!, bar.backgroundColor!);
-        expect(ratio, greaterThanOrEqualTo(minimum),
-            reason: 'app bar ${bar.foregroundColor} on ${bar.backgroundColor} '
-                'is ${ratio.toStringAsFixed(2)}:1');
+        expect(
+          ratio,
+          greaterThanOrEqualTo(minimum),
+          reason:
+              'app bar ${bar.foregroundColor} on ${bar.backgroundColor} '
+              'is ${ratio.toStringAsFixed(2)}:1',
+        );
       }
     });
 
     test('scan FAB foreground contrasts with the bread-orange fill', () {
       for (final theme in [
         LiberatedBreadTheme.light,
-        LiberatedBreadTheme.dark
+        LiberatedBreadTheme.dark,
       ]) {
         final fab = theme.floatingActionButtonTheme;
         final ratio = _contrast(fab.foregroundColor!, fab.backgroundColor!);
-        expect(ratio, greaterThanOrEqualTo(minimum),
-            reason: 'FAB ${fab.foregroundColor} on ${fab.backgroundColor} '
-                'is ${ratio.toStringAsFixed(2)}:1');
+        expect(
+          ratio,
+          greaterThanOrEqualTo(minimum),
+          reason:
+              'FAB ${fab.foregroundColor} on ${fab.backgroundColor} '
+              'is ${ratio.toStringAsFixed(2)}:1',
+        );
       }
     });
 
     test('onBrand flips to white once a background is dark enough', () {
-      expect(LiberatedBreadTheme.onBrand(LiberatedBreadTheme.blush),
-          LiberatedBreadTheme.ink);
-      expect(LiberatedBreadTheme.onBrand(LiberatedBreadTheme.breadOrange),
-          LiberatedBreadTheme.ink);
-      expect(LiberatedBreadTheme.onBrand(LiberatedBreadTheme.blushDeep),
-          Colors.white);
+      expect(
+        LiberatedBreadTheme.onBrand(LiberatedBreadTheme.blush),
+        LiberatedBreadTheme.ink,
+      );
+      expect(
+        LiberatedBreadTheme.onBrand(LiberatedBreadTheme.breadOrange),
+        LiberatedBreadTheme.ink,
+      );
+      expect(
+        LiberatedBreadTheme.onBrand(LiberatedBreadTheme.blushDeep),
+        Colors.white,
+      );
     });
   });
 
   test('the brand background drives the Android adaptive-icon layer', () {
-    final brand = jsonDecode(
-      File('tool/branding/brand.json').readAsStringSync(),
-    ) as Map<String, dynamic>;
+    final brand =
+        jsonDecode(File('tool/branding/brand.json').readAsStringSync())
+            as Map<String, dynamic>;
     final xml = File(
       'android/app/src/main/res/values/ic_launcher_background.xml',
     ).readAsStringSync();
 
-    expect(xml, contains(brand['blush'] as String),
-        reason: 'run `npm run icons` in tool/branding to re-sync');
+    expect(
+      xml,
+      contains(brand['blush'] as String),
+      reason: 'run `npm run icons` in tool/branding to re-sync',
+    );
   });
 
   // The splash and the adaptive-icon background both point at the generated
@@ -143,11 +166,18 @@ void main() {
       'android/app/src/main/res/drawable-v21/launch_background.xml',
     ]) {
       final xml = File(path).readAsStringSync();
-      expect(xml, contains('@color/ic_launcher_background'),
-          reason: '$path should reference the generated brand colour so the '
-              'cold-start splash matches the app bar');
-      expect(xml, isNot(contains('@android:color/white')),
-          reason: '$path still flashes stock white on cold start');
+      expect(
+        xml,
+        contains('@color/ic_launcher_background'),
+        reason:
+            '$path should reference the generated brand colour so the '
+            'cold-start splash matches the app bar',
+      );
+      expect(
+        xml,
+        isNot(contains('@android:color/white')),
+        reason: '$path still flashes stock white on cold start',
+      );
     }
   });
 }

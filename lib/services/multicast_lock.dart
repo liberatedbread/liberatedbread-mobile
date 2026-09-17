@@ -19,15 +19,16 @@ import '../core/log.dart';
 /// is a user decision rather than something an app can take a lock for.
 class MulticastLock {
   /// Matches `CHANNEL` in android/app/src/main/kotlin/.../MainActivity.kt.
-  static const MethodChannel channel =
-      MethodChannel('ca.pigscanfly.liberatedbread/multicast');
+  static const MethodChannel channel = MethodChannel(
+    'ca.pigscanfly.liberatedbread/multicast',
+  );
 
   /// Whether this platform needs (and has) the lock. Kept as a field rather
   /// than read from [Platform] at each call so tests can drive both paths.
   final bool isSupported;
 
   MulticastLock({bool? isSupported})
-      : isSupported = isSupported ?? Platform.isAndroid;
+    : isSupported = isSupported ?? Platform.isAndroid;
 
   /// Take the lock, or do nothing on a platform that has none.
   ///

@@ -12,13 +12,15 @@ import 'spec_codec_provider.dart';
 /// settings store the HA config uses. Tests override [settingsStoreProvider]
 /// with an in-memory fake and get an isolated store for free.
 final hubCredentialStoreProvider = Provider<HubCredentialStore>(
-    (ref) => HubCredentialStore(ref.watch(settingsStoreProvider)));
+  (ref) => HubCredentialStore(ref.watch(settingsStoreProvider)),
+);
 
 /// The hub transport. A provider so widget tests substitute a client that
 /// answers from canned JSON instead of a network — and so every screen
 /// shares one scheme/pin memory.
 final hubHttpClientProvider = Provider<HubHttpClient>(
-    (ref) => HubHttpClient(credentials: ref.watch(hubCredentialStoreProvider)));
+  (ref) => HubHttpClient(credentials: ref.watch(hubCredentialStoreProvider)),
+);
 
 /// The link-button pairing flow.
 final huePairingServiceProvider = Provider<HuePairingService>(
@@ -33,5 +35,7 @@ final huePairingServiceProvider = Provider<HuePairingService>(
 /// autoDispose + family so a screen watching it re-reads after pairing or
 /// forgetting — callers invalidate it after either.
 final hubCredentialsProvider = FutureProvider.autoDispose
-    .family<HubCredentials?, String>((ref, bridgeId) =>
-        ref.watch(hubCredentialStoreProvider).credentials(bridgeId));
+    .family<HubCredentials?, String>(
+      (ref, bridgeId) =>
+          ref.watch(hubCredentialStoreProvider).credentials(bridgeId),
+    );

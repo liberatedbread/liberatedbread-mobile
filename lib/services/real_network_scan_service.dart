@@ -122,7 +122,8 @@ const _wizLanProtocol = 'wiz-udp';
 const _yeelightMulticast = '239.255.255.250';
 const _yeelightPort = 1982;
 const _yeelightLanProtocol = 'yeelight-ssdp';
-const _yeelightProbe = 'M-SEARCH * HTTP/1.1\r\n'
+const _yeelightProbe =
+    'M-SEARCH * HTTP/1.1\r\n'
     'HOST: 239.255.255.250:1982\r\n'
     'MAN: "ssdp:discover"\r\n'
     'ST: wifi_bulb\r\n\r\n';
@@ -174,7 +175,9 @@ const _roombaProtocol = 'irobot-mqtt';
 /// Top-level, like [lifxStateServiceMac] and the SSDP parsers, so the
 /// announcement-to-device mapping is testable without opening a socket.
 Future<NetworkDevice?> roombaDeviceFrom(
-    Datagram datagram, SpecCodec codec) async {
+  Datagram datagram,
+  SpecCodec codec,
+) async {
   final RoombaAnnouncementDto? robot;
   try {
     robot = await codec.roombaParseAnnouncement(datagram: datagram.data);
@@ -380,7 +383,8 @@ String? mdnsPictogram(Iterable<String> serviceTypes) {
 /// 0x0c = platform/model string ("UVC G4 Pro", "ES-10X", "UFP-UAP-B…"). Only a
 /// v1 (`0x01`) reply is parsed; anything else yields nothing.
 ({String? hostname, String? mac, String? platform}) parseUbiquitiDiscovery(
-    List<int> data) {
+  List<int> data,
+) {
   String? hostname, mac, platform;
   if (data.length < 4 || data[0] != 0x01) {
     return (hostname: null, mac: null, platform: null);
@@ -440,7 +444,8 @@ String? ubiquitiPictogram(String? platform) {
 /// Wireshark's dissector: 0x0001 = MAC (6B), 0x0005 = Identity, 0x0007 =
 /// Version, 0x000c = Board (model, e.g. CRS328, RB4011).
 ({String? identity, String? mac, String? board, String? version}) parseMndp(
-    List<int> data) {
+  List<int> data,
+) {
   String? identity, mac, board, version;
   if (data.length < 8) {
     return (identity: null, mac: null, board: null, version: null);
@@ -492,7 +497,8 @@ String mikrotikPictogram({String? board, String? identity}) {
 /// identity fields (mac may be null), or null for anything that is not a Wiz
 /// JSON reply.
 ({String? mac, String? moduleName, String? fwVersion})? parseWizReply(
-    List<int> data) {
+  List<int> data,
+) {
   Object? decoded;
   try {
     decoded = jsonDecode(utf8.decode(data));
@@ -519,7 +525,8 @@ String mikrotikPictogram({String? board, String? identity}) {
 /// the SSDP header parser reads it. Null when the payload is not a Yeelight
 /// reply (no `id` and no `yeelight://` location).
 ({String? id, String? model, String? name, String? location})? parseYeelight(
-    String payload) {
+  String payload,
+) {
   final h = parseSsdpHeaders(payload);
   final location = h['location'];
   final id = h['id'];
@@ -565,7 +572,7 @@ String mikrotikPictogram({String? board, String? identity}) {
 /// probe echo) — the JSON parse and the `Roomba-`/`iRobot-` hostname prefix are
 /// the guard that keeps the two protocols sharing :5678 apart.
 ({String? hostname, String? robotname, String? blid, String? sku, String? mac})?
-    parseIrobotReply(List<int> data) {
+parseIrobotReply(List<int> data) {
   Object? decoded;
   try {
     decoded = jsonDecode(utf8.decode(data));
@@ -597,7 +604,7 @@ String mikrotikPictogram({String? board, String? identity}) {
 /// 8-byte HPAI, then the 54-byte DIB_DEVICE_INFO. Null for anything that is not
 /// a well-formed SEARCH_RESPONSE.
 ({String? name, String? individualAddress, String? serial, String? mac})?
-    parseKnxSearchResponse(List<int> d) {
+parseKnxSearchResponse(List<int> d) {
   const dib = 14; // 6-byte header + 8-byte HPAI
   if (d.length < dib + 54 || d[0] != 0x06 || d[1] != 0x10) return null;
   if (d[2] != 0x02 || d[3] != 0x02) return null; // SEARCH_RESPONSE
@@ -611,9 +618,9 @@ String mikrotikPictogram({String? board, String? identity}) {
   final mac = hexJoin(d.sublist(dib + 18, dib + 24), ':');
   final nameBytes = d.sublist(dib + 24, dib + 54);
   final nul = nameBytes.indexOf(0);
-  final name =
-      String.fromCharCodes(nul >= 0 ? nameBytes.sublist(0, nul) : nameBytes)
-          .trim();
+  final name = String.fromCharCodes(
+    nul >= 0 ? nameBytes.sublist(0, nul) : nameBytes,
+  ).trim();
   return (
     name: name.isEmpty ? null : name,
     individualAddress: individual,
@@ -726,7 +733,7 @@ class RealNetworkScanService implements NetworkScanService {
   final SpecCodec? codec;
 
   RealNetworkScanService({MulticastLock? multicastLock, this.codec})
-      : multicastLock = multicastLock ?? MulticastLock();
+    : multicastLock = multicastLock ?? MulticastLock();
 
   /// The scan currently entitled to the lock, or null between scans.
   ///
@@ -773,21 +780,27 @@ class RealNetworkScanService implements NetworkScanService {
         // with IGMP snooping) should still return what the other found.
         final codec = this.codec;
         final outcomes = await Future.wait([
-          _runMdns(session, emit, timeout, extraMdnsServiceTypes)
-              .catchError((Object e) {
+          _runMdns(session, emit, timeout, extraMdnsServiceTypes).catchError((
+            Object e,
+          ) {
             Log.net.warning('mDNS discovery failed', error: e);
             return TransportOutcome.failed;
           }),
           // A raw-socket backstop for devices that advertise a catalogue mDNS
           // type but publish no resolvable SRV/A (a Snapmaker U1): emits them at
           // the response's source IP. Best-effort — a bind clash returns silent.
-          _runMdnsSourceCapture(session, emit, timeout, extraMdnsServiceTypes)
-              .catchError((Object e) {
+          _runMdnsSourceCapture(
+            session,
+            emit,
+            timeout,
+            extraMdnsServiceTypes,
+          ).catchError((Object e) {
             Log.net.debug('mDNS source-capture failed: $e');
             return TransportOutcome.silent;
           }),
-          _runSsdp(session, emit, timeout, extraSearchTargets)
-              .catchError((Object e) {
+          _runSsdp(session, emit, timeout, extraSearchTargets).catchError((
+            Object e,
+          ) {
             Log.net.warning('SSDP discovery failed', error: e);
             return TransportOutcome.failed;
           }),
@@ -864,17 +877,13 @@ class RealNetworkScanService implements NetworkScanService {
         // is exactly that distinction, and the elapsed time says whether the
         // window ran or something bailed early.
         final heard = outcomes.where((o) => o == TransportOutcome.heard).length;
-        final failed =
-            outcomes.where((o) => o == TransportOutcome.failed).length;
-        Log.net
-            .info('network scan finished in ${formatElapsed(elapsed.elapsed)}: '
-                '${logFields({
-              'devices': coalescer.deviceCount,
-              'transports': outcomes.length,
-              'heard': heard,
-              'silent': outcomes.length - heard - failed,
-              'failed': failed,
-            })}');
+        final failed = outcomes
+            .where((o) => o == TransportOutcome.failed)
+            .length;
+        Log.net.info(
+          'network scan finished in ${formatElapsed(elapsed.elapsed)}: '
+          '${logFields({'devices': coalescer.deviceCount, 'transports': outcomes.length, 'heard': heard, 'silent': outcomes.length - heard - failed, 'failed': failed})}',
+        );
       } catch (e, st) {
         if (!controller.isClosed) controller.addError(e, st);
       } finally {
@@ -949,20 +958,29 @@ class RealNetworkScanService implements NetworkScanService {
       for (final raw in extraServiceTypes) {
         final serviceType = normalizeMdnsServiceType(raw);
         if (serviceType == null || !resolving.add(serviceType)) continue;
-        unawaited(_resolveServiceType(session, client, serviceType, emit, phase,
-                onHeard: markHeard)
-            .catchError((Object e) {
-          Log.net.debug('mDNS direct resolve failed for $serviceType: $e');
-        }));
+        unawaited(
+          _resolveServiceType(
+            session,
+            client,
+            serviceType,
+            emit,
+            phase,
+            onHeard: markHeard,
+          ).catchError((Object e) {
+            Log.net.debug('mDNS direct resolve failed for $serviceType: $e');
+          }),
+        );
       }
-      await for (final PtrResourceRecord type in client
-          .lookup<PtrResourceRecord>(
-              ResourceRecordQuery.serverPointer(_serviceEnumerationQuery),
-              // lookup() has its own internal 5 s default that closes the
-              // stream regardless of the .timeout below; pass the real
-              // budget or a long scan is silently capped at 5 s.
-              timeout: phase)
-          .timeout(phase, onTimeout: (sink) => sink.close())) {
+      await for (final PtrResourceRecord type
+          in client
+              .lookup<PtrResourceRecord>(
+                ResourceRecordQuery.serverPointer(_serviceEnumerationQuery),
+                // lookup() has its own internal 5 s default that closes the
+                // stream regardless of the .timeout below; pass the real
+                // budget or a long scan is silently capped at 5 s.
+                timeout: phase,
+              )
+              .timeout(phase, onTimeout: (sink) => sink.close())) {
         heard = true;
         if (session.stopped || DateTime.now().isAfter(deadline)) break;
         // Once per type, not once per announcement. The meta-query is answered
@@ -974,12 +992,18 @@ class RealNetworkScanService implements NetworkScanService {
         if (!resolving.add(type.domainName)) continue;
         // Fire the per-type resolution off rather than awaiting it: a slow or
         // unanswered service type must not hold up every other one.
-        unawaited(_resolveServiceType(
-                session, client, type.domainName, emit, phase,
-                onHeard: markHeard)
-            .catchError((Object e) {
-          Log.net.debug('mDNS resolve failed for ${type.domainName}: $e');
-        }));
+        unawaited(
+          _resolveServiceType(
+            session,
+            client,
+            type.domainName,
+            emit,
+            phase,
+            onHeard: markHeard,
+          ).catchError((Object e) {
+            Log.net.debug('mDNS resolve failed for ${type.domainName}: $e');
+          }),
+        );
       }
       // Give the fired-off resolutions the other half of the window — but wake
       // early if the scan is stopped.
@@ -1033,8 +1057,12 @@ class RealNetworkScanService implements NetworkScanService {
 
     final RawDatagramSocket socket;
     try {
-      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _mdnsPort,
-          reuseAddress: true, reusePort: true);
+      socket = await RawDatagramSocket.bind(
+        InternetAddress.anyIPv4,
+        _mdnsPort,
+        reuseAddress: true,
+        reusePort: true,
+      );
     } catch (e) {
       // reusePort unsupported, or :5353 exclusively held — skip; the normal
       // mDNS path still runs. Not a failure the user should hear about.
@@ -1074,14 +1102,16 @@ class RealNetworkScanService implements NetworkScanService {
           heard = true;
           // Once per (host, type) per scan — a device answers repeatedly.
           if (!seen.add('$host|${entry.key}')) continue;
-          emit(NetworkDevice(
-            host: host,
-            name: '',
-            serviceTypes: [entry.key],
-            pictogram: mdnsPictogram([entry.key]),
-            sources: const {NetworkDiscoverySource.mdns},
-            discoveredAt: DateTime.now(),
-          ));
+          emit(
+            NetworkDevice(
+              host: host,
+              name: '',
+              serviceTypes: [entry.key],
+              pictogram: mdnsPictogram([entry.key]),
+              sources: const {NetworkDiscoverySource.mdns},
+              discoveredAt: DateTime.now(),
+            ),
+          );
         }
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
@@ -1102,8 +1132,11 @@ class RealNetworkScanService implements NetworkScanService {
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true);
+    final socket = await RawDatagramSocket.bind(
+      InternetAddress.anyIPv4,
+      0,
+      reuseAddress: true,
+    );
     session.ubiquitiSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -1113,8 +1146,9 @@ class RealNetworkScanService implements NetworkScanService {
       // Twice: UDP is lossy and a dropped probe means a camera never heard from.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(_ubiquitiProbe, target, _ubiquitiPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1132,26 +1166,30 @@ class RealNetworkScanService implements NetworkScanService {
         // the same rule the SSDP transport applies. Logged so a device dropped
         // for an unrecognized reply shape is visible, not silent.
         if (parsed.mac == null && parsed.hostname == null) {
-          Log.net.debug('rejected Ubiquiti :$_ubiquitiPort datagram from '
-              '${datagram.address.address} (${datagram.data.length}B, '
-              'no id parsed)');
+          Log.net.debug(
+            'rejected Ubiquiti :$_ubiquitiPort datagram from '
+            '${datagram.address.address} (${datagram.data.length}B, '
+            'no id parsed)',
+          );
           continue;
         }
         heard = true;
         final host = datagram.address.address;
         if (!seen.add(host)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: parsed.hostname ?? '',
-          answeredLanProtocols: const [_ubiquitiLanProtocol],
-          pictogram: ubiquitiPictogram(parsed.platform),
-          txt: {
-            if (parsed.mac != null) 'mac': parsed.mac!,
-            if (parsed.platform != null) 'platform': parsed.platform!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: parsed.hostname ?? '',
+            answeredLanProtocols: const [_ubiquitiLanProtocol],
+            pictogram: ubiquitiPictogram(parsed.platform),
+            txt: {
+              if (parsed.mac != null) 'mac': parsed.mac!,
+              if (parsed.platform != null) 'platform': parsed.platform!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1181,8 +1219,12 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(InternetAddress.anyIPv4, _mikrotikPort,
-          reuseAddress: true, reusePort: true);
+      socket = await bindDatagramSocket(
+        InternetAddress.anyIPv4,
+        _mikrotikPort,
+        reuseAddress: true,
+        reusePort: true,
+      );
     } catch (e) {
       // :5678 exclusively held, or the bind is otherwise refused — skip.
       Log.net.debug('port 5678 (MNDP/iRobot) bind failed: $e');
@@ -1200,8 +1242,9 @@ class RealNetworkScanService implements NetworkScanService {
       // wire per scan and raced two NetworkDevices for one robot.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(_mikrotikProbe, target, _mikrotikPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1220,20 +1263,24 @@ class RealNetworkScanService implements NetworkScanService {
         if (mndp.identity != null || mndp.mac != null) {
           heard = true;
           if (!seen.add(host)) continue;
-          emit(NetworkDevice(
-            host: host,
-            name: mndp.identity ?? '',
-            answeredLanProtocols: const [_mikrotikLanProtocol],
-            pictogram:
-                mikrotikPictogram(board: mndp.board, identity: mndp.identity),
-            txt: {
-              if (mndp.mac != null) 'mac': mndp.mac!,
-              if (mndp.board != null) 'board': mndp.board!,
-              if (mndp.version != null) 'version': mndp.version!,
-            },
-            sources: const {NetworkDiscoverySource.lanProbe},
-            discoveredAt: DateTime.now(),
-          ));
+          emit(
+            NetworkDevice(
+              host: host,
+              name: mndp.identity ?? '',
+              answeredLanProtocols: const [_mikrotikLanProtocol],
+              pictogram: mikrotikPictogram(
+                board: mndp.board,
+                identity: mndp.identity,
+              ),
+              txt: {
+                if (mndp.mac != null) 'mac': mndp.mac!,
+                if (mndp.board != null) 'board': mndp.board!,
+                if (mndp.version != null) 'version': mndp.version!,
+              },
+              sources: const {NetworkDiscoverySource.lanProbe},
+              discoveredAt: DateTime.now(),
+            ),
+          );
           continue;
         }
         // A JSON iRobot blob on the same port: a robot announcing itself by
@@ -1257,8 +1304,10 @@ class RealNetworkScanService implements NetworkScanService {
         }
         // Neither shape — our own 4-byte MNDP echo, or an unrecognized reply.
         if (datagram.data.length > 4) {
-          Log.net.debug('rejected :5678 datagram from $host '
-              '(${datagram.data.length}B, not MNDP or iRobot)');
+          Log.net.debug(
+            'rejected :5678 datagram from $host '
+            '(${datagram.data.length}B, not MNDP or iRobot)',
+          );
         }
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
@@ -1286,16 +1335,23 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     RawDatagramSocket? plain, encrypted;
     try {
-      plain = await bindDatagramSocket(InternetAddress.anyIPv4, _tuyaPortPlain,
-          reuseAddress: true, reusePort: true);
+      plain = await bindDatagramSocket(
+        InternetAddress.anyIPv4,
+        _tuyaPortPlain,
+        reuseAddress: true,
+        reusePort: true,
+      );
       session.tuyaPlainSocket = plain;
     } catch (e) {
       Log.net.debug('Tuya :$_tuyaPortPlain bind failed: $e');
     }
     try {
       encrypted = await bindDatagramSocket(
-          InternetAddress.anyIPv4, _tuyaPortEncrypted,
-          reuseAddress: true, reusePort: true);
+        InternetAddress.anyIPv4,
+        _tuyaPortEncrypted,
+        reuseAddress: true,
+        reusePort: true,
+      );
       session.tuyaEncryptedSocket = encrypted;
     } catch (e) {
       Log.net.debug('Tuya :$_tuyaPortEncrypted bind failed: $e');
@@ -1323,9 +1379,11 @@ class RealNetworkScanService implements NetworkScanService {
         // Logged so a genuine Tuya beacon we failed to read (a newer framing,
         // an unreadable cipher) is visible rather than silently dropped.
         if (parsed == null) {
-          Log.net.debug('rejected Tuya :$port datagram from '
-              '${datagram.address.address} (${datagram.data.length}B, '
-              'not a readable broadcast)');
+          Log.net.debug(
+            'rejected Tuya :$port datagram from '
+            '${datagram.address.address} (${datagram.data.length}B, '
+            'not a readable broadcast)',
+          );
           continue;
         }
         heard = true;
@@ -1334,18 +1392,20 @@ class RealNetworkScanService implements NetworkScanService {
             : datagram.address.address;
         final key = (parsed.gwId?.isNotEmpty ?? false) ? parsed.gwId! : host;
         if (!seen.add(key)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: '',
-          answeredLanProtocols: const [_tuyaLanProtocol],
-          txt: {
-            if (parsed.gwId != null) 'gwId': parsed.gwId!,
-            if (parsed.version != null) 'version': parsed.version!,
-            if (parsed.productKey != null) 'productKey': parsed.productKey!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: '',
+            answeredLanProtocols: const [_tuyaLanProtocol],
+            txt: {
+              if (parsed.gwId != null) 'gwId': parsed.gwId!,
+              if (parsed.version != null) 'version': parsed.version!,
+              if (parsed.productKey != null) 'productKey': parsed.productKey!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
     }
 
@@ -1374,8 +1434,11 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
-          reuseAddress: true);
+      socket = await bindDatagramSocket(
+        InternetAddress.anyIPv4,
+        0,
+        reuseAddress: true,
+      );
     } catch (e) {
       Log.net.debug('Wiz bind failed: $e');
       return TransportOutcome.silent;
@@ -1388,8 +1451,9 @@ class RealNetworkScanService implements NetworkScanService {
       final target = InternetAddress(_lifxBroadcast);
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(utf8.encode(_wizProbe), target, _wizPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1409,19 +1473,21 @@ class RealNetworkScanService implements NetworkScanService {
         heard = true;
         final host = datagram.address.address;
         if (!seen.add(parsed.mac ?? host)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: '',
-          answeredLanProtocols: const [_wizLanProtocol],
-          pictogram: 'light',
-          txt: {
-            if (parsed.mac != null) 'mac': parsed.mac!,
-            if (parsed.moduleName != null) 'moduleName': parsed.moduleName!,
-            if (parsed.fwVersion != null) 'fwVersion': parsed.fwVersion!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: '',
+            answeredLanProtocols: const [_wizLanProtocol],
+            pictogram: 'light',
+            txt: {
+              if (parsed.mac != null) 'mac': parsed.mac!,
+              if (parsed.moduleName != null) 'moduleName': parsed.moduleName!,
+              if (parsed.fwVersion != null) 'fwVersion': parsed.fwVersion!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1441,8 +1507,11 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
-          reuseAddress: true);
+      socket = await bindDatagramSocket(
+        InternetAddress.anyIPv4,
+        0,
+        reuseAddress: true,
+      );
     } catch (e) {
       Log.net.debug('Yeelight bind failed: $e');
       return TransportOutcome.silent;
@@ -1455,8 +1524,9 @@ class RealNetworkScanService implements NetworkScanService {
       final target = InternetAddress(_yeelightMulticast);
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(utf8.encode(_yeelightProbe), target, _yeelightPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1469,24 +1539,27 @@ class RealNetworkScanService implements NetworkScanService {
         if (event != RawSocketEvent.read) continue;
         final datagram = socket.receive();
         if (datagram == null) continue;
-        final parsed =
-            parseYeelight(utf8.decode(datagram.data, allowMalformed: true));
+        final parsed = parseYeelight(
+          utf8.decode(datagram.data, allowMalformed: true),
+        );
         if (parsed == null) continue; // our own M-SEARCH echoes; ignore
         heard = true;
         final host = datagram.address.address;
         if (!seen.add(parsed.id ?? host)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: parsed.name ?? '',
-          answeredLanProtocols: const [_yeelightLanProtocol],
-          pictogram: 'light',
-          txt: {
-            if (parsed.id != null) 'id': parsed.id!,
-            if (parsed.model != null) 'model': parsed.model!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: parsed.name ?? '',
+            answeredLanProtocols: const [_yeelightLanProtocol],
+            pictogram: 'light',
+            txt: {
+              if (parsed.id != null) 'id': parsed.id!,
+              if (parsed.model != null) 'model': parsed.model!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1507,8 +1580,12 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket recv;
     try {
-      recv = await bindDatagramSocket(InternetAddress.anyIPv4, _goveeRecvPort,
-          reuseAddress: true, reusePort: true);
+      recv = await bindDatagramSocket(
+        InternetAddress.anyIPv4,
+        _goveeRecvPort,
+        reuseAddress: true,
+        reusePort: true,
+      );
     } catch (e) {
       Log.net.debug('Govee :$_goveeRecvPort bind failed: $e');
       return TransportOutcome.silent;
@@ -1519,14 +1596,18 @@ class RealNetworkScanService implements NetworkScanService {
     final seen = <String>{};
     try {
       try {
-        sender = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
-            reuseAddress: true);
+        sender = await bindDatagramSocket(
+          InternetAddress.anyIPv4,
+          0,
+          reuseAddress: true,
+        );
         sender.broadcastEnabled = true;
         final target = InternetAddress(_goveeMulticast);
         for (var attempt = 0; attempt < 2; attempt++) {
           sender.send(utf8.encode(_goveeProbe), target, _goveeSendPort);
-          if (await session
-              .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+          if (await session.sleepUnlessStopped(
+            const Duration(milliseconds: 250),
+          )) {
             break;
           }
         }
@@ -1547,18 +1628,20 @@ class RealNetworkScanService implements NetworkScanService {
         heard = true;
         final host = parsed.ip ?? datagram.address.address;
         if (!seen.add(parsed.device!)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: '',
-          answeredLanProtocols: const [_goveeLanProtocol],
-          pictogram: 'light',
-          txt: {
-            'device': parsed.device!,
-            if (parsed.sku != null) 'sku': parsed.sku!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: '',
+            answeredLanProtocols: const [_goveeLanProtocol],
+            pictogram: 'light',
+            txt: {
+              'device': parsed.device!,
+              if (parsed.sku != null) 'sku': parsed.sku!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1579,8 +1662,11 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
-          reuseAddress: true);
+      socket = await bindDatagramSocket(
+        InternetAddress.anyIPv4,
+        0,
+        reuseAddress: true,
+      );
     } catch (e) {
       Log.net.debug('KNX bind failed: $e');
       return TransportOutcome.silent;
@@ -1592,8 +1678,9 @@ class RealNetworkScanService implements NetworkScanService {
       final target = InternetAddress(_knxMulticast);
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(_knxProbe, target, _knxPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1608,27 +1695,31 @@ class RealNetworkScanService implements NetworkScanService {
         if (datagram == null) continue;
         final parsed = parseKnxSearchResponse(datagram.data);
         if (parsed == null) {
-          Log.net.debug('rejected KNX :$_knxPort datagram from '
-              '${datagram.address.address} (${datagram.data.length}B)');
+          Log.net.debug(
+            'rejected KNX :$_knxPort datagram from '
+            '${datagram.address.address} (${datagram.data.length}B)',
+          );
           continue;
         }
         heard = true;
         final host = datagram.address.address;
         if (!seen.add(parsed.serial ?? parsed.mac ?? host)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: parsed.name ?? '',
-          answeredLanProtocols: const [_knxLanProtocol],
-          pictogram: 'smart-device',
-          txt: {
-            if (parsed.individualAddress != null)
-              'knxAddress': parsed.individualAddress!,
-            if (parsed.serial != null) 'serial': parsed.serial!,
-            if (parsed.mac != null) 'mac': parsed.mac!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: parsed.name ?? '',
+            answeredLanProtocols: const [_knxLanProtocol],
+            pictogram: 'smart-device',
+            txt: {
+              if (parsed.individualAddress != null)
+                'knxAddress': parsed.individualAddress!,
+              if (parsed.serial != null) 'serial': parsed.serial!,
+              if (parsed.mac != null) 'mac': parsed.mac!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1653,11 +1744,13 @@ class RealNetworkScanService implements NetworkScanService {
     // client has nothing left to contribute and should just end.
     bool clientLive() => !session.stopped && identical(session.mdns, client);
     if (!clientLive()) return;
-    await for (final PtrResourceRecord instance in client
-        .lookup<PtrResourceRecord>(
-            ResourceRecordQuery.serverPointer(serviceType),
-            timeout: timeout)
-        .timeout(timeout, onTimeout: (sink) => sink.close())) {
+    await for (final PtrResourceRecord instance
+        in client
+            .lookup<PtrResourceRecord>(
+              ResourceRecordQuery.serverPointer(serviceType),
+              timeout: timeout,
+            )
+            .timeout(timeout, onTimeout: (sink) => sink.close())) {
       if (!clientLive()) return;
       // A PTR answer for this type means a device answered — enough to settle
       // the "did anything reach us" question even before it resolves to a row,
@@ -1673,11 +1766,13 @@ class RealNetworkScanService implements NetworkScanService {
       await Future.wait([
         () async {
           if (!clientLive()) return;
-          await for (final TxtResourceRecord record in client
-              .lookup<TxtResourceRecord>(
-                  ResourceRecordQuery.text(instance.domainName),
-                  timeout: timeout)
-              .timeout(timeout, onTimeout: (sink) => sink.close())) {
+          await for (final TxtResourceRecord record
+              in client
+                  .lookup<TxtResourceRecord>(
+                    ResourceRecordQuery.text(instance.domainName),
+                    timeout: timeout,
+                  )
+                  .timeout(timeout, onTimeout: (sink) => sink.close())) {
             txt.addAll(parseTxtRecord(record.text.split(RegExp(r'[\r\n]+'))));
           }
           // Emit the moment TXT is in, without waiting for the (often absent)
@@ -1691,24 +1786,28 @@ class RealNetworkScanService implements NetworkScanService {
           // port) and with the source-capture backstop.
           final txtHost = addressFromTxt(txt);
           if (txtHost != null) {
-            emit(NetworkDevice(
-              host: txtHost,
-              name: instanceNameOf(instance.domainName),
-              serviceTypes: [serviceTypeOf(instance.domainName)],
-              pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
-              txt: txt,
-              sources: const {NetworkDiscoverySource.mdns},
-              discoveredAt: DateTime.now(),
-            ));
+            emit(
+              NetworkDevice(
+                host: txtHost,
+                name: instanceNameOf(instance.domainName),
+                serviceTypes: [serviceTypeOf(instance.domainName)],
+                pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
+                txt: txt,
+                sources: const {NetworkDiscoverySource.mdns},
+                discoveredAt: DateTime.now(),
+              ),
+            );
           }
         }(),
         () async {
           if (!clientLive()) return;
-          await for (final SrvResourceRecord srv in client
-              .lookup<SrvResourceRecord>(
-                  ResourceRecordQuery.service(instance.domainName),
-                  timeout: timeout)
-              .timeout(timeout, onTimeout: (sink) => sink.close())) {
+          await for (final SrvResourceRecord srv
+              in client
+                  .lookup<SrvResourceRecord>(
+                    ResourceRecordQuery.service(instance.domainName),
+                    timeout: timeout,
+                  )
+                  .timeout(timeout, onTimeout: (sink) => sink.close())) {
             if (session.stopped) return;
             srvRecords.add(srv);
           }
@@ -1717,22 +1816,26 @@ class RealNetworkScanService implements NetworkScanService {
 
       for (final srv in srvRecords) {
         if (!clientLive()) return;
-        await for (final IPAddressResourceRecord address in client
-            .lookup<IPAddressResourceRecord>(
-                ResourceRecordQuery.addressIPv4(srv.target),
-                timeout: timeout)
-            .timeout(timeout, onTimeout: (sink) => sink.close())) {
-          emit(NetworkDevice(
-            host: address.address.address,
-            name: instanceNameOf(instance.domainName),
-            hostname: srv.target,
-            port: srv.port,
-            serviceTypes: [serviceTypeOf(instance.domainName)],
-            pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
-            txt: txt,
-            sources: const {NetworkDiscoverySource.mdns},
-            discoveredAt: DateTime.now(),
-          ));
+        await for (final IPAddressResourceRecord address
+            in client
+                .lookup<IPAddressResourceRecord>(
+                  ResourceRecordQuery.addressIPv4(srv.target),
+                  timeout: timeout,
+                )
+                .timeout(timeout, onTimeout: (sink) => sink.close())) {
+          emit(
+            NetworkDevice(
+              host: address.address.address,
+              name: instanceNameOf(instance.domainName),
+              hostname: srv.target,
+              port: srv.port,
+              serviceTypes: [serviceTypeOf(instance.domainName)],
+              pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
+              txt: txt,
+              sources: const {NetworkDiscoverySource.mdns},
+              discoveredAt: DateTime.now(),
+            ),
+          );
         }
       }
     }
@@ -1749,8 +1852,11 @@ class RealNetworkScanService implements NetworkScanService {
     Duration timeout,
     List<String> extraSearchTargets,
   ) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true);
+    final socket = await RawDatagramSocket.bind(
+      InternetAddress.anyIPv4,
+      0,
+      reuseAddress: true,
+    );
     session.ssdpSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -1770,7 +1876,8 @@ class RealNetworkScanService implements NetworkScanService {
           // MX is the maximum random delay a device waits before replying; it
           // spreads responses out to avoid a storm, so the listen window has
           // to be at least MX seconds or slow-answering devices are missed.
-          final request = 'M-SEARCH * HTTP/1.1\r\n'
+          final request =
+              'M-SEARCH * HTTP/1.1\r\n'
               'HOST: $_ssdpAddress:$_ssdpPort\r\n'
               'MAN: "ssdp:discover"\r\n'
               'MX: 3\r\n'
@@ -1801,24 +1908,28 @@ class RealNetworkScanService implements NetworkScanService {
         if (location == null &&
             searchTarget == null &&
             headers['server'] == null) {
-          Log.net.debug('rejected SSDP datagram from '
-              '${datagram.address.address} (no LOCATION/ST/SERVER)');
+          Log.net.debug(
+            'rejected SSDP datagram from '
+            '${datagram.address.address} (no LOCATION/ST/SERVER)',
+          );
           continue;
         }
         // Prefer the LOCATION host: a device behind a proxy or on a second
         // interface answers from an address its own service does not live on.
         final host = location?.host ?? datagram.address.address;
-        emit(NetworkDevice(
-          host: host,
-          name: '',
-          port: location?.port,
-          ssdpPort: location?.port,
-          ssdpDescriptionPath: location?.path,
-          ssdpTargets: [if (searchTarget != null) searchTarget],
-          server: headers['server'],
-          sources: const {NetworkDiscoverySource.ssdp},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: '',
+            port: location?.port,
+            ssdpPort: location?.port,
+            ssdpDescriptionPath: location?.path,
+            ssdpTargets: [?searchTarget],
+            server: headers['server'],
+            sources: const {NetworkDiscoverySource.ssdp},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1840,8 +1951,11 @@ class RealNetworkScanService implements NetworkScanService {
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true);
+    final socket = await RawDatagramSocket.bind(
+      InternetAddress.anyIPv4,
+      0,
+      reuseAddress: true,
+    );
     session.lifxSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -1852,8 +1966,9 @@ class RealNetworkScanService implements NetworkScanService {
       // that is simply never heard from.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(probe, target, _lifxPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1870,15 +1985,17 @@ class RealNetworkScanService implements NetworkScanService {
         heard = true;
         final mac = lifxStateServiceMac(datagram.data);
         if (mac == null) continue;
-        emit(NetworkDevice(
-          host: datagram.address.address,
-          name: '',
-          port: _lifxPort,
-          ssdpTargets: const [_lifxSearchTarget],
-          txt: {'mac': mac},
-          sources: const {NetworkDiscoverySource.ssdp},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: datagram.address.address,
+            name: '',
+            port: _lifxPort,
+            ssdpTargets: const [_lifxSearchTarget],
+            txt: {'mac': mac},
+            sources: const {NetworkDiscoverySource.ssdp},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1901,8 +2018,11 @@ class RealNetworkScanService implements NetworkScanService {
     SpecCodec codec,
   ) async {
     final probe = await codec.kasaEncryptDatagram(json: _kasaProbeJson);
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true);
+    final socket = await RawDatagramSocket.bind(
+      InternetAddress.anyIPv4,
+      0,
+      reuseAddress: true,
+    );
     session.kasaSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -1911,8 +2031,9 @@ class RealNetworkScanService implements NetworkScanService {
       // Sent more than once: UDP, and a dropped probe is a plug never heard.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(probe, target, _kasaPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1937,9 +2058,11 @@ class RealNetworkScanService implements NetworkScanService {
           // A reply reached us but did not decode to a Kasa get_sysinfo — a
           // non-Kasa service on :9999, or a shape we don't read. Logged so it
           // is not a silent drop.
-          Log.net.debug('rejected Kasa :$_kasaPort datagram from '
-              '${datagram.address.address} (${datagram.data.length}B, '
-              'not a get_sysinfo reply)');
+          Log.net.debug(
+            'rejected Kasa :$_kasaPort datagram from '
+            '${datagram.address.address} (${datagram.data.length}B, '
+            'not a get_sysinfo reply)',
+          );
         }
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
@@ -1952,7 +2075,9 @@ class RealNetworkScanService implements NetworkScanService {
   /// Build a device from a Kasa reply datagram, or null when it does not decode
   /// to a get_sysinfo answer (stray UDP noise on the port).
   Future<NetworkDevice?> _kasaDeviceFrom(
-      Datagram datagram, SpecCodec codec) async {
+    Datagram datagram,
+    SpecCodec codec,
+  ) async {
     final String json;
     try {
       json = await codec.kasaDecodeDatagram(datagram: datagram.data);
@@ -1998,11 +2123,7 @@ class RealNetworkScanService implements NetworkScanService {
       port: _kasaPort,
       answeredLanProtocols: const [_kasaProtocol],
       pictogram: pictogram,
-      txt: {
-        if (model != null) 'model': model,
-        if (mac != null) 'mac': mac,
-        if (deviceId != null) 'deviceId': deviceId,
-      },
+      txt: {'model': ?model, 'mac': ?mac, 'deviceId': ?deviceId},
       sources: const {NetworkDiscoverySource.lanProbe},
       discoveredAt: DateTime.now(),
     );
@@ -2028,8 +2149,11 @@ class RealNetworkScanService implements NetworkScanService {
     SpecCodec codec,
   ) async {
     final probe = await codec.roombaDiscoveryProbe();
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true);
+    final socket = await RawDatagramSocket.bind(
+      InternetAddress.anyIPv4,
+      0,
+      reuseAddress: true,
+    );
     session.roombaSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -2038,8 +2162,9 @@ class RealNetworkScanService implements NetworkScanService {
       // Sent more than once: UDP, and a dropped probe is a robot never found.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(probe, target, _roombaDiscoveryPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }

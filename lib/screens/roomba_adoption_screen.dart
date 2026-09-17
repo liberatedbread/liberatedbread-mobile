@@ -134,9 +134,7 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
   Widget build(BuildContext context) {
     final revealed = _revealed;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.robotName ?? 'Adopt this Roomba'),
-      ),
+      appBar: AppBar(title: Text(widget.robotName ?? 'Adopt this Roomba')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -231,39 +229,39 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
 
   /// The three routes that end in this app holding the robot's password.
   List<Widget> _passwordRoutes(BuildContext context) => [
-        FilledButton.icon(
-          onPressed: () => setState(() => _route = _Route.button),
-          icon: const Icon(Icons.touch_app),
-          label: const Text('Hold the HOME button'),
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text(
-            'Works offline, needs no iRobot account. Try this first.',
-            textAlign: TextAlign.center,
-          ),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: () => setState(() => _route = _Route.account),
-          icon: const Icon(Icons.cloud_outlined),
-          label: const Text('Sign in to iRobot once'),
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text(
-            'Reads the same two values from your account. Used once, then '
-            'never again — and it stops working once you firewall the robot, '
-            'so do it before that.',
-            textAlign: TextAlign.center,
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextButton(
-          onPressed: () => setState(() => _route = _Route.paste),
-          child: const Text('I already have the BLID and password'),
-        ),
-      ];
+    FilledButton.icon(
+      onPressed: () => setState(() => _route = _Route.button),
+      icon: const Icon(Icons.touch_app),
+      label: const Text('Hold the HOME button'),
+    ),
+    const Padding(
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Text(
+        'Works offline, needs no iRobot account. Try this first.',
+        textAlign: TextAlign.center,
+      ),
+    ),
+    const SizedBox(height: 8),
+    OutlinedButton.icon(
+      onPressed: () => setState(() => _route = _Route.account),
+      icon: const Icon(Icons.cloud_outlined),
+      label: const Text('Sign in to iRobot once'),
+    ),
+    const Padding(
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Text(
+        'Reads the same two values from your account. Used once, then '
+        'never again — and it stops working once you firewall the robot, '
+        'so do it before that.',
+        textAlign: TextAlign.center,
+      ),
+    ),
+    const SizedBox(height: 8),
+    TextButton(
+      onPressed: () => setState(() => _route = _Route.paste),
+      child: const Text('I already have the BLID and password'),
+    ),
+  ];
 
   // ── Route 1: the HOME button ───────────────────────────────────────────────
 
@@ -274,24 +272,24 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
       children: [
         Text('Do this in order', style: theme.textTheme.titleMedium),
         const SizedBox(height: 12),
-        const _Step(
-          number: 1,
-          text: 'Put the robot on its dock, powered on.',
-        ),
+        const _Step(number: 1, text: 'Put the robot on its dock, powered on.'),
         const _Step(
           number: 2,
-          text: 'Close the iRobot app on every phone in the house. The robot '
+          text:
+              'Close the iRobot app on every phone in the house. The robot '
               'only talks to one thing at a time, and the app will hold the '
               'slot.',
         ),
         const _Step(
           number: 3,
-          text: 'Hold HOME for about two seconds, until the robot plays a '
+          text:
+              'Hold HOME for about two seconds, until the robot plays a '
               'series of tones. Release it.',
         ),
         const _Step(
           number: 4,
-          text: 'Tap below straight away — the robot only answers for a few '
+          text:
+              'Tap below straight away — the robot only answers for a few '
               'seconds.',
         ),
         const SizedBox(height: 16),
@@ -315,8 +313,9 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
           ),
         const SizedBox(height: 8),
         TextButton(
-          onPressed:
-              _busy ? null : () => setState(() => _route = _Route.chooser),
+          onPressed: _busy
+              ? null
+              : () => setState(() => _route = _Route.chooser),
           child: const Text('Back'),
         ),
       ],
@@ -331,21 +330,24 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
       _attempt = 0;
     });
     try {
-      final password =
-          await ref.read(roombaPasswordServiceProvider).fetchPassword(
-        widget.host,
-        attempts: widget.passwordAttempts,
-        onAttempt: (attempt) {
-          if (mounted) setState(() => _attempt = attempt);
-        },
+      final password = await ref
+          .read(roombaPasswordServiceProvider)
+          .fetchPassword(
+            widget.host,
+            attempts: widget.passwordAttempts,
+            onAttempt: (attempt) {
+              if (mounted) setState(() => _attempt = attempt);
+            },
+          );
+      await _adopt(
+        RoombaCredentials(
+          blid: widget.blid,
+          password: password,
+          name: widget.robotName,
+          sku: widget.sku,
+          lastIp: widget.host,
+        ),
       );
-      await _adopt(RoombaCredentials(
-        blid: widget.blid,
-        password: password,
-        name: widget.robotName,
-        sku: widget.sku,
-        lastIp: widget.host,
-      ));
     } catch (e) {
       _fail(e, 'The robot did not hand over a password.');
     } finally {
@@ -356,64 +358,64 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
   // ── Route 2: the iRobot account ────────────────────────────────────────────
 
   Widget _accountRoute(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Signing in reads your robots\' BLIDs and passwords out of '
-            'iRobot\'s API. Your account password is used for that one '
-            'request and is never saved.',
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _emailController,
-            enabled: !_busy,
-            keyboardType: TextInputType.emailAddress,
-            autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'iRobot account email',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _accountPasswordController,
-            enabled: !_busy,
-            obscureText: true,
-            decoration: const InputDecoration(
-              labelText: 'iRobot account password',
-              border: OutlineInputBorder(),
-              helperText: 'Not stored. Sent to iRobot once.',
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _countryController,
-            enabled: !_busy,
-            autocorrect: false,
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
-              labelText: 'Account region',
-              border: OutlineInputBorder(),
-              helperText: 'Two-letter country code for your iRobot account. '
-                  'The wrong one signs in but finds no robots.',
-            ),
-          ),
-          const SizedBox(height: 16),
-          if (_busy)
-            const LinearProgressIndicator()
-          else
-            FilledButton(
-              onPressed: _runAccountRoute,
-              child: const Text('Sign in and read my robots'),
-            ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed:
-                _busy ? null : () => setState(() => _route = _Route.chooser),
-            child: const Text('Back'),
-          ),
-        ],
-      );
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Text(
+        'Signing in reads your robots\' BLIDs and passwords out of '
+        'iRobot\'s API. Your account password is used for that one '
+        'request and is never saved.',
+      ),
+      const SizedBox(height: 16),
+      TextField(
+        controller: _emailController,
+        enabled: !_busy,
+        keyboardType: TextInputType.emailAddress,
+        autocorrect: false,
+        decoration: const InputDecoration(
+          labelText: 'iRobot account email',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _accountPasswordController,
+        enabled: !_busy,
+        obscureText: true,
+        decoration: const InputDecoration(
+          labelText: 'iRobot account password',
+          border: OutlineInputBorder(),
+          helperText: 'Not stored. Sent to iRobot once.',
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _countryController,
+        enabled: !_busy,
+        autocorrect: false,
+        textCapitalization: TextCapitalization.characters,
+        decoration: const InputDecoration(
+          labelText: 'Account region',
+          border: OutlineInputBorder(),
+          helperText:
+              'Two-letter country code for your iRobot account. '
+              'The wrong one signs in but finds no robots.',
+        ),
+      ),
+      const SizedBox(height: 16),
+      if (_busy)
+        const LinearProgressIndicator()
+      else
+        FilledButton(
+          onPressed: _runAccountRoute,
+          child: const Text('Sign in and read my robots'),
+        ),
+      const SizedBox(height: 8),
+      TextButton(
+        onPressed: _busy ? null : () => setState(() => _route = _Route.chooser),
+        child: const Text('Back'),
+      ),
+    ],
+  );
 
   Future<void> _runAccountRoute() async {
     setState(() {
@@ -423,12 +425,13 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
     });
     try {
       final country = _countryController.text.trim().toUpperCase();
-      final robots =
-          await ref.read(iRobotCloudServiceProvider).fetchCredentials(
-                email: _emailController.text.trim(),
-                password: _accountPasswordController.text,
-                countryCode: country.isEmpty ? _localeCountry() : country,
-              );
+      final robots = await ref
+          .read(iRobotCloudServiceProvider)
+          .fetchCredentials(
+            email: _emailController.text.trim(),
+            password: _accountPasswordController.text,
+            countryCode: country.isEmpty ? _localeCountry() : country,
+          );
       // Clear it the moment it has been used, rather than at dispose: the
       // window in which it exists should be as short as the flow allows.
       _accountPasswordController.clear();
@@ -454,10 +457,10 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
         throw IRobotCloudException(
           robots.isEmpty
               ? 'That account has no robots in this region. Check the account '
-                  'region above — the wrong one signs in but finds nothing.'
+                    'region above — the wrong one signs in but finds nothing.'
               : 'This robot (${widget.blid}) is not on that account. It holds: '
-                  '$names. Sign in with the account that owns this robot, or '
-                  'use the HOME-button route instead.',
+                    '$names. Sign in with the account that owns this robot, or '
+                    'use the HOME-button route instead.',
         );
       }
       await _adopt(match.copyWith(lastIp: widget.host));
@@ -485,58 +488,59 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
     if (entity == null || !mounted) return;
     // Adopted with no password of our own: Home Assistant holds it, and the
     // robot is reachable through the entity id alone.
-    await _adopt(RoombaCredentials(
-      blid: widget.blid,
-      password: '',
-      name: widget.robotName,
-      sku: widget.sku,
-      lastIp: widget.host,
-      haEntityId: entity.entityId,
-    ));
+    await _adopt(
+      RoombaCredentials(
+        blid: widget.blid,
+        password: '',
+        name: widget.robotName,
+        sku: widget.sku,
+        lastIp: widget.host,
+        haEntityId: entity.entityId,
+      ),
+    );
   }
 
   // ── Route 3: paste what you already have ───────────────────────────────────
 
   Widget _pasteRoute(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'If you already ran dorita980 or roombapy on a computer, or you '
-            'have these in Home Assistant, paste them here.',
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _blidController,
-            autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'BLID',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _passwordController,
-            autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'Password',
-              border: OutlineInputBorder(),
-              // The mistake this field invites, named before it happens.
-              helperText: 'Paste the whole thing, including the leading colon.',
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _busy ? null : _savePasted,
-            child: const Text('Save'),
-          ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed:
-                _busy ? null : () => setState(() => _route = _Route.chooser),
-            child: const Text('Back'),
-          ),
-        ],
-      );
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Text(
+        'If you already ran dorita980 or roombapy on a computer, or you '
+        'have these in Home Assistant, paste them here.',
+      ),
+      const SizedBox(height: 16),
+      TextField(
+        controller: _blidController,
+        autocorrect: false,
+        decoration: const InputDecoration(
+          labelText: 'BLID',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _passwordController,
+        autocorrect: false,
+        decoration: const InputDecoration(
+          labelText: 'Password',
+          border: OutlineInputBorder(),
+          // The mistake this field invites, named before it happens.
+          helperText: 'Paste the whole thing, including the leading colon.',
+        ),
+      ),
+      const SizedBox(height: 16),
+      FilledButton(
+        onPressed: _busy ? null : _savePasted,
+        child: const Text('Save'),
+      ),
+      const SizedBox(height: 8),
+      TextButton(
+        onPressed: _busy ? null : () => setState(() => _route = _Route.chooser),
+        child: const Text('Back'),
+      ),
+    ],
+  );
 
   Future<void> _savePasted() async {
     final blid = _blidController.text.trim();
@@ -553,10 +557,12 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
     // means it was edited.
     if (blid.toUpperCase() != widget.blid.toUpperCase()) {
       setState(
-          () => _error = 'That BLID is not this robot. This screen is adopting '
-              '${widget.blid}; saving ${blid.toUpperCase()} here would store the '
-              'password where nothing will look for it. Re-check the BLID, or go '
-              'back and pick the other robot.');
+        () => _error =
+            'That BLID is not this robot. This screen is adopting '
+            '${widget.blid}; saving ${blid.toUpperCase()} here would store the '
+            'password where nothing will look for it. Re-check the BLID, or go '
+            'back and pick the other robot.',
+      );
       return;
     }
     setState(() {
@@ -564,13 +570,15 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
       _error = null;
     });
     try {
-      await _adopt(RoombaCredentials(
-        blid: blid,
-        password: password,
-        name: widget.robotName,
-        sku: widget.sku,
-        lastIp: widget.host,
-      ));
+      await _adopt(
+        RoombaCredentials(
+          blid: blid,
+          password: password,
+          name: widget.robotName,
+          sku: widget.sku,
+          lastIp: widget.host,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -610,19 +618,19 @@ class _Step extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              radius: 12,
-              child: Text('$number', style: const TextStyle(fontSize: 12)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Text(text)),
-          ],
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 12,
+          child: Text('$number', style: const TextStyle(fontSize: 12)),
         ),
-      );
+        const SizedBox(width: 12),
+        Expanded(child: Text(text)),
+      ],
+    ),
+  );
 }
 
 /// The end of the flow, and the reason it is a screen rather than a sheet.
@@ -667,10 +675,7 @@ class _CredentialReveal extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Screenshot this',
-                  style: theme.textTheme.titleSmall,
-                ),
+                Text('Screenshot this', style: theme.textTheme.titleSmall),
                 const SizedBox(height: 4),
                 Text(
                   'These only change if the robot is factory reset. They are '
@@ -731,9 +736,9 @@ class _Field extends StatelessWidget {
             onPressed: () async {
               await Clipboard.setData(ClipboardData(text: value));
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('$label copied')),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text('$label copied')));
             },
           ),
         ],

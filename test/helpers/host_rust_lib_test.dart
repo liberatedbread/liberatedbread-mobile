@@ -62,9 +62,7 @@ void main() {
       // The reason this reads cargo's dep-info instead of globbing rust/src:
       // rust/src/api/device_api.rs embeds a TSV out of vendor/, and no glob of
       // the crate directory would notice that file changing.
-      final depFile = File(
-        'rust/target/debug/libliberated_bread_core.d',
-      );
+      final depFile = File('rust/target/debug/libliberated_bread_core.d');
       if (!depFile.existsSync()) {
         markTestSkipped(
           'No host build present (${depFile.path}); run '
@@ -73,9 +71,13 @@ void main() {
         return;
       }
       final deps = parseCargoDepInfo(depFile.readAsStringSync());
-      expect(deps, isNotEmpty,
-          reason: 'An empty dep list makes the library look permanently fresh, '
-              'so it would never be rebuilt before the FFI suites run.');
+      expect(
+        deps,
+        isNotEmpty,
+        reason:
+            'An empty dep list makes the library look permanently fresh, '
+            'so it would never be rebuilt before the FFI suites run.',
+      );
       expect(
         deps.any((d) => d.endsWith('.rs')),
         isTrue,
@@ -84,7 +86,8 @@ void main() {
       expect(
         deps.any((d) => d.contains('protocol-specs')),
         isTrue,
-        reason: 'device_api.rs include_str!s a registry from '
+        reason:
+            'device_api.rs include_str!s a registry from '
             'vendor/protocol-specs; if cargo has stopped recording it, editing '
             'that file no longer triggers a rebuild.',
       );

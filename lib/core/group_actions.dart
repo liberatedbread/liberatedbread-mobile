@@ -61,11 +61,11 @@ enum GroupOp {
   const GroupOp(this.icon, this.label);
 
   String get roleName => switch (this) {
-        turnOn => 'turn_on',
-        turnOff => 'turn_off',
-        setBrightness => 'set_brightness',
-        readBattery || readSensors => '',
-      };
+    turnOn => 'turn_on',
+    turnOff => 'turn_off',
+    setBrightness => 'set_brightness',
+    readBattery || readSensors => '',
+  };
 
   /// Whether this op writes commands (vs. reading values). Derived from
   /// [roleName] — command ops are exactly the ones bound to an entity action
@@ -130,11 +130,15 @@ class GroupRead {
 /// only reports what the *spec* promises (including a declared SIG battery
 /// service, format block or not, since the profile can decode 2a19 without
 /// one).
-Set<GroupOp> supportedGroupOps(DeviceSpecDto spec,
-    {List<String>? matchedVariants}) {
+Set<GroupOp> supportedGroupOps(
+  DeviceSpecDto spec, {
+  List<String>? matchedVariants,
+}) {
   final ops = <GroupOp>{};
-  for (final (entity: _, :action)
-      in _controlActions(spec, matchedVariants: matchedVariants)) {
+  for (final (entity: _, :action) in _controlActions(
+    spec,
+    matchedVariants: matchedVariants,
+  )) {
     switch (action.role) {
       case 'turn_on':
         ops.add(GroupOp.turnOn);
@@ -274,28 +278,32 @@ List<GroupWrite> resolveGroupWrites({
   final writable = discoveredWritablePairs(services);
 
   final writes = <GroupWrite>[];
-  for (final (:entity, :action)
-      in _controlActions(spec, matchedVariants: matchedVariants)) {
+  for (final (:entity, :action) in _controlActions(
+    spec,
+    matchedVariants: matchedVariants,
+  )) {
     if (action.role != op.roleName) continue;
     if (!writable.containsKey(
       discoveredPairKey(action.serviceUuid, action.characteristicUuid),
     )) {
       continue;
     }
-    writes.add(GroupWrite(
-      serviceUuid: action.serviceUuid,
-      charUuid: action.characteristicUuid,
-      commandName: action.commandName!,
-      params: switch (op) {
-        GroupOp.setBrightness => _paramsFor(
+    writes.add(
+      GroupWrite(
+        serviceUuid: action.serviceUuid,
+        charUuid: action.characteristicUuid,
+        commandName: action.commandName!,
+        params: switch (op) {
+          GroupOp.setBrightness => _paramsFor(
             action,
             brightness: brightnessDeviceValue(action, brightnessPercent ?? 100),
           ),
-        // Switch cards send no parameters for on/off; light actions carrying
-        // user params get full-on defaults (see _paramsFor).
-        _ => entity.platform == 'switch' ? const {} : _paramsFor(action),
-      },
-    ));
+          // Switch cards send no parameters for on/off; light actions carrying
+          // user params get full-on defaults (see _paramsFor).
+          _ => entity.platform == 'switch' ? const {} : _paramsFor(action),
+        },
+      ),
+    );
   }
   return writes;
 }
@@ -320,13 +328,15 @@ List<GroupRead> resolveBatteryReads({
       final owning = _owningReadableService(spec, services, stateChar);
       if (owning == null) continue;
       if (!seenChars.add(normalizeUuid(stateChar))) continue;
-      reads.add(GroupRead(
-        serviceUuid: owning,
-        charUuid: stateChar,
-        specBased: true,
-        entity: entity,
-        label: entity.name,
-      ));
+      reads.add(
+        GroupRead(
+          serviceUuid: owning,
+          charUuid: stateChar,
+          specBased: true,
+          entity: entity,
+          label: entity.name,
+        ),
+      );
     }
   }
   if (reads.isNotEmpty) return reads;
@@ -372,13 +382,15 @@ List<GroupRead> resolveSensorReads({
     final owning = _owningReadableService(spec, services, stateChar);
     if (owning == null) continue;
     if (!seen.add('${entity.platform}|${entity.name}')) continue;
-    reads.add(GroupRead(
-      serviceUuid: owning,
-      charUuid: stateChar,
-      specBased: true,
-      entity: entity,
-      label: entity.name,
-    ));
+    reads.add(
+      GroupRead(
+        serviceUuid: owning,
+        charUuid: stateChar,
+        specBased: true,
+        entity: entity,
+        label: entity.name,
+      ),
+    );
   }
   return reads;
 }
@@ -444,8 +456,7 @@ bool _groupSendable(NetworkActionDto action) =>
 /// no-drift reason as [_controlActions].
 Iterable<NetworkEntityDto> _networkControlEntities(
   List<NetworkEntityDto> entities,
-) =>
-    entities.where((e) => e.platform == 'light' || e.platform == 'switch');
+) => entities.where((e) => e.platform == 'light' || e.platform == 'switch');
 
 NetworkActionDto? _networkAction(NetworkEntityDto entity, String role) {
   for (final action in entity.actions) {
@@ -506,14 +517,16 @@ GroupNetworkPlan resolveNetworkGroupPlan({
       case GroupOp.turnOn:
         final action = _networkAction(entity, 'turn_on');
         if (action != null) {
-          direct.add(GroupNetworkSend(
-              entity: entity, action: action, values: const {}));
+          direct.add(
+            GroupNetworkSend(entity: entity, action: action, values: const {}),
+          );
         }
       case GroupOp.turnOff:
         final off = _networkAction(entity, 'turn_off');
         if (off != null) {
           direct.add(
-              GroupNetworkSend(entity: entity, action: off, values: const {}));
+            GroupNetworkSend(entity: entity, action: off, values: const {}),
+          );
           break;
         }
         final toggle = _networkAction(entity, 'toggle');
@@ -528,11 +541,13 @@ GroupNetworkPlan resolveNetworkGroupPlan({
           final min = action.min ?? 0;
           final max = action.max ?? 100;
           final value = (min + (max - min) * percent / 100).round();
-          direct.add(GroupNetworkSend(
-            entity: entity,
-            action: action,
-            values: {action.userParams.first: '$value'},
-          ));
+          direct.add(
+            GroupNetworkSend(
+              entity: entity,
+              action: action,
+              values: {action.userParams.first: '$value'},
+            ),
+          );
         }
       case GroupOp.readBattery || GroupOp.readSensors:
         break;
@@ -588,7 +603,7 @@ String? groupReadingDisplay(GroupRead read, List<DecodedValueDto> decoded) {
   if (!read.specBased) {
     final value =
         decoded.where((d) => d.name == _sigBatteryField).firstOrNull ??
-            decoded.first;
+        decoded.first;
     return '${labelledTextOf(value)} %';
   }
   final entity = read.entity;

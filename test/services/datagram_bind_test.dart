@@ -35,7 +35,8 @@ void main() {
         if (reusePort) {
           // What Android's bionic libc raises for SO_REUSEPORT.
           throw const SocketException(
-              'reusePort not supported on this platform');
+            'reusePort not supported on this platform',
+          );
         }
         return Future.value('ok:$reusePort');
       });
@@ -48,8 +49,10 @@ void main() {
       // Both binds fail (e.g. the port really is taken): the error surfaces
       // rather than being masked.
       await expectLater(
-        withReusePortFallback(({required bool reusePort}) =>
-            Future<Object>.error(const SocketException('port in use'))),
+        withReusePortFallback(
+          ({required bool reusePort}) =>
+              Future<Object>.error(const SocketException('port in use')),
+        ),
         throwsA(isA<SocketException>()),
       );
     });
@@ -81,8 +84,11 @@ void main() {
       // rejects it the fallback still yields a socket. Either way a bind comes
       // back rather than an exception — the property the mDNS transport relies
       // on. Loopback:0 keeps this off 5353/1900, so it is a plain unit test.
-      final socket = await bindDatagramSocket(InternetAddress.loopbackIPv4, 0,
-          reusePort: true);
+      final socket = await bindDatagramSocket(
+        InternetAddress.loopbackIPv4,
+        0,
+        reusePort: true,
+      );
       addTearDown(socket.close);
       expect(socket.port, greaterThan(0));
     });

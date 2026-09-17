@@ -6,7 +6,12 @@ publish_to: 'none'
 version: 0.1.0+1
 
 environment:
-  sdk: '>=3.6.0 <4.0.0'
+  # What pubspec.lock and the pinned Flutter 3.44.8 already demand. This is
+  # also the package's LANGUAGE version: below 3.7 the lints flutter_lints 6
+  # adds were no-ops and `dart format` used the pre-3.7 style. Raising it
+  # reformatted every Dart file in the repository, once, in the commit that
+  # made this change.
+  sdk: ^3.12.0
 
 dependencies:
   flutter:
@@ -31,7 +36,7 @@ dependencies:
   # SOAP/UPnP control of network devices (Wemo): parsing setup.xml and SOAP
   # response envelopes. Already in the tree as a transitive dependency; listed
   # here because lib/ imports it directly.
-  xml: ^6.5.0
+  xml: ^7.0.1
   liberated_bread_core:
     path: rust_builder
   multicast_dns: ^0.3.3+1
@@ -41,7 +46,7 @@ dev_dependencies:
     sdk: flutter
   integration_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   # Test-only: fake time for the polled Roomba adapters, whose rule is about
   # what a `Timer.periodic` does when the server answers slower than the
   # interval — real-time waiting would make that a ten-second test. Already

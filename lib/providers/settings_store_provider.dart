@@ -14,5 +14,6 @@ import '../services/settings_store.dart';
 /// store owned by one feature's provider file reads as that feature's
 /// private property, which is exactly how a second user ends up minting a
 /// second store.
-final settingsStoreProvider =
-    Provider<SettingsStore>((ref) => SecureSettingsStore());
+final settingsStoreProvider = Provider<SettingsStore>(
+  (ref) => SecureSettingsStore(),
+);

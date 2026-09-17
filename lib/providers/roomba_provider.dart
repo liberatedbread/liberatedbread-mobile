@@ -15,7 +15,8 @@ import 'spec_codec_provider.dart';
 /// platform keychain/keystore, and a test overriding [settingsStoreProvider]
 /// gets an isolated in-memory store for free.
 final roombaCredentialStoreProvider = Provider<RoombaCredentialStore>(
-    (ref) => RoombaCredentialStore(ref.watch(settingsStoreProvider)));
+  (ref) => RoombaCredentialStore(ref.watch(settingsStoreProvider)),
+);
 
 /// The Home Assistant transport, or null when HA is not set up in the app.
 ///
@@ -38,7 +39,8 @@ final haRoombaClientProvider = Provider<HaRoombaClient?>((ref) {
 /// The HOME-button password handshake. A provider so the adoption wizard's
 /// widget tests drive it from a scripted socket rather than a real robot.
 final roombaPasswordServiceProvider = Provider<RoombaPasswordService>(
-    (ref) => RoombaPasswordService(codec: ref.watch(specCodecProvider)));
+  (ref) => RoombaPasswordService(codec: ref.watch(specCodecProvider)),
+);
 
 /// The account route to the same credentials.
 ///
@@ -58,12 +60,12 @@ final iRobotCloudServiceProvider = Provider<IRobotCloudService>((ref) {
 /// old, so a session that outlives the screen watching it keeps the owner
 /// locked out of their own iRobot app. When the last watcher goes away the
 /// client disconnects and the slot is free again.
-final roombaClientProvider =
-    Provider.autoDispose.family<RoombaMqttClient, String>((ref, blid) {
-  final client = RoombaMqttClient(codec: ref.watch(specCodecProvider));
-  ref.onDispose(client.dispose);
-  return client;
-});
+final roombaClientProvider = Provider.autoDispose
+    .family<RoombaMqttClient, String>((ref, blid) {
+      final client = RoombaMqttClient(codec: ref.watch(specCodecProvider));
+      ref.onDispose(client.dispose);
+      return client;
+    });
 
 /// The rest980 transport, for robots configured to route through a server.
 ///
@@ -83,5 +85,6 @@ final rest980ClientProvider = Provider<Rest980Client>((ref) {
 /// autoDispose + family so a screen watching it re-reads after adoption or
 /// after forgetting — callers invalidate it after either.
 final roombaCredentialsProvider = FutureProvider.autoDispose
-    .family<RoombaCredentials?, String>((ref, blid) =>
-        ref.watch(roombaCredentialStoreProvider).credentials(blid));
+    .family<RoombaCredentials?, String>(
+      (ref, blid) => ref.watch(roombaCredentialStoreProvider).credentials(blid),
+    );

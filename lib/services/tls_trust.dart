@@ -50,13 +50,13 @@ enum TlsPolicy {
   /// A spec that states NOTHING is a different case and the caller decides it:
   /// see [TlsTrust.evaluator]'s `fallback`.
   static TlsPolicy? parse(String? verification) => switch (verification) {
-        null => null,
-        'standard' => TlsPolicy.standard,
-        'trust_on_first_use' => TlsPolicy.trustOnFirstUse,
-        'vendor_ca' => TlsPolicy.vendorCa,
-        'none' => TlsPolicy.none,
-        _ => TlsPolicy.trustOnFirstUse,
-      };
+    null => null,
+    'standard' => TlsPolicy.standard,
+    'trust_on_first_use' => TlsPolicy.trustOnFirstUse,
+    'vendor_ca' => TlsPolicy.vendorCa,
+    'none' => TlsPolicy.none,
+    _ => TlsPolicy.trustOnFirstUse,
+  };
 }
 
 /// Remembers which certificate a device presented the first time, so a later
@@ -100,8 +100,8 @@ class CertificatePinStore {
 /// two ways is a pin nothing can erase.
 String identityFor({String? mac, String? host}) =>
     (mac != null && mac.isNotEmpty)
-        ? 'mac:${mac.toLowerCase()}'
-        : 'host:${host ?? ''}';
+    ? 'mac:${mac.toLowerCase()}'
+    : 'host:${host ?? ''}';
 
 /// The one spelling of "this scanned device's store identity".
 ///
@@ -226,7 +226,7 @@ class TlsTrust {
     required String identity,
     required TlsPolicy? policy,
     required bool Function(X509Certificate cert, String host, int port)
-        fallback,
+    fallback,
   }) {
     return (cert, host, port) {
       switch (policy) {
@@ -263,10 +263,14 @@ class TlsTrust {
             // rather than awaited — the handshake cannot wait, and a pin that
             // fails to persist costs a re-pin, not a wrong answer.
             _known[identity] = fingerprint;
-            unawaited(_pins.save(identity, fingerprint).catchError(
-                  (Object e) =>
-                      Log.net.warning('could not persist a pin', error: e),
-                ));
+            unawaited(
+              _pins
+                  .save(identity, fingerprint)
+                  .catchError(
+                    (Object e) =>
+                        Log.net.warning('could not persist a pin', error: e),
+                  ),
+            );
             return true;
           }
           if (pinned == fingerprint) {

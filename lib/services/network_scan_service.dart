@@ -29,10 +29,12 @@ import '../models/network_device.dart';
 class LocalNetworkDeniedException implements UserFacingException {
   @override
   final String message;
-  const LocalNetworkDeniedException(
-      [this.message = 'Nothing answered on this network. If Local Network '
-          'access is off for Liberated Bread, the replies are blocked before '
-          'they reach it — check Settings, then scan again.']);
+  const LocalNetworkDeniedException([
+    this.message =
+        'Nothing answered on this network. If Local Network '
+        'access is off for Liberated Bread, the replies are blocked before '
+        'they reach it — check Settings, then scan again.',
+  ]);
 
   @override
   String toString() => message;
@@ -43,8 +45,9 @@ class LocalNetworkDeniedException implements UserFacingException {
 class NetworkUnavailableException implements UserFacingException {
   @override
   final String message;
-  const NetworkUnavailableException(
-      [this.message = 'No Wi-Fi network. Join one, then scan again.']);
+  const NetworkUnavailableException([
+    this.message = 'No Wi-Fi network. Join one, then scan again.',
+  ]);
 
   @override
   String toString() => message;

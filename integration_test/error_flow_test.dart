@@ -33,8 +33,7 @@ class _FailingBleService implements BleService {
   Stream<IoTDevice> scan({
     Duration? timeout = const Duration(seconds: 10),
     ScanIntensity intensity = ScanIntensity.active,
-  }) =>
-      const Stream.empty();
+  }) => const Stream.empty();
 
   @override
   Future<void> stopScan() async {}
@@ -68,7 +67,11 @@ class _FailingBleService implements BleService {
 
   @override
   Future<void> writeCharacteristic(
-      String d, String s, String c, List<int> v) async {}
+    String d,
+    String s,
+    String c,
+    List<int> v,
+  ) async {}
 
   @override
   Stream<List<int>> subscribeCharacteristic(String d, String s, String c) =>

@@ -43,14 +43,17 @@ class _TermsGateState extends ConsumerState<_TermsGate> {
   void initState() {
     super.initState();
     final prefs = ref.read(sharedPreferencesProvider);
-    _accepted = (prefs.getInt(AppConstants.termsAcceptedKey) ?? 0) >=
+    _accepted =
+        (prefs.getInt(AppConstants.termsAcceptedKey) ?? 0) >=
         AppConstants.termsVersion;
   }
 
   Future<void> _accept() async {
     final prefs = ref.read(sharedPreferencesProvider);
     await prefs.setInt(
-        AppConstants.termsAcceptedKey, AppConstants.termsVersion);
+      AppConstants.termsAcceptedKey,
+      AppConstants.termsVersion,
+    );
     if (mounted) setState(() => _accepted = true);
   }
 

@@ -165,7 +165,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           _error = friendlyErrorText(
             e,
             context: 'connect/discover ${widget.device.id}',
-            fallback: 'Could not connect to this device. Move closer, check '
+            fallback:
+                'Could not connect to this device. Move closer, check '
                 'it is powered on, then try again.',
           );
           _state = _ScreenState.error;
@@ -243,11 +244,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _matchSub?.close();
     if (services.isEmpty) return;
     _matchSub = ref.listenManual(
-      matchedDeviceSpecProvider(SpecMatchRequest.forServices(
-        deviceId: widget.device.id,
-        deviceName: widget.device.displayName,
-        services: services,
-      )),
+      matchedDeviceSpecProvider(
+        SpecMatchRequest.forServices(
+          deviceId: widget.device.id,
+          deviceName: widget.device.displayName,
+          services: services,
+        ),
+      ),
       fireImmediately: true,
       (previous, next) async {
         final chosen = next.valueOrNull?.chosen;
@@ -295,7 +298,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _connSub?.cancel();
     _connSub = _bleService.connectionState(widget.device.id).listen((state) {
       if (!mounted) return;
-      final lostConnection = state == BleConnectionState.disconnected ||
+      final lostConnection =
+          state == BleConnectionState.disconnected ||
           state == BleConnectionState.disconnecting;
       if (lostConnection &&
           (_state == _ScreenState.ready ||
@@ -363,8 +367,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 Text(
                   _statusLabel,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Theme.of(context).appBarTheme.foregroundColor,
-                      ),
+                    color: Theme.of(context).appBarTheme.foregroundColor,
+                  ),
                 ),
               ],
             ),
@@ -376,12 +380,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   }
 
   String get _statusLabel => switch (_state) {
-        _ScreenState.connecting => 'Connecting',
-        _ScreenState.discovering => 'Discovering services',
-        _ScreenState.ready => 'Connected',
-        _ScreenState.error => 'Connection failed',
-        _ScreenState.disconnected => 'Disconnected',
-      };
+    _ScreenState.connecting => 'Connecting',
+    _ScreenState.discovering => 'Discovering services',
+    _ScreenState.ready => 'Connected',
+    _ScreenState.error => 'Connection failed',
+    _ScreenState.disconnected => 'Disconnected',
+  };
 
   Widget _buildBody() {
     switch (_state) {
@@ -432,7 +436,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           icon: Icons.bluetooth_disabled,
           severity: _Severity.warning,
           title: 'Device disconnected',
-          message: 'The connection was lost. Move closer or check the device '
+          message:
+              'The connection was lost. Move closer or check the device '
               'is powered on, then reconnect.',
           actionLabel: 'Reconnect',
           onAction: _connect,
@@ -455,7 +460,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         // Air BLE controls for a provisioned purifier). Unresolved reads as
         // "not in setup mode", so the ordinary panel renders immediately
         // rather than the screen waiting on the catalogue.
-        final isRabbitAirSetup = ref
+        final isRabbitAirSetup =
+            ref
                 .watch(bleSetupModeMatchProvider(widget.device.name))
                 .valueOrNull !=
             null;
@@ -465,11 +471,15 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         // suppress the controls — [SafetyAdvisoryGate] shows a banner over them
         // and, when the spec asks, gates them behind a one-time acknowledgement.
         final safety = ref
-            .watch(matchedDeviceSpecProvider(SpecMatchRequest.forServices(
-              deviceId: widget.device.id,
-              deviceName: widget.device.displayName,
-              services: _services,
-            )))
+            .watch(
+              matchedDeviceSpecProvider(
+                SpecMatchRequest.forServices(
+                  deviceId: widget.device.id,
+                  deviceName: widget.device.displayName,
+                  services: _services,
+                ),
+              ),
+            )
             .valueOrNull
             ?.chosen
             ?.spec
@@ -490,7 +500,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               // renders immediately and gains its identity rows a frame later
               // rather than holding the whole screen on an asset load.
               description: describeWith(
-                  ref.watch(numberRegistryProvider), widget.device),
+                ref.watch(numberRegistryProvider),
+                widget.device,
+              ),
               serviceCount: _services.length,
               onFind: _openFind,
               onDisconnect: () async {
@@ -519,12 +531,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                       services: _services,
                     )
                   : safety == null
-                      ? panel
-                      : SafetyAdvisoryGate(
-                          advisory: safety,
-                          ackKey: widget.device.id,
-                          child: panel,
-                        ),
+                  ? panel
+                  : SafetyAdvisoryGate(
+                      advisory: safety,
+                      ackKey: widget.device.id,
+                      child: panel,
+                    ),
             ),
           ],
         );
@@ -570,13 +582,13 @@ class _ConnectedHeader extends StatelessWidget {
   /// CoreBluetooth substitutes a per-host UUID for the address, so there is no
   /// block to look up and `macAddress` is null.
   List<({String label, String value})> get _identity => [
-        if (device.macAddress != null)
-          (label: 'Address', value: device.macAddress!),
-        for (final company in description.companies.take(1))
-          (label: 'Advertises as', value: company),
-        if (description.addressVendor != null)
-          (label: 'Address block', value: description.addressVendor!),
-      ];
+    if (device.macAddress != null)
+      (label: 'Address', value: device.macAddress!),
+    for (final company in description.companies.take(1))
+      (label: 'Advertises as', value: company),
+    if (description.addressVendor != null)
+      (label: 'Address block', value: description.addressVendor!),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -611,8 +623,9 @@ class _ConnectedHeader extends StatelessWidget {
                   children: [
                     Text(
                       name,
-                      style: text.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -631,8 +644,9 @@ class _ConnectedHeader extends StatelessWidget {
                         Text(
                           'Connected  ·  $serviceCount service'
                           '${serviceCount == 1 ? '' : 's'}',
-                          style: text.bodySmall
-                              ?.copyWith(color: scheme.onSurfaceVariant),
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     ),
@@ -658,8 +672,9 @@ class _ConnectedHeader extends StatelessWidget {
                             // showing it is that it can be acted on.
                             child: SelectableText(
                               row.value,
-                              style: text.bodySmall
-                                  ?.copyWith(color: scheme.onSurfaceVariant),
+                              style: text.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
                               maxLines: 2,
                             ),
                           ),
@@ -677,9 +692,7 @@ class _ConnectedHeader extends StatelessWidget {
               Expanded(
                 child: FilledButton.tonalIcon(
                   onPressed: onFind,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 44),
-                  ),
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
                   icon: const Icon(Icons.radar, size: 18),
                   label: const Text('Find device'),
                 ),
@@ -748,8 +761,11 @@ class _PairingProgress extends StatelessWidget {
                     // Done steps get a check, the active step a filled dot, and
                     // pending steps a hollow ring — readable without colour.
                     if (i < step)
-                      Icon(Icons.check_circle,
-                          size: 18, color: scheme.secondary)
+                      Icon(
+                        Icons.check_circle,
+                        size: 18,
+                        color: scheme.secondary,
+                      )
                     else if (i == step)
                       SizedBox(
                         width: 18,
@@ -760,8 +776,11 @@ class _PairingProgress extends StatelessWidget {
                         ),
                       )
                     else
-                      Icon(Icons.circle_outlined,
-                          size: 18, color: scheme.outlineVariant),
+                      Icon(
+                        Icons.circle_outlined,
+                        size: 18,
+                        color: scheme.outlineVariant,
+                      ),
                     const SizedBox(width: 10),
                     Text(
                       steps[i],
@@ -769,8 +788,9 @@ class _PairingProgress extends StatelessWidget {
                         color: i <= step
                             ? scheme.onSurface
                             : scheme.onSurfaceVariant,
-                        fontWeight:
-                            i == step ? FontWeight.w600 : FontWeight.w400,
+                        fontWeight: i == step
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                       ),
                     ),
                   ],
@@ -834,8 +854,9 @@ class _StatusState extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final isError = severity == _Severity.error;
     final disc = isError ? scheme.errorContainer : scheme.tertiaryContainer;
-    final accent =
-        isError ? scheme.onErrorContainer : scheme.onTertiaryContainer;
+    final accent = isError
+        ? scheme.onErrorContainer
+        : scheme.onTertiaryContainer;
 
     return Center(
       child: Padding(
@@ -893,8 +914,10 @@ class _StatusState extends StatelessWidget {
               const SizedBox(height: 4),
               TextButton.icon(
                 onPressed: onTertiaryAction,
-                icon: Icon(tertiaryActionIcon ?? Icons.menu_book_outlined,
-                    size: 18),
+                icon: Icon(
+                  tertiaryActionIcon ?? Icons.menu_book_outlined,
+                  size: 18,
+                ),
                 label: Text(tertiaryActionLabel!),
                 style: TextButton.styleFrom(
                   minimumSize: const Size(0, 44),

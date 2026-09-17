@@ -45,26 +45,32 @@ void main() {
       expect(
         dir.existsSync(),
         isTrue,
-        reason: '$_imageSet is missing; the storyboard references a '
+        reason:
+            '$_imageSet is missing; the storyboard references a '
             'LaunchImage that would not resolve.',
       );
 
-      final pngs = dir
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.endsWith('.png'))
-          .toList()
-        ..sort((a, b) => a.path.compareTo(b.path));
+      final pngs =
+          dir
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.png'))
+              .toList()
+            ..sort((a, b) => a.path.compareTo(b.path));
 
-      expect(pngs, hasLength(3),
-          reason: 'Expected LaunchImage at 1x, 2x and 3x in $_imageSet.');
+      expect(
+        pngs,
+        hasLength(3),
+        reason: 'Expected LaunchImage at 1x, 2x and 3x in $_imageSet.',
+      );
 
       for (final png in pngs) {
         final size = _pngSize(png);
         expect(
           size.width,
           greaterThan(1),
-          reason: '${png.path} is ${size.width}x${size.height}. Flutter\'s '
+          reason:
+              '${png.path} is ${size.width}x${size.height}. Flutter\'s '
               'template ships 1x1 placeholders, so the app boots to a blank '
               'flash with no branding. Regenerate from the app icon, e.g.\n'
               '  sips -Z 128 (1x) / 256 (2x) / 384 (3x) from '
@@ -72,8 +78,11 @@ void main() {
               'An icon-generation tool that also writes LaunchImage will put '
               'the placeholders back, which is what this test is for.',
         );
-        expect(size.width, size.height,
-            reason: '${png.path} should be square like the app mark.');
+        expect(
+          size.width,
+          size.height,
+          reason: '${png.path} should be square like the app mark.',
+        );
       }
 
       // 1x/2x/3x have to actually differ in scale, or the @3x device gets a
@@ -82,7 +91,8 @@ void main() {
       expect(
         widths.toSet(),
         hasLength(3),
-        reason: 'The three LaunchImage assets are all $widths — they must be '
+        reason:
+            'The three LaunchImage assets are all $widths — they must be '
             'genuinely 1x, 2x and 3x renditions, not the same file copied.',
       );
     });
@@ -90,14 +100,16 @@ void main() {
     test('the background follows the system appearance', () {
       final xml = readRepoFile(
         _storyboard,
-        consequence: 'Without the launch storyboard iOS shows a black screen '
+        consequence:
+            'Without the launch storyboard iOS shows a black screen '
             'while the app starts.',
       );
 
       expect(
         xml,
         contains('systemBackgroundColor'),
-        reason: 'The launch screen background must be '
+        reason:
+            'The launch screen background must be '
             'systemBackgroundColor in $_storyboard. Flutter\'s template '
             'hard-codes white (red="1" green="1" blue="1"), which flashes a '
             'bright rectangle on every cold start in dark mode — the one '

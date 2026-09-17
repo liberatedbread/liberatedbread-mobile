@@ -89,12 +89,14 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
   /// beats a silently skipped seed.
   Future<void> _seed(String stateChar) async {
     try {
-      final services =
-          await ref.read(bleServiceProvider).discoverServices(widget.deviceId);
+      final services = await ref
+          .read(bleServiceProvider)
+          .discoverServices(widget.deviceId);
       final target = normalizeUuid(stateChar);
       final char = services
           .where(
-              (s) => normalizeUuid(s.uuid) == normalizeUuid(widget.serviceUuid))
+            (s) => normalizeUuid(s.uuid) == normalizeUuid(widget.serviceUuid),
+          )
           .expand((s) => s.characteristics)
           .where((c) => normalizeUuid(c.uuid) == target)
           .firstOrNull;
@@ -119,11 +121,9 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
 
   Future<void> _read(String stateChar) async {
     try {
-      final bytes = await ref.read(bleServiceProvider).readCharacteristic(
-            widget.deviceId,
-            widget.serviceUuid,
-            stateChar,
-          );
+      final bytes = await ref
+          .read(bleServiceProvider)
+          .readCharacteristic(widget.deviceId, widget.serviceUuid, stateChar);
       await _decodeAndSet(stateChar, bytes);
     } catch (e) {
       if (!mounted) return;
@@ -149,35 +149,38 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
         .read(bleServiceProvider)
         .subscribeCharacteristic(widget.deviceId, widget.serviceUuid, stateChar)
         .listen(
-      (bytes) =>
-          unawaited(_decodeAndSet(stateChar, bytes).catchError((Object _) {})),
-      onError: (Object error) {
-        // A dropped notify stream leaves the last value on screen; the
-        // connection-state watcher on the device screen owns surfacing the
-        // disconnect, so this must not overwrite a good reading with an
-        // error. But a subscription that fails before ANY value arrived is
-        // a different statement — for a notify-only characteristic the seed
-        // read was skipped, making this failure the card's only signal
-        // ("pair this device" on a refused CCCD write), and swallowing it
-        // would leave a spinner forever.
-        if (!mounted || _value.status != EntityValueStatus.loading) return;
-        setState(() {
-          _value = EntityLiveValue(
-            entity: widget.entity,
-            status: EntityValueStatus.error,
-            error: friendlyErrorText(
-              error,
-              context: 'subscribe $stateChar',
-              fallback: 'Could not read this value.',
-            ),
-          );
-        });
-      },
-    );
+          (bytes) => unawaited(
+            _decodeAndSet(stateChar, bytes).catchError((Object _) {}),
+          ),
+          onError: (Object error) {
+            // A dropped notify stream leaves the last value on screen; the
+            // connection-state watcher on the device screen owns surfacing the
+            // disconnect, so this must not overwrite a good reading with an
+            // error. But a subscription that fails before ANY value arrived is
+            // a different statement — for a notify-only characteristic the seed
+            // read was skipped, making this failure the card's only signal
+            // ("pair this device" on a refused CCCD write), and swallowing it
+            // would leave a spinner forever.
+            if (!mounted || _value.status != EntityValueStatus.loading) return;
+            setState(() {
+              _value = EntityLiveValue(
+                entity: widget.entity,
+                status: EntityValueStatus.error,
+                error: friendlyErrorText(
+                  error,
+                  context: 'subscribe $stateChar',
+                  fallback: 'Could not read this value.',
+                ),
+              );
+            });
+          },
+        );
   }
 
   Future<void> _decodeAndSet(String stateChar, List<int> bytes) async {
-    final decoded = await ref.read(specCodecProvider).decodeValue(
+    final decoded = await ref
+        .read(specCodecProvider)
+        .decodeValue(
           specYaml: widget.specYaml,
           serviceUuid: widget.serviceUuid,
           charUuid: stateChar,

@@ -8,8 +8,10 @@ import 'package:liberated_bread_mobile/services/lifx_control_service.dart';
 
 void main() {
   test('send delivers the packet twice (lossy UDP gets two shots)', () async {
-    final responder =
-        await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final responder = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
     final received = <List<int>>[];
     responder.listen((event) {
       if (event != RawSocketEvent.read) return;
@@ -27,8 +29,10 @@ void main() {
   });
 
   test('request returns the reply whose sequence byte matches', () async {
-    final responder =
-        await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final responder = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
     responder.listen((event) {
       if (event != RawSocketEvent.read) return;
       final datagram = responder.receive();
@@ -58,8 +62,10 @@ void main() {
   });
 
   test('request ignores a reply whose sequence does not match', () async {
-    final responder =
-        await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final responder = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
     responder.listen((event) {
       if (event != RawSocketEvent.read) return;
       final datagram = responder.receive();
@@ -84,8 +90,10 @@ void main() {
 
   test('request returns null after every attempt times out', () async {
     // A bound-but-silent port: the sends land, nothing answers.
-    final silent =
-        await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final silent = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
     final client = LifxControlClient(port: silent.port);
     final reply = await client.request(
       '127.0.0.1',

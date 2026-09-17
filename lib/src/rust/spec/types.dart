@@ -23,5 +23,4 @@ enum MacPrefixConfidence {
   /// The block is used by this device family and effectively nothing else.
   /// Rare, and it needs evidence.
   high,
-  ;
 }

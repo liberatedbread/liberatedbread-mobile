@@ -18,11 +18,9 @@ class EntityKeyIndex<E> {
 
   EntityKeyIndex(
     Iterable<E> entities, {
-    required String? Function(E) keyOf,
-    required String Function(E) nameOf,
-  })  : _entities = List.of(entities),
-        _keyOf = keyOf,
-        _nameOf = nameOf;
+    required this._keyOf,
+    required this._nameOf,
+  }) : _entities = List.of(entities);
 
   /// The entity filling [key]'s slot, or null. Spec `key` wins over the name
   /// table; a resolved entity is consumed, so two slots can never claim one

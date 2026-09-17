@@ -54,8 +54,8 @@ void main() {
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
       const codec = RealSpecCodec();
       final ble = RealBleService();
 
@@ -99,40 +99,60 @@ void main() {
 
         final verdictF = ble
             .subscribeCharacteristic(
-                deviceId, plan.serviceUuid, plan.responseCharacteristicUuid!)
-            .asyncMap((bytes) =>
-                codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: bytes))
+              deviceId,
+              plan.serviceUuid,
+              plan.responseCharacteristicUuid!,
+            )
+            .asyncMap(
+              (bytes) => codec.decodeStoredUploadEvent(
+                specYaml: specYaml,
+                bytes: bytes,
+              ),
+            )
             .where((e) => e != null)
             .cast<StoredUploadEventDto>()
-            .firstWhere((e) =>
-                e.kind == StoredUploadEventKind.complete ||
-                e.kind == StoredUploadEventKind.failed ||
-                e.kind == StoredUploadEventKind.startRejected)
+            .firstWhere(
+              (e) =>
+                  e.kind == StoredUploadEventKind.complete ||
+                  e.kind == StoredUploadEventKind.failed ||
+                  e.kind == StoredUploadEventKind.startRejected,
+            )
             .timeout(const Duration(seconds: 30));
 
         for (final w in plan.uploadWrites) {
           await ble.writeCharacteristic(
-              deviceId, plan.serviceUuid, w.characteristicUuid, w.bytes);
+            deviceId,
+            plan.serviceUuid,
+            w.characteristicUuid,
+            w.bytes,
+          );
         }
         final verdict = await verdictF;
         // ignore: avoid_print
-        print('VERDICT: ${verdict.kind} (code ${verdict.code}) '
-            'at ${DateTime.now().millisecondsSinceEpoch}');
+        print(
+          'VERDICT: ${verdict.kind} (code ${verdict.code}) '
+          'at ${DateTime.now().millisecondsSinceEpoch}',
+        );
         expect(verdict.kind, StoredUploadEventKind.complete);
 
         // effect_list then play, matching the vendor.
         final el = await codec.encodeCommand(
-            specYaml: specYaml,
-            charUuid: _ddpWrite,
-            commandName: 'effect_list',
-            params: {'sn': nextSeq().toDouble()});
+          specYaml: specYaml,
+          charUuid: _ddpWrite,
+          commandName: 'effect_list',
+          params: {'sn': nextSeq().toDouble()},
+        );
         await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, el);
 
         final play = plan.playWrite!;
         // ignore: avoid_print
         print('PLAY at ${DateTime.now().millisecondsSinceEpoch}');
         await ble.writeCharacteristic(
-            deviceId, plan.serviceUuid, play.characteristicUuid, play.bytes);
+          deviceId,
+          plan.serviceUuid,
+          play.characteristicUuid,
+          play.bytes,
+        );
 
         // Hold ~25s so the webcam catches multiple R/G/B cycles.
         for (var t = 0; t < 25; t++) {

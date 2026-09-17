@@ -67,26 +67,30 @@ final _findMeSpec = DeviceSpecDto(
   defaultPort: null,
   entities: <EntityDto>[],
   services: [
-    const ServiceDto(uuid: _svc, name: 'Control', characteristics: [
-      CharacteristicDto(
-        uuid: _chr,
-        name: 'Command',
-        canRead: false,
-        canWrite: true,
-        canNotify: false,
-        commands: [
-          CommandDto(
-            name: 'find_me',
-            description: 'Make the band alert',
-            parameters: [],
-            isFixed: true,
-            isEncodable: true,
-            advanced: false,
-          ),
-        ],
-        formatFields: [],
-      ),
-    ]),
+    const ServiceDto(
+      uuid: _svc,
+      name: 'Control',
+      characteristics: [
+        CharacteristicDto(
+          uuid: _chr,
+          name: 'Command',
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+          commands: [
+            CommandDto(
+              name: 'find_me',
+              description: 'Make the band alert',
+              parameters: [],
+              isFixed: true,
+              isEncodable: true,
+              advanced: false,
+            ),
+          ],
+          formatFields: [],
+        ),
+      ],
+    ),
   ],
 );
 
@@ -148,16 +152,19 @@ void _useTallSurface(WidgetTester tester) {
 }
 
 void main() {
-  testWidgets('shows the raw RSSI readings and a distance guess',
-      (tester) async {
+  testWidgets('shows the raw RSSI readings and a distance guess', (
+    tester,
+  ) async {
     _unmountOnTeardown(tester);
     // -59 dBm is exactly the assumed 1 m power, making the guess stable.
     final ble = FakeBleService(rssiValues: const [-59]);
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump(); // initial poll resolves
 
     // Raw values: live, smoothed, strongest and weakest all read -59 dBm.
@@ -173,15 +180,18 @@ void main() {
     expect(find.text('Widget'), findsOneWidget);
   });
 
-  testWidgets('keeps polling on the timer and updates the readings',
-      (tester) async {
+  testWidgets('keeps polling on the timer and updates the readings', (
+    tester,
+  ) async {
     _unmountOnTeardown(tester);
     final ble = FakeBleService(rssiValues: const [-80, -60]);
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump();
     expect(find.text('-80 dBm'), findsWidgets);
     expect(ble.rssiReadCount, 1);
@@ -193,17 +203,18 @@ void main() {
     expect(find.text('-80 dBm'), findsOneWidget);
   });
 
-  testWidgets(
-      'offers Ring alert for the standard Immediate Alert service '
+  testWidgets('offers Ring alert for the standard Immediate Alert service '
       'and writes the alert levels', (tester) async {
     _unmountOnTeardown(tester);
     _useTallSurface(tester);
     final ble = FakeBleService(rssiValues: const [-60]);
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_immediateAlertService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_immediateAlertService],
+      ),
+    );
     await tester.pump();
 
     expect(find.text('Make it noticeable'), findsOneWidget);
@@ -222,8 +233,9 @@ void main() {
     expect(ble.writes.last.value, [0x00]);
   });
 
-  testWidgets('offers a spec-declared find_me command and encodes it',
-      (tester) async {
+  testWidgets('offers a spec-declared find_me command and encodes it', (
+    tester,
+  ) async {
     _unmountOnTeardown(tester);
     _useTallSurface(tester);
     final ble = FakeBleService(rssiValues: const [-60]);
@@ -239,12 +251,14 @@ void main() {
       ],
       encoded: Uint8List.fromList(const [0xCD, 0x01]),
     );
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: codec,
-      services: const [_controlService],
-      deviceName: 'Band 7',
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: codec,
+        services: const [_controlService],
+        deviceName: 'Band 7',
+      ),
+    );
     // Let the spec match resolve (async provider chain).
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
@@ -267,11 +281,13 @@ void main() {
   testWidgets('says so when the device has no alert commands', (tester) async {
     _unmountOnTeardown(tester);
     _useTallSurface(tester);
-    await tester.pumpWidget(await _wrap(
-      ble: FakeBleService(rssiValues: const [-60]),
-      codec: FakeSpecCodec(), // parse fails -> no spec matched
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: FakeBleService(rssiValues: const [-60]),
+        codec: FakeSpecCodec(), // parse fails -> no spec matched
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -281,16 +297,17 @@ void main() {
     );
   });
 
-  testWidgets(
-      'declares the signal lost after repeated read failures and '
+  testWidgets('declares the signal lost after repeated read failures and '
       'recovers via Retry', (tester) async {
     _unmountOnTeardown(tester);
     final ble = FakeBleService(rssiError: StateError('gone'));
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump(); // failure 1
     expect(find.text('Signal lost'), findsNothing);
 
@@ -320,8 +337,9 @@ void main() {
     expect(ble.rssiReadCount, greaterThan(readsAfterRetry));
   });
 
-  testWidgets('stops presenting readings as live once the signal is lost',
-      (tester) async {
+  testWidgets('stops presenting readings as live once the signal is lost', (
+    tester,
+  ) async {
     _unmountOnTeardown(tester);
     _useTallSurface(tester);
     // Two good reads, THEN the link drops — the transition the signal-lost
@@ -331,11 +349,13 @@ void main() {
       rssiError: StateError('gone'),
       rssiErrorAfter: 2,
     );
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     // Readings are live at this point.
@@ -359,15 +379,18 @@ void main() {
     expect(find.text('Strongest'), findsOneWidget);
   });
 
-  testWidgets('silences an alert it raised when the screen is left',
-      (tester) async {
+  testWidgets('silences an alert it raised when the screen is left', (
+    tester,
+  ) async {
     _useTallSurface(tester);
     final ble = FakeBleService(rssiValues: const [-60]);
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_immediateAlertService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_immediateAlertService],
+      ),
+    );
     await tester.pump();
 
     await tester.tap(find.text('Ring alert'));
@@ -384,14 +407,17 @@ void main() {
     expect(ble.writes.last.charUuid, alertLevelCharUuid);
   });
 
-  testWidgets('does not claim a steady signal before it has samples',
-      (tester) async {
+  testWidgets('does not claim a steady signal before it has samples', (
+    tester,
+  ) async {
     _unmountOnTeardown(tester);
-    await tester.pumpWidget(await _wrap(
-      ble: FakeBleService(rssiValues: const [-60]),
-      codec: FakeSpecCodec(),
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: FakeBleService(rssiValues: const [-60]),
+        codec: FakeSpecCodec(),
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump();
 
     // One sample is not a hot/cold verdict.
@@ -405,24 +431,27 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider
-            .overrideWithValue(FakeBleService(rssiValues: const [-59])),
-        specCodecProvider.overrideWithValue(FakeSpecCodec()),
-        deviceSpecsProvider.overrideWith((ref) => {'spec.yaml': 'yaml'}),
-      ],
-      child: const MaterialApp(
-        home: MediaQuery(
-          data: MediaQueryData(textScaler: TextScaler.linear(2.0)),
-          child: FindDeviceScreen(
-            deviceId: '01',
-            deviceName: 'Widget',
-            services: [_batteryService],
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(
+            FakeBleService(rssiValues: const [-59]),
+          ),
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+          deviceSpecsProvider.overrideWith((ref) => {'spec.yaml': 'yaml'}),
+        ],
+        child: const MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(2.0)),
+            child: FindDeviceScreen(
+              deviceId: '01',
+              deviceName: 'Widget',
+              services: [_batteryService],
+            ),
           ),
         ),
       ),
-    ));
+    );
     await tester.pump();
 
     // The distance headline and proximity bucket are the whole point of the

@@ -61,17 +61,20 @@ Future<void> _pump(WidgetTester tester, SetupInstructionsDto instructions) {
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  return tester.pumpWidget(MaterialApp(
-    home: SetupInstructionsScreen(
-      deviceName: 'Ember Mug',
-      instructions: instructions,
+  return tester.pumpWidget(
+    MaterialApp(
+      home: SetupInstructionsScreen(
+        deviceName: 'Ember Mug',
+        instructions: instructions,
+      ),
     ),
-  ));
+  );
 }
 
 void main() {
-  testWidgets('renders every labelled section from the instructions',
-      (tester) async {
+  testWidgets('renders every labelled section from the instructions', (
+    tester,
+  ) async {
     await _pump(tester, _full);
 
     // The matched product name and the app-bar title.
@@ -81,10 +84,7 @@ void main() {
     // Rejoin note leads as "Try this first" — the real answer to "why won't it
     // connect" for a single-connection device.
     expect(find.text('Try this first'), findsOneWidget);
-    expect(
-      find.textContaining('Close the other client'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Close the other client'), findsOneWidget);
 
     // Troubleshooting, pairing steps, and the reset section each render with
     // their heading.
@@ -92,14 +92,18 @@ void main() {
     expect(find.textContaining('will not connect'), findsOneWidget);
     expect(find.textContaining('single allowed connection'), findsOneWidget);
     expect(find.text('How to pair'), findsOneWidget);
-    expect(find.textContaining('Hold the base button until the LED turns blue'),
-        findsOneWidget);
+    expect(
+      find.textContaining('Hold the base button until the LED turns blue'),
+      findsOneWidget,
+    );
     // Both the section heading and the single procedure are named "Factory
     // reset" for Ember, so it appears twice.
     expect(find.text('Factory reset'), findsWidgets);
     expect(find.textContaining('Hold through blue and yellow'), findsOneWidget);
     expect(
-        find.textContaining('LED blue, then yellow, then red'), findsOneWidget);
+      find.textContaining('LED blue, then yellow, then red'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('omitted sections render no empty headings', (tester) async {
@@ -120,15 +124,18 @@ void main() {
 
     expect(find.text('Try this first'), findsOneWidget);
     expect(
-        find.textContaining('move it back onto the coaster'), findsOneWidget);
+      find.textContaining('move it back onto the coaster'),
+      findsOneWidget,
+    );
     expect(find.text('If it won’t connect'), findsNothing);
     expect(find.text('How to pair'), findsNothing);
     expect(find.text('Factory reset'), findsNothing);
     expect(find.text('Overview'), findsNothing);
   });
 
-  testWidgets('a staged route renders every phase with its own steps',
-      (tester) async {
+  testWidgets('a staged route renders every phase with its own steps', (
+    tester,
+  ) async {
     // The hue-bridge shape after the catalogue's setup restructure: one named
     // primary route whose steps live entirely on its two stages. Losing the
     // stages loses the whole procedure — the exact break this guards.
@@ -150,8 +157,9 @@ void main() {
                 description: null,
                 steps: [
                   SetupStepDto(
-                      action: 'Plug the bridge into the router.',
-                      actor: 'user'),
+                    action: 'Plug the bridge into the router.',
+                    actor: 'user',
+                  ),
                 ],
                 troubleshooting: [],
               ),
@@ -162,9 +170,10 @@ void main() {
                 steps: [
                   SetupStepDto(action: 'Press the link button.', actor: 'user'),
                   SetupStepDto(
-                      action: 'Create a user.',
-                      actor: 'client',
-                      expect: 'A username in the reply.'),
+                    action: 'Create a user.',
+                    actor: 'client',
+                    expect: 'A username in the reply.',
+                  ),
                 ],
                 troubleshooting: [],
               ),
@@ -181,22 +190,27 @@ void main() {
     expect(find.text('Ethernet, then the link button'), findsOneWidget);
     expect(find.text('How to pair'), findsNothing);
     // Both phases render, in order, with their steps.
-    expect(find.textContaining('1 of 2 — Get the bridge onto the LAN'),
-        findsOneWidget);
     expect(
-        find.textContaining(
-            '2 of 2 — Authorize this client at the link button'),
-        findsOneWidget);
+      find.textContaining('1 of 2 — Get the bridge onto the LAN'),
+      findsOneWidget,
+    );
     expect(
-        find.textContaining('Plug the bridge into the router'), findsOneWidget);
+      find.textContaining('2 of 2 — Authorize this client at the link button'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Plug the bridge into the router'),
+      findsOneWidget,
+    );
     expect(find.textContaining('Press the link button'), findsOneWidget);
     expect(find.textContaining('A username in the reply'), findsOneWidget);
     // Primary needs no qualifier label.
     expect(find.text('Also works'), findsNothing);
   });
 
-  testWidgets('non-primary roles are labelled and named routes are choosable',
-      (tester) async {
+  testWidgets('non-primary roles are labelled and named routes are choosable', (
+    tester,
+  ) async {
     await _pump(
       tester,
       const SetupInstructionsDto(

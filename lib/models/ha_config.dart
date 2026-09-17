@@ -47,27 +47,28 @@ class HaConfig {
   }
 
   Map<String, dynamic> toJson() => {
-        'base_url': baseUrl,
-        'token': token,
-        if (webhookId != null) 'webhook_id': webhookId,
-        'device_id': deviceId,
-        'enabled': enabled,
-      };
+    'base_url': baseUrl,
+    'token': token,
+    if (webhookId != null) 'webhook_id': webhookId,
+    'device_id': deviceId,
+    'enabled': enabled,
+  };
 
   /// Deliberately redacted: [token] and [webhookId] are secrets, and the
   /// default `Instance of 'HaConfig'` gives a future call site nothing useful,
   /// which is how `'$config'` ends up in a log line. This makes interpolating
   /// the whole object both useful AND safe.
   @override
-  String toString() => 'HaConfig(baseUrl: $baseUrl, token: ${redact(token)}, '
+  String toString() =>
+      'HaConfig(baseUrl: $baseUrl, token: ${redact(token)}, '
       'webhookId: ${redact(webhookId)}, deviceId: $deviceId, '
       'enabled: $enabled)';
 
   factory HaConfig.fromJson(Map<String, dynamic> json) => HaConfig(
-        baseUrl: json['base_url'] as String,
-        token: json['token'] as String,
-        webhookId: json['webhook_id'] as String?,
-        deviceId: json['device_id'] as String,
-        enabled: json['enabled'] as bool? ?? true,
-      );
+    baseUrl: json['base_url'] as String,
+    token: json['token'] as String,
+    webhookId: json['webhook_id'] as String?,
+    deviceId: json['device_id'] as String,
+    enabled: json['enabled'] as bool? ?? true,
+  );
 }

@@ -47,10 +47,9 @@ class HttpControlClient {
   HttpControlClient({
     http.Client? httpClient,
     http.Client? httpsClient,
-    TlsTrust? trust,
-  })  : _http = httpClient ?? http.Client(),
-        _injectedHttps = httpsClient,
-        _trust = trust;
+    this._trust,
+  }) : _http = httpClient ?? http.Client(),
+       _injectedHttps = httpsClient;
 
   /// Each device's identity and declared policy, KEYED BY HOST.
   ///
@@ -125,7 +124,8 @@ class HttpControlClient {
 
   /// The TLS client, built on first https use so a plain-http app never pays
   /// for it. Trust is per-host, granted the moment a request names the host.
-  http.Client get _httpsClient => _https ??= _injectedHttps ??
+  http.Client get _httpsClient => _https ??=
+      _injectedHttps ??
       IOClient(HttpClient()..badCertificateCallback = _evaluateCertificate);
 
   /// Whether to accept a certificate the platform refused.
@@ -143,7 +143,7 @@ class HttpControlClient {
       _evaluateCertificate(cert, host, port);
 
   bool _evaluateCertificate(X509Certificate cert, String host, int port) {
-    bool byHost(X509Certificate _, String host, int __) =>
+    bool byHost(X509Certificate _, String host, int _) =>
         _trustedHosts.contains(host);
     final trust = _trust;
     final registered = _policies[host];
@@ -194,8 +194,11 @@ class HttpControlClient {
           // ECP commands carry an empty body and no headers; a spec that
           // declares a body gets it sent verbatim, labelled by what it is.
           response = await client
-              .post(uri,
-                  body: request.body, headers: contentTypeFor(request.body))
+              .post(
+                uri,
+                body: request.body,
+                headers: contentTypeFor(request.body),
+              )
               .timeout(timeout);
         case 'PUT':
           // The body-carrying sibling of POST — the Hue bridge's whole write
@@ -203,12 +206,16 @@ class HttpControlClient {
           // so a spec's PUT command renders as a live control; this arm is
           // what makes the press actually go somewhere.
           response = await client
-              .put(uri,
-                  body: request.body, headers: contentTypeFor(request.body))
+              .put(
+                uri,
+                body: request.body,
+                headers: contentTypeFor(request.body),
+              )
               .timeout(timeout);
         default:
           throw HttpControlException(
-              'unsupported method ${request.method} for $uri');
+            'unsupported method ${request.method} for $uri',
+          );
       }
     } on TimeoutException {
       throw const ControlTimeoutException();
@@ -252,8 +259,10 @@ class HttpControlClient {
       throw const ControlRefusedException();
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpControlException('${request.method} ${request.path} failed: '
-          'HTTP ${response.statusCode} from $uri');
+      throw HttpControlException(
+        '${request.method} ${request.path} failed: '
+        'HTTP ${response.statusCode} from $uri',
+      );
     }
     return response.body;
   }
@@ -269,7 +278,8 @@ class HttpControlClient {
 class ControlTimeoutException implements UserFacingException {
   const ControlTimeoutException();
   @override
-  String get message => 'The device did not answer in time. It may be '
+  String get message =>
+      'The device did not answer in time. It may be '
       'asleep or off the network — wake it and try again.';
 }
 
@@ -277,7 +287,8 @@ class ControlTimeoutException implements UserFacingException {
 class ControlUnreachableException implements UserFacingException {
   const ControlUnreachableException();
   @override
-  String get message => 'The device is not reachable. It may be off or '
+  String get message =>
+      'The device is not reachable. It may be off or '
       'have a new address — try scanning again.';
 }
 

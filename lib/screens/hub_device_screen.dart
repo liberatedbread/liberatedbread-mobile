@@ -110,8 +110,9 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
     });
     try {
       final bridgeId = _bridgeId ??= await _resolveBridgeId();
-      _credentials =
-          await ref.read(hubCredentialStoreProvider).credentials(bridgeId);
+      _credentials = await ref
+          .read(hubCredentialStoreProvider)
+          .credentials(bridgeId);
       if (_credentials != null) {
         await _refreshState();
       }
@@ -126,7 +127,8 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       setState(() {
         _loading = false;
         _credentials = null;
-        _authNote = 'The bridge no longer recognizes this app — its '
+        _authNote =
+            'The bridge no longer recognizes this app — its '
             'whitelist entry is gone (a factory reset does that). '
             'Pair again to continue.';
       });
@@ -145,10 +147,10 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
           context: 'hub control',
           fallback: e is HubTlsException
               ? 'The bridge failed its security check: it presented a '
-                  'different certificate than the one this app pinned. '
-                  '$tlsAdvice'
+                    'different certificate than the one this app pinned. '
+                    '$tlsAdvice'
               : 'Could not reach the bridge. It may have a new address — '
-                  'try scanning again.',
+                    'try scanning again.',
         );
       });
     }
@@ -167,17 +169,20 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
   /// disagrees with what the device says is an error rather than a
   /// preference — the same "forget it and pair again" the pin mismatch gets.
   Future<String> _resolveBridgeId() async {
-    final probe =
-        await ref.read(hubHttpClientProvider).fetchConfig(widget.device.host);
+    final probe = await ref
+        .read(hubHttpClientProvider)
+        .fetchConfig(widget.device.host);
     final claimed = _bridgeIdFromConfig(probe.body);
     if (claimed == null) {
       throw HubTransportException(
-          'the device did not identify itself as a bridge');
+        'the device did not identify itself as a bridge',
+      );
     }
     final seenCn = probe.observedCn;
     if (seenCn != null && seenCn.toUpperCase() != claimed) {
       throw HubTlsException(
-          'the bridge claims id $claimed but its certificate says $seenCn');
+        'the bridge claims id $claimed but its certificate says $seenCn',
+      );
     }
     // Past the certificate check the claim is the device's own, verified
     // identity; remember it before the sighting gets its say, so a forget of
@@ -186,8 +191,9 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
     final advertised = _advertisedBridgeId;
     if (advertised != null && advertised != claimed) {
       throw HubTlsException(
-          'this was saved as bridge $advertised, but the device at '
-          '${widget.device.host} says it is $claimed');
+        'this was saved as bridge $advertised, but the device at '
+        '${widget.device.host} says it is $claimed',
+      );
     }
     return claimed;
   }
@@ -303,7 +309,8 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       if (!mounted) return;
       setState(() {
         _credentials = null;
-        _authNote = 'The bridge no longer recognizes this app — its '
+        _authNote =
+            'The bridge no longer recognizes this app — its '
             'whitelist entry is gone (a factory reset does that). '
             'Pair again to continue.';
       });
@@ -355,9 +362,10 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Forget this bridge?'),
         content: const Text(
-            'Removes the stored pairing, certificate pin and settings from '
-            'this app. The bridge itself keeps its whitelist entry; pairing '
-            'again mints a new one.'),
+          'Removes the stored pairing, certificate pin and settings from '
+          'this app. The bridge itself keeps its whitelist entry; pairing '
+          'again mints a new one.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -470,16 +478,20 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
               const Center(child: CircularProgressIndicator()),
               const SizedBox(height: 16),
               Center(
-                child: Text('Asking the bridge...',
-                    style: text.bodyMedium
-                        ?.copyWith(color: scheme.onSurfaceVariant)),
+                child: Text(
+                  'Asking the bridge...',
+                  style: text.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ] else if (!paired) ...[
               _pairingCard(),
             ] else ...[
               for (final entity in _instancedEntities) ...[
-                for (final child in _childrenByEntity[entity.name] ??
-                    const <NetworkInstanceDto>[]) ...[
+                for (final child
+                    in _childrenByEntity[entity.name] ??
+                        const <NetworkInstanceDto>[]) ...[
                   _childCard(entity, child),
                   const SizedBox(height: 12),
                 ],
@@ -510,9 +522,12 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
                 Icon(Icons.hub_outlined, color: scheme.primary),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text('Not paired yet',
-                      style: text.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  child: Text(
+                    'Not paired yet',
+                    style: text.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -555,11 +570,17 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       onToggle: (turnOn == null || turnOff == null)
           ? null
           : (wantOn) =>
-              unawaited(_send(entity, child, wantOn ? turnOn : turnOff)),
+                unawaited(_send(entity, child, wantOn ? turnOn : turnOff)),
       onBrightness: setBrightness == null
           ? null
-          : (value) => unawaited(_send(entity, child, setBrightness,
-              value: value.round().toString())),
+          : (value) => unawaited(
+              _send(
+                entity,
+                child,
+                setBrightness,
+                value: value.round().toString(),
+              ),
+            ),
     );
   }
 
@@ -597,10 +618,13 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
               children: [
                 SizedBox(
                   width: 90,
-                  child: Text(label,
-                      style: text.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600)),
+                  child: Text(
+                    label,
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
                 Expanded(child: SelectableText(value, style: text.bodySmall)),
               ],

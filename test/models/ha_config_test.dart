@@ -16,7 +16,8 @@ void main() {
 
   test('JSON round trip preserves all fields', () {
     final decoded = HaConfig.fromJson(
-        jsonDecode(jsonEncode(registered.toJson())) as Map<String, dynamic>);
+      jsonDecode(jsonEncode(registered.toJson())) as Map<String, dynamic>,
+    );
     expect(decoded.baseUrl, registered.baseUrl);
     expect(decoded.token, registered.token);
     expect(decoded.deviceId, registered.deviceId);

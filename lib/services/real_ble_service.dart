@@ -89,8 +89,7 @@ UserFacingException? adapterStateError(BluetoothAdapterState state) {
 bool shouldStopNativeScanOnCancel({
   required Object? active,
   required Object? own,
-}) =>
-    own != null && (active == null || identical(active, own));
+}) => own != null && (active == null || identical(active, own));
 
 /// Delay before retrying a service discovery that returned zero services, or
 /// null when [attempt] retries have already happened and the empty result
@@ -218,8 +217,7 @@ bool _namesPairing(String? text) {
 bool useWriteWithoutResponse({
   required bool canWriteWithResponse,
   required bool canWriteWithoutResponse,
-}) =>
-    !canWriteWithResponse && canWriteWithoutResponse;
+}) => !canWriteWithResponse && canWriteWithoutResponse;
 
 /// How long an unchanged advertisement may go unreported before the coalescer
 /// re-emits it anyway.
@@ -346,9 +344,9 @@ AndroidScanMode androidScanModeFor(ScanIntensity intensity) =>
 /// Extracted as a pure top-level function for the same reason as
 /// [androidScanModeFor]; see [continuousScanDivisor] for why ambient is 1.
 int continuousDivisorFor(ScanIntensity intensity) => switch (intensity) {
-      ScanIntensity.active => continuousScanDivisor,
-      ScanIntensity.ambient => 1,
-    };
+  ScanIntensity.active => continuousScanDivisor,
+  ScanIntensity.ambient => 1,
+};
 
 /// How often a continuous scan restarts the underlying platform scan.
 ///
@@ -431,8 +429,9 @@ class RealBleService implements BleService {
 
   @override
   Stream<IoTDevice> scan({
-    Duration? timeout =
-        const Duration(seconds: AppConstants.defaultScanDuration),
+    Duration? timeout = const Duration(
+      seconds: AppConstants.defaultScanDuration,
+    ),
     ScanIntensity intensity = ScanIntensity.active,
   }) {
     final controller = StreamController<IoTDevice>();
@@ -542,8 +541,9 @@ class RealBleService implements BleService {
         if (await abandonIfCancelled()) return;
         final adapterError = adapterStateError(adapterState);
         if (adapterError != null) {
-          Log.ble
-              .warning('scan refused: adapter state is ${adapterState.name}');
+          Log.ble.warning(
+            'scan refused: adapter state is ${adapterState.name}',
+          );
           controller.addError(adapterError);
           await closeIfOpen();
           return;
@@ -621,16 +621,18 @@ class RealBleService implements BleService {
         // it is what a scan that never ends needs in order to stay truthful.
         // The divisor keeps the resulting firehose affordable.
         Future<void> startNative() => FlutterBluePlus.startScan(
-              timeout: timeout,
-              continuousUpdates: true,
-              continuousDivisor: continuousDivisorFor(intensity),
-              androidScanMode: androidScanModeFor(intensity),
-            );
+          timeout: timeout,
+          continuousUpdates: true,
+          continuousDivisor: continuousDivisorFor(intensity),
+          androidScanMode: androidScanModeFor(intensity),
+        );
 
         await startNative();
         if (await abandonIfCancelled(nativeScanStarted: true)) return;
-        Log.ble.info('scan started (${intensity.name}, '
-            '${timeout == null ? 'continuous' : '${timeout.inSeconds}s'})');
+        Log.ble.info(
+          'scan started (${intensity.name}, '
+          '${timeout == null ? 'continuous' : '${timeout.inSeconds}s'})',
+        );
 
         if (timeout == null) {
           // A continuous scan has no end of its own: it runs until the consumer
@@ -644,8 +646,10 @@ class RealBleService implements BleService {
           adapterSub = FlutterBluePlus.adapterState.listen((state) {
             final error = adapterStateError(state);
             if (error == null) return;
-            Log.ble.warning('continuous scan ended: adapter state is '
-                '${state.name}');
+            Log.ble.warning(
+              'continuous scan ended: adapter state is '
+              '${state.name}',
+            );
             controller.addError(error);
             unawaited(endScan());
           });
@@ -685,10 +689,11 @@ class RealBleService implements BleService {
               } catch (e) {
                 if (tornDown) return;
                 Log.ble.warning(
-                    'continuous scan refresh failed; nothing is scanning '
-                    'until the retry in '
-                    '${continuousScanRetryInterval.inSeconds}s',
-                    error: e);
+                  'continuous scan refresh failed; nothing is scanning '
+                  'until the retry in '
+                  '${continuousScanRetryInterval.inSeconds}s',
+                  error: e,
+                );
                 scheduleRefresh(continuousScanRetryInterval);
               }
             });
@@ -712,9 +717,11 @@ class RealBleService implements BleService {
               .timeout(timeout + const Duration(seconds: 5));
         } on TimeoutException {
           // Degrade to ending the scan normally rather than erroring the UI.
-          Log.ble.warning('no scan-stopped event within '
-              '${(timeout + const Duration(seconds: 5)).inSeconds}s; '
-              'ending the scan anyway');
+          Log.ble.warning(
+            'no scan-stopped event within '
+            '${(timeout + const Duration(seconds: 5)).inSeconds}s; '
+            'ending the scan anyway',
+          );
         }
 
         Log.ble.info('scan finished: ${coalescer.deviceCount} device(s)');
@@ -737,8 +744,10 @@ class RealBleService implements BleService {
     // cancelSub() (which nulls the field iff it still pointed at OUR sub).
     controller.onCancel = () async {
       cancelled = true;
-      final stopNative =
-          shouldStopNativeScanOnCancel(active: _scanSubscription, own: sub);
+      final stopNative = shouldStopNativeScanOnCancel(
+        active: _scanSubscription,
+        own: sub,
+      );
       await cancelSub();
       if (stopNative) {
         try {
@@ -957,7 +966,8 @@ class RealBleService implements BleService {
     if (claims > 1) {
       _connectionClaims[deviceId] = claims - 1;
       Log.ble.debug(
-          'disconnect($deviceId) released a claim; ${claims - 1} remain');
+        'disconnect($deviceId) released a claim; ${claims - 1} remain',
+      );
       return;
     }
     _connectionClaims.remove(deviceId);
@@ -977,8 +987,10 @@ class RealBleService implements BleService {
     } catch (e) {
       // disconnect() throws if the device is already disconnected; that's the
       // desired end-state, so treat it as a successful no-op.
-      Log.ble
-          .debug('disconnect($deviceId) threw; already disconnected', error: e);
+      Log.ble.debug(
+        'disconnect($deviceId) threw; already disconnected',
+        error: e,
+      );
     }
   }
 
@@ -999,21 +1011,24 @@ class RealBleService implements BleService {
     // GATT controls for no visible reason. The scan path already normalizes
     // this way; this puts the connected path in the same vocabulary.
     return services
-        .map((s) => BleDiscoveredService(
-              uuid: s.uuid.str128,
-              characteristics: s.characteristics
-                  .map((c) => BleDiscoveredCharacteristic(
-                        uuid: c.uuid.str128,
-                        canRead: c.properties.read,
-                        canWrite: c.properties.write ||
-                            c.properties.writeWithoutResponse,
-                        canWriteWithResponse: c.properties.write,
-                        canWriteWithoutResponse:
-                            c.properties.writeWithoutResponse,
-                        canNotify: c.properties.notify || c.properties.indicate,
-                      ))
-                  .toList(),
-            ))
+        .map(
+          (s) => BleDiscoveredService(
+            uuid: s.uuid.str128,
+            characteristics: s.characteristics
+                .map(
+                  (c) => BleDiscoveredCharacteristic(
+                    uuid: c.uuid.str128,
+                    canRead: c.properties.read,
+                    canWrite:
+                        c.properties.write || c.properties.writeWithoutResponse,
+                    canWriteWithResponse: c.properties.write,
+                    canWriteWithoutResponse: c.properties.writeWithoutResponse,
+                    canNotify: c.properties.notify || c.properties.indicate,
+                  ),
+                )
+                .toList(),
+          ),
+        )
         .toList();
   }
 
@@ -1046,18 +1061,22 @@ class RealBleService implements BleService {
     // service-changed notifications.
     final stopwatch = Stopwatch()..start();
     var attempt = 0;
-    var services =
-        await device.discoverServices(subscribeToServicesChanged: false);
+    var services = await device.discoverServices(
+      subscribeToServicesChanged: false,
+    );
     while (services.isEmpty) {
       final delay = nextEmptyDiscoveryRetryDelay(attempt);
       if (delay == null) break;
       attempt += 1;
-      Log.ble.debug('discovery on $deviceId returned no services after '
-          '${stopwatch.elapsedMilliseconds}ms; retry $attempt in '
-          '${delay.inMilliseconds}ms (services may still be resolving)');
+      Log.ble.debug(
+        'discovery on $deviceId returned no services after '
+        '${stopwatch.elapsedMilliseconds}ms; retry $attempt in '
+        '${delay.inMilliseconds}ms (services may still be resolving)',
+      );
       await Future<void>.delayed(delay);
-      services =
-          await device.discoverServices(subscribeToServicesChanged: false);
+      services = await device.discoverServices(
+        subscribeToServicesChanged: false,
+      );
     }
 
     // Only on a cache miss, so this is once per connection, not per read.
@@ -1065,17 +1084,23 @@ class RealBleService implements BleService {
     // few ms of connecting almost certainly raced service resolution rather
     // than actually talking to the device.
     if (services.isEmpty) {
-      Log.ble.warning('discovered 0 service(s) on $deviceId in '
-          '${stopwatch.elapsedMilliseconds}ms (${attempt + 1} attempt(s)); '
-          'spec matching and typed controls need discovered services');
+      Log.ble.warning(
+        'discovered 0 service(s) on $deviceId in '
+        '${stopwatch.elapsedMilliseconds}ms (${attempt + 1} attempt(s)); '
+        'spec matching and typed controls need discovered services',
+      );
     } else {
-      Log.ble.info('discovered ${services.length} service(s) on $deviceId '
-          'in ${stopwatch.elapsedMilliseconds}ms'
-          '${attempt > 0 ? ' after ${attempt + 1} attempts' : ''}');
+      Log.ble.info(
+        'discovered ${services.length} service(s) on $deviceId '
+        'in ${stopwatch.elapsedMilliseconds}ms'
+        '${attempt > 0 ? ' after ${attempt + 1} attempts' : ''}',
+      );
       for (final service in services) {
-        Log.ble.debug('  service ${service.uuid}: '
-            '${service.characteristics.length} characteristic(s) '
-            '[${service.characteristics.map((c) => c.uuid).join(', ')}]');
+        Log.ble.debug(
+          '  service ${service.uuid}: '
+          '${service.characteristics.length} characteristic(s) '
+          '[${service.characteristics.map((c) => c.uuid).join(', ')}]',
+        );
       }
     }
     // Cached in BOTH cases — but an empty result only reaches this line
@@ -1189,8 +1214,10 @@ class RealBleService implements BleService {
     // case through untranslated.
     return operation().onError<Object>((error, stack) {
       if (!isPairingRequiredError(error)) throw error;
-      Log.ble.warning('$deviceId refused an operation: the link is not '
-          'paired ($error)');
+      Log.ble.warning(
+        '$deviceId refused an operation: the link is not '
+        'paired ($error)',
+      );
       if (Platform.isAndroid) {
         unawaited(
           BluetoothDevice.fromId(deviceId).createBond().catchError((Object e) {
@@ -1216,15 +1243,19 @@ class RealBleService implements BleService {
 
   void _recordRecent(String deviceId, String charUuid, List<int> value) {
     final ring = _recentNotifications.putIfAbsent(
-        '$deviceId|${charUuid.toLowerCase()}', () => <List<int>>[]);
+      '$deviceId|${charUuid.toLowerCase()}',
+      () => <List<int>>[],
+    );
     ring.add(List<int>.of(value));
     if (ring.length > _recentNotificationsCap) ring.removeAt(0);
   }
 
   @override
   List<List<int>> recentNotifications(
-          String deviceId, String serviceUuid, String charUuid) =>
-      _recentNotifications['$deviceId|${charUuid.toLowerCase()}'] ?? const [];
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+  ) => _recentNotifications['$deviceId|${charUuid.toLowerCase()}'] ?? const [];
 
   @override
   Stream<List<int>> subscribeCharacteristic(
@@ -1304,8 +1335,11 @@ class RealBleService implements BleService {
           // it; later subscribers await the same future (and share its
           // error).
           claimed.enable ??= () async {
-            final char =
-                await _findCharacteristic(deviceId, serviceUuid, charUuid);
+            final char = await _findCharacteristic(
+              deviceId,
+              serviceUuid,
+              charUuid,
+            );
             // Everyone may have left while the lookup ran (an empty-services
             // retry ladder alone can take ~6s). Enabling now would write a
             // CCCD — and, on a pairing-required peripheral, pop the system
@@ -1322,7 +1356,9 @@ class RealBleService implements BleService {
             // same translation applies, and a spec-declared sensor reports
             // "pair this device" instead of a raw GATT code.
             await _pairingAware(
-                deviceId, () => _setNotifyValue(char, enable: true));
+              deviceId,
+              () => _setNotifyValue(char, enable: true),
+            );
             // Once per shared enable. The notifications themselves are
             // deliberately NOT logged — that is the tight loop this logging
             // must stay out of.
@@ -1334,8 +1370,9 @@ class RealBleService implements BleService {
             // times faster: with six sensor tiles on a characteristic, the
             // 16-deep ring would hold under three real pushes. Torn down
             // with the share in releaseInterest/_expireNotifyShares.
-            claimed.recorder ??= char.onValueReceived
-                .listen((value) => _recordRecent(deviceId, charUuid, value));
+            claimed.recorder ??= char.onValueReceived.listen(
+              (value) => _recordRecent(deviceId, charUuid, value),
+            );
             return char;
           }();
           final char = await claimed.enable!;
@@ -1399,19 +1436,26 @@ class RealBleService implements BleService {
   /// old table, and notify shares expire because their handles are gone.
   void _watchServicesReset(String deviceId, BluetoothDevice device) {
     if (_servicesResetSubs.containsKey(deviceId)) return;
-    _servicesResetSubs[deviceId] = device.onServicesReset.listen((_) {
-      Log.ble.info('$deviceId changed its services; rediscovering on next use');
-      _servicesCache.remove(deviceId);
-      _connectionGeneration[deviceId] = _generationOf(deviceId) + 1;
-      _expireNotifyShares(deviceId);
-    }, onError: (Object e) {
-      Log.ble.debug('services-reset stream for $deviceId failed: $e');
-    });
+    _servicesResetSubs[deviceId] = device.onServicesReset.listen(
+      (_) {
+        Log.ble.info(
+          '$deviceId changed its services; rediscovering on next use',
+        );
+        _servicesCache.remove(deviceId);
+        _connectionGeneration[deviceId] = _generationOf(deviceId) + 1;
+        _expireNotifyShares(deviceId);
+      },
+      onError: (Object e) {
+        Log.ble.debug('services-reset stream for $deviceId failed: $e');
+      },
+    );
   }
 
   String _notifyShareKey(
-          String deviceId, String serviceUuid, String charUuid) =>
-      '$deviceId|${normalizeUuid(serviceUuid)}|${normalizeUuid(charUuid)}';
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+  ) => '$deviceId|${normalizeUuid(serviceUuid)}|${normalizeUuid(charUuid)}';
 
   /// Detach every notify share for [deviceId], marking them dead, and drop
   /// what those shares buffered.
@@ -1495,8 +1539,9 @@ class RealBleService implements BleService {
   /// and each read holds fbp's process-wide BLE mutex while it waits.
   @override
   Future<int> readRssi(String deviceId) async {
-    final rssi = await BluetoothDevice.fromId(deviceId)
-        .readRssi(timeout: rssiReadTimeoutSeconds);
+    final rssi = await BluetoothDevice.fromId(
+      deviceId,
+    ).readRssi(timeout: rssiReadTimeoutSeconds);
     if (!isPlausibleRssi(rssi)) {
       throw StateError('implausible RSSI $rssi dBm for $deviceId');
     }
@@ -1521,9 +1566,10 @@ class RealBleService implements BleService {
     } catch (e) {
       if (!isSpuriousLinuxNotifyTimeout(e, isLinux: isLinux)) rethrow;
       Log.ble.warning(
-          'treating setNotifyValue(${char.uuid}, $enable) confirmation '
-          'timeout as success: the Linux backend cannot confirm CCCD writes '
-          'but has already applied the change');
+        'treating setNotifyValue(${char.uuid}, $enable) confirmation '
+        'timeout as success: the Linux backend cannot confirm CCCD writes '
+        'but has already applied the change',
+      );
     }
   }
 }

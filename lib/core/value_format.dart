@@ -37,7 +37,10 @@ String humanizeName(String raw) {
 /// range rather than being passed through — otherwise Slider/clamp callers would
 /// assert or divide by zero on a zero-width range.
 ({double min, double max}) rangeFor(
-    String valueType, double? min, double? max) {
+  String valueType,
+  double? min,
+  double? max,
+) {
   final typeRange = switch (valueType) {
     'bool' => (min: 0.0, max: 1.0),
     'uint8' => (min: 0.0, max: 255.0),
@@ -157,9 +160,9 @@ int decimalsForStep(double step) {
 /// `string`/`bytes` (and any unrecognized type) have no meaningful numeric
 /// range, so controls for them must not pretend a 0..255 slider is valid.
 bool isNumericValueType(String valueType) => switch (valueType) {
-      'uint8' || 'uint16' || 'uint32' || 'int8' || 'int16' || 'int32' => true,
-      _ => false,
-    };
+  'uint8' || 'uint16' || 'uint32' || 'int8' || 'int16' || 'int32' => true,
+  _ => false,
+};
 
 /// Display text for one entry of an enumerated `allowed` parameter:
 /// `"Label (value)"` when the spec pairs a label with the value, or just the

@@ -163,8 +163,7 @@ void main() {
     expect(profiles.single.profileName, 'Battery Service');
   });
 
-  testWidgets('every bundled spec parses on this phone, and how long it takes',
-      (
+  testWidgets('every bundled spec parses on this phone, and how long it takes', (
     tester,
   ) async {
     if (_skipUnlessHardware()) return;
@@ -252,7 +251,8 @@ void main() {
       expect(
         state,
         isNot(BluetoothAdapterState.unknown),
-        reason: 'CoreBluetooth reported no state in 60 s. Either the alert '
+        reason:
+            'CoreBluetooth reported no state in 60 s. Either the alert '
             'went unanswered, or the plugin never saw '
             'centralManagerDidUpdateState (F-002 territory).',
       );
@@ -295,14 +295,16 @@ void main() {
         expect(
           failure,
           isNotNull,
-          reason: 'adapter state is ${state.name} but scan() completed as if '
+          reason:
+              'adapter state is ${state.name} but scan() completed as if '
               'the radio were usable — the screen would show an empty list '
               'with no recovery',
         );
         expect(
           failure.runtimeType,
           expected.runtimeType,
-          reason: 'scan() must surface ${expected.runtimeType} for adapter '
+          reason:
+              'scan() must surface ${expected.runtimeType} for adapter '
               'state ${state.name}, so the screen can offer the matching '
               'recovery (F-002, F-023): got $failure',
         );
@@ -374,11 +376,15 @@ void main() {
           if (matches.isEmpty) continue;
           recognised++;
           final best = matches.first;
-          _say('  ${d.host} -> ${best.deviceName} (${best.manufacturer}, '
-              '${best.confidence.name}; ${matches.length} candidate(s))');
+          _say(
+            '  ${d.host} -> ${best.deviceName} (${best.manufacturer}, '
+            '${best.confidence.name}; ${matches.length} candidate(s))',
+          );
         }
-        _say('catalogue: $recognised of ${found.length} host(s) recognised '
-            'against ${identities.length} identities');
+        _say(
+          'catalogue: $recognised of ${found.length} host(s) recognised '
+          'against ${identities.length} identities',
+        );
       }
 
       // The scan's own contract, whatever the network: it ends near its budget,
@@ -417,7 +423,8 @@ void main() {
         expect(
           failure,
           isNull,
-          reason: 'the operator says discoverable devices are on this '
+          reason:
+              'the operator says discoverable devices are on this '
               'network, but the scan reported: $failure. Local Network '
               'permission denied, the entitlement missing from the profile, '
               'or the probes leaving on the wrong interface (F-014).',
@@ -425,7 +432,8 @@ void main() {
         expect(
           found,
           isNotEmpty,
-          reason: 'the operator says discoverable devices are on this '
+          reason:
+              'the operator says discoverable devices are on this '
               'network, but the scan found none',
         );
       } else if (failure is LocalNetworkDeniedException) {
@@ -459,7 +467,8 @@ void main() {
       expect(
         (await store.readAll())[key],
         'v1',
-        reason: 'readAll() cannot see what write() stored. Every enumerating '
+        reason:
+            'readAll() cannot see what write() stored. Every enumerating '
             'caller — DeviceCredentialStore.credentials(), "forget this '
             'device" — is blind on this phone.',
       );
@@ -498,8 +507,11 @@ void main() {
             break; // cancels the subscription, which stops the native scan
           }
         }
-        expect(target, isNotNull,
-            reason: 'no advertiser named "$_liveBleName" was heard in 30 s');
+        expect(
+          target,
+          isNotNull,
+          reason: 'no advertiser named "$_liveBleName" was heard in 30 s',
+        );
       } else {
         // Read-only, so any connectable advertiser is fair game: the
         // strongest one after a 10 s window. Connect + discover + disconnect
@@ -512,8 +524,11 @@ void main() {
         )) {
           if (device.isConnectable) seen[device.id] = device;
         }
-        expect(seen, isNotEmpty,
-            reason: 'no connectable advertiser was heard in 10 s');
+        expect(
+          seen,
+          isNotEmpty,
+          reason: 'no connectable advertiser was heard in 10 s',
+        );
         target = seen.values.reduce((x, y) => x.rssi >= y.rssi ? x : y);
       }
       final id = target!.id;
@@ -529,7 +544,8 @@ void main() {
         expect(
           services,
           isNotEmpty,
-          reason: 'connected but discovered no services — a GATT peripheral '
+          reason:
+              'connected but discovered no services — a GATT peripheral '
               'always has at least Generic Access',
         );
         final mtu = await ble.mtu(id);
@@ -553,11 +569,13 @@ void main() {
     const step = Duration(milliseconds: 100);
     // A fresh install shows the terms gate first; accept it, exactly as
     // app_launch_test.dart does, so the boot proceeds.
-    for (var waited = Duration.zero;
-        waited < const Duration(seconds: 20) &&
-            find.byType(TermsScreen).evaluate().isEmpty &&
-            find.byType(ScanScreen).evaluate().isEmpty;
-        waited += step) {
+    for (
+      var waited = Duration.zero;
+      waited < const Duration(seconds: 20) &&
+          find.byType(TermsScreen).evaluate().isEmpty &&
+          find.byType(ScanScreen).evaluate().isEmpty;
+      waited += step
+    ) {
       await tester.pump(step);
     }
     if (find.byType(TermsScreen).evaluate().isNotEmpty) {
@@ -567,10 +585,12 @@ void main() {
       await tester.tap(accept);
       await tester.pump();
     }
-    for (var waited = Duration.zero;
-        waited < const Duration(seconds: 20) &&
-            find.byType(ScanScreen).evaluate().isEmpty;
-        waited += step) {
+    for (
+      var waited = Duration.zero;
+      waited < const Duration(seconds: 20) &&
+          find.byType(ScanScreen).evaluate().isEmpty;
+      waited += step
+    ) {
       await tester.pump(step);
     }
     expect(find.byType(LiberatedBreadApp), findsOneWidget);
@@ -580,22 +600,25 @@ void main() {
     // Let the launch scan run for a moment. With the radio on, the screen
     // must not be showing a failure headline: that is the first-launch
     // impression F-002 describes.
-    for (var waited = Duration.zero;
-        waited < const Duration(seconds: 5);
-        waited += step) {
+    for (
+      var waited = Duration.zero;
+      waited < const Duration(seconds: 5);
+      waited += step
+    ) {
       await tester.pump(step);
     }
     final failed = find.textContaining('Scan failed').evaluate().isNotEmpty;
     _say(
       'scan screen after 5 s: ${failed ? 'shows "Scan failed"' : 'no '
-          'failure headline'}; adapter state seen earlier: '
+                'failure headline'}; adapter state seen earlier: '
       '${_observedAdapterState?.name ?? 'not observed'}',
     );
     if (_observedAdapterState == BluetoothAdapterState.on) {
       expect(
         failed,
         isFalse,
-        reason: 'the radio was on a moment ago, yet the launch scan shows '
+        reason:
+            'the radio was on a moment ago, yet the launch scan shows '
             '"Scan failed"',
       );
     }

@@ -133,8 +133,9 @@ class FakeBleService implements BleService {
   // finishes, and every state this fake drives is reachable either way.
   @override
   Stream<IoTDevice> scan({
-    Duration? timeout =
-        const Duration(seconds: AppConstants.defaultScanDuration),
+    Duration? timeout = const Duration(
+      seconds: AppConstants.defaultScanDuration,
+    ),
     ScanIntensity intensity = ScanIntensity.active,
   }) async* {
     scanTimeouts.add(timeout);
@@ -265,8 +266,10 @@ class FakeBleService implements BleService {
 
   @override
   List<List<int>> recentNotifications(
-          String deviceId, String serviceUuid, String charUuid) =>
-      recentNotificationsToReturn;
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+  ) => recentNotificationsToReturn;
 
   @override
   Future<int> mtu(String deviceId) async => mtuToReturn;

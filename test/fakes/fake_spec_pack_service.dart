@@ -21,9 +21,11 @@ class FakeSpecPackService implements SpecPackService {
   /// When set, [removePack] throws it, to exercise the UI error path.
   final Object? removeError;
 
-  FakeSpecPackService(
-      {List<SpecPack>? packs, this.nextResult, this.removeError})
-      : packs = [...?packs];
+  FakeSpecPackService({
+    List<SpecPack>? packs,
+    this.nextResult,
+    this.removeError,
+  }) : packs = [...?packs];
 
   @override
   Duration get timeout => const Duration(seconds: 15);
@@ -31,9 +33,11 @@ class FakeSpecPackService implements SpecPackService {
   @override
   Future<InstallResult> install(String manifestUrl) async {
     installedUrls.add(manifestUrl);
-    final result = nextResult ??
+    final result =
+        nextResult ??
         const InstallFailed(
-            SpecPackError(SpecPackErrorKind.network, 'no result configured'));
+          SpecPackError(SpecPackErrorKind.network, 'no result configured'),
+        );
     if (result is InstallOk) {
       packs
         ..removeWhere((p) => p.name == result.pack.name)

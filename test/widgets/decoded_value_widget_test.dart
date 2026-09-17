@@ -26,9 +26,17 @@ const _statusChar = CharacteristicDto(
   commands: [],
   formatFields: [
     FormatFieldDto(
-        name: 'power_state', fieldType: 'bool', offset: 0, length: 1),
+      name: 'power_state',
+      fieldType: 'bool',
+      offset: 0,
+      length: 1,
+    ),
     FormatFieldDto(
-        name: 'brightness', fieldType: 'uint8', offset: 1, length: 1),
+      name: 'brightness',
+      fieldType: 'uint8',
+      offset: 1,
+      length: 1,
+    ),
   ],
 );
 
@@ -41,7 +49,11 @@ const _batteryChar = CharacteristicDto(
   commands: [],
   formatFields: [
     FormatFieldDto(
-        name: 'battery_percent', fieldType: 'uint8', offset: 0, length: 1),
+      name: 'battery_percent',
+      fieldType: 'uint8',
+      offset: 0,
+      length: 1,
+    ),
   ],
 );
 
@@ -49,86 +61,111 @@ Widget _wrap(
   Widget child, {
   required FakeBleService ble,
   required FakeSpecCodec codec,
-}) =>
-    ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(ble),
-        specCodecProvider.overrideWithValue(codec),
-      ],
-      child: MaterialApp(home: Scaffold(body: child)),
-    );
+}) => ProviderScope(
+  overrides: [
+    bleServiceProvider.overrideWithValue(ble),
+    specCodecProvider.overrideWithValue(codec),
+  ],
+  child: MaterialApp(home: Scaffold(body: child)),
+);
 
 void main() {
   testWidgets('reads then shows decoded named fields', (tester) async {
-    final ble = FakeBleService(readValues: const {
-      '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80],
-    });
-    final codec = FakeSpecCodec(decoded: const [
-      DecodedValueDto(
+    final ble = FakeBleService(
+      readValues: const {
+        '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80],
+      },
+    );
+    final codec = FakeSpecCodec(
+      decoded: const [
+        DecodedValueDto(
           name: 'power_state',
           valueType: 'bool',
           display: 'on',
-          boolValue: true),
-      DecodedValueDto(
-          name: 'brightness', valueType: 'uint', display: '80', uintValue: 80),
-    ]);
+          boolValue: true,
+        ),
+        DecodedValueDto(
+          name: 'brightness',
+          valueType: 'uint',
+          display: '80',
+          uintValue: 80,
+        ),
+      ],
+    );
 
-    await tester.pumpWidget(_wrap(
-      const DecodedValueWidget(
-        deviceId: 'd',
-        serviceUuid: 's',
-        specYaml: 'y',
-        specChar: _statusChar,
-        canRead: true,
-        canNotify: false,
+    await tester.pumpWidget(
+      _wrap(
+        const DecodedValueWidget(
+          deviceId: 'd',
+          serviceUuid: 's',
+          specYaml: 'y',
+          specChar: _statusChar,
+          canRead: true,
+          canNotify: false,
+        ),
+        ble: ble,
+        codec: codec,
       ),
-      ble: ble,
-      codec: codec,
-    ));
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Power state: on'), findsOneWidget);
     expect(find.text('Brightness: 80'), findsOneWidget);
   });
 
-  testWidgets('renders a progress bar for battery-style fields',
-      (tester) async {
+  testWidgets('renders a progress bar for battery-style fields', (
+    tester,
+  ) async {
     final ble = FakeBleService();
-    final codec = FakeSpecCodec(decoded: const [
-      DecodedValueDto(
+    final codec = FakeSpecCodec(
+      decoded: const [
+        DecodedValueDto(
           name: 'battery_percent',
           valueType: 'uint',
           display: '85',
-          uintValue: 85),
-    ]);
+          uintValue: 85,
+        ),
+      ],
+    );
 
-    await tester.pumpWidget(_wrap(
-      const DecodedValueWidget(
-        deviceId: 'd',
-        serviceUuid: 's',
-        specYaml: 'y',
-        specChar: _batteryChar,
-        canRead: true,
-        canNotify: false,
+    await tester.pumpWidget(
+      _wrap(
+        const DecodedValueWidget(
+          deviceId: 'd',
+          serviceUuid: 's',
+          specYaml: 'y',
+          specChar: _batteryChar,
+          canRead: true,
+          canNotify: false,
+        ),
+        ble: ble,
+        codec: codec,
       ),
-      ble: ble,
-      codec: codec,
-    ));
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Battery percent: 85'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
   });
 
-  testWidgets('forwards decoded values to Home Assistant when registered',
-      (tester) async {
-    final ble = FakeBleService(readValues: const {
-      '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80],
-    });
-    final codec = FakeSpecCodec(decoded: const [
-      DecodedValueDto(
-          name: 'brightness', valueType: 'uint', display: '80', uintValue: 80),
-    ]);
+  testWidgets('forwards decoded values to Home Assistant when registered', (
+    tester,
+  ) async {
+    final ble = FakeBleService(
+      readValues: const {
+        '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80],
+      },
+    );
+    final codec = FakeSpecCodec(
+      decoded: const [
+        DecodedValueDto(
+          name: 'brightness',
+          valueType: 'uint',
+          display: '80',
+          uintValue: 80,
+        ),
+      ],
+    );
     final api = FakeHaApiClient();
     final forwarder = HaSensorForwarder(
       api: api,
@@ -141,25 +178,27 @@ void main() {
       minSendInterval: Duration.zero,
     );
 
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(ble),
-        specCodecProvider.overrideWithValue(codec),
-        haForwarderProvider.overrideWithValue(forwarder),
-      ],
-      child: const MaterialApp(
-        home: Scaffold(
-          body: DecodedValueWidget(
-            deviceId: 'd',
-            serviceUuid: 's',
-            specYaml: 'y',
-            specChar: _statusChar,
-            canRead: true,
-            canNotify: false,
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(ble),
+          specCodecProvider.overrideWithValue(codec),
+          haForwarderProvider.overrideWithValue(forwarder),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: DecodedValueWidget(
+              deviceId: 'd',
+              serviceUuid: 's',
+              specYaml: 'y',
+              specChar: _statusChar,
+              canRead: true,
+              canNotify: false,
+            ),
           ),
         ),
       ),
-    ));
+    );
     await tester.pumpAndSettle();
     await forwarder.idle;
 
@@ -173,18 +212,20 @@ void main() {
     /// Pump the browser over one decoded field and return nothing — the
     /// caller asserts on what rendered.
     Future<void> show(WidgetTester tester, DecodedValueDto value) async {
-      await tester.pumpWidget(_wrap(
-        const DecodedValueWidget(
-          deviceId: 'd',
-          serviceUuid: 's',
-          specYaml: 'y',
-          specChar: _statusChar,
-          canRead: true,
-          canNotify: false,
+      await tester.pumpWidget(
+        _wrap(
+          const DecodedValueWidget(
+            deviceId: 'd',
+            serviceUuid: 's',
+            specYaml: 'y',
+            specChar: _statusChar,
+            canRead: true,
+            canNotify: false,
+          ),
+          ble: FakeBleService(),
+          codec: FakeSpecCodec(decoded: [value]),
         ),
-        ble: FakeBleService(),
-        codec: FakeSpecCodec(decoded: [value]),
-      ));
+      );
       await tester.pumpAndSettle();
     }
 
@@ -224,8 +265,9 @@ void main() {
       expect(find.text('Temp raw: 135.0 °F'), findsOneWidget);
     });
 
-    testWidgets('names an enumerated code and keeps the code beside it',
-        (tester) async {
+    testWidgets('names an enumerated code and keeps the code beside it', (
+      tester,
+    ) async {
       // The browser shows both, unlike the entity card: someone reverse-
       // engineering a device needs the byte that produced the word.
       await show(
@@ -241,8 +283,9 @@ void main() {
       expect(find.text('Liquid state: heating (5)'), findsOneWidget);
     });
 
-    testWidgets('says a device-setting unit is not fixed by the protocol',
-        (tester) async {
+    testWidgets('says a device-setting unit is not fixed by the protocol', (
+      tester,
+    ) async {
       // The Inkbird iBBQ sends whichever unit the device is set to, so
       // printing "165 °C" would be a guess dressed as a fact — and printing
       // a bare "165" would imply it is dimensionless.
@@ -258,7 +301,9 @@ void main() {
         ),
       );
       expect(
-          find.text('Probe 1: 165 (unit set on the device)'), findsOneWidget);
+        find.text('Probe 1: 165 (unit set on the device)'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a bool still reads as on/off, not 1', (tester) async {
@@ -274,8 +319,9 @@ void main() {
       expect(find.text('Power state: on'), findsOneWidget);
     });
 
-    testWidgets('a scaled percentage fills its bar from the decoded value',
-        (tester) async {
+    testWidgets('a scaled percentage fills its bar from the decoded value', (
+      tester,
+    ) async {
       // The bar is 0..100 in DECODED terms; driving it from the raw count
       // would peg a 50.0% reading (raw 500, scale 0.1) at full.
       await show(
@@ -291,7 +337,8 @@ void main() {
       );
       expect(find.text('Charge: 50.0 %'), findsOneWidget);
       final bar = tester.widget<LinearProgressIndicator>(
-          find.byType(LinearProgressIndicator));
+        find.byType(LinearProgressIndicator),
+      );
       expect(bar.value, closeTo(0.5, 1e-9));
     });
   });
@@ -300,23 +347,31 @@ void main() {
     final controller = StreamController<List<int>>.broadcast();
     addTearDown(controller.close);
     final ble = FakeBleService(notifyStream: controller.stream);
-    final codec = FakeSpecCodec(decoded: const [
-      DecodedValueDto(
-          name: 'brightness', valueType: 'uint', display: '42', uintValue: 42),
-    ]);
+    final codec = FakeSpecCodec(
+      decoded: const [
+        DecodedValueDto(
+          name: 'brightness',
+          valueType: 'uint',
+          display: '42',
+          uintValue: 42,
+        ),
+      ],
+    );
 
-    await tester.pumpWidget(_wrap(
-      const DecodedValueWidget(
-        deviceId: 'd',
-        serviceUuid: 's',
-        specYaml: 'y',
-        specChar: _statusChar,
-        canRead: false,
-        canNotify: true,
+    await tester.pumpWidget(
+      _wrap(
+        const DecodedValueWidget(
+          deviceId: 'd',
+          serviceUuid: 's',
+          specYaml: 'y',
+          specChar: _statusChar,
+          canRead: false,
+          canNotify: true,
+        ),
+        ble: ble,
+        codec: codec,
       ),
-      ble: ble,
-      codec: codec,
-    ));
+    );
     await tester.pump();
     expect(find.text('Brightness: 42'), findsNothing);
 

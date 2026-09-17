@@ -79,17 +79,17 @@ class RoombaCredentials {
     bool clearRest980 = false,
     String? haEntityId,
     bool clearHaEntity = false,
-  }) =>
-      RoombaCredentials(
-        blid: blid,
-        password: password,
-        name: name ?? this.name,
-        sku: sku ?? this.sku,
-        lastIp: lastIp ?? this.lastIp,
-        rest980BaseUrl:
-            clearRest980 ? null : (rest980BaseUrl ?? this.rest980BaseUrl),
-        haEntityId: clearHaEntity ? null : (haEntityId ?? this.haEntityId),
-      );
+  }) => RoombaCredentials(
+    blid: blid,
+    password: password,
+    name: name ?? this.name,
+    sku: sku ?? this.sku,
+    lastIp: lastIp ?? this.lastIp,
+    rest980BaseUrl: clearRest980
+        ? null
+        : (rest980BaseUrl ?? this.rest980BaseUrl),
+    haEntityId: clearHaEntity ? null : (haEntityId ?? this.haEntityId),
+  );
 }
 
 /// Everything the app remembers about one adopted robot, keyed by its BLID.

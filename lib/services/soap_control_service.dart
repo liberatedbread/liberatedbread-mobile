@@ -34,7 +34,7 @@ class SoapControlClient {
   static const maxResponseBytes = 512 * 1024;
 
   SoapControlClient({http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+    : _http = httpClient ?? http.Client();
 
   /// Send [request] and buffer its body, refusing past [maxResponseBytes].
   ///
@@ -59,8 +59,9 @@ class SoapControlClient {
         bytes.add(chunk);
         if (bytes.length > maxResponseBytes) {
           throw SoapTransportException(
-              '${request.url} sent more than $maxResponseBytes bytes; '
-              'refusing to buffer further');
+            '${request.url} sent more than $maxResponseBytes bytes; '
+            'refusing to buffer further',
+          );
         }
       }
       return http.Response.bytes(
@@ -70,12 +71,12 @@ class SoapControlClient {
         headers: streamed.headers,
         reasonPhrase: streamed.reasonPhrase,
       );
-    }()
-        .timeout(
+    }().timeout(
       timeout,
       onTimeout: () => throw SoapTransportException(
-          '$what timed out after ${timeout.inSeconds}s '
-          '(${request.url})'),
+        '$what timed out after ${timeout.inSeconds}s '
+        '(${request.url})',
+      ),
     );
   }
 
@@ -87,14 +88,20 @@ class SoapControlClient {
   /// the spec repeats more than any other. Its own path comes from the SSDP
   /// LOCATION the device advertised ([path]); `/setup.xml` is only the
   /// default, for a caller whose sighting predates that being recorded.
-  Future<SoapDeviceDescription> fetchDescription(String host, int port,
-      {String path = '/setup.xml'}) async {
+  Future<SoapDeviceDescription> fetchDescription(
+    String host,
+    int port, {
+    String path = '/setup.xml',
+  }) async {
     final uri = Uri(scheme: 'http', host: host, port: port, path: path);
-    final response =
-        await _bounded(http.Request('GET', uri), 'description fetch');
+    final response = await _bounded(
+      http.Request('GET', uri),
+      'description fetch',
+    );
     if (response.statusCode != 200) {
       throw SoapTransportException(
-          'description fetch failed: HTTP ${response.statusCode} from $uri');
+        'description fetch failed: HTTP ${response.statusCode} from $uri',
+      );
     }
     return SoapDeviceDescription.parse(response.body, host: host, port: port);
   }
@@ -134,7 +141,8 @@ class SoapControlClient {
         }
       }
       throw SoapTransportException(
-          '${request.action} failed: HTTP ${response.statusCode} from $uri');
+        '${request.action} failed: HTTP ${response.statusCode} from $uri',
+      );
     }
     return parseSoapResponse(response.body, action: request.action);
   }
@@ -145,8 +153,10 @@ class SoapControlClient {
   /// `{child.tag: child.text}`, matching on local names because namespace
   /// prefixes vary. A Body whose child is a Fault is an error, and the fault
   /// text is worth surfacing — it is the only diagnostics the device offers.
-  static Map<String, String> parseSoapResponse(String xml,
-      {required String action}) {
+  static Map<String, String> parseSoapResponse(
+    String xml, {
+    required String action,
+  }) {
     final XmlDocument document;
     try {
       document = XmlDocument.parse(xml);
@@ -212,8 +222,11 @@ class SoapDeviceDescription {
   /// Matches on local element names throughout: the spec records that some
   /// firmware serves the document without the UPnP namespace, and requiring
   /// it would lose exactly those devices.
-  factory SoapDeviceDescription.parse(String xml,
-      {required String host, required int port}) {
+  factory SoapDeviceDescription.parse(
+    String xml, {
+    required String host,
+    required int port,
+  }) {
     final XmlDocument document;
     try {
       document = XmlDocument.parse(xml);
@@ -246,8 +259,9 @@ class SoapDeviceDescription {
     }
 
     final controlUrls = <String, String>{};
-    for (final service
-        in device.descendantElements.where((e) => e.localName == 'service')) {
+    for (final service in device.descendantElements.where(
+      (e) => e.localName == 'service',
+    )) {
       String? field(String name) => service.childElements
           .where((e) => e.localName == name)
           .firstOrNull
@@ -299,7 +313,8 @@ class SoapFaultException implements Exception {
   final String detail;
   const SoapFaultException({required this.action, required this.detail});
   @override
-  String toString() => 'SoapFaultException: $action was refused'
+  String toString() =>
+      'SoapFaultException: $action was refused'
       '${detail.isEmpty ? '' : ' ($detail)'}';
 }
 

@@ -15,16 +15,19 @@ void main() {
   group('registerDevice', () {
     test('posts to the registrations endpoint with bearer auth', () async {
       http.Request? seen;
-      final client = HttpHaApiClient(MockClient((request) async {
-        seen = request;
-        return http.Response(
+      final client = HttpHaApiClient(
+        MockClient((request) async {
+          seen = request;
+          return http.Response(
             jsonEncode({
               'webhook_id': 'wh123',
               'cloudhook_url': null,
               'remote_ui_url': null,
             }),
-            201);
-      }));
+            201,
+          );
+        }),
+      );
 
       final result = await client.registerDevice(
         baseUrl: _base,
@@ -41,7 +44,8 @@ void main() {
 
     test('throws HaAuthException on 401', () {
       final client = HttpHaApiClient(
-          MockClient((_) async => http.Response('unauthorized', 401)));
+        MockClient((_) async => http.Response('unauthorized', 401)),
+      );
       expect(
         client.registerDevice(baseUrl: _base, token: 'bad', deviceInfo: {}),
         throwsA(isA<HaAuthException>()),
@@ -49,8 +53,9 @@ void main() {
     });
 
     test('throws HaNotFoundException on 404', () {
-      final client =
-          HttpHaApiClient(MockClient((_) async => http.Response('nope', 404)));
+      final client = HttpHaApiClient(
+        MockClient((_) async => http.Response('nope', 404)),
+      );
       expect(
         client.registerDevice(baseUrl: _base, token: 't', deviceInfo: {}),
         throwsA(isA<HaNotFoundException>()),
@@ -58,8 +63,9 @@ void main() {
     });
 
     test('throws HaServerException on 500', () {
-      final client =
-          HttpHaApiClient(MockClient((_) async => http.Response('boom', 500)));
+      final client = HttpHaApiClient(
+        MockClient((_) async => http.Response('boom', 500)),
+      );
       expect(
         client.registerDevice(baseUrl: _base, token: 't', deviceInfo: {}),
         throwsA(isA<HaServerException>()),
@@ -67,8 +73,11 @@ void main() {
     });
 
     test('wraps connection failures in HaNetworkException', () {
-      final client = HttpHaApiClient(MockClient(
-          (_) async => throw http.ClientException('connection refused')));
+      final client = HttpHaApiClient(
+        MockClient(
+          (_) async => throw http.ClientException('connection refused'),
+        ),
+      );
       expect(
         client.registerDevice(baseUrl: _base, token: 't', deviceInfo: {}),
         throwsA(isA<HaNetworkException>()),
@@ -77,31 +86,37 @@ void main() {
 
     test('maps a non-JSON 2xx body to a typed HaApiException', () {
       final client = HttpHaApiClient(
-          MockClient((_) async => http.Response('<html>not json</html>', 201)));
+        MockClient((_) async => http.Response('<html>not json</html>', 201)),
+      );
       expect(
         client.registerDevice(baseUrl: _base, token: 't', deviceInfo: {}),
         throwsA(isA<HaApiException>()),
       );
     });
 
-    test('maps a 2xx JSON body missing webhook_id to a typed HaApiException',
-        () {
-      final client = HttpHaApiClient(MockClient(
-          (_) async => http.Response(jsonEncode({'ok': true}), 201)));
-      expect(
-        client.registerDevice(baseUrl: _base, token: 't', deviceInfo: {}),
-        throwsA(isA<HaApiException>()),
-      );
-    });
+    test(
+      'maps a 2xx JSON body missing webhook_id to a typed HaApiException',
+      () {
+        final client = HttpHaApiClient(
+          MockClient((_) async => http.Response(jsonEncode({'ok': true}), 201)),
+        );
+        expect(
+          client.registerDevice(baseUrl: _base, token: 't', deviceInfo: {}),
+          throwsA(isA<HaApiException>()),
+        );
+      },
+    );
   });
 
   group('webhook messages', () {
     test('registerSensor posts a register_sensor payload', () async {
       http.Request? seen;
-      final client = HttpHaApiClient(MockClient((request) async {
-        seen = request;
-        return http.Response('{"success": true}', 201);
-      }));
+      final client = HttpHaApiClient(
+        MockClient((request) async {
+          seen = request;
+          return http.Response('{"success": true}', 201);
+        }),
+      );
 
       await client.registerSensor(
         baseUrl: _base,
@@ -133,93 +148,107 @@ void main() {
       });
     });
 
-    test('updateSensorStates posts states and parses per-sensor results',
-        () async {
-      http.Request? seen;
-      final client = HttpHaApiClient(MockClient((request) async {
-        seen = request;
-        return http.Response(
-            jsonEncode({
-              'u1': {'success': true},
-              'u2': {
-                'success': false,
-                'error': {'code': 'not_registered', 'message': 'unknown'},
-              },
-            }),
-            200);
-      }));
+    test(
+      'updateSensorStates posts states and parses per-sensor results',
+      () async {
+        http.Request? seen;
+        final client = HttpHaApiClient(
+          MockClient((request) async {
+            seen = request;
+            return http.Response(
+              jsonEncode({
+                'u1': {'success': true},
+                'u2': {
+                  'success': false,
+                  'error': {'code': 'not_registered', 'message': 'unknown'},
+                },
+              }),
+              200,
+            );
+          }),
+        );
 
-      final results = await client.updateSensorStates(
-        baseUrl: _base,
-        webhookId: 'wh123',
-        states: const [
-          HaSensorState(uniqueId: 'u1', type: 'sensor', state: 85),
-          HaSensorState(uniqueId: 'u2', type: 'binary_sensor', state: true),
-        ],
-      );
+        final results = await client.updateSensorStates(
+          baseUrl: _base,
+          webhookId: 'wh123',
+          states: const [
+            HaSensorState(uniqueId: 'u1', type: 'sensor', state: 85),
+            HaSensorState(uniqueId: 'u2', type: 'binary_sensor', state: true),
+          ],
+        );
 
-      expect(jsonDecode(seen!.body), {
-        'type': 'update_sensor_states',
-        'data': [
-          {'unique_id': 'u1', 'type': 'sensor', 'state': 85},
-          {'unique_id': 'u2', 'type': 'binary_sensor', 'state': true},
-        ],
-      });
-      expect(results, hasLength(2));
-      final u1 = results.singleWhere((r) => r.uniqueId == 'u1');
-      final u2 = results.singleWhere((r) => r.uniqueId == 'u2');
-      expect(u1.success, isTrue);
-      expect(u2.success, isFalse);
-      expect(u2.errorCode, 'not_registered');
-    });
+        expect(jsonDecode(seen!.body), {
+          'type': 'update_sensor_states',
+          'data': [
+            {'unique_id': 'u1', 'type': 'sensor', 'state': 85},
+            {'unique_id': 'u2', 'type': 'binary_sensor', 'state': true},
+          ],
+        });
+        expect(results, hasLength(2));
+        final u1 = results.singleWhere((r) => r.uniqueId == 'u1');
+        final u2 = results.singleWhere((r) => r.uniqueId == 'u2');
+        expect(u1.success, isTrue);
+        expect(u2.success, isFalse);
+        expect(u2.errorCode, 'not_registered');
+      },
+    );
 
     test('tolerates an empty webhook response body', () async {
-      final client =
-          HttpHaApiClient(MockClient((_) async => http.Response('', 200)));
+      final client = HttpHaApiClient(
+        MockClient((_) async => http.Response('', 200)),
+      );
       final results = await client.updateSensorStates(
         baseUrl: _base,
         webhookId: 'wh123',
-        states: const [
-          HaSensorState(uniqueId: 'u1', type: 'sensor', state: 1),
-        ],
+        states: const [HaSensorState(uniqueId: 'u1', type: 'sensor', state: 1)],
       );
       expect(results, isEmpty);
     });
 
-    test('maps a malformed update_sensor_states body to a typed HaApiException',
-        () {
-      final client = HttpHaApiClient(
-          MockClient((_) async => http.Response('not json at all', 200)));
-      expect(
-        client.updateSensorStates(
-          baseUrl: _base,
-          webhookId: 'wh123',
-          states: const [
-            HaSensorState(uniqueId: 'u1', type: 'sensor', state: 1)
-          ],
-        ),
-        throwsA(isA<HaApiException>()),
-      );
-    });
+    test(
+      'maps a malformed update_sensor_states body to a typed HaApiException',
+      () {
+        final client = HttpHaApiClient(
+          MockClient((_) async => http.Response('not json at all', 200)),
+        );
+        expect(
+          client.updateSensorStates(
+            baseUrl: _base,
+            webhookId: 'wh123',
+            states: const [
+              HaSensorState(uniqueId: 'u1', type: 'sensor', state: 1),
+            ],
+          ),
+          throwsA(isA<HaApiException>()),
+        );
+      },
+    );
 
-    test('maps an unexpected update_sensor_states shape to a typed exception',
-        () {
-      // `error` is a String where a Map is expected -> TypeError, now wrapped.
-      final client = HttpHaApiClient(MockClient((_) async => http.Response(
-          jsonEncode({
-            'u1': {'success': false, 'error': 'boom'},
-          }),
-          200)));
-      expect(
-        client.updateSensorStates(
-          baseUrl: _base,
-          webhookId: 'wh123',
-          states: const [
-            HaSensorState(uniqueId: 'u1', type: 'sensor', state: 1)
-          ],
-        ),
-        throwsA(isA<HaApiException>()),
-      );
-    });
+    test(
+      'maps an unexpected update_sensor_states shape to a typed exception',
+      () {
+        // `error` is a String where a Map is expected -> TypeError, now wrapped.
+        final client = HttpHaApiClient(
+          MockClient(
+            (_) async => http.Response(
+              jsonEncode({
+                'u1': {'success': false, 'error': 'boom'},
+              }),
+              200,
+            ),
+          ),
+        );
+        expect(
+          client.updateSensorStates(
+            baseUrl: _base,
+            webhookId: 'wh123',
+            states: const [
+              HaSensorState(uniqueId: 'u1', type: 'sensor', state: 1),
+            ],
+          ),
+          throwsA(isA<HaApiException>()),
+        );
+      },
+    );
   });
 }

@@ -14,12 +14,13 @@ import 'spec_codec.dart';
 /// way [SoapControlClient] takes an `http.Client`. The default opens a
 /// [Socket], writes the framed request, and reads until the length-prefixed
 /// reply has fully arrived.
-typedef KasaExchange = Future<Uint8List> Function(
-  String host,
-  int port,
-  List<int> request,
-  Duration timeout,
-);
+typedef KasaExchange =
+    Future<Uint8List> Function(
+      String host,
+      int port,
+      List<int> request,
+      Duration timeout,
+    );
 
 /// The transport half of Kasa control: send a rendered JSON command to the
 /// device over TCP port 9999, obfuscated by the XOR-autokey cipher.
@@ -41,7 +42,7 @@ class KasaControlClient {
   static const timeout = Duration(seconds: 5);
 
   KasaControlClient(this._codec, {KasaExchange? exchange})
-      : _exchange = exchange ?? _socketExchange;
+    : _exchange = exchange ?? _socketExchange;
 
   /// Send one rendered command and return the device's decoded JSON reply.
   ///
@@ -57,7 +58,8 @@ class KasaControlClient {
       throw KasaControlException('could not reach $host:$port — ${e.message}');
     } on TimeoutException {
       throw KasaControlException(
-          '$host:$port did not answer within ${timeout.inSeconds}s');
+        '$host:$port did not answer within ${timeout.inSeconds}s',
+      );
     }
     try {
       return await _codec.kasaDecodeFrame(frame: reply);

@@ -26,11 +26,12 @@ typedef CredentialReader = Future<Map<String, String>> Function();
 /// inline and the two copies drifted: dropping an optional argument from a
 /// function type is silent, and the group's copy lost `capabilities` for a
 /// whole release of consequences (see NetworkGroupRunner's field note).
-typedef NetworkCommandSenderFactory = NetworkCommandSender Function({
-  required NetworkDevice device,
-  required String specYaml,
-  NetworkCapabilitiesDto? capabilities,
-});
+typedef NetworkCommandSenderFactory =
+    NetworkCommandSender Function({
+      required NetworkDevice device,
+      required String specYaml,
+      NetworkCapabilitiesDto? capabilities,
+    });
 
 /// Sends spec-resolved actions to one network device, over whichever of the
 /// six transports each action declares — the send half of what
@@ -158,24 +159,17 @@ class NetworkCommandSender {
     required this.ssdpTargets,
     required this.specYaml,
     this.capabilities,
-    required SpecCodec codec,
-    required HttpControlClient http,
-    required SoapControlClient soap,
-    required KasaControlClient kasa,
-    required RabbitAirControlClient rabbitAir,
+    required this._codec,
+    required this._http,
+    required this._soap,
+    required this._kasa,
+    required this._rabbitAir,
     required Ecp2ControlService ecp2,
-    MqttConnect? mqttConnect,
+    this._mqttConnect,
     this.wsCredential,
     this.onCredentialIssued,
-    WsConnect? wsConnect,
-  })  : _wsConnect = wsConnect,
-        _mqttConnect = mqttConnect,
-        _codec = codec,
-        _http = http,
-        _soap = soap,
-        _kasa = kasa,
-        _rabbitAir = rabbitAir,
-        _ecp2Service = ecp2;
+    this._wsConnect,
+  }) : _ecp2Service = ecp2;
 
   /// The credentials read from the store, held once read.
   ///
@@ -412,7 +406,7 @@ class NetworkCommandSender {
     // `source:` strings the renderers already understand.
     final values = <String, String>{
       ...await _storedCredentials(),
-      ...rawValues
+      ...rawValues,
     };
     switch (action.transport) {
       case 'http':
@@ -434,7 +428,9 @@ class NetworkCommandSender {
   /// method and path are the whole request, and the address is the one
   /// discovery already established.
   Future<void> _sendHttp(
-      NetworkActionDto action, Map<String, String> values) async {
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
     final request = await _codec.renderNetworkHttpCommand(
       specYaml: specYaml,
       commandName: action.commandName,
@@ -451,7 +447,9 @@ class NetworkCommandSender {
   /// and the keepalive exists so the session survives between them. Closed
   /// with the sender.
   Future<void> _sendMqtt(
-      NetworkActionDto action, Map<String, String> values) async {
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
     final request = await _codec.renderNetworkMqttCommand(
       specYaml: specYaml,
       commandName: action.commandName,
@@ -494,7 +492,9 @@ class NetworkCommandSender {
   /// surface is MQTT has no second way in, so a failure to connect is the
   /// caller's to report rather than something to latch and route around.
   Future<MqttSession> _openMqtt(
-      NetworkActionDto? action, Map<String, String> values) {
+    NetworkActionDto? action,
+    Map<String, String> values,
+  ) {
     final existing = _mqtt;
     if (existing != null && existing.isConnected) return Future.value(existing);
     // One connect in flight, shared by every caller waiting on it. MQTT is an
@@ -509,14 +509,17 @@ class NetworkCommandSender {
   }
 
   Future<MqttSession> _connectMqtt(
-      NetworkActionDto? action, Map<String, String> values) async {
+    NetworkActionDto? action,
+    Map<String, String> values,
+  ) async {
     if (_closed) {
       throw const MqttConnectionException('This device screen has closed.');
     }
     final port = devicePort ?? capabilities?.defaultPort;
     if (port == null) {
       throw const MqttConnectionException(
-          'the device did not advertise a broker port');
+        'the device did not advertise a broker port',
+      );
     }
     final credentials = await _storedCredentials();
     // The session must connect under the very id its topics are addressed to,
@@ -557,9 +560,12 @@ class NetworkCommandSender {
       // convention (a plaintext 1883 broker — Dyson — must NOT get the TLS
       // handshake the unconditional default used to send). A test-injected
       // connector still wins.
-      connect: _mqttConnect ??
+      connect:
+          _mqttConnect ??
           selectMqttConnector(
-              declared: capabilities?.mqttTransportSecurity, port: port),
+            declared: capabilities?.mqttTransportSecurity,
+            port: port,
+          ),
       label: 'mqtt $host',
     );
     await session.connect(
@@ -586,7 +592,9 @@ class NetworkCommandSender {
   /// MQTT one is: a television authorises a client once, per socket, and
   /// re-pairing per keypress would raise its consent prompt every time.
   Future<void> _sendWebsocket(
-      NetworkActionDto action, Map<String, String> values) async {
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
     final session = await _openWs();
     await session.send(action.commandName, values);
   }
@@ -608,7 +616,8 @@ class NetworkCommandSender {
       // The resolver admits a websocket command only when the spec declares a
       // surface, so reaching here means the two disagree.
       throw const WsConnectionException(
-          'This device declares no WebSocket control surface.');
+        'This device declares no WebSocket control surface.',
+      );
     }
     final stale = _ws;
     _ws = null;
@@ -653,8 +662,9 @@ class NetworkCommandSender {
           // this press its session (or the zone its stability).
           await persist(credentialName, issued);
         } catch (e) {
-          Log.net
-              .warning('storing issued "$credentialName" for $host failed: $e');
+          Log.net.warning(
+            'storing issued "$credentialName" for $host failed: $e',
+          );
         }
         // The store just changed (or tried to) under the memoized read.
         refreshCredentials();
@@ -714,14 +724,17 @@ class NetworkCommandSender {
     // itself in both arms.
     _tlsReady ??= _http
         .useTlsPolicy(
-      host: host,
-      identity: identity,
-      policy: TlsPolicy.parse(capabilities?.tlsVerification),
-    )
+          host: host,
+          identity: identity,
+          policy: TlsPolicy.parse(capabilities?.tlsVerification),
+        )
         .catchError((Object e) {
-      Log.net.warning('could not load the certificate pin for $host', error: e);
-      _tlsReady = null;
-    });
+          Log.net.warning(
+            'could not load the certificate pin for $host',
+            error: e,
+          );
+          _tlsReady = null;
+        });
     await _tlsReady;
 
     final port = controlPort;
@@ -730,7 +743,8 @@ class NetworkCommandSender {
       // device — by the time a control is tappable there this cannot happen;
       // a headless caller (a group run) can reach it.
       throw const SoapTransportException(
-          'the device did not advertise a control port');
+        'the device did not advertise a control port',
+      );
     }
     return _http.send(host, port, request);
   }
@@ -768,29 +782,31 @@ class NetworkCommandSender {
     if (_closed || _ecp2Unavailable || !isRoku || port == null) {
       return Future.value(null);
     }
-    return _ecp2Opening ??=
-        _ecp2Service.connect(host, port).then<Ecp2Session?>((opened) {
-      _ecp2Opening = null;
-      // Closed while the connect was in flight: close() saw a null _ecp2 and
-      // closed nothing, so close it here or the socket leaks.
-      if (_closed) {
-        unawaited(opened.close());
-        return null;
-      }
-      _ecp2Proven = true;
-      return _ecp2 = opened;
-    }).catchError((Object e) {
-      _ecp2Opening = null;
-      // A device that has authenticated once speaks ECP2; a failure to open
-      // a REPLACEMENT session is the TV still rebooting or still asleep, not
-      // "no ECP2 here", and latching it would put the set back on the
-      // permanent fallback this reopen exists to end. Each attempt is still
-      // bounded by the service's timeout and shared by concurrent callers
-      // through `_ecp2Opening`.
-      if (e is Ecp2Exception && !_ecp2Proven) _ecp2Unavailable = true;
-      Log.net.debug('ecp2 session failed for $host: $e');
-      return null;
-    });
+    return _ecp2Opening ??= _ecp2Service
+        .connect(host, port)
+        .then<Ecp2Session?>((opened) {
+          _ecp2Opening = null;
+          // Closed while the connect was in flight: close() saw a null _ecp2 and
+          // closed nothing, so close it here or the socket leaks.
+          if (_closed) {
+            unawaited(opened.close());
+            return null;
+          }
+          _ecp2Proven = true;
+          return _ecp2 = opened;
+        })
+        .catchError((Object e) {
+          _ecp2Opening = null;
+          // A device that has authenticated once speaks ECP2; a failure to open
+          // a REPLACEMENT session is the TV still rebooting or still asleep, not
+          // "no ECP2 here", and latching it would put the set back on the
+          // permanent fallback this reopen exists to end. Each attempt is still
+          // bounded by the service's timeout and shared by concurrent callers
+          // through `_ecp2Opening`.
+          if (e is Ecp2Exception && !_ecp2Proven) _ecp2Unavailable = true;
+          Log.net.debug('ecp2 session failed for $host: $e');
+          return null;
+        });
   }
 
   /// Whether a session on this device has ever authenticated — the
@@ -804,7 +820,9 @@ class NetworkCommandSender {
   /// so the switch snaps to the plug's true state whether or not the write
   /// took.
   Future<void> _sendKasa(
-      NetworkActionDto action, Map<String, String> values) async {
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
     final request = await _codec.renderNetworkKasaCommand(
       specYaml: specYaml,
       commandName: action.commandName,
@@ -825,10 +843,15 @@ class NetworkCommandSender {
   ) async {
     if (key == null) {
       throw const RabbitAirControlException(
-          'no user key is stored for this purifier');
+        'no user key is stored for this purifier',
+      );
     }
-    await _rabbitAir.syncClock(host, _rabbitAirHostPort,
-        specYaml: specYaml, userKey: key);
+    await _rabbitAir.syncClock(
+      host,
+      _rabbitAirHostPort,
+      specYaml: specYaml,
+      userKey: key,
+    );
     final request = await _codec.renderNetworkRabbitAirCommand(
       specYaml: specYaml,
       commandName: action.commandName,
@@ -849,7 +872,8 @@ class NetworkCommandSender {
   ) async {
     if (description == null) {
       throw const SoapTransportException(
-          'the device description has not been fetched');
+        'the device description has not been fetched',
+      );
     }
     // The spec says which settings this action carries that the user is NOT
     // changing, and where to read them. Fetched fresh, not from the last
@@ -862,8 +886,12 @@ class NetworkCommandSender {
       );
       final path = description.controlPathFor(request);
       if (path == null) continue;
-      final returned =
-          await _soap.send(description.host, description.port, path, request);
+      final returned = await _soap.send(
+        description.host,
+        description.port,
+        path,
+        request,
+      );
       final current = returned[readBack.field];
       // An empty element (`<time/>`) is a value the device did not state,
       // not a value of "": forwarding it renders an empty parameter the
@@ -882,7 +910,8 @@ class NetworkCommandSender {
     final path = description.controlPathFor(request);
     if (path == null) {
       throw SoapTransportException(
-          'the device does not list ${request.service}');
+        'the device does not list ${request.service}',
+      );
     }
     await _soap.send(description.host, description.port, path, request);
   }

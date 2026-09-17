@@ -15,23 +15,23 @@ SpecPack _pack({
   String name = 'Demo Pack',
   String version = '3.1.0',
   int specCount = 1,
-}) =>
-    SpecPack(
-      name: name,
-      version: version,
-      sourceUrl: 'https://specs.example.com/pack.json',
-      specFiles: [for (var i = 0; i < specCount; i++) 'spec$i.yaml'],
-      installedAt: DateTime(2026, 7, 11, 9, 30),
-    );
+}) => SpecPack(
+  name: name,
+  version: version,
+  sourceUrl: 'https://specs.example.com/pack.json',
+  specFiles: [for (var i = 0; i < specCount; i++) 'spec$i.yaml'],
+  installedAt: DateTime(2026, 7, 11, 9, 30),
+);
 
 Widget _wrap(FakeSpecPackService service) => ProviderScope(
-      overrides: [
-        prefsSettingsStoreProvider
-            .overrideWith((ref) async => InMemorySettingsStore()),
-        specPackServiceProvider.overrideWithValue(service),
-      ],
-      child: const MaterialApp(home: SpecPackSettingsScreen()),
-    );
+  overrides: [
+    prefsSettingsStoreProvider.overrideWith(
+      (ref) async => InMemorySettingsStore(),
+    ),
+    specPackServiceProvider.overrideWithValue(service),
+  ],
+  child: const MaterialApp(home: SpecPackSettingsScreen()),
+);
 
 void main() {
   testWidgets('seeds the URL field with the default constant', (tester) async {
@@ -71,7 +71,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byType(TextField), 'https://specs.example.com/pack.json');
+      find.byType(TextField),
+      'https://specs.example.com/pack.json',
+    );
     await tester.tap(find.text('Install / Refresh'));
     await tester.pumpAndSettle();
 
@@ -81,25 +83,30 @@ void main() {
     expect(find.textContaining('v2.0.0'), findsWidgets);
   });
 
-  testWidgets('surfaces a friendly error when the manifest is malformed',
-      (tester) async {
+  testWidgets('surfaces a friendly error when the manifest is malformed', (
+    tester,
+  ) async {
     final service = FakeSpecPackService(
       nextResult: const InstallFailed(
-          SpecPackError(SpecPackErrorKind.malformedManifest, 'bad manifest')),
+        SpecPackError(SpecPackErrorKind.malformedManifest, 'bad manifest'),
+      ),
     );
     await tester.pumpWidget(_wrap(service));
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byType(TextField), 'https://specs.example.com/pack.json');
+      find.byType(TextField),
+      'https://specs.example.com/pack.json',
+    );
     await tester.tap(find.text('Install / Refresh'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('did not return a valid'), findsOneWidget);
   });
 
-  testWidgets('reports partial failures after a successful install',
-      (tester) async {
+  testWidgets('reports partial failures after a successful install', (
+    tester,
+  ) async {
     final service = FakeSpecPackService(
       nextResult: InstallOk(
         _pack(name: 'Partial', specCount: 2),
@@ -110,7 +117,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byType(TextField), 'https://specs.example.com/pack.json');
+      find.byType(TextField),
+      'https://specs.example.com/pack.json',
+    );
     await tester.tap(find.text('Install / Refresh'));
     await tester.pumpAndSettle();
 
@@ -148,8 +157,9 @@ void main() {
     expect(find.textContaining('v3.1.0'), findsOneWidget);
   });
 
-  testWidgets('refresh button re-downloads from the pack\'s own source URL',
-      (tester) async {
+  testWidgets('refresh button re-downloads from the pack\'s own source URL', (
+    tester,
+  ) async {
     final service = FakeSpecPackService(
       packs: [_pack(name: 'Updatable', version: '1.0.0')],
       nextResult: InstallOk(_pack(name: 'Updatable', version: '1.1.0')),
@@ -166,23 +176,32 @@ void main() {
     expect(find.textContaining('v1.1.0'), findsWidgets);
   });
 
-  testWidgets('surfaces an error state when installed packs cannot be read',
-      (tester) async {
+  testWidgets('surfaces an error state when installed packs cannot be read', (
+    tester,
+  ) async {
     // A service whose listInstalledPacks throws must produce a visible error,
     // not an indistinguishable "No packs installed yet."
     final service = _ThrowingListService();
     await tester.pumpWidget(_wrap(service));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Could not read the installed packs'),
-        findsOneWidget);
+    expect(
+      find.textContaining('Could not read the installed packs'),
+      findsOneWidget,
+    );
     expect(find.textContaining('Bad state'), findsNothing);
     expect(find.text('No packs installed yet.'), findsNothing);
   });
 
-  testWidgets('clear-all removes every pack after confirmation',
-      (tester) async {
-    final service = FakeSpecPackService(packs: [_pack(), _pack(name: 'Two')]);
+  testWidgets('clear-all removes every pack after confirmation', (
+    tester,
+  ) async {
+    final service = FakeSpecPackService(
+      packs: [
+        _pack(),
+        _pack(name: 'Two'),
+      ],
+    );
     await tester.pumpWidget(_wrap(service));
     await tester.pumpAndSettle();
 

@@ -51,21 +51,23 @@ void main() {
     expect(await store.scheme(bridgeId), 'https');
   });
 
-  test('forget clears credential, clientkey, pin and scheme together',
-      () async {
-    await store.saveCredentials(
-      bridgeId,
-      const HubCredentials(username: 'user', clientKey: 'key'),
-    );
-    await store.saveCertPin(bridgeId, 'aa');
-    await store.saveScheme(bridgeId, 'https');
+  test(
+    'forget clears credential, clientkey, pin and scheme together',
+    () async {
+      await store.saveCredentials(
+        bridgeId,
+        const HubCredentials(username: 'user', clientKey: 'key'),
+      );
+      await store.saveCertPin(bridgeId, 'aa');
+      await store.saveScheme(bridgeId, 'https');
 
-    await store.forget(bridgeId);
+      await store.forget(bridgeId);
 
-    expect(await store.credentials(bridgeId), isNull);
-    expect(await store.certPin(bridgeId), isNull);
-    expect(await store.scheme(bridgeId), isNull);
-  });
+      expect(await store.credentials(bridgeId), isNull);
+      expect(await store.certPin(bridgeId), isNull);
+      expect(await store.scheme(bridgeId), isNull);
+    },
+  );
 
   test('two bridges do not share anything', () async {
     await store.saveCredentials(

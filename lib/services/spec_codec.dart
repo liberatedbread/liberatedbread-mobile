@@ -277,8 +277,10 @@ abstract class SpecCodec {
 
   /// Apply a spec-declared credential derivation (`base64_sha512`) to what the
   /// person typed — the sticker password in, the wire value out.
-  Future<String> deriveCredentialValue(
-      {required String derivation, required String value});
+  Future<String> deriveCredentialValue({
+    required String derivation,
+    required String value,
+  });
 
   /// Render a named command from the spec's `commands` block into a POSTable
   /// SOAP request. [values] carries what the user picked plus any read-back
@@ -798,7 +800,8 @@ abstract class SpecCodec {
   /// a setup network of their own, so the adopt screen lists them from the
   /// specs rather than from a hand-written card.
   Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
-      List<String> specYamls);
+    List<String> specYamls,
+  );
 
   /// The index of the first profile whose setup-mode advertised name matches
   /// [advertisedName] under that spec's exact/prefix rule, or null. Decides

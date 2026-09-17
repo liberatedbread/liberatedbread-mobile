@@ -26,13 +26,13 @@ void main() {
   setUp(() async {
     // Seed the disclaimer as already accepted so these tests exercise the app
     // proper; the first-launch gate has its own test below that starts empty.
-    SharedPreferences.setMockInitialValues(
-        {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+    SharedPreferences.setMockInitialValues({
+      AppConstants.termsAcceptedKey: AppConstants.termsVersion,
+    });
     _prefs = await SharedPreferences.getInstance();
   });
 
-  testWidgets(
-      'first launch shows the disclaimer gate, and accepting it opens '
+  testWidgets('first launch shows the disclaimer gate, and accepting it opens '
       'the app', (tester) async {
     // A tall viewport so the disclaimer's accept button is on-screen (the gate
     // is a long ListView).
@@ -42,13 +42,15 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     SharedPreferences.setMockInitialValues({});
     _prefs = await SharedPreferences.getInstance();
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(FakeBleService()),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-      ],
-      child: const LiberatedBreadApp(),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(FakeBleService()),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+        ],
+        child: const LiberatedBreadApp(),
+      ),
+    );
     await tester.pump();
 
     // The gate is up; the app proper is not yet reachable.
@@ -69,18 +71,22 @@ void main() {
     expect(find.byType(TermsScreen), findsNothing);
     expect(find.byType(HomeShell), findsOneWidget);
     expect(find.byType(ScanScreen), findsOneWidget);
-    expect(_prefs.getInt(AppConstants.termsAcceptedKey),
-        AppConstants.termsVersion);
+    expect(
+      _prefs.getInt(AppConstants.termsAcceptedKey),
+      AppConstants.termsVersion,
+    );
   });
 
   testWidgets('app builds and opens on the scan screen', (tester) async {
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(FakeBleService()),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-      ],
-      child: const LiberatedBreadApp(),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(FakeBleService()),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+        ],
+        child: const LiberatedBreadApp(),
+      ),
+    );
     await tester.pump();
 
     expect(find.byType(MaterialApp), findsOneWidget);
@@ -100,13 +106,15 @@ void main() {
     // the hero controller throws on the next route push, which is every tap on
     // a device, and it throws from a scheduler callback where the stack trace
     // points at Flutter rather than at the two widgets involved.
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(FakeBleService()),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-      ],
-      child: const LiberatedBreadApp(),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(FakeBleService()),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+        ],
+        child: const LiberatedBreadApp(),
+      ),
+    );
     await tester.pump();
 
     final tags = tester
@@ -116,66 +124,76 @@ void main() {
     expect(
       tags.toSet(),
       hasLength(tags.length),
-      reason: 'Heroes alive together in the shell must have distinct tags; '
+      reason:
+          'Heroes alive together in the shell must have distinct tags; '
           'found $tags',
     );
   });
 
-  testWidgets('switching tabs stops the BLE scan, and coming back restarts it',
-      (tester) async {
-    // The shell keeps every tab alive so a scan survives a glance elsewhere —
-    // but alive is not the same as working. A continuous scan running behind
-    // the Saved tab is the radio spending battery on a list that is three
-    // layers deep in an IndexedStack.
-    final fake = FakeBleService(
-      devicesToEmit: [
-        IoTDevice(
-          id: 'AA:BB:CC:DD:EE:01',
-          name: 'ACME_A',
-          rssi: -40,
-          isConnectable: true,
-          discoveredAt: DateTime.now(),
+  testWidgets(
+    'switching tabs stops the BLE scan, and coming back restarts it',
+    (tester) async {
+      // The shell keeps every tab alive so a scan survives a glance elsewhere —
+      // but alive is not the same as working. A continuous scan running behind
+      // the Saved tab is the radio spending battery on a list that is three
+      // layers deep in an IndexedStack.
+      final fake = FakeBleService(
+        devicesToEmit: [
+          IoTDevice(
+            id: 'AA:BB:CC:DD:EE:01',
+            name: 'ACME_A',
+            rssi: -40,
+            isConnectable: true,
+            discoveredAt: DateTime.now(),
+          ),
+        ],
+        // Holds the fake's scan open past the deferred stop, the way the real
+        // continuous scan stays open.
+        scanHold: Completer<void>(),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(fake),
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+          ],
+          child: const LiberatedBreadApp(),
         ),
-      ],
-      // Holds the fake's scan open past the deferred stop, the way the real
-      // continuous scan stays open.
-      scanHold: Completer<void>(),
-    );
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(fake),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-      ],
-      child: const LiberatedBreadApp(),
-    ));
-    await tester.pump(const Duration(milliseconds: 50));
-    expect(fake.scanTimeouts, hasLength(1),
-        reason: 'Nearby is the landing tab, so it scans on launch');
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        fake.scanTimeouts,
+        hasLength(1),
+        reason: 'Nearby is the landing tab, so it scans on launch',
+      );
 
-    await tester.tap(find.text('Saved'));
-    // One pump to build the switched tab (arming the deferred stop), then
-    // past the couple-of-seconds grace that keeps a mere glance from cycling
-    // the radio.
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 3));
-    expect(fake.stopScanCount, greaterThan(0));
+      await tester.tap(find.text('Saved'));
+      // One pump to build the switched tab (arming the deferred stop), then
+      // past the couple-of-seconds grace that keeps a mere glance from cycling
+      // the radio.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
+      expect(fake.stopScanCount, greaterThan(0));
 
-    await tester.tap(find.text('Nearby'));
-    // Bounded pumps, not pumpAndSettle: the resumed scan keeps the radar
-    // animation live, so there is no settled frame to wait for.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(fake.scanTimeouts, hasLength(2));
-  });
+      await tester.tap(find.text('Nearby'));
+      // Bounded pumps, not pumpAndSettle: the resumed scan keeps the radar
+      // animation live, so there is no settled frame to wait for.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(fake.scanTimeouts, hasLength(2));
+    },
+  );
 
   testWidgets('the bottom bar switches destination', (tester) async {
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(FakeBleService()),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-      ],
-      child: const LiberatedBreadApp(),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(FakeBleService()),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+        ],
+        child: const LiberatedBreadApp(),
+      ),
+    );
     await tester.pump();
 
     await tester.tap(find.text('Saved'));

@@ -40,14 +40,15 @@ Widget _wrap({
 }
 
 InMemorySettingsStore _registeredStore() => InMemorySettingsStore({
-      HaConfigNotifier.configKey: jsonEncode(_registeredConfig.toJson()),
-      HaConfigNotifier.deviceIdKey: 'dev1',
-    });
+  HaConfigNotifier.configKey: jsonEncode(_registeredConfig.toJson()),
+  HaConfigNotifier.deviceIdKey: 'dev1',
+});
 
 void main() {
   testWidgets('shows the setup form when unconfigured', (tester) async {
     await tester.pumpWidget(
-        _wrap(store: InMemorySettingsStore(), api: FakeHaApiClient()));
+      _wrap(store: InMemorySettingsStore(), api: FakeHaApiClient()),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Home Assistant URL'), findsOneWidget);
@@ -57,24 +58,32 @@ void main() {
 
   testWidgets('LAN URL shows the Tailscale suggestion live', (tester) async {
     await tester.pumpWidget(
-        _wrap(store: InMemorySettingsStore(), api: FakeHaApiClient()));
+      _wrap(store: InMemorySettingsStore(), api: FakeHaApiClient()),
+    );
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byType(TextField).first, 'http://192.168.1.5:8123');
+      find.byType(TextField).first,
+      'http://192.168.1.5:8123',
+    );
     await tester.pump();
 
     expect(
-        find.textContaining('only works on your home network'), findsOneWidget);
+      find.textContaining('only works on your home network'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('tailnet URL shows the Tailscale-detected card', (tester) async {
     await tester.pumpWidget(
-        _wrap(store: InMemorySettingsStore(), api: FakeHaApiClient()));
+      _wrap(store: InMemorySettingsStore(), api: FakeHaApiClient()),
+    );
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byType(TextField).first, 'https://ha.tail1234.ts.net');
+      find.byType(TextField).first,
+      'https://ha.tail1234.ts.net',
+    );
     await tester.pump();
 
     expect(find.text('Tailscale detected'), findsOneWidget);
@@ -82,30 +91,37 @@ void main() {
 
   testWidgets('learn-more opens the Tailscale HA guide', (tester) async {
     final opened = <Uri>[];
-    await tester.pumpWidget(_wrap(
-      store: InMemorySettingsStore(),
-      api: FakeHaApiClient(),
-      openedUrls: opened,
-    ));
+    await tester.pumpWidget(
+      _wrap(
+        store: InMemorySettingsStore(),
+        api: FakeHaApiClient(),
+        openedUrls: opened,
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byType(TextField).first, 'http://192.168.1.5:8123');
+      find.byType(TextField).first,
+      'http://192.168.1.5:8123',
+    );
     await tester.pump();
     await tester.tap(find.text('Set up Tailscale'));
 
     expect(opened, [Uri.parse(AppConstants.tailscaleHaKbUrl)]);
   });
 
-  testWidgets('connect registers, persists, and shows the connected view',
-      (tester) async {
+  testWidgets('connect registers, persists, and shows the connected view', (
+    tester,
+  ) async {
     final store = InMemorySettingsStore();
     final api = FakeHaApiClient();
     await tester.pumpWidget(_wrap(store: store, api: api));
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byType(TextField).first, 'http://192.168.1.5:8123/');
+      find.byType(TextField).first,
+      'http://192.168.1.5:8123/',
+    );
     await tester.enterText(find.byType(TextField).last, 'secret-token');
     await tester.tap(find.text('Connect'));
     await tester.pumpAndSettle();
@@ -117,16 +133,18 @@ void main() {
     expect(registration['base_url'], 'http://192.168.1.5:8123');
     // Config persisted with the webhook id.
     final saved = HaConfig.fromJson(
-        jsonDecode(store.values[HaConfigNotifier.configKey]!)
-            as Map<String, dynamic>);
+      jsonDecode(store.values[HaConfigNotifier.configKey]!)
+          as Map<String, dynamic>,
+    );
     expect(saved.webhookId, api.webhookId);
     expect(saved.baseUrl, 'http://192.168.1.5:8123');
     // A stable device id was generated and stored separately.
     expect(store.values[HaConfigNotifier.deviceIdKey], isNotNull);
   });
 
-  testWidgets('shows a friendly message when the token is rejected',
-      (tester) async {
+  testWidgets('shows a friendly message when the token is rejected', (
+    tester,
+  ) async {
     final api = FakeHaApiClient()
       ..registerDeviceError = const HaAuthException();
     await tester.pumpWidget(_wrap(store: InMemorySettingsStore(), api: api));
@@ -141,8 +159,9 @@ void main() {
     expect(find.text('Connect'), findsOneWidget);
   });
 
-  testWidgets('suggests Tailscale when the server is unreachable',
-      (tester) async {
+  testWidgets('suggests Tailscale when the server is unreachable', (
+    tester,
+  ) async {
     final api = FakeHaApiClient()
       ..registerDeviceError = const HaNetworkException('no route');
     await tester.pumpWidget(_wrap(store: InMemorySettingsStore(), api: api));
@@ -156,8 +175,9 @@ void main() {
     expect(find.textContaining('Tailscale tip'), findsOneWidget);
   });
 
-  testWidgets('leaving the screen mid-connect does not crash on failure',
-      (tester) async {
+  testWidgets('leaving the screen mid-connect does not crash on failure', (
+    tester,
+  ) async {
     final api = FakeHaApiClient()
       ..registerDeviceError = const HaNetworkException('no route')
       ..registerDeviceDelay = const Duration(milliseconds: 100);
@@ -187,10 +207,12 @@ void main() {
     expect(api.registeredDevices, isEmpty);
   });
 
-  testWidgets('registered view shows status and forwarding toggle',
-      (tester) async {
-    await tester
-        .pumpWidget(_wrap(store: _registeredStore(), api: FakeHaApiClient()));
+  testWidgets('registered view shows status and forwarding toggle', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(store: _registeredStore(), api: FakeHaApiClient()),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Connected'), findsOneWidget);
@@ -200,7 +222,9 @@ void main() {
     expect(find.textContaining(_registeredConfig.webhookId!), findsNothing);
     // LAN URL still gets the Tailscale nudge.
     expect(
-        find.textContaining('only works on your home network'), findsOneWidget);
+      find.textContaining('only works on your home network'),
+      findsOneWidget,
+    );
 
     final toggle = tester.widget<SwitchListTile>(find.byType(SwitchListTile));
     expect(toggle.value, isTrue);
@@ -215,13 +239,15 @@ void main() {
     await tester.pumpAndSettle();
 
     final saved = HaConfig.fromJson(
-        jsonDecode(store.values[HaConfigNotifier.configKey]!)
-            as Map<String, dynamic>);
+      jsonDecode(store.values[HaConfigNotifier.configKey]!)
+          as Map<String, dynamic>,
+    );
     expect(saved.enabled, isFalse);
   });
 
-  testWidgets('disconnect clears the config after confirmation',
-      (tester) async {
+  testWidgets('disconnect clears the config after confirmation', (
+    tester,
+  ) async {
     final store = _registeredStore();
     await tester.pumpWidget(_wrap(store: store, api: FakeHaApiClient()));
     await tester.pumpAndSettle();

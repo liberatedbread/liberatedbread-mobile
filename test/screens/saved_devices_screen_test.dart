@@ -16,16 +16,16 @@ import '../fakes/in_memory_settings_store.dart';
 late SharedPreferences _prefs;
 
 Widget _wrap() => ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(FakeBleService()),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        // Forget now clears the Roomba and Rabbit Air secrets too, and the
-        // real store behind them is the keychain plugin, whose platform
-        // channel never answers in a widget test — the forget would hang.
-        settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-      ],
-      child: const MaterialApp(home: SavedDevicesScreen()),
-    );
+  overrides: [
+    bleServiceProvider.overrideWithValue(FakeBleService()),
+    sharedPreferencesProvider.overrideWithValue(_prefs),
+    // Forget now clears the Roomba and Rabbit Air secrets too, and the
+    // real store behind them is the keychain plugin, whose platform
+    // channel never answers in a widget test — the forget would hang.
+    settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+  ],
+  child: const MaterialApp(home: SavedDevicesScreen()),
+);
 
 Future<void> _seed(String json) async {
   SharedPreferences.setMockInitialValues({'saved_devices_v1': json});
@@ -50,7 +50,8 @@ void main() {
 
   testWidgets('lists a previously paired device', (tester) async {
     await _seed(
-        '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]');
+      '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
+    );
 
     await tester.pumpWidget(_wrap());
     await tester.pumpAndSettle();
@@ -61,7 +62,8 @@ void main() {
 
   testWidgets('forgetting a device removes it and says so', (tester) async {
     await _seed(
-        '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]');
+      '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
+    );
 
     await tester.pumpWidget(_wrap());
     await tester.pumpAndSettle();
@@ -80,8 +82,9 @@ void main() {
     expect(find.text('No saved devices yet'), findsOneWidget);
   });
 
-  testWidgets('a forget that is cancelled leaves the device and its groups',
-      (tester) async {
+  testWidgets('a forget that is cancelled leaves the device and its groups', (
+    tester,
+  ) async {
     // Regression. The close icon used to act on the first tap: it sits on the
     // trailing edge of a row whose whole surface is the reconnect target, and
     // what it does (for a Wi-Fi device: the stored password, the certificate
@@ -97,8 +100,9 @@ void main() {
     await tester.pumpWidget(_wrap());
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(SavedDevicesScreen)),
-        listen: false);
+      tester.element(find.byType(SavedDevicesScreen)),
+      listen: false,
+    );
 
     await tester.tap(find.byTooltip('Forget Probe One'));
     await tester.pumpAndSettle();
@@ -112,8 +116,9 @@ void main() {
     expect(container.read(savedDevicesProvider).map((d) => d.id), ['aa']);
   });
 
-  testWidgets('a device saved without a name still has a title',
-      (tester) async {
+  testWidgets('a device saved without a name still has a title', (
+    tester,
+  ) async {
     await _seed('[{"id":"aa","name":"","lastSeen":"2026-07-30T12:00:00.000"}]');
 
     await tester.pumpWidget(_wrap());
@@ -122,8 +127,9 @@ void main() {
     expect(find.text('Unknown device'), findsOneWidget);
   });
 
-  testWidgets('forgetting a device prunes it from stored groups',
-      (tester) async {
+  testWidgets('forgetting a device prunes it from stored groups', (
+    tester,
+  ) async {
     // Without the prune, the membership lies dormant and silently restores
     // itself the moment the same device is saved again.
     SharedPreferences.setMockInitialValues({
@@ -136,8 +142,9 @@ void main() {
     await tester.pumpWidget(_wrap());
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(SavedDevicesScreen)),
-        listen: false);
+      tester.element(find.byType(SavedDevicesScreen)),
+      listen: false,
+    );
 
     await tester.tap(find.byTooltip('Forget Probe One'));
     await tester.pumpAndSettle();

@@ -40,17 +40,22 @@ void main() {
     () async {
       final deviceId = Platform.environment['LB_LIVE_BLE_ID'];
       if (Platform.environment['LB_LIVE_BLE'] != '1' || deviceId == null) {
-        markTestSkipped('live hardware run not requested '
-            '(set LB_LIVE_BLE=1 and LB_LIVE_BLE_ID=<mac>)');
+        markTestSkipped(
+          'live hardware run not requested '
+          '(set LB_LIVE_BLE=1 and LB_LIVE_BLE_ID=<mac>)',
+        );
         return;
       }
-      expect(await initHostRustLib(), isTrue,
-          reason: 'build rust/ for the host first');
+      expect(
+        await initHostRustLib(),
+        isTrue,
+        reason: 'build rust/ for the host first',
+      );
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
       const codec = RealSpecCodec();
       final ble = RealBleService();
 
@@ -88,8 +93,10 @@ void main() {
           params: {'sn': nextSeq().toDouble()},
         );
         // ignore: avoid_print
-        print('CMD $command -> '
-            '${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+        print(
+          'CMD $command -> '
+          '${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}',
+        );
         await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, bytes);
       }
 
@@ -105,8 +112,10 @@ void main() {
         await Future<void>.delayed(const Duration(seconds: 2));
 
         // 2) STORE AN ANIMATION then show it — the reported-broken path.
-        final star = defaultDesigns(_width, _height)
-            .firstWhere((d) => d.name == 'Star animation');
+        final star = defaultDesigns(
+          _width,
+          _height,
+        ).firstWhere((d) => d.name == 'Star animation');
         final frames = star.buildFrames().map((f) => f.toList()).toList();
         final cid = 900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
         final playSeq = nextSeq();
@@ -121,44 +130,69 @@ void main() {
           sequence: playSeq,
         );
         expect(plan.playWrite, isNotNull);
-        expect(plan.responseCharacteristicUuid, isNotNull,
-            reason: 'the fix restores the response characteristic');
+        expect(
+          plan.responseCharacteristicUuid,
+          isNotNull,
+          reason: 'the fix restores the response characteristic',
+        );
 
         final verdictF = ble
             .subscribeCharacteristic(
-                deviceId, plan.serviceUuid, plan.responseCharacteristicUuid!)
+              deviceId,
+              plan.serviceUuid,
+              plan.responseCharacteristicUuid!,
+            )
             .map((bytes) {
               // ignore: avoid_print
-              print('UPLOAD notify: '
-                  '${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+              print(
+                'UPLOAD notify: '
+                '${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}',
+              );
               return bytes;
             })
-            .asyncMap((bytes) =>
-                codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: bytes))
+            .asyncMap(
+              (bytes) => codec.decodeStoredUploadEvent(
+                specYaml: specYaml,
+                bytes: bytes,
+              ),
+            )
             .where((e) => e != null)
             .cast<StoredUploadEventDto>()
-            .firstWhere((e) =>
-                e.kind == StoredUploadEventKind.complete ||
-                e.kind == StoredUploadEventKind.failed ||
-                e.kind == StoredUploadEventKind.startRejected)
+            .firstWhere(
+              (e) =>
+                  e.kind == StoredUploadEventKind.complete ||
+                  e.kind == StoredUploadEventKind.failed ||
+                  e.kind == StoredUploadEventKind.startRejected,
+            )
             .timeout(const Duration(seconds: 25));
 
         for (final write in plan.uploadWrites) {
-          await ble.writeCharacteristic(deviceId, plan.serviceUuid,
-              write.characteristicUuid, write.bytes);
+          await ble.writeCharacteristic(
+            deviceId,
+            plan.serviceUuid,
+            write.characteristicUuid,
+            write.bytes,
+          );
         }
         final verdict = await verdictF;
         // ignore: avoid_print
         print('ANIMATION verdict: ${verdict.kind} (code ${verdict.code})');
-        expect(verdict.kind, StoredUploadEventKind.complete,
-            reason:
-                'the curtain must commit the animation (code ${verdict.code})');
+        expect(
+          verdict.kind,
+          StoredUploadEventKind.complete,
+          reason:
+              'the curtain must commit the animation (code ${verdict.code})',
+        );
 
         // Vendor's refresh-then-show, then play.
         await sendCommand('effect_list');
         final play = plan.playWrite!;
         await ble.writeCharacteristic(
-            deviceId, plan.serviceUuid, play.characteristicUuid, play.bytes);
+          deviceId,
+          plan.serviceUuid,
+          play.characteristicUuid,
+          play.bytes,
+        );
         // Let it animate long enough to see motion on the webcam.
         await Future<void>.delayed(const Duration(seconds: 5));
 
@@ -167,12 +201,20 @@ void main() {
         // distinct, so the panel should restart both times.
         for (var i = 0; i < 2; i++) {
           final replay = await codec.encodeStoredPlay(
-              specYaml: specYaml, cid: cid, sequence: nextSeq());
+            specYaml: specYaml,
+            cid: cid,
+            sequence: nextSeq(),
+          );
           // ignore: avoid_print
           print(
-              'REPLAY $i -> ${replay.write.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
-          await ble.writeCharacteristic(deviceId, replay.serviceUuid,
-              replay.write.characteristicUuid, replay.write.bytes);
+            'REPLAY $i -> ${replay.write.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}',
+          );
+          await ble.writeCharacteristic(
+            deviceId,
+            replay.serviceUuid,
+            replay.write.characteristicUuid,
+            replay.write.bytes,
+          );
           await Future<void>.delayed(const Duration(seconds: 3));
         }
       } finally {

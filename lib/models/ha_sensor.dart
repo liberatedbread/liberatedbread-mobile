@@ -29,14 +29,14 @@ class HaSensorRegistration {
 
   /// The `data` payload of a `register_sensor` webhook message.
   Map<String, dynamic> toWebhookJson() => {
-        'unique_id': uniqueId,
-        'name': name,
-        'type': type,
-        'state': state,
-        if (deviceClass != null) 'device_class': deviceClass,
-        if (unitOfMeasurement != null) 'unit_of_measurement': unitOfMeasurement,
-        if (icon != null) 'icon': icon,
-      };
+    'unique_id': uniqueId,
+    'name': name,
+    'type': type,
+    'state': state,
+    if (deviceClass != null) 'device_class': deviceClass,
+    if (unitOfMeasurement != null) 'unit_of_measurement': unitOfMeasurement,
+    if (icon != null) 'icon': icon,
+  };
 
   /// The state-only view of this sensor for `update_sensor_states`.
   HaSensorState toState() =>
@@ -58,9 +58,9 @@ class HaSensorState {
   });
 
   Map<String, dynamic> toWebhookJson() => {
-        'unique_id': uniqueId,
-        'type': type,
-        'state': state,
-        if (icon != null) 'icon': icon,
-      };
+    'unique_id': uniqueId,
+    'type': type,
+    'state': state,
+    if (icon != null) 'icon': icon,
+  };
 }

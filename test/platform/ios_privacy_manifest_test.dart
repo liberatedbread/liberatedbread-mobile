@@ -62,7 +62,8 @@ void main() {
       expect(
         manifest['NSPrivacyTracking'],
         isFalse,
-        reason: 'NSPrivacyTracking must stay <false/> in $_manifestPath. The '
+        reason:
+            'NSPrivacyTracking must stay <false/> in $_manifestPath. The '
             'app ships no advertising SDK and no analytics; flipping this '
             'would also require App Tracking Transparency and a '
             'NSUserTrackingUsageDescription that do not exist.',
@@ -70,7 +71,8 @@ void main() {
       expect(
         manifest['NSPrivacyCollectedDataTypes'],
         isEmpty,
-        reason: 'NSPrivacyCollectedDataTypes must stay empty in '
+        reason:
+            'NSPrivacyCollectedDataTypes must stay empty in '
             '$_manifestPath. If the app ever does collect something, this '
             'list and the App Privacy answers in App Store Connect have to '
             'move together — and docs/APP_STORE_SUBMISSION.md has to stop '
@@ -97,7 +99,8 @@ void main() {
       expect(
         declared.keys,
         contains(_fileTimestampCategory),
-        reason: '$_manifestPath must declare $_fileTimestampCategory. '
+        reason:
+            '$_manifestPath must declare $_fileTimestampCategory. '
             'liberated_bread_core.framework (the Rust core, built by cargokit '
             'from rust_builder/ios/liberated_bread_core.podspec) imports '
             '_stat, _fstat, _lstat and _fstatat via Rust std and the '
@@ -114,7 +117,8 @@ void main() {
       expect(
         declared[_fileTimestampCategory],
         contains(_containerFilesReason),
-        reason: 'The $_fileTimestampCategory declaration in $_manifestPath '
+        reason:
+            'The $_fileTimestampCategory declaration in $_manifestPath '
             'must carry reason $_containerFilesReason (files inside the app '
             'container) — the same reason Flutter declares for the same '
             'symbols. Apple rejects an unrecognised or absent reason code as '
@@ -135,7 +139,8 @@ void main() {
       expect(
         pbxproj,
         contains('PrivacyInfo.xcprivacy in Resources'),
-        reason: 'PrivacyInfo.xcprivacy must be a member of the Runner '
+        reason:
+            'PrivacyInfo.xcprivacy must be a member of the Runner '
             "target's Copy Bundle Resources build phase in $_pbxprojPath, or "
             'it never reaches the app bundle. In Xcode: select the file, and '
             'tick Runner under Target Membership. Confirm in a built app '

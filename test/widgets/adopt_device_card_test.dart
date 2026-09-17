@@ -47,8 +47,10 @@ void main() {
     await tester.pump(); // let the stream deliver
 
     expect(find.text('Adopt a new Wi-Fi device'), findsOneWidget);
-    expect(find.text('Set up a reset Wemo or LIFX device on your Wi-Fi'),
-        findsOneWidget);
+    expect(
+      find.text('Set up a reset Wemo or LIFX device on your Wi-Fi'),
+      findsOneWidget,
+    );
     expect(find.textContaining('in range'), findsNothing);
   });
 
@@ -56,8 +58,10 @@ void main() {
     await tester.pumpWidget(_wrap(nearby: _wemoDevice, onTap: () {}));
     await tester.pump();
 
-    expect(find.textContaining('"Wemo.…" setup network is in range'),
-        findsOneWidget);
+    expect(
+      find.textContaining('"Wemo.…" setup network is in range'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('tapping invokes the callback', (tester) async {
@@ -72,8 +76,9 @@ void main() {
   testWidgets('the icon animates while a network is nearby', (tester) async {
     await tester.pumpWidget(_wrap(nearby: _wemoDevice, onTap: () {}));
     await tester.pump();
-    final rotation = tester
-        .widget<RotationTransition>(find.byKey(const ValueKey('adopt-spin')));
+    final rotation = tester.widget<RotationTransition>(
+      find.byKey(const ValueKey('adopt-spin')),
+    );
     // A repeating controller reports itself as animating; a stopped one does
     // not. The card drives the controller straight from the hint, so "nearby"
     // must leave it running.
@@ -85,8 +90,9 @@ void main() {
   testWidgets('the icon is still when nothing is nearby', (tester) async {
     await tester.pumpWidget(_wrap(nearby: null, onTap: () {}));
     await tester.pump();
-    final rotation = tester
-        .widget<RotationTransition>(find.byKey(const ValueKey('adopt-spin')));
+    final rotation = tester.widget<RotationTransition>(
+      find.byKey(const ValueKey('adopt-spin')),
+    );
     expect(rotation.turns.isAnimating, isFalse);
   });
 }

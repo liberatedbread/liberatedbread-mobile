@@ -25,7 +25,8 @@ class PermissionUsage {
   final bool androidGuarded;
 
   @override
-  String toString() => 'Permission.$name (line $line'
+  String toString() =>
+      'Permission.$name (line $line'
       '${androidGuarded ? ', Android-only' : ''})';
 }
 

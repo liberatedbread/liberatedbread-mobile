@@ -35,14 +35,16 @@ void main() {
 
     test('every member round-trips through its wire name', () {
       for (final category in DeviceCategory.values) {
-        expect(DeviceCategory.parse(category.wireName), category,
-            reason: '${category.name} does not parse back from its wire name');
+        expect(
+          DeviceCategory.parse(category.wireName),
+          category,
+          reason: '${category.name} does not parse back from its wire name',
+        );
       }
     });
   });
 
-  test('every category the vendored catalogue uses is one this build knows',
-      () {
+  test('every category the vendored catalogue uses is one this build knows', () {
     // The drift guard across the subtree boundary. The vocabulary is defined
     // upstream in protocol-specs' schema.json and arrives here as vendored
     // data, so a category added there lands with no code change — and shows up
@@ -54,9 +56,8 @@ void main() {
     // upstream; restating it here would fail this branch until a spec release
     // lands, over something no app change can fix. So an absent category is
     // simply a device without an icon, which is exactly how the app treats it.
-    final index = jsonDecode(
-      File(specManifestPath).readAsStringSync(),
-    ) as List<dynamic>;
+    final index =
+        jsonDecode(File(specManifestPath).readAsStringSync()) as List<dynamic>;
     expect(index, isNotEmpty, reason: 'index.json should list specs');
 
     final unknown = <String, String>{};
@@ -70,10 +71,16 @@ void main() {
       }
     }
 
-    printOnFailure('$stated of ${index.length} vendored spec(s) '
-        'state a category');
-    expect(unknown, isEmpty,
-        reason: 'DeviceCategory is missing values used by vendored specs: '
-            '$unknown. Add them here (with an icon) to match schema.json.');
+    printOnFailure(
+      '$stated of ${index.length} vendored spec(s) '
+      'state a category',
+    );
+    expect(
+      unknown,
+      isEmpty,
+      reason:
+          'DeviceCategory is missing values used by vendored specs: '
+          '$unknown. Add them here (with an icon) to match schema.json.',
+    );
   });
 }

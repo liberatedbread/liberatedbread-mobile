@@ -41,10 +41,8 @@ abstract class WsSocket {
 }
 
 /// Opens one socket. Injected so a test answers from canned frames.
-typedef WsConnect = Future<WsSocket> Function(
-  String url,
-  Map<String, String> headers,
-);
+typedef WsConnect =
+    Future<WsSocket> Function(String url, Map<String, String> headers);
 
 /// The socket could not be opened, or the device hung up.
 /// A WebSocket URL with its query string removed, for messages and logs.
@@ -107,7 +105,7 @@ WsConnect _connectorFor(WebSocketSurfaceDto surface) {
   return (String url, Map<String, String> headers) async {
     final client = HttpClient();
     if (permissive) {
-      client.badCertificateCallback = (_, __, ___) => true;
+      client.badCertificateCallback = (_, _, _) => true;
     }
     try {
       // ignore: close_sinks — ownership passes to the session, which closes it.
@@ -120,15 +118,18 @@ WsConnect _connectorFor(WebSocketSurfaceDto surface) {
     } on SocketException catch (e) {
       client.close(force: true);
       throw WsConnectionException(
-          'Could not reach ${redactUrl(url)} — ${e.message}');
+        'Could not reach ${redactUrl(url)} — ${e.message}',
+      );
     } on WebSocketException catch (e) {
       client.close(force: true);
       throw WsConnectionException(
-          '${redactUrl(url)} refused the WebSocket upgrade — ${e.message}');
+        '${redactUrl(url)} refused the WebSocket upgrade — ${e.message}',
+      );
     } on HandshakeException catch (e) {
       client.close(force: true);
       throw WsConnectionException(
-          'The TLS handshake with ${redactUrl(url)} failed ($e).');
+        'The TLS handshake with ${redactUrl(url)} failed ($e).',
+      );
     }
   };
 }
@@ -198,18 +199,14 @@ class WsSession {
   static const pairingTimeout = Duration(seconds: 60);
 
   WsSession({
-    required SpecCodec codec,
-    required String specYaml,
-    required String host,
+    required this._codec,
+    required this._specYaml,
+    required this._host,
     required WebSocketSurfaceDto surface,
-    String? credential,
+    this._credential,
     WsConnect? connect,
-  })  : _codec = codec,
-        _specYaml = specYaml,
-        _host = host,
-        _surface = surface,
-        _credential = credential,
-        _connect = connect ?? _connectorFor(surface);
+  }) : _surface = surface,
+       _connect = connect ?? _connectorFor(surface);
 
   bool get isConnected => _socket != null;
 
@@ -238,14 +235,14 @@ class WsSession {
     Object? lastFailure;
     for (final (port, scheme, path) in addresses) {
       try {
-        _socket = await _connect(
-          '$scheme://$_host:$port${_fillPath(path)}',
-          {for (final h in _surface.headers) h.name: h.value},
-        ).timeout(connectTimeout);
+        _socket = await _connect('$scheme://$_host:$port${_fillPath(path)}', {
+          for (final h in _surface.headers) h.name: h.value,
+        }).timeout(connectTimeout);
         break;
       } on TimeoutException catch (e) {
         lastFailure = WsConnectionException(
-            '$_host:$port did not answer within ${connectTimeout.inSeconds}s.');
+          '$_host:$port did not answer within ${connectTimeout.inSeconds}s.',
+        );
         Log.net.debug('ws $_host:$port timed out ($e)');
       } catch (e) {
         // A refusal on the plain port is the ordinary case on late firmware,
@@ -277,7 +274,8 @@ class WsSession {
       onDone: () {
         if (!_frames.isClosed) {
           _frames.addError(
-              const WsConnectionException('The device closed the connection.'));
+            const WsConnectionException('The device closed the connection.'),
+          );
         }
         // The device hung up, so the session must stop LOOKING connected:
         // with `_socket` still set, `isConnected` stayed true, the sender
@@ -314,8 +312,9 @@ class WsSession {
   /// precedent, recorded in the spec's own protocol_details). The whole
   /// Samsung flow keys on this string — a client that changes it is a new
   /// stranger and the TV prompts again — so it is a constant, not a setting.
-  static final String _clientName =
-      base64.encode(utf8.encode(AppConstants.appName));
+  static final String _clientName = base64.encode(
+    utf8.encode(AppConstants.appName),
+  );
 
   /// Fill the connect path's placeholders and query-encode what goes in.
   ///
@@ -333,8 +332,10 @@ class WsSession {
     var filled = path;
     final name = _surface.credentialName;
     if (name != null) {
-      filled =
-          filled.replaceAll('{$name}', Uri.encodeQueryComponent(credential));
+      filled = filled.replaceAll(
+        '{$name}',
+        Uri.encodeQueryComponent(credential),
+      );
     }
     filled = filled
         .replaceAll('{token}', Uri.encodeQueryComponent(credential))
@@ -444,19 +445,22 @@ class WsSession {
     }
 
     final issued = Completer<String>();
-    final watching = _frames.stream.listen((frame) {
-      if (issued.isCompleted) return;
-      final Object? decoded;
-      try {
-        decoded = jsonDecode(frame);
-      } on FormatException {
-        return; // Not the frame we are waiting for.
-      }
-      final value = _atPath(decoded, path);
-      if (value != null && value.isNotEmpty) issued.complete(value);
-    }, onError: (Object e) {
-      if (!issued.isCompleted) issued.completeError(e);
-    });
+    final watching = _frames.stream.listen(
+      (frame) {
+        if (issued.isCompleted) return;
+        final Object? decoded;
+        try {
+          decoded = jsonDecode(frame);
+        } on FormatException {
+          return; // Not the frame we are waiting for.
+        }
+        final value = _atPath(decoded, path);
+        if (value != null && value.isNotEmpty) issued.complete(value);
+      },
+      onError: (Object e) {
+        if (!issued.isCompleted) issued.completeError(e);
+      },
+    );
 
     try {
       // Sent after the listener is up, and only once the socket exists: a
@@ -530,7 +534,8 @@ class WsSession {
       // means the surface and the renderer disagree — which is a bug, not a
       // device problem.
       orElse: () => throw WsConnectionException(
-          'The spec declares no channel named "$channelName".'),
+        'The spec declares no channel named "$channelName".',
+      ),
     );
     final obtainedBy = channel.obtainedBy;
     if (obtainedBy == null) return main;
@@ -562,7 +567,8 @@ class WsSession {
     final addressPath = channel.addressPath;
     if (addressPath == null) {
       throw WsConnectionException(
-          'The "$channelName" socket has no declared address path.');
+        'The "$channelName" socket has no declared address path.',
+      );
     }
 
     // Ask on the main socket, and read the address out of the reply.
@@ -606,7 +612,8 @@ class WsSession {
         socket.stream.listen((_) {}, onError: (_) {}, cancelOnError: false);
         unawaited(socket.close().then((_) {}, onError: (_) {}));
         throw const WsConnectionException(
-            'The session closed while the socket was being opened.');
+          'The session closed while the socket was being opened.',
+        );
       }
       // Drained even though nothing reads it: a socket whose stream has no
       // listener never delivers its done event, so closing it later would
@@ -616,23 +623,26 @@ class WsSession {
       // idle-closes this socket, and a cached corpse would be served to
       // every later press with add() silently dropping, every button on the
       // channel dead until the whole session died.
-      _channelSubscriptions.add(socket.stream.listen(
-        (_) {},
-        onError: (Object e) =>
-            Log.net.debug('ws $_host "$channelName" socket: $e'),
-        onDone: () {
-          if (identical(_channelSockets[channelName], socket)) {
-            _channelSockets.remove(channelName);
-          }
-        },
-        cancelOnError: false,
-      ));
+      _channelSubscriptions.add(
+        socket.stream.listen(
+          (_) {},
+          onError: (Object e) =>
+              Log.net.debug('ws $_host "$channelName" socket: $e'),
+          onDone: () {
+            if (identical(_channelSockets[channelName], socket)) {
+              _channelSockets.remove(channelName);
+            }
+          },
+          cancelOnError: false,
+        ),
+      );
       // The protocol keepalive the main socket gets, for the same reason:
       // an idle button socket a set would otherwise time out.
       final heartbeat = _surface.heartbeatSeconds;
       if (heartbeat != null && heartbeat > 0) {
-        socket.pingInterval =
-            Duration(milliseconds: (heartbeat * 1000).round());
+        socket.pingInterval = Duration(
+          milliseconds: (heartbeat * 1000).round(),
+        );
       }
       _channelSockets[channelName] = socket;
       return socket;

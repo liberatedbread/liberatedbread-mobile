@@ -79,20 +79,20 @@ class SavedDesign {
   });
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'cid': cid,
-        'kind': kind,
-        'contentHash': contentHash,
-        'savedAt': savedAt.toIso8601String(),
-        if (frameCids.isNotEmpty) 'frameCids': frameCids,
-        if (frameSlots.isNotEmpty) 'frameSlots': frameSlots,
-        if (frames.isNotEmpty) ...{
-          'frames': [for (final f in frames) base64Encode(f)],
-          'width': width,
-          'height': height,
-          'frameMs': frameMs,
-        },
-      };
+    'name': name,
+    'cid': cid,
+    'kind': kind,
+    'contentHash': contentHash,
+    'savedAt': savedAt.toIso8601String(),
+    if (frameCids.isNotEmpty) 'frameCids': frameCids,
+    if (frameSlots.isNotEmpty) 'frameSlots': frameSlots,
+    if (frames.isNotEmpty) ...{
+      'frames': [for (final f in frames) base64Encode(f)],
+      'width': width,
+      'height': height,
+      'frameMs': frameMs,
+    },
+  };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
   /// take the whole list down with it.
@@ -208,13 +208,17 @@ class SavedDesignsStore {
   /// the same content is replaced — the same device slot under a new name is
   /// one entry, not two.
   Future<List<SavedDesign>> save(String deviceId, SavedDesign design) async {
-    final designs = load(deviceId)
-        .where(
-            (d) => d.cid != design.cid && d.contentHash != design.contentHash)
-        .toList()
-      ..insert(0, design);
-    await _prefs.setString('$_keyPrefix$deviceId',
-        jsonEncode(designs.map((d) => d.toJson()).toList()));
+    final designs =
+        load(deviceId)
+            .where(
+              (d) => d.cid != design.cid && d.contentHash != design.contentHash,
+            )
+            .toList()
+          ..insert(0, design);
+    await _prefs.setString(
+      '$_keyPrefix$deviceId',
+      jsonEncode(designs.map((d) => d.toJson()).toList()),
+    );
     return designs;
   }
 }

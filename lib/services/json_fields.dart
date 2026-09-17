@@ -91,8 +91,9 @@ Map<String, String> xmlStateFields(String replyXml) {
   void walk(String prefix, XmlElement element, int depth) {
     if (depth > 32) return;
     for (final child in element.childElements) {
-      final path =
-          prefix.isEmpty ? child.localName : '$prefix.${child.localName}';
+      final path = prefix.isEmpty
+          ? child.localName
+          : '$prefix.${child.localName}';
       if (child.childElements.isEmpty) {
         // A leaf: its text is the value. First sibling wins.
         out.putIfAbsent(path, () => child.innerText.trim());

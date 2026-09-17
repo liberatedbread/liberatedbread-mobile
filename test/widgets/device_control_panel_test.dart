@@ -66,16 +66,21 @@ Future<Widget> _wrap(
 
 void main() {
   testWidgets('empty services renders the empty message', (tester) async {
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(deviceId: '01', deviceName: 'Dev', services: []),
-      ble: FakeBleService(),
-      codec: FakeSpecCodec(),
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: '01',
+          deviceName: 'Dev',
+          services: [],
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(),
+      ),
+    );
     expect(find.text('No services found on this device.'), findsOneWidget);
   });
 
-  testWidgets(
-      'falls back to the raw browser with well-known names when no '
+  testWidgets('falls back to the raw browser with well-known names when no '
       'spec matches', (tester) async {
     const services = [
       BleDiscoveredService(
@@ -87,12 +92,17 @@ void main() {
         characteristics: [],
       ),
     ];
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-          deviceId: '01', deviceName: 'Dev', services: services),
-      ble: FakeBleService(),
-      codec: FakeSpecCodec(), // no spec -> no match -> raw fallback
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: '01',
+          deviceName: 'Dev',
+          services: services,
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(), // no spec -> no match -> raw fallback
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.byType(Card), findsNWidgets(2));
@@ -101,8 +111,9 @@ void main() {
     expect(find.byType(TypedCharacteristicWidget), findsNothing);
   });
 
-  testWidgets('a service the registry does not know keeps the generic label',
-      (tester) async {
+  testWidgets('a service the registry does not know keeps the generic label', (
+    tester,
+  ) async {
     // A vendor's own 128-bit UUID is in no registry, and there is nothing
     // true to say about it here — identifying it is the spec matcher's job
     // one level up.
@@ -112,19 +123,25 @@ void main() {
         characteristics: [],
       ),
     ];
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-          deviceId: '01', deviceName: 'Dev', services: services),
-      ble: FakeBleService(),
-      codec: FakeSpecCodec(),
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: '01',
+          deviceName: 'Dev',
+          services: services,
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Service'), findsOneWidget);
   });
 
-  testWidgets('two instances of one service UUID each get their own card',
-      (tester) async {
+  testWidgets('two instances of one service UUID each get their own card', (
+    tester,
+  ) async {
     // GATT permits a peripheral to expose several instances of one service,
     // and multi-channel vendor hardware does. Keying the cards on the UUID
     // alone collapsed them in `childIndexByKey`, so both were handed the same
@@ -156,12 +173,17 @@ void main() {
       ),
     ];
     final ble = FakeBleService();
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-          deviceId: 'AA:BB', deviceName: 'Dual', services: duplicated),
-      ble: ble,
-      codec: FakeSpecCodec(),
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: 'AA:BB',
+          deviceName: 'Dual',
+          services: duplicated,
+        ),
+        ble: ble,
+        codec: FakeSpecCodec(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -177,8 +199,9 @@ void main() {
     expect(ble.subscriptions, hasLength(2));
   });
 
-  testWidgets('a family spec shows the model in front of you, not both',
-      (tester) async {
+  testWidgets('a family spec shows the model in front of you, not both', (
+    tester,
+  ) async {
     // seeblue-motorcycle-led is the shape this exists for: TWO lights, BOTH
     // named "Motorcycle LEDs", one per command dialect, told apart only by the
     // advertised name. Before variant narrowing both crossed the FFI and the
@@ -191,23 +214,23 @@ void main() {
     const svcUuid = '0000ffe0-0000-1000-8000-00805f9b34fb';
     const charUuid = '0000ffe1-0000-1000-8000-00805f9b34fb';
     EntityDto light(String variant, String command) => EntityDto(
-          name: 'Motorcycle LEDs',
-          variants: [variant],
-          platform: 'light',
-          canNotify: false,
-          hasFormat: false,
-          onWhenNonzero: false,
-          options: const [],
-          actions: [
-            EntityActionDto(
-              role: 'turn_on',
-              commandName: command,
-              serviceUuid: svcUuid,
-              characteristicUuid: charUuid,
-              userParams: const [],
-            ),
-          ],
-        );
+      name: 'Motorcycle LEDs',
+      variants: [variant],
+      platform: 'light',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      options: const [],
+      actions: [
+        EntityActionDto(
+          role: 'turn_on',
+          commandName: command,
+          serviceUuid: svcUuid,
+          characteristicUuid: charUuid,
+          userParams: const [],
+        ),
+      ],
+    );
 
     final spec = DeviceSpecDto(
       nameMatchers: const [],
@@ -230,54 +253,64 @@ void main() {
       defaultPort: null,
       entities: [light('Direct', 'direct_on'), light('LEDGlow-V2', 'v2_on')],
       services: const [
-        ServiceDto(uuid: svcUuid, name: 'Control', characteristics: [
-          CharacteristicDto(
-            uuid: charUuid,
-            name: 'Write',
-            canRead: false,
-            canWrite: true,
-            canNotify: false,
-            commands: [],
-            formatFields: [],
-          ),
-        ]),
+        ServiceDto(
+          uuid: svcUuid,
+          name: 'Control',
+          characteristics: [
+            CharacteristicDto(
+              uuid: charUuid,
+              name: 'Write',
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+              commands: [],
+              formatFields: [],
+            ),
+          ],
+        ),
       ],
     );
 
     final ble = FakeBleService();
-    final codec = FakeSpecCodec(
-      spec: spec,
-      matches: [
-        MatchResult(
-          spec: spec,
-          matchedByNamePrefix: true,
-          matchedServiceUuids: const [svcUuid],
-          confidence: MatchConfidence.strong,
-        ),
-      ],
-    )
-      // What the real narrowing answers for a device advertising LEDGlowV2.
-      ..bleVariantNames = (name, uuids) => const ['LEDGlow-V2'];
+    final codec =
+        FakeSpecCodec(
+            spec: spec,
+            matches: [
+              MatchResult(
+                spec: spec,
+                matchedByNamePrefix: true,
+                matchedServiceUuids: const [svcUuid],
+                confidence: MatchConfidence.strong,
+              ),
+            ],
+          )
+          // What the real narrowing answers for a device advertising LEDGlowV2.
+          ..bleVariantNames = (name, uuids) => const ['LEDGlow-V2'];
 
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-        deviceId: 'AA:BB',
-        deviceName: 'LEDGlowV2',
-        services: [
-          BleDiscoveredService(uuid: svcUuid, characteristics: [
-            BleDiscoveredCharacteristic(
-              uuid: charUuid,
-              canRead: false,
-              canWrite: true,
-              canNotify: false,
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: 'AA:BB',
+          deviceName: 'LEDGlowV2',
+          services: [
+            BleDiscoveredService(
+              uuid: svcUuid,
+              characteristics: [
+                BleDiscoveredCharacteristic(
+                  uuid: charUuid,
+                  canRead: false,
+                  canWrite: true,
+                  canNotify: false,
+                ),
+              ],
             ),
-          ]),
-        ],
+          ],
+        ),
+        ble: ble,
+        codec: codec,
+        specs: const {'seeblue': 'yaml'},
       ),
-      ble: ble,
-      codec: codec,
-      specs: const {'seeblue': 'yaml'},
-    ));
+    );
     await tester.pumpAndSettle();
 
     // One light — but the count alone proves nothing, because the panel's name
@@ -302,8 +335,9 @@ void main() {
     expect(find.textContaining('not available on this device'), findsNothing);
   });
 
-  testWidgets('renders typed controls for a matched characteristic',
-      (tester) async {
+  testWidgets('renders typed controls for a matched characteristic', (
+    tester,
+  ) async {
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     const charUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
     // `final`, not `const`: DeviceSpecDto.companyIds is a Uint16List, which has
@@ -329,27 +363,31 @@ void main() {
       defaultPort: null,
       entities: const <EntityDto>[],
       services: const [
-        ServiceDto(uuid: svcUuid, name: 'Control Service', characteristics: [
-          CharacteristicDto(
-            uuid: charUuid,
-            name: 'Command',
-            canRead: false,
-            canWrite: true,
-            canNotify: false,
-            commands: [
-              CommandDto(
-                name: 'power_on',
-                description: 'Turn the bulb on',
-                parameters: [],
-                isFixed: true,
-                isEncodable: true,
-                unsupportedEncoding: null,
-                advanced: false,
-              ),
-            ],
-            formatFields: [],
-          ),
-        ]),
+        ServiceDto(
+          uuid: svcUuid,
+          name: 'Control Service',
+          characteristics: [
+            CharacteristicDto(
+              uuid: charUuid,
+              name: 'Command',
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+              commands: [
+                CommandDto(
+                  name: 'power_on',
+                  description: 'Turn the bulb on',
+                  parameters: [],
+                  isFixed: true,
+                  isEncodable: true,
+                  unsupportedEncoding: null,
+                  advanced: false,
+                ),
+              ],
+              formatFields: [],
+            ),
+          ],
+        ),
       ],
     );
     const services = [
@@ -366,26 +404,32 @@ void main() {
       ),
     ];
 
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-          deviceId: '01', deviceName: 'ACME_Living_Room', services: services),
-      ble: FakeBleService(),
-      codec: FakeSpecCodec(
-        spec: spec,
-        matches: [
-          MatchResult(
-            spec: spec,
-            matchedByNamePrefix: true,
-            matchedServiceUuids: const [svcUuid],
-            confidence: MatchConfidence.strong,
-          ),
-        ],
-        encoded: Uint8List.fromList([1, 1]),
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: '01',
+          deviceName: 'ACME_Living_Room',
+          services: services,
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(
+          spec: spec,
+          matches: [
+            MatchResult(
+              spec: spec,
+              matchedByNamePrefix: true,
+              matchedServiceUuids: const [svcUuid],
+              confidence: MatchConfidence.strong,
+            ),
+          ],
+          encoded: Uint8List.fromList([1, 1]),
+        ),
+        specs: const {
+          'vendor/protocol-specs/device-specs/examples/example-bulb.yaml':
+              'dummy',
+        },
       ),
-      specs: const {
-        'vendor/protocol-specs/device-specs/examples/example-bulb.yaml': 'dummy'
-      },
-    ));
+    );
     await tester.pumpAndSettle();
 
     // Service card uses the spec name, and a typed command control renders.
@@ -395,39 +439,47 @@ void main() {
   });
 
   testWidgets(
-      'equally-matched specs show the chooser; picking one persists and '
-      'renders its typed controls', (tester) async {
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-          deviceId: 'AA:BB', deviceName: 'Mystery', services: _tieServices),
-      ble: FakeBleService(),
-      codec: _tieCodec(),
-      specs: const {'a.yaml': 'yaml-a', 'b.yaml': 'yaml-b'},
-    ));
-    await tester.pumpAndSettle();
+    'equally-matched specs show the chooser; picking one persists and '
+    'renders its typed controls',
+    (tester) async {
+      await tester.pumpWidget(
+        await _wrap(
+          const DeviceControlPanel(
+            deviceId: 'AA:BB',
+            deviceName: 'Mystery',
+            services: _tieServices,
+          ),
+          ble: FakeBleService(),
+          codec: _tieCodec(),
+          specs: const {'a.yaml': 'yaml-a', 'b.yaml': 'yaml-b'},
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    // The tie renders a chooser with both brands; raw controls stay below
-    // (the service card shows a generic name, not either brand's).
-    expect(find.text('Which device is this?'), findsOneWidget);
-    expect(find.text('Brand A Lights'), findsOneWidget);
-    expect(find.text('Brand B Lights'), findsOneWidget);
-    expect(find.byType(TypedCharacteristicWidget), findsNothing);
+      // The tie renders a chooser with both brands; raw controls stay below
+      // (the service card shows a generic name, not either brand's).
+      expect(find.text('Which device is this?'), findsOneWidget);
+      expect(find.text('Brand A Lights'), findsOneWidget);
+      expect(find.text('Brand B Lights'), findsOneWidget);
+      expect(find.byType(TypedCharacteristicWidget), findsNothing);
 
-    await tester.tap(find.text('Brand A Lights'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Brand A Lights'));
+      await tester.pumpAndSettle();
 
-    // Chooser gone, chosen spec's names and typed controls in place.
-    expect(find.text('Which device is this?'), findsNothing);
-    expect(find.text('A Control'), findsOneWidget);
-    expect(find.byType(TypedCharacteristicWidget), findsOneWidget);
+      // Chooser gone, chosen spec's names and typed controls in place.
+      expect(find.text('Which device is this?'), findsNothing);
+      expect(find.text('A Control'), findsOneWidget);
+      expect(find.byType(TypedCharacteristicWidget), findsOneWidget);
 
-    // And the choice was persisted for the next connection.
-    final store = SpecChoiceStore(await SharedPreferences.getInstance());
-    expect(store.load(), {'AA:BB': 'Brand A Lights|Vendor A'});
-  });
+      // And the choice was persisted for the next connection.
+      final store = SpecChoiceStore(await SharedPreferences.getInstance());
+      expect(store.load(), {'AA:BB': 'Brand A Lights|Vendor A'});
+    },
+  );
 
-  testWidgets('a slot appearing above the service list does not resubscribe',
-      (tester) async {
+  testWidgets('a slot appearing above the service list does not resubscribe', (
+    tester,
+  ) async {
     // The list is lazy, and a lazy delegate reconciles per index unless it is
     // given findChildIndexCallback — so keyed rows were still torn down and
     // re-inflated whenever the leading slots changed count, which they do on
@@ -451,13 +503,18 @@ void main() {
       ..._tieServices,
     ];
     final ble = FakeBleService();
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-          deviceId: 'AA:BB', deviceName: 'Mystery', services: notifying),
-      ble: ble,
-      codec: _tieCodec(),
-      specs: const {'a.yaml': 'yaml-a', 'b.yaml': 'yaml-b'},
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: 'AA:BB',
+          deviceName: 'Mystery',
+          services: notifying,
+        ),
+        ble: ble,
+        codec: _tieCodec(),
+        specs: const {'a.yaml': 'yaml-a', 'b.yaml': 'yaml-b'},
+      ),
+    );
     // First frame: no leading slot yet, every service card mounts.
     await tester.pump();
     expect(ble.subscriptions, hasLength(1));
@@ -466,9 +523,13 @@ void main() {
     // card down by one.
     await tester.pumpAndSettle();
     expect(find.text('Which device is this?'), findsOneWidget);
-    expect(ble.subscriptions, hasLength(1),
-        reason: 'the shifted card must be carried to its new index, not '
-            'destroyed and re-inflated');
+    expect(
+      ble.subscriptions,
+      hasLength(1),
+      reason:
+          'the shifted card must be carried to its new index, not '
+          'destroyed and re-inflated',
+    );
 
     // And again in the other direction, when answering the chooser removes it.
     await tester.tap(find.text('Brand A Lights'));
@@ -477,46 +538,54 @@ void main() {
   });
 
   testWidgets(
-      'a saved choice shows the banner; Change reopens the chooser and a '
-      'new pick replaces the stored choice', (tester) async {
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-          deviceId: 'AA:BB', deviceName: 'Mystery', services: _tieServices),
-      ble: FakeBleService(),
-      codec: _tieCodec(),
-      specs: const {'a.yaml': 'yaml-a', 'b.yaml': 'yaml-b'},
-      initialPrefs: {
-        'spec_choices_v1': jsonEncode({'AA:BB': 'Brand A Lights|Vendor A'}),
-      },
-    ));
-    await tester.pumpAndSettle();
+    'a saved choice shows the banner; Change reopens the chooser and a '
+    'new pick replaces the stored choice',
+    (tester) async {
+      await tester.pumpWidget(
+        await _wrap(
+          const DeviceControlPanel(
+            deviceId: 'AA:BB',
+            deviceName: 'Mystery',
+            services: _tieServices,
+          ),
+          ble: FakeBleService(),
+          codec: _tieCodec(),
+          specs: const {'a.yaml': 'yaml-a', 'b.yaml': 'yaml-b'},
+          initialPrefs: {
+            'spec_choices_v1': jsonEncode({'AA:BB': 'Brand A Lights|Vendor A'}),
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    // The saved pick is honored — no chooser — and the banner names it with
-    // a way out.
-    expect(find.text('Which device is this?'), findsNothing);
-    expect(find.text('Brand A Lights'), findsOneWidget);
-    expect(find.text('Device type you picked'), findsOneWidget);
-    expect(find.text('A Control'), findsOneWidget);
+      // The saved pick is honored — no chooser — and the banner names it with
+      // a way out.
+      expect(find.text('Which device is this?'), findsNothing);
+      expect(find.text('Brand A Lights'), findsOneWidget);
+      expect(find.text('Device type you picked'), findsOneWidget);
+      expect(find.text('A Control'), findsOneWidget);
 
-    await tester.tap(find.text('Change'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Change'));
+      await tester.pumpAndSettle();
 
-    // Cleared: the tie is live again, chooser back, banner gone.
-    expect(find.text('Which device is this?'), findsOneWidget);
-    expect(find.text('Device type you picked'), findsNothing);
+      // Cleared: the tie is live again, chooser back, banner gone.
+      expect(find.text('Which device is this?'), findsOneWidget);
+      expect(find.text('Device type you picked'), findsNothing);
 
-    await tester.tap(find.text('Brand B Lights'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Brand B Lights'));
+      await tester.pumpAndSettle();
 
-    // The new pick renders and replaced the stored choice.
-    expect(find.text('B Control'), findsOneWidget);
-    expect(find.text('Device type you picked'), findsOneWidget);
-    final store = SpecChoiceStore(await SharedPreferences.getInstance());
-    expect(store.load(), {'AA:BB': 'Brand B Lights|Vendor B'});
-  });
+      // The new pick renders and replaced the stored choice.
+      expect(find.text('B Control'), findsOneWidget);
+      expect(find.text('Device type you picked'), findsOneWidget);
+      final store = SpecChoiceStore(await SharedPreferences.getInstance());
+      expect(store.load(), {'AA:BB': 'Brand B Lights|Vendor B'});
+    },
+  );
 
-  testWidgets('an automatic match names the spec and its device type',
-      (tester) async {
+  testWidgets('an automatic match names the spec and its device type', (
+    tester,
+  ) async {
     // The scan row said "Example Smart Bulb" with a bulb icon before the tap.
     // Arriving here to find neither — just controls, appearing — leaves the
     // user to infer what the app decided, with nothing to check it against.
@@ -547,23 +616,28 @@ void main() {
     );
     const services = [BleDiscoveredService(uuid: svcUuid, characteristics: [])];
 
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-          deviceId: '01', deviceName: 'ACME_Living_Room', services: services),
-      ble: FakeBleService(),
-      codec: FakeSpecCodec(
-        spec: spec,
-        matches: [
-          MatchResult(
-            spec: spec,
-            matchedByNamePrefix: true,
-            confidence: MatchConfidence.strong,
-            matchedServiceUuids: const [svcUuid],
-          ),
-        ],
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: '01',
+          deviceName: 'ACME_Living_Room',
+          services: services,
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(
+          spec: spec,
+          matches: [
+            MatchResult(
+              spec: spec,
+              matchedByNamePrefix: true,
+              confidence: MatchConfidence.strong,
+              matchedServiceUuids: const [svcUuid],
+            ),
+          ],
+        ),
+        specs: const {'bulb.yaml': 'yaml'},
       ),
-      specs: const {'bulb.yaml': 'yaml'},
-    ));
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Example Smart Bulb'), findsOneWidget);
@@ -573,8 +647,7 @@ void main() {
     expect(find.text('Device type you picked'), findsNothing);
   });
 
-  testWidgets(
-      'a treadmill-category match shows the transport card above the '
+  testWidgets('a treadmill-category match shows the transport card above the '
       'typed controls', (tester) async {
     const svcUuid = '0000fe00-0000-1000-8000-00805f9b34fb';
     const charUuid = '0000fe02-0000-1000-8000-00805f9b34fb';
@@ -599,27 +672,31 @@ void main() {
       defaultPort: null,
       entities: const <EntityDto>[],
       services: const [
-        ServiceDto(uuid: svcUuid, name: 'WiLink service', characteristics: [
-          CharacteristicDto(
-            uuid: charUuid,
-            name: 'Command write',
-            canRead: false,
-            canWrite: true,
-            canNotify: false,
-            commands: [
-              CommandDto(
-                name: 'start_belt',
-                description: 'Start the belt',
-                parameters: [],
-                isFixed: true,
-                isEncodable: true,
-                unsupportedEncoding: null,
-                advanced: false,
-              ),
-            ],
-            formatFields: [],
-          ),
-        ]),
+        ServiceDto(
+          uuid: svcUuid,
+          name: 'WiLink service',
+          characteristics: [
+            CharacteristicDto(
+              uuid: charUuid,
+              name: 'Command write',
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+              commands: [
+                CommandDto(
+                  name: 'start_belt',
+                  description: 'Start the belt',
+                  parameters: [],
+                  isFixed: true,
+                  isEncodable: true,
+                  unsupportedEncoding: null,
+                  advanced: false,
+                ),
+              ],
+              formatFields: [],
+            ),
+          ],
+        ),
       ],
     );
     const services = [
@@ -637,24 +714,29 @@ void main() {
     ];
     final ble = FakeBleService();
 
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-          deviceId: '01', deviceName: 'ACME_Pad', services: services),
-      ble: ble,
-      codec: FakeSpecCodec(
-        spec: spec,
-        matches: [
-          MatchResult(
-            spec: spec,
-            matchedByNamePrefix: true,
-            matchedServiceUuids: const [svcUuid],
-            confidence: MatchConfidence.strong,
-          ),
-        ],
-        encoded: Uint8List.fromList([0xF7, 0xFD]),
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: '01',
+          deviceName: 'ACME_Pad',
+          services: services,
+        ),
+        ble: ble,
+        codec: FakeSpecCodec(
+          spec: spec,
+          matches: [
+            MatchResult(
+              spec: spec,
+              matchedByNamePrefix: true,
+              matchedServiceUuids: const [svcUuid],
+              confidence: MatchConfidence.strong,
+            ),
+          ],
+          encoded: Uint8List.fromList([0xF7, 0xFD]),
+        ),
+        specs: const {'pad.yaml': 'yaml'},
       ),
-      specs: const {'pad.yaml': 'yaml'},
-    ));
+    );
     await tester.pumpAndSettle();
 
     // The card's transport buttons lead the panel...
@@ -667,8 +749,12 @@ void main() {
     await tester.tap(find.text('Start'));
     await tester.pumpAndSettle();
     // Start asks before it moves the belt; confirm to see the write go out.
-    await tester.tap(find.descendant(
-        of: find.byType(AlertDialog), matching: find.text('Start')));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Start'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(ble.writes.single.value, [0xF7, 0xFD]);
   });
@@ -685,54 +771,53 @@ void main() {
       String stateChar, {
       String? deviceClass,
       String? unit,
-    }) =>
-        EntityDto(
-            options: const [],
-            name: name,
-            platform: 'sensor',
-            deviceClass: deviceClass,
-            unit: unit,
-            stateCharacteristic: stateChar,
-            canNotify: false,
-            hasFormat: true,
-            valueField: 'v',
-            onWhenNonzero: false,
-            actions: const [],
-            variants: const []);
+    }) => EntityDto(
+      options: const [],
+      name: name,
+      platform: 'sensor',
+      deviceClass: deviceClass,
+      unit: unit,
+      stateCharacteristic: stateChar,
+      canNotify: false,
+      hasFormat: true,
+      valueField: 'v',
+      onWhenNonzero: false,
+      actions: const [],
+      variants: const [],
+    );
 
     DeviceSpecDto airSpec({String category = 'sensor'}) => DeviceSpecDto(
-          nameMatchers: const [],
-          platformFallbackTypes: const [],
-          txtMatchGroups: const [],
-          hiddenEntityNames: const [],
-          deviceName: 'Acme Air Monitor',
-          manufacturer: 'Acme Corp',
-          manufacturerStatus: 'active',
-          protocol: 'ble',
-          category: category,
-          localNamePrefixes: const [],
-          localNames: const [],
-          serviceUuids: const [svcUuid],
-          companyIds: Uint16List(0),
-          macPrefixes: const [],
-          mdnsServiceTypes: const [],
-          ssdpSearchTargets: const [],
-          lanProtocols: const [],
-          defaultPort: null,
-          entities: [
-            sensor('Radon 24h Average', radonChar, unit: 'Bq/m³'),
-            // The same logical reading, bound to another variant's
-            // characteristic — the shape a family spec uses when models
-            // carry the value in different places.
-            sensor('Radon 24h Average', radonAltChar, unit: 'Bq/m³'),
-            sensor('Humidity', humidityChar,
-                deviceClass: 'humidity', unit: '%'),
-            sensor('Battery', batteryChar, deviceClass: 'battery', unit: '%'),
-          ],
-          services: const [
-            ServiceDto(uuid: svcUuid, name: 'Air Service', characteristics: []),
-          ],
-        );
+      nameMatchers: const [],
+      platformFallbackTypes: const [],
+      txtMatchGroups: const [],
+      hiddenEntityNames: const [],
+      deviceName: 'Acme Air Monitor',
+      manufacturer: 'Acme Corp',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: category,
+      localNamePrefixes: const [],
+      localNames: const [],
+      serviceUuids: const [svcUuid],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceTypes: const [],
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      defaultPort: null,
+      entities: [
+        sensor('Radon 24h Average', radonChar, unit: 'Bq/m³'),
+        // The same logical reading, bound to another variant's
+        // characteristic — the shape a family spec uses when models
+        // carry the value in different places.
+        sensor('Radon 24h Average', radonAltChar, unit: 'Bq/m³'),
+        sensor('Humidity', humidityChar, deviceClass: 'humidity', unit: '%'),
+        sensor('Battery', batteryChar, deviceClass: 'battery', unit: '%'),
+      ],
+      services: const [
+        ServiceDto(uuid: svcUuid, name: 'Air Service', characteristics: []),
+      ],
+    );
 
     const discovered = [
       BleDiscoveredService(
@@ -767,66 +852,75 @@ void main() {
     ];
 
     FakeSpecCodec airCodec(DeviceSpecDto spec) => FakeSpecCodec(
+      spec: spec,
+      matches: [
+        MatchResult(
           spec: spec,
-          matches: [
-            MatchResult(
-              spec: spec,
-              matchedByNamePrefix: false,
-              matchedServiceUuids: const [svcUuid],
-              confidence: MatchConfidence.strong,
-            ),
-          ],
-          decoded: const [
-            DecodedValueDto(
-              name: 'v',
-              valueType: 'uint',
-              display: '55',
-              uintValue: 55,
-            ),
-          ],
-        );
+          matchedByNamePrefix: false,
+          matchedServiceUuids: const [svcUuid],
+          confidence: MatchConfidence.strong,
+        ),
+      ],
+      decoded: const [
+        DecodedValueDto(
+          name: 'v',
+          valueType: 'uint',
+          display: '55',
+          uintValue: 55,
+        ),
+      ],
+    );
 
-    FakeBleService airBle() => FakeBleService(readValues: const {
-          radonChar: [55, 0],
-          radonAltChar: [55, 0],
-          humidityChar: [55],
-          batteryChar: [85],
-        });
+    FakeBleService airBle() => FakeBleService(
+      readValues: const {
+        radonChar: [55, 0],
+        radonAltChar: [55, 0],
+        humidityChar: [55],
+        batteryChar: [85],
+      },
+    );
 
     testWidgets(
-        'readings render as one deduplicated grid and the raw services fold',
-        (tester) async {
-      await tester.pumpWidget(await _wrap(
-        const DeviceControlPanel(
-            deviceId: '01', deviceName: 'Air', services: discovered),
-        ble: airBle(),
-        codec: airCodec(airSpec()),
-        specs: const {'air.yaml': 'yaml'},
-      ));
-      await tester.pumpAndSettle();
+      'readings render as one deduplicated grid and the raw services fold',
+      (tester) async {
+        await tester.pumpWidget(
+          await _wrap(
+            const DeviceControlPanel(
+              deviceId: '01',
+              deviceName: 'Air',
+              services: discovered,
+            ),
+            ble: airBle(),
+            codec: airCodec(airSpec()),
+            specs: const {'air.yaml': 'yaml'},
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Four entities, three distinct readings: the two variant bindings of
-      // "Radon 24h Average" collapse to the first that resolved. Without the
-      // dedupe the mock — which exposes every variant's service at once —
-      // showed one reading twice.
-      expect(find.byType(EntitySensorCard), findsNWidgets(3));
-      expect(find.text('Radon 24h Average'), findsOneWidget);
-      expect(find.text('Humidity'), findsOneWidget);
+        // Four entities, three distinct readings: the two variant bindings of
+        // "Radon 24h Average" collapse to the first that resolved. Without the
+        // dedupe the mock — which exposes every variant's service at once —
+        // showed one reading twice.
+        expect(find.byType(EntitySensorCard), findsNWidgets(3));
+        expect(find.text('Radon 24h Average'), findsOneWidget);
+        expect(find.text('Humidity'), findsOneWidget);
 
-      // This is a sensor device with its readings on screen, so the GATT
-      // plumbing folds: the service card is still there, its characteristics
-      // one tap away rather than dominating the first screen.
-      expect(find.text('Air Service'), findsOneWidget);
-      expect(find.byType(RawCharacteristicWidget), findsNothing);
-      expect(find.byType(TypedCharacteristicWidget), findsNothing);
+        // This is a sensor device with its readings on screen, so the GATT
+        // plumbing folds: the service card is still there, its characteristics
+        // one tap away rather than dominating the first screen.
+        expect(find.text('Air Service'), findsOneWidget);
+        expect(find.byType(RawCharacteristicWidget), findsNothing);
+        expect(find.byType(TypedCharacteristicWidget), findsNothing);
 
-      await tester.tap(find.text('Air Service'));
-      await tester.pumpAndSettle();
-      expect(find.byType(RawCharacteristicWidget), findsNWidgets(4));
-    });
+        await tester.tap(find.text('Air Service'));
+        await tester.pumpAndSettle();
+        expect(find.byType(RawCharacteristicWidget), findsNWidgets(4));
+      },
+    );
 
-    testWidgets('folding hides the service children without disposing them',
-        (tester) async {
+    testWidgets('folding hides the service children without disposing them', (
+      tester,
+    ) async {
       // The readings cards and the folded characteristic widgets subscribe to
       // the SAME characteristics, and the real BLE service answers any one
       // subscriber's cancel with setNotifyValue(false) on the peripheral — no
@@ -865,13 +959,18 @@ void main() {
         notifyStream: notify.stream,
       );
 
-      await tester.pumpWidget(await _wrap(
-        const DeviceControlPanel(
-            deviceId: '01', deviceName: 'Air', services: notifying),
-        ble: ble,
-        codec: airCodec(airSpec()),
-        specs: const {'air.yaml': 'yaml'},
-      ));
+      await tester.pumpWidget(
+        await _wrap(
+          const DeviceControlPanel(
+            deviceId: '01',
+            deviceName: 'Air',
+            services: notifying,
+          ),
+          ble: ble,
+          codec: airCodec(airSpec()),
+          specs: const {'air.yaml': 'yaml'},
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Folded from view…
@@ -881,20 +980,30 @@ void main() {
         find.byType(RawCharacteristicWidget, skipOffstage: false),
         findsNWidgets(2),
       );
-      expect(ble.cancelledSubscriptions, isEmpty,
-          reason: 'a teardown here disables notifications on the peripheral '
-              'for the still-listening readings cards');
+      expect(
+        ble.cancelledSubscriptions,
+        isEmpty,
+        reason:
+            'a teardown here disables notifications on the peripheral '
+            'for the still-listening readings cards',
+      );
     });
 
-    testWidgets('a non-sensor device keeps its service cards open',
-        (tester) async {
-      await tester.pumpWidget(await _wrap(
-        const DeviceControlPanel(
-            deviceId: '01', deviceName: 'Air', services: discovered),
-        ble: airBle(),
-        codec: airCodec(airSpec(category: 'light')),
-        specs: const {'air.yaml': 'yaml'},
-      ));
+    testWidgets('a non-sensor device keeps its service cards open', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        await _wrap(
+          const DeviceControlPanel(
+            deviceId: '01',
+            deviceName: 'Air',
+            services: discovered,
+          ),
+          ble: airBle(),
+          codec: airCodec(airSpec(category: 'light')),
+          specs: const {'air.yaml': 'yaml'},
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Same readings, but the device is not a sensor — its controls likely
@@ -903,18 +1012,24 @@ void main() {
       expect(find.byType(RawCharacteristicWidget), findsNWidgets(4));
     });
 
-    testWidgets('a sensor spec whose readings did not resolve does not fold',
-        (tester) async {
+    testWidgets('a sensor spec whose readings did not resolve does not fold', (
+      tester,
+    ) async {
       // The entity characteristics are absent from what was discovered —
       // nothing to show above, so hiding the GATT tree would hide everything.
       const bare = [BleDiscoveredService(uuid: svcUuid, characteristics: [])];
-      await tester.pumpWidget(await _wrap(
-        const DeviceControlPanel(
-            deviceId: '01', deviceName: 'Air', services: bare),
-        ble: airBle(),
-        codec: airCodec(airSpec()),
-        specs: const {'air.yaml': 'yaml'},
-      ));
+      await tester.pumpWidget(
+        await _wrap(
+          const DeviceControlPanel(
+            deviceId: '01',
+            deviceName: 'Air',
+            services: bare,
+          ),
+          ble: airBle(),
+          codec: airCodec(airSpec()),
+          specs: const {'air.yaml': 'yaml'},
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byType(EntitySensorCard), findsNothing);
@@ -927,8 +1042,9 @@ void main() {
     });
   });
 
-  testWidgets('a matched spec with no category still names the manufacturer',
-      (tester) async {
+  testWidgets('a matched spec with no category still names the manufacturer', (
+    tester,
+  ) async {
     // Specs vendored before `device.category` existed. The header must not
     // render a stray separator or a placeholder saying nothing.
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
@@ -957,23 +1073,28 @@ void main() {
     );
     const services = [BleDiscoveredService(uuid: svcUuid, characteristics: [])];
 
-    await tester.pumpWidget(await _wrap(
-      const DeviceControlPanel(
-          deviceId: '01', deviceName: 'ACME_Old', services: services),
-      ble: FakeBleService(),
-      codec: FakeSpecCodec(
-        spec: spec,
-        matches: [
-          MatchResult(
-            spec: spec,
-            matchedByNamePrefix: true,
-            confidence: MatchConfidence.strong,
-            matchedServiceUuids: const [svcUuid],
-          ),
-        ],
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: '01',
+          deviceName: 'ACME_Old',
+          services: services,
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(
+          spec: spec,
+          matches: [
+            MatchResult(
+              spec: spec,
+              matchedByNamePrefix: true,
+              confidence: MatchConfidence.strong,
+              matchedServiceUuids: const [svcUuid],
+            ),
+          ],
+        ),
+        specs: const {'legacy.yaml': 'yaml'},
       ),
-      specs: const {'legacy.yaml': 'yaml'},
-    ));
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Acme Corp'), findsOneWidget);
@@ -1007,27 +1128,31 @@ final _brandA = DeviceSpecDto(
   serviceUuids: [_tieSvcUuid],
   entities: <EntityDto>[],
   services: [
-    const ServiceDto(uuid: _tieSvcUuid, name: 'A Control', characteristics: [
-      CharacteristicDto(
-        uuid: _tieCharUuid,
-        name: 'Command',
-        canRead: false,
-        canWrite: true,
-        canNotify: false,
-        commands: [
-          CommandDto(
-            name: 'power_on',
-            description: 'On',
-            parameters: [],
-            isFixed: true,
-            isEncodable: true,
-            unsupportedEncoding: null,
-            advanced: false,
-          ),
-        ],
-        formatFields: [],
-      ),
-    ]),
+    const ServiceDto(
+      uuid: _tieSvcUuid,
+      name: 'A Control',
+      characteristics: [
+        CharacteristicDto(
+          uuid: _tieCharUuid,
+          name: 'Command',
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+          commands: [
+            CommandDto(
+              name: 'power_on',
+              description: 'On',
+              parameters: [],
+              isFixed: true,
+              isEncodable: true,
+              unsupportedEncoding: null,
+              advanced: false,
+            ),
+          ],
+          formatFields: [],
+        ),
+      ],
+    ),
   ],
 );
 
@@ -1070,20 +1195,20 @@ const _tieServices = [
 ];
 
 FakeSpecCodec _tieCodec() => FakeSpecCodec(
-      specByYaml: {'yaml-a': _brandA, 'yaml-b': _brandB},
-      matches: [
-        MatchResult(
-          spec: _brandA,
-          matchedByNamePrefix: false,
-          matchedServiceUuids: [_tieSvcUuid],
-          confidence: MatchConfidence.strong,
-        ),
-        MatchResult(
-          spec: _brandB,
-          matchedByNamePrefix: false,
-          matchedServiceUuids: [_tieSvcUuid],
-          confidence: MatchConfidence.strong,
-        ),
-      ],
-      encoded: Uint8List.fromList([1, 1]),
-    );
+  specByYaml: {'yaml-a': _brandA, 'yaml-b': _brandB},
+  matches: [
+    MatchResult(
+      spec: _brandA,
+      matchedByNamePrefix: false,
+      matchedServiceUuids: [_tieSvcUuid],
+      confidence: MatchConfidence.strong,
+    ),
+    MatchResult(
+      spec: _brandB,
+      matchedByNamePrefix: false,
+      matchedServiceUuids: [_tieSvcUuid],
+      confidence: MatchConfidence.strong,
+    ),
+  ],
+  encoded: Uint8List.fromList([1, 1]),
+);

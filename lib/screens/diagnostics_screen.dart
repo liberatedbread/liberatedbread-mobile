@@ -59,11 +59,15 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     );
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
-    messenger.showSnackBar(SnackBar(
-      content: Text(text.isEmpty
-          ? 'Nothing to copy'
-          : 'Copied ${_visible.length} line(s)'),
-    ));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          text.isEmpty
+              ? 'Nothing to copy'
+              : 'Copied ${_visible.length} line(s)',
+        ),
+      ),
+    );
   }
 
   @override
@@ -114,7 +118,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   ? const _Empty()
                   : ListView.separated(
                       itemCount: records.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (_, i) => _RecordTile(record: records[i]),
                     ),
             ),
@@ -175,7 +179,9 @@ class _CaptureControls extends StatelessWidget {
                   selected: Log.categoryLevel(logger) == LogLevel.debug,
                   onSelected: (selected) {
                     Log.setCategoryLevel(
-                        logger, selected ? LogLevel.debug : null);
+                      logger,
+                      selected ? LogLevel.debug : null,
+                    );
                     onChanged();
                   },
                 ),
@@ -207,9 +213,8 @@ class _ViewControls extends StatelessWidget {
     // Only the categories actually present, so the filter row describes this
     // session rather than the catalogue of categories.
     final present = {
-      for (final r in Log.buffer?.records ?? const <LogRecord>[]) r.category
-    }.toList()
-      ..sort();
+      for (final r in Log.buffer?.records ?? const <LogRecord>[]) r.category,
+    }.toList()..sort();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       child: Column(
@@ -226,7 +231,9 @@ class _ViewControls extends StatelessWidget {
                 items: [
                   for (final level in LogLevel.values)
                     DropdownMenuItem(
-                        value: level, child: Text('${level.label} and up')),
+                      value: level,
+                      child: Text('${level.label} and up'),
+                    ),
                 ],
               ),
             ],
@@ -314,7 +321,7 @@ class _Empty extends StatelessWidget {
         child: Text(
           recording
               ? 'Nothing recorded at this level yet. Use the app, then come '
-                  'back — or widen the filters above.'
+                    'back — or widen the filters above.'
               : 'Log recording is off in this build.',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium,

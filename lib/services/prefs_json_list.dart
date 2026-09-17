@@ -46,5 +46,4 @@ Future<void> savePrefsJsonList<T>(
   String key,
   List<T> items,
   Map<String, dynamic> Function(T item) encode,
-) =>
-    prefs.setString(key, jsonEncode([for (final item in items) encode(item)]));
+) => prefs.setString(key, jsonEncode([for (final item in items) encode(item)]));

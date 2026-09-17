@@ -92,8 +92,8 @@ class DeviceGroupsNotifier extends StateNotifier<List<DeviceGroup>> {
 
 final deviceGroupsProvider =
     StateNotifierProvider<DeviceGroupsNotifier, List<DeviceGroup>>(
-  (ref) => DeviceGroupsNotifier(ref.watch(deviceGroupStoreProvider)),
-);
+      (ref) => DeviceGroupsNotifier(ref.watch(deviceGroupStoreProvider)),
+    );
 
 /// Forget a saved device everywhere, in the one crash-safe order.
 ///
@@ -208,7 +208,7 @@ Future<void> forgetNetworkDevice({
       if (hostname != null && hostname.endsWith('.local'))
         hostname.substring(0, hostname.length - '.local'.length),
       host,
-      if (fallbackHostname != null) fallbackHostname,
+      ?fallbackHostname,
     };
     for (final scope in scopes) {
       await rabbitAir.forget(scope);
@@ -257,9 +257,9 @@ class AutoGroup {
   /// ids, namespaced network ids — exactly what [GroupMembersRequest]
   /// takes.
   List<String> get memberIds => [
-        for (final device in devices) device.id,
-        for (final device in networkDevices) networkMemberId(device.id),
-      ];
+    for (final device in devices) device.id,
+    for (final device in networkDevices) networkMemberId(device.id),
+  ];
 }
 
 /// The saved devices bucketed by kind, plus the ones no kind is known for
@@ -300,14 +300,20 @@ final autoGroupsProvider = FutureProvider<AutoGroups>((ref) async {
     categories[i] = DeviceCategory.parse(device.category);
     if (categories[i] == null) {
       guessIndexes.add(i);
-      guessFutures.add(ref.watch(scanGuessProvider(ScanIdentity(
-        name: device.name,
-        serviceUuids: const [],
-        companyIds: const [],
-        // [SavedDevice.id] is only a MAC on some platforms; Apple substitutes
-        // an opaque UUID, which must not be offered as an address.
-        macAddress: macAddressOrNull(device.id),
-      )).future));
+      guessFutures.add(
+        ref.watch(
+          scanGuessProvider(
+            ScanIdentity(
+              name: device.name,
+              serviceUuids: const [],
+              companyIds: const [],
+              // [SavedDevice.id] is only a MAC on some platforms; Apple substitutes
+              // an opaque UUID, which must not be offered as an address.
+              macAddress: macAddressOrNull(device.id),
+            ),
+          ).future,
+        ),
+      );
     }
   }
   final guesses = await Future.wait(guessFutures);
@@ -393,79 +399,90 @@ class GroupMembers {
 /// groups.
 final groupMembersProvider = FutureProvider.autoDispose
     .family<GroupMembers, GroupMembersRequest>((ref, request) async {
-  final saved = ref.watch(savedDevicesProvider);
-  final savedNetwork = ref.watch(savedNetworkDevicesProvider);
-  final choices = ref.watch(specChoicesProvider);
+      final saved = ref.watch(savedDevicesProvider);
+      final savedNetwork = ref.watch(savedNetworkDevicesProvider);
+      final choices = ref.watch(specChoicesProvider);
 
-  // Everything watched before the first await, futures gathered up front —
-  // the same two-pass discipline as autoGroupsProvider, and for the same
-  // soundness reason.
-  final parsedFuture = ref.watch(parsedDeviceSpecsProvider.future);
-  final savedNetworkById = {
-    for (final device in savedNetwork) device.id: device
-  };
-  final networkIds = <String>[];
-  final controlsFutures = <Future<NetworkControls?>?>[];
-  for (final id in request.deviceIds) {
-    if (!isNetworkMemberId(id)) continue;
-    final device = savedNetworkById[networkDeviceIdOf(id)];
-    if (device == null || !isGroupable(device.category)) continue;
-    networkIds.add(id);
-    final parts = device.specKey?.split('|');
-    controlsFutures.add(parts != null && parts.length == 2
-        ? ref.watch(networkControlsProvider(NetworkControlRequest(
-            deviceName: parts[0],
-            manufacturer: parts[1],
-            ssdpTargets: device.ssdpTargets,
-          )).future)
-        : null);
-  }
+      // Everything watched before the first await, futures gathered up front —
+      // the same two-pass discipline as autoGroupsProvider, and for the same
+      // soundness reason.
+      final parsedFuture = ref.watch(parsedDeviceSpecsProvider.future);
+      final savedNetworkById = {
+        for (final device in savedNetwork) device.id: device,
+      };
+      final networkIds = <String>[];
+      final controlsFutures = <Future<NetworkControls?>?>[];
+      for (final id in request.deviceIds) {
+        if (!isNetworkMemberId(id)) continue;
+        final device = savedNetworkById[networkDeviceIdOf(id)];
+        if (device == null || !isGroupable(device.category)) continue;
+        networkIds.add(id);
+        final parts = device.specKey?.split('|');
+        controlsFutures.add(
+          parts != null && parts.length == 2
+              ? ref.watch(
+                  networkControlsProvider(
+                    NetworkControlRequest(
+                      deviceName: parts[0],
+                      manufacturer: parts[1],
+                      ssdpTargets: device.ssdpTargets,
+                    ),
+                  ).future,
+                )
+              : null,
+        );
+      }
 
-  final parsed = await parsedFuture;
-  final savedById = {for (final device in saved) device.id: device};
-  // Built through specEntriesByKey so the pack-shadows-bundled rule for
-  // duplicate keys stays defined in exactly one place.
-  final entriesByKey = specEntriesByKey(parsed);
+      final parsed = await parsedFuture;
+      final savedById = {for (final device in saved) device.id: device};
+      // Built through specEntriesByKey so the pack-shadows-bundled rule for
+      // duplicate keys stays defined in exactly one place.
+      final entriesByKey = specEntriesByKey(parsed);
 
-  final ble = <GroupMember>[];
-  for (final id in request.deviceIds) {
-    if (isNetworkMemberId(id)) continue;
-    final device = savedById[id];
-    if (device == null) continue;
-    // Enforced at run time, not just in the pickers: a member that recorded
-    // a non-groupable category AFTER joining a group (an unidentified device
-    // that turned out to be an OBD dongle) must not keep taking part through
-    // its stale membership.
-    if (!isGroupable(device.category)) continue;
-    final resolved = entriesByKey[choices[id]] ?? entriesByKey[device.specKey];
-    ble.add(GroupMember(
-      id: id,
-      name: device.name,
-      spec: resolved?.spec,
-      specYaml: resolved?.yaml,
-    ));
-  }
+      final ble = <GroupMember>[];
+      for (final id in request.deviceIds) {
+        if (isNetworkMemberId(id)) continue;
+        final device = savedById[id];
+        if (device == null) continue;
+        // Enforced at run time, not just in the pickers: a member that recorded
+        // a non-groupable category AFTER joining a group (an unidentified device
+        // that turned out to be an OBD dongle) must not keep taking part through
+        // its stale membership.
+        if (!isGroupable(device.category)) continue;
+        final resolved =
+            entriesByKey[choices[id]] ?? entriesByKey[device.specKey];
+        ble.add(
+          GroupMember(
+            id: id,
+            name: device.name,
+            spec: resolved?.spec,
+            specYaml: resolved?.yaml,
+          ),
+        );
+      }
 
-  final network = <NetworkGroupMember>[];
-  for (var i = 0; i < networkIds.length; i++) {
-    final id = networkIds[i];
-    final device = savedNetworkById[networkDeviceIdOf(id)]!;
-    // A controls resolution that failed resolves to null (the family's own
-    // contract), leaving a member whose row and runner both report the
-    // honest "no spec matched" rather than dropping the device.
-    final controls = await controlsFutures[i];
-    network.add(NetworkGroupMember(
-      memberId: id,
-      name: device.name,
-      category: device.category,
-      record: device,
-      specYaml: controls?.specYaml,
-      capabilities: controls?.capabilities,
-      entities: controls?.entities ?? const [],
-    ));
-  }
-  return GroupMembers(ble: ble, network: network);
-});
+      final network = <NetworkGroupMember>[];
+      for (var i = 0; i < networkIds.length; i++) {
+        final id = networkIds[i];
+        final device = savedNetworkById[networkDeviceIdOf(id)]!;
+        // A controls resolution that failed resolves to null (the family's own
+        // contract), leaving a member whose row and runner both report the
+        // honest "no spec matched" rather than dropping the device.
+        final controls = await controlsFutures[i];
+        network.add(
+          NetworkGroupMember(
+            memberId: id,
+            name: device.name,
+            category: device.category,
+            record: device,
+            specYaml: controls?.specYaml,
+            capabilities: controls?.capabilities,
+            entities: controls?.entities ?? const [],
+          ),
+        );
+      }
+      return GroupMembers(ble: ble, network: network);
+    });
 
 /// The Wi-Fi group executor, wired to the same sender factory and transport
 /// clients the device screen uses — so a group send and a screen tap are
@@ -477,9 +494,10 @@ final networkGroupRunnerProvider = Provider<NetworkGroupRunner>((ref) {
     senderFor: ref.watch(networkCommandSenderFactoryProvider),
     // Keyed the way the device screen and the certificate pin key it, so one
     // physical device is one set of secrets wherever it is driven from.
-    credentialsFor: (device) => () => ref
-        .read(deviceCredentialStoreProvider)
-        .credentials(device.credentialIdentity),
+    credentialsFor: (device) =>
+        () => ref
+            .read(deviceCredentialStoreProvider)
+            .credentials(device.credentialIdentity),
   );
 });
 
@@ -493,12 +511,15 @@ final groupRunnerProvider = Provider<GroupRunner>((ref) {
     ble: ref.watch(bleServiceProvider),
     codec: ref.watch(specCodecProvider),
     resolveSpec: (member, services) async {
-      final outcome =
-          await ref.read(matchedDeviceSpecProvider(SpecMatchRequest.forServices(
-        deviceId: member.id,
-        deviceName: member.name,
-        services: services,
-      )).future);
+      final outcome = await ref.read(
+        matchedDeviceSpecProvider(
+          SpecMatchRequest.forServices(
+            deviceId: member.id,
+            deviceName: member.name,
+            services: services,
+          ),
+        ).future,
+      );
       final chosen = outcome.chosen;
       return chosen == null ? null : (spec: chosen.spec, yaml: chosen.yaml);
     },

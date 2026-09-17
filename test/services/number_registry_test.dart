@@ -71,8 +71,10 @@ void main() {
     });
 
     test('values may contain spaces, commas and periods', () {
-      final t = RegistryTable.parse('AAAAAA\tHHCC Plant Technology Co.,Ltd.\n',
-          keyWidth: 6);
+      final t = RegistryTable.parse(
+        'AAAAAA\tHHCC Plant Technology Co.,Ltd.\n',
+        keyWidth: 6,
+      );
       expect(t['AAAAAA'], 'HHCC Plant Technology Co.,Ltd.');
     });
   });
@@ -82,19 +84,27 @@ void main() {
     // (IEEE holds it), the 28-bit block belongs to the actual maker.
     final registry = NumberRegistry(
       addressBlocks: [
-        RegistryTable.parse(_table({'C47C8D6A1': 'Deep Block Ltd'}),
-            keyWidth: 9),
-        RegistryTable.parse(_table({'C47C8D6': 'HHCC Plant Technology'}),
-            keyWidth: 7),
-        RegistryTable.parse(_table({'001788': 'Philips Lighting BV'}),
-            keyWidth: 6),
+        RegistryTable.parse(
+          _table({'C47C8D6A1': 'Deep Block Ltd'}),
+          keyWidth: 9,
+        ),
+        RegistryTable.parse(
+          _table({'C47C8D6': 'HHCC Plant Technology'}),
+          keyWidth: 7,
+        ),
+        RegistryTable.parse(
+          _table({'001788': 'Philips Lighting BV'}),
+          keyWidth: 6,
+        ),
       ],
       companyIds: RegistryTable.parse(
-          _table({'00961': 'Ember Technologies', '00820': 'Airthings AS'}),
-          keyWidth: 5),
+        _table({'00961': 'Ember Technologies', '00820': 'Airthings AS'}),
+        keyWidth: 5,
+      ),
       serviceUuids: RegistryTable.parse(
-          _table({'180f': 'Battery Service', '181a': 'Environmental Sensing'}),
-          keyWidth: 4),
+        _table({'180f': 'Battery Service', '181a': 'Environmental Sensing'}),
+        keyWidth: 4,
+      ),
     );
 
     test('resolves a plain 24-bit assignment', () {
@@ -106,7 +116,9 @@ void main() {
       // usable for exactly the small vendors worth naming.
       expect(registry.vendorForMac('C4:7C:8D:6A:1B:2C'), 'Deep Block Ltd');
       expect(
-          registry.vendorForMac('C4:7C:8D:6F:FF:FF'), 'HHCC Plant Technology');
+        registry.vendorForMac('C4:7C:8D:6F:FF:FF'),
+        'HHCC Plant Technology',
+      );
     });
 
     test('an unassigned address resolves to nothing', () {
@@ -185,8 +197,9 @@ void main() {
 
     test('address block assets are declared longest first', () {
       // Load order is the lookup order, so this ordering is load-bearing.
-      final widths =
-          NumberRegistry.addressBlockAssets.map((a) => a.keyWidth).toList();
+      final widths = NumberRegistry.addressBlockAssets
+          .map((a) => a.keyWidth)
+          .toList();
       expect(widths, [9, 7, 6]);
     });
   });
@@ -199,8 +212,11 @@ void main() {
     test('load, index and resolve the addresses the specs document', () async {
       final registry = await NumberRegistry.load(rootBundle.loadString);
 
-      expect(registry.addressBlocks, hasLength(3),
-          reason: 'all three IEEE block sizes must be vendored');
+      expect(
+        registry.addressBlocks,
+        hasLength(3),
+        reason: 'all three IEEE block sizes must be vendored',
+      );
       expect(registry.companyIds.length, greaterThan(3000));
       expect(registry.serviceUuids.length, greaterThan(50));
 

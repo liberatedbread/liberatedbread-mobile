@@ -42,7 +42,10 @@ class SavedDevicesScreen extends ConsumerWidget {
   /// Errors are swallowed because a scan that was never started, or has already
   /// stopped, must not block a reconnect.
   Future<void> _reconnect(
-      BuildContext context, WidgetRef ref, SavedDevice saved) async {
+    BuildContext context,
+    WidgetRef ref,
+    SavedDevice saved,
+  ) async {
     final navigator = Navigator.of(context);
     await ref.read(bleServiceProvider).stopScan().catchError((Object _) {});
     await navigator.push(
@@ -70,7 +73,10 @@ class SavedDevicesScreen extends ConsumerWidget {
   ///
   /// Returns false when the dialog was dismissed or cancelled.
   Future<bool> _confirmForget(
-      BuildContext context, String name, String consequence) async {
+    BuildContext context,
+    String name,
+    String consequence,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -92,7 +98,10 @@ class SavedDevicesScreen extends ConsumerWidget {
   }
 
   Future<void> _forget(
-      BuildContext context, WidgetRef ref, SavedDevice saved) async {
+    BuildContext context,
+    WidgetRef ref,
+    SavedDevice saved,
+  ) async {
     final confirmed = await _confirmForget(
       context,
       saved.name.isNotEmpty ? saved.name : 'Unknown device',
@@ -129,19 +138,25 @@ class SavedDevicesScreen extends ConsumerWidget {
   /// Goes through the same launcher the scan list uses, so a saved robot whose
   /// password is not on this handset reaches the adoption wizard instead of a
   /// control screen that can only report errors.
-  Future<void> _openNetwork(BuildContext context, WidgetRef ref,
-          SavedNetworkDevice saved, NetworkControls controls) =>
-      openNetworkControls(
-        context: context,
-        ref: ref,
-        device: saved.toNetworkDevice(),
-        controls: controls,
-        category: saved.category,
-        specKey: saved.specKey,
-      );
+  Future<void> _openNetwork(
+    BuildContext context,
+    WidgetRef ref,
+    SavedNetworkDevice saved,
+    NetworkControls controls,
+  ) => openNetworkControls(
+    context: context,
+    ref: ref,
+    device: saved.toNetworkDevice(),
+    controls: controls,
+    category: saved.category,
+    specKey: saved.specKey,
+  );
 
   Future<void> _forgetNetwork(
-      BuildContext context, WidgetRef ref, SavedNetworkDevice saved) async {
+    BuildContext context,
+    WidgetRef ref,
+    SavedNetworkDevice saved,
+  ) async {
     final confirmed = await _confirmForget(
       context,
       saved.name.isNotEmpty ? saved.name : 'Unknown device',
@@ -243,9 +258,11 @@ class SavedDevicesScreen extends ConsumerWidget {
   /// platforms; [NumberRegistry.vendorForMac] validates and returns null for
   /// the latter, so the id goes straight through.
   String _savedDescription(
-      AsyncValue<NumberRegistry> registry, SavedDevice device) {
+    AsyncValue<NumberRegistry> registry,
+    SavedDevice device,
+  ) {
     final vendor = registry.valueOrNull?.vendorForMac(device.id);
-    return [device.id, if (vendor != null) vendor].join(' · ');
+    return [device.id, ?vendor].join(' · ');
   }
 }
 
@@ -270,12 +287,16 @@ class _NetworkSavedTile extends ConsumerWidget {
     final parts = specKey?.split('|');
     final controls = parts != null && parts.length == 2
         ? ref
-            .watch(networkControlsProvider(NetworkControlRequest(
-              deviceName: parts[0],
-              manufacturer: parts[1],
-              ssdpTargets: device.ssdpTargets,
-            )))
-            .valueOrNull
+              .watch(
+                networkControlsProvider(
+                  NetworkControlRequest(
+                    deviceName: parts[0],
+                    manufacturer: parts[1],
+                    ssdpTargets: device.ssdpTargets,
+                  ),
+                ),
+              )
+              .valueOrNull
         : null;
     final category = DeviceCategory.parse(device.category);
     return DeviceListTile(
@@ -315,8 +336,10 @@ class _EmptyState extends StatelessWidget {
               'Connect to a device from the Nearby tab and it will show up '
               'here, ready to reconnect without scanning again.',
               textAlign: TextAlign.center,
-              style: text.bodyMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+              style: text.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                height: 1.5,
+              ),
             ),
           ],
         ),

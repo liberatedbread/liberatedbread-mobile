@@ -65,37 +65,42 @@ void main() {
     secureStorageCalls = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
-      (call) async {
-        secureStorageCalls.add(call.method);
-        return call.method == 'readAll' ? <String, String>{} : null;
-      },
-    );
+          const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+          (call) async {
+            secureStorageCalls.add(call.method);
+            return call.method == 'readAll' ? <String, String>{} : null;
+          },
+        );
     logs = Log.captureRecords();
   });
 
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
-      null,
-    );
+          const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+          null,
+        );
   });
 
   tearDown(Log.reset);
 
-  testWidgets('main() boots the app all the way to the home shell',
-      (tester) async {
+  testWidgets('main() boots the app all the way to the home shell', (
+    tester,
+  ) async {
     await entrypoint.main();
     await tester.pump();
 
     expect(find.byType(LiberatedBreadApp), findsOneWidget);
-    expect(find.byType(HomeShell), findsOneWidget,
-        reason: 'runApp mounted the real widget tree, not just a MaterialApp');
+    expect(
+      find.byType(HomeShell),
+      findsOneWidget,
+      reason: 'runApp mounted the real widget tree, not just a MaterialApp',
+    );
   });
 
-  testWidgets('the SharedPreferences instance is resolved before runApp',
-      (tester) async {
+  testWidgets('the SharedPreferences instance is resolved before runApp', (
+    tester,
+  ) async {
     // The reason main() awaits it rather than letting a provider do so: the
     // saved-device list reads preferences DURING build. Overriding the provider
     // with an unresolved value throws "sharedPreferencesProvider has not been
@@ -120,8 +125,9 @@ void main() {
     );
   });
 
-  testWidgets('a failed RustLib.init is logged and does not stop the app',
-      (tester) async {
+  testWidgets('a failed RustLib.init is logged and does not stop the app', (
+    tester,
+  ) async {
     // The documented contract: "the app keeps working — MockBleService falls
     // back to a Dart implementation". Provoked here by initialising twice,
     // since flutter_rust_bridge refuses a second init in one isolate. That is
@@ -135,14 +141,21 @@ void main() {
     await entrypoint.main();
     await tester.pump();
 
-    expect(find.byType(HomeShell), findsOneWidget,
-        reason: 'the app still builds when the native core is unavailable');
+    expect(
+      find.byType(HomeShell),
+      findsOneWidget,
+      reason: 'the app still builds when the native core is unavailable',
+    );
     final failures = logs.where(
       (r) => r.category == 'app' && r.level == LogLevel.error,
     );
-    expect(failures, isNotEmpty,
-        reason: 'and it is LOUD about it — on desktop this is the first thing '
-            'to check when spec parsing does nothing');
+    expect(
+      failures,
+      isNotEmpty,
+      reason:
+          'and it is LOUD about it — on desktop this is the first thing '
+          'to check when spec parsing does nothing',
+    );
     expect(failures.first.message, contains('RustLib.init failed'));
   });
 
@@ -153,50 +166,66 @@ void main() {
     // key there would wipe the keychain on every single launch while every
     // unit test stayed green.
 
-    testWidgets('an install that has accepted the terms is never wiped',
-        (tester) async {
+    testWidgets('an install that has accepted the terms is never wiped', (
+      tester,
+    ) async {
       // The upgrade case, and the one that caused real data loss: the marker
       // did not exist before the build that introduced it, so it is absent
       // for every existing install on that build's first launch. Preferences
       // survive an in-place update, so absence of the marker alone must not
       // mean "fresh".
-      SharedPreferences.setMockInitialValues(
-          {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+      SharedPreferences.setMockInitialValues({
+        AppConstants.termsAcceptedKey: AppConstants.termsVersion,
+      });
       await entrypoint.main();
       await tester.pump();
 
       expect(
         secureStorageCalls,
         isNot(contains('deleteAll')),
-        reason: 'main() wiped the keychain on an install that had already '
+        reason:
+            'main() wiped the keychain on an install that had already '
             'accepted the terms. That is an app update, not a fresh install, '
             'and the wipe destroys the HA token, Hue credentials, Roomba '
             'password and every TLS pin with no way back.',
       );
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getBool(SecureSettingsStore.freshInstallMarkerKey), isTrue,
-          reason: 'The marker must still be adopted, or this decision is '
-              're-made from scratch on every launch.');
+      expect(
+        prefs.getBool(SecureSettingsStore.freshInstallMarkerKey),
+        isTrue,
+        reason:
+            'The marker must still be adopted, or this decision is '
+            're-made from scratch on every launch.',
+      );
     });
 
-    testWidgets('a genuinely fresh install is wiped exactly once',
-        (tester) async {
+    testWidgets('a genuinely fresh install is wiped exactly once', (
+      tester,
+    ) async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       await entrypoint.main();
       await tester.pump();
-      expect(secureStorageCalls.where((c) => c == 'deleteAll'), hasLength(1),
-          reason: 'Empty preferences with a non-empty keychain is exactly the '
-              'reinstall case: iOS keeps keychain items when the app is '
-              'deleted, so they would otherwise be silently inherited.');
+      expect(
+        secureStorageCalls.where((c) => c == 'deleteAll'),
+        hasLength(1),
+        reason:
+            'Empty preferences with a non-empty keychain is exactly the '
+            'reinstall case: iOS keeps keychain items when the app is '
+            'deleted, so they would otherwise be silently inherited.',
+      );
 
       // Second boot, same preferences the first one left behind.
       secureStorageCalls.clear();
       await entrypoint.main();
       await tester.pump();
-      expect(secureStorageCalls, isNot(contains('deleteAll')),
-          reason: 'The marker written by the first boot must stop it '
-              'happening again, or every launch deletes what the user just '
-              'entered.');
+      expect(
+        secureStorageCalls,
+        isNot(contains('deleteAll')),
+        reason:
+            'The marker written by the first boot must stop it '
+            'happening again, or every launch deletes what the user just '
+            'entered.',
+      );
     });
   });
 }

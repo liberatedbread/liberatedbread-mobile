@@ -49,13 +49,15 @@ void main() {
 
   tearDown(() async => legacy.delete(key: legacyKey));
 
-  testWidgets('readAll sees an item written under the previous class',
-      (tester) async {
+  testWidgets('readAll sees an item written under the previous class', (
+    tester,
+  ) async {
     final all = await SecureSettingsStore().readAll();
     expect(
       all[legacyKey],
       legacyValue,
-      reason: 'readAll() must not be scoped to the current write class. '
+      reason:
+          'readAll() must not be scoped to the current write class. '
           'DeviceCredentialStore.credentials(), the Rabbit Air candidate keys '
           'and "forget this device" all enumerate it, so a scoped readAll '
           'makes every credential stored by an earlier build vanish while '
@@ -78,7 +80,8 @@ void main() {
     expect(
       await store.readAll(),
       isNot(contains(legacyKey)),
-      reason: 'A class-scoped deleteAll matches nothing written under the '
+      reason:
+          'A class-scoped deleteAll matches nothing written under the '
           'previous class, returns errSecItemNotFound, and the plugin maps '
           'that to success — so the wipe reported that it had cleared '
           'credentials that were all still there.',

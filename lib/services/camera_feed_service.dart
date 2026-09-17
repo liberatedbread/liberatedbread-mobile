@@ -88,7 +88,7 @@ String buildJsonRpcFrame(String method, String? paramsJson, int id) {
   return jsonEncode({
     'jsonrpc': '2.0',
     'method': method,
-    if (params != null) 'params': params,
+    'params': ?params,
     'id': id,
   });
 }
@@ -151,8 +151,9 @@ class _FeedSession {
     if (urlTemplate == null || startMethod == null) return;
     final WebSocket ws;
     try {
-      ws = await WebSocket.connect(fillCameraUrl(urlTemplate, host))
-          .timeout(connectTimeout);
+      ws = await WebSocket.connect(
+        fillCameraUrl(urlTemplate, host),
+      ).timeout(connectTimeout);
     } on Object catch (e) {
       Log.spec.debug('camera keepalive connect failed', error: e);
       // An INITIAL failure does not loop — some firmware refreshes without the
@@ -292,5 +293,6 @@ class _FeedSession {
 }
 
 /// The camera feed transport. Tests override with a fake.
-final cameraFeedServiceProvider =
-    Provider<CameraFeedService>((ref) => const CameraFeedService());
+final cameraFeedServiceProvider = Provider<CameraFeedService>(
+  (ref) => const CameraFeedService(),
+);

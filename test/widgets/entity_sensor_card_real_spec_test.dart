@@ -41,17 +41,20 @@ void main() {
   setUpAll(() async {
     rustReady = await initHostRustLib();
     yaml = await rootBundle.loadString(
-        'vendor/protocol-specs/device-specs/devices/airthings-wave-family.yaml');
+      'vendor/protocol-specs/device-specs/devices/airthings-wave-family.yaml',
+    );
     gerbingYaml = await rootBundle.loadString(
-        'vendor/protocol-specs/device-specs/devices/gerbing-thermogauge.yaml');
+      'vendor/protocol-specs/device-specs/devices/gerbing-thermogauge.yaml',
+    );
     if (rustReady) {
       spec = await codec.loadDeviceSpec(yaml);
       gerbing = await codec.loadDeviceSpec(gerbingYaml);
     }
   });
 
-  testWidgets('renders a vendored spec\'s temperature in degrees, not counts',
-      (tester) async {
+  testWidgets('renders a vendored spec\'s temperature in degrees, not counts', (
+    tester,
+  ) async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');
       return;
@@ -62,7 +65,8 @@ void main() {
     // capture-verified source), so "the Temperature entity" is no longer
     // unique — this test is about the 2A6E declaration.
     final entity = spec.entities.firstWhere(
-        (e) => e.name == 'Temperature' && e.stateCharacteristic == _tempChar);
+      (e) => e.name == 'Temperature' && e.stateCharacteristic == _tempChar,
+    );
     // The reading only works because the spec resolves to the declaration that
     // carries the byte layout: this UUID is declared twice in the spec, and the
     // first occurrence is a bare stub.
@@ -71,11 +75,13 @@ void main() {
     final widget = ProviderScope(
       overrides: [
         bleServiceProvider.overrideWithValue(
-          FakeBleService(readValues: const {
-            // 2350 as little-endian int16: 23.5 °C in the hundredths the
-            // Bluetooth SIG characteristic reports.
-            _tempChar: [0x2E, 0x09],
-          }),
+          FakeBleService(
+            readValues: const {
+              // 2350 as little-endian int16: 23.5 °C in the hundredths the
+              // Bluetooth SIG characteristic reports.
+              _tempChar: [0x2E, 0x09],
+            },
+          ),
         ),
         specCodecProvider.overrideWithValue(codec),
       ],
@@ -106,8 +112,9 @@ void main() {
     expect(find.text('°C'), findsOneWidget);
   });
 
-  testWidgets('every entity the spec declares resolves to a decodable reading',
-      (tester) async {
+  testWidgets('every entity the spec declares resolves to a decodable reading', (
+    tester,
+  ) async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');
       return;
@@ -126,8 +133,7 @@ void main() {
     expect(spec.entities.every((e) => e.hasFormat), isTrue);
   });
 
-  testWidgets(
-      'a combined-packet entity picks its own field out of the record '
+  testWidgets('a combined-packet entity picks its own field out of the record '
       'and gets a verdict', (tester) async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');
@@ -188,57 +194,62 @@ void main() {
     expect(find.text('Good'), findsOneWidget);
   });
 
-  testWidgets('renders an OFFSET scaling from a vendored spec, not raw counts',
-      (tester) async {
-    // The Airthings case above is a pure multiplier, which is the half of the
-    // transform the card always applied. This one is the half it dropped:
-    // gerbing-thermogauge declares `scale: 0.5, value_offset: 85` on its
-    // temperature field, and the offset went missing between the codec and
-    // the screen. A raw 100 rendered as "50.0" — wrong by the entire offset,
-    // and wrong in the direction that still looks like a temperature, so
-    // nothing about the reading said it was broken.
-    if (!rustReady) {
-      markTestSkipped('Rust lib not loaded');
-      return;
-    }
+  testWidgets(
+    'renders an OFFSET scaling from a vendored spec, not raw counts',
+    (tester) async {
+      // The Airthings case above is a pure multiplier, which is the half of the
+      // transform the card always applied. This one is the half it dropped:
+      // gerbing-thermogauge declares `scale: 0.5, value_offset: 85` on its
+      // temperature field, and the offset went missing between the codec and
+      // the screen. A raw 100 rendered as "50.0" — wrong by the entire offset,
+      // and wrong in the direction that still looks like a temperature, so
+      // nothing about the reading said it was broken.
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
 
-    const service = 'ab06bd90-cc16-11e4-8830-0800200c9a66';
-    const tempChar = 'ab06bd91-cc16-11e4-8830-0800200c9a66';
-    final entity =
-        gerbing.entities.firstWhere((e) => e.name == 'Temperature 1');
-    expect(entity.stateCharacteristic, tempChar);
+      const service = 'ab06bd90-cc16-11e4-8830-0800200c9a66';
+      const tempChar = 'ab06bd91-cc16-11e4-8830-0800200c9a66';
+      final entity = gerbing.entities.firstWhere(
+        (e) => e.name == 'Temperature 1',
+      );
+      expect(entity.stateCharacteristic, tempChar);
 
-    final widget = ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(
-          FakeBleService(readValues: const {
-            tempChar: [100],
-          }),
-        ),
-        specCodecProvider.overrideWithValue(codec),
-      ],
-      child: MaterialApp(
-        home: Scaffold(
-          body: EntitySensorCard(
-            deviceId: 'd',
-            serviceUuid: service,
-            entity: entity,
-            specYaml: gerbingYaml,
+      final widget = ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(
+            FakeBleService(
+              readValues: const {
+                tempChar: [100],
+              },
+            ),
+          ),
+          specCodecProvider.overrideWithValue(codec),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: EntitySensorCard(
+              deviceId: 'd',
+              serviceUuid: service,
+              entity: entity,
+              specYaml: gerbingYaml,
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    await tester.runAsync(() async {
-      await tester.pumpWidget(widget);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    });
-    await tester.pump();
+      await tester.runAsync(() async {
+        await tester.pumpWidget(widget);
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      });
+      await tester.pump();
 
-    // 100 * 0.5 + 85 = 135.
-    expect(find.text('135.0'), findsOneWidget);
-    expect(find.text('50.0'), findsNothing, reason: 'the offset was dropped');
-    expect(find.text('100'), findsNothing, reason: 'the raw count leaked');
-    expect(find.text('°F'), findsOneWidget);
-  });
+      // 100 * 0.5 + 85 = 135.
+      expect(find.text('135.0'), findsOneWidget);
+      expect(find.text('50.0'), findsNothing, reason: 'the offset was dropped');
+      expect(find.text('100'), findsNothing, reason: 'the raw count leaked');
+      expect(find.text('°F'), findsOneWidget);
+    },
+  );
 }

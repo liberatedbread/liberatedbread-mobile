@@ -67,8 +67,7 @@ class _ResolvedSpeed {
 /// with more hardware (or a second protocol generation, as KingSmith's
 /// WiLink-plus-FTMS spec does) than the unit in front of us.
 List<({String serviceUuid, String charUuid, CommandDto command})>
-    _encodableCommands(
-        DeviceSpecDto spec, List<BleDiscoveredService> services) {
+_encodableCommands(DeviceSpecDto spec, List<BleDiscoveredService> services) {
   final found = <({String serviceUuid, String charUuid, CommandDto command})>[];
   for (final service in services) {
     final specService = findServiceForUuid(spec, service.uuid);
@@ -97,7 +96,8 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
   _ResolvedVerb? pause,
   _ResolvedVerb? stop,
   _ResolvedSpeed? speed,
-})? _resolve(
+})?
+_resolve(
   DeviceSpecDto spec,
   List<BleDiscoveredService> services,
   List<EntityDto> entities,
@@ -116,7 +116,8 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
   );
 
   ({String serviceUuid, String charUuid, CommandDto command})? discovered(
-      EntityActionDto? action) {
+    EntityActionDto? action,
+  ) {
     final commandName = action?.commandName;
     if (action == null || commandName == null) return null;
     for (final c in commands) {
@@ -137,16 +138,19 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
   }
 
   final speedEntity = entityIndex.take(EntityKeyIndex.speedSlot);
-  final speedAction =
-      speedEntity?.actions.where((a) => a.role == 'set_value').firstOrNull;
+  final speedAction = speedEntity?.actions
+      .where((a) => a.role == 'set_value')
+      .firstOrNull;
   final entitySpeedEntry = discovered(speedAction);
   final entitySpeedParam = speedAction?.userParams.firstOrNull;
 
   // Command names are a convention, not a schema field: the walking-pad specs
   // that exist today (and the FTMS standard they borrow) use these spellings,
   // so the card resolves by name, most specific first.
-  _ResolvedVerb? byName(List<String> names,
-      [Map<String, double> params = const {}]) {
+  _ResolvedVerb? byName(
+    List<String> names, [
+    Map<String, double> params = const {},
+  ]) {
     for (final name in names) {
       for (final c in commands) {
         if (c.command.name == name) {
@@ -157,7 +161,8 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     return null;
   }
 
-  final start = verbFromEntity(EntityKeyIndex.startSlot) ??
+  final start =
+      verbFromEntity(EntityKeyIndex.startSlot) ??
       byName(const [
         'start_belt',
         'start_or_resume',
@@ -169,9 +174,11 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
         'ur_training_continue',
         'ft_prepared',
       ]);
-  var pause = verbFromEntity(EntityKeyIndex.pauseSlot) ??
+  var pause =
+      verbFromEntity(EntityKeyIndex.pauseSlot) ??
       byName(const ['pause', 'training_pause', 'ur_training_pause']);
-  var stop = verbFromEntity(EntityKeyIndex.stopSlot) ??
+  var stop =
+      verbFromEntity(EntityKeyIndex.stopSlot) ??
       byName(const [
         'stop',
         'training_stop',
@@ -188,17 +195,29 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
   if (pause == null || stop == null) {
     final shared = byName(const ['stop_or_pause']);
     if (shared != null) {
-      pause ??= _ResolvedVerb(shared.serviceUuid, shared.charUuid,
-          shared.command, const {'action': 2});
-      stop ??= _ResolvedVerb(shared.serviceUuid, shared.charUuid,
-          shared.command, const {'action': 1});
+      pause ??= _ResolvedVerb(
+        shared.serviceUuid,
+        shared.charUuid,
+        shared.command,
+        const {'action': 2},
+      );
+      stop ??= _ResolvedVerb(
+        shared.serviceUuid,
+        shared.charUuid,
+        shared.command,
+        const {'action': 1},
+      );
     }
   }
 
   _ResolvedSpeed? speed;
   final speedEntry = entitySpeedEntry != null
-      ? _ResolvedVerb(entitySpeedEntry.serviceUuid, entitySpeedEntry.charUuid,
-          entitySpeedEntry.command, const {})
+      ? _ResolvedVerb(
+          entitySpeedEntry.serviceUuid,
+          entitySpeedEntry.charUuid,
+          entitySpeedEntry.command,
+          const {},
+        )
       : byName(const [
           'set_speed',
           'set_target_speed',
@@ -226,7 +245,8 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     final candidates = speedEntry.command.parameters.where(
       (p) => p.userSettable && isNumericValueType(p.valueType),
     );
-    final parameter = (entitySpeedEntry != null
+    final parameter =
+        (entitySpeedEntry != null
             ? candidates.where((p) => p.name == entitySpeedParam).firstOrNull
             : null) ??
         candidates.where((p) => p.unit == 'km/h').firstOrNull ??
@@ -238,8 +258,11 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
           ? 1.0
           : parameter.scale!;
       final offset = parameter.valueOffset ?? 0.0;
-      final rawRange =
-          rangeFor(parameter.valueType, parameter.min, parameter.max);
+      final rawRange = rangeFor(
+        parameter.valueType,
+        parameter.min,
+        parameter.max,
+      );
       var minDisplay = rawRange.min * scale + offset;
       var maxDisplay = rawRange.max * scale + offset;
       // A negative scale flips the range; the slider needs it well-ordered.
@@ -418,19 +441,20 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   }
 
   void _showSnack(String msg) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Future<void> _sendVerb(_ResolvedVerb verb) => _send(
-        serviceUuid: verb.serviceUuid,
-        charUuid: verb.charUuid,
-        commandName: verb.command.name,
-        params: verb.params,
-        label: humanizeName(
-            verb.params.isEmpty ? verb.command.name : _verbLabel(verb)),
-      );
+    serviceUuid: verb.serviceUuid,
+    charUuid: verb.charUuid,
+    commandName: verb.command.name,
+    params: verb.params,
+    label: humanizeName(
+      verb.params.isEmpty ? verb.command.name : _verbLabel(verb),
+    ),
+  );
 
   /// Show the spec's advanced-command warning once per command, mirroring
   /// TypedCommandWidget. Returns whether to proceed. Stop never routes
@@ -482,7 +506,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
         content: Text(
           resumes
               ? 'The belt will start moving, possibly at its previous '
-                  'speed rather than the minimum.'
+                    'speed rather than the minimum.'
               : 'The belt will start moving.',
         ),
         actions: [
@@ -521,10 +545,10 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   /// sends Stop and Pause through one opcode): the button's word, not the
   /// command's name, so the status line says what the user tapped.
   String _verbLabel(_ResolvedVerb verb) => switch (verb.params['action']) {
-        1 => 'stop',
-        2 => 'pause',
-        _ => verb.command.name,
-      };
+    1 => 'stop',
+    2 => 'pause',
+    _ => verb.command.name,
+  };
 
   Future<void> _sendSpeed(_ResolvedSpeed speed, double display) async {
     if (!await _ackAdvanced(speed.command) || !mounted) return;
@@ -537,8 +561,8 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     final scale = parameter.scale == null || parameter.scale == 0
         ? 1.0
         : parameter.scale!;
-    final raw =
-        ((display - (parameter.valueOffset ?? 0.0)) / scale).roundToDouble();
+    final raw = ((display - (parameter.valueOffset ?? 0.0)) / scale)
+        .roundToDouble();
     return _send(
       serviceUuid: speed.serviceUuid,
       charUuid: speed.charUuid,
@@ -550,8 +574,9 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
 
   void _nudgeSpeed(_ResolvedSpeed speed, double delta) {
     final current = _speedDisplay ?? speed.minDisplay;
-    final next =
-        (current + delta).clamp(speed.minDisplay, speed.maxDisplay).toDouble();
+    final next = (current + delta)
+        .clamp(speed.minDisplay, speed.maxDisplay)
+        .toDouble();
     setState(() => _speedDisplay = next);
     // A stepper tap is a deliberate choice, not a drag tick: it commits.
     unawaited(_sendSpeed(speed, next));
@@ -599,8 +624,9 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                       children: [
                         Text(
                           humanizeName(speed.parameter.name),
-                          style: text.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w700),
+                          style: text.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                         Text(
                           _fmtSpeed(speed, _speedDisplay!),
@@ -618,8 +644,10 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                         ? () => _nudgeSpeed(speed, -_speedStep)
                         : null,
                     icon: const Icon(Icons.remove),
-                    constraints:
-                        const BoxConstraints(minWidth: 48, minHeight: 48),
+                    constraints: const BoxConstraints(
+                      minWidth: 48,
+                      minHeight: 48,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   IconButton.outlined(
@@ -628,8 +656,10 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                         ? () => _nudgeSpeed(speed, _speedStep)
                         : null,
                     icon: const Icon(Icons.add),
-                    constraints:
-                        const BoxConstraints(minWidth: 48, minHeight: 48),
+                    constraints: const BoxConstraints(
+                      minWidth: 48,
+                      minHeight: 48,
+                    ),
                   ),
                 ],
               ),
@@ -642,23 +672,39 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                 // the division cap, with snapToStep keeping a continuous drag
                 // on the same stops.
                 divisions: divisionsForStep(
-                    speed.minDisplay, speed.maxDisplay, _speedStep),
+                  speed.minDisplay,
+                  speed.maxDisplay,
+                  _speedStep,
+                ),
                 value: _speedDisplay!
                     .clamp(speed.minDisplay, speed.maxDisplay)
                     .toDouble(),
                 label: _fmtSpeed(speed, _speedDisplay!),
                 onChanged: _sending != null
                     ? null
-                    : (v) => setState(() => _speedDisplay = snapToStep(
-                        v, speed.minDisplay, speed.maxDisplay, _speedStep)),
+                    : (v) => setState(
+                        () => _speedDisplay = snapToStep(
+                          v,
+                          speed.minDisplay,
+                          speed.maxDisplay,
+                          _speedStep,
+                        ),
+                      ),
                 // Commit on release, not per drag tick: each commit is a BLE
                 // write to a moving belt.
                 onChangeEnd: _sending != null
                     ? null
-                    : (v) => unawaited(_sendSpeed(
-                        speed,
-                        snapToStep(v, speed.minDisplay, speed.maxDisplay,
-                            _speedStep))),
+                    : (v) => unawaited(
+                        _sendSpeed(
+                          speed,
+                          snapToStep(
+                            v,
+                            speed.minDisplay,
+                            speed.maxDisplay,
+                            _speedStep,
+                          ),
+                        ),
+                      ),
               ),
               const SizedBox(height: 8),
             ],
@@ -671,7 +717,8 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                           ? () => unawaited(_startBelt(resolved.start!))
                           : null,
                       style: FilledButton.styleFrom(
-                          minimumSize: const Size(0, 52)),
+                        minimumSize: const Size(0, 52),
+                      ),
                       icon: const Icon(Icons.play_arrow),
                       label: const Text('Start'),
                     ),
@@ -685,7 +732,8 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                           ? () => unawaited(_pauseBelt(resolved.pause!))
                           : null,
                       style: FilledButton.styleFrom(
-                          minimumSize: const Size(0, 52)),
+                        minimumSize: const Size(0, 52),
+                      ),
                       icon: const Icon(Icons.pause),
                       label: const Text('Pause'),
                     ),
@@ -726,8 +774,8 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                     color: _sending != null
                         ? scheme.onSurfaceVariant
                         : _failed
-                            ? scheme.error
-                            : Colors.green,
+                        ? scheme.error
+                        : Colors.green,
                   ),
                 ),
               ),

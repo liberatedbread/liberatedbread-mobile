@@ -23,11 +23,8 @@ import 'spec_codec.dart';
 /// A duplex byte stream to a broker, abstracted so tests answer from canned
 /// bytes instead of a socket — the seam `KasaExchange` gives the TCP-JSON
 /// transport, one transport up.
-typedef MqttConnect = Future<MqttSocket> Function(
-  String host,
-  int port,
-  Duration timeout,
-);
+typedef MqttConnect =
+    Future<MqttSocket> Function(String host, int port, Duration timeout);
 
 /// The half of a socket this transport uses. Narrow on purpose: a fake that
 /// implements three members is a fake worth writing.
@@ -83,13 +80,13 @@ class MqttRefusedException implements UserFacingException {
 
   @override
   String get message => switch (code) {
-        1 => 'The device rejected the MQTT protocol version.',
-        2 => 'The device rejected this client id.',
-        3 => 'The device\'s broker is not available right now.',
-        4 => 'The device rejected the username or password.',
-        5 => 'The device refused this client.',
-        _ => 'The device refused the connection (MQTT code $code).',
-      };
+    1 => 'The device rejected the MQTT protocol version.',
+    2 => 'The device rejected this client id.',
+    3 => 'The device\'s broker is not available right now.',
+    4 => 'The device rejected the username or password.',
+    5 => 'The device refused this client.',
+    _ => 'The device refused the connection (MQTT code $code).',
+  };
 
   @override
   String toString() => message;
@@ -120,7 +117,8 @@ Future<MqttSocket> tlsConnect(String host, int port, Duration timeout) async {
     throw MqttConnectionException('Could not reach $host:$port — ${e.message}');
   } on TimeoutException {
     throw MqttConnectionException(
-        '$host:$port did not answer within ${timeout.inSeconds}s.');
+      '$host:$port did not answer within ${timeout.inSeconds}s.',
+    );
   }
 }
 
@@ -135,7 +133,8 @@ Future<MqttSocket> plainConnect(String host, int port, Duration timeout) async {
     throw MqttConnectionException('Could not reach $host:$port — ${e.message}');
   } on TimeoutException {
     throw MqttConnectionException(
-        '$host:$port did not answer within ${timeout.inSeconds}s.');
+      '$host:$port did not answer within ${timeout.inSeconds}s.',
+    );
   }
 }
 
@@ -277,13 +276,11 @@ class MqttSession {
   var _packetId = 0;
 
   MqttSession({
-    required SpecCodec codec,
+    required this._codec,
     MqttConnect? connect,
-    String label = 'mqtt',
+    this._label = 'mqtt',
     this.ackWait = ackTimeout,
-  })  : _codec = codec,
-        _connect = connect ?? tlsConnect,
-        _label = label;
+  }) : _connect = connect ?? tlsConnect;
 
   /// Every PUBLISH the broker has sent since connecting.
   Stream<MqttMessage> get messages => _messages.stream;
@@ -319,16 +316,20 @@ class MqttSession {
     _subscription = socket.incoming.listen(
       _enqueue,
       onError: (Object error) => _fail(error),
-      onDone: () => _fail(onHangUp?.call() ??
-          const MqttConnectionException('The device closed the connection.')),
+      onDone: () => _fail(
+        onHangUp?.call() ??
+            const MqttConnectionException('The device closed the connection.'),
+      ),
       cancelOnError: false,
     );
 
-    socket.add(await _codec.mqttConnectPacket(
-      clientId: clientId,
-      username: username,
-      password: password,
-    ));
+    socket.add(
+      await _codec.mqttConnectPacket(
+        clientId: clientId,
+        username: username,
+        password: password,
+      ),
+    );
 
     try {
       final acknowledged = _connected!.future;
@@ -385,8 +386,11 @@ class MqttSession {
         // See [_pingOutstanding]. Failing the session is what makes the
         // next send REOPEN (_fail's close() nulls the socket) instead of
         // publishing into a corpse for as long as the OS takes to notice.
-        _fail(const MqttConnectionException(
-            'The device stopped answering keepalives.'));
+        _fail(
+          const MqttConnectionException(
+            'The device stopped answering keepalives.',
+          ),
+        );
         return;
       }
       final packet = await _codec.mqttPingreqPacket();
@@ -405,7 +409,8 @@ class MqttSession {
     final socket = _requireSocket();
     _packetId = (_packetId % 0xFFFF) + 1;
     socket.add(
-        await _codec.mqttSubscribePacket(topic: topic, packetId: _packetId));
+      await _codec.mqttSubscribePacket(topic: topic, packetId: _packetId),
+    );
   }
 
   /// Publish one message at QoS 0.
@@ -442,8 +447,11 @@ class MqttSession {
   Future<void> _onBytes(Uint8List chunk) async {
     final generation = _generation;
     if (_buffer.length + chunk.length > _maxBufferedBytes) {
-      _fail(const MqttConnectionException(
-          'The MQTT stream exceeded its 1 MiB receive bound.'));
+      _fail(
+        const MqttConnectionException(
+          'The MQTT stream exceeded its 1 MiB receive bound.',
+        ),
+      );
       return;
     }
     _buffer.addAll(chunk);
@@ -473,8 +481,10 @@ class MqttSession {
           } else {
             // Logged as well as thrown because the throw becomes UI text that
             // deliberately does not carry a number.
-            Log.hub.warning('$_label: broker refused the login, CONNACK code '
-                '${packet.code}');
+            Log.hub.warning(
+              '$_label: broker refused the login, CONNACK code '
+              '${packet.code}',
+            );
             _fail(MqttRefusedException(packet.code));
           }
         case 'publish':

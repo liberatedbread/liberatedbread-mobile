@@ -88,13 +88,15 @@ class RoombaAuthException implements UserFacingException {
 
   @override
   String get message => switch (code) {
-        4 => 'The robot rejected this BLID and password. If it has been '
-            'factory reset since you saved them, the reset made a new '
-            'password — run the handshake again.',
-        5 => 'The robot refused this client. Close the iRobot app: the robot '
-            'serves one local connection at a time.',
-        _ => 'The robot refused the connection (MQTT code $code).',
-      };
+    4 =>
+      'The robot rejected this BLID and password. If it has been '
+          'factory reset since you saved them, the reset made a new '
+          'password — run the handshake again.',
+    5 =>
+      'The robot refused this client. Close the iRobot app: the robot '
+          'serves one local connection at a time.',
+    _ => 'The robot refused the connection (MQTT code $code).',
+  };
 
   @override
   String toString() => message;
@@ -171,11 +173,8 @@ class RoombaPasswordService {
 
   static const retryInterval = Duration(milliseconds: 600);
 
-  RoombaPasswordService({
-    required SpecCodec codec,
-    RoombaTlsConnect? connect,
-  })  : _codec = codec,
-        _connect = connect ?? _realTlsConnect;
+  RoombaPasswordService({required this._codec, RoombaTlsConnect? connect})
+    : _connect = connect ?? _realTlsConnect;
 
   /// Ask [host] for its password. Call this straight after the user releases
   /// the HOME button — the robot's disclosure window is short.
@@ -286,12 +285,12 @@ class RoombaMqttClient {
   StreamSubscription<MqttMessage>? _messages;
 
   RoombaMqttClient({required SpecCodec codec, RoombaTlsConnect? connect})
-      : _codec = codec,
-        _session = MqttSession(
-          codec: codec,
-          connect: connect ?? _realTlsConnect,
-          label: 'roomba',
-        );
+    : _codec = codec,
+      _session = MqttSession(
+        codec: codec,
+        connect: connect ?? _realTlsConnect,
+        label: 'roomba',
+      );
 
   /// Every state push the robot has sent since connecting, flattened to the
   /// dotted paths the spec's entities bind to.
@@ -324,8 +323,10 @@ class RoombaMqttClient {
       return const MqttConnectionException('The robot closed the connection.');
     };
 
-    Log.hub.debug('roomba ${credentials.blid}: connecting to $host '
-        '(password ${redact(credentials.password)})');
+    Log.hub.debug(
+      'roomba ${credentials.blid}: connecting to $host '
+      '(password ${redact(credentials.password)})',
+    );
 
     // Translated at this boundary rather than raised generically: what a
     // CONNACK code MEANS is the robot's own — 4 is a stale password after a
@@ -350,8 +351,8 @@ class RoombaMqttClient {
       throw RoombaConnectionException(
         e.ackTimedOut
             ? 'The robot accepted the connection but never acknowledged the '
-                'login. Close the iRobot app — the robot serves one local '
-                'client at a time.'
+                  'login. Close the iRobot app — the robot serves one local '
+                  'client at a time.'
             : e.message,
         legacyTlsSuspected: e.handshakeFailed,
       );
@@ -368,9 +369,11 @@ class RoombaMqttClient {
       },
       onError: (Object error) {
         if (_state.isClosed) return;
-        _state.addError(error is MqttConnectionException
-            ? RoombaConnectionException(error.message)
-            : error);
+        _state.addError(
+          error is MqttConnectionException
+              ? RoombaConnectionException(error.message)
+              : error,
+        );
       },
     );
 

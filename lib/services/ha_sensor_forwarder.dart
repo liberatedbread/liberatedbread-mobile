@@ -83,12 +83,10 @@ class HaSensorForwarder {
   DateTime? _lastFlush;
 
   HaSensorForwarder({
-    required HaApiClient api,
-    required Future<HaConfig?> Function() readConfig,
-    Duration minSendInterval = const Duration(seconds: 1),
-  })  : _api = api,
-        _readConfig = readConfig,
-        _minSendInterval = minSendInterval;
+    required this._api,
+    required this._readConfig,
+    this._minSendInterval = const Duration(seconds: 1),
+  });
 
   /// Remember a device's display name for friendlier HA entity names.
   /// Called once per connection; forwarding works without it (falls back to
@@ -147,8 +145,10 @@ class HaSensorForwarder {
       if (config == null || !config.isRegistered) {
         // Disconnected: whatever was registered belongs to a dead webhook.
         if (_pendingStates.isNotEmpty) {
-          Log.ha.debug('not registered; dropped ${_pendingStates.length} '
-              'pending state(s)');
+          Log.ha.debug(
+            'not registered; dropped ${_pendingStates.length} '
+            'pending state(s)',
+          );
         }
         _registeredIds.clear();
         _cacheWebhookId = null;
@@ -164,8 +164,10 @@ class HaSensorForwarder {
       }
       if (!config.enabled) {
         if (_pendingStates.isNotEmpty) {
-          Log.ha.debug('forwarding disabled; dropped '
-              '${_pendingStates.length} pending state(s)');
+          Log.ha.debug(
+            'forwarding disabled; dropped '
+            '${_pendingStates.length} pending state(s)',
+          );
         }
         _pendingRegistrations.clear();
         _pendingStates.clear();
@@ -209,15 +211,19 @@ class HaSensorForwarder {
           }
           // Counted, not logged per sensor: one line per flush, not per entity.
           if (forgotten > 0) {
-            Log.ha.info('$forgotten sensor(s) unknown to HA; re-registering on '
-                'the next reading');
+            Log.ha.info(
+              '$forgotten sensor(s) unknown to HA; re-registering on '
+              'the next reading',
+            );
           }
         }
         // Debug, not info: with a chatty notify characteristic this is once per
         // minSendInterval. It is on by default in debug builds, which is the
         // desktop-iteration case, and off from profile builds up.
-        Log.ha.debug('flushed ${states.length} state(s), '
-            '${registrations.length} new registration(s)');
+        Log.ha.debug(
+          'flushed ${states.length} state(s), '
+          '${registrations.length} new registration(s)',
+        );
         status._recordSuccess(DateTime.now());
       } catch (e) {
         // Best-effort recovery: put back what we failed to send so the next

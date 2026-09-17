@@ -23,8 +23,11 @@ void main() {
     final names = [for (final c in swatches) colorSwatchName(Color(c))];
 
     expect(names.first, 'White');
-    expect(names[1], 'Warm white',
-        reason: 'not "orange" — nobody calls it that');
+    expect(
+      names[1],
+      'Warm white',
+      reason: 'not "orange" — nobody calls it that',
+    );
     expect(names[2], 'Red');
     expect(names[7], 'Green');
     expect(names[9], 'Cyan');
@@ -35,15 +38,20 @@ void main() {
     // than a row of none.
     expect(names.any((n) => n.isEmpty), isFalse);
     for (var i = 1; i < names.length; i++) {
-      expect(names[i], isNot(names[i - 1]),
-          reason: 'swatch $i reads the same as its neighbour');
+      expect(
+        names[i],
+        isNot(names[i - 1]),
+        reason: 'swatch $i reads the same as its neighbour',
+      );
     }
   });
 
-  test('greys are named by lightness, not by whatever hue survives rounding',
-      () {
-    expect(colorSwatchName(const Color(0xFF000000)), 'Black');
-    expect(colorSwatchName(const Color(0xFF808080)), 'Grey');
-    expect(colorSwatchName(const Color(0xFFCCCCCC)), 'Light grey');
-  });
+  test(
+    'greys are named by lightness, not by whatever hue survives rounding',
+    () {
+      expect(colorSwatchName(const Color(0xFF000000)), 'Black');
+      expect(colorSwatchName(const Color(0xFF808080)), 'Grey');
+      expect(colorSwatchName(const Color(0xFFCCCCCC)), 'Light grey');
+    },
+  );
 }

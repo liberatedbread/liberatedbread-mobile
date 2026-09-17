@@ -43,8 +43,8 @@ class LiberatedBreadTheme {
   /// correct if the palette in `tool/branding/brand.json` changes later.
   static Color onBrand(Color background) =>
       ThemeData.estimateBrightnessForColor(background) == Brightness.dark
-          ? Colors.white
-          : ink;
+      ? Colors.white
+      : ink;
 
   static final ThemeData light = _build(Brightness.light);
   static final ThemeData dark = _build(Brightness.dark);

@@ -177,8 +177,8 @@ class NetworkDevice {
   }
 
   static String _colonize(String hex) => [
-        for (var i = 0; i < hex.length; i += 2) hex.substring(i, i + 2)
-      ].join(':');
+    for (var i = 0; i < hex.length; i += 2) hex.substring(i, i + 2),
+  ].join(':');
 
   /// This sighting's port when it says more than the SSDP LOCATION did —
   /// i.e. an mDNS SRV port. See [mergedWith].
@@ -187,28 +187,30 @@ class NetworkDevice {
   /// Merge another sighting of the same host, so a device answering on both
   /// mDNS and SSDP becomes one row carrying everything both said.
   NetworkDevice mergedWith(NetworkDevice other) => NetworkDevice(
-        host: host,
-        name: name.isNotEmpty ? name : other.name,
-        hostname: hostname ?? other.hostname,
-        // A port that is not just the LOCATION port restated came from an
-        // mDNS SRV record — the more specific claim, and preferring it keeps
-        // the merged row independent of which transport answered first.
-        port: _servicePort ?? other._servicePort ?? port ?? other.port,
-        ssdpPort: ssdpPort ?? other.ssdpPort,
-        ssdpDescriptionPath: ssdpDescriptionPath ?? other.ssdpDescriptionPath,
-        serviceTypes: {...serviceTypes, ...other.serviceTypes}.toList(),
-        ssdpTargets: {...ssdpTargets, ...other.ssdpTargets}.toList(),
-        answeredLanProtocols:
-            {...answeredLanProtocols, ...other.answeredLanProtocols}.toList(),
-        server: server ?? other.server,
-        txt: {...other.txt, ...txt},
-        pictogram: pictogram ?? other.pictogram,
-        sources: {...sources, ...other.sources},
-        // The first sighting is when this device was discovered.
-        discoveredAt: discoveredAt.isBefore(other.discoveredAt)
-            ? discoveredAt
-            : other.discoveredAt,
-      );
+    host: host,
+    name: name.isNotEmpty ? name : other.name,
+    hostname: hostname ?? other.hostname,
+    // A port that is not just the LOCATION port restated came from an
+    // mDNS SRV record — the more specific claim, and preferring it keeps
+    // the merged row independent of which transport answered first.
+    port: _servicePort ?? other._servicePort ?? port ?? other.port,
+    ssdpPort: ssdpPort ?? other.ssdpPort,
+    ssdpDescriptionPath: ssdpDescriptionPath ?? other.ssdpDescriptionPath,
+    serviceTypes: {...serviceTypes, ...other.serviceTypes}.toList(),
+    ssdpTargets: {...ssdpTargets, ...other.ssdpTargets}.toList(),
+    answeredLanProtocols: {
+      ...answeredLanProtocols,
+      ...other.answeredLanProtocols,
+    }.toList(),
+    server: server ?? other.server,
+    txt: {...other.txt, ...txt},
+    pictogram: pictogram ?? other.pictogram,
+    sources: {...sources, ...other.sources},
+    // The first sighting is when this device was discovered.
+    discoveredAt: discoveredAt.isBefore(other.discoveredAt)
+        ? discoveredAt
+        : other.discoveredAt,
+  );
 
   @override
   bool operator ==(Object other) =>

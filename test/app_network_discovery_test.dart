@@ -51,9 +51,9 @@ Future<void> _tick(WidgetTester tester) async {
 /// tabs stay mounted behind this one, and the Nearby tab's list comes first in
 /// the tree. Scrolling that one moves nothing on screen and finds nothing.
 Finder _resultsList() => find.descendant(
-      of: find.byType(WifiScanScreen),
-      matching: find.byType(Scrollable),
-    );
+  of: find.byType(WifiScanScreen),
+  matching: find.byType(Scrollable),
+);
 
 /// Wait for [finder], sweeping the results list while waiting.
 ///
@@ -118,8 +118,10 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     if (!ready.existsSync()) {
-      throw StateError('the virtual network device did not start listening; '
-          'ports 5353 and 1900 must be free');
+      throw StateError(
+        'the virtual network device did not start listening; '
+        'ports 5353 and 1900 must be free',
+      );
     }
   });
 
@@ -129,13 +131,15 @@ void main() {
   });
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues(
-        {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+    SharedPreferences.setMockInitialValues({
+      AppConstants.termsAcceptedKey: AppConstants.termsVersion,
+    });
     _prefs = await SharedPreferences.getInstance();
   });
 
-  testWidgets('the Wi-Fi tab finds and lists an emulated network device',
-      (tester) async {
+  testWidgets('the Wi-Fi tab finds and lists an emulated network device', (
+    tester,
+  ) async {
     // The scan screen's chrome fills the default 800x600 before the first row
     // even gets a chance, so a taller viewport is what makes the quiet case —
     // an empty LAN, one emulated device — need no scrolling at all.
@@ -148,17 +152,22 @@ void main() {
 
     await tester.runAsync(() async {
       try {
-        await tester.pumpWidget(ProviderScope(
-          overrides: [sharedPreferencesProvider.overrideWithValue(_prefs)],
-          child: const LiberatedBreadApp(),
-        ));
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [sharedPreferencesProvider.overrideWithValue(_prefs)],
+            child: const LiberatedBreadApp(),
+          ),
+        );
         await _pumpAWhile(tester);
 
         // Guard against silently testing demo mode instead.
-        final container =
-            ProviderScope.containerOf(tester.element(find.byType(MaterialApp)));
-        expect(container.read(networkScanServiceProvider),
-            isA<RealNetworkScanService>());
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(MaterialApp)),
+        );
+        expect(
+          container.read(networkScanServiceProvider),
+          isA<RealNetworkScanService>(),
+        );
 
         await tester.tap(find.text('Wi-Fi'));
         await _pumpAWhile(tester);

@@ -69,9 +69,9 @@ class LogRecord {
       ..write(message);
     final errorText = error?.toString().trimRight();
     if (errorText != null && errorText.isNotEmpty) {
-      buffer.write(errorText.contains('\n')
-          ? '\n${_indent(errorText)}'
-          : ': $errorText');
+      buffer.write(
+        errorText.contains('\n') ? '\n${_indent(errorText)}' : ': $errorText',
+      );
     }
     final stack = stackTrace?.toString().trimRight();
     if (stack != null && stack.isNotEmpty) buffer.write('\n${_indent(stack)}');
@@ -152,9 +152,11 @@ class Logger {
       _emit(level, '$what took ${formatElapsed(watch.elapsed)}');
       return result;
     } catch (e) {
-      _emit(LogLevel.warning,
-          '$what failed after ${formatElapsed(watch.elapsed)}',
-          error: e);
+      _emit(
+        LogLevel.warning,
+        '$what failed after ${formatElapsed(watch.elapsed)}',
+        error: e,
+      );
       rethrow;
     }
   }
@@ -170,14 +172,16 @@ class Logger {
     // interpolation — hence the rule against logging in tight loops, and
     // [isEnabled] for the cases where the argument is the expensive part.)
     if (!isEnabled(level)) return;
-    Log._dispatch(LogRecord(
-      time: DateTime.now(),
-      level: level,
-      category: category,
-      message: message,
-      error: error,
-      stackTrace: stackTrace,
-    ));
+    Log._dispatch(
+      LogRecord(
+        time: DateTime.now(),
+        level: level,
+        category: category,
+        message: message,
+        error: error,
+        stackTrace: stackTrace,
+      ),
+    );
   }
 }
 
@@ -293,7 +297,7 @@ class Log {
     packs,
     ads,
     app,
-    ui
+    ui,
   ];
 
   /// Release builds never emit below this, whatever [minLevel] says. Verbose
@@ -321,8 +325,7 @@ class Log {
   static LogLevel clampToReleaseFloor(
     LogLevel level, {
     required bool releaseMode,
-  }) =>
-      releaseMode && level.index < releaseFloor.index ? releaseFloor : level;
+  }) => releaseMode && level.index < releaseFloor.index ? releaseFloor : level;
 
   /// Per-category thresholds, overriding [minLevel] where present.
   static final Map<String, LogLevel> _categoryLevels = {};
@@ -511,11 +514,11 @@ String redactAll(String text, Iterable<String?> secrets) {
 /// (`https://user:pass@host/`) and query parameters (`?token=...`) both travel
 /// in one, and a user-supplied URL (the spec-pack manifest) can carry either.
 String logSafeUrl(Uri uri) => Uri(
-      scheme: uri.scheme,
-      host: uri.host,
-      port: uri.hasPort ? uri.port : null,
-      path: uri.path,
-    ).toString();
+  scheme: uri.scheme,
+  host: uri.host,
+  port: uri.hasPort ? uri.port : null,
+  path: uri.path,
+).toString();
 
 /// The runtime type of [error] and nothing else.
 ///

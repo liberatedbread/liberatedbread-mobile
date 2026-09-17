@@ -58,8 +58,10 @@ class _HubChildLightCardState extends State<HubChildLightCard> {
   }
 
   double get _sliderValue =>
-      (_dragging ?? widget.brightness ?? widget.brightnessMin)
-          .clamp(widget.brightnessMin, widget.brightnessMax);
+      (_dragging ?? widget.brightness ?? widget.brightnessMin).clamp(
+        widget.brightnessMin,
+        widget.brightnessMax,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -87,9 +89,12 @@ class _HubChildLightCardState extends State<HubChildLightCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(widget.label,
-                          style: text.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w600)),
+                      Text(
+                        widget.label,
+                        style: text.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       if (isOn == null)
                         Text('State unknown', style: text.bodySmall),
                     ],
@@ -102,18 +107,18 @@ class _HubChildLightCardState extends State<HubChildLightCard> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 else
-                  Switch(
-                    value: isOn ?? false,
-                    onChanged: widget.onToggle,
-                  ),
+                  Switch(value: isOn ?? false, onChanged: widget.onToggle),
               ],
             ),
             if (widget.onBrightness != null) ...[
               const SizedBox(height: 4),
               Row(
                 children: [
-                  Icon(Icons.brightness_6,
-                      size: 18, color: scheme.onSurfaceVariant),
+                  Icon(
+                    Icons.brightness_6,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
+                  ),
                   Expanded(
                     child: Slider(
                       semanticFormatterCallback: (v) =>
@@ -127,13 +132,17 @@ class _HubChildLightCardState extends State<HubChildLightCard> {
                           : (value) => setState(() => _dragging = value),
                       onChangeEnd: widget.busy
                           ? null
-                          : (value) =>
-                              widget.onBrightness?.call(value.roundToDouble()),
+                          : (value) => widget.onBrightness?.call(
+                              value.roundToDouble(),
+                            ),
                     ),
                   ),
-                  Text('${_sliderValue.round()}',
-                      style: text.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant)),
+                  Text(
+                    '${_sliderValue.round()}',
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
             ],

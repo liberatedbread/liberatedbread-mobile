@@ -56,8 +56,6 @@ TextStyle monoTextStyleOf({double? fontSize, Color? color}) =>
 /// For the `Theme.of(context).textTheme...` call sites, where the size and
 /// weight come from the theme and only the family should change.
 extension MonospacedTextStyle on TextStyle {
-  TextStyle get monospaced => copyWith(
-        fontFamily: 'monospace',
-        fontFamilyFallback: monoFontFallback,
-      );
+  TextStyle get monospaced =>
+      copyWith(fontFamily: 'monospace', fontFamilyFallback: monoFontFallback);
 }

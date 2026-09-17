@@ -64,7 +64,10 @@ class NetworkLightCard extends ConsumerStatefulWidget {
   /// no sender simply renders its controls disabled, which is safer than the
   /// old behavior of firing LIFX datagrams at whatever the entity was.
   final Future<void> Function(
-      NetworkActionDto action, Map<String, String> values)? sendAction;
+    NetworkActionDto action,
+    Map<String, String> values,
+  )?
+  sendAction;
 
   /// The generic path's live state, from the screen's ordinary poll: the
   /// entity's decoded on/off and brightness readings. A LIFX light reads its
@@ -191,8 +194,8 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       'blue': _color.b * 255.0,
     };
     if (_hasBrightness) {
-      params['brightness'] =
-          (brightnessOverride ?? _brightness).roundToDouble();
+      params['brightness'] = (brightnessOverride ?? _brightness)
+          .roundToDouble();
     }
     return params;
   }
@@ -268,10 +271,12 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       final params = _colorParams()..['zone'] = zone.toDouble();
       _send('set_zone_color', params);
       if (zone < _zoneColors.length) {
-        setState(() => _zoneColors = [
-              for (var i = 0; i < _zoneColors.length; i++)
-                i == zone ? _color : _zoneColors[i],
-            ]);
+        setState(
+          () => _zoneColors = [
+            for (var i = 0; i < _zoneColors.length; i++)
+              i == zone ? _color : _zoneColors[i],
+          ],
+        );
       }
     } else {
       _send('set_color', _colorParams());
@@ -284,7 +289,9 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       final client = ref.read(lifxControlClientProvider);
       final seq = client.nextSequence();
       final req = await codec.buildLifxStateRequest(
-          targetMac: widget.targetMac, sequence: seq);
+        targetMac: widget.targetMac,
+        sequence: seq,
+      );
       final reply = await client.request(widget.host, req, sequence: seq);
       if (reply == null || !mounted) return;
       final state = await codec.decodeLifxState(bytes: reply);
@@ -308,7 +315,11 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       final client = ref.read(lifxControlClientProvider);
       final seq = client.nextSequence();
       final req = await codec.buildLifxZonesRequest(
-          targetMac: widget.targetMac, start: 0, end: 255, sequence: seq);
+        targetMac: widget.targetMac,
+        start: 0,
+        end: 255,
+        sequence: seq,
+      );
       final reply = await client.request(widget.host, req, sequence: seq);
       if (reply == null || !mounted) return;
       final zones = await codec.decodeLifxZones(bytes: reply);
@@ -373,11 +384,14 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(widget.entity.name,
-                          style: text.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w700),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
+                      Text(
+                        widget.entity.name,
+                        style: text.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       const SizedBox(height: 2),
                       _statusLine(shownOn, scheme, text),
                     ],
@@ -389,10 +403,10 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                     onChanged: _sending
                         ? null
                         : (on) => _send(
-                              on ? 'turn_on' : 'turn_off',
-                              const {},
-                              assumeOn: on,
-                            ),
+                            on ? 'turn_on' : 'turn_off',
+                            const {},
+                            assumeOn: on,
+                          ),
                   ),
               ],
             ),
@@ -400,8 +414,11 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Icon(Icons.brightness_6,
-                      size: 18, color: scheme.onSurfaceVariant),
+                  Icon(
+                    Icons.brightness_6,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
+                  ),
                   Expanded(
                     child: Slider(
                       semanticFormatterCallback: (v) =>
@@ -416,9 +433,12 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                       onChangeEnd: _sending ? null : (_) => _commitBrightness(),
                     ),
                   ),
-                  Text('${_brightness.round()}',
-                      style: text.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant)),
+                  Text(
+                    '${_brightness.round()}',
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -426,8 +446,11 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
               const SizedBox(height: 4),
               Row(
                 children: [
-                  Icon(Icons.thermostat,
-                      size: 18, color: scheme.onSurfaceVariant),
+                  Icon(
+                    Icons.thermostat,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
+                  ),
                   Expanded(
                     child: Slider(
                       min: (_setColorTemperature!.min ?? 1500).toDouble(),
@@ -439,20 +462,24 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                       semanticFormatterCallback: (v) =>
                           'Colour temperature ${v.round()} kelvin',
                       label: '${_kelvin.round()}K',
-                      onChanged:
-                          _sending ? null : (v) => setState(() => _kelvin = v),
+                      onChanged: _sending
+                          ? null
+                          : (v) => setState(() => _kelvin = v),
                       onChangeEnd: _sending
                           ? null
                           : (_) => _send('set_color_temperature', {
-                                'kelvin': _kelvin.roundToDouble(),
-                                if (_hasBrightness)
-                                  'brightness': _brightness.roundToDouble(),
-                              }),
+                              'kelvin': _kelvin.roundToDouble(),
+                              if (_hasBrightness)
+                                'brightness': _brightness.roundToDouble(),
+                            }),
                     ),
                   ),
-                  Text('${_kelvin.round()}K',
-                      style: text.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant)),
+                  Text(
+                    '${_kelvin.round()}K',
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -523,8 +550,10 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Zones',
-            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+        Text(
+          'Zones',
+          style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
         const SizedBox(height: 6),
         Wrap(
           spacing: 6,
@@ -533,13 +562,15 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
             ChoiceChip(
               label: const Text('All'),
               selected: _selectedZone == null,
-              onSelected:
-                  _sending ? null : (_) => setState(() => _selectedZone = null),
+              onSelected: _sending
+                  ? null
+                  : (_) => setState(() => _selectedZone = null),
             ),
             for (var i = 0; i < _zoneColors.length; i++)
               InkWell(
-                onTap:
-                    _sending ? null : () => setState(() => _selectedZone = i),
+                onTap: _sending
+                    ? null
+                    : () => setState(() => _selectedZone = i),
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   width: 30,
@@ -555,11 +586,13 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                     ),
                   ),
                   child: _selectedZone == i
-                      ? Icon(Icons.check,
+                      ? Icon(
+                          Icons.check,
                           size: 14,
                           color: _zoneColors[i].computeLuminance() > 0.5
                               ? Colors.black87
-                              : Colors.white)
+                              : Colors.white,
+                        )
                       : null,
                 ),
               ),
@@ -573,17 +606,16 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     final style = text.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     if (_sending) return Text('Sending...', style: style);
     if (_errorText != null) {
-      return Text(_errorText!,
-          style: text.bodySmall?.copyWith(color: scheme.error));
+      return Text(
+        _errorText!,
+        style: text.bodySmall?.copyWith(color: scheme.error),
+      );
     }
-    return Text(
-      switch (shownOn) {
-        true => 'On',
-        false => 'Off',
-        null => 'Ready',
-      },
-      style: style,
-    );
+    return Text(switch (shownOn) {
+      true => 'On',
+      false => 'Off',
+      null => 'Ready',
+    }, style: style);
   }
 }
 
@@ -635,9 +667,11 @@ class _SwatchButton extends StatelessWidget {
           ),
         ),
         child: selected
-            ? Icon(Icons.check,
+            ? Icon(
+                Icons.check,
                 size: 18,
-                color: luminance > 0.5 ? Colors.black87 : Colors.white)
+                color: luminance > 0.5 ? Colors.black87 : Colors.white,
+              )
             : null,
       ),
     );

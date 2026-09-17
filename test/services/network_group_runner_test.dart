@@ -25,65 +25,63 @@ import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import '../fakes/fake_spec_codec.dart';
 
 NetworkActionDto _action(String role) => NetworkActionDto(
-      role: role,
-      commandName: 'cmd_$role',
-      transport: 'http',
-      userParams: const [],
-      readBack: const [],
-      credentials: const [],
-      instanceParams: const [],
-    );
+  role: role,
+  commandName: 'cmd_$role',
+  transport: 'http',
+  userParams: const [],
+  readBack: const [],
+  credentials: const [],
+  instanceParams: const [],
+);
 
 NetworkEntityDto _powerEntity({
   bool discrete = true,
   bool toggle = false,
   String stateCommand = '',
-}) =>
-    NetworkEntityDto(
-      name: 'Power',
-      platform: 'switch',
-      stateCommand: stateCommand,
-      transport: 'http',
-      isInstanced: false,
-      options: const [],
-      actions: [
-        if (discrete) _action('turn_off'),
-        if (toggle) _action('toggle'),
-      ],
-    );
+}) => NetworkEntityDto(
+  name: 'Power',
+  platform: 'switch',
+  stateCommand: stateCommand,
+  transport: 'http',
+  isInstanced: false,
+  options: const [],
+  actions: [if (discrete) _action('turn_off'), if (toggle) _action('toggle')],
+);
 
-NetworkGroupMember _member(List<NetworkEntityDto> entities,
-        {String? specYaml = 'yaml'}) =>
-    NetworkGroupMember(
-      memberId: 'net:hn:tv.local',
-      name: 'Living Room TV',
-      category: 'tv',
-      record: SavedNetworkDevice(
-        id: 'hn:tv.local',
-        name: 'Living Room TV',
-        lastSeen: DateTime(2026, 1, 1),
-        host: '192.0.2.9',
-        ssdpPort: 8060,
-        ssdpTargets: const ['roku:ecp'],
-      ),
-      specYaml: specYaml,
-      entities: entities,
-    );
+NetworkGroupMember _member(
+  List<NetworkEntityDto> entities, {
+  String? specYaml = 'yaml',
+}) => NetworkGroupMember(
+  memberId: 'net:hn:tv.local',
+  name: 'Living Room TV',
+  category: 'tv',
+  record: SavedNetworkDevice(
+    id: 'hn:tv.local',
+    name: 'Living Room TV',
+    lastSeen: DateTime(2026, 1, 1),
+    host: '192.0.2.9',
+    ssdpPort: 8060,
+    ssdpTargets: const ['roku:ecp'],
+  ),
+  specYaml: specYaml,
+  entities: entities,
+);
 
 void main() {
   NetworkGroupRunner runner(
     FakeSpecCodec codec,
     MockClient httpClient, {
     CredentialReader Function(NetworkDevice device)? credentialsFor,
-  }) =>
-      NetworkGroupRunner(
-        codec: codec,
-        credentialsFor: credentialsFor,
-        soap: SoapControlClient(
-            httpClient: MockClient(
-                (request) async => fail('no SOAP exchange in this test'))),
-        senderFor: ({required device, required specYaml, capabilities}) =>
-            NetworkCommandSender(
+  }) => NetworkGroupRunner(
+    codec: codec,
+    credentialsFor: credentialsFor,
+    soap: SoapControlClient(
+      httpClient: MockClient(
+        (request) async => fail('no SOAP exchange in this test'),
+      ),
+    ),
+    senderFor: ({required device, required specYaml, capabilities}) =>
+        NetworkCommandSender(
           host: device.host,
           discoveredControlPort: device.controlPort,
           devicePort: device.port,
@@ -95,15 +93,18 @@ void main() {
           codec: codec,
           http: HttpControlClient(httpClient: httpClient),
           soap: SoapControlClient(
-              httpClient: MockClient(
-                  (request) async => fail('no SOAP exchange in this test'))),
+            httpClient: MockClient(
+              (request) async => fail('no SOAP exchange in this test'),
+            ),
+          ),
           kasa: KasaControlClient(codec),
           rabbitAir: RabbitAirControlClient(codec),
           ecp2: Ecp2ControlService(
-              connector: (host, port) async =>
-                  throw const Ecp2Exception('no ECP2 in this test')),
+            connector: (host, port) async =>
+                throw const Ecp2Exception('no ECP2 in this test'),
+          ),
         ),
-      );
+  );
 
   Future<GroupRunEvent> lastEventOf(Stream<GroupRunEvent> events) async {
     final all = await events.toList();
@@ -114,18 +115,16 @@ void main() {
   test('a discrete off is sent and reported', () async {
     final received = <http.Request>[];
     final codec = FakeSpecCodec();
-    final events = runner(
-      codec,
-      MockClient((request) async {
-        received.add(request);
-        return http.Response('', 200);
-      }),
-    ).run(
-        GroupOp.turnOff,
-        [
-          _member([_powerEntity()])
-        ],
-        stop: StopSignal());
+    final events =
+        runner(
+          codec,
+          MockClient((request) async {
+            received.add(request);
+            return http.Response('', 200);
+          }),
+        ).run(GroupOp.turnOff, [
+          _member([_powerEntity()]),
+        ], stop: StopSignal());
 
     final last = await lastEventOf(events);
     expect(last.status, GroupDeviceStatus.ok);
@@ -138,33 +137,38 @@ void main() {
   /// required_credentials now reports itself. The screen used to carry a
   /// websocket-only carve-out this runner lacked, so a group run re-paired
   /// (Allow prompt and all) a TV whose token was sitting in the store.
-  test('a member whose spec declares only a pairing token wires the store',
-      () async {
-    final codec = FakeSpecCodec(networkCredentials: const [
-      NetworkCredentialDto(
-        name: 'samsung_token',
-        neededBy: [],
-        mustBeAskedFor: false,
-      ),
-    ]);
-    final events = runner(
-      codec,
-      MockClient((request) async => http.Response('', 200)),
-      credentialsFor: (_) => () async => {'samsung_token': 'stored-token'},
-    ).run(
-        GroupOp.turnOff,
-        [
-          _member([_powerEntity()])
+  test(
+    'a member whose spec declares only a pairing token wires the store',
+    () async {
+      final codec = FakeSpecCodec(
+        networkCredentials: const [
+          NetworkCredentialDto(
+            name: 'samsung_token',
+            neededBy: [],
+            mustBeAskedFor: false,
+          ),
         ],
-        stop: StopSignal());
+      );
+      final events =
+          runner(
+            codec,
+            MockClient((request) async => http.Response('', 200)),
+            credentialsFor: (_) =>
+                () async => {'samsung_token': 'stored-token'},
+          ).run(GroupOp.turnOff, [
+            _member([_powerEntity()]),
+          ], stop: StopSignal());
 
-    final last = await lastEventOf(events);
-    expect(last.status, GroupDeviceStatus.ok);
-    // The stored token reached the render's value map — proof the reader was
-    // wired for a spec whose only credential is the pairing-issued one.
-    expect(codec.renderNetworkHttpCommandCalls.last.values,
-        containsPair('samsung_token', 'stored-token'));
-  });
+      final last = await lastEventOf(events);
+      expect(last.status, GroupDeviceStatus.ok);
+      // The stored token reached the render's value map — proof the reader was
+      // wired for a spec whose only credential is the pairing-issued one.
+      expect(
+        codec.renderNetworkHttpCommandCalls.last.values,
+        containsPair('samsung_token', 'stored-token'),
+      );
+    },
+  );
 
   test('a gated toggle sends only when the reading says on', () async {
     for (final (isOn, sends, status, detail) in [
@@ -174,7 +178,7 @@ void main() {
         null,
         1,
         GroupDeviceStatus.skipped,
-        'Power state unknown — the toggle was not sent'
+        'Power state unknown — the toggle was not sent',
       ),
     ]) {
       final received = <http.Request>[];
@@ -182,65 +186,78 @@ void main() {
         ..networkReading = (entityName, returned) => isOn == null
             ? null
             : NetworkReadingDto(
-                kind: NetworkReadingKind.onOff, isOn: isOn, raw: '$isOn');
-      final events = runner(
-        codec,
-        MockClient((request) async {
-          received.add(request);
-          return http.Response('{"power": "$isOn"}', 200);
-        }),
-      ).run(
-        GroupOp.turnOff,
-        [
-          _member([
-            _powerEntity(
-                discrete: false, toggle: true, stateCommand: 'power_state')
-          ])
-        ],
-        stop: StopSignal(),
-      );
+                kind: NetworkReadingKind.onOff,
+                isOn: isOn,
+                raw: '$isOn',
+              );
+      final events =
+          runner(
+            codec,
+            MockClient((request) async {
+              received.add(request);
+              return http.Response('{"power": "$isOn"}', 200);
+            }),
+          ).run(GroupOp.turnOff, [
+            _member([
+              _powerEntity(
+                discrete: false,
+                toggle: true,
+                stateCommand: 'power_state',
+              ),
+            ]),
+          ], stop: StopSignal());
 
       final last = await lastEventOf(events);
       expect(last.status, status, reason: 'isOn=$isOn');
       expect(last.detail, detail, reason: 'isOn=$isOn');
-      expect(received, hasLength(sends),
-          reason: 'isOn=$isOn: state read${sends == 2 ? " + toggle" : ""}');
+      expect(
+        received,
+        hasLength(sends),
+        reason: 'isOn=$isOn: state read${sends == 2 ? " + toggle" : ""}',
+      );
     }
   });
 
   test('a member whose spec never resolved skips honestly', () async {
-    final events = runner(FakeSpecCodec(), MockClient((request) async {
-      fail('nothing should be sent');
-    })).run(GroupOp.turnOff, [_member(const [], specYaml: null)],
-        stop: StopSignal());
+    final events =
+        runner(
+          FakeSpecCodec(),
+          MockClient((request) async {
+            fail('nothing should be sent');
+          }),
+        ).run(GroupOp.turnOff, [
+          _member(const [], specYaml: null),
+        ], stop: StopSignal());
     final last = await lastEventOf(events);
     expect(last.status, GroupDeviceStatus.skipped);
     expect(last.detail, 'No spec matched this device');
   });
 
   test('an op the entities do not support skips honestly', () async {
-    final events = runner(FakeSpecCodec(), MockClient((request) async {
-      fail('nothing should be sent');
-    })).run(
-        GroupOp.turnOn,
-        [
-          _member([_powerEntity()])
-        ],
-        stop: StopSignal());
+    final events =
+        runner(
+          FakeSpecCodec(),
+          MockClient((request) async {
+            fail('nothing should be sent');
+          }),
+        ).run(GroupOp.turnOn, [
+          _member([_powerEntity()]),
+        ], stop: StopSignal());
     final last = await lastEventOf(events);
     expect(last.status, GroupDeviceStatus.skipped);
     expect(last.detail, "Not supported by this device's spec");
   });
 
   test('read ops sit Wi-Fi members out with a reason', () async {
-    final events = runner(FakeSpecCodec(), MockClient((request) async {
-      fail('nothing should be sent');
-    })).run(
-        GroupOp.readBattery,
-        [
-          _member([_powerEntity()])
-        ],
-        stop: StopSignal());
+    final events =
+        runner(
+          FakeSpecCodec(),
+          MockClient((request) async {
+            fail('nothing should be sent');
+          }),
+        ).run(GroupOp.readBattery, [
+          _member([_powerEntity()]),
+        ], stop: StopSignal());
     final last = await lastEventOf(events);
     expect(last.status, GroupDeviceStatus.skipped);
     expect(last.detail, 'Not supported for Wi-Fi devices yet');
@@ -248,14 +265,15 @@ void main() {
 
   test('a stopped run skips members not yet started', () async {
     final stop = StopSignal()..stop();
-    final events = runner(FakeSpecCodec(), MockClient((request) async {
-      fail('nothing should be sent');
-    })).run(
-        GroupOp.turnOff,
-        [
-          _member([_powerEntity()])
-        ],
-        stop: stop);
+    final events =
+        runner(
+          FakeSpecCodec(),
+          MockClient((request) async {
+            fail('nothing should be sent');
+          }),
+        ).run(GroupOp.turnOff, [
+          _member([_powerEntity()]),
+        ], stop: stop);
     final last = await lastEventOf(events);
     expect(last.status, GroupDeviceStatus.skipped);
     expect(last.detail, 'Cancelled');
@@ -263,22 +281,21 @@ void main() {
 
   test('a member that fails does not fail its neighbours', () async {
     final codec = FakeSpecCodec();
-    final events = runner(
-      codec,
-      MockClient((request) async => http.Response('nope', 500)),
-    ).run(
-      GroupOp.turnOff,
-      [
-        _member([_powerEntity()]),
-        _member([_powerEntity()])
-      ],
-      stop: StopSignal(),
-    );
+    final events =
+        runner(
+          codec,
+          MockClient((request) async => http.Response('nope', 500)),
+        ).run(GroupOp.turnOff, [
+          _member([_powerEntity()]),
+          _member([_powerEntity()]),
+        ], stop: StopSignal());
     final all = await events.toList();
-    final outcomes = all.where((e) =>
-        e.status == GroupDeviceStatus.failed ||
-        e.status == GroupDeviceStatus.ok ||
-        e.status == GroupDeviceStatus.skipped);
+    final outcomes = all.where(
+      (e) =>
+          e.status == GroupDeviceStatus.failed ||
+          e.status == GroupDeviceStatus.ok ||
+          e.status == GroupDeviceStatus.skipped,
+    );
     expect(outcomes, hasLength(2));
     expect(outcomes.every((e) => e.status == GroupDeviceStatus.failed), isTrue);
   });

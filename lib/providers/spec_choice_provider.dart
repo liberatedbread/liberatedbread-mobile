@@ -29,5 +29,5 @@ class SpecChoicesNotifier extends StateNotifier<Map<String, String>> {
 
 final specChoicesProvider =
     StateNotifierProvider<SpecChoicesNotifier, Map<String, String>>(
-  (ref) => SpecChoicesNotifier(ref.watch(specChoiceStoreProvider)),
-);
+      (ref) => SpecChoicesNotifier(ref.watch(specChoiceStoreProvider)),
+    );

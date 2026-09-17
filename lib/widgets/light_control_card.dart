@@ -109,10 +109,11 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
   /// Every resolved action in the shape [UnclaimedActions] reads. A role that
   /// takes a user parameter gets named there rather than drawn, since a
   /// control invented without knowing the value's shape is a dead control.
-  List<({String role, bool takesValue})> get _resolvedActions =>
-      widget.entity.actions
-          .map((a) => (role: a.role, takesValue: a.userParams.isNotEmpty))
-          .toList(growable: false);
+  List<({String role, bool takesValue})> get _resolvedActions => widget
+      .entity
+      .actions
+      .map((a) => (role: a.role, takesValue: a.userParams.isNotEmpty))
+      .toList(growable: false);
 
   /// Gates the spacer as well as the widget: a light whose every resolved
   /// role is claimed must keep the exact layout it had, and a leading
@@ -155,8 +156,10 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
         _ => null,
       };
       if (value == null) {
-        Log.ui.debug('light card: no value for "$p" on ${action.role} '
-            '(${action.commandName}) — leaving it to the spec default');
+        Log.ui.debug(
+          'light card: no value for "$p" on ${action.role} '
+          '(${action.commandName}) — leaving it to the spec default',
+        );
         continue;
       }
       values[p] = value;
@@ -183,7 +186,9 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
         commandName: commandName,
         params: _paramsFor(action),
       );
-      await ref.read(bleServiceProvider).writeCharacteristic(
+      await ref
+          .read(bleServiceProvider)
+          .writeCharacteristic(
             widget.deviceId,
             action.serviceUuid,
             action.characteristicUuid,
@@ -207,8 +212,9 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
         _sendingRole = null;
         _errorText = text;
       });
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(text)));
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(text)));
     }
   }
 
@@ -270,7 +276,11 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
       final b = value.rawOf(entity.colorBlueField);
       if (r != null && g != null && b != null) {
         _color = Color.fromARGB(
-            255, r.clamp(0, 255), g.clamp(0, 255), b.clamp(0, 255));
+          255,
+          r.clamp(0, 255),
+          g.clamp(0, 255),
+          b.clamp(0, 255),
+        );
       }
     }
     _seeded = true;
@@ -338,8 +348,9 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                   children: [
                     Text(
                       widget.entity.name,
-                      style: text.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -393,8 +404,11 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
             const SizedBox(height: 8),
             Row(
               children: [
-                Icon(Icons.brightness_6,
-                    size: 18, color: scheme.onSurfaceVariant),
+                Icon(
+                  Icons.brightness_6,
+                  size: 18,
+                  color: scheme.onSurfaceVariant,
+                ),
                 Expanded(
                   child: Slider(
                     // Without this a screen reader announces the bare number
@@ -408,17 +422,19 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                     onChanged: _sending
                         ? null
                         : (v) => setState(() {
-                              _touchedBrightness = true;
-                              _brightness = v;
-                            }),
-                    onChangeEnd:
-                        _sending ? null : (_) => _onBrightnessCommitted(),
+                            _touchedBrightness = true;
+                            _brightness = v;
+                          }),
+                    onChangeEnd: _sending
+                        ? null
+                        : (_) => _onBrightnessCommitted(),
                   ),
                 ),
                 Text(
                   '${_effectiveBrightness.round()}',
-                  style:
-                      text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -469,8 +485,10 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
     final style = text.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     if (_sending) return Text('Sending...', style: style);
     if (_errorText != null) {
-      return Text(_errorText!,
-          style: text.bodySmall?.copyWith(color: scheme.error));
+      return Text(
+        _errorText!,
+        style: text.bodySmall?.copyWith(color: scheme.error),
+      );
     }
     // Lights commonly have no readable state at all (most strips are
     // write-only); a working blind control is normal, so only a live decode
@@ -478,14 +496,11 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
     if (value == null || value.status != EntityValueStatus.live) {
       return Text('Ready', style: style);
     }
-    return Text(
-      switch (shownOn) {
-        true => _assumedOn != null ? 'On (sent)' : 'On',
-        false => _assumedOn != null ? 'Off (sent)' : 'Off',
-        null => 'Ready',
-      },
-      style: style,
-    );
+    return Text(switch (shownOn) {
+      true => _assumedOn != null ? 'On (sent)' : 'On',
+      false => _assumedOn != null ? 'Off (sent)' : 'Off',
+      null => 'Ready',
+    }, style: style);
   }
 }
 

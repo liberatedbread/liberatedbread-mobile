@@ -22,11 +22,15 @@ const String _devicesDir = 'vendor/protocol-specs/device-specs/devices';
 
 // The device: block, and the top-level (exactly-two-space-indented) name /
 // manufacturer within it — deeper-indented variant names do not match.
-final RegExp _deviceBlock =
-    RegExp(r'^device:\n(?:[ \t].*\n|\n)*', multiLine: true);
+final RegExp _deviceBlock = RegExp(
+  r'^device:\n(?:[ \t].*\n|\n)*',
+  multiLine: true,
+);
 final RegExp _name = RegExp(r'^  name:\s*(.+)$', multiLine: true);
-final RegExp _manufacturer =
-    RegExp(r'^  manufacturer:\s*(.+)$', multiLine: true);
+final RegExp _manufacturer = RegExp(
+  r'^  manufacturer:\s*(.+)$',
+  multiLine: true,
+);
 
 /// Spec keys deliberately not in the catalogue yet — the promotion ships ahead
 /// of the device spec. Each MUST carry a reason; remove the entry once the spec
@@ -34,7 +38,7 @@ final RegExp _manufacturer =
 const Map<String, String> _pendingSpecKeys = {
   'eufyMake E1 UV Printer|eufy (Anker Innovations)':
       'No eufy-make-e1 spec in the catalogue yet; the UV-ink promo is staged '
-          'for when it lands.',
+      'for when it lands.',
 };
 
 String _unquote(String raw) {
@@ -55,14 +59,16 @@ String _unquote(String raw) {
 void main() {
   test('every bundled targeted-banner spec key resolves in the catalogue', () {
     final specsDir = Directory('${repoRoot.path}/$_devicesDir');
-    expect(specsDir.existsSync(), isTrue,
-        reason: '$_devicesDir (the vendored catalogue) must exist.');
+    expect(
+      specsDir.existsSync(),
+      isTrue,
+      reason: '$_devicesDir (the vendored catalogue) must exist.',
+    );
 
     final catalogueKeys = <String>{};
-    for (final file in specsDir
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.yaml'))) {
+    for (final file in specsDir.listSync().whereType<File>().where(
+      (f) => f.path.endsWith('.yaml'),
+    )) {
       final text = file.readAsStringSync();
       final block = _deviceBlock.firstMatch(text)?.group(0);
       if (block == null) continue;
@@ -73,9 +79,13 @@ void main() {
     }
 
     // Anti-vacuity: the parse must have found the catalogue, not silently zero.
-    expect(catalogueKeys.length, greaterThan(100),
-        reason: 'Parsed only ${catalogueKeys.length} specKeys from the '
-            'catalogue — the name/manufacturer scan is probably broken.');
+    expect(
+      catalogueKeys.length,
+      greaterThan(100),
+      reason:
+          'Parsed only ${catalogueKeys.length} specKeys from the '
+          'catalogue — the name/manufacturer scan is probably broken.',
+    );
 
     final bundledKeys = <String>{
       for (final banner in AdBanner.bundledTargets) ...?banner.match?.specKeys,
@@ -86,19 +96,27 @@ void main() {
       if (_pendingSpecKeys.containsKey(key)) {
         // Guard the guard: a pending key that HAS shipped must be promoted out
         // of the allowlist so it is really checked.
-        expect(catalogueKeys.contains(key), isFalse,
-            reason: 'Spec key "$key" is on the pending allowlist but now '
-                'exists in the catalogue — remove it from _pendingSpecKeys so '
-                'it is held to the real spec.');
+        expect(
+          catalogueKeys.contains(key),
+          isFalse,
+          reason:
+              'Spec key "$key" is on the pending allowlist but now '
+              'exists in the catalogue — remove it from _pendingSpecKeys so '
+              'it is held to the real spec.',
+        );
         continue;
       }
-      expect(catalogueKeys.contains(key), isTrue,
-          reason: 'Bundled targeted-banner spec key "$key" matches no spec in '
-              'the vendored catalogue. A spec was renamed (device.name / '
-              'device.manufacturer) and orphaned this promo, or the key is a '
-              'typo. Fix the key in AdBanner.bundledTargets (and banner.json), '
-              'or add it to _pendingSpecKeys with a reason if the spec is not '
-              'in the catalogue yet.');
+      expect(
+        catalogueKeys.contains(key),
+        isTrue,
+        reason:
+            'Bundled targeted-banner spec key "$key" matches no spec in '
+            'the vendored catalogue. A spec was renamed (device.name / '
+            'device.manufacturer) and orphaned this promo, or the key is a '
+            'typo. Fix the key in AdBanner.bundledTargets (and banner.json), '
+            'or add it to _pendingSpecKeys with a reason if the spec is not '
+            'in the catalogue yet.',
+      );
     }
   });
 }

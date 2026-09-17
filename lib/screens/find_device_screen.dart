@@ -110,9 +110,10 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
       // fail/succeed pattern never reaches the threshold, and without these
       // lines it leaves no trace at all.
       Log.ble.warning(
-          'find-device: RSSI read $_consecutiveFailures/'
-          '$_maxConsecutiveFailures failed on ${widget.deviceId}',
-          error: e);
+        'find-device: RSSI read $_consecutiveFailures/'
+        '$_maxConsecutiveFailures failed on ${widget.deviceId}',
+        error: e,
+      );
       if (_consecutiveFailures >= _maxConsecutiveFailures) {
         setState(() {
           _signalLost = true;
@@ -140,12 +141,14 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
       if (stop) {
         bytes = action.stopBytes!;
       } else if (action.commandName != null) {
-        final encoded = await ref.read(specCodecProvider).encodeCommand(
-          specYaml: action.specYaml,
-          charUuid: action.charUuid,
-          commandName: action.commandName!,
-          params: const {},
-        );
+        final encoded = await ref
+            .read(specCodecProvider)
+            .encodeCommand(
+              specYaml: action.specYaml,
+              charUuid: action.charUuid,
+              commandName: action.commandName!,
+              params: const {},
+            );
         bytes = encoded.toList();
       } else {
         bytes = action.bytes!;
@@ -171,11 +174,13 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
       _showSnack(stop ? 'Stopped ${action.label}' : 'Sent ${action.label}');
     } catch (e) {
       if (!mounted) return;
-      _showSnack(friendlyErrorText(
-        e,
-        context: 'find-device alert ${action.commandName ?? action.label}',
-        fallback: 'The device did not accept the alert command.',
-      ));
+      _showSnack(
+        friendlyErrorText(
+          e,
+          context: 'find-device alert ${action.commandName ?? action.label}',
+          fallback: 'The device did not accept the alert command.',
+        ),
+      );
     } finally {
       if (mounted) setState(() => _busyActionKey = null);
     }
@@ -191,9 +196,9 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
       '${action.commandName ?? action.label}${stop ? ':stop' : ''}';
 
   void _showSnack(String msg) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -230,15 +235,17 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
     // Same family key as DeviceControlPanel builds, so this watch hits the
     // already-resolved match instead of re-running matching.
     final serviceUuids = [
-      for (final s in widget.services) normalizeUuid(s.uuid)
+      for (final s in widget.services) normalizeUuid(s.uuid),
     ]..sort();
-    final matchAsync = ref.watch(matchedDeviceSpecProvider(
-      SpecMatchRequest(
-        deviceId: widget.deviceId,
-        deviceName: widget.deviceName,
-        serviceUuids: serviceUuids,
+    final matchAsync = ref.watch(
+      matchedDeviceSpecProvider(
+        SpecMatchRequest(
+          deviceId: widget.deviceId,
+          deviceName: widget.deviceName,
+          serviceUuids: serviceUuids,
+        ),
       ),
-    ));
+    );
     // hasValue||hasError, not `valueOrNull != null`: a match that FAILED
     // (spec assets unreadable, pack load error) also has a null value, and
     // keying visibility off that alone made the whole section — including
@@ -348,8 +355,9 @@ class _ProximityGauge extends StatelessWidget {
     final text = Theme.of(context).textTheme;
 
     final smoothed = tracker.smoothed;
-    final fraction =
-        signalLost || smoothed == null ? 0.0 : signalFraction(smoothed);
+    final fraction = signalLost || smoothed == null
+        ? 0.0
+        : signalFraction(smoothed);
     final distance = tracker.estimatedDistanceMeters;
 
     final String headline;
@@ -382,8 +390,9 @@ class _ProximityGauge extends StatelessWidget {
       height: size,
       child: TweenAnimationBuilder<double>(
         tween: Tween(end: fraction),
-        duration:
-            reduceMotion ? Duration.zero : const Duration(milliseconds: 350),
+        duration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 350),
         curve: Curves.easeOut,
         builder: (context, animated, child) => CustomPaint(
           painter: _GaugePainter(
@@ -413,8 +422,9 @@ class _ProximityGauge extends StatelessWidget {
                 Text(
                   caption,
                   textAlign: TextAlign.center,
-                  style:
-                      text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                  style: text.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -481,27 +491,27 @@ class _TrendLine extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final (icon, label, color) = switch (trend) {
       RssiTrend.closer => (
-          Icons.trending_up,
-          'Getting closer',
-          scheme.secondary
-        ),
+        Icons.trending_up,
+        'Getting closer',
+        scheme.secondary,
+      ),
       RssiTrend.farther => (
-          Icons.trending_down,
-          'Getting farther',
-          scheme.onSurfaceVariant
-        ),
+        Icons.trending_down,
+        'Getting farther',
+        scheme.onSurfaceVariant,
+      ),
       RssiTrend.steady => (
-          Icons.trending_flat,
-          'Signal steady',
-          scheme.onSurfaceVariant
-        ),
+        Icons.trending_flat,
+        'Signal steady',
+        scheme.onSurfaceVariant,
+      ),
       // "Steady" is a verdict; before there are samples to compare, the
       // honest line is that we're still collecting them.
       RssiTrend.unknown => (
-          Icons.more_horiz,
-          'Reading signal...',
-          scheme.onSurfaceVariant
-        ),
+        Icons.more_horiz,
+        'Reading signal...',
+        scheme.onSurfaceVariant,
+      ),
     };
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -513,10 +523,10 @@ class _TrendLine extends StatelessWidget {
         Flexible(
           child: Text(
             label,
-            style: Theme.of(context)
-                .textTheme
-                .bodyMedium
-                ?.copyWith(color: color, fontWeight: FontWeight.w600),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
@@ -556,7 +566,7 @@ class _SignalDetailsCard extends StatelessWidget {
       ('Samples', tracker.hasSamples ? '${tracker.sampleCount}' : '—'),
       (
         'Distance guess',
-        signalLost || distance == null ? '—' : formatApproxDistance(distance)
+        signalLost || distance == null ? '—' : formatApproxDistance(distance),
       ),
     ];
 
@@ -587,8 +597,9 @@ class _SignalDetailsCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       label,
-                      style: text.bodyMedium
-                          ?.copyWith(color: scheme.onSurfaceVariant),
+                      style: text.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
                   Text(
@@ -684,8 +695,9 @@ class _AlertActionsSection extends StatelessWidget {
             children: [
               for (final action in actions) ...[
                 FilledButton.tonalIcon(
-                  onPressed:
-                      busyActionKey != null ? null : () => onSend(action),
+                  onPressed: busyActionKey != null
+                      ? null
+                      : () => onSend(action),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 48),
                     padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -724,10 +736,10 @@ class _AlertActionsSection extends StatelessWidget {
   }
 
   IconData _iconFor(FindAlertKind kind) => switch (kind) {
-        FindAlertKind.sound => Icons.volume_up,
-        FindAlertKind.flash => Icons.flashlight_on,
-        FindAlertKind.alert => Icons.notifications_active,
-      };
+    FindAlertKind.sound => Icons.volume_up,
+    FindAlertKind.flash => Icons.flashlight_on,
+    FindAlertKind.alert => Icons.notifications_active,
+  };
 }
 
 /// Shown when RSSI reads keep failing: the connection is very likely gone,

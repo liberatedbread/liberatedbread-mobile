@@ -53,12 +53,14 @@ class _DisclosingRobot implements RoombaTlsSocket {
   void add(List<int> bytes) {
     final encoded = utf8.encode(password);
     const gap = 11; // the password starts at offset 13 of the whole reply
-    _out.add(Uint8List.fromList([
-      0xf0,
-      encoded.length + gap,
-      for (var i = 1; i <= gap; i++) i % 0x20,
-      ...encoded,
-    ]));
+    _out.add(
+      Uint8List.fromList([
+        0xf0,
+        encoded.length + gap,
+        for (var i = 1; i <= gap; i++) i % 0x20,
+        ...encoded,
+      ]),
+    );
   }
 
   @override
@@ -192,10 +194,11 @@ void main() {
     expect(find.textContaining('before that'), findsOneWidget);
   });
 
-  testWidgets('the button route saves the password and reveals it',
-      (tester) async {
+  testWidgets('the button route saves the password and reveals it', (
+    tester,
+  ) async {
     await tester.pumpWidget(
-      wrap(connect: (_, __, ___) async => _DisclosingRobot(_password)),
+      wrap(connect: (_, _, _) async => _DisclosingRobot(_password)),
     );
 
     await tester.tap(find.text('Hold the HOME button'));
@@ -214,8 +217,11 @@ void main() {
     expect(find.text('192.168.1.103'), findsOneWidget);
 
     final saved = await stored();
-    expect(saved!.password, _password,
-        reason: 'stored verbatim, leading colon and all');
+    expect(
+      saved!.password,
+      _password,
+      reason: 'stored verbatim, leading colon and all',
+    );
     expect(saved.name, 'Dorita');
     expect(saved.lastIp, '192.168.1.103');
   });
@@ -230,11 +236,13 @@ void main() {
     expect(find.text('Not stored. Sent to iRobot once.'), findsOneWidget);
 
     await tester.enterText(
-        find.widgetWithText(TextField, 'iRobot account email'),
-        'someone@example.com');
+      find.widgetWithText(TextField, 'iRobot account email'),
+      'someone@example.com',
+    );
     await tester.enterText(
-        find.widgetWithText(TextField, 'iRobot account password'),
-        'account-secret');
+      find.widgetWithText(TextField, 'iRobot account password'),
+      'account-secret',
+    );
     await tester.tap(find.text('Sign in and read my robots'));
     await pumpBusy(tester);
 
@@ -252,17 +260,20 @@ void main() {
   /// then reports no robots. The country therefore has to reach the request,
   /// and has to be correctable — the phone's country and the account's are not
   /// always the same.
-  testWidgets('the account route sends the region the user can edit',
-      (tester) async {
+  testWidgets('the account route sends the region the user can edit', (
+    tester,
+  ) async {
     final countries = <String>[];
-    await tester.pumpWidget(wrap(
-      cloudClient: MockClient((request) async {
-        if (request.url.path.endsWith('/v1/discover/endpoints')) {
-          countries.add(request.url.queryParameters['country_code'] ?? '');
-        }
-        return _irobotAccountResponse(request);
-      }),
-    ));
+    await tester.pumpWidget(
+      wrap(
+        cloudClient: MockClient((request) async {
+          if (request.url.path.endsWith('/v1/discover/endpoints')) {
+            countries.add(request.url.queryParameters['country_code'] ?? '');
+          }
+          return _irobotAccountResponse(request);
+        }),
+      ),
+    );
 
     await tester.tap(find.text('Sign in to iRobot once'));
     await tester.pumpAndSettle();
@@ -275,11 +286,13 @@ void main() {
 
     await tester.enterText(region, 'de');
     await tester.enterText(
-        find.widgetWithText(TextField, 'iRobot account email'),
-        'someone@example.com');
+      find.widgetWithText(TextField, 'iRobot account email'),
+      'someone@example.com',
+    );
     await tester.enterText(
-        find.widgetWithText(TextField, 'iRobot account password'),
-        'account-secret');
+      find.widgetWithText(TextField, 'iRobot account password'),
+      'account-secret',
+    );
     await tester.tap(find.text('Sign in and read my robots'));
     await pumpBusy(tester);
 
@@ -292,39 +305,42 @@ void main() {
   /// under that robot's BLID: the screen reports success, the robot the user
   /// picked still has nothing saved, and the failure turns up later somewhere
   /// else entirely.
-  testWidgets(
-      'a robot missing from the account fails instead of adopting '
+  testWidgets('a robot missing from the account fails instead of adopting '
       'another one', (tester) async {
-    await tester.pumpWidget(wrap(
-      cloudClient: MockClient((request) async {
-        if (request.url.path.endsWith('/v1/discover/endpoints') ||
-            request.url.path.endsWith('/accounts.login')) {
-          return _irobotAccountResponse(request);
-        }
-        // A real account, real robots — none of them this one.
-        return http.Response(
-          jsonEncode({
-            'robots': {
-              'AAAA1111BBBB2222': {
-                'password': ':1:9999999999:someoneElsesRobot',
-                'name': 'Downstairs',
-                'sku': 'R980020',
+    await tester.pumpWidget(
+      wrap(
+        cloudClient: MockClient((request) async {
+          if (request.url.path.endsWith('/v1/discover/endpoints') ||
+              request.url.path.endsWith('/accounts.login')) {
+            return _irobotAccountResponse(request);
+          }
+          // A real account, real robots — none of them this one.
+          return http.Response(
+            jsonEncode({
+              'robots': {
+                'AAAA1111BBBB2222': {
+                  'password': ':1:9999999999:someoneElsesRobot',
+                  'name': 'Downstairs',
+                  'sku': 'R980020',
+                },
               },
-            },
-          }),
-          200,
-        );
-      }),
-    ));
+            }),
+            200,
+          );
+        }),
+      ),
+    );
 
     await tester.tap(find.text('Sign in to iRobot once'));
     await tester.pumpAndSettle();
     await tester.enterText(
-        find.widgetWithText(TextField, 'iRobot account email'),
-        'someone@example.com');
+      find.widgetWithText(TextField, 'iRobot account email'),
+      'someone@example.com',
+    );
     await tester.enterText(
-        find.widgetWithText(TextField, 'iRobot account password'),
-        'account-secret');
+      find.widgetWithText(TextField, 'iRobot account password'),
+      'account-secret',
+    );
     await tester.tap(find.text('Sign in and read my robots'));
     await pumpBusy(tester);
 
@@ -355,16 +371,18 @@ void main() {
         attributes: {'friendly_name': 'Dorita'},
       ),
     };
-    await tester.pumpWidget(wrap(
-      homeAssistant: HaRoombaClient(
-        api: api,
-        config: const HaConfig(
-          baseUrl: 'http://ha.local:8123',
-          token: 'llat',
-          deviceId: 'device',
+    await tester.pumpWidget(
+      wrap(
+        homeAssistant: HaRoombaClient(
+          api: api,
+          config: const HaConfig(
+            baseUrl: 'http://ha.local:8123',
+            token: 'llat',
+            deviceId: 'device',
+          ),
         ),
       ),
-    ));
+    );
 
     expect(find.text('Use Home Assistant'), findsOneWidget);
     expect(find.textContaining('no password on this phone'), findsOneWidget);
@@ -374,8 +392,9 @@ void main() {
 
   /// And when it is not connected, the option is absent rather than a dead
   /// button: there would be nothing to pick from.
-  testWidgets('offers no Home Assistant route when it is not connected',
-      (tester) async {
+  testWidgets('offers no Home Assistant route when it is not connected', (
+    tester,
+  ) async {
     await tester.pumpWidget(wrap());
 
     expect(find.text('Use Home Assistant'), findsNothing);
@@ -409,7 +428,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-        find.textContaining('Both the BLID and the password'), findsOneWidget);
+      find.textContaining('Both the BLID and the password'),
+      findsOneWidget,
+    );
     expect(await stored(), isNull);
   });
 
@@ -420,14 +441,17 @@ void main() {
   /// rather than hope. The first of them is handing the robot to something
   /// that CAN talk to it — which is also the answer to the one-client problem,
   /// and the only answer for a robot this phone cannot reach.
-  testWidgets('a legacy-TLS failure offers the routes that do work',
-      (tester) async {
-    await tester.pumpWidget(wrap(
-      connect: (_, __, ___) async => throw const RoombaConnectionException(
-        'The TLS handshake failed.',
-        legacyTlsSuspected: true,
+  testWidgets('a legacy-TLS failure offers the routes that do work', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        connect: (_, _, _) async => throw const RoombaConnectionException(
+          'The TLS handshake failed.',
+          legacyTlsSuspected: true,
+        ),
       ),
-    ));
+    );
 
     await tester.tap(find.text('Hold the HOME button'));
     await tester.pumpAndSettle();
@@ -451,12 +475,15 @@ void main() {
     expect(opened.single.toString(), contains('koalazak/rest980'));
   });
 
-  testWidgets('a failed handshake explains itself and saves nothing',
-      (tester) async {
-    await tester.pumpWidget(wrap(
-      connect: (_, __, ___) async =>
-          throw const RoombaPasswordException('not in disclosure mode'),
-    ));
+  testWidgets('a failed handshake explains itself and saves nothing', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        connect: (_, _, _) async =>
+            throw const RoombaPasswordException('not in disclosure mode'),
+      ),
+    );
 
     await tester.tap(find.text('Hold the HOME button'));
     await tester.pumpAndSettle();

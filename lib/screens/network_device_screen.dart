@@ -319,15 +319,18 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         if (!identical(current, session)) {
           session = current;
           await _keyboardSub?.cancel();
-          _keyboardSub =
-              current.textEditFocusChanges.listen(_setKeyboardFocused);
+          _keyboardSub = current.textEditFocusChanges.listen(
+            _setKeyboardFocused,
+          );
         }
         final focused = await current.queryTextEditFocused();
         // Drop a reply a notice has already superseded (see _keyboardStateGen).
         if (gen == _keyboardStateGen) _setKeyboardFocused(focused);
       } catch (e) {
-        Log.net.debug('textedit-state poll failed for ${widget.device.host}: '
-            '$e');
+        Log.net.debug(
+          'textedit-state poll failed for ${widget.device.host}: '
+          '$e',
+        );
       }
     }
 
@@ -361,20 +364,23 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     if (_surfaceRefined || _stateByCommand.isEmpty) return;
     _surfaceRefined = true;
     try {
-      final surface =
-          await ref.read(specCodecProvider).networkEntitiesForStateKeys(
-                specYaml: widget.controls.specYaml,
-                ssdpTargets: widget.device.ssdpTargets,
-                stateKeys: _stateByCommand,
-              );
+      final surface = await ref
+          .read(specCodecProvider)
+          .networkEntitiesForStateKeys(
+            specYaml: widget.controls.specYaml,
+            ssdpTargets: widget.device.ssdpTargets,
+            stateKeys: _stateByCommand,
+          );
       if (!mounted) return;
       setState(() {
         _refinedEntities = surface.entities;
         _refinedHiddenNames = surface.hiddenNames;
       });
     } catch (e) {
-      Log.spec.warning('surface refinement failed for ${widget.device.host}',
-          error: e);
+      Log.spec.warning(
+        'surface refinement failed for ${widget.device.host}',
+        error: e,
+      );
     }
   }
 
@@ -405,8 +411,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// Whether an instanced entity enumerated any children this poll — a power
   /// strip. Drives the render fork: per-outlet switches instead of the single
   /// "Outlet" switch, which on a strip would only ever read "State unknown".
-  bool get _hasInstanceChildren => _entities
-      .any((e) => e.isInstanced && (_instances[e.name]?.isNotEmpty ?? false));
+  bool get _hasInstanceChildren => _entities.any(
+    (e) => e.isInstanced && (_instances[e.name]?.isNotEmpty ?? false),
+  );
 
   /// The address a Kasa send/poll uses.
   int get _kasaHostPort => widget.device.port ?? _kasaPort;
@@ -420,9 +427,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// Whether this device is driven over the Rabbit Air UDP transport. It has
   /// no `setup.xml`, and every exchange wants the stored user key, so the
   /// load, refresh and send paths all fork on this.
-  bool get _isRabbitAir => _entities.any((e) =>
-      e.transport == _rabbitAirTransport ||
-      e.actions.any((a) => a.transport == _rabbitAirTransport));
+  bool get _isRabbitAir => _entities.any(
+    (e) =>
+        e.transport == _rabbitAirTransport ||
+        e.actions.any((a) => a.transport == _rabbitAirTransport),
+  );
 
   /// The address a Rabbit Air send/poll uses. Real discovery reports the
   /// mDNS SRV port (9009); the constant is the fallback.
@@ -463,19 +472,24 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// Kasa has no description to fetch and polls instead; an MQTT device has no
   /// description AND nothing to poll, because it pushes. There is no request
   /// whose reply is the battery level.
-  bool get _speaksMqtt => _entities.any((e) =>
-      e.transport == roombaTransport ||
-      e.actions.any((a) => a.transport == roombaTransport));
+  bool get _speaksMqtt => _entities.any(
+    (e) =>
+        e.transport == roombaTransport ||
+        e.actions.any((a) => a.transport == roombaTransport),
+  );
 
   /// Whether this device's commands ride the spec-declared WebSocket surface
   /// — a Samsung or LG set. Like [_speaksMqtt]: no description to fetch and
   /// nothing to poll, and nothing to open either — the sender opens and
   /// pairs the session on the first send, so a screen the user only looks at
   /// never raises the television's Allow prompt.
-  bool get _speaksWebsocket => _entities.any((e) =>
-      e.transport == NetworkCommandSender.websocketTransport ||
-      e.actions
-          .any((a) => a.transport == NetworkCommandSender.websocketTransport));
+  bool get _speaksWebsocket => _entities.any(
+    (e) =>
+        e.transport == NetworkCommandSender.websocketTransport ||
+        e.actions.any(
+          (a) => a.transport == NetworkCommandSender.websocketTransport,
+        ),
+  );
 
   /// Whether this device is specifically a Roomba, which has a bespoke load
   /// path — credentials, an HA route, a controller holding the robot's one
@@ -516,9 +530,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final roomba = _roomba;
     if (roomba == null) return _entities;
     return _entities
-        .where((entity) =>
-            entity.actions.isEmpty ||
-            entity.actions.every((a) => roomba.supports(a.commandName)))
+        .where(
+          (entity) =>
+              entity.actions.isEmpty ||
+              entity.actions.every((a) => roomba.supports(a.commandName)),
+        )
         .toList();
   }
 
@@ -541,9 +557,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// Yeelight cube resolved no actions at all, `_isKasa` went false, and their
   /// tcp-json state commands sent both devices off to fetch a UPnP document
   /// from hardware that speaks framed JSON on a raw socket.
-  bool get _needsDescription => _entities.any((e) =>
-      e.actions.any((action) => action.transport == 'soap') ||
-      (e.stateCommand.isNotEmpty && e.transport == 'soap'));
+  bool get _needsDescription => _entities.any(
+    (e) =>
+        e.actions.any((action) => action.transport == 'soap') ||
+        (e.stateCommand.isNotEmpty && e.transport == 'soap'),
+  );
 
   /// Loaded enough to draw controls: the description is fetched, or nothing
   /// on this screen wants it.
@@ -598,7 +616,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           // Nothing advertised a port and no spec declares one — not a device
           // this screen can drive.
           throw const SoapTransportException(
-              'the device did not advertise a control port');
+            'the device did not advertise a control port',
+          );
         }
         if (_needsDescription) {
           final client = ref.read(soapControlClientProvider);
@@ -630,7 +649,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         _error = friendlyErrorText(
           e,
           context: 'device control',
-          fallback: 'Could not reach the device. It may have moved ports — '
+          fallback:
+              'Could not reach the device. It may have moved ports — '
               'try scanning again.',
         );
       });
@@ -699,8 +719,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final stored = derivation == null
         ? value
         : await ref
-            .read(specCodecProvider)
-            .deriveCredentialValue(derivation: derivation, value: value);
+              .read(specCodecProvider)
+              .deriveCredentialValue(derivation: derivation, value: value);
     // A failed write (a locked keystore) propagates: the credentials card
     // catches it and tells the person, which nothing here used to.
     await ref
@@ -723,7 +743,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     _statePoll?.cancel();
     if (_stateCommands.isEmpty) return;
     _statePoll = Timer.periodic(
-        const Duration(seconds: 4), (_) => unawaited(_tickStatePoll()));
+      const Duration(seconds: 4),
+      (_) => unawaited(_tickStatePoll()),
+    );
   }
 
   /// One background state refresh. Skips its turn — rather than stacking —
@@ -777,9 +799,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       // reading it simply cannot take into a crash.
       final description = _description;
       if (description == null) {
-        Log.net.debug('no state poll for "$command" on ${widget.device.host}: '
-            'transport ${_stateTransport(command) ?? '<unknown>'} needs a '
-            'device description and this device serves none');
+        Log.net.debug(
+          'no state poll for "$command" on ${widget.device.host}: '
+          'transport ${_stateTransport(command) ?? '<unknown>'} needs a '
+          'device description and this device serves none',
+        );
         continue;
       }
       final request = await codec.renderNetworkStateRequest(
@@ -788,8 +812,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       );
       final path = description.controlPathFor(request);
       if (path == null) continue;
-      _stateByCommand[command] =
-          await client.send(description.host, description.port, path, request);
+      _stateByCommand[command] = await client.send(
+        description.host,
+        description.port,
+        path,
+        request,
+      );
     }
     await _decodeEntities();
   }
@@ -848,8 +876,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         specYaml: widget.controls.specYaml,
         stateCommand: command,
       );
-      final reply =
-          await client.send(widget.device.host, _kasaHostPort, request);
+      final reply = await client.send(
+        widget.device.host,
+        _kasaHostPort,
+        request,
+      );
       _stateByCommand[command] = kasaStateFields(reply);
       _rawStateReply[command] = reply;
       // The reply, so an "unknown state" is diagnosable from a log instead of a
@@ -944,8 +975,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         'a password up by. Scan again.',
       );
     }
-    final credentials =
-        await ref.read(roombaCredentialStoreProvider).credentials(blid);
+    final credentials = await ref
+        .read(roombaCredentialStoreProvider)
+        .credentials(blid);
     if (credentials == null) {
       // Nothing to drive it directly with. An entity id on the sighting is
       // then the only route left, so a robot known to both this LAN and Home
@@ -976,10 +1008,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       directClient: () {
         // Held, not read: see [_directClientHandle]. The callback only runs on
         // the direct path, so the rest980 path never takes the subscription.
-        final handle = ref.listenManual(
-          roombaClientProvider(blid),
-          (_, __) {},
-        );
+        final handle = ref.listenManual(roombaClientProvider(blid), (_, _) {});
         _directClientHandle = handle;
         return handle.read();
       },
@@ -1027,11 +1056,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _onRoombaState,
       onError: (Object e) {
         if (!mounted) return;
-        setState(() => _error = friendlyErrorText(
-              e,
-              context: 'roomba state',
-              fallback: 'Lost contact with the robot.',
-            ));
+        setState(
+          () => _error = friendlyErrorText(
+            e,
+            context: 'roomba state',
+            fallback: 'Lost contact with the robot.',
+          ),
+        );
       },
     );
   }
@@ -1044,10 +1075,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// percentage mean the same thing whichever transport carried it.
   Future<void> _onRoombaState(Map<String, String> fields) async {
     for (final command in _stateCommands) {
-      _stateByCommand[command] = {
-        ...?_stateByCommand[command],
-        ...fields,
-      };
+      _stateByCommand[command] = {...?_stateByCommand[command], ...fields};
     }
     await _decodeEntities();
     if (mounted) setState(() {});
@@ -1106,23 +1134,28 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     for (final declared in declaredTopics) {
       final String filled;
       try {
-        filled =
-            await codec.fillMqttStateTopic(topic: declared, values: values);
+        filled = await codec.fillMqttStateTopic(
+          topic: declared,
+          values: values,
+        );
       } catch (e) {
         // The fill refuses a value carrying the MQTT topic language (`/`,
         // `+`, `#`): a spoofed or malformed serial would not fill a level, it
         // would widen this subscription to topics the spec never named. One
         // refused topic costs its own reading, never the whole screen.
         Log.net.warning(
-            'mqtt state topic "$declared" was refused on ${widget.device.host}'
-            ' — not subscribing: $e');
+          'mqtt state topic "$declared" was refused on ${widget.device.host}'
+          ' — not subscribing: $e',
+        );
         continue;
       }
       if (filled.contains('{')) {
-        Log.net.info('mqtt state topic "$declared" still carries a '
-            'placeholder after filling from discovery and stored '
-            'credentials — not subscribing; the reading stays unknown '
-            'until the missing value is known');
+        Log.net.info(
+          'mqtt state topic "$declared" still carries a '
+          'placeholder after filling from discovery and stored '
+          'credentials — not subscribing; the reading stays unknown '
+          'until the missing value is known',
+        );
         continue;
       }
       declaredByFilled[filled] = declared;
@@ -1130,23 +1163,28 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     if (declaredByFilled.isEmpty || !mounted) return;
     try {
       final stream = await _sender.subscribeMqttState(
-          action, declaredByFilled.keys.toList());
+        action,
+        declaredByFilled.keys.toList(),
+      );
       await _mqttStateSub?.cancel();
-      _mqttStateSub = stream.listen((message) {
-        final declared = declaredByFilled[message.topic];
-        if (declared == null || !mounted) return;
-        // A delivered message is proof the session actually works, so reset the
-        // backoff here — NOT when listen() merely attached, which a flapping
-        // connection reaches every 2 s and would pin the backoff at its floor.
-        _mqttBackoff = Duration.zero;
-        _stateByCommand[declared] = httpStateFields(message.payload);
-        _scheduleDecode();
-      }, onError: (Object e) {
-        Log.net.debug('mqtt state stream on ${widget.device.host}: $e');
-        // A broker drop errors the stream; re-subscribe so pushed readings
-        // resume instead of freezing until the screen is reopened.
-        _scheduleMqttResubscribe();
-      });
+      _mqttStateSub = stream.listen(
+        (message) {
+          final declared = declaredByFilled[message.topic];
+          if (declared == null || !mounted) return;
+          // A delivered message is proof the session actually works, so reset the
+          // backoff here — NOT when listen() merely attached, which a flapping
+          // connection reaches every 2 s and would pin the backoff at its floor.
+          _mqttBackoff = Duration.zero;
+          _stateByCommand[declared] = httpStateFields(message.payload);
+          _scheduleDecode();
+        },
+        onError: (Object e) {
+          Log.net.debug('mqtt state stream on ${widget.device.host}: $e');
+          // A broker drop errors the stream; re-subscribe so pushed readings
+          // resume instead of freezing until the screen is reopened.
+          _scheduleMqttResubscribe();
+        },
+      );
     } on Exception catch (e) {
       // subscribeMqttState threw. On FIRST load (backoff still zero) that is
       // "unpaired / unreachable" — the credentials card is the ask, and looping
@@ -1199,7 +1237,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         } while (_decodeQueued && mounted);
       } catch (e) {
         Log.net.warning(
-            'decode after mqtt push on ${widget.device.host} failed: $e');
+          'decode after mqtt push on ${widget.device.host} failed: $e',
+        );
       } finally {
         _decoding = false;
       }
@@ -1231,9 +1270,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       if (reading == null &&
           returned != null &&
           entity.stateCommand.isNotEmpty) {
-        Log.net.debug('kasa/${entity.name}: state command '
-            '"${entity.stateCommand}" answered but no field mapped to a reading '
-            '(keys: ${returned.keys.join(", ")})');
+        Log.net.debug(
+          'kasa/${entity.name}: state command '
+          '"${entity.stateCommand}" answered but no field mapped to a reading '
+          '(keys: ${returned.keys.join(", ")})',
+        );
       }
     }
     if (mounted) setState(() {});
@@ -1394,7 +1435,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// true state. The busy key is "entity/childId", so one outlet's spinner
   /// does not disable its siblings.
   Future<void> _sendKasaChild(
-      NetworkEntityDto entity, NetworkInstanceDto child, bool on) async {
+    NetworkEntityDto entity,
+    NetworkInstanceDto child,
+    bool on,
+  ) async {
     final action = _actionFor(entity, on ? 'turn_on' : 'turn_off');
     if (action == null) return;
     final key = '${entity.name}/${child.id}';
@@ -1417,9 +1461,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       await _refreshState();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = friendlyErrorText(e,
+      setState(
+        () => _error = friendlyErrorText(
+          e,
           context: 'device control',
-          fallback: 'The outlet did not accept that. Try again.'));
+          fallback: 'The outlet did not accept that. Try again.',
+        ),
+      );
     } finally {
       if (mounted) setState(() => _sending.remove(key));
     }
@@ -1481,9 +1529,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               const Center(child: CircularProgressIndicator()),
               const SizedBox(height: 16),
               Center(
-                child: Text('Asking the device...',
-                    style: text.bodyMedium
-                        ?.copyWith(color: scheme.onSurfaceVariant)),
+                child: Text(
+                  'Asking the device...',
+                  style: text.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ] else if (!_ready) ...[
               // Never reached the device: no cards. A toggle for a device
@@ -1543,19 +1594,18 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               // the pad) and not the keyboard (placed by whether it's usable,
               // below), so a Roku's remote keeps a stable position whether the
               // app list is still loading or just came back.
-              for (final entity in _drawableEntities.where((entity) =>
-                  entity.platform != 'button' &&
-                  entity.platform != 'select' &&
-                  entity.platform != 'text' &&
-                  // Instanced entities render per-outlet below, not here.
-                  // Which family's controls apply (a strip's per-outlet
-                  // switches, a bulb's light, a plug's relay) is the spec's
-                  // variant scoping, settled by _refineSurface — not a rule
-                  // here.
-                  !entity.isInstanced)) ...[
-                _entityCard(entity),
-                const SizedBox(height: 12),
-              ],
+              for (final entity in _drawableEntities.where(
+                (entity) =>
+                    entity.platform != 'button' &&
+                    entity.platform != 'select' &&
+                    entity.platform != 'text' &&
+                    // Instanced entities render per-outlet below, not here.
+                    // Which family's controls apply (a strip's per-outlet
+                    // switches, a bulb's light, a plug's relay) is the spec's
+                    // variant scoping, settled by _refineSurface — not a rule
+                    // here.
+                    !entity.isInstanced,
+              )) ...[_entityCard(entity), const SizedBox(height: 12)],
               // A power strip's outlets: one switch per child, named by its
               // alias, under a header that names it a strip. Empty (so nothing
               // renders) on a single-outlet plug.
@@ -1563,22 +1613,26 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 Row(
                   children: [
                     PowerStripIcon(
-                        size: 22,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      size: 22,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                     const SizedBox(width: 8),
-                    Text('Outlets',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant)),
+                    Text(
+                      'Outlets',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
               ],
-              for (final entity
-                  in _drawableEntities.where((e) => e.isInstanced))
-                for (final child in _instances[entity.name] ??
-                    const <NetworkInstanceDto>[]) ...[
+              for (final entity in _drawableEntities.where(
+                (e) => e.isInstanced,
+              ))
+                for (final child
+                    in _instances[entity.name] ??
+                        const <NetworkInstanceDto>[]) ...[
                   _instanceSwitchCard(entity, child),
                   const SizedBox(height: 12),
                 ],
@@ -1602,11 +1656,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               // or Prime matters, but it is the tap you reach for once —
               // not the D-pad you steer with — so it waits under the pad
               // rather than pushing the pad down when its options arrive.
-              for (final entity in _drawableEntities
-                  .where((entity) => entity.platform == 'select')) ...[
-                _entityCard(entity),
-                const SizedBox(height: 12),
-              ],
+              for (final entity in _drawableEntities.where(
+                (entity) => entity.platform == 'select',
+              )) ...[_entityCard(entity), const SizedBox(height: 12)],
               // The keyboard when we cannot tell whether it's usable (no signed
               // session, or the query failed): parked at the very foot, out of
               // the way but still reachable — hiding a control the user might
@@ -1650,18 +1702,20 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final scheme = Theme.of(context).colorScheme;
     final label = names.length == 1
         ? '1 control in this device’s spec is not supported by this app '
-            'yet (${names.single}).'
+              'yet (${names.single}).'
         : '${names.length} controls in this device’s spec are not '
-            'supported by this app yet '
-            '(${names.take(4).join(', ')}${names.length > 4 ? ', …' : ''}).';
+              'supported by this app yet '
+              '(${names.take(4).join(', ')}${names.length > 4 ? ', …' : ''}).';
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(Icons.info_outline, size: 16, color: scheme.onSurfaceVariant),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(label,
-              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+          child: Text(
+            label,
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
         ),
       ],
     );
@@ -1693,8 +1747,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   Text(
                     'The device is refusing commands',
                     style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSecondaryContainer),
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSecondaryContainer,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -1704,8 +1759,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                     'System > Advanced system settings > "Control by mobile '
                     'apps"; other devices word it as network or external '
                     'control. Enable it there, then try again.',
-                    style: text.bodySmall
-                        ?.copyWith(color: scheme.onSecondaryContainer),
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSecondaryContainer,
+                    ),
                   ),
                 ],
               ),
@@ -1767,8 +1823,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Widget _textCard(NetworkEntityDto entity) {
     final submit = _actionFor(entity, 'submit');
     final backspace = _actionFor(entity, 'press');
-    final controller =
-        _textControllers.putIfAbsent(entity.name, TextEditingController.new);
+    final controller = _textControllers.putIfAbsent(
+      entity.name,
+      TextEditingController.new,
+    );
     final icon = entityIconFor(icon: entity.icon);
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
@@ -1783,9 +1841,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 Icon(icon, size: 20, color: scheme.onSurfaceVariant),
                 const SizedBox(width: 8),
               ],
-              Text(entity.name,
-                  style:
-                      text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+              Text(
+                entity.name,
+                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -1819,8 +1878,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           // the spec bound one — the field and its backspace are this card's.
           _unclaimedActions(entity, const {'submit', 'press'}),
           const SizedBox(height: 4),
-          Text('Types into whatever field is focused on the device.',
-              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            'Types into whatever field is focused on the device.',
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
         ],
       ),
     );
@@ -1828,8 +1889,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   /// Relay one edit as keystrokes: delete what was removed, type what was
   /// added, leaving a common prefix alone.
-  void _onTyped(NetworkEntityDto entity, NetworkActionDto submit,
-      NetworkActionDto? backspace, String value) {
+  void _onTyped(
+    NetworkEntityDto entity,
+    NetworkActionDto submit,
+    NetworkActionDto? backspace,
+    String value,
+  ) {
     final last = (_typedText[entity.name] ?? '').characters.toList();
     final next = value.characters.toList();
     var common = 0;
@@ -1849,8 +1914,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   /// The card's backspace button: delete on the device, and keep the local
   /// picture of its field in step so the next diff starts from the truth.
-  void _typeBackspace(NetworkEntityDto entity, TextEditingController controller,
-      NetworkActionDto backspace) {
+  void _typeBackspace(
+    NetworkEntityDto entity,
+    TextEditingController controller,
+    NetworkActionDto backspace,
+  ) {
     final current = _typedText[entity.name] ?? '';
     if (current.isNotEmpty) {
       final shortened = current.characters.skipLast(1).toString();
@@ -1863,19 +1931,26 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     _enqueueKeystroke(entity, backspace);
   }
 
-  void _enqueueKeystroke(NetworkEntityDto entity, NetworkActionDto action,
-      {String? value}) {
+  void _enqueueKeystroke(
+    NetworkEntityDto entity,
+    NetworkActionDto action, {
+    String? value,
+  }) {
     final previous = _keystrokeChains[entity.name] ?? Future<void>.value();
-    _keystrokeChains[entity.name] =
-        previous.then((_) => _sendKeystroke(entity, action, value: value));
+    _keystrokeChains[entity.name] = previous.then(
+      (_) => _sendKeystroke(entity, action, value: value),
+    );
   }
 
   /// One keystroke. A refusal is the same device-side gate a button press
   /// hits, so it raises the standing note; anything else just costs the one
   /// character — logged, not surfaced, or every stray packet would steal the
   /// screen mid-word.
-  Future<void> _sendKeystroke(NetworkEntityDto entity, NetworkActionDto action,
-      {String? value}) async {
+  Future<void> _sendKeystroke(
+    NetworkEntityDto entity,
+    NetworkActionDto action, {
+    String? value,
+  }) async {
     final values = <String, String>{};
     if (value != null && action.userParams.isNotEmpty) {
       values[action.userParams.first] = value;
@@ -1936,30 +2011,33 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // 131px inside the Card's padding chain and clip the last key into
     // something untappable; widget tests run at 800x600 and never see it. The
     // input row and the leftover pile already wrap for exactly this reason.
-    Widget labeledRow(List<NetworkEntityDto> entities,
-            {WrapAlignment alignment = WrapAlignment.center}) =>
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Wrap(
-            alignment: alignment,
-            spacing: 8,
-            runSpacing: 8,
-            children: [for (final entity in entities) _remoteButton(entity)],
-          ),
-        );
+    Widget labeledRow(
+      List<NetworkEntityDto> entities, {
+      WrapAlignment alignment = WrapAlignment.center,
+    }) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Wrap(
+        alignment: alignment,
+        spacing: 8,
+        runSpacing: 8,
+        children: [for (final entity in entities) _remoteButton(entity)],
+      ),
+    );
 
     Widget keyCell(NetworkEntityDto? entity) => SizedBox(
-          width: 72,
-          height: 52,
-          child: entity == null ? null : Center(child: _remoteKey(entity)),
-        );
+      width: 72,
+      height: 52,
+      child: entity == null ? null : Center(child: _remoteKey(entity)),
+    );
 
     return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Remote',
-              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            'Remote',
+            style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           if (power.isNotEmpty) labeledRow(power, alignment: WrapAlignment.end),
           if (nav.isNotEmpty) labeledRow(nav),
@@ -1971,21 +2049,18 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             Center(
               child: Column(
                 children: [
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    keyCell(null),
-                    keyCell(up),
-                    keyCell(null),
-                  ]),
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    keyCell(left),
-                    keyCell(ok),
-                    keyCell(right),
-                  ]),
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    keyCell(null),
-                    keyCell(down),
-                    keyCell(null),
-                  ]),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [keyCell(null), keyCell(up), keyCell(null)],
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [keyCell(left), keyCell(ok), keyCell(right)],
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [keyCell(null), keyCell(down), keyCell(null)],
+                  ),
                 ],
               ),
             ),
@@ -2013,30 +2088,35 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   if (volume.isNotEmpty)
-                    Column(children: [
-                      for (final entity in volume)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: _remoteKey(entity),
-                        ),
-                    ]),
+                    Column(
+                      children: [
+                        for (final entity in volume)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: _remoteKey(entity),
+                          ),
+                      ],
+                    ),
                   if (channel.isNotEmpty)
-                    Column(children: [
-                      for (final entity in channel)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: _remoteKey(entity),
-                        ),
-                    ]),
+                    Column(
+                      children: [
+                        for (final entity in channel)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: _remoteKey(entity),
+                          ),
+                      ],
+                    ),
                 ],
               ),
             ),
           if (misc.isNotEmpty) labeledRow(misc),
           if (inputs.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Text('Inputs',
-                style:
-                    text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            Text(
+              'Inputs',
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
             const SizedBox(height: 4),
             Wrap(
               spacing: 8,
@@ -2074,7 +2154,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           ? const SizedBox(
               width: 16,
               height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2))
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
           : Icon(icon),
     );
   }
@@ -2098,19 +2179,20 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           ? const SizedBox(
               width: 16,
               height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2))
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
           : Icon(icon),
       label: label,
     );
   }
 
   Widget _card({required Widget child}) => Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: child,
-        ),
-      );
+    margin: EdgeInsets.zero,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: child,
+    ),
+  );
 
   /// The tail every curated card below ends with: the actions this entity
   /// resolved that the card itself did not draw.
@@ -2180,29 +2262,33 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w600)),
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     if (isOn == null)
-                      Text('State unknown',
-                          style: Theme.of(context).textTheme.bodySmall),
+                      Text(
+                        'State unknown',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                   ],
                 ),
               ),
               if (busy)
                 const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               else if (drawsSwitch)
                 Switch(
                   value: isOn ?? false,
                   onChanged: (_lockedFor(turnOn) || _lockedFor(turnOff))
                       ? null
                       : (wantOn) =>
-                          unawaited(_send(entity, wantOn ? turnOn : turnOff)),
+                            unawaited(_send(entity, wantOn ? turnOn : turnOff)),
                 ),
             ],
           ),
@@ -2227,7 +2313,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// [_switchCard]. Its on/off reads from the child's `is_on` role and its
   /// toggle scopes the write to this outlet's id via [_sendKasaChild].
   Widget _instanceSwitchCard(
-      NetworkEntityDto entity, NetworkInstanceDto child) {
+    NetworkEntityDto entity,
+    NetworkInstanceDto child,
+  ) {
     final isOn =
         _instanceReadings['${entity.name}/${child.id}']?['is_on']?.isOn;
     final turnOn = _actionFor(entity, 'turn_on');
@@ -2241,32 +2329,37 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(child.label,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  child.label,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 if (isOn == null)
-                  Text('State unknown',
-                      style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    'State unknown',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
               ],
             ),
           ),
           if (busy)
             const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2))
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
           else
             Switch(
               value: isOn ?? false,
-              onChanged: (turnOn == null ||
+              onChanged:
+                  (turnOn == null ||
                       turnOff == null ||
                       _lockedFor(turnOn) ||
                       _lockedFor(turnOff))
                   ? null
                   : (wantOn) =>
-                      unawaited(_sendKasaChild(entity, child, wantOn)),
+                        unawaited(_sendKasaChild(entity, child, wantOn)),
             ),
         ],
       ),
@@ -2287,8 +2380,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             for (final entry in fetched)
               if (entry.value != null)
                 NetworkOptionDto(
-                    raw: entry.value!,
-                    label: entry.label.isEmpty ? entry.value! : entry.label),
+                  raw: entry.value!,
+                  label: entry.label.isEmpty ? entry.value! : entry.label,
+                ),
           ]
         : entity.options;
     final currentRaw = fetched != null
@@ -2302,17 +2396,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           Row(
             children: [
               Expanded(
-                child: Text(entity.name,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                child: Text(
+                  entity.name,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
               if (busy)
                 const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2)),
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
             ],
           ),
           if (reading?.kind == NetworkReadingKind.unknownOption)
@@ -2339,12 +2435,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 (_loading || _loadingOptions)
                     ? 'Asking the device...'
                     : _controlRefused
-                        ? 'The device is refusing to share this list. Enable '
-                            'control by mobile apps on it, then refresh.'
-                        : _optionsUnavailable.contains(entity.name)
-                            ? 'The device did not answer. It may be asleep — '
-                                'refresh to try again.'
-                            : 'The device listed nothing here.',
+                    ? 'The device is refusing to share this list. Enable '
+                          'control by mobile apps on it, then refresh.'
+                    : _optionsUnavailable.contains(entity.name)
+                    ? 'The device did not answer. It may be asleep — '
+                          'refresh to try again.'
+                    : 'The device listed nothing here.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -2360,7 +2456,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   onSelected: (busy || action == null || _lockedFor(action))
                       ? null
                       : (_) =>
-                          unawaited(_send(entity, action, value: option.raw)),
+                            unawaited(_send(entity, action, value: option.raw)),
                 ),
             ],
           ),
@@ -2394,16 +2490,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(entity.name,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w600)),
+                    Text(
+                      entity.name,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     Text(
                       shown == null
                           ? (reading == null
-                              ? 'Unknown'
-                              : '${reading.raw}${unit == null ? '' : ' $unit'}')
+                                ? 'Unknown'
+                                : '${reading.raw}${unit == null ? '' : ' $unit'}')
                           : '${_trimNumber(shown)}${unit == null ? '' : ' $unit'}',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
@@ -2412,9 +2509,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               ),
               if (busy)
                 const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               else if (action != null && !hasRange)
                 IconButton(
                   tooltip: 'Set ${entity.name}',
@@ -2438,11 +2536,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               onChanged: (busy || _lockedFor(action))
                   ? null
                   : (value) =>
-                      setState(() => _pendingSetpoints[entity.name] = value),
+                        setState(() => _pendingSetpoints[entity.name] = value),
               onChangeEnd: (busy || _lockedFor(action))
                   ? null
                   : (value) => unawaited(
-                      _send(entity, action, value: _trimNumber(value))),
+                      _send(entity, action, value: _trimNumber(value)),
+                    ),
             ),
           _unclaimedActions(entity, const {'set_value'}),
         ],
@@ -2465,7 +2564,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   Future<void> _editNumber(
-      NetworkEntityDto entity, NetworkActionDto action) async {
+    NetworkEntityDto entity,
+    NetworkActionDto action,
+  ) async {
     final min = entity.setpointMin;
     final max = entity.setpointMax;
     final entered = await showDialog<String>(
@@ -2505,7 +2606,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final stop = _actionFor(entity, 'stop_cover');
     final position = _actionFor(entity, 'set_cover_position');
     final busy = _sending.contains(entity.name);
-    final icon = entityIconFor(icon: entity.icon) ??
+    final icon =
+        entityIconFor(icon: entity.icon) ??
         (entity.deviceClass == 'garage'
             ? Icons.garage_outlined
             : Icons.curtains_outlined);
@@ -2535,15 +2637,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               Icon(icon, size: 20, color: scheme.onSurfaceVariant),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(entity.name,
-                    style: text.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                child: Text(
+                  entity.name,
+                  style: text.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
               if (busy)
                 const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               else if (reading != null)
                 Text(reading.label ?? reading.raw, style: text.bodyMedium),
             ],
@@ -2576,7 +2682,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               onChangeEnd: (busy || _lockedFor(position))
                   ? null
                   : (value) => unawaited(
-                      _send(entity, position, value: value.toString())),
+                      _send(entity, position, value: value.toString()),
+                    ),
             ),
           _unclaimedActions(entity, const {
             'open_cover',
@@ -2612,26 +2719,33 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.mode_fan_off_outlined,
-                  size: 20, color: scheme.onSurfaceVariant),
+              Icon(
+                Icons.mode_fan_off_outlined,
+                size: 20,
+                color: scheme.onSurfaceVariant,
+              ),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(entity.name,
-                    style: text.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                child: Text(
+                  entity.name,
+                  style: text.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
               if (busy)
                 const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               else if (turnOn != null && turnOff != null)
                 Switch(
                   value: isOn ?? false,
                   onChanged: (_lockedFor(turnOn) || _lockedFor(turnOff))
                       ? null
                       : (wantOn) =>
-                          unawaited(_send(entity, wantOn ? turnOn : turnOff)),
+                            unawaited(_send(entity, wantOn ? turnOn : turnOff)),
                 ),
             ],
           ),
@@ -2646,11 +2760,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               onChanged: (busy || _lockedFor(percentage))
                   ? null
                   : (value) =>
-                      setState(() => _pendingSetpoints[entity.name] = value),
+                        setState(() => _pendingSetpoints[entity.name] = value),
               onChangeEnd: (busy || _lockedFor(percentage))
                   ? null
                   : (value) => unawaited(
-                      _send(entity, percentage, value: _trimNumber(value))),
+                      _send(entity, percentage, value: _trimNumber(value)),
+                    ),
             ),
           if (oscillating != null)
             Row(
@@ -2699,28 +2814,35 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // device_class implies) and — where a healthy band is established
     // (CO₂, radon, humidity, battery…) — a one-word verdict chip, because
     // "934 ppm" answers a question nobody asked.
-    final icon =
-        entityIconFor(icon: entity.icon, deviceClass: entity.deviceClass);
+    final icon = entityIconFor(
+      icon: entity.icon,
+      deviceClass: entity.deviceClass,
+    );
     final level = sensorReadingLevel(
       deviceClass: entity.deviceClass,
       unit: unit,
       value: reading?.number,
     );
-    final showLevel = level != null &&
+    final showLevel =
+        level != null &&
         sensorLevelVisible(deviceClass: entity.deviceClass, level: level);
     final row = Row(
       children: [
         if (icon != null) ...[
-          Icon(icon,
-              size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          Icon(
+            icon,
+            size: 20,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
           const SizedBox(width: 8),
         ],
         Expanded(
-          child: Text(entity.name,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w600)),
+          child: Text(
+            entity.name,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
         ),
         if (showLevel) ...[
           SensorLevelChip(level: level),
@@ -2764,10 +2886,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               children: [
                 SizedBox(
                   width: 90,
-                  child: Text(label,
-                      style: text.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600)),
+                  child: Text(
+                    label,
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
                 Expanded(child: SelectableText(value, style: text.bodySmall)),
               ],
@@ -2804,8 +2929,9 @@ class _NumberEntryDialog extends StatefulWidget {
 }
 
 class _NumberEntryDialogState extends State<_NumberEntryDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initial);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial,
+  );
 
   @override
   void dispose() {
@@ -2823,8 +2949,10 @@ class _NumberEntryDialogState extends State<_NumberEntryDialog> {
         // entity without a range, and its own helper text promises "at
         // least -5". iOS maps a plain TextInputType.number to the digits-
         // only number pad, which has neither a minus nor a decimal key.
-        keyboardType:
-            const TextInputType.numberWithOptions(signed: true, decimal: true),
+        keyboardType: const TextInputType.numberWithOptions(
+          signed: true,
+          decimal: true,
+        ),
         textInputAction: TextInputAction.done,
         autofocus: true,
         decoration: InputDecoration(

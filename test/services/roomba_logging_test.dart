@@ -74,7 +74,7 @@ void main() {
       final robot = _ScriptedRobot();
       final client = RoombaMqttClient(
         codec: FakeSpecCodec(),
-        connect: (_, __, ___) async {
+        connect: (_, _, _) async {
           scheduleMicrotask(() => robot.send([0x20, 0x02, 0x00, 0x00]));
           return robot;
         },
@@ -100,7 +100,7 @@ void main() {
       final robot = _ScriptedRobot();
       final client = RoombaMqttClient(
         codec: FakeSpecCodec(),
-        connect: (_, __, ___) async {
+        connect: (_, _, _) async {
           scheduleMicrotask(() => robot.send([0x20, 0x02, 0x00, 0x00]));
           return robot;
         },
@@ -112,46 +112,53 @@ void main() {
       await robot.hangUp();
       await Future<void>.delayed(Duration.zero);
 
-      final evictions = records.where((r) =>
-          r.level == LogLevel.warning &&
-          r.message.contains('closed the connection'));
-      expect(evictions, isNotEmpty,
-          reason:
-              'the one-client-at-a-time symptom must survive into a report');
+      final evictions = records.where(
+        (r) =>
+            r.level == LogLevel.warning &&
+            r.message.contains('closed the connection'),
+      );
+      expect(
+        evictions,
+        isNotEmpty,
+        reason: 'the one-client-at-a-time symptom must survive into a report',
+      );
       expect(allOutput(), isNot(contains(_password)));
     });
 
-    test('the Home Assistant path logs the service without the token',
-        () async {
-      final client = HaRoombaClient(
-        api: FakeHaApiClient(),
-        config: const HaConfig(
-          baseUrl: 'http://ha.local:8123',
-          token: _token,
-          deviceId: 'device',
-        ),
-      );
+    test(
+      'the Home Assistant path logs the service without the token',
+      () async {
+        final client = HaRoombaClient(
+          api: FakeHaApiClient(),
+          config: const HaConfig(
+            baseUrl: 'http://ha.local:8123',
+            token: _token,
+            deviceId: 'device',
+          ),
+        );
 
-      await client.send('vacuum.dorita', 'clean');
+        await client.send('vacuum.dorita', 'clean');
 
-      expect(allOutput(), contains('vacuum.start'));
-      expect(allOutput(), contains('vacuum.dorita'));
-      expect(allOutput(), isNot(contains(_token)));
-    });
+        expect(allOutput(), contains('vacuum.start'));
+        expect(allOutput(), contains('vacuum.dorita'));
+        expect(allOutput(), isNot(contains(_token)));
+      },
+    );
   });
 
   group('the transport choice is recorded', () {
-    RoombaController build(RoombaCredentials credentials,
-            {HaRoombaClient? ha}) =>
-        roombaControllerFor(
-          credentials: credentials,
-          host: '10.0.0.7',
-          specYaml: 'unused',
-          codec: FakeSpecCodec(),
-          directClient: () => RoombaMqttClient(codec: FakeSpecCodec()),
-          restClient: () => Rest980Client(codec: FakeSpecCodec()),
-          haClient: () => ha,
-        );
+    RoombaController build(
+      RoombaCredentials credentials, {
+      HaRoombaClient? ha,
+    }) => roombaControllerFor(
+      credentials: credentials,
+      host: '10.0.0.7',
+      specYaml: 'unused',
+      codec: FakeSpecCodec(),
+      directClient: () => RoombaMqttClient(codec: FakeSpecCodec()),
+      restClient: () => Rest980Client(codec: FakeSpecCodec()),
+      haClient: () => ha,
+    );
 
     test('names each of the three paths', () {
       build(_credentials);
@@ -169,7 +176,10 @@ void main() {
       final ha = HaRoombaClient(
         api: FakeHaApiClient(),
         config: const HaConfig(
-            baseUrl: 'http://ha.local:8123', token: _token, deviceId: 'd'),
+          baseUrl: 'http://ha.local:8123',
+          token: _token,
+          deviceId: 'd',
+        ),
       );
       build(_credentials.copyWith(haEntityId: 'vacuum.dorita'), ha: ha);
       expect(allOutput(), contains('Home Assistant'));

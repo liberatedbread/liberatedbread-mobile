@@ -133,10 +133,10 @@ class RabbitAirBleClient implements RabbitAirBleLink {
       final mtu = await _ble.mtu(deviceId).catchError((_) => 23);
       _chunkSize = mtu - 5 >= 18 ? mtu - 5 : 18;
 
-      final serviceUuid =
-          (await _codec.rabbitAirBleServiceUuid()).toLowerCase();
-      final charUuid =
-          (await _codec.rabbitAirBleCommandCharacteristicUuid()).toLowerCase();
+      final serviceUuid = (await _codec.rabbitAirBleServiceUuid())
+          .toLowerCase();
+      final charUuid = (await _codec.rabbitAirBleCommandCharacteristicUuid())
+          .toLowerCase();
       final discovered = services ?? await _ble.discoverServices(deviceId);
       for (final service in discovered) {
         if (normalizeUuid(service.uuid) != normalizeUuid(serviceUuid)) {
@@ -151,12 +151,16 @@ class RabbitAirBleClient implements RabbitAirBleLink {
       }
       if (_serviceUuid == null || _characteristicUuid == null) {
         throw const RabbitAirBleException(
-            'the device does not offer the Rabbit Air command characteristic '
-            '— is it a Rabbit Air purifier?');
+          'the device does not offer the Rabbit Air command characteristic '
+          '— is it a Rabbit Air purifier?',
+        );
       }
       _notifySub = _ble
           .subscribeCharacteristic(
-              deviceId, _serviceUuid!, _characteristicUuid!)
+            deviceId,
+            _serviceUuid!,
+            _characteristicUuid!,
+          )
           .listen(_enqueueChunk, onError: _failPending);
     } catch (_) {
       // A failed attach is forgotten entirely, or the guard above turns
@@ -181,16 +185,23 @@ class RabbitAirBleClient implements RabbitAirBleLink {
     if (deviceId == null || serviceUuid == null || charUuid == null) {
       throw StateError('RabbitAirBleClient.sendCommand before connect');
     }
-    final result = _exchangeChain
-        .then((_) => _exchangeNow(deviceId, serviceUuid, charUuid, payload));
+    final result = _exchangeChain.then(
+      (_) => _exchangeNow(deviceId, serviceUuid, charUuid, payload),
+    );
     _exchangeChain = result.then((_) {}, onError: (_) {});
     return result;
   }
 
-  Future<List<int>> _exchangeNow(String deviceId, String serviceUuid,
-      String charUuid, List<int> payload) async {
-    final chunks =
-        await _codec.rabbitAirBleFrame(payload: payload, chunkSize: _chunkSize);
+  Future<List<int>> _exchangeNow(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> payload,
+  ) async {
+    final chunks = await _codec.rabbitAirBleFrame(
+      payload: payload,
+      chunkSize: _chunkSize,
+    );
     _expected = null;
     _buffer.clear();
     final pending = Completer<List<int>>();
@@ -201,9 +212,10 @@ class RabbitAirBleClient implements RabbitAirBleLink {
       }
       return await pending.future.timeout(
         responseTimeout,
-        onTimeout: () =>
-            throw RabbitAirBleException('the purifier did not answer within '
-                '${responseTimeout.inSeconds}s'),
+        onTimeout: () => throw RabbitAirBleException(
+          'the purifier did not answer within '
+          '${responseTimeout.inSeconds}s',
+        ),
       );
     } finally {
       _pending = null;
@@ -223,8 +235,9 @@ class RabbitAirBleClient implements RabbitAirBleLink {
       // A new message: the 2-byte little-endian prefix announces the total
       // payload length. Shorter chunks are noise — ignored, as the vendor
       // client ignores them.
-      final expected =
-          await _codec.rabbitAirBleExpectedPayloadLen(firstChunk: chunk);
+      final expected = await _codec.rabbitAirBleExpectedPayloadLen(
+        firstChunk: chunk,
+      );
       if (expected == null) return;
       _expected = expected;
       _buffer.addAll(chunk.length > 2 ? chunk.sublist(2) : const <int>[]);

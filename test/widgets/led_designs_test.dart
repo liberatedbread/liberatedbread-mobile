@@ -36,37 +36,41 @@ void main() {
     });
 
     test(
-        'offers every procedural preset at a normal size, plus both animations',
-        () {
-      final designs = defaultDesigns(20, 20);
-      expect(
-        designs.map((d) => d.name),
-        containsAll(<String>[
-          'Trans flag',
-          'Pride flag',
-          'Lesbian flag',
-          'Bi flag',
-          'Pan flag',
-          'Nonbinary flag',
-          'Ace flag',
-          'American flag',
-          'American flag (in distress)',
-          'Pride animation',
-          'Star animation',
-        ]),
-      );
-      final pride = designs.firstWhere((d) => d.name == 'Pride animation');
-      expect(pride.animation, isTrue);
-      expect(pride.buildFrames(), hasLength(7),
-          reason: 'rotates through all seven pride flags');
-      final stars = designs.firstWhere((d) => d.name == 'Star animation');
-      expect(stars.animation, isTrue);
-      expect(stars.buildFrames(), hasLength(4));
-      // Only the animations are multi-frame.
-      for (final d in designs.where((d) => !d.animation)) {
-        expect(d.buildFrames(), hasLength(1), reason: d.name);
-      }
-    });
+      'offers every procedural preset at a normal size, plus both animations',
+      () {
+        final designs = defaultDesigns(20, 20);
+        expect(
+          designs.map((d) => d.name),
+          containsAll(<String>[
+            'Trans flag',
+            'Pride flag',
+            'Lesbian flag',
+            'Bi flag',
+            'Pan flag',
+            'Nonbinary flag',
+            'Ace flag',
+            'American flag',
+            'American flag (in distress)',
+            'Pride animation',
+            'Star animation',
+          ]),
+        );
+        final pride = designs.firstWhere((d) => d.name == 'Pride animation');
+        expect(pride.animation, isTrue);
+        expect(
+          pride.buildFrames(),
+          hasLength(7),
+          reason: 'rotates through all seven pride flags',
+        );
+        final stars = designs.firstWhere((d) => d.name == 'Star animation');
+        expect(stars.animation, isTrue);
+        expect(stars.buildFrames(), hasLength(4));
+        // Only the animations are multi-frame.
+        for (final d in designs.where((d) => !d.animation)) {
+          expect(d.buildFrames(), hasLength(1), reason: d.name);
+        }
+      },
+    );
 
     test('raster designs appear only on canvases with enough pixels', () {
       Iterable<String> namesAt(int w, int h) =>
@@ -80,48 +84,68 @@ void main() {
       // From 31x62 (either orientation) the maple leaf resolves; the Timbit
       // portrait still does not.
       for (final (w, h) in const [(31, 62), (62, 31), (40, 70)]) {
-        expect(namesAt(w, h),
-            containsAll(['Canadian flag', 'Canadian flag (in distress)']),
-            reason: '${w}x$h');
-        expect(namesAt(w, h), isNot(contains('Professor Timbit')),
-            reason: '${w}x$h');
+        expect(
+          namesAt(w, h),
+          containsAll(['Canadian flag', 'Canadian flag (in distress)']),
+          reason: '${w}x$h',
+        );
+        expect(
+          namesAt(w, h),
+          isNot(contains('Professor Timbit')),
+          reason: '${w}x$h',
+        );
       }
-      expect(namesAt(30, 62), isNot(contains('Canadian flag')),
-          reason: 'one pixel short of the threshold');
+      expect(
+        namesAt(30, 62),
+        isNot(contains('Canadian flag')),
+        reason: 'one pixel short of the threshold',
+      );
 
       // A 64x64 panel has room for everything.
       expect(
-          namesAt(64, 64),
-          containsAll([
-            'Canadian flag',
-            'Canadian flag (in distress)',
-            'Professor Timbit'
-          ]));
-      expect(namesAt(63, 64), isNot(contains('Professor Timbit')),
-          reason: 'the portrait needs 64 on its short side too');
+        namesAt(64, 64),
+        containsAll([
+          'Canadian flag',
+          'Canadian flag (in distress)',
+          'Professor Timbit',
+        ]),
+      );
+      expect(
+        namesAt(63, 64),
+        isNot(contains('Professor Timbit')),
+        reason: 'the portrait needs 64 on its short side too',
+      );
     });
 
-    test('every frame is RGB888 for the canvas and within the 16-colour limit',
-        () {
-      for (final (w, h) in const [
-        (20, 20),
-        (16, 16),
-        (25, 50),
-        (7, 3),
-        (31, 62),
-        (64, 64),
-        (96, 16),
-      ]) {
-        for (final d in defaultDesigns(w, h)) {
-          for (final frame in d.buildFrames()) {
-            expect(frame.length, w * h * 3,
-                reason: '${d.name} at ${w}x$h must fill the canvas');
-            expect(_distinctColors(frame), lessThanOrEqualTo(16),
-                reason: '${d.name} at ${w}x$h must fit the palette');
+    test(
+      'every frame is RGB888 for the canvas and within the 16-colour limit',
+      () {
+        for (final (w, h) in const [
+          (20, 20),
+          (16, 16),
+          (25, 50),
+          (7, 3),
+          (31, 62),
+          (64, 64),
+          (96, 16),
+        ]) {
+          for (final d in defaultDesigns(w, h)) {
+            for (final frame in d.buildFrames()) {
+              expect(
+                frame.length,
+                w * h * 3,
+                reason: '${d.name} at ${w}x$h must fill the canvas',
+              );
+              expect(
+                _distinctColors(frame),
+                lessThanOrEqualTo(16),
+                reason: '${d.name} at ${w}x$h must fit the palette',
+              );
+            }
           }
         }
-      }
-    });
+      },
+    );
 
     test('flags scale to any size with the right stripe colours', () {
       // Trans flag: top row light blue, middle row white.
@@ -133,10 +157,10 @@ void main() {
 
     test('the bi flag renders its 2:1:2 proportions', () {
       // 10 rows: magenta on 0-3, lavender on 4-5, blue on 6-9.
-      final bi = defaultDesigns(3, 10)
-          .firstWhere((d) => d.name == 'Bi flag')
-          .buildFrames()
-          .first;
+      final bi = defaultDesigns(
+        3,
+        10,
+      ).firstWhere((d) => d.name == 'Bi flag').buildFrames().first;
       expect(_pixel(bi, 3, 0, 0), [0xD6, 0x02, 0x70]);
       expect(_pixel(bi, 3, 0, 3), [0xD6, 0x02, 0x70]);
       expect(_pixel(bi, 3, 0, 4), [0x9B, 0x4F, 0x96]);
@@ -147,10 +171,10 @@ void main() {
 
     test('the American flag has its canton, stripes and stars', () {
       const w = 65, h = 39;
-      final flag = defaultDesigns(w, h)
-          .firstWhere((d) => d.name == 'American flag')
-          .buildFrames()
-          .first;
+      final flag = defaultDesigns(
+        w,
+        h,
+      ).firstWhere((d) => d.name == 'American flag').buildFrames().first;
       const red = [0xB2, 0x22, 0x34];
       const blue = [0x3C, 0x3B, 0x6E];
       // Canton top-left; first stripe red outside it; last stripe red.
@@ -165,8 +189,10 @@ void main() {
         }
       }
       expect(
-          cantonColors.map((c) => c.join(',')).toSet().length, greaterThan(1),
-          reason: 'a canton with room for stars must show them');
+        cantonColors.map((c) => c.join(',')).toSet().length,
+        greaterThan(1),
+        reason: 'a canton with room for stars must show them',
+      );
     });
 
     test('the distress variant is the flag rotated 180 degrees', () {
@@ -190,36 +216,44 @@ void main() {
     });
 
     test('the star animation twinkles deterministically', () {
-      final a = defaultDesigns(32, 32)
-          .firstWhere((d) => d.name == 'Star animation')
-          .buildFrames();
-      final b = defaultDesigns(32, 32)
-          .firstWhere((d) => d.name == 'Star animation')
-          .buildFrames();
+      final a = defaultDesigns(
+        32,
+        32,
+      ).firstWhere((d) => d.name == 'Star animation').buildFrames();
+      final b = defaultDesigns(
+        32,
+        32,
+      ).firstWhere((d) => d.name == 'Star animation').buildFrames();
       for (var i = 0; i < a.length; i++) {
-        expect(a[i], b[i],
-            reason: 'the same canvas must always yield the same sky');
+        expect(
+          a[i],
+          b[i],
+          reason: 'the same canvas must always yield the same sky',
+        );
       }
       // Some stars are lit in every frame, and the frames differ from one
       // another — a shimmer, not a static image or synchronized blink.
       for (final frame in a) {
-        expect(frame.any((byte) => byte != 0), isTrue,
-            reason: 'every frame has lit stars');
+        expect(
+          frame.any((byte) => byte != 0),
+          isTrue,
+          reason: 'every frame has lit stars',
+        );
       }
       expect(a[0], isNot(equals(a[1])));
       expect(a[1], isNot(equals(a[2])));
     });
 
     test('the dog is offered from 64x64 up and scales to the canvas', () {
-      final at64 = defaultDesigns(64, 64)
-          .firstWhere((d) => d.name == 'Professor Timbit')
-          .buildFrames()
-          .first;
+      final at64 = defaultDesigns(
+        64,
+        64,
+      ).firstWhere((d) => d.name == 'Professor Timbit').buildFrames().first;
       expect(at64.length, 64 * 64 * 3);
-      final at100 = defaultDesigns(100, 128)
-          .firstWhere((d) => d.name == 'Professor Timbit')
-          .buildFrames()
-          .first;
+      final at100 = defaultDesigns(
+        100,
+        128,
+      ).firstWhere((d) => d.name == 'Professor Timbit').buildFrames().first;
       expect(at100.length, 100 * 128 * 3);
     });
   });

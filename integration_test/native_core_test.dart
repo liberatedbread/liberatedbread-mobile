@@ -63,8 +63,9 @@ void main() {
   // the app through the widget tester's binding, and a bare test() does not
   // get the same lifecycle. Nothing is pumped here — the tester is the harness,
   // not the subject.
-  testWidgets('the bundled Rust core loads and answers over FFI',
-      (tester) async {
+  testWidgets('the bundled Rust core loads and answers over FFI', (
+    tester,
+  ) async {
     // No try/catch on purpose. main() swallows this failure by design; the
     // whole point of this suite is that CI does not.
     //
@@ -80,14 +81,16 @@ void main() {
     expect(
       MockBleService.rustAvailable,
       isTrue,
-      reason: 'RustLib.init() returned without throwing but the bridge still '
+      reason:
+          'RustLib.init() returned without throwing but the bridge still '
           'reports itself uninitialized.',
     );
 
     // A call with a non-empty result, so a bridge that loads but returns
     // nothing (a stubbed or mismatched symbol table) still fails.
-    final profiles =
-        await identifyStandardProfiles(serviceUuids: <String>[_batteryService]);
+    final profiles = await identifyStandardProfiles(
+      serviceUuids: <String>[_batteryService],
+    );
     expect(profiles, hasLength(1));
     expect(profiles.single.profileName, 'Battery Service');
     expect(profiles.single.characteristics, isNotEmpty);

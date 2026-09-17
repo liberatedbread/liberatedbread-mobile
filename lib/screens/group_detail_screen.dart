@@ -28,8 +28,10 @@ class GroupDetailScreen extends ConsumerStatefulWidget {
   final String? groupId;
 
   const GroupDetailScreen({super.key, this.category, this.groupId})
-      : assert((category == null) != (groupId == null),
-            'exactly one of category/groupId identifies the group');
+    : assert(
+        (category == null) != (groupId == null),
+        'exactly one of category/groupId identifies the group',
+      );
 
   @override
   ConsumerState<GroupDetailScreen> createState() => _GroupDetailScreenState();
@@ -91,33 +93,43 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
         });
       }
 
-      _runSubs.add(events.listen(
-        (event) => setState(() => _latest[event.deviceId] = event),
-        onDone: settle,
-        // The runners report per-device failures as events; a stream error
-        // would be a bug, but it must still release the buttons.
-        onError: (Object _) => settle(),
-      ));
+      _runSubs.add(
+        events.listen(
+          (event) => setState(() => _latest[event.deviceId] = event),
+          onDone: settle,
+          // The runners report per-device failures as events; a stream error
+          // would be a bug, but it must still release the buttons.
+          onError: (Object _) => settle(),
+        ),
+      );
     }
 
     // Both transports run at once: the BLE runner stays strictly
     // sequential behind its radio, the network runner fans out — and
     // neither should wait for the other's stragglers.
     if (members.ble.isNotEmpty) {
-      listenTo(ref.read(groupRunnerProvider).run(
-            op,
-            members.ble,
-            brightnessPercent: brightnessPercent,
-            stop: _stop,
-          ));
+      listenTo(
+        ref
+            .read(groupRunnerProvider)
+            .run(
+              op,
+              members.ble,
+              brightnessPercent: brightnessPercent,
+              stop: _stop,
+            ),
+      );
     }
     if (members.network.isNotEmpty) {
-      listenTo(ref.read(networkGroupRunnerProvider).run(
-            op,
-            members.network,
-            brightnessPercent: brightnessPercent,
-            stop: _stop,
-          ));
+      listenTo(
+        ref
+            .read(networkGroupRunnerProvider)
+            .run(
+              op,
+              members.network,
+              brightnessPercent: brightnessPercent,
+              stop: _stop,
+            ),
+      );
     }
     if (_liveStreams == 0) setState(() => _running = false);
   }
@@ -142,8 +154,10 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                 label: '${percent.round()}%',
                 onChanged: (value) => setDialogState(() => percent = value),
               ),
-              Text('${percent.round()}% — re-scaled to each device\'s own '
-                  'brightness range'),
+              Text(
+                '${percent.round()}% — re-scaled to each device\'s own '
+                'brightness range',
+              ),
             ],
           ),
         ),
@@ -172,13 +186,15 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
       return const Scaffold(body: SizedBox.shrink());
     }
     final scheme = Theme.of(context).colorScheme;
-    final membersAsync = ref
-        .watch(groupMembersProvider(GroupMembersRequest(resolved.deviceIds)));
+    final membersAsync = ref.watch(
+      groupMembersProvider(GroupMembersRequest(resolved.deviceIds)),
+    );
     final members =
         membersAsync.valueOrNull ?? const GroupMembers(ble: [], network: []);
     // Same loading/error split as _resolveGroup's pending/failed, for the
     // member resolution itself (spec parsing can fail too).
-    final membersFailed = membersAsync.valueOrNull == null &&
+    final membersFailed =
+        membersAsync.valueOrNull == null &&
         membersAsync.hasError &&
         !membersAsync.isLoading;
 
@@ -195,11 +211,11 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
               onPressed: _running
                   ? null
                   : () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => GroupEditScreen(group: group),
-                        ),
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => GroupEditScreen(group: group),
                       ),
+                    ),
             ),
         ],
       ),
@@ -222,40 +238,38 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                 },
               )
             : members.isEmpty
-                ? _EmptyMembers(
-                    waiting: membersAsync.isLoading || resolved.pending)
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-                    children: [
-                      _OpButtons(
-                        members: members,
-                        running: _running,
-                        onRun: (op) => _run(members, op),
-                        onBrightness: () => _pickBrightness(members),
-                        onCancel: () => _stop.stop(),
-                      ),
-                      const SizedBox(height: 20),
-                      SectionHeader(label: 'Devices', count: members.length),
-                      const SizedBox(height: 12),
-                      for (final member in members.ble) ...[
-                        _MemberRow(
-                          member: member,
-                          event: _latest[member.id],
-                          queued: _running && !_latest.containsKey(member.id),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                      for (final member in members.network) ...[
-                        _NetworkMemberRow(
-                          member: member,
-                          event: _latest[member.memberId],
-                          queued:
-                              _running && !_latest.containsKey(member.memberId),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                    ],
+            ? _EmptyMembers(waiting: membersAsync.isLoading || resolved.pending)
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                children: [
+                  _OpButtons(
+                    members: members,
+                    running: _running,
+                    onRun: (op) => _run(members, op),
+                    onBrightness: () => _pickBrightness(members),
+                    onCancel: () => _stop.stop(),
                   ),
+                  const SizedBox(height: 20),
+                  SectionHeader(label: 'Devices', count: members.length),
+                  const SizedBox(height: 12),
+                  for (final member in members.ble) ...[
+                    _MemberRow(
+                      member: member,
+                      event: _latest[member.id],
+                      queued: _running && !_latest.containsKey(member.id),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  for (final member in members.network) ...[
+                    _NetworkMemberRow(
+                      member: member,
+                      event: _latest[member.memberId],
+                      queued: _running && !_latest.containsKey(member.memberId),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                ],
+              ),
       ),
     );
   }
@@ -271,7 +285,8 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     DeviceGroup? group,
     bool pending,
     bool failed,
-  })? _resolveGroup() {
+  })?
+  _resolveGroup() {
     final category = widget.category;
     if (category != null) {
       final auto = ref.watch(autoGroupsProvider);
@@ -342,14 +357,15 @@ class _OpButtons extends StatelessWidget {
       // connect": the runner resolves it there and reports an honest
       // per-device skip if the match never comes.
       final supported = _supportCount(op);
-      final enabled = (op.worksWithoutSpec && members.ble.isNotEmpty) ||
+      final enabled =
+          (op.worksWithoutSpec && members.ble.isNotEmpty) ||
           supported > 0 ||
           anySpecUnknown;
       final count = op.worksWithoutSpec
           ? null
           : supported == members.length
-              ? null
-              : '$supported of ${members.length}';
+          ? null
+          : '$supported of ${members.length}';
       return Tooltip(
         message: switch ((enabled, count)) {
           (false, _) => 'No device in this group supports this',
@@ -416,8 +432,9 @@ class _MemberRow extends StatelessWidget {
     if (member.spec == null) return 'Kind unknown — will match on connect';
     final ops = member.specOps;
     if (ops.isEmpty) return 'No group operations in its spec';
-    return [for (final op in GroupOp.values.where(ops.contains)) op.label]
-        .join(' · ');
+    return [
+      for (final op in GroupOp.values.where(ops.contains)) op.label,
+    ].join(' · ');
   }
 
   @override
@@ -434,10 +451,12 @@ class _MemberRow extends StatelessWidget {
       GroupDeviceStatus.connecting => 'Connecting…',
       GroupDeviceStatus.discovering => 'Looking at its services…',
       GroupDeviceStatus.running => 'Working…',
-      GroupDeviceStatus.ok => current!.readings.isEmpty
-          ? (current.detail ?? 'Done')
-          : [for (final r in current.readings) '${r.label}: ${r.value}']
-              .join(' · '),
+      GroupDeviceStatus.ok =>
+        current!.readings.isEmpty
+            ? (current.detail ?? 'Done')
+            : [
+                for (final r in current.readings) '${r.label}: ${r.value}',
+              ].join(' · '),
       GroupDeviceStatus.skipped => 'Skipped — ${current!.detail}',
       GroupDeviceStatus.failed => current!.detail ?? 'Failed',
     };
@@ -461,15 +480,19 @@ class _NetworkMemberRow extends StatelessWidget {
   final GroupRunEvent? event;
   final bool queued;
 
-  const _NetworkMemberRow(
-      {required this.member, this.event, this.queued = false});
+  const _NetworkMemberRow({
+    required this.member,
+    this.event,
+    this.queued = false,
+  });
 
   String _preRunSummary() {
     if (member.specYaml == null) return 'No spec matched this device';
     final ops = member.ops;
     if (ops.isEmpty) return 'No group operations in its spec';
-    return [for (final op in GroupOp.values.where(ops.contains)) op.label]
-        .join(' · ');
+    return [
+      for (final op in GroupOp.values.where(ops.contains)) op.label,
+    ].join(' · ');
   }
 
   @override
@@ -483,8 +506,7 @@ class _NetworkMemberRow extends StatelessWidget {
       null || GroupDeviceStatus.queued => _preRunSummary(),
       GroupDeviceStatus.connecting ||
       GroupDeviceStatus.discovering ||
-      GroupDeviceStatus.running =>
-        'Working…',
+      GroupDeviceStatus.running => 'Working…',
       GroupDeviceStatus.ok => current!.detail ?? 'Done',
       GroupDeviceStatus.skipped => 'Skipped — ${current!.detail}',
       GroupDeviceStatus.failed => current!.detail ?? 'Failed',
@@ -510,22 +532,33 @@ class _StatusGlyph extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return switch (status) {
       null => const SizedBox(width: 24),
-      GroupDeviceStatus.queued =>
-        Icon(Icons.schedule, size: 20, color: scheme.onSurfaceVariant),
+      GroupDeviceStatus.queued => Icon(
+        Icons.schedule,
+        size: 20,
+        color: scheme.onSurfaceVariant,
+      ),
       GroupDeviceStatus.connecting ||
       GroupDeviceStatus.discovering ||
-      GroupDeviceStatus.running =>
-        const SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2.4),
-        ),
-      GroupDeviceStatus.ok =>
-        Icon(Icons.check_circle, size: 22, color: scheme.secondary),
-      GroupDeviceStatus.skipped =>
-        Icon(Icons.block, size: 20, color: scheme.onSurfaceVariant),
-      GroupDeviceStatus.failed =>
-        Icon(Icons.error_outline, size: 22, color: scheme.error),
+      GroupDeviceStatus.running => const SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(strokeWidth: 2.4),
+      ),
+      GroupDeviceStatus.ok => Icon(
+        Icons.check_circle,
+        size: 22,
+        color: scheme.secondary,
+      ),
+      GroupDeviceStatus.skipped => Icon(
+        Icons.block,
+        size: 20,
+        color: scheme.onSurfaceVariant,
+      ),
+      GroupDeviceStatus.failed => Icon(
+        Icons.error_outline,
+        size: 22,
+        color: scheme.error,
+      ),
     };
   }
 }
@@ -552,8 +585,10 @@ class _ResolveError extends StatelessWidget {
             Text(
               'Could not work out the members of this group.',
               textAlign: TextAlign.center,
-              style: text.bodyMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+              style: text.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                height: 1.5,
+              ),
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
@@ -585,8 +620,10 @@ class _EmptyMembers extends StatelessWidget {
           'No devices in this group. Its members may have been forgotten '
           'from the Saved tab.',
           textAlign: TextAlign.center,
-          style: text.bodyMedium
-              ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+          style: text.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
       ),
     );

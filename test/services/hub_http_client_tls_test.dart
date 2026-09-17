@@ -34,8 +34,11 @@ Future<HttpServer> _serve(String certName) async {
   final context = SecurityContext()
     ..useCertificateChain('$_fixtures/$certName.crt')
     ..usePrivateKey('$_fixtures/$certName.key');
-  final server =
-      await HttpServer.bindSecure(InternetAddress.loopbackIPv4, 0, context);
+  final server = await HttpServer.bindSecure(
+    InternetAddress.loopbackIPv4,
+    0,
+    context,
+  );
   server.listen((request) {
     request.response
       ..headers.contentType = ContentType.json
@@ -64,10 +67,8 @@ void main() {
     store = HubCredentialStore(InMemorySettingsStore());
   });
 
-  HubHttpClient clientFor(HttpServer server) => HubHttpClient(
-        credentials: store,
-        httpsPort: server.port,
-      );
+  HubHttpClient clientFor(HttpServer server) =>
+      HubHttpClient(credentials: store, httpsPort: server.port);
 
   test('first contact with the right CN succeeds and pins the leaf', () async {
     final server = await _serve('bridge');
@@ -88,36 +89,43 @@ void main() {
     expect(await hub.send('127.0.0.1', _bridgeId, _get), '{}');
   });
 
-  test('an impostor with the right CN is caught by the pin, not re-pinned',
-      () async {
-    final real = await _serve('bridge');
-    addTearDown(real.close);
-    await clientFor(real).send('127.0.0.1', _bridgeId, _get);
-    final pinned = await store.certPin(_bridgeId);
+  test(
+    'an impostor with the right CN is caught by the pin, not re-pinned',
+    () async {
+      final real = await _serve('bridge');
+      addTearDown(real.close);
+      await clientFor(real).send('127.0.0.1', _bridgeId, _get);
+      final pinned = await store.certPin(_bridgeId);
 
-    // Same CN, different key — exactly what a CN check alone would miss.
-    final impostor = await _serve('impostor');
-    addTearDown(impostor.close);
+      // Same CN, different key — exactly what a CN check alone would miss.
+      final impostor = await _serve('impostor');
+      addTearDown(impostor.close);
 
-    await expectLater(
-      clientFor(impostor).send('127.0.0.1', _bridgeId, _get),
-      throwsA(isA<HubTlsException>()),
-    );
-    expect(await store.certPin(_bridgeId), pinned,
-        reason: 'a mismatch must never silently replace the pin');
-  });
+      await expectLater(
+        clientFor(impostor).send('127.0.0.1', _bridgeId, _get),
+        throwsA(isA<HubTlsException>()),
+      );
+      expect(
+        await store.certPin(_bridgeId),
+        pinned,
+        reason: 'a mismatch must never silently replace the pin',
+      );
+    },
+  );
 
-  test('a wrong CN is rejected on first contact, and nothing is pinned',
-      () async {
-    final server = await _serve('wrongcn');
-    addTearDown(server.close);
+  test(
+    'a wrong CN is rejected on first contact, and nothing is pinned',
+    () async {
+      final server = await _serve('wrongcn');
+      addTearDown(server.close);
 
-    await expectLater(
-      clientFor(server).send('127.0.0.1', _bridgeId, _get),
-      throwsA(isA<HubTlsException>()),
-    );
-    expect(await store.certPin(_bridgeId), isNull);
-  });
+      await expectLater(
+        clientFor(server).send('127.0.0.1', _bridgeId, _get),
+        throwsA(isA<HubTlsException>()),
+      );
+      expect(await store.certPin(_bridgeId), isNull);
+    },
+  );
 
   test('an identity probe with no expectation records the CN it saw', () async {
     final server = await _serve('bridge');

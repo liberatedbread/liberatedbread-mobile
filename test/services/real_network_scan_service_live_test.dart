@@ -113,10 +113,13 @@ void main() {
   /// anyway. multicast_lock_test.dart covers the lock itself.
   Future<List<NetworkDevice>> scan({List<String> mdnsTypes = const []}) async {
     final service = RealNetworkScanService(
-        multicastLock: MulticastLock(isSupported: false));
+      multicastLock: MulticastLock(isSupported: false),
+    );
     final found = <NetworkDevice>[];
     await for (final device in service.scan(
-        timeout: _scanWindow, extraMdnsServiceTypes: mdnsTypes)) {
+      timeout: _scanWindow,
+      extraMdnsServiceTypes: mdnsTypes,
+    )) {
       found.add(device);
     }
     return found;
@@ -132,9 +135,13 @@ void main() {
     final found = await scan();
 
     final hue = deviceAt(found, _hueHost);
-    expect(hue, isNotNull,
-        reason: 'the DNS-SD meta-query, the type PTR, SRV and A all had to '
-            'succeed in order for a host to appear at all');
+    expect(
+      hue,
+      isNotNull,
+      reason:
+          'the DNS-SD meta-query, the type PTR, SRV and A all had to '
+          'succeed in order for a host to appear at all',
+    );
     expect(hue!.name, 'Philips Hue - 123456');
     expect(hue.hostname, 'hue-bridge.local');
     expect(hue.port, 443);
@@ -158,32 +165,35 @@ void main() {
     final found = await scan();
 
     final wemo = deviceAt(found, _wemoHost);
-    expect(wemo, isNotNull,
-        reason: 'this device answers no mDNS at all — it is the reason the '
-            'scan runs both transports');
+    expect(
+      wemo,
+      isNotNull,
+      reason:
+          'this device answers no mDNS at all — it is the reason the '
+          'scan runs both transports',
+    );
     expect(wemo!.sources, contains(NetworkDiscoverySource.ssdp));
     expect(wemo.ssdpTargets, contains('urn:Belkin:device:controllee:1'));
     expect(wemo.port, 49153, reason: 'taken from the LOCATION URL');
     expect(wemo.server, contains('UPnP/1.0'));
   });
 
-  test('merges a device that answers on both transports into one row',
-      () async {
-    final found = await scan();
+  test(
+    'merges a device that answers on both transports into one row',
+    () async {
+      final found = await scan();
 
-    final hue = deviceAt(found, _hueHost);
-    expect(
-        hue!.sources,
-        {
-          NetworkDiscoverySource.mdns,
-          NetworkDiscoverySource.ssdp,
-        },
-        reason: 'one host, two transports, one row');
-    // The merge must not lose either half: the name and port come from mDNS,
-    // the target from SSDP.
-    expect(hue.name, 'Philips Hue - 123456');
-    expect(hue.ssdpTargets, contains('upnp:rootdevice'));
-  });
+      final hue = deviceAt(found, _hueHost);
+      expect(hue!.sources, {
+        NetworkDiscoverySource.mdns,
+        NetworkDiscoverySource.ssdp,
+      }, reason: 'one host, two transports, one row');
+      // The merge must not lose either half: the name and port come from mDNS,
+      // the target from SSDP.
+      expect(hue.name, 'Philips Hue - 123456');
+      expect(hue.ssdpTargets, contains('upnp:rootdevice'));
+    },
+  );
 
   // Note the asymmetry with the other cases: this asserts only that supplying
   // the type FINDS the device, never that withholding it hides the device. A
@@ -193,8 +203,7 @@ void main() {
   // answers the meta-query from its own cache, so an absence assertion is not
   // reliable off a bare CI box. The mechanism itself is pinned by the unit test
   // for normalizeMdnsServiceType and the direct-query wiring.
-  test(
-      'a device deaf to the meta-query is found via its catalogue service '
+  test('a device deaf to the meta-query is found via its catalogue service '
       'type', () async {
     // Handed the type the catalogue declares, the scan queries it directly and
     // resolves the same PTR -> SRV -> A chain to a real address. This is the
@@ -202,9 +211,13 @@ void main() {
     final found = await scan(mdnsTypes: const [_snapType]);
 
     final snap = deviceAt(found, _snapHost);
-    expect(snap, isNotNull,
-        reason: 'a direct PTR for _snapmaker._tcp was answered and resolved '
-            'all the way to an address');
+    expect(
+      snap,
+      isNotNull,
+      reason:
+          'a direct PTR for _snapmaker._tcp was answered and resolved '
+          'all the way to an address',
+    );
     expect(snap!.serviceTypes, contains('_snapmaker._tcp.local'));
     expect(snap.hostname, 'snapmaker-u1.local');
     expect(snap.port, 1884, reason: 'the advertised port, metadata only');
@@ -212,8 +225,7 @@ void main() {
     expect(snap.sources, contains(NetworkDiscoverySource.mdns));
   });
 
-  test(
-      'a device that never answers the A query is rescued by the ip in its '
+  test('a device that never answers the A query is rescued by the ip in its '
       'TXT record', () async {
     // The device answers its direct PTR, TXT and SRV, but no A record for its
     // hostname, so the normal PTR -> SRV -> A chain resolves no address and
@@ -222,9 +234,13 @@ void main() {
     final found = await scan(mdnsTypes: const [_snapTxtType]);
 
     final snap = deviceAt(found, _snapTxtHost);
-    expect(snap, isNotNull,
-        reason: 'PTR + TXT was enough to place the device, even though the A '
-            'query for its hostname was never answered');
+    expect(
+      snap,
+      isNotNull,
+      reason:
+          'PTR + TXT was enough to place the device, even though the A '
+          'query for its hostname was never answered',
+    );
     // The address is the TXT-reported one, not one an A record supplied.
     expect(snap!.host, _snapTxtHost);
     expect(snap.txt['ip'], _snapTxtHost);
@@ -232,14 +248,19 @@ void main() {
     expect(snap.sources, contains(NetworkDiscoverySource.mdns));
     // Proof the row came off the TXT arm and not SRV/A: the SRV/A path yielded
     // no address, so it never emitted the row that would have carried a port.
-    expect(snap.port, isNull,
-        reason: 'only the TXT emit fired; the unanswered A query left the '
-            'SRV/A path with nothing to emit');
+    expect(
+      snap.port,
+      isNull,
+      reason:
+          'only the TXT emit fired; the unanswered A query left the '
+          'SRV/A path with nothing to emit',
+    );
   });
 
   test('a scan can be stopped early without leaving the stream open', () async {
     final service = RealNetworkScanService(
-        multicastLock: MulticastLock(isSupported: false));
+      multicastLock: MulticastLock(isSupported: false),
+    );
     var closed = false;
     final sub = service
         .scan(timeout: const Duration(minutes: 1))
@@ -249,9 +270,13 @@ void main() {
     await service.stopScan();
     await Future<void>.delayed(const Duration(seconds: 1));
 
-    expect(closed, isTrue,
-        reason: 'stopScan has to end the stream, not just the sockets — the '
-            'button stays disabled until it closes');
+    expect(
+      closed,
+      isTrue,
+      reason:
+          'stopScan has to end the stream, not just the sockets — the '
+          'button stays disabled until it closes',
+    );
     await sub.cancel();
   });
 }

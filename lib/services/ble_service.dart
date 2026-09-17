@@ -11,12 +11,7 @@ import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 
 /// Connection state for a BLE device.
-enum BleConnectionState {
-  disconnected,
-  connecting,
-  connected,
-  disconnecting,
-}
+enum BleConnectionState { disconnected, connecting, connected, disconnecting }
 
 /// Raised on the [BleService.scan] stream when BLE permissions were denied.
 ///
@@ -26,10 +21,11 @@ enum BleConnectionState {
 class BlePermissionDeniedException implements UserFacingException {
   @override
   final String message;
-  const BlePermissionDeniedException(
-      [this.message =
-          'Bluetooth permission denied. Grant Bluetooth (and, on Android, '
-              'nearby-devices/location) access to scan for devices.']);
+  const BlePermissionDeniedException([
+    this.message =
+        'Bluetooth permission denied. Grant Bluetooth (and, on Android, '
+        'nearby-devices/location) access to scan for devices.',
+  ]);
 
   @override
   String toString() => message;
@@ -44,9 +40,11 @@ class BlePermissionDeniedException implements UserFacingException {
 class BleUnavailableException implements UserFacingException {
   @override
   final String message;
-  const BleUnavailableException(
-      [this.message = 'Bluetooth is turned off. Turn it on to scan for '
-          'devices.']);
+  const BleUnavailableException([
+    this.message =
+        'Bluetooth is turned off. Turn it on to scan for '
+        'devices.',
+  ]);
 
   @override
   String toString() => message;
@@ -66,10 +64,12 @@ class BleUnavailableException implements UserFacingException {
 class BlePairingRequiredException implements UserFacingException {
   @override
   final String message;
-  const BlePairingRequiredException(
-      [this.message = 'This device needs to be paired before it will share '
-          'data. Accept the pairing request from your system Bluetooth '
-          'settings, then try again.']);
+  const BlePairingRequiredException([
+    this.message =
+        'This device needs to be paired before it will share '
+        'data. Accept the pairing request from your system Bluetooth '
+        'settings, then try again.',
+  ]);
 
   /// The same refusal, worded for where the prompt actually appears.
   ///
@@ -84,15 +84,14 @@ class BlePairingRequiredException implements UserFacingException {
   /// Kept as a factory on the exception rather than resolved at the throw site
   /// so the wording lives next to the type that carries it, and so tests can
   /// construct either form without faking a platform.
-  factory BlePairingRequiredException.forPlatform({
-    required bool isApple,
-  }) =>
+  factory BlePairingRequiredException.forPlatform({required bool isApple}) =>
       isApple
-          ? const BlePairingRequiredException(
-              'This device needs to be paired before it will share data. '
-              'Tap Pair on the Bluetooth Pairing Request, then try again. '
-              'If you already dismissed it, retrying brings it back.')
-          : const BlePairingRequiredException();
+      ? const BlePairingRequiredException(
+          'This device needs to be paired before it will share data. '
+          'Tap Pair on the Bluetooth Pairing Request, then try again. '
+          'If you already dismissed it, retrying brings it back.',
+        )
+      : const BlePairingRequiredException();
 
   @override
   String toString() => message;
@@ -111,10 +110,12 @@ class BlePairingRequiredException implements UserFacingException {
 class BleDeviceUnheardException implements UserFacingException {
   @override
   final String message;
-  const BleDeviceUnheardException(
-      [this.message = 'This device has not been seen since Bluetooth last '
-          'restarted, so it cannot be reconnected directly. Make sure it is '
-          'powered on and in range, then scan for it again.']);
+  const BleDeviceUnheardException([
+    this.message =
+        'This device has not been seen since Bluetooth last '
+        'restarted, so it cannot be reconnected directly. Make sure it is '
+        'powered on and in range, then scan for it again.',
+  ]);
 
   @override
   String toString() => message;
@@ -159,8 +160,9 @@ abstract class BleService {
   /// to [ScanIntensity.active], which is the pre-dial behaviour, so a caller
   /// that has not opted into duty-cycling never gets it by surprise.
   Stream<IoTDevice> scan({
-    Duration? timeout =
-        const Duration(seconds: AppConstants.defaultScanDuration),
+    Duration? timeout = const Duration(
+      seconds: AppConstants.defaultScanDuration,
+    ),
     ScanIntensity intensity = ScanIntensity.active,
   });
 

@@ -60,12 +60,16 @@ String _stripLeadingZeros(String value) {
 String? macAddressOrNull(String id) {
   final octets = id.split(':');
   if (octets.length != 6) return null;
-  final isMac = octets.every((octet) =>
-      octet.length == 2 &&
-      octet.codeUnits.every((c) =>
-          (c >= 0x30 && c <= 0x39) || // 0-9
-          (c >= 0x41 && c <= 0x46) || // A-F
-          (c >= 0x61 && c <= 0x66))); // a-f
+  final isMac = octets.every(
+    (octet) =>
+        octet.length == 2 &&
+        octet.codeUnits.every(
+          (c) =>
+              (c >= 0x30 && c <= 0x39) || // 0-9
+              (c >= 0x41 && c <= 0x46) || // A-F
+              (c >= 0x61 && c <= 0x66),
+        ),
+  ); // a-f
   return isMac ? id : null;
 }
 

@@ -77,7 +77,8 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     setState(() {
       _device = device;
       _stage = _Stage.connecting;
-      _busyLabel = 'Looking for the ${device.profile.specName} on its setup '
+      _busyLabel =
+          'Looking for the ${device.profile.specName} on its setup '
           'network...';
       _error = null;
     });
@@ -85,10 +86,12 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     // The head of every adoption transcript: which family, and the spec-derived
     // address the probe below is about to use. Without it the first line in the
     // log is a probe against an IP with no stated origin.
-    Log.adopt.info('adopt: connecting to a ${device.profile.specName} '
-        '(${device.family.name}) — ssid prefix "${device.profile.ssidPrefix}", '
-        'gateway ${device.profile.gatewayIp ?? '<spec says none>'}, '
-        'ports ${device.profile.ports.isEmpty ? '<spec says none>' : device.profile.ports.join(', ')}');
+    Log.adopt.info(
+      'adopt: connecting to a ${device.profile.specName} '
+      '(${device.family.name}) — ssid prefix "${device.profile.ssidPrefix}", '
+      'gateway ${device.profile.gatewayIp ?? '<spec says none>'}, '
+      'ports ${device.profile.ports.isEmpty ? '<spec says none>' : device.profile.ports.join(', ')}',
+    );
     try {
       final session = await service.connect(
         family: device.family,
@@ -103,11 +106,14 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         // The service has already logged which of the two causes it was; this
         // line is what closes the stage, so a reader can see the flow returned
         // to the picker rather than hung.
-        Log.adopt.info('adopt: no device answered on the setup network; back '
-            'to the device picker');
+        Log.adopt.info(
+          'adopt: no device answered on the setup network; back '
+          'to the device picker',
+        );
         setState(() {
           _stage = _Stage.pickDevice;
-          _error = "Couldn't reach the device. Make sure you joined its "
+          _error =
+              "Couldn't reach the device. Make sure you joined its "
               '"${device.profile.ssidPrefix}…" Wi-Fi network in Settings, then '
               'try again.';
         });
@@ -119,10 +125,12 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       if (!mounted) return;
       setState(() {
         _stage = _Stage.pickDevice;
-        _error = friendlyErrorText(e,
-            context: 'adopt connect',
-            log: Log.adopt,
-            fallback: 'Something went wrong reaching the device. Try again.');
+        _error = friendlyErrorText(
+          e,
+          context: 'adopt connect',
+          log: Log.adopt,
+          fallback: 'Something went wrong reaching the device. Try again.',
+        );
       });
     }
   }
@@ -152,11 +160,14 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         // flow, and recovering from it (typing an SSID) means the rest of the
         // transcript is a Wemo join with guessed auth/cipher/channel — which
         // is worth knowing when that join then does not happen.
-        _error = friendlyErrorText(e,
-            context: 'adopt list networks',
-            log: Log.adopt,
-            fallback: "The device didn't return a network list. You can type "
-                'your Wi-Fi name below instead.');
+        _error = friendlyErrorText(
+          e,
+          context: 'adopt list networks',
+          log: Log.adopt,
+          fallback:
+              "The device didn't return a network list. You can type "
+              'your Wi-Fi name below instead.',
+        );
       });
     }
   }
@@ -203,17 +214,21 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     // A typed network carries no auth/cipher/channel. For Wemo that is a real
     // gap — its ConnectHomeNetwork needs them — so a typed SSID is offered only
     // as a fallback and defaults are filled: WPA2 is what home networks run.
-    Log.adopt.info('adopt: using a typed SSID "$ssid" with assumed '
-        'WPA2PSK/AES and no channel — the device did not supply these, so a '
-        'failed join here may simply mean the assumption is wrong');
-    _chooseNetwork(SetupNetwork(
-      ssid: ssid,
-      joinable: true,
-      isOpen: false,
-      auth: 'WPA2PSK',
-      encrypt: 'AES',
-      channel: '',
-    ));
+    Log.adopt.info(
+      'adopt: using a typed SSID "$ssid" with assumed '
+      'WPA2PSK/AES and no channel — the device did not supply these, so a '
+      'failed join here may simply mean the assumption is wrong',
+    );
+    _chooseNetwork(
+      SetupNetwork(
+        ssid: ssid,
+        joinable: true,
+        isOpen: false,
+        auth: 'WPA2PSK',
+        encrypt: 'AES',
+        channel: '',
+      ),
+    );
   }
 
   Future<void> _provision() async {
@@ -237,10 +252,12 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       if (!mounted) return;
       setState(() {
         _stage = _Stage.credentials;
-        _error = friendlyErrorText(e,
-            context: 'adopt provision failed',
-            log: Log.adopt,
-            fallback: 'Sending the settings failed. Try again.');
+        _error = friendlyErrorText(
+          e,
+          context: 'adopt provision failed',
+          log: Log.adopt,
+          fallback: 'Sending the settings failed. Try again.',
+        );
       });
     }
   }
@@ -273,9 +290,11 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 24),
-            Text(_busyLabel,
-                textAlign: TextAlign.center,
-                style: text.bodyLarge?.copyWith(height: 1.5)),
+            Text(
+              _busyLabel,
+              textAlign: TextAlign.center,
+              style: text.bodyLarge?.copyWith(height: 1.5),
+            ),
           ],
         ),
       ),
@@ -297,29 +316,39 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
           child: Icon(Icons.wifi_tethering, size: 56, color: scheme.secondary),
         ),
         const SizedBox(height: 24),
-        Text('Put a reset device on your Wi-Fi',
-            textAlign: TextAlign.center,
-            style: text.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4)),
+        Text(
+          'Put a reset device on your Wi-Fi',
+          textAlign: TextAlign.center,
+          style: text.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
         const SizedBox(height: 12),
         Text(
           'A device that has been factory reset broadcasts its own temporary '
           'Wi-Fi network. Two steps:',
           textAlign: TextAlign.center,
-          style: text.bodyMedium
-              ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+          style: text.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
         const SizedBox(height: 20),
-        _instruction(context, '1',
-            'Factory reset the device so it starts advertising its setup network.'),
         _instruction(
-            context,
-            '2',
-            _canOpenWifiSettings
-                ? 'Open Wi-Fi settings and join that network. Then come back '
+          context,
+          '1',
+          'Factory reset the device so it starts advertising its setup network.',
+        ),
+        _instruction(
+          context,
+          '2',
+          _canOpenWifiSettings
+              ? 'Open Wi-Fi settings and join that network. Then come back '
                     'and pick your device below.'
-                : 'Open the Settings app, tap Wi-Fi and join that network. '
-                    'Then come back and pick your device below.'),
+              : 'Open the Settings app, tap Wi-Fi and join that network. '
+                    'Then come back and pick your device below.',
+        ),
         const SizedBox(height: 12),
         // Android can open the Wi-Fi list itself. iOS has no public way to
         // (App-Prefs:WIFI is a private scheme App Review rejects), and
@@ -330,16 +359,19 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         Center(
           child: _canOpenWifiSettings
               ? TextButton.icon(
-                  onPressed: () => unawaited(ref
-                      .read(wifiNetworkScannerProvider)
-                      .openWifiSettings()
-                      .catchError((Object _) => false)),
+                  onPressed: () => unawaited(
+                    ref
+                        .read(wifiNetworkScannerProvider)
+                        .openWifiSettings()
+                        .catchError((Object _) => false),
+                  ),
                   icon: const Icon(Icons.wifi),
                   label: const Text('Open Wi-Fi settings'),
                 )
               : TextButton.icon(
                   onPressed: () => unawaited(
-                      openAppSettings().catchError((Object _) => false)),
+                    openAppSettings().catchError((Object _) => false),
+                  ),
                   icon: const Icon(Icons.settings),
                   label: const Text('Open app settings'),
                 ),
@@ -353,17 +385,20 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         const SizedBox(height: 12),
         devicesAsync.when(
           loading: () => const Center(
-              child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: CircularProgressIndicator())),
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          ),
           error: (e, _) =>
               _errorBanner(context, 'Could not read the device catalogue.'),
           data: (devices) {
             if (devices.isEmpty) {
               return Text(
                 'No adoptable device types are in the catalogue yet.',
-                style:
-                    text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               );
             }
             return Column(
@@ -396,7 +431,8 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
   List<Widget> _bleSection(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final devices = ref.watch(bleAdoptableDevicesProvider).valueOrNull ??
+    final devices =
+        ref.watch(bleAdoptableDevicesProvider).valueOrNull ??
         const <BleAdoptableDevice>[];
     final drivable = devices
         .where((d) => _bleSetupScreens.containsKey(d.protocolHandler))
@@ -411,10 +447,14 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         Card(
           margin: EdgeInsets.zero,
           child: ListTile(
-            leading: Icon(_iconFor(device.profile.category),
-                color: scheme.secondary),
-            title: Text(device.profile.specName,
-                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            leading: Icon(
+              _iconFor(device.profile.category),
+              color: scheme.secondary,
+            ),
+            title: Text(
+              device.profile.specName,
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
             subtitle: Text(
               'No setup network to join — provisioning talks to it over '
               'Bluetooth, while it advertises as '
@@ -445,10 +485,14 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       margin: EdgeInsets.zero,
       color: isNearby ? scheme.secondaryContainer : null,
       child: ListTile(
-        leading: Icon(_iconFor(device.profile.category),
-            color: isNearby ? scheme.onSecondaryContainer : scheme.secondary),
-        title: Text(device.profile.specName,
-            style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+        leading: Icon(
+          _iconFor(device.profile.category),
+          color: isNearby ? scheme.onSecondaryContainer : scheme.secondary,
+        ),
+        title: Text(
+          device.profile.specName,
+          style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
         subtitle: Text(
           isNearby
               ? 'Setup network "${device.profile.ssidPrefix}…" is in range now'
@@ -476,16 +520,22 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
       children: [
-        Text('Choose your home Wi-Fi',
-            style: text.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4)),
+        Text(
+          'Choose your home Wi-Fi',
+          style: text.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
         const SizedBox(height: 8),
         Text(
           'This is the network the ${_device?.profile.specName ?? 'device'} '
           'will join once setup finishes. It must be 2.4 GHz — these radios '
           'do not use 5 GHz.',
-          style: text.bodyMedium
-              ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+          style: text.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
         if (_error != null) ...[
           const SizedBox(height: 16),
@@ -494,7 +544,9 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         const SizedBox(height: 24),
         if (joinable.isNotEmpty) ...[
           SectionHeader(
-              label: 'Networks the device sees', count: joinable.length),
+            label: 'Networks the device sees',
+            count: joinable.length,
+          ),
           const SizedBox(height: 12),
           for (final network in joinable) ...[
             _networkTile(context, network),
@@ -556,8 +608,10 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     return Card(
       margin: EdgeInsets.zero,
       child: ListTile(
-        leading: Icon(network.isOpen ? Icons.lock_open : Icons.lock_outline,
-            color: scheme.secondary),
+        leading: Icon(
+          network.isOpen ? Icons.lock_open : Icons.lock_outline,
+          color: scheme.secondary,
+        ),
         title: Text(network.ssid),
         subtitle: Text(_securityLabel(network)),
         trailing: const Icon(Icons.chevron_right),
@@ -573,15 +627,21 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
       children: [
-        Text('Password for "${network.ssid}"',
-            style: text.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4)),
+        Text(
+          'Password for "${network.ssid}"',
+          style: text.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
         const SizedBox(height: 8),
         Text(
           'Sent to the device over its own setup network so it can join your '
           'Wi-Fi. It is not stored by this app.',
-          style: text.bodyMedium
-              ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+          style: text.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
         const SizedBox(height: 24),
         TextField(
@@ -623,15 +683,19 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final outcome = _outcome!;
-    final good = outcome.status == AdoptStatus.joined ||
+    final good =
+        outcome.status == AdoptStatus.joined ||
         outcome.status == AdoptStatus.sentUnconfirmed;
     return Center(
       child: ListView(
         shrinkWrap: true,
         padding: const EdgeInsets.all(32),
         children: [
-          Icon(good ? Icons.check_circle_outline : Icons.error_outline,
-              size: 64, color: good ? scheme.primary : scheme.error),
+          Icon(
+            good ? Icons.check_circle_outline : Icons.error_outline,
+            size: 64,
+            color: good ? scheme.primary : scheme.error,
+          ),
           const SizedBox(height: 24),
           Text(
             switch (outcome.status) {
@@ -644,10 +708,14 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
             style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
-          Text(outcome.message,
-              textAlign: TextAlign.center,
-              style: text.bodyMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5)),
+          Text(
+            outcome.message,
+            textAlign: TextAlign.center,
+            style: text.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+              height: 1.5,
+            ),
+          ),
           const SizedBox(height: 28),
           if (good)
             Center(
@@ -684,10 +752,13 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
           CircleAvatar(
             radius: 14,
             backgroundColor: scheme.secondaryContainer,
-            child: Text(number,
-                style: text.labelLarge?.copyWith(
-                    color: scheme.onSecondaryContainer,
-                    fontWeight: FontWeight.w700)),
+            child: Text(
+              number,
+              style: text.labelLarge?.copyWith(
+                color: scheme.onSecondaryContainer,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -716,8 +787,10 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
           Icon(Icons.info_outline, color: scheme.onErrorContainer, size: 20),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(message,
-                style: TextStyle(color: scheme.onErrorContainer, height: 1.4)),
+            child: Text(
+              message,
+              style: TextStyle(color: scheme.onErrorContainer, height: 1.4),
+            ),
           ),
         ],
       ),
@@ -732,9 +805,9 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
   }
 
   static IconData _iconFor(String? category) => switch (category) {
-        'light' => Icons.lightbulb_outline,
-        'switch' => Icons.toggle_on_outlined,
-        'appliance' => Icons.kitchen_outlined,
-        _ => Icons.wifi,
-      };
+    'light' => Icons.lightbulb_outline,
+    'switch' => Icons.toggle_on_outlined,
+    'appliance' => Icons.kitchen_outlined,
+    _ => Icons.wifi,
+  };
 }

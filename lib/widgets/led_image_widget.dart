@@ -25,9 +25,9 @@ import 'led_designs.dart';
 /// they do not join the autorun rotation, and removing them is not ours to do.
 /// Pure so the diy/built-in split is unit-testable without the BLE machinery.
 List<int> diyEffectCidsToClear(Iterable<EffectEntryDto> entries) => [
-      for (final e in entries)
-        if (e.diy == 1) e.cid
-    ];
+  for (final e in entries)
+    if (e.diy == 1) e.cid,
+];
 
 /// Usable bytes per BLE write for a given ATT MTU.
 ///
@@ -374,7 +374,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     if (fromLiveSource) {
       await cache.set(widget.deviceId, res.width, res.height);
     }
-    final untouched = _width == defaultW &&
+    final untouched =
+        _width == defaultW &&
         _height == defaultH &&
         _frames.length == 1 &&
         _frames.first.every((b) => b == 0);
@@ -417,7 +418,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // then add anything the poke below elicits.
     final collected = <List<int>>[
       ...ble.recentNotifications(
-          widget.deviceId, probe.serviceUuid, notifyChar),
+        widget.deviceId,
+        probe.serviceUuid,
+        notifyChar,
+      ),
     ];
     final sub = ble
         .subscribeCharacteristic(widget.deviceId, probe.serviceUuid, notifyChar)
@@ -430,7 +434,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         params: {'sn': _nextSequence().toDouble()},
       );
       await ble.writeCharacteristic(
-          widget.deviceId, probe.serviceUuid, writeChar, cmd);
+        widget.deviceId,
+        probe.serviceUuid,
+        writeChar,
+        cmd,
+      );
       await Future<void>.delayed(const Duration(milliseconds: 2500));
     } catch (_) {
       // A device that does not answer just leaves the canvas at its default.
@@ -538,8 +546,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     _deviceCycleService = serviceUuid;
     _deviceCycleChar = ddpChar;
     final ms = frameMs < _minDeviceCycleMs ? _minDeviceCycleMs : frameMs;
-    _deviceCycleTimer =
-        Timer.periodic(Duration(milliseconds: ms), (_) => _tickDeviceCycle());
+    _deviceCycleTimer = Timer.periodic(
+      Duration(milliseconds: ms),
+      (_) => _tickDeviceCycle(),
+    );
   }
 
   void _stopDeviceCycle() {
@@ -557,18 +567,26 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       final frame =
           _deviceCycleFrames[_deviceCycleIndex % _deviceCycleFrames.length];
       _deviceCycleIndex++;
-      final cmd = await ref.read(specCodecProvider).encodeCommand(
-        specYaml: widget.specYaml,
-        charUuid: _deviceCycleChar,
-        commandName: 'play_effect',
-        params: {
-          'effect_id': frame.cid.toDouble(),
-          'slot': frame.slot.toDouble(),
-          'sn': _nextSequence().toDouble(),
-        },
-      );
-      await ref.read(bleServiceProvider).writeCharacteristic(
-          widget.deviceId, _deviceCycleService, _deviceCycleChar, cmd);
+      final cmd = await ref
+          .read(specCodecProvider)
+          .encodeCommand(
+            specYaml: widget.specYaml,
+            charUuid: _deviceCycleChar,
+            commandName: 'play_effect',
+            params: {
+              'effect_id': frame.cid.toDouble(),
+              'slot': frame.slot.toDouble(),
+              'sn': _nextSequence().toDouble(),
+            },
+          );
+      await ref
+          .read(bleServiceProvider)
+          .writeCharacteristic(
+            widget.deviceId,
+            _deviceCycleService,
+            _deviceCycleChar,
+            cmd,
+          );
     } catch (_) {
       // A dropped frame is harmless; the next tick tries again.
     } finally {
@@ -770,8 +788,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // the post-swap spec, which is exactly the sheared image this snapshot
     // exists to prevent, arrived at from the other direction.
     final specYaml = widget.specYaml;
-    final send = _sendTail
-        .then((_) => _sendFrame(rgb, width, height, specYaml, payloadPerWrite));
+    final send = _sendTail.then(
+      (_) => _sendFrame(rgb, width, height, specYaml, payloadPerWrite),
+    );
     // Callers observe failures through `send`; the tail itself must swallow
     // them or every later send would rethrow a stale error.
     _sendTail = send.then((_) {}, onError: (_) {});
@@ -791,7 +810,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // nextFrameIndex back, or the restart would skip the session-open.
     final epoch = _streamEpoch;
     final ble = ref.read(bleServiceProvider);
-    final plan = await ref.read(specCodecProvider).encodeImageFrame(
+    final plan = await ref
+        .read(specCodecProvider)
+        .encodeImageFrame(
           specYaml: specYaml,
           width: width,
           height: height,
@@ -842,11 +863,13 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       await _enqueueSend(_current, await _resolvePayloadPerWrite());
     } catch (e) {
       if (mounted) {
-        setState(() => _error = friendlyErrorText(
-              e,
-              context: 'send frame to ${widget.deviceId}',
-              fallback: 'Could not send the image to the device.',
-            ));
+        setState(
+          () => _error = friendlyErrorText(
+            e,
+            context: 'send frame to ${widget.deviceId}',
+            fallback: 'Could not send the image to the device.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -884,8 +907,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       // zero — the device would receive the same frame forever).
       _stopPreview();
     });
-    Log.ble.info('streaming ${_frames.length}-frame animation to '
-        '${widget.deviceId} every ${_intervalMs}ms');
+    Log.ble.info(
+      'streaming ${_frames.length}-frame animation to '
+      '${widget.deviceId} every ${_intervalMs}ms',
+    );
     final payloadPerWrite = await _resolvePayloadPerWrite();
     while (mounted && _streaming && epoch == _streamEpoch) {
       final started = DateTime.now();
@@ -986,7 +1011,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           hashInput
             ..add(_hashInts([raster!.width, raster.height, 10, 5]))
             ..add(
-                utf8.encode(options.scroll == 'none' ? 'left' : options.scroll))
+              utf8.encode(options.scroll == 'none' ? 'left' : options.scroll),
+            )
             ..addByte(0)
             ..add(raster.bits);
         case _StoredKind.animation:
@@ -1002,7 +1028,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       // unlikely to collide with catalogue effects (hardware accepts ids it
       // has never seen).
       final prior = store.findByContent(widget.deviceId, contentHash);
-      final cid = prior?.cid ??
+      final cid =
+          prior?.cid ??
           900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
 
       // A multi-frame animation can't be one stored blob on this curtain: the
@@ -1065,9 +1092,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           throw StateError('animation is handled by _saveAnimationLoop above');
       }
 
-      Log.ble.info('storing "${options.name}" (${options.kind.name}, cid $cid'
-          '${prior != null ? ', re-using ${prior.name}\'s slot' : ''}) '
-          'to ${widget.deviceId}: ${plan.uploadWrites.length} uploader writes');
+      Log.ble.info(
+        'storing "${options.name}" (${options.kind.name}, cid $cid'
+        '${prior != null ? ', re-using ${prior.name}\'s slot' : ''}) '
+        'to ${widget.deviceId}: ${plan.uploadWrites.length} uploader writes',
+      );
 
       // Listen for the device's verdict BEFORE the first upload write, so a
       // fast completion cannot slip past between upload and subscribe.
@@ -1102,7 +1131,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         final charUuid = play.characteristicUuid;
         if (_doodleSessionOpen) {
           await _sendFramedCommand(
-              specYaml, plan.serviceUuid, charUuid, 'ui_start_sync');
+            specYaml,
+            plan.serviceUuid,
+            charUuid,
+            'ui_start_sync',
+          );
           _doodleSessionOpen = false;
         }
         // Refresh the effect list so the freshly committed cid is addressable,
@@ -1149,19 +1182,23 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         } else {
           // The upload was sent but the device never confirmed it committed,
           // so the play may not have taken. Do not claim it is playing.
-          message = 'Saved "${options.name}", but the device did not confirm — '
+          message =
+              'Saved "${options.name}", but the device did not confirm — '
               'try Replay if it is not showing.';
         }
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = friendlyErrorText(
-              e,
-              context: 'store content on ${widget.deviceId}',
-              fallback: 'Could not save to the device.',
-            ));
+        setState(
+          () => _error = friendlyErrorText(
+            e,
+            context: 'store content on ${widget.deviceId}',
+            fallback: 'Could not save to the device.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1193,15 +1230,21 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     String charUuid,
     String commandName,
   ) async {
-    final bytes = await ref.read(specCodecProvider).encodeCommand(
-      specYaml: specYaml,
-      charUuid: charUuid,
-      commandName: commandName,
-      params: {'sn': _nextSequence().toDouble()},
+    final bytes = await ref
+        .read(specCodecProvider)
+        .encodeCommand(
+          specYaml: specYaml,
+          charUuid: charUuid,
+          commandName: commandName,
+          params: {'sn': _nextSequence().toDouble()},
+        );
+    Log.ble.info(
+      '${widget.deviceId} → $commandName '
+      '${_hexPreview(bytes.toList())}',
     );
-    Log.ble.info('${widget.deviceId} → $commandName '
-        '${_hexPreview(bytes.toList())}');
-    await ref.read(bleServiceProvider).writeCharacteristic(
+    await ref
+        .read(bleServiceProvider)
+        .writeCharacteristic(
           widget.deviceId,
           serviceUuid,
           charUuid,
@@ -1217,7 +1260,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     ImageWriteDto write,
   ) async {
     Log.ble.info('${widget.deviceId} → $label ${_hexPreview(write.bytes)}');
-    await ref.read(bleServiceProvider).writeCharacteristic(
+    await ref
+        .read(bleServiceProvider)
+        .writeCharacteristic(
           widget.deviceId,
           serviceUuid,
           write.characteristicUuid,
@@ -1261,12 +1306,14 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final sub = ble
         .subscribeCharacteristic(deviceId, serviceUuid, respChar)
         .listen((bytes) async {
-      final decoded =
-          await codec.decodeEffectList(specYaml: specYaml, bytes: bytes);
-      for (final e in decoded) {
-        entries[e.cid] = e;
-      }
-    });
+          final decoded = await codec.decodeEffectList(
+            specYaml: specYaml,
+            bytes: bytes,
+          );
+          for (final e in decoded) {
+            entries[e.cid] = e;
+          }
+        });
     _effectListSub = sub;
     await _sendFramedCommand(specYaml, serviceUuid, charUuid, 'effect_list');
     // The await above is where dispose lands: a timer created after it
@@ -1307,7 +1354,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// nothing. Returns the frame cids, their device slots, and the count the
   /// device confirmed committed.
   Future<({List<int> frameCids, List<int> slots, int confirmed})>
-      _uploadFramesAndLoop({
+  _uploadFramesAndLoop({
     required List<List<int>> frames,
     required int width,
     required int height,
@@ -1329,19 +1376,21 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final plans = <StoredUploadPlanDto>[];
     final maxWrite = await _resolvePayloadPerWrite();
     for (var i = 0; i < frames.length; i++) {
-      plans.add(await codec.encodeStoredImage(
-        specYaml: specYaml,
-        maxWrite: maxWrite,
-        width: width,
-        height: height,
-        rgb: frames[i],
-        name: '$name ${i + 1}/${frames.length}',
-        cid: frameCids[i],
-        timeSecs: 10,
-        scroll: 'none',
-        speed: 5,
-        sequence: _nextSequence(),
-      ));
+      plans.add(
+        await codec.encodeStoredImage(
+          specYaml: specYaml,
+          maxWrite: maxWrite,
+          width: width,
+          height: height,
+          rgb: frames[i],
+          name: '$name ${i + 1}/${frames.length}',
+          cid: frameCids[i],
+          timeSecs: 10,
+          scroll: 'none',
+          speed: 5,
+          sequence: _nextSequence(),
+        ),
+      );
     }
     final serviceUuid = plans.first.serviceUuid;
     final ddpChar = plans.first.playWrite?.characteristicUuid;
@@ -1355,8 +1404,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final Stream<List<int>>? notify = respChar == null
         ? null
         : ble
-            .subscribeCharacteristic(widget.deviceId, serviceUuid, respChar)
-            .asBroadcastStream();
+              .subscribeCharacteristic(widget.deviceId, serviceUuid, respChar)
+              .asBroadcastStream();
     final notifyKeepAlive = notify?.listen((_) {});
 
     var confirmedCount = 0;
@@ -1379,25 +1428,37 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         final Future<bool> confirmed = notify == null
             ? Future.value(false)
             : notify
-                .asyncMap((b) =>
-                    codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b))
-                .where((e) => e != null)
-                .cast<StoredUploadEventDto>()
-                .firstWhere((e) =>
-                    e.kind == StoredUploadEventKind.complete ||
-                    e.kind == StoredUploadEventKind.failed ||
-                    e.kind == StoredUploadEventKind.startRejected)
-                .then((e) => e.kind == StoredUploadEventKind.complete)
-                .timeout(const Duration(seconds: 15), onTimeout: () => false)
-                .catchError((_) => false);
+                  .asyncMap(
+                    (b) => codec.decodeStoredUploadEvent(
+                      specYaml: specYaml,
+                      bytes: b,
+                    ),
+                  )
+                  .where((e) => e != null)
+                  .cast<StoredUploadEventDto>()
+                  .firstWhere(
+                    (e) =>
+                        e.kind == StoredUploadEventKind.complete ||
+                        e.kind == StoredUploadEventKind.failed ||
+                        e.kind == StoredUploadEventKind.startRejected,
+                  )
+                  .then((e) => e.kind == StoredUploadEventKind.complete)
+                  .timeout(const Duration(seconds: 15), onTimeout: () => false)
+                  .catchError((_) => false);
         unawaited(confirmed.then((_) {}, onError: (_) {}));
         for (final write in plan.uploadWrites) {
-          await ble.writeCharacteristic(widget.deviceId, serviceUuid,
-              write.characteristicUuid, write.bytes);
+          await ble.writeCharacteristic(
+            widget.deviceId,
+            serviceUuid,
+            write.characteristicUuid,
+            write.bytes,
+          );
         }
         if (await confirmed) confirmedCount++;
-        Log.ble.info('${widget.deviceId} stored frame ${i + 1}/'
-            '${frames.length} cid=${frameCids[i]}');
+        Log.ble.info(
+          '${widget.deviceId} stored frame ${i + 1}/'
+          '${frames.length} cid=${frameCids[i]}',
+        );
       }
 
       // Learn each frame's device slot from the effect list, on the SAME
@@ -1405,7 +1466,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       if (notify != null) {
         final elSub = notify.listen((bytes) async {
           for (final e in await codec.decodeEffectList(
-              specYaml: specYaml, bytes: bytes)) {
+            specYaml: specYaml,
+            bytes: bytes,
+          )) {
             slotByCid[e.cid] = e.slot;
           }
         });
@@ -1418,10 +1481,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     }
 
     final slots = [for (final c in frameCids) slotByCid[c] ?? 0];
-    Log.ble.info('${widget.deviceId} loop slots: '
-        '${[
-      for (var i = 0; i < frameCids.length; i++) '${frameCids[i]}->${slots[i]}'
-    ].join(', ')}');
+    Log.ble.info(
+      '${widget.deviceId} loop slots: '
+      '${[for (var i = 0; i < frameCids.length; i++) '${frameCids[i]}->${slots[i]}'].join(', ')}',
+    );
 
     // Set up + start the loop on the device: set_playlist(save) → play_next
     // (the vendor's actual on-wire sequence; see _startLoop).
@@ -1449,7 +1512,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       frameMs: _intervalMs,
       specYaml: specYaml,
     );
-    await ref.read(savedDesignsStoreProvider).save(
+    await ref
+        .read(savedDesignsStoreProvider)
+        .save(
           widget.deviceId,
           SavedDesign(
             name: options.name,
@@ -1471,13 +1536,17 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     if (mounted) {
       setState(() {}); // the replay list gains/refreshes an entry
       final allCommitted = result.confirmed == frames.length;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(allCommitted
-            ? 'Saved "${options.name}" — cycling ${frames.length} frames '
-                'on the device.'
-            : 'Saved "${options.name}" (${result.confirmed}/${frames.length} '
-                'frames confirmed) — try Replay if it is not cycling.'),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            allCommitted
+                ? 'Saved "${options.name}" — cycling ${frames.length} frames '
+                      'on the device.'
+                : 'Saved "${options.name}" (${result.confirmed}/${frames.length} '
+                      'frames confirmed) — try Replay if it is not cycling.',
+          ),
+        ),
+      );
     }
   }
 
@@ -1492,12 +1561,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// Set the device's autorun [mode] (`0=fixed | 1=repeat | 2=random`) — the
   /// behaviour it persists across disconnect.
   Future<void> _setAutorunMode(String specYaml, int mode) async {
-    final autorun = await ref.read(specCodecProvider).encodeAutorunMode(
+    final autorun = await ref
+        .read(specCodecProvider)
+        .encodeAutorunMode(
           specYaml: specYaml,
           mode: mode,
           sequence: _nextSequence(),
         );
-    await ref.read(bleServiceProvider).writeCharacteristic(
+    await ref
+        .read(bleServiceProvider)
+        .writeCharacteristic(
           widget.deviceId,
           autorun.serviceUuid,
           autorun.write.characteristicUuid,
@@ -1529,30 +1602,35 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final sub = ble
         .subscribeCharacteristic(widget.deviceId, plan.serviceUuid, respChar)
         .listen((bytes) async {
-      final event =
-          await codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: bytes);
-      if (event == null || verdict.isCompleted) return;
-      switch (event.kind) {
-        case StoredUploadEventKind.complete:
-        case StoredUploadEventKind.failed:
-        case StoredUploadEventKind.startRejected:
-          verdict.complete(event);
-        case StoredUploadEventKind.startAccepted:
-        case StoredUploadEventKind.progress:
-          break; // transfer in flight; keep listening
-      }
-    });
+          final event = await codec.decodeStoredUploadEvent(
+            specYaml: specYaml,
+            bytes: bytes,
+          );
+          if (event == null || verdict.isCompleted) return;
+          switch (event.kind) {
+            case StoredUploadEventKind.complete:
+            case StoredUploadEventKind.failed:
+            case StoredUploadEventKind.startRejected:
+              verdict.complete(event);
+            case StoredUploadEventKind.startAccepted:
+            case StoredUploadEventKind.progress:
+              break; // transfer in flight; keep listening
+          }
+        });
     try {
       final event = await verdict.future.timeout(const Duration(seconds: 10));
       if (event.kind != StoredUploadEventKind.complete) {
         throw StateError(
-            'the device refused the stored design (code ${event.code})');
+          'the device refused the stored design (code ${event.code})',
+        );
       }
       Log.ble.info('${widget.deviceId} committed the stored design');
       return true;
     } on TimeoutException {
-      Log.ble.warning('no upload confirmation from ${widget.deviceId} within '
-          '10s; playing anyway but reporting it as unconfirmed');
+      Log.ble.warning(
+        'no upload confirmation from ${widget.deviceId} within '
+        '10s; playing anyway but reporting it as unconfirmed',
+      );
       return false;
     } finally {
       // Fire-and-forget: cancel() detaches the listener synchronously, which
@@ -1582,19 +1660,27 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       }
       // A single design replaces any running loop cycle.
       _stopDeviceCycle();
-      final play = await ref.read(specCodecProvider).encodeStoredPlay(
+      final play = await ref
+          .read(specCodecProvider)
+          .encodeStoredPlay(
             specYaml: widget.specYaml,
             cid: design.cid,
             sequence: _nextSequence(),
           );
       if (_doodleSessionOpen) {
-        await _sendFramedCommand(widget.specYaml, play.serviceUuid,
-            play.write.characteristicUuid, 'ui_start_sync');
+        await _sendFramedCommand(
+          widget.specYaml,
+          play.serviceUuid,
+          play.write.characteristicUuid,
+          'ui_start_sync',
+        );
         _doodleSessionOpen = false;
       }
       // A single stored design (picture, text) is one effect: play it by cid,
       // then pin the device to it (fixed autorun) so it holds across disconnect.
-      await ref.read(bleServiceProvider).writeCharacteristic(
+      await ref
+          .read(bleServiceProvider)
+          .writeCharacteristic(
             widget.deviceId,
             play.serviceUuid,
             play.write.characteristicUuid,
@@ -1602,17 +1688,19 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           );
       await _pinAutorunFixed(widget.specYaml, play.serviceUuid);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Playing "${design.name}".')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Playing "${design.name}".')));
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = friendlyErrorText(
-              e,
-              context: 'replay "${design.name}" on ${widget.deviceId}',
-              fallback: 'Could not replay the saved design.',
-            ));
+        setState(
+          () => _error = friendlyErrorText(
+            e,
+            context: 'replay "${design.name}" on ${widget.deviceId}',
+            fallback: 'Could not replay the saved design.',
+          ),
+        );
       }
     }
   }
@@ -1624,8 +1712,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text('Playing "${design.name}" — cycling '
-                '${design.frameCids.length} frames.')),
+          content: Text(
+            'Playing "${design.name}" — cycling '
+            '${design.frameCids.length} frames.',
+          ),
+        ),
       );
     }
   }
@@ -1659,13 +1750,19 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// device has no "play only this list" command (bookmark_save does NOT
   /// restrict playback); it autoruns whatever diy stills are stored, so the
   /// scope is set by what's present. Destructive to other stored designs.
-  Future<void> _clearDiyEffects(Stream<List<int>> notify, String specYaml,
-      String serviceUuid, String ddpChar) async {
+  Future<void> _clearDiyEffects(
+    Stream<List<int>> notify,
+    String specYaml,
+    String serviceUuid,
+    String ddpChar,
+  ) async {
     final codec = ref.read(specCodecProvider);
     final byCid = <int, EffectEntryDto>{};
     final sub = notify.listen((bytes) async {
-      for (final e
-          in await codec.decodeEffectList(specYaml: specYaml, bytes: bytes)) {
+      for (final e in await codec.decodeEffectList(
+        specYaml: specYaml,
+        bytes: bytes,
+      )) {
         byCid[e.cid] = e;
       }
     });
@@ -1673,11 +1770,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     await Future<void>.delayed(const Duration(seconds: 3));
     await sub.cancel();
     final diyCids = diyEffectCidsToClear(byCid.values);
-    Log.ble.info('${widget.deviceId} clearing ${diyCids.length} diy effect(s) '
-        'to scope the loop: $diyCids');
+    Log.ble.info(
+      '${widget.deviceId} clearing ${diyCids.length} diy effect(s) '
+      'to scope the loop: $diyCids',
+    );
     for (final cid in diyCids) {
       final rm = await codec.encodeRemoveApp(
-          specYaml: specYaml, cid: cid, sequence: _nextSequence());
+        specYaml: specYaml,
+        cid: cid,
+        sequence: _nextSequence(),
+      );
       await _writeFramed('remove_app', rm.serviceUuid, rm.write);
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }
@@ -1696,7 +1798,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// device, and `slots` must be their device-assigned slots from
   /// M_EFFECT_LIST. Every command is logged with its bytes.
   Future<void> _startLoop(
-      List<int> frameCids, List<int> frameSlots, int frameMs) async {
+    List<int> frameCids,
+    List<int> frameSlots,
+    int frameMs,
+  ) async {
     final codec = ref.read(specCodecProvider);
     // Old saves may lack per-frame slots; fall back to 0 (the device accepts
     // the set, though a wrong slot can stop it cycling).
@@ -1714,7 +1819,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // Hand the panel back from any live preview before reprogramming the loop.
     if (_doodleSessionOpen) {
       await _sendFramedCommand(
-          widget.specYaml, playlist.serviceUuid, ddpChar, 'ui_start_sync');
+        widget.specYaml,
+        playlist.serviceUuid,
+        ddpChar,
+        'ui_start_sync',
+      );
       _doodleSessionOpen = false;
     }
     for (final write in playlist.writes) {
@@ -1722,7 +1831,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     }
 
     await _sendFramedCommand(
-        widget.specYaml, playlist.serviceUuid, ddpChar, 'play_next');
+      widget.specYaml,
+      playlist.serviceUuid,
+      ddpChar,
+      'play_next',
+    );
 
     // set_playlist above is the DISCONNECT behaviour; drive the cycle in-app
     // while connected so the panel animates without the user disconnecting.
@@ -1756,17 +1869,25 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       } else {
         // A single design replaces any running loop cycle.
         _stopDeviceCycle();
-        final play = await ref.read(specCodecProvider).encodeStoredPlay(
+        final play = await ref
+            .read(specCodecProvider)
+            .encodeStoredPlay(
               specYaml: widget.specYaml,
               cid: design.cid,
               sequence: _nextSequence(),
             );
         if (_doodleSessionOpen) {
-          await _sendFramedCommand(widget.specYaml, play.serviceUuid,
-              play.write.characteristicUuid, 'ui_start_sync');
+          await _sendFramedCommand(
+            widget.specYaml,
+            play.serviceUuid,
+            play.write.characteristicUuid,
+            'ui_start_sync',
+          );
           _doodleSessionOpen = false;
         }
-        await ref.read(bleServiceProvider).writeCharacteristic(
+        await ref
+            .read(bleServiceProvider)
+            .writeCharacteristic(
               widget.deviceId,
               play.serviceUuid,
               play.write.characteristicUuid,
@@ -1777,19 +1898,24 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Set "${design.name}" as the device default — it '
-                  'should keep ${looping ? 'cycling' : 'showing'} after you '
-                  'disconnect.')),
+            content: Text(
+              'Set "${design.name}" as the device default — it '
+              'should keep ${looping ? 'cycling' : 'showing'} after you '
+              'disconnect.',
+            ),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = friendlyErrorText(
-              e,
-              context:
-                  'set "${design.name}" as the default on ${widget.deviceId}',
-              fallback: 'Could not set the device default.',
-            ));
+        setState(
+          () => _error = friendlyErrorText(
+            e,
+            context:
+                'set "${design.name}" as the default on ${widget.deviceId}',
+            fallback: 'Could not set the device default.',
+          ),
+        );
       }
     }
   }
@@ -1851,8 +1977,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              Icon(Icons.image_not_supported_outlined,
-                  color: scheme.onSurfaceVariant),
+              Icon(
+                Icons.image_not_supported_outlined,
+                color: scheme.onSurfaceVariant,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
@@ -1861,8 +1989,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                   'upload protocol '
                   '(${_spec.handler ?? 'undeclared'}) is not supported by '
                   'the app yet.',
-                  style:
-                      text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ],
@@ -1885,8 +2014,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                 Expanded(
                   child: Text(
                     'LED image',
-                    style:
-                        text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                    style: text.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ],
@@ -1942,15 +2072,19 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                   ? Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.info_outline,
-                            size: 16, color: scheme.onSurfaceVariant),
+                        Icon(
+                          Icons.info_outline,
+                          size: 16,
+                          color: scheme.onSurfaceVariant,
+                        ),
                         const SizedBox(width: 6),
                         Flexible(
                           child: Text(
                             'Ready-made designs are unavailable at this canvas '
                             'size.',
-                            style: text.bodySmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
+                            style: text.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ],
@@ -1963,7 +2097,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                           PopupMenuItem(
                             value: d,
                             child: Text(
-                                d.animation ? '${d.name} (animation)' : d.name),
+                              d.animation ? '${d.name} (animation)' : d.name,
+                            ),
                           ),
                       ],
                       // A plain Chip (no onPressed) so the PopupMenuButton owns
@@ -1989,24 +2124,29 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                 onTogglePreview: _togglePreview,
               ),
               const SizedBox(height: 4),
-              Builder(builder: (context) {
-                final bounds = frameIntervalBoundsMs(_spec);
-                return Row(
-                  children: [
-                    Text('Frame every ${_intervalMs}ms',
-                        style: text.bodySmall
-                            ?.copyWith(color: scheme.onSurfaceVariant)),
-                    Expanded(
-                      child: Slider(
-                        value: _intervalMs.toDouble(),
-                        min: bounds.min.toDouble(),
-                        max: bounds.max.toDouble(),
-                        onChanged: (v) => _setIntervalMs(v.round()),
+              Builder(
+                builder: (context) {
+                  final bounds = frameIntervalBoundsMs(_spec);
+                  return Row(
+                    children: [
+                      Text(
+                        'Frame every ${_intervalMs}ms',
+                        style: text.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                  ],
-                );
-              }),
+                      Expanded(
+                        child: Slider(
+                          value: _intervalMs.toDouble(),
+                          min: bounds.min.toDouble(),
+                          max: bounds.max.toDouble(),
+                          onChanged: (v) => _setIntervalMs(v.round()),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ],
             if (_error != null) ...[
               const SizedBox(height: 8),
@@ -2016,39 +2156,43 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
               ),
             ],
             const SizedBox(height: 8),
-            Builder(builder: (context) {
-              // One mode table for icon, label AND action — three parallel
-              // conditionals would have to be kept in sync by hand.
-              final (icon, label, action) =
-                  switch ((_animationMode, _streaming)) {
-                (false, _) => (
+            Builder(
+              builder: (context) {
+                // One mode table for icon, label AND action — three parallel
+                // conditionals would have to be kept in sync by hand.
+                final (icon, label, action) = switch ((
+                  _animationMode,
+                  _streaming,
+                )) {
+                  (false, _) => (
                     Icons.upload,
                     'Send to device',
-                    _sendCurrentFrame
+                    _sendCurrentFrame,
                   ),
-                (true, false) => (
+                  (true, false) => (
                     Icons.play_arrow,
                     'Stream to device',
-                    _toggleStreaming
+                    _toggleStreaming,
                   ),
-                (true, true) => (
+                  (true, true) => (
                     Icons.stop,
                     'Stop streaming',
-                    _toggleStreaming
+                    _toggleStreaming,
                   ),
-              };
-              return SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  icon: Icon(icon),
-                  label: Text(label),
-                  // Not gated on _streaming: in animation mode this button IS
-                  // the Stop-streaming toggle and must stay live while a stream
-                  // runs. _saving disables it (the link is busy with an upload).
-                  onPressed: _sending || _saving ? null : action,
-                ),
-              );
-            }),
+                };
+                return SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: Icon(icon),
+                    label: Text(label),
+                    // Not gated on _streaming: in animation mode this button IS
+                    // the Stop-streaming toggle and must stay live while a stream
+                    // runs. _saving disables it (the link is busy with an upload).
+                    onPressed: _sending || _saving ? null : action,
+                  ),
+                );
+              },
+            ),
             // Device-side STORAGE: persist the current frame so it plays
             // standalone after disconnect. Separate from the live Send/Stream
             // above — that pushes pixels for as long as the app holds the link;
@@ -2094,8 +2238,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       Row(
         children: [
           Expanded(
-            child: Text('Saved designs',
-                style: Theme.of(context).textTheme.titleSmall),
+            child: Text(
+              'Saved designs',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
           ),
           IconButton(
             key: const Key('clear-device-designs'),
@@ -2127,7 +2273,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                   icon: const Icon(Icons.push_pin_outlined),
                   iconSize: 18,
                   visualDensity: VisualDensity.compact,
-                  tooltip: 'Keep "${design.name}" showing on the device '
+                  tooltip:
+                      'Keep "${design.name}" showing on the device '
                       'after you disconnect',
                   onPressed: _saving ? null : () => _saveAsDefault(design),
                 ),
@@ -2148,15 +2295,18 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       builder: (dialogContext) => AlertDialog(
         title: const Text('Clear designs from device?'),
         content: const Text(
-            'Removes the designs this app stored on the device. Built-in '
-            'effects are left alone.'),
+          'Removes the designs this app stored on the device. Built-in '
+          'effects are left alone.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Clear')),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Clear'),
+          ),
         ],
       ),
     );
@@ -2179,33 +2329,47 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       final specYaml = widget.specYaml;
 
       Future<void> send(StoredPlayDto w) => ble.writeCharacteristic(
-            widget.deviceId,
-            w.serviceUuid,
-            w.write.characteristicUuid,
-            w.write.bytes,
-          );
+        widget.deviceId,
+        w.serviceUuid,
+        w.write.characteristicUuid,
+        w.write.bytes,
+      );
 
       // Bulk clear (best-effort; the vendor deletes one-by-one instead).
-      await send(await codec.encodeRemoveAllApps(
-          specYaml: specYaml, sequence: _nextSequence()));
+      await send(
+        await codec.encodeRemoveAllApps(
+          specYaml: specYaml,
+          sequence: _nextSequence(),
+        ),
+      );
       // Then remove each design we know we stored, by cid.
       for (final design in store.load(widget.deviceId)) {
-        await send(await codec.encodeRemoveApp(
-            specYaml: specYaml, cid: design.cid, sequence: _nextSequence()));
+        await send(
+          await codec.encodeRemoveApp(
+            specYaml: specYaml,
+            cid: design.cid,
+            sequence: _nextSequence(),
+          ),
+        );
       }
       await store.clear(widget.deviceId);
       if (mounted) {
         setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Cleared saved designs from the device.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cleared saved designs from the device.'),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = friendlyErrorText(
-              e,
-              context: 'clear designs from ${widget.deviceId}',
-              fallback: 'Could not clear designs from the device.',
-            ));
+        setState(
+          () => _error = friendlyErrorText(
+            e,
+            context: 'clear designs from ${widget.deviceId}',
+            fallback: 'Could not clear designs from the device.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -2301,10 +2465,7 @@ class _StoredSaveDialogState extends State<_StoredSaveDialog> {
                 value: _StoredKind.picture,
                 label: Text('Picture'),
               ),
-              const ButtonSegment(
-                value: _StoredKind.text,
-                label: Text('Text'),
-              ),
+              const ButtonSegment(value: _StoredKind.text, label: Text('Text')),
               ButtonSegment(
                 value: _StoredKind.animation,
                 label: const Text('Animation'),
@@ -2368,12 +2529,14 @@ class _StoredSaveDialogState extends State<_StoredSaveDialog> {
             final text = _textController.text.trim();
             // Text with nothing typed has nothing to store; keep the dialog open.
             if (_kind == _StoredKind.text && text.isEmpty) return;
-            Navigator.of(context).pop(_StoredSaveOptions(
-              kind: _kind,
-              name: name.isEmpty ? 'My design' : name,
-              scroll: _scroll,
-              text: text,
-            ));
+            Navigator.of(context).pop(
+              _StoredSaveOptions(
+                kind: _kind,
+                name: name.isEmpty ? 'My design' : name,
+                scroll: _scroll,
+                text: text,
+              ),
+            );
           },
           child: const Text('Save'),
         ),
@@ -2464,8 +2627,9 @@ class _CanvasSizeField extends StatefulWidget {
 }
 
 class _CanvasSizeFieldState extends State<_CanvasSizeField> {
-  late final TextEditingController _controller =
-      TextEditingController(text: '${widget.value}');
+  late final TextEditingController _controller = TextEditingController(
+    text: '${widget.value}',
+  );
 
   @override
   void didUpdateWidget(_CanvasSizeField old) {
@@ -2585,10 +2749,7 @@ class _GridPainter extends CustomPainter {
       for (var x = 0; x < width; x++) {
         final i = (y * width + x) * 3;
         fill.color = Color.fromARGB(0xFF, rgb[i], rgb[i + 1], rgb[i + 2]);
-        canvas.drawRect(
-          Rect.fromLTWH(x * cell, y * cell, cell, cell),
-          fill,
-        );
+        canvas.drawRect(Rect.fromLTWH(x * cell, y * cell, cell, cell), fill);
       }
     }
     final line = Paint()

@@ -100,8 +100,9 @@ class IRobotCloudService {
     // guessing which they were handed.
     return _Endpoints(
       apiKey: apiKey,
-      gigyaBase:
-          gigyaBase.startsWith('http') ? gigyaBase : 'https://$gigyaBase',
+      gigyaBase: gigyaBase.startsWith('http')
+          ? gigyaBase
+          : 'https://$gigyaBase',
       httpBase: httpBase.startsWith('http') ? httpBase : 'https://$httpBase',
     );
   }
@@ -112,19 +113,15 @@ class IRobotCloudService {
     required String password,
   }) async {
     final uri = Uri.parse('${endpoints.gigyaBase}/accounts.login');
-    final body = await _postForm(
-      uri,
-      {
-        'apiKey': endpoints.apiKey,
-        'loginID': email,
-        // The one place the account password appears. It is not logged, not
-        // stored, and not returned; it exists in this map and nowhere else.
-        'password': password,
-        'targetEnv': 'mobile',
-        'format': 'json',
-      },
-      'iRobot sign-in',
-    );
+    final body = await _postForm(uri, {
+      'apiKey': endpoints.apiKey,
+      'loginID': email,
+      // The one place the account password appears. It is not logged, not
+      // stored, and not returned; it exists in this map and nowhere else.
+      'password': password,
+      'targetEnv': 'mobile',
+      'format': 'json',
+    }, 'iRobot sign-in');
 
     final errorCode = body['errorCode'];
     if (errorCode is num && errorCode != 0) {
@@ -157,22 +154,18 @@ class IRobotCloudService {
     required _GigyaAssertion assertion,
   }) async {
     final uri = Uri.parse('${endpoints.httpBase}/v2/login');
-    final body = await _postJson(
-      uri,
-      {
-        'app_id': appId,
-        // Read the account's existing robots; do not claim ownership of
-        // anything. Claiming would be a side effect on someone else's account
-        // that this app has no business causing.
-        'assume_robot_ownership': 0,
-        'gigya': {
-          'signature': assertion.signature,
-          'timestamp': assertion.timestamp,
-          'uid': assertion.uid,
-        },
+    final body = await _postJson(uri, {
+      'app_id': appId,
+      // Read the account's existing robots; do not claim ownership of
+      // anything. Claiming would be a side effect on someone else's account
+      // that this app has no business causing.
+      'assume_robot_ownership': 0,
+      'gigya': {
+        'signature': assertion.signature,
+        'timestamp': assertion.timestamp,
+        'uid': assertion.uid,
       },
-      'robot list',
-    );
+    }, 'robot list');
 
     final robots = body['robots'];
     if (robots is! Map) {
@@ -186,12 +179,14 @@ class IRobotCloudService {
       if (value is! Map) return;
       final password = value['password'];
       if (password is! String || password.isEmpty) return;
-      found.add(RoombaCredentials(
-        blid: blid.toString(),
-        password: password,
-        name: value['name']?.toString(),
-        sku: value['sku']?.toString(),
-      ));
+      found.add(
+        RoombaCredentials(
+          blid: blid.toString(),
+          password: password,
+          name: value['name']?.toString(),
+          sku: value['sku']?.toString(),
+        ),
+      );
     });
 
     if (found.isEmpty) {
@@ -215,23 +210,21 @@ class IRobotCloudService {
     Uri uri,
     Map<String, String> fields,
     String what,
-  ) =>
-      _send(() => _client.post(uri, body: fields), uri, what);
+  ) => _send(() => _client.post(uri, body: fields), uri, what);
 
   Future<Map<String, dynamic>> _postJson(
     Uri uri,
     Map<String, Object?> body,
     String what,
-  ) =>
-      _send(
-        () => _client.post(
-          uri,
-          headers: const {'Content-Type': 'application/json'},
-          body: jsonEncode(body),
-        ),
-        uri,
-        what,
-      );
+  ) => _send(
+    () => _client.post(
+      uri,
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    ),
+    uri,
+    what,
+  );
 
   Future<Map<String, dynamic>> _send(
     Future<http.Response> Function() request,

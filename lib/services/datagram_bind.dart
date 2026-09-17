@@ -28,8 +28,13 @@ Future<RawDatagramSocket> bindDatagramSocket(
   int ttl = 1,
 }) {
   Future<RawDatagramSocket> bind({required bool reusePort}) =>
-      RawDatagramSocket.bind(host, port,
-          reuseAddress: reuseAddress, reusePort: reusePort, ttl: ttl);
+      RawDatagramSocket.bind(
+        host,
+        port,
+        reuseAddress: reuseAddress,
+        reusePort: reusePort,
+        ttl: ttl,
+      );
   if (!reusePort) return bind(reusePort: false);
   return withReusePortFallback(bind);
 }
@@ -44,7 +49,8 @@ Future<RawDatagramSocket> bindDatagramSocket(
 /// of the retry itself) propagates unchanged, so a genuinely unavailable port
 /// still surfaces its error instead of being masked.
 Future<T> withReusePortFallback<T>(
-    Future<T> Function({required bool reusePort}) bind) async {
+  Future<T> Function({required bool reusePort}) bind,
+) async {
   try {
     return await bind(reusePort: true);
   } on SocketException {

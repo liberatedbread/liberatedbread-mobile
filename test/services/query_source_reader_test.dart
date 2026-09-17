@@ -50,12 +50,15 @@ void main() {
     // foreground — and treating it as one is what keeps the picker from
     // showing a stale channel as current.
     expect(
-        readCurrentValue('<active-app><app>Roku</app></active-app>', _source),
-        isNull);
+      readCurrentValue('<active-app><app>Roku</app></active-app>', _source),
+      isNull,
+    );
     // The entry itself survives the read, so a caller can still see what the
     // device called it.
-    expect(readQuerySource('<active-app><app>Roku</app></active-app>', _source),
-        [const QueryEntry(value: null, label: 'Roku')]);
+    expect(
+      readQuerySource('<active-app><app>Roku</app></active-app>', _source),
+      [const QueryEntry(value: null, label: 'Roku')],
+    );
   });
 
   test('matches local names, so a namespaced answer still reads', () {
@@ -64,14 +67,16 @@ void main() {
   <r:app id="12">Netflix</r:app>
 </r:apps>
 ''';
-    expect(readQuerySource(namespaced, _source),
-        [const QueryEntry(value: '12', label: 'Netflix')]);
+    expect(readQuerySource(namespaced, _source), [
+      const QueryEntry(value: '12', label: 'Netflix'),
+    ]);
   });
 
   test('finds items at any depth, not just below the root', () {
     const nested = '<outer><group><app id="7">Deep</app></group></outer>';
-    expect(readQuerySource(nested, _source),
-        [const QueryEntry(value: '7', label: 'Deep')]);
+    expect(readQuerySource(nested, _source), [
+      const QueryEntry(value: '7', label: 'Deep'),
+    ]);
   });
 
   test('an empty or unparseable document costs the list, not the screen', () {

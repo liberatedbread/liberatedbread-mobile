@@ -92,14 +92,16 @@ void main() {
       );
     });
 
-    test('reads the Wemo rtos/iot markers when present, null when not',
-        () async {
+    test('reads the Wemo rtos/iot markers when present, null when not', () async {
       // A Wemo setup.xml carries <rtos>/<iot>; they pick the credential layout.
       final withMarkers = _setupXml.replaceFirst(
-          '<friendlyName>', '<rtos>1</rtos><iot>0</iot><friendlyName>');
+        '<friendlyName>',
+        '<rtos>1</rtos><iot>0</iot><friendlyName>',
+      );
       final client = SoapControlClient(
-        httpClient:
-            MockClient((request) async => http.Response(withMarkers, 200)),
+        httpClient: MockClient(
+          (request) async => http.Response(withMarkers, 200),
+        ),
       );
       final description = await client.fetchDescription('10.0.0.5', 49153);
       expect(description.rtos, 1);
@@ -107,8 +109,9 @@ void main() {
 
       // A device without them (the plain fixture) reads null, not zero.
       final plain = SoapControlClient(
-        httpClient:
-            MockClient((request) async => http.Response(_setupXml, 200)),
+        httpClient: MockClient(
+          (request) async => http.Response(_setupXml, 200),
+        ),
       );
       final bare = await plain.fetchDescription('10.0.0.5', 49153);
       expect(bare.rtos, isNull);
@@ -119,7 +122,9 @@ void main() {
       // The spec records that some firmware serves setup.xml with no
       // namespace; a parser that requires it loses exactly those devices.
       final stripped = _setupXml.replaceFirst(
-          ' xmlns="urn:schemas-upnp-org:device-1-0"', '');
+        ' xmlns="urn:schemas-upnp-org:device-1-0"',
+        '',
+      );
       final client = SoapControlClient(
         httpClient: MockClient((request) async => http.Response(stripped, 200)),
       );
@@ -128,20 +133,25 @@ void main() {
       expect(description.controlUrls, isNotEmpty);
     });
 
-    test('fetches the path the device advertised, not always setup.xml',
-        () async {
-      // A Panasonic Viera's LOCATION is http://<ip>:55000/nrc/ddd.xml; asking
-      // it for /setup.xml turns a working device into a permanent error.
-      final client = SoapControlClient(
-        httpClient: MockClient((request) async {
-          expect(request.url.toString(), 'http://10.0.0.5:55000/nrc/ddd.xml');
-          return http.Response(_setupXml, 200);
-        }),
-      );
-      final description = await client.fetchDescription('10.0.0.5', 55000,
-          path: '/nrc/ddd.xml');
-      expect(description.controlUrls, isNotEmpty);
-    });
+    test(
+      'fetches the path the device advertised, not always setup.xml',
+      () async {
+        // A Panasonic Viera's LOCATION is http://<ip>:55000/nrc/ddd.xml; asking
+        // it for /setup.xml turns a working device into a permanent error.
+        final client = SoapControlClient(
+          httpClient: MockClient((request) async {
+            expect(request.url.toString(), 'http://10.0.0.5:55000/nrc/ddd.xml');
+            return http.Response(_setupXml, 200);
+          }),
+        );
+        final description = await client.fetchDescription(
+          '10.0.0.5',
+          55000,
+          path: '/nrc/ddd.xml',
+        );
+        expect(description.controlUrls, isNotEmpty);
+      },
+    );
 
     test('a non-200 is a transport error naming the URL', () async {
       final client = SoapControlClient(
@@ -160,13 +170,15 @@ void main() {
         host: 'h',
         port: 1,
         controlUrls: {
-          'urn:Belkin:service:basicevent:1': '/upnp/control/device-truth'
+          'urn:Belkin:service:basicevent:1': '/upnp/control/device-truth',
         },
       );
       // Published paths move across firmware generations; the device's own
       // serviceList is the authority and the spec's path only a fallback.
       expect(
-          description.controlPathFor(_request), '/upnp/control/device-truth');
+        description.controlPathFor(_request),
+        '/upnp/control/device-truth',
+      );
     });
 
     test('falls back to the spec path, and to null past that', () {
@@ -195,15 +207,23 @@ void main() {
         }),
       );
       final values = await client.send(
-          '10.0.0.5', 49153, '/upnp/control/basicevent1', _request);
+        '10.0.0.5',
+        49153,
+        '/upnp/control/basicevent1',
+        _request,
+      );
 
       expect(seen.method, 'POST');
-      expect(seen.url.toString(),
-          'http://10.0.0.5:49153/upnp/control/basicevent1');
+      expect(
+        seen.url.toString(),
+        'http://10.0.0.5:49153/upnp/control/basicevent1',
+      );
       // The quotes are part of the header value — firmware that rejects a
       // bare value does not say why.
-      expect(seen.headers['SOAPACTION'],
-          '"urn:Belkin:service:basicevent:1#GetCrockpotState"');
+      expect(
+        seen.headers['SOAPACTION'],
+        '"urn:Belkin:service:basicevent:1#GetCrockpotState"',
+      );
       expect(seen.headers['Content-Type'], startsWith('text/xml'));
       expect(seen.body, '<envelope/>');
 
@@ -214,8 +234,9 @@ void main() {
 
     test('a SOAP Fault surfaces as its own exception type', () async {
       final client = SoapControlClient(
-        httpClient:
-            MockClient((request) async => http.Response(_faultResponse, 200)),
+        httpClient: MockClient(
+          (request) async => http.Response(_faultResponse, 200),
+        ),
       );
       // A fault is the device refusing, not the network failing — a caller
       // that retries transport errors must not retry these.
@@ -227,8 +248,9 @@ void main() {
 
     test('unparseable XML is a transport error, not a crash', () async {
       final client = SoapControlClient(
-        httpClient:
-            MockClient((request) async => http.Response('not xml', 200)),
+        httpClient: MockClient(
+          (request) async => http.Response('not xml', 200),
+        ),
       );
       await expectLater(
         client.send('10.0.0.5', 49153, '/p', _request),
@@ -246,16 +268,19 @@ void main() {
         final client = SoapControlClient(
           // A device that accepted the connection and then went quiet, which
           // is what a Wemo does while its radio hops away.
-          httpClient:
-              MockClient((request) => Completer<http.Response>().future),
+          httpClient: MockClient(
+            (request) => Completer<http.Response>().future,
+          ),
         );
         Object? thrown;
-        unawaited(client
-            .send('10.22.22.1', 49153, '/upnp/control/metainfo1', _request)
-            .catchError((Object e) {
-          thrown = e;
-          return <String, String>{};
-        }));
+        unawaited(
+          client
+              .send('10.22.22.1', 49153, '/upnp/control/metainfo1', _request)
+              .catchError((Object e) {
+                thrown = e;
+                return <String, String>{};
+              }),
+        );
 
         async.elapse(SoapControlClient.timeout + const Duration(seconds: 1));
         expect(thrown, isA<SoapTransportException>());
@@ -273,14 +298,16 @@ void main() {
     test('a timed-out description fetch names the port it was probing', () {
       fakeAsync((async) {
         final client = SoapControlClient(
-          httpClient:
-              MockClient((request) => Completer<http.Response>().future),
+          httpClient: MockClient(
+            (request) => Completer<http.Response>().future,
+          ),
         );
         Object? thrown;
-        unawaited(client.fetchDescription('10.22.22.1', 49153).then<void>(
-              (_) {},
-              onError: (Object e) => thrown = e,
-            ));
+        unawaited(
+          client
+              .fetchDescription('10.22.22.1', 49153)
+              .then<void>((_) {}, onError: (Object e) => thrown = e),
+        );
 
         async.elapse(SoapControlClient.timeout + const Duration(seconds: 1));
         expect(

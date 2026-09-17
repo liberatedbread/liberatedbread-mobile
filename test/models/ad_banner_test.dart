@@ -15,8 +15,7 @@ String _config({
     'url': 'https://liberatedbread.com/shop/',
     'enabled': true,
   },
-}) =>
-    jsonEncode({'version': version, 'banner': banner});
+}) => jsonEncode({'version': version, 'banner': banner});
 
 void main() {
   group('AdBannerConfig.tryParse', () {
@@ -33,23 +32,31 @@ void main() {
     });
 
     test('cta and enabled are optional', () {
-      final config = AdBannerConfig.tryParse(_config(banner: {
-        'id': 'promo-1',
-        'message': 'Buy dead devices cheap.',
-        'url': 'https://liberatedbread.com/shop/',
-      }));
+      final config = AdBannerConfig.tryParse(
+        _config(
+          banner: {
+            'id': 'promo-1',
+            'message': 'Buy dead devices cheap.',
+            'url': 'https://liberatedbread.com/shop/',
+          },
+        ),
+      );
 
       expect(config?.banner, isNotNull);
       expect(config!.banner!.cta, 'Shop');
     });
 
     test('enabled:false is the kill switch — valid config, no banner', () {
-      final config = AdBannerConfig.tryParse(_config(banner: {
-        'id': 'promo-1',
-        'message': 'Buy dead devices cheap.',
-        'url': 'https://liberatedbread.com/shop/',
-        'enabled': false,
-      }));
+      final config = AdBannerConfig.tryParse(
+        _config(
+          banner: {
+            'id': 'promo-1',
+            'message': 'Buy dead devices cheap.',
+            'url': 'https://liberatedbread.com/shop/',
+            'enabled': false,
+          },
+        ),
+      );
 
       expect(config, isNotNull);
       expect(config!.banner, isNull);
@@ -84,32 +91,43 @@ void main() {
 
     test('rejects banners missing required fields', () {
       expect(
-        AdBannerConfig.tryParse(_config(banner: {
-          'message': 'no id',
-          'url': 'https://liberatedbread.com/shop/',
-        })),
+        AdBannerConfig.tryParse(
+          _config(
+            banner: {
+              'message': 'no id',
+              'url': 'https://liberatedbread.com/shop/',
+            },
+          ),
+        ),
         isNull,
       );
       expect(
-        AdBannerConfig.tryParse(_config(banner: {
-          'id': 'promo-1',
-          'url': 'https://liberatedbread.com/shop/',
-        })),
+        AdBannerConfig.tryParse(
+          _config(
+            banner: {
+              'id': 'promo-1',
+              'url': 'https://liberatedbread.com/shop/',
+            },
+          ),
+        ),
         isNull,
       );
       expect(
-        AdBannerConfig.tryParse(_config(banner: {
-          'id': 'promo-1',
-          'message': '   ',
-          'url': 'https://liberatedbread.com/shop/',
-        })),
+        AdBannerConfig.tryParse(
+          _config(
+            banner: {
+              'id': 'promo-1',
+              'message': '   ',
+              'url': 'https://liberatedbread.com/shop/',
+            },
+          ),
+        ),
         isNull,
       );
       expect(
-        AdBannerConfig.tryParse(_config(banner: {
-          'id': 'promo-1',
-          'message': 'no url',
-        })),
+        AdBannerConfig.tryParse(
+          _config(banner: {'id': 'promo-1', 'message': 'no url'}),
+        ),
         isNull,
       );
     });
@@ -123,11 +141,9 @@ void main() {
         '::not a url::',
       ]) {
         expect(
-          AdBannerConfig.tryParse(_config(banner: {
-            'id': 'promo-1',
-            'message': 'msg',
-            'url': url,
-          })),
+          AdBannerConfig.tryParse(
+            _config(banner: {'id': 'promo-1', 'message': 'msg', 'url': url}),
+          ),
           isNull,
           reason: 'should reject $url',
         );
@@ -135,12 +151,16 @@ void main() {
     });
 
     test('caps runaway field lengths', () {
-      final config = AdBannerConfig.tryParse(_config(banner: {
-        'id': 'promo-1',
-        'message': 'm' * 5000,
-        'cta': 'c' * 5000,
-        'url': 'https://liberatedbread.com/shop/',
-      }));
+      final config = AdBannerConfig.tryParse(
+        _config(
+          banner: {
+            'id': 'promo-1',
+            'message': 'm' * 5000,
+            'cta': 'c' * 5000,
+            'url': 'https://liberatedbread.com/shop/',
+          },
+        ),
+      );
 
       expect(config?.banner, isNotNull);
       expect(config!.banner!.message.length, AdBannerConfig.maxMessageChars);
@@ -150,41 +170,44 @@ void main() {
 
   group('targeted banners (targets[])', () {
     String withTargets(List<Map<String, Object?>> targets) => jsonEncode({
-          'version': 1,
-          'banner': {
-            'id': 'global',
-            'message': 'Shop.',
-            'url': 'https://liberatedbread.com/shop/',
-          },
-          'targets': targets,
-        });
+      'version': 1,
+      'banner': {
+        'id': 'global',
+        'message': 'Shop.',
+        'url': 'https://liberatedbread.com/shop/',
+      },
+      'targets': targets,
+    });
 
     Map<String, Object?> target({
       String id = 't1',
       Object? match = const {
-        'spec_keys': ['Brother QL|Brother']
+        'spec_keys': ['Brother QL|Brother'],
       },
       int? priority,
       bool? enabled,
       String url = 'https://liberatedbread.com/shop/labels/',
-    }) =>
-        {
-          'id': id,
-          'message': 'Labels.',
-          'cta': 'Buy',
-          'url': url,
-          if (match != null) 'match': match,
-          if (priority != null) 'priority': priority,
-          if (enabled != null) 'enabled': enabled,
-        };
+    }) => {
+      'id': id,
+      'message': 'Labels.',
+      'cta': 'Buy',
+      'url': url,
+      'match': ?match,
+      'priority': ?priority,
+      'enabled': ?enabled,
+    };
 
     test('parses spec_keys and categories under version 1 (additive)', () {
-      final config = AdBannerConfig.tryParse(withTargets([
-        target(match: {
-          'spec_keys': ['Brother QL|Brother'],
-          'categories': ['printer'],
-        }),
-      ]));
+      final config = AdBannerConfig.tryParse(
+        withTargets([
+          target(
+            match: {
+              'spec_keys': ['Brother QL|Brother'],
+              'categories': ['printer'],
+            },
+          ),
+        ]),
+      );
       expect(config, isNotNull);
       expect(config!.banner?.id, 'global');
       expect(config.targets, hasLength(1));
@@ -194,75 +217,105 @@ void main() {
     });
 
     test('bestFor prefers spec_key, then category, then the global banner', () {
-      final config = AdBannerConfig.tryParse(withTargets([
-        target(id: 'byspec', match: {
-          'spec_keys': ['Brother QL|Brother']
-        }),
-        target(id: 'bycat', match: {
-          'categories': ['printer']
-        }),
-      ]))!;
+      final config = AdBannerConfig.tryParse(
+        withTargets([
+          target(
+            id: 'byspec',
+            match: {
+              'spec_keys': ['Brother QL|Brother'],
+            },
+          ),
+          target(
+            id: 'bycat',
+            match: {
+              'categories': ['printer'],
+            },
+          ),
+        ]),
+      )!;
       expect(
         config.bestFor(category: 'printer', specKey: 'Brother QL|Brother')?.id,
         'byspec',
       );
       expect(
-          config.bestFor(category: 'printer', specKey: 'Other|X')?.id, 'bycat');
+        config.bestFor(category: 'printer', specKey: 'Other|X')?.id,
+        'bycat',
+      );
       expect(
-          config.bestFor(category: 'light', specKey: 'Bulb|X')?.id, 'global');
+        config.bestFor(category: 'light', specKey: 'Bulb|X')?.id,
+        'global',
+      );
     });
 
     test('within a tier, higher priority wins', () {
-      final config = AdBannerConfig.tryParse(withTargets([
-        target(id: 'low', priority: 1),
-        target(id: 'high', priority: 10),
-      ]))!;
+      final config = AdBannerConfig.tryParse(
+        withTargets([
+          target(id: 'low', priority: 1),
+          target(id: 'high', priority: 10),
+        ]),
+      )!;
       expect(config.bestFor(specKey: 'Brother QL|Brother')?.id, 'high');
     });
 
     test('exclude skips a tier and falls through', () {
-      final config = AdBannerConfig.tryParse(withTargets([
-        target(id: 'byspec', match: {
-          'spec_keys': ['Brother QL|Brother']
-        }),
-        target(id: 'bycat', match: {
-          'categories': ['printer']
-        }),
-      ]))!;
+      final config = AdBannerConfig.tryParse(
+        withTargets([
+          target(
+            id: 'byspec',
+            match: {
+              'spec_keys': ['Brother QL|Brother'],
+            },
+          ),
+          target(
+            id: 'bycat',
+            match: {
+              'categories': ['printer'],
+            },
+          ),
+        ]),
+      )!;
       expect(
-        config.bestFor(
-            category: 'printer',
-            specKey: 'Brother QL|Brother',
-            exclude: {'byspec'})?.id,
+        config
+            .bestFor(
+              category: 'printer',
+              specKey: 'Brother QL|Brother',
+              exclude: {'byspec'},
+            )
+            ?.id,
         'bycat',
       );
       expect(
         config.bestFor(
-            category: 'printer',
-            specKey: 'Brother QL|Brother',
-            exclude: {'byspec', 'bycat', 'global'}),
+          category: 'printer',
+          specKey: 'Brother QL|Brother',
+          exclude: {'byspec', 'bycat', 'global'},
+        ),
         isNull,
       );
     });
 
     test('a target with no match axis is dropped, not treated as global', () {
-      final config = AdBannerConfig.tryParse(withTargets([
-        target(id: 'nomatch', match: null),
-        target(
+      final config = AdBannerConfig.tryParse(
+        withTargets([
+          target(id: 'nomatch', match: null),
+          target(
             id: 'empty',
-            match: const {'spec_keys': <String>[], 'categories': <String>[]}),
-        target(id: 'good'),
-      ]))!;
+            match: const {'spec_keys': <String>[], 'categories': <String>[]},
+          ),
+          target(id: 'good'),
+        ]),
+      )!;
       expect(config.targets.map((t) => t.id), ['good']);
     });
 
-    test('an invalid or disabled target is dropped without failing the doc',
-        () {
-      final config = AdBannerConfig.tryParse(withTargets([
-        target(id: 'nonhttps', url: 'http://liberatedbread.com/x/'),
-        target(id: 'off', enabled: false),
-        target(id: 'good'),
-      ]))!;
+    test('an invalid or disabled target is dropped without failing the doc', () {
+      final config = AdBannerConfig.tryParse(
+        withTargets([
+          target(id: 'nonhttps', url: 'http://liberatedbread.com/x/'),
+          target(id: 'off', enabled: false),
+          target(id: 'good'),
+        ]),
+      )!;
       // The document still parses (global banner intact) and only 'good' stays.
       expect(config.banner?.id, 'global');
       expect(config.targets.map((t) => t.id), ['good']);
@@ -278,14 +331,16 @@ void main() {
     });
 
     test('absent targets is simply no targets (old configs unaffected)', () {
-      final config = AdBannerConfig.tryParse(jsonEncode({
-        'version': 1,
-        'banner': {
-          'id': 'global',
-          'message': 'Shop.',
-          'url': 'https://liberatedbread.com/shop/',
-        },
-      }))!;
+      final config = AdBannerConfig.tryParse(
+        jsonEncode({
+          'version': 1,
+          'banner': {
+            'id': 'global',
+            'message': 'Shop.',
+            'url': 'https://liberatedbread.com/shop/',
+          },
+        }),
+      )!;
       expect(config.targets, isEmpty);
     });
   });
@@ -314,7 +369,8 @@ void main() {
     test('a Rabbit Air gets the filter promo', () {
       final banner = AdBannerConfig.bundled.bestFor(
         category: 'climate',
-        specKey: 'Rabbit Air MinusA2 (SPA-700A/SPA-780A) / A3 (SPA-1000N) / '
+        specKey:
+            'Rabbit Air MinusA2 (SPA-700A/SPA-780A) / A3 (SPA-1000N) / '
             'BioGS 2.0 (SPA-550A/SPA-625A)|Rabbit Air',
       );
       expect(banner?.id, 'air-filter-2026');
@@ -361,16 +417,18 @@ void main() {
     test('would survive its own parser', () {
       // The fallback mirrors the published banner.json; if it ever grows
       // content the parser would reject, the two have drifted.
-      final config = AdBannerConfig.tryParse(jsonEncode({
-        'version': AdBannerConfig.supportedVersion,
-        'banner': {
-          'id': AdBanner.fallback.id,
-          'message': AdBanner.fallback.message,
-          'cta': AdBanner.fallback.cta,
-          'url': AdBanner.fallback.url.toString(),
-          'enabled': true,
-        },
-      }));
+      final config = AdBannerConfig.tryParse(
+        jsonEncode({
+          'version': AdBannerConfig.supportedVersion,
+          'banner': {
+            'id': AdBanner.fallback.id,
+            'message': AdBanner.fallback.message,
+            'cta': AdBanner.fallback.cta,
+            'url': AdBanner.fallback.url.toString(),
+            'enabled': true,
+          },
+        }),
+      );
 
       expect(config?.banner, AdBanner.fallback);
     });

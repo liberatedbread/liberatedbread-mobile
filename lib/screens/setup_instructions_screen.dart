@@ -56,8 +56,10 @@ class SetupInstructionsScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
           children: [
-            Text(deviceName,
-                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            Text(
+              deviceName,
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 4),
             Text(
               'The catalogue’s notes for connecting and resetting this device.',
@@ -81,8 +83,10 @@ class SetupInstructionsScreen extends StatelessWidget {
               _Section(
                 icon: Icons.info_outline,
                 title: 'Overview',
-                child: Text(instructions.notes!.trim(),
-                    style: text.bodyMedium?.copyWith(height: 1.4)),
+                child: Text(
+                  instructions.notes!.trim(),
+                  style: text.bodyMedium?.copyWith(height: 1.4),
+                ),
               ),
             for (final method in instructions.methods)
               if (method.description != null ||
@@ -119,21 +123,31 @@ class _RejoinCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.lightbulb_outline,
-              size: 22, color: scheme.onTertiaryContainer),
+          Icon(
+            Icons.lightbulb_outline,
+            size: 22,
+            color: scheme.onTertiaryContainer,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Try this first',
-                    style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: scheme.onTertiaryContainer)),
+                Text(
+                  'Try this first',
+                  style: text.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onTertiaryContainer,
+                  ),
+                ),
                 const SizedBox(height: 6),
-                Text(rejoin.notes!.trim(),
-                    style: text.bodyMedium?.copyWith(
-                        color: scheme.onTertiaryContainer, height: 1.4)),
+                Text(
+                  rejoin.notes!.trim(),
+                  style: text.bodyMedium?.copyWith(
+                    color: scheme.onTertiaryContainer,
+                    height: 1.4,
+                  ),
+                ),
               ],
             ),
           ),
@@ -148,8 +162,11 @@ class _Section extends StatelessWidget {
   final IconData icon;
   final String title;
   final Widget child;
-  const _Section(
-      {required this.icon, required this.title, required this.child});
+  const _Section({
+    required this.icon,
+    required this.title,
+    required this.child,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -165,15 +182,18 @@ class _Section extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Icon(icon, size: 20, color: scheme.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(title,
-                  style:
-                      text.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-            ),
-          ]),
+          Row(
+            children: [
+              Icon(icon, size: 20, color: scheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
           child,
         ],
@@ -195,21 +215,30 @@ class _Troubleshooting extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(item.symptom.trim(),
-              style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            item.symptom.trim(),
+            style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
           for (final cause in item.causes)
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 4),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('•  ',
-                      style: text.bodyMedium
-                          ?.copyWith(color: scheme.onSurfaceVariant)),
+                  Text(
+                    '•  ',
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                   Expanded(
-                    child: Text(cause.trim(),
-                        style: text.bodyMedium?.copyWith(
-                            color: scheme.onSurfaceVariant, height: 1.4)),
+                    child: Text(
+                      cause.trim(),
+                      style: text.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -231,12 +260,12 @@ class _MethodSection extends StatelessWidget {
   /// like, and a route the catalogue deliberately ranked below primary must
   /// not dress as it.
   static String? roleLabel(String? role) => switch (role) {
-        null || 'primary' => null,
-        'alternative' => 'Also works',
-        'variant' => 'Depends on the hardware',
-        'historical' => 'No longer current',
-        final other => other,
-      };
+    null || 'primary' => null,
+    'alternative' => 'Also works',
+    'variant' => 'Depends on the hardware',
+    'historical' => 'No longer current',
+    final other => other,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -256,16 +285,21 @@ class _MethodSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (role != null) ...[
-            Text(role,
-                style: text.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.4)),
+            Text(
+              role,
+              style: text.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.4,
+              ),
+            ),
             const SizedBox(height: 6),
           ],
           if ((method.description ?? '').trim().isNotEmpty) ...[
-            Text(method.description!.trim(),
-                style: text.bodyMedium?.copyWith(height: 1.4)),
+            Text(
+              method.description!.trim(),
+              style: text.bodyMedium?.copyWith(height: 1.4),
+            ),
             if (method.steps.isNotEmpty || method.stages.isNotEmpty)
               const SizedBox(height: 10),
           ],
@@ -276,9 +310,10 @@ class _MethodSection extends StatelessWidget {
           // a reader who stops after the first has not set the device up.
           for (var i = 0; i < method.stages.length; i++)
             _StageBlock(
-                index: i + 1,
-                total: method.stages.length,
-                stage: method.stages[i]),
+              index: i + 1,
+              total: method.stages.length,
+              stage: method.stages[i],
+            ),
         ],
       ),
     );
@@ -289,8 +324,11 @@ class _StageBlock extends StatelessWidget {
   final int index;
   final int total;
   final SetupStageDto stage;
-  const _StageBlock(
-      {required this.index, required this.total, required this.stage});
+  const _StageBlock({
+    required this.index,
+    required this.total,
+    required this.stage,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -312,9 +350,13 @@ class _StageBlock extends StatelessWidget {
           if (description.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(description,
-                  style: text.bodySmall
-                      ?.copyWith(color: scheme.onSurfaceVariant, height: 1.4)),
+              child: Text(
+                description,
+                style: text.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
             ),
           const SizedBox(height: 8),
           for (var i = 0; i < stage.steps.length; i++)
@@ -347,26 +389,36 @@ class _Step extends StatelessWidget {
             height: 22,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-                color: scheme.primaryContainer, shape: BoxShape.circle),
-            child: Text('$index',
-                style: text.labelSmall?.copyWith(
-                    color: scheme.onPrimaryContainer,
-                    fontWeight: FontWeight.w700)),
+              color: scheme.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              '$index',
+              style: text.labelSmall?.copyWith(
+                color: scheme.onPrimaryContainer,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(step.action.trim(),
-                    style: text.bodyMedium?.copyWith(height: 1.4)),
+                Text(
+                  step.action.trim(),
+                  style: text.bodyMedium?.copyWith(height: 1.4),
+                ),
                 if (expect.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
-                    child: Text('→ $expect',
-                        style: text.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontStyle: FontStyle.italic)),
+                    child: Text(
+                      '→ $expect',
+                      style: text.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
                   ),
               ],
             ),
@@ -391,8 +443,10 @@ class _FactoryResetSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if ((reset.effect ?? '').trim().isNotEmpty) ...[
-            Text(reset.effect!.trim(),
-                style: text.bodyMedium?.copyWith(height: 1.4)),
+            Text(
+              reset.effect!.trim(),
+              style: text.bodyMedium?.copyWith(height: 1.4),
+            ),
             if (reset.procedures.isNotEmpty) const SizedBox(height: 12),
           ],
           for (final p in reset.procedures) _ResetProcedure(procedure: p),
@@ -416,8 +470,10 @@ class _ResetProcedure extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(procedure.name.trim(),
-              style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            procedure.name.trim(),
+            style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
           for (var i = 0; i < procedure.steps.length; i++)
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 2),
@@ -426,9 +482,13 @@ class _ResetProcedure extends StatelessWidget {
           if (indicator.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 2),
-              child: Text('Confirmed by: $indicator',
-                  style: text.bodySmall
-                      ?.copyWith(color: scheme.onSurfaceVariant, height: 1.4)),
+              child: Text(
+                'Confirmed by: $indicator',
+                style: text.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
             ),
         ],
       ),

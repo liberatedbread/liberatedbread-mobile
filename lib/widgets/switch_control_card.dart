@@ -105,7 +105,9 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
         commandName: commandName,
         params: const {},
       );
-      await ref.read(bleServiceProvider).writeCharacteristic(
+      await ref
+          .read(bleServiceProvider)
+          .writeCharacteristic(
             widget.deviceId,
             action.serviceUuid,
             action.characteristicUuid,
@@ -130,8 +132,9 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
         _status = text;
         _failed = true;
       });
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(text)));
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(text)));
     }
   }
 
@@ -212,8 +215,9 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                   children: [
                     Text(
                       widget.entity.name,
-                      style: text.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -265,8 +269,9 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                     ),
                   if (press != null)
                     OutlinedButton.icon(
-                      onPressed:
-                          _sendingRole != null ? null : () => _send(press),
+                      onPressed: _sendingRole != null
+                          ? null
+                          : () => _send(press),
                       icon: const Icon(Icons.touch_app, size: 16),
                       label: const Text('Press'),
                     ),
@@ -300,8 +305,10 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
     final style = text.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     if (_sendingRole != null) return Text('Sending...', style: style);
     if (_status != null && _failed) {
-      return Text(_status!,
-          style: text.bodySmall?.copyWith(color: scheme.error));
+      return Text(
+        _status!,
+        style: text.bodySmall?.copyWith(color: scheme.error),
+      );
     }
     if (value == null) {
       // Command-only entity: no state characteristic to consult, so say so
@@ -310,20 +317,19 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
     }
     return switch (value.status) {
       EntityValueStatus.unavailable => Text(
-          'State not decodable yet (no format block in the spec).',
-          style: style,
-        ),
+        'State not decodable yet (no format block in the spec).',
+        style: style,
+      ),
       EntityValueStatus.loading => Text('Reading...', style: style),
-      EntityValueStatus.error =>
-        Text(value.error ?? 'Could not read state.', style: style),
-      EntityValueStatus.live => Text(
-          switch (shownOn) {
-            true => _assumed != null ? 'On (sent)' : 'On',
-            false => _assumed != null ? 'Off (sent)' : 'Off',
-            null => 'State unreadable',
-          },
-          style: style,
-        ),
+      EntityValueStatus.error => Text(
+        value.error ?? 'Could not read state.',
+        style: style,
+      ),
+      EntityValueStatus.live => Text(switch (shownOn) {
+        true => _assumed != null ? 'On (sent)' : 'On',
+        false => _assumed != null ? 'Off (sent)' : 'Off',
+        null => 'State unreadable',
+      }, style: style),
     };
   }
 }

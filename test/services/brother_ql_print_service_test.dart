@@ -37,22 +37,30 @@ void main() {
     statusReadTimeout: Duration(milliseconds: 400),
   );
 
-  test('send writes the payload and closes without reading by default',
-      () async {
-    final result = await service
-        .send(server.address.address, server.port, const [1, 2, 3, 4]);
-    // The server may still be draining; give it a beat.
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(result, isA<BrotherQlSendOk>());
-    expect((result as BrotherQlSendOk).statusReply, isNull);
-    expect(received, [1, 2, 3, 4]);
-  });
+  test(
+    'send writes the payload and closes without reading by default',
+    () async {
+      final result = await service.send(
+        server.address.address,
+        server.port,
+        const [1, 2, 3, 4],
+      );
+      // The server may still be draining; give it a beat.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(result, isA<BrotherQlSendOk>());
+      expect((result as BrotherQlSendOk).statusReply, isNull);
+      expect(received, [1, 2, 3, 4]);
+    },
+  );
 
   test('readStatus returns the 32-byte reply the printer sends', () async {
     replyWith = List<int>.generate(32, (i) => i);
     final result = await service.send(
-        server.address.address, server.port, const [0x1B, 0x69, 0x53],
-        readStatus: true);
+      server.address.address,
+      server.port,
+      const [0x1B, 0x69, 0x53],
+      readStatus: true,
+    );
     expect(result, isA<BrotherQlSendOk>());
     final reply = (result as BrotherQlSendOk).statusReply;
     expect(reply, isNotNull);
@@ -63,8 +71,11 @@ void main() {
   test('readStatus resolves to null when the printer stays silent', () async {
     // Server accepts but never replies; the read window elapses.
     final result = await service.send(
-        server.address.address, server.port, const [0x1B, 0x69, 0x53],
-        readStatus: true);
+      server.address.address,
+      server.port,
+      const [0x1B, 0x69, 0x53],
+      readStatus: true,
+    );
     expect(result, isA<BrotherQlSendOk>());
     expect((result as BrotherQlSendOk).statusReply, isNull);
   });
@@ -72,8 +83,11 @@ void main() {
   test('a refused connection is a typed failure, not a throw', () async {
     final port = server.port; // capture before closing (port throws after)
     await server.close(); // nothing is listening on that port now
-    final result = await service
-        .send(InternetAddress.loopbackIPv4.address, port, const [1, 2, 3]);
+    final result = await service.send(
+      InternetAddress.loopbackIPv4.address,
+      port,
+      const [1, 2, 3],
+    );
     expect(result, isA<BrotherQlSendFailed>());
     // Re-bind so tearDown's close() has a live server (harmless if it fails).
     server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);

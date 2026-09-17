@@ -7,7 +7,7 @@ class InMemorySettingsStore implements SettingsStore {
   final Map<String, String> values;
 
   InMemorySettingsStore([Map<String, String>? initial])
-      : values = {...?initial};
+    : values = {...?initial};
 
   @override
   Future<String?> read(String key) async => values[key];

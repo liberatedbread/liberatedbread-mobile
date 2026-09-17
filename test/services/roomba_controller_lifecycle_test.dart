@@ -38,8 +38,10 @@ void main() {
     // broadcast stream open, the stream was never closed by anybody: the
     // `dispose` that would have done it had no callers.
     final rest = slowRest980(Duration.zero);
-    final controller =
-        Rest980Controller(client: rest.client, baseUrl: 'http://10.0.0.5');
+    final controller = Rest980Controller(
+      client: rest.client,
+      baseUrl: 'http://10.0.0.5',
+    );
 
     var done = false;
     controller.state.listen((_) {}, onError: (_) {}, onDone: () => done = true);
@@ -48,14 +50,19 @@ void main() {
     await controller.close();
     await Future<void>.delayed(Duration.zero);
 
-    expect(done, isTrue,
-        reason: 'listeners must learn the controller is spent');
+    expect(
+      done,
+      isTrue,
+      reason: 'listeners must learn the controller is spent',
+    );
   });
 
   test('close is safe to call twice', () async {
     final rest = slowRest980(Duration.zero);
-    final controller =
-        Rest980Controller(client: rest.client, baseUrl: 'http://10.0.0.5');
+    final controller = Rest980Controller(
+      client: rest.client,
+      baseUrl: 'http://10.0.0.5',
+    );
     await controller.connect();
     await controller.close();
     await expectLater(controller.close(), completes);
@@ -69,8 +76,10 @@ void main() {
     // the process — once more per visit to the screen.
     fakeAsync((async) {
       final rest = slowRest980(const Duration(seconds: 10));
-      final controller =
-          Rest980Controller(client: rest.client, baseUrl: 'http://10.0.0.5');
+      final controller = Rest980Controller(
+        client: rest.client,
+        baseUrl: 'http://10.0.0.5',
+      );
       controller.state.listen((_) {}, onError: (_) {});
 
       unawaited(controller.connect());
@@ -80,9 +89,13 @@ void main() {
       unawaited(controller.close());
       // The seed read lands, then a minute passes.
       async.elapse(const Duration(seconds: 70));
-      expect(rest.calls, hasLength(1),
-          reason: 'nothing may poll after close(), however late connect() '
-              'resumes');
+      expect(
+        rest.calls,
+        hasLength(1),
+        reason:
+            'nothing may poll after close(), however late connect() '
+            'resumes',
+      );
 
       // And a connect() after close() is a no-op, not a resurrection.
       unawaited(controller.connect());
@@ -98,8 +111,10 @@ void main() {
     // reply decided the displayed state.
     fakeAsync((async) {
       final rest = slowRest980(const Duration(seconds: 7));
-      final controller =
-          Rest980Controller(client: rest.client, baseUrl: 'http://10.0.0.5');
+      final controller = Rest980Controller(
+        client: rest.client,
+        baseUrl: 'http://10.0.0.5',
+      );
       controller.state.listen((_) {}, onError: (_) {});
 
       unawaited(controller.connect());
@@ -108,8 +123,11 @@ void main() {
 
       // Three ticks pass while that first read is still on the wire.
       async.elapse(const Duration(seconds: 6));
-      expect(rest.calls, hasLength(1),
-          reason: 'ticks during an in-flight poll are skipped, not queued');
+      expect(
+        rest.calls,
+        hasLength(1),
+        reason: 'ticks during an in-flight poll are skipped, not queued',
+      );
 
       // Once it lands, the next tick polls again.
       async.elapse(const Duration(seconds: 3));

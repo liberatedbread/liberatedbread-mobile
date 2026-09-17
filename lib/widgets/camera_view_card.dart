@@ -61,23 +61,26 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
         _sub = ref
             .read(cameraFeedServiceProvider)
             .frames(
-                host: widget.host, stream: poll, keepalive: camera!.keepalive)
+              host: widget.host,
+              stream: poll,
+              keepalive: camera!.keepalive,
+            )
             .listen(
-          (bytes) {
-            if (!mounted) return;
-            // A frame arrived: the feed works, so cancel the not-responding
-            // timeout and clear any prior error.
-            _firstFrameTimeout?.cancel();
-            _firstFrameTimeout = null;
-            setState(() {
-              _frame = bytes;
-              _error = null;
-            });
-          },
-          onError: (Object e) {
-            Log.spec.debug('camera feed error', error: e);
-          },
-        );
+              (bytes) {
+                if (!mounted) return;
+                // A frame arrived: the feed works, so cancel the not-responding
+                // timeout and clear any prior error.
+                _firstFrameTimeout?.cancel();
+                _firstFrameTimeout = null;
+                setState(() {
+                  _frame = bytes;
+                  _error = null;
+                });
+              },
+              onError: (Object e) {
+                Log.spec.debug('camera feed error', error: e);
+              },
+            );
         // The feed service swallows transient fetch failures and keeps polling,
         // so a camera that never answers surfaces no error — it would spin
         // forever. Time out the wait for the first frame and say so.
@@ -142,21 +145,25 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
               color: Colors.black,
               alignment: Alignment.center,
               child: _error != null
-                  ? Text(_error!,
-                      style: text.bodySmall?.copyWith(color: scheme.error))
+                  ? Text(
+                      _error!,
+                      style: text.bodySmall?.copyWith(color: scheme.error),
+                    )
                   : frame != null
-                      ? Image.memory(
-                          frame,
-                          gaplessPlayback: true,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Icon(
-                              Icons.broken_image_outlined,
-                              color: Colors.white54),
-                        )
-                      : const SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: CircularProgressIndicator(strokeWidth: 2)),
+                  ? Image.memory(
+                      frame,
+                      gaplessPlayback: true,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => const Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white54,
+                      ),
+                    )
+                  : const SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
             ),
           ),
         ],

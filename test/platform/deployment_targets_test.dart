@@ -64,9 +64,11 @@ int _compareVersions(String a, String b) {
   // assertion fail with its own message instead.
   final left = a.split('.').map((s) => int.tryParse(s) ?? 0).toList();
   final right = b.split('.').map((s) => int.tryParse(s) ?? 0).toList();
-  for (var i = 0;
-      i < (left.length > right.length ? left.length : right.length);
-      i++) {
+  for (
+    var i = 0;
+    i < (left.length > right.length ? left.length : right.length);
+    i++
+  ) {
     final l = i < left.length ? left[i] : 0;
     final r = i < right.length ? right[i] : 0;
     if (l != r) return l.compareTo(r);
@@ -94,11 +96,9 @@ Map<String, String> _ciVars() {
   if (_ciVarsCache != null) return _ciVarsCache!;
   final ProcessResult result;
   try {
-    result = Process.runSync(
-      'bash',
-      ['scripts/ci-versions.sh'],
-      workingDirectory: repoRoot.path,
-    );
+    result = Process.runSync('bash', [
+      'scripts/ci-versions.sh',
+    ], workingDirectory: repoRoot.path);
   } on ProcessException catch (e) {
     // Windows without a POSIX shell. Skipping beats failing: the script is what
     // CI and both setup scripts run, so there is nothing meaningful to assert
@@ -107,9 +107,11 @@ Map<String, String> _ciVars() {
     return _ciVarsCache = const {};
   }
   if (result.exitCode != 0) {
-    fail('scripts/ci-versions.sh exited ${result.exitCode}. Dev environments '
-        'provision from it, so a failure here means setup.sh and the session '
-        'hook are reading nothing.\nstderr: ${result.stderr}');
+    fail(
+      'scripts/ci-versions.sh exited ${result.exitCode}. Dev environments '
+      'provision from it, so a failure here means setup.sh and the session '
+      'hook are reading nothing.\nstderr: ${result.stderr}',
+    );
   }
   return _ciVarsCache = {
     for (final line in const LineSplitter().convert(result.stdout as String))
@@ -127,10 +129,12 @@ String _ciVar(String key) {
   if (vars.isEmpty) return ''; // Skipped above.
   final value = vars[key];
   if (value == null || value.isEmpty) {
-    fail('scripts/ci-versions.sh did not print $key. Every pinned version '
-        "belongs in ci.yml's top-level env: block, which is the only place "
-        'that script reads — a value declared anywhere else is invisible to '
-        'the setup scripts that provision dev environments from it.');
+    fail(
+      'scripts/ci-versions.sh did not print $key. Every pinned version '
+      "belongs in ci.yml's top-level env: block, which is the only place "
+      'that script reads — a value declared anywhere else is invisible to '
+      'the setup scripts that provision dev environments from it.',
+    );
   }
   return value;
 }
@@ -155,9 +159,7 @@ List<String> _allMatches(
   } else if (path.endsWith('.yml')) {
     contents = stripHashComments(contents);
   }
-  final values = [
-    for (final m in pattern.allMatches(contents)) m.group(1)!,
-  ];
+  final values = [for (final m in pattern.allMatches(contents)) m.group(1)!];
   if (values.isEmpty) {
     fail('Found no `${pattern.pattern}` in $path. $consequence');
   }
@@ -172,18 +174,16 @@ List<String> _allMatches(
 /// match is a legitimate thing to hit — an Android product flavour with its own
 /// `minSdkVersion`, or the emulator matrix gaining a second API level — and the
 /// reader deserves to be told which file and which values.
-String _onlyMatch(
-  String path,
-  RegExp pattern, {
-  required String consequence,
-}) {
+String _onlyMatch(String path, RegExp pattern, {required String consequence}) {
   final values = _allMatches(path, pattern, consequence: consequence);
   if (values.length > 1) {
-    fail('Expected one `${pattern.pattern}` in $path but found '
-        '${values.length}: ${values.join(", ")}. $consequence This audit '
-        'compares a single declaration; if more than one is now legitimate, '
-        'the assertion needs to say which one governs rather than assuming '
-        'there is only one.');
+    fail(
+      'Expected one `${pattern.pattern}` in $path but found '
+      '${values.length}: ${values.join(", ")}. $consequence This audit '
+      'compares a single declaration; if more than one is now legitimate, '
+      'the assertion needs to say which one governs rather than assuming '
+      'there is only one.',
+    );
   }
   return values.single;
 }
@@ -197,7 +197,8 @@ void main() {
         _iosPbxproj: _allMatches(
           _iosPbxproj,
           RegExp(r'IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);'),
-          consequence: 'It sets the deployment target for every build '
+          consequence:
+              'It sets the deployment target for every build '
               'configuration; without it the app has no declared iOS floor.',
         ),
         // ios/Flutter/AppFrameworkInfo.plist is deliberately NOT a declaration
@@ -233,13 +234,15 @@ void main() {
         _iosPodfile: _allMatches(
           _iosPodfile,
           RegExp(r"^\s*#?\s*platform\s*:ios,\s*'([0-9.]+)'", multiLine: true),
-          consequence: 'The platform line (commented or not) is the documented '
+          consequence:
+              'The platform line (commented or not) is the documented '
               'way to pin the pod platform and must not name a stale version.',
         ),
         _iosPodspec: _allMatches(
           _iosPodspec,
           RegExp(r"s\.platform\s*=\s*:ios,\s*'([0-9.]+)'"),
-          consequence: 'It is the floor CocoaPods compiles the Rust core pod '
+          consequence:
+              'It is the floor CocoaPods compiles the Rust core pod '
               'against, and the pod links the FFI entry points the app needs.',
         ),
       };
@@ -250,7 +253,8 @@ void main() {
       expect(
         distinct,
         hasLength(1),
-        reason: 'The iOS deployment target is declared in several files and '
+        reason:
+            'The iOS deployment target is declared in several files and '
             'they disagree: ${_describe(declarations)}. A podspec floor below '
             "the app's silently exempts that pod from availability checking, "
             'so code using a newer API compiles and then crashes on a device '
@@ -264,7 +268,8 @@ void main() {
           expect(
             _compareVersions(value, _floorIos) >= 0,
             isTrue,
-            reason: '${entry.key} declares iOS $value, below the $_floorIos '
+            reason:
+                '${entry.key} declares iOS $value, below the $_floorIos '
                 'that Flutter 3.44.8 scaffolds (its ios.tmpl template). '
                 'Building against a platform the pinned toolchain no longer '
                 'targets is unsupported, not merely conservative.',
@@ -282,13 +287,15 @@ void main() {
         _macosPbxproj: _allMatches(
           _macosPbxproj,
           RegExp(r'MACOSX_DEPLOYMENT_TARGET = ([0-9.]+);'),
-          consequence: 'It sets the deployment target for every build '
+          consequence:
+              'It sets the deployment target for every build '
               'configuration of the macOS app.',
         ),
         _macosPodspec: _allMatches(
           _macosPodspec,
           RegExp(r"s\.platform\s*=\s*:osx,\s*'([0-9.]+)'"),
-          consequence: 'It is the floor CocoaPods compiles the Rust core pod '
+          consequence:
+              'It is the floor CocoaPods compiles the Rust core pod '
               'against on macOS.',
         ),
       };
@@ -299,7 +306,8 @@ void main() {
       expect(
         distinct,
         hasLength(1),
-        reason: 'The macOS deployment target is declared in several files and '
+        reason:
+            'The macOS deployment target is declared in several files and '
             'they disagree: ${_describe(declarations)}.',
       );
     });
@@ -310,7 +318,8 @@ void main() {
           expect(
             _compareVersions(value, _floorMacos) >= 0,
             isTrue,
-            reason: '${entry.key} declares macOS $value, below the '
+            reason:
+                '${entry.key} declares macOS $value, below the '
                 '$_floorMacos that Flutter 3.44.8 scaffolds (its macos.tmpl '
                 'template).',
           );
@@ -339,7 +348,8 @@ void main() {
       expect(
         rust,
         app,
-        reason: 'rust_builder declares minSdk $rust while the app declares '
+        reason:
+            'rust_builder declares minSdk $rust while the app declares '
             '$app. The manifest merger takes the highest, so a lower value '
             'here is an API range that is never built and never tested — it '
             'reads as support the module does not actually have.',
@@ -356,7 +366,8 @@ void main() {
       expect(
         rust,
         installed,
-        reason: 'rust_builder compiles against SDK $rust but CI installs '
+        reason:
+            'rust_builder compiles against SDK $rust but CI installs '
             '$installed. When they differ, Gradle stops partway through every '
             'Android build to download the missing platform — the build stays '
             'green and simply costs more, which is why this went unnoticed. '
@@ -393,14 +404,16 @@ void main() {
       expect(
         abiToTargetPlatform[arch],
         isNotNull,
-        reason: 'No --target-platform mapping is known for emulator arch '
+        reason:
+            'No --target-platform mapping is known for emulator arch '
             '$arch. Add it here alongside the ANDROID_WARMUP_TARGET_PLATFORM '
             'change, or the two silently stop describing the same ABI.',
       );
       expect(
         warmup,
         abiToTargetPlatform[arch],
-        reason: 'The emulator boots $arch but the warm-up build targets '
+        reason:
+            'The emulator boots $arch but the warm-up build targets '
             '$warmup. The warm-up exists to build the app OUTSIDE the test '
             'loading phase; aimed at the wrong ABI it warms nothing the '
             'emulator can use.',
@@ -417,7 +430,8 @@ void main() {
       expect(
         matrix,
         declared,
-        reason: 'ci.yml boots an API $matrix emulator but declares '
+        reason:
+            'ci.yml boots an API $matrix emulator but declares '
             'ANDROID_EMULATOR_API: $declared. scripts/ci-versions.sh reads the '
             'env key, so setup.sh and the Claude Code session hook would '
             'create an API $declared AVD for a job that runs on API $matrix — '
@@ -426,16 +440,23 @@ void main() {
     });
 
     test('rust_builder does not pin its own Android Gradle Plugin', () {
-      final gradle = stripCommentsKeepingStrings(readRepoFile(
-        _rustGradle,
-        consequence: 'It is the Gradle module that builds the Rust core for '
-            'Android.',
-      ));
+      final gradle = stripCommentsKeepingStrings(
+        readRepoFile(
+          _rustGradle,
+          consequence:
+              'It is the Gradle module that builds the Rust core for '
+              'Android.',
+        ),
+      );
       expect(
-        RegExp(r'classpath\s+[' "'" r'"]com\.android\.tools\.build:gradle')
-            .hasMatch(gradle),
+        RegExp(
+          r'classpath\s+['
+          "'"
+          r'"]com\.android\.tools\.build:gradle',
+        ).hasMatch(gradle),
         isFalse,
-        reason: 'rust_builder declares its own AGP on the buildscript '
+        reason:
+            'rust_builder declares its own AGP on the buildscript '
             'classpath. The cargokit template shipped 7.3.0 there, which never '
             'took effect — android/settings.gradle resolves AGP first and a '
             'parent-first classloader means the already-loaded class wins — so '

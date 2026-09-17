@@ -48,8 +48,9 @@ final specPackServiceProvider = Provider<SpecPackService>((ref) {
 
 /// The persisted spec-pack manifest URL, defaulting to
 /// [AppConstants.defaultSpecPackUrl] until the user overrides it.
-final specPackUrlProvider =
-    AsyncNotifierProvider<SpecPackUrlNotifier, String>(SpecPackUrlNotifier.new);
+final specPackUrlProvider = AsyncNotifierProvider<SpecPackUrlNotifier, String>(
+  SpecPackUrlNotifier.new,
+);
 
 class SpecPackUrlNotifier extends AsyncNotifier<String> {
   static const key = 'spec_pack_url';
@@ -91,14 +92,17 @@ class SpecPackUrlNotifier extends AsyncNotifier<String> {
 /// silently swallowed. [SpecPackService.loadCachedSpecs] already degrades
 /// gracefully per record; this catch only guards against unexpected throws
 /// (e.g. platform channels unavailable under unit tests).
-final cachedSpecPacksProvider =
-    FutureProvider<Map<String, String>>((ref) async {
+final cachedSpecPacksProvider = FutureProvider<Map<String, String>>((
+  ref,
+) async {
   final service = ref.watch(specPackServiceProvider);
   try {
     return await service.loadCachedSpecs();
   } catch (e) {
-    Log.packs.warning('could not read cached packs; using bundled specs only',
-        error: e);
+    Log.packs.warning(
+      'could not read cached packs; using bundled specs only',
+      error: e,
+    );
     return const <String, String>{};
   }
 });

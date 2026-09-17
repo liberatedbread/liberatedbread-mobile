@@ -500,7 +500,8 @@ String stripDartCommentsAndStringContents(String source) {
     }
 
     if (c == "'" || c == '"') {
-      final isRaw = i > 0 &&
+      final isRaw =
+          i > 0 &&
           source[i - 1] == 'r' &&
           (i < 2 || !_isIdentifierChar(source[i - 2]));
       final triple = source.startsWith(c * 3, i);

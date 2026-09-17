@@ -27,11 +27,11 @@ const _statusChar = CharacteristicDto(
 );
 
 DecodedValueDto _brightness(int value) => DecodedValueDto(
-      name: 'brightness',
-      valueType: 'uint',
-      display: '$value',
-      uintValue: value,
-    );
+  name: 'brightness',
+  valueType: 'uint',
+  display: '$value',
+  uintValue: value,
+);
 
 const _power = DecodedValueDto(
   name: 'power_state',
@@ -74,17 +74,25 @@ void main() {
     final api = FakeHaApiClient();
     final forwarder = _forwarder(api, config: null);
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(1)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(1)],
+    );
     expect(api.registeredSensors, isEmpty);
     expect(api.stateUpdates, isEmpty);
   });
 
   test('does nothing when forwarding is disabled', () async {
     final api = FakeHaApiClient();
-    final forwarder =
-        _forwarder(api, config: _registered.copyWith(enabled: false));
+    final forwarder = _forwarder(
+      api,
+      config: _registered.copyWith(enabled: false),
+    );
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(1)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(1)],
+    );
     expect(api.stateUpdates, isEmpty);
   });
 
@@ -93,9 +101,15 @@ void main() {
     final forwarder = _forwarder(api);
 
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(10)],
+    );
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(20)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(20)],
+    );
 
     expect(api.registeredSensors, hasLength(1));
     expect(api.registeredSensors.single.uniqueId, 'ogiot_d_fff2_brightness');
@@ -120,18 +134,29 @@ void main() {
 
   test('coalesces rapid updates while a flush interval is pending', () async {
     final api = FakeHaApiClient();
-    final forwarder =
-        _forwarder(api, minSendInterval: const Duration(milliseconds: 50));
+    final forwarder = _forwarder(
+      api,
+      minSendInterval: const Duration(milliseconds: 50),
+    );
 
     // First flush goes out immediately; the next three arrive inside the
     // 50ms interval and must collapse into one trailing flush with the
     // latest value.
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(1)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(1)],
+    );
     final second = forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(2)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(2)],
+    );
     final third = forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(3)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(3)],
+    );
     await Future.wait([second, third]);
 
     expect(api.stateUpdates, hasLength(2));
@@ -143,13 +168,22 @@ void main() {
     final forwarder = _forwarder(api);
 
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(10)],
+    );
     api.updateErrorCodes = {'ogiot_d_fff2_brightness': 'not_registered'};
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(20)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(20)],
+    );
     api.updateErrorCodes = {};
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(30)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(30)],
+    );
 
     // Initial registration plus the re-registration after HA forgot it.
     expect(api.registeredSensors, hasLength(2));
@@ -161,7 +195,10 @@ void main() {
     final forwarder = _forwarder(api);
 
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(10)],
+    );
 
     // The status line the settings screen shows is written for a person; the
     // socket detail ('no route') goes to the log, not the screen.
@@ -172,7 +209,10 @@ void main() {
     // Recovery clears the error.
     api.registerSensorError = null;
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(11)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(11)],
+    );
     expect(forwarder.status.lastError, isNull);
     expect(forwarder.status.lastSuccess, isNotNull);
   });
@@ -183,7 +223,10 @@ void main() {
 
     // A decode that yields no values must not report a phantom update.
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: const []);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: const [],
+    );
 
     expect(api.registeredSensors, isEmpty);
     expect(api.stateUpdates, isEmpty);
@@ -198,7 +241,10 @@ void main() {
     final forwarder = _forwarder(api);
 
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(10)],
+    );
 
     // The healthy path is debug: with a chatty notify characteristic this is
     // once per minSendInterval, so it must not be info.
@@ -210,7 +256,10 @@ void main() {
     records.clear();
     api.registerSensorError = const HaNetworkException('blip');
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _batteryChar, values: [_battery]);
+      deviceId: 'd',
+      specChar: _batteryChar,
+      values: [_battery],
+    );
 
     final failed = records.singleWhere((r) => r.level == LogLevel.warning);
     expect(failed.category, 'ha');
@@ -226,7 +275,10 @@ void main() {
 
     // A one-shot read of a read-only characteristic fails to forward.
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _batteryChar, values: [_battery]);
+      deviceId: 'd',
+      specChar: _batteryChar,
+      values: [_battery],
+    );
     expect(forwarder.status.lastError, contains('Could not reach the server'));
     expect(forwarder.status.lastError, isNot(contains('blip')));
     expect(api.stateUpdates, isEmpty);
@@ -235,7 +287,10 @@ void main() {
     // the next flush. The re-queued battery reading rides along with it.
     api.registerSensorError = null;
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(50)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(50)],
+    );
 
     final registeredIds = api.registeredSensors.map((s) => s.uniqueId).toSet();
     expect(registeredIds, {
@@ -251,21 +306,29 @@ void main() {
     });
   });
 
-  test('a newer reading supersedes a re-queued one for the same sensor',
-      () async {
-    final api = FakeHaApiClient()
-      ..registerSensorError = const HaNetworkException('blip');
-    final forwarder = _forwarder(api);
+  test(
+    'a newer reading supersedes a re-queued one for the same sensor',
+    () async {
+      final api = FakeHaApiClient()
+        ..registerSensorError = const HaNetworkException('blip');
+      final forwarder = _forwarder(api);
 
-    await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
-    api.registerSensorError = null;
-    await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(20)]);
+      await forwarder.onDecodedValues(
+        deviceId: 'd',
+        specChar: _statusChar,
+        values: [_brightness(10)],
+      );
+      api.registerSensorError = null;
+      await forwarder.onDecodedValues(
+        deviceId: 'd',
+        specChar: _statusChar,
+        values: [_brightness(20)],
+      );
 
-    // Only the latest value is sent, not the stale re-queued one.
-    expect(api.stateUpdates.last.single.state, 20);
-  });
+      // Only the latest value is sent, not the stale re-queued one.
+      expect(api.stateUpdates.last.single.state, 20);
+    },
+  );
 
   test('swallows config-read errors', () async {
     final api = FakeHaApiClient();
@@ -275,10 +338,15 @@ void main() {
       minSendInterval: Duration.zero,
     );
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(1)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(1)],
+    );
     // An untyped failure must not surface as Dart's 'Bad state: no store'.
     expect(
-        forwarder.status.lastError, contains('Could not send the last update'));
+      forwarder.status.lastError,
+      contains('Could not send the last update'),
+    );
     expect(forwarder.status.lastError, isNot(contains('Bad state')));
     expect(forwarder.status.lastError, isNot(contains('no store')));
     expect(api.stateUpdates, isEmpty);
@@ -294,64 +362,92 @@ void main() {
     );
 
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(10)],
+    );
     expect(api.registeredSensors, hasLength(1));
 
     // Reconnect to a different HA instance / fresh registration.
     config = _registered.copyWith(webhookId: 'wh2');
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(20)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(20)],
+    );
 
     expect(api.registeredSensors, hasLength(2));
     expect(api.stateUpdates, hasLength(2));
   });
 
-  test('re-registers after a disconnect even if the webhook id repeats',
-      () async {
-    final api = FakeHaApiClient();
-    HaConfig? config = _registered;
-    final forwarder = HaSensorForwarder(
-      api: api,
-      readConfig: () async => config,
-      minSendInterval: Duration.zero,
-    );
+  test(
+    're-registers after a disconnect even if the webhook id repeats',
+    () async {
+      final api = FakeHaApiClient();
+      HaConfig? config = _registered;
+      final forwarder = HaSensorForwarder(
+        api: api,
+        readConfig: () async => config,
+        minSendInterval: Duration.zero,
+      );
 
-    await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
-    config = null; // disconnected
-    await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(20)]);
-    config = _registered; // reconnected
-    await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(30)]);
+      await forwarder.onDecodedValues(
+        deviceId: 'd',
+        specChar: _statusChar,
+        values: [_brightness(10)],
+      );
+      config = null; // disconnected
+      await forwarder.onDecodedValues(
+        deviceId: 'd',
+        specChar: _statusChar,
+        values: [_brightness(20)],
+      );
+      config = _registered; // reconnected
+      await forwarder.onDecodedValues(
+        deviceId: 'd',
+        specChar: _statusChar,
+        values: [_brightness(30)],
+      );
 
-    expect(api.registeredSensors, hasLength(2));
-  });
+      expect(api.registeredSensors, hasLength(2));
+    },
+  );
 
-  test('disabling forwarding does not invalidate the registration cache',
-      () async {
-    final api = FakeHaApiClient();
-    HaConfig? config = _registered;
-    final forwarder = HaSensorForwarder(
-      api: api,
-      readConfig: () async => config,
-      minSendInterval: Duration.zero,
-    );
+  test(
+    'disabling forwarding does not invalidate the registration cache',
+    () async {
+      final api = FakeHaApiClient();
+      HaConfig? config = _registered;
+      final forwarder = HaSensorForwarder(
+        api: api,
+        readConfig: () async => config,
+        minSendInterval: Duration.zero,
+      );
 
-    await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
-    config = _registered.copyWith(enabled: false);
-    await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(20)]);
-    config = _registered;
-    await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(30)]);
+      await forwarder.onDecodedValues(
+        deviceId: 'd',
+        specChar: _statusChar,
+        values: [_brightness(10)],
+      );
+      config = _registered.copyWith(enabled: false);
+      await forwarder.onDecodedValues(
+        deviceId: 'd',
+        specChar: _statusChar,
+        values: [_brightness(20)],
+      );
+      config = _registered;
+      await forwarder.onDecodedValues(
+        deviceId: 'd',
+        specChar: _statusChar,
+        values: [_brightness(30)],
+      );
 
-    // Same webhook throughout: one registration, and the disabled-period
-    // reading was dropped rather than sent.
-    expect(api.registeredSensors, hasLength(1));
-    expect(api.stateUpdates, hasLength(2));
-  });
+      // Same webhook throughout: one registration, and the disabled-period
+      // reading was dropped rather than sent.
+      expect(api.registeredSensors, hasLength(1));
+      expect(api.stateUpdates, hasLength(2));
+    },
+  );
 
   test('uses the noted device name in entity names', () async {
     final api = FakeHaApiClient();
@@ -359,7 +455,10 @@ void main() {
     forwarder.noteDeviceName('d', 'Kitchen Bulb');
 
     await forwarder.onDecodedValues(
-        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+      deviceId: 'd',
+      specChar: _statusChar,
+      values: [_brightness(10)],
+    );
 
     expect(api.registeredSensors.single.name, 'Kitchen Bulb Status Brightness');
   });
@@ -369,7 +468,10 @@ void main() {
     final forwarder = _forwarder(api);
 
     await forwarder.onDecodedValues(
-        deviceId: 'AA:BB', specChar: _statusChar, values: [_brightness(10)]);
+      deviceId: 'AA:BB',
+      specChar: _statusChar,
+      values: [_brightness(10)],
+    );
 
     expect(api.registeredSensors.single.name, startsWith('AA:BB '));
   });
@@ -381,34 +483,48 @@ void main() {
   // Found by the full-stack app test, which mounts and unmounts the real app;
   // the stack it produced named the framework, not this race.
   group('status updates after disposal', () {
-    test('a successful flush that lands after disposal is dropped, not thrown',
-        () async {
-      final api = FakeHaApiClient()
-        ..registerDeviceDelay = const Duration(milliseconds: 50);
-      final forwarder = _forwarder(api);
+    test(
+      'a successful flush that lands after disposal is dropped, not thrown',
+      () async {
+        final api = FakeHaApiClient()
+          ..registerDeviceDelay = const Duration(milliseconds: 50);
+        final forwarder = _forwarder(api);
 
-      final flush = forwarder.onDecodedValues(
-          deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
-      forwarder.status.dispose();
+        final flush = forwarder.onDecodedValues(
+          deviceId: 'd',
+          specChar: _statusChar,
+          values: [_brightness(10)],
+        );
+        forwarder.status.dispose();
 
-      await flush;
-      expect(api.stateUpdates, isNotEmpty,
-          reason: 'the send itself still completes; only the notification is '
-              'dropped');
-    });
+        await flush;
+        expect(
+          api.stateUpdates,
+          isNotEmpty,
+          reason:
+              'the send itself still completes; only the notification is '
+              'dropped',
+        );
+      },
+    );
 
-    test('a failed flush that lands after disposal is dropped, not thrown',
-        () async {
-      final api = FakeHaApiClient()
-        ..registerDeviceDelay = const Duration(milliseconds: 50)
-        ..updateError = StateError('server down');
-      final forwarder = _forwarder(api);
+    test(
+      'a failed flush that lands after disposal is dropped, not thrown',
+      () async {
+        final api = FakeHaApiClient()
+          ..registerDeviceDelay = const Duration(milliseconds: 50)
+          ..updateError = StateError('server down');
+        final forwarder = _forwarder(api);
 
-      final flush = forwarder.onDecodedValues(
-          deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
-      forwarder.status.dispose();
+        final flush = forwarder.onDecodedValues(
+          deviceId: 'd',
+          specChar: _statusChar,
+          values: [_brightness(10)],
+        );
+        forwarder.status.dispose();
 
-      await flush;
-    });
+        await flush;
+      },
+    );
   });
 }

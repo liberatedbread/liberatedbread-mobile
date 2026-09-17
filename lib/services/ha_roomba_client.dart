@@ -27,9 +27,7 @@ class HaRoombaClient {
   final HaApiClient _api;
   final HaConfig _config;
 
-  const HaRoombaClient({required HaApiClient api, required HaConfig config})
-      : _api = api,
-        _config = config;
+  const HaRoombaClient({required this._api, required this._config});
 
   /// Our spec's command names → Home Assistant `vacuum` services.
   ///
@@ -85,10 +83,10 @@ class HaRoombaClient {
 
   /// Every vacuum Home Assistant knows about.
   Future<List<HaEntityState>> vacuums() => _api.entitiesInDomain(
-        baseUrl: _config.baseUrl,
-        token: _config.token,
-        domain: 'vacuum',
-      );
+    baseUrl: _config.baseUrl,
+    token: _config.token,
+    domain: 'vacuum',
+  );
 
   /// Every binary_sensor HA knows about — searched for the bin-full sibling.
   ///
@@ -97,24 +95,26 @@ class HaRoombaClient {
   /// the sibling's id by string surgery is a guess. Matching against the real
   /// list is not.
   Future<List<HaEntityState>> binarySensors() => _api.entitiesInDomain(
-        baseUrl: _config.baseUrl,
-        token: _config.token,
-        domain: 'binary_sensor',
-      );
+    baseUrl: _config.baseUrl,
+    token: _config.token,
+    domain: 'binary_sensor',
+  );
 
   /// One vacuum's state, or null when HA no longer has that entity.
   Future<HaEntityState?> vacuum(String entityId) => _api.entityState(
-        baseUrl: _config.baseUrl,
-        token: _config.token,
-        entityId: entityId,
-      );
+    baseUrl: _config.baseUrl,
+    token: _config.token,
+    entityId: entityId,
+  );
 
   /// Call the `vacuum` service [commandName] maps to.
   Future<void> send(String entityId, String commandName) {
     final service = _services[commandName];
     if (service == null) {
       throw HaServerException(
-          400, 'Home Assistant has no vacuum service for "$commandName"');
+        400,
+        'Home Assistant has no vacuum service for "$commandName"',
+      );
     }
     // Which service, against which entity. The token is never near this line;
     // it lives in _config and goes only into an Authorization header.

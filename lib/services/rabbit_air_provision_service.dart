@@ -57,14 +57,13 @@ class RabbitAirProvisionState {
     String? thingId,
     bool? verified,
     String? message,
-  }) =>
-      RabbitAirProvisionState(
-        step ?? this.step,
-        networks: networks ?? this.networks,
-        thingId: thingId ?? this.thingId,
-        verified: verified ?? this.verified,
-        message: message ?? this.message,
-      );
+  }) => RabbitAirProvisionState(
+    step ?? this.step,
+    networks: networks ?? this.networks,
+    thingId: thingId ?? this.thingId,
+    verified: verified ?? this.verified,
+    message: message ?? this.message,
+  );
 }
 
 /// The best-effort LAN confirmation after the purifier leaves setup mode:
@@ -72,10 +71,8 @@ class RabbitAirProvisionState {
 /// default watches the network scan for the Thing ID's mDNS hostname and runs
 /// a clock sync + state read; a timeout is NOT a failure — the join may still
 /// be in flight — so the seam answers false rather than throwing.
-typedef RabbitAirVerifier = Future<bool> Function({
-  required String thingId,
-  required String userKey,
-});
+typedef RabbitAirVerifier =
+    Future<bool> Function({required String thingId, required String userKey});
 
 /// Drives the Rabbit Air BLE provisioning conversation, the setup sibling of
 /// [AdoptService]: what to send comes from the codec (cleartext
@@ -114,13 +111,12 @@ class RabbitAirProvisionService {
   RabbitAirProvisionService({
     required this.codec,
     required this.keyStore,
-    required RabbitAirBleLink Function() linkFactory,
-    RabbitAirVerifier? verifier,
+    required this._linkFactory,
+    this._verifier,
     this.networkPollInterval = const Duration(milliseconds: 1500),
     this.networkPollAttempts = 15,
     this.verifyTimeout = const Duration(seconds: 50),
-  })  : _linkFactory = linkFactory,
-        _verifier = verifier;
+  });
 
   /// The oldest Wi-Fi firmware that accepts a user key (cmd 5, type 4).
   static const keyPushMinMcu = 24;
@@ -135,8 +131,9 @@ class RabbitAirProvisionService {
   /// the current position.
   Stream<RabbitAirProvisionState> get states => _states.stream;
 
-  RabbitAirProvisionState _state =
-      const RabbitAirProvisionState(RabbitAirProvisionStep.connecting);
+  RabbitAirProvisionState _state = const RabbitAirProvisionState(
+    RabbitAirProvisionStep.connecting,
+  );
   RabbitAirProvisionState get state => _state;
 
   RabbitAirBleLink? _link;
@@ -187,11 +184,16 @@ class RabbitAirProvisionService {
       }
       if (networks.isEmpty) {
         throw const RabbitAirProvisionException(
-            'the purifier reports no Wi-Fi networks nearby. Move it closer '
-            'to your router and try again.');
+          'the purifier reports no Wi-Fi networks nearby. Move it closer '
+          'to your router and try again.',
+        );
       }
-      emit(RabbitAirProvisionState(RabbitAirProvisionStep.awaitingNetworkChoice,
-          networks: networks));
+      emit(
+        RabbitAirProvisionState(
+          RabbitAirProvisionStep.awaitingNetworkChoice,
+          networks: networks,
+        ),
+      );
     } catch (e) {
       _fail(e);
     }
@@ -218,9 +220,10 @@ class RabbitAirProvisionService {
       final mcu = _mcu;
       if (mcu != null && mcu < keyPushMinMcu) {
         throw RabbitAirProvisionException(
-            "this purifier's Wi-Fi firmware (v$mcu) is too old to accept a "
-            'user key — update it to v$keyPushMinMcu or newer with the '
-            'Rabbit Air app, then set up again.');
+          "this purifier's Wi-Fi firmware (v$mcu) is too old to accept a "
+          'user key — update it to v$keyPushMinMcu or newer with the '
+          'Rabbit Air app, then set up again.',
+        );
       }
       await _exchange(5, {'type': 4, 'value': key});
 
@@ -250,14 +253,21 @@ class RabbitAirProvisionService {
       if (verifier != null && discoveryName != null) {
         emit(_state.copyWith(step: RabbitAirProvisionStep.verifying));
         try {
-          verified = await verifier(thingId: discoveryName, userKey: key)
-              .timeout(verifyTimeout, onTimeout: () => false);
+          verified = await verifier(
+            thingId: discoveryName,
+            userKey: key,
+          ).timeout(verifyTimeout, onTimeout: () => false);
         } catch (e) {
           Log.ble.debug('rabbit air verification failed: $e');
         }
       }
-      emit(RabbitAirProvisionState(RabbitAirProvisionStep.done,
-          thingId: _thingId, verified: verified));
+      emit(
+        RabbitAirProvisionState(
+          RabbitAirProvisionStep.done,
+          thingId: _thingId,
+          verified: verified,
+        ),
+      );
     } catch (e) {
       _fail(e);
     }
@@ -267,10 +277,11 @@ class RabbitAirProvisionService {
     final message = error is RabbitAirProvisionException
         ? error.message
         : 'the purifier did not answer as expected ($error). Check it is '
-            'still in setup mode and try again.';
+              'still in setup mode and try again.';
     Log.ble.warning('rabbit air provisioning failed at ${_state.step}: $error');
     emit(
-        _state.copyWith(step: RabbitAirProvisionStep.failed, message: message));
+      _state.copyWith(step: RabbitAirProvisionStep.failed, message: message),
+    );
   }
 
   /// Read the network list once: cmd 0's `data.networks`, each entry's
@@ -296,8 +307,10 @@ class RabbitAirProvisionService {
   /// send it, parse the reply's `data`. A reply carrying a truthy `error` is
   /// the device refusing the step — surfaced with the step's state, since
   /// the id is positional here (one exchange in flight).
-  Future<Map<String, Object?>?> _exchange(int cmd,
-      [Map<String, Object?>? data]) async {
+  Future<Map<String, Object?>?> _exchange(
+    int cmd, [
+    Map<String, Object?>? data,
+  ]) async {
     final link = _link;
     if (link == null) {
       throw StateError('RabbitAirProvisionService.join before begin');
@@ -312,12 +325,14 @@ class RabbitAirProvisionService {
     final Object? decoded = jsonDecode(utf8.decode(replyBytes));
     if (decoded is! Map) {
       throw const RabbitAirProvisionException(
-          'the purifier answered with something that is not JSON');
+        'the purifier answered with something that is not JSON',
+      );
     }
     final error = decoded['error'];
     if (error != null && error != false) {
       throw RabbitAirProvisionException(
-          'the purifier refused command $cmd (error: $error)');
+        'the purifier refused command $cmd (error: $error)',
+      );
     }
     final replyData = decoded['data'];
     return replyData is Map ? replyData.cast() : null;

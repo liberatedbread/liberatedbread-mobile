@@ -44,8 +44,10 @@ class SavedDevicesNotifier extends StateNotifier<List<SavedDevice>> {
     required DateTime seenAt,
   }) {
     final existing = state.where((d) => d.id == id).firstOrNull;
-    return save(existing?.copyWith(name: name, lastSeen: seenAt) ??
-        SavedDevice(id: id, name: name, lastSeen: seenAt));
+    return save(
+      existing?.copyWith(name: name, lastSeen: seenAt) ??
+          SavedDevice(id: id, name: name, lastSeen: seenAt),
+    );
   }
 
   /// Records which spec a connected device matched, so grouping can classify
@@ -61,13 +63,15 @@ class SavedDevicesNotifier extends StateNotifier<List<SavedDevice>> {
     final existing = state.where((d) => d.id == id).firstOrNull;
     if (existing == null) return;
     if (existing.category == category && existing.specKey == specKey) return;
-    await save(SavedDevice(
-      id: existing.id,
-      name: existing.name,
-      lastSeen: existing.lastSeen,
-      category: category,
-      specKey: specKey,
-    ));
+    await save(
+      SavedDevice(
+        id: existing.id,
+        name: existing.name,
+        lastSeen: existing.lastSeen,
+        category: category,
+        specKey: specKey,
+      ),
+    );
   }
 
   bool contains(String id) => state.any((d) => d.id == id);
@@ -75,5 +79,5 @@ class SavedDevicesNotifier extends StateNotifier<List<SavedDevice>> {
 
 final savedDevicesProvider =
     StateNotifierProvider<SavedDevicesNotifier, List<SavedDevice>>(
-  (ref) => SavedDevicesNotifier(ref.watch(savedDeviceStoreProvider)),
-);
+      (ref) => SavedDevicesNotifier(ref.watch(savedDeviceStoreProvider)),
+    );

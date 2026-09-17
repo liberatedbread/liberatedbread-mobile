@@ -17,9 +17,9 @@ class BlackHatIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox.square(
-        dimension: size,
-        child: CustomPaint(painter: _BlackHatPainter(color)),
-      );
+    dimension: size,
+    child: CustomPaint(painter: _BlackHatPainter(color)),
+  );
 }
 
 class _BlackHatPainter extends CustomPainter {

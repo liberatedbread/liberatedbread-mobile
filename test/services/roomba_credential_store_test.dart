@@ -18,13 +18,15 @@ void main() {
   const password = ':1:1486937829:gktkDoYpWaDxCfGh';
 
   test('round-trips everything a robot is adopted with', () async {
-    await credentials.save(const RoombaCredentials(
-      blid: blid,
-      password: password,
-      name: 'Dorita',
-      sku: 'R980020',
-      lastIp: '192.168.1.103',
-    ));
+    await credentials.save(
+      const RoombaCredentials(
+        blid: blid,
+        password: password,
+        name: 'Dorita',
+        sku: 'R980020',
+        lastIp: '192.168.1.103',
+      ),
+    );
 
     final found = await credentials.credentials(blid);
     expect(found, isNotNull);
@@ -38,8 +40,9 @@ void main() {
   /// The password is the whole point: a store that trims or splits it hands
   /// back a credential the broker refuses without explaining why.
   test('stores the password verbatim, colons and all', () async {
-    await credentials
-        .save(const RoombaCredentials(blid: blid, password: password));
+    await credentials.save(
+      const RoombaCredentials(blid: blid, password: password),
+    );
     final found = await credentials.credentials(blid);
     expect(found!.password, password);
     expect(found.password.startsWith(':'), isTrue);
@@ -62,11 +65,13 @@ void main() {
   /// stranded the first time the address rotates and the owner has to redo the
   /// button handshake to recover something the app already had.
   test('is keyed by BLID and not by address', () async {
-    await credentials.save(const RoombaCredentials(
-      blid: blid,
-      password: password,
-      lastIp: '192.168.1.103',
-    ));
+    await credentials.save(
+      const RoombaCredentials(
+        blid: blid,
+        password: password,
+        lastIp: '192.168.1.103',
+      ),
+    );
 
     await credentials.rememberAddress(blid, '192.168.1.200');
 
@@ -86,8 +91,9 @@ void main() {
 
   group('rest980 routing', () {
     test('is off until an address is set, and toggles back off', () async {
-      await credentials
-          .save(const RoombaCredentials(blid: blid, password: password));
+      await credentials.save(
+        const RoombaCredentials(blid: blid, password: password),
+      );
       expect((await credentials.credentials(blid))!.usesRest980, isFalse);
 
       await credentials.setRest980BaseUrl(blid, 'http://pi.local:3000');
@@ -103,11 +109,9 @@ void main() {
     /// read-modify-write the whole record — which is how a screen that never
     /// had the password ends up clobbering it.
     test('setting the server address leaves the password alone', () async {
-      await credentials.save(const RoombaCredentials(
-        blid: blid,
-        password: password,
-        name: 'Dorita',
-      ));
+      await credentials.save(
+        const RoombaCredentials(blid: blid, password: password, name: 'Dorita'),
+      );
 
       await credentials.setRest980BaseUrl(blid, 'http://pi.local:3000');
 
@@ -121,10 +125,12 @@ void main() {
     /// send one robot's commands to the other's server.
     test('is remembered per robot', () async {
       const other = 'AAAA1111BBBB2222';
-      await credentials
-          .save(const RoombaCredentials(blid: blid, password: password));
-      await credentials
-          .save(const RoombaCredentials(blid: other, password: password));
+      await credentials.save(
+        const RoombaCredentials(blid: blid, password: password),
+      );
+      await credentials.save(
+        const RoombaCredentials(blid: other, password: password),
+      );
 
       await credentials.setRest980BaseUrl(blid, 'http://pi.local:3000');
 
@@ -137,14 +143,16 @@ void main() {
   /// is no credential to revoke, and only a factory reset mints a new one. All
   /// this does is make the app forget.
   test('forget clears every field, including the server address', () async {
-    await credentials.save(const RoombaCredentials(
-      blid: blid,
-      password: password,
-      name: 'Dorita',
-      sku: 'R980020',
-      lastIp: '192.168.1.103',
-      rest980BaseUrl: 'http://pi.local:3000',
-    ));
+    await credentials.save(
+      const RoombaCredentials(
+        blid: blid,
+        password: password,
+        name: 'Dorita',
+        sku: 'R980020',
+        lastIp: '192.168.1.103',
+        rest980BaseUrl: 'http://pi.local:3000',
+      ),
+    );
 
     await credentials.forget(blid);
 
@@ -165,12 +173,14 @@ void main() {
     final credentials = RoombaCredentialStore(store);
     const blid = '3193C60472324700';
 
-    await credentials.save(const RoombaCredentials(
-      blid: blid,
-      password: '',
-      name: 'Dorita',
-      haEntityId: 'vacuum.dorita',
-    ));
+    await credentials.save(
+      const RoombaCredentials(
+        blid: blid,
+        password: '',
+        name: 'Dorita',
+        haEntityId: 'vacuum.dorita',
+      ),
+    );
 
     final loaded = await credentials.credentials(blid);
     expect(loaded, isNotNull);
@@ -187,11 +197,13 @@ void main() {
   test('clearing the HA entity returns the robot to direct control', () async {
     final credentials = RoombaCredentialStore(InMemorySettingsStore());
     const blid = '3193C60472324700';
-    await credentials.save(const RoombaCredentials(
-      blid: blid,
-      password: ':1:1486937829:gktkDoYpWaDxCfGh',
-      haEntityId: 'vacuum.dorita',
-    ));
+    await credentials.save(
+      const RoombaCredentials(
+        blid: blid,
+        password: ':1:1486937829:gktkDoYpWaDxCfGh',
+        haEntityId: 'vacuum.dorita',
+      ),
+    );
 
     await credentials.setHaEntityId(blid, null);
 

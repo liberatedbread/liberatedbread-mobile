@@ -77,7 +77,10 @@ class _SafetyAdvisoryGateState extends ConsumerState<SafetyAdvisoryGate> {
     if (_acknowledged) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [banner, Expanded(child: widget.child)],
+        children: [
+          banner,
+          Expanded(child: widget.child),
+        ],
       );
     }
 
@@ -109,26 +112,28 @@ class _SafetyBanner extends StatelessWidget {
   final SafetyAdvisoryDto advisory;
   final bool initiallyExpanded;
 
-  const _SafetyBanner(
-      {required this.advisory, required this.initiallyExpanded});
+  const _SafetyBanner({
+    required this.advisory,
+    required this.initiallyExpanded,
+  });
 
   Color _accent(ColorScheme s) => switch (advisory.severity) {
-        'danger' => s.error,
-        'warning' => s.tertiary,
-        _ => s.secondary,
-      };
+    'danger' => s.error,
+    'warning' => s.tertiary,
+    _ => s.secondary,
+  };
 
   IconData get _icon => switch (advisory.severity) {
-        'danger' => Icons.dangerous_outlined,
-        'warning' => Icons.warning_amber_outlined,
-        _ => Icons.info_outline,
-      };
+    'danger' => Icons.dangerous_outlined,
+    'warning' => Icons.warning_amber_outlined,
+    _ => Icons.info_outline,
+  };
 
   String get _label => switch (advisory.severity) {
-        'danger' => 'Safety warning',
-        'warning' => 'Use with care',
-        _ => 'Safety note',
-      };
+    'danger' => 'Safety warning',
+    'warning' => 'Use with care',
+    _ => 'Safety note',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -164,8 +169,10 @@ class _SafetyBanner extends StatelessWidget {
             leading: Icon(_icon, color: accent),
             title: Text(
               _label,
-              style: text.titleSmall
-                  ?.copyWith(color: accent, fontWeight: FontWeight.w600),
+              style: text.titleSmall?.copyWith(
+                color: accent,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             subtitle: Text(advisory.summary, style: text.bodySmall),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),

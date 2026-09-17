@@ -45,13 +45,21 @@ void main() {
       final devices = await service.scan().toList();
       final byId = {for (final d in devices) d.id: d};
 
-      expect(byId['AA:BB:CC:DD:EE:01']!.serviceUuids,
-          contains('0000fff0-0000-1000-8000-00805f9b34fb'),
-          reason: 'one device must advertise a service UUID');
-      expect(byId['AA:BB:CC:DD:EE:02']!.serviceUuids, isEmpty,
-          reason: 'one device must be recognisable by name alone');
-      expect(byId['AA:BB:CC:DD:EE:03']!.companyIds, contains(820),
-          reason: 'one device must be recognisable by company ID alone');
+      expect(
+        byId['AA:BB:CC:DD:EE:01']!.serviceUuids,
+        contains('0000fff0-0000-1000-8000-00805f9b34fb'),
+        reason: 'one device must advertise a service UUID',
+      );
+      expect(
+        byId['AA:BB:CC:DD:EE:02']!.serviceUuids,
+        isEmpty,
+        reason: 'one device must be recognisable by name alone',
+      );
+      expect(
+        byId['AA:BB:CC:DD:EE:03']!.companyIds,
+        contains(820),
+        reason: 'one device must be recognisable by company ID alone',
+      );
 
       // C4:7C:8D is subdivided among fifteen companies and the trailing 6 is
       // what picks out HHCC Plant Technology's 28-bit block — the Mi Flora's
@@ -61,8 +69,11 @@ void main() {
       expect(anonymous.name, isEmpty);
       expect(anonymous.serviceUuids, isEmpty);
       expect(anonymous.companyIds, isEmpty);
-      expect(anonymous.macAddress, 'C4:7C:8D:61:22:04',
-          reason: 'one device must be identifiable only by its OUI');
+      expect(
+        anonymous.macAddress,
+        'C4:7C:8D:61:22:04',
+        reason: 'one device must be identifiable only by its OUI',
+      );
     });
   });
 
@@ -152,10 +163,7 @@ void main() {
     });
 
     test('throws for unknown device', () async {
-      expect(
-        () => service.discoverServices('unknown'),
-        throwsStateError,
-      );
+      expect(() => service.discoverServices('unknown'), throwsStateError);
     });
 
     test('services contain expected UUIDs', () async {
@@ -241,9 +249,7 @@ void main() {
       );
 
       // Take first emission (timer fires at 2s intervals)
-      final first = await stream.first.timeout(
-        const Duration(seconds: 5),
-      );
+      final first = await stream.first.timeout(const Duration(seconds: 5));
       expect(first, [85]); // default battery
 
       await service.disconnect('AA:BB:CC:DD:EE:01');

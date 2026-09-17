@@ -36,8 +36,9 @@ class TypedCharacteristicWidget extends StatelessWidget {
     // Don't route through typed controls when every command has an encoding
     // (protobuf, JSON, TLV) that can't be serialised to bytes yet — the
     // raw-byte fallback must stay visible.
-    final encodable =
-        specChar.commands.where((c) => c.isEncodable).toList(growable: false);
+    final encodable = specChar.commands
+        .where((c) => c.isEncodable)
+        .toList(growable: false);
     if (discovered.canWrite && encodable.isNotEmpty) {
       return TypedCommandWidget(
         deviceId: deviceId,

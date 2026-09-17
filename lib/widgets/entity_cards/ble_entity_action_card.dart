@@ -72,9 +72,9 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   /// A role with no user parameter is a fixed command, which is drawable as a
   /// button without knowing anything else about the role.
   List<({String role, bool takesValue})> get _resolvedActions => [
-        for (final action in widget.entity.actions)
-          (role: action.role, takesValue: action.userParams.isNotEmpty),
-      ];
+    for (final action in widget.entity.actions)
+      (role: action.role, takesValue: action.userParams.isNotEmpty),
+  ];
 
   /// Whatever the platform's own builder below did not draw. Each of the four
   /// builders knows one role set, and the table resolves roles none of them
@@ -108,8 +108,11 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
     await _send(action);
   }
 
-  Future<void> _send(EntityActionDto action,
-      {Map<String, double> params = const {}, double? assume}) async {
+  Future<void> _send(
+    EntityActionDto action, {
+    Map<String, double> params = const {},
+    double? assume,
+  }) async {
     final commandName = action.commandName;
     if (commandName == null) return;
     setState(() {
@@ -125,7 +128,9 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         commandName: commandName,
         params: params,
       );
-      await ref.read(bleServiceProvider).writeCharacteristic(
+      await ref
+          .read(bleServiceProvider)
+          .writeCharacteristic(
             widget.deviceId,
             action.serviceUuid,
             action.characteristicUuid,
@@ -150,8 +155,9 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         _status = text;
         _failed = true;
       });
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(text)));
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(text)));
     }
   }
 
@@ -218,8 +224,9 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                   children: [
                     Text(
                       widget.entity.name,
-                      style: text.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -281,9 +288,13 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                         if (raw == null) return;
                         _assumedBaseline = value?.decoded;
                         final param = action.userParams.firstOrNull;
-                        unawaited(_send(action,
+                        unawaited(
+                          _send(
+                            action,
                             params: param == null ? const {} : {param: raw},
-                            assume: raw));
+                            assume: raw,
+                          ),
+                        );
                       },
               ),
           ],
@@ -336,11 +347,15 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                     final param = percentage.userParams.firstOrNull;
                     _dragging = null;
                     _assumedBaseline = value?.decoded;
-                    unawaited(_send(percentage,
+                    unawaited(
+                      _send(
+                        percentage,
                         params: param == null
                             ? const {}
                             : {param: v.roundToDouble()},
-                        assume: v));
+                        assume: v,
+                      ),
+                    );
                   },
           ),
         if (oscillating != null)
@@ -356,9 +371,12 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                         ? null
                         : () {
                             final param = oscillating.userParams.firstOrNull;
-                            unawaited(_send(oscillating,
-                                params:
-                                    param == null ? const {} : {param: raw}));
+                            unawaited(
+                              _send(
+                                oscillating,
+                                params: param == null ? const {} : {param: raw},
+                              ),
+                            );
                           },
                     child: Text(label),
                   ),
@@ -423,11 +441,15 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                 : (v) {
                     final param = position.userParams.firstOrNull;
                     _assumedBaseline = value?.decoded;
-                    unawaited(_send(position,
+                    unawaited(
+                      _send(
+                        position,
                         params: param == null
                             ? const {}
                             : {param: v.roundToDouble()},
-                        assume: v));
+                        assume: v,
+                      ),
+                    );
                   },
           ),
         _unclaimed(const {
@@ -441,32 +463,43 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   }
 
   Widget _stateLine(
-      EntityLiveValue? value, ColorScheme scheme, TextTheme text) {
+    EntityLiveValue? value,
+    ColorScheme scheme,
+    TextTheme text,
+  ) {
     final style = text.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     if (_sendingRole != null) return Text('Sending...', style: style);
     if (_status != null && _failed) {
-      return Text(_status!,
-          style: text.bodySmall?.copyWith(color: scheme.error));
+      return Text(
+        _status!,
+        style: text.bodySmall?.copyWith(color: scheme.error),
+      );
     }
     if (_status != null) return Text(_status!, style: style);
     if (value == null) {
       // A button is momentary and never claimed state; anything else without
       // a binding says so instead of implying its controls reflect anything.
       return Text(
-          widget.entity.platform == 'button'
-              ? 'Momentary'
-              : 'State unknown — commands send blind',
-          style: style);
+        widget.entity.platform == 'button'
+            ? 'Momentary'
+            : 'State unknown — commands send blind',
+        style: style,
+      );
     }
     return switch (value.status) {
       EntityValueStatus.unavailable => Text(
-          'State not decodable yet (no format block in the spec).',
-          style: style),
+        'State not decodable yet (no format block in the spec).',
+        style: style,
+      ),
       EntityValueStatus.loading => Text('Reading...', style: style),
-      EntityValueStatus.error =>
-        Text(value.error ?? 'Could not read state.', style: style),
-      EntityValueStatus.live =>
-        Text(value.display ?? 'State unreadable', style: style),
+      EntityValueStatus.error => Text(
+        value.error ?? 'Could not read state.',
+        style: style,
+      ),
+      EntityValueStatus.live => Text(
+        value.display ?? 'State unreadable',
+        style: style,
+      ),
     };
   }
 }

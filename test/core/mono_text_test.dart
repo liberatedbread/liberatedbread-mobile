@@ -41,14 +41,16 @@ void main() {
       expect(
         monoTextStyle.fontFamilyFallback,
         isNotNull,
-        reason: 'monoTextStyle must carry a fontFamilyFallback list. Without '
+        reason:
+            'monoTextStyle must carry a fontFamilyFallback list. Without '
             "one, `fontFamily: 'monospace'` matches no font on iOS or macOS "
             'and Flutter silently substitutes the default proportional face.',
       );
       expect(
         monoTextStyle.fontFamilyFallback,
         contains('Menlo'),
-        reason: 'The fallback list must include a font that exists on Apple '
+        reason:
+            'The fallback list must include a font that exists on Apple '
             'platforms. Menlo has shipped since iOS 4 and macOS 10.6; without '
             'it the hex dumps in raw_characteristic_widget.dart and the BLID '
             'and password in roomba_adoption_screen.dart lose their column '
@@ -83,7 +85,8 @@ void main() {
       expect(
         offenders,
         isEmpty,
-        reason: "These lines set fontFamily: 'monospace' with no "
+        reason:
+            "These lines set fontFamily: 'monospace' with no "
             'fontFamilyFallback, so the text renders in the default '
             'proportional face on iOS and macOS:\n  ${offenders.join('\n  ')}\n'
             'Use monoTextStyle / monoTextStyleOf() from lib/core/mono_text.dart, '

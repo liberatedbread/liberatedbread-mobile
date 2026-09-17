@@ -18,21 +18,20 @@ DecodedValueDto _field({
   String? unit,
   String? valueLabel,
   String? unitSource,
-}) =>
-    DecodedValueDto(
-      name: name,
-      valueType: valueType,
-      display: display ?? '${uintValue ?? intValue ?? stringValue ?? ''}',
-      uintValue: uintValue,
-      intValue: intValue,
-      boolValue: boolValue,
-      stringValue: stringValue,
-      scale: scale,
-      valueOffset: valueOffset,
-      unit: unit,
-      valueLabel: valueLabel,
-      unitSource: unitSource,
-    );
+}) => DecodedValueDto(
+  name: name,
+  valueType: valueType,
+  display: display ?? '${uintValue ?? intValue ?? stringValue ?? ''}',
+  uintValue: uintValue,
+  intValue: intValue,
+  boolValue: boolValue,
+  stringValue: stringValue,
+  scale: scale,
+  valueOffset: valueOffset,
+  unit: unit,
+  valueLabel: valueLabel,
+  unitSource: unitSource,
+);
 
 void main() {
   group('decodedNumberOf', () {
@@ -62,26 +61,32 @@ void main() {
       expect(decodedNumberOf(_field(uintValue: 85)), 85.0);
     });
 
-    test('an entity scale REPLACES the field transform rather than compounding',
-        () {
-      // `state_mapping.scale` is the entity layer's complete statement about
-      // its own value, which is how bindings::setpoint_transform resolves it
-      // on the write path. Compounding would put decode and encode out of
-      // step: the card would read back a different number than it just sent.
-      expect(
-        decodedNumberOf(
-          _field(uintValue: 100, scale: 0.5, valueOffset: 85),
-          scaleOverride: 0.01,
-        ),
-        1.0,
-      );
-    });
+    test(
+      'an entity scale REPLACES the field transform rather than compounding',
+      () {
+        // `state_mapping.scale` is the entity layer's complete statement about
+        // its own value, which is how bindings::setpoint_transform resolves it
+        // on the write path. Compounding would put decode and encode out of
+        // step: the card would read back a different number than it just sent.
+        expect(
+          decodedNumberOf(
+            _field(uintValue: 100, scale: 0.5, valueOffset: 85),
+            scaleOverride: 0.01,
+          ),
+          1.0,
+        );
+      },
+    );
 
     test('a non-numeric field has no number', () {
-      expect(decodedNumberOf(_field(valueType: 'string', stringValue: 'eco')),
-          isNull);
       expect(
-          decodedNumberOf(_field(valueType: 'bool', boolValue: true)), isNull);
+        decodedNumberOf(_field(valueType: 'string', stringValue: 'eco')),
+        isNull,
+      );
+      expect(
+        decodedNumberOf(_field(valueType: 'bool', boolValue: true)),
+        isNull,
+      );
     });
   });
 
@@ -156,8 +161,10 @@ void main() {
 
   group('decodedTextOf', () {
     test('renders the transformed value at the transform precision', () {
-      expect(decodedTextOf(_field(uintValue: 100, scale: 0.5, valueOffset: 85)),
-          '135.0');
+      expect(
+        decodedTextOf(_field(uintValue: 100, scale: 0.5, valueOffset: 85)),
+        '135.0',
+      );
       expect(decodedTextOf(_field(intValue: 2350, scale: 0.01)), '23.50');
       expect(decodedTextOf(_field(uintValue: 85)), '85');
     });
@@ -165,12 +172,14 @@ void main() {
     test('falls back to the codec rendering for a non-numeric field', () {
       expect(
         decodedTextOf(
-            _field(valueType: 'bool', boolValue: true, display: 'on')),
+          _field(valueType: 'bool', boolValue: true, display: 'on'),
+        ),
         'on',
       );
       expect(
         decodedTextOf(
-            _field(valueType: 'string', stringValue: 'eco', display: 'eco')),
+          _field(valueType: 'string', stringValue: 'eco', display: 'eco'),
+        ),
         'eco',
       );
     });
@@ -203,20 +212,21 @@ void main() {
     test('a device-setting unit is not stated as fact', () {
       // The Inkbird iBBQ sends whichever unit the device is set to, so the
       // same raw 165 is 165 C or 165 F.
-      expect(
-        unitOf(_field(unit: 'C', unitSource: 'device_setting')),
-        isNull,
-      );
+      expect(unitOf(_field(unit: 'C', unitSource: 'device_setting')), isNull);
     });
 
-    test('an entity that names a unit overrides even a device-setting field',
-        () {
-      expect(
-        unitOf(_field(unit: 'C', unitSource: 'device_setting'),
-            entityUnit: '°C'),
-        '°C',
-      );
-    });
+    test(
+      'an entity that names a unit overrides even a device-setting field',
+      () {
+        expect(
+          unitOf(
+            _field(unit: 'C', unitSource: 'device_setting'),
+            entityUnit: '°C',
+          ),
+          '°C',
+        );
+      },
+    );
 
     test('empty units read as absent', () {
       expect(unitOf(_field(unit: '')), isNull);

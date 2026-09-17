@@ -31,12 +31,12 @@ import '../fakes/in_memory_settings_store.dart';
 late SharedPreferences _prefs;
 
 Widget _wrap(FakeBleService fake) => ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(fake),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-      ],
-      child: const MaterialApp(home: ScanScreen()),
-    );
+  overrides: [
+    bleServiceProvider.overrideWithValue(fake),
+    sharedPreferencesProvider.overrideWithValue(_prefs),
+  ],
+  child: const MaterialApp(home: ScanScreen()),
+);
 
 /// A scanned device, last heard [seenAgo] before now.
 ///
@@ -85,27 +85,31 @@ final _catalogueSpec = DeviceSpecDto(
   services: const [],
 );
 
-ScanMatch _scanMatch(MatchConfidence confidence,
-        {String? category = 'light'}) =>
-    ScanMatch(
-      specIndex: 0,
-      deviceName: 'Example Smart Bulb',
-      manufacturer: 'Acme',
-      category: category,
-      confidence: confidence,
-      matchedByNamePrefix: false,
-      matchedServiceUuids: const [],
-      matchedCompanyIds: Uint16List(0),
-      matchedMacPrefix: null,
-      matchedServiceTypes: const [],
-    );
+ScanMatch _scanMatch(
+  MatchConfidence confidence, {
+  String? category = 'light',
+}) => ScanMatch(
+  specIndex: 0,
+  deviceName: 'Example Smart Bulb',
+  manufacturer: 'Acme',
+  category: category,
+  confidence: confidence,
+  matchedByNamePrefix: false,
+  matchedServiceUuids: const [],
+  matchedCompanyIds: Uint16List(0),
+  matchedMacPrefix: null,
+  matchedServiceTypes: const [],
+);
 
 void main() {
   group('ageTickNeedsRepaint', () {
     test('a tick with nothing stale and nothing dropped draws nothing', () {
       expect(
         ageTickNeedsRepaint(
-            dropped: false, stale: const {}, previouslyStale: const {}),
+          dropped: false,
+          stale: const {},
+          previouslyStale: const {},
+        ),
         isFalse,
       );
     });
@@ -113,7 +117,10 @@ void main() {
     test('a row crossing into stale is drawn', () {
       expect(
         ageTickNeedsRepaint(
-            dropped: false, stale: const {'a'}, previouslyStale: const {}),
+          dropped: false,
+          stale: const {'a'},
+          previouslyStale: const {},
+        ),
         isTrue,
       );
     });
@@ -121,7 +128,10 @@ void main() {
     test('a row coming back from stale is drawn', () {
       expect(
         ageTickNeedsRepaint(
-            dropped: false, stale: const {}, previouslyStale: const {'a'}),
+          dropped: false,
+          stale: const {},
+          previouslyStale: const {'a'},
+        ),
         isTrue,
       );
     });
@@ -133,7 +143,10 @@ void main() {
       // stopped advertising does not advertise.
       expect(
         ageTickNeedsRepaint(
-            dropped: false, stale: const {'a'}, previouslyStale: const {'a'}),
+          dropped: false,
+          stale: const {'a'},
+          previouslyStale: const {'a'},
+        ),
         isTrue,
       );
     });
@@ -141,7 +154,10 @@ void main() {
     test('an eviction is drawn even with nothing stale left', () {
       expect(
         ageTickNeedsRepaint(
-            dropped: true, stale: const {}, previouslyStale: const {}),
+          dropped: true,
+          stale: const {},
+          previouslyStale: const {},
+        ),
         isTrue,
       );
     });
@@ -178,10 +194,12 @@ void main() {
   });
 
   testWidgets('populates the list after scan', (tester) async {
-    final fake = FakeBleService(devicesToEmit: [
-      _device('01', name: 'ACME_A', rssi: -40),
-      _device('02', name: 'ACME_B', rssi: -60),
-    ]);
+    final fake = FakeBleService(
+      devicesToEmit: [
+        _device('01', name: 'ACME_A', rssi: -40),
+        _device('02', name: 'ACME_B', rssi: -60),
+      ],
+    );
     await tester.pumpWidget(_wrap(fake));
 
     await tester.tap(find.byType(FloatingActionButton));
@@ -197,8 +215,9 @@ void main() {
   });
 
   group('app lifecycle', () {
-    testWidgets('stops scanning in the background and resumes on return',
-        (tester) async {
+    testWidgets('stops scanning in the background and resumes on return', (
+      tester,
+    ) async {
       // A continuous scan is the most expensive thing this app does, and in
       // the background it is expensive for nothing: the OS stops delivering.
       final fake = FakeBleService(
@@ -215,17 +234,22 @@ void main() {
 
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
-      expect(fake.scanTimeouts, hasLength(2),
-          reason: 'coming back to the screen means looking again');
+      expect(
+        fake.scanTimeouts,
+        hasLength(2),
+        reason: 'coming back to the screen means looking again',
+      );
     });
 
-    testWidgets('coming back to a device screen does not restart the scan',
-        (tester) async {
+    testWidgets('coming back to a device screen does not restart the scan', (
+      tester,
+    ) async {
       // Opening a device stops the scan on purpose — a connect on a scanning
       // adapter is flaky. Backgrounding the app from the device screen and
       // returning must not undo that behind the pushed route.
-      final fake =
-          FakeBleService(devicesToEmit: [_device('01', name: 'ACME_A')]);
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'ACME_A')],
+      );
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
 
@@ -238,12 +262,16 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
 
-      expect(fake.scanTimeouts, hasLength(scansBefore),
-          reason: 'the device screen is still open; the radio stays off');
+      expect(
+        fake.scanTimeouts,
+        hasLength(scansBefore),
+        reason: 'the device screen is still open; the radio stays off',
+      );
     });
 
-    testWidgets('the find flow keeps its RSSI ping and the scan stays off',
-        (tester) async {
+    testWidgets('the find flow keeps its RSSI ping and the scan stays off', (
+      tester,
+    ) async {
       // The Find Device view navigates by pinging the CONNECTION's RSSI once
       // a second — a connected peripheral stops advertising, so no amount of
       // scanning can see it, and a scan restarting behind the route would
@@ -263,23 +291,34 @@ void main() {
 
       final scansBefore = fake.scanTimeouts.length;
       final pingsBefore = fake.rssiReadCount;
-      expect(pingsBefore, greaterThan(0),
-          reason: 'the find screen pings the device from the moment it opens');
+      expect(
+        pingsBefore,
+        greaterThan(0),
+        reason: 'the find screen pings the device from the moment it opens',
+      );
 
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await tester.pumpAndSettle();
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump(const Duration(seconds: 2));
 
-      expect(fake.scanTimeouts, hasLength(scansBefore),
-          reason: 'no scan may start behind the find screen: it cannot see '
-              'a connected device and competes with the link being measured');
-      expect(fake.rssiReadCount, greaterThan(pingsBefore),
-          reason: 'the aliveness ping keeps running');
+      expect(
+        fake.scanTimeouts,
+        hasLength(scansBefore),
+        reason:
+            'no scan may start behind the find screen: it cannot see '
+            'a connected device and competes with the link being measured',
+      );
+      expect(
+        fake.rssiReadCount,
+        greaterThan(pingsBefore),
+        reason: 'the aliveness ping keeps running',
+      );
     });
 
-    testWidgets('a scan the user stopped is not resurrected by the OS',
-        (tester) async {
+    testWidgets('a scan the user stopped is not resurrected by the OS', (
+      tester,
+    ) async {
       final fake = FakeBleService(
         devicesToEmit: [_device('01')],
         scanStepDelay: const Duration(milliseconds: 200),
@@ -294,14 +333,18 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
 
-      expect(fake.scanTimeouts, hasLength(1),
-          reason: 'off means off, however the app came and went');
+      expect(
+        fake.scanTimeouts,
+        hasLength(1),
+        reason: 'off means off, however the app came and went',
+      );
     });
   });
 
   group('scan intensity', () {
-    testWidgets('everything the screen starts by itself is ambient',
-        (tester) async {
+    testWidgets('everything the screen starts by itself is ambient', (
+      tester,
+    ) async {
       // Nobody pressed anything: the launch scan must take the duty-cycled
       // mode, or the energy story only holds for people who never open the
       // app.
@@ -326,12 +369,15 @@ void main() {
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pump(const Duration(milliseconds: 50));
 
-      expect(
-          fake.scanIntensities, [ScanIntensity.ambient, ScanIntensity.active]);
+      expect(fake.scanIntensities, [
+        ScanIntensity.ambient,
+        ScanIntensity.active,
+      ]);
     });
 
-    testWidgets('the burst downshifts to ambient after its window',
-        (tester) async {
+    testWidgets('the burst downshifts to ambient after its window', (
+      tester,
+    ) async {
       // A press buys thirty seconds of continuous listening, not a permanent
       // mode — otherwise one tap re-pins the radio for the whole session.
       final fake = FakeBleService(
@@ -347,14 +393,18 @@ void main() {
 
       await tester.pump(const Duration(seconds: 31));
 
-      expect(fake.scanIntensities,
-          [ScanIntensity.ambient, ScanIntensity.active, ScanIntensity.ambient]);
+      expect(fake.scanIntensities, [
+        ScanIntensity.ambient,
+        ScanIntensity.active,
+        ScanIntensity.ambient,
+      ]);
       // Seamless: still scanning, still a stop button on screen.
       expect(find.byIcon(Icons.stop), findsOneWidget);
     });
 
-    testWidgets('retry after a failure is an explicit ask, so it bursts',
-        (tester) async {
+    testWidgets('retry after a failure is an explicit ask, so it bursts', (
+      tester,
+    ) async {
       final fake = FakeBleService(scanError: StateError('boom'));
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
@@ -368,8 +418,9 @@ void main() {
   });
 
   group('radio recovery', () {
-    testWidgets('resumes by itself when Bluetooth comes back on',
-        (tester) async {
+    testWidgets('resumes by itself when Bluetooth comes back on', (
+      tester,
+    ) async {
       // On Android the radio is toggled from quick settings, without the app
       // ever losing focus — no lifecycle event will announce the fix. The
       // adapter stream is the only messenger.
@@ -415,12 +466,16 @@ void main() {
       radio.add(true);
       await tester.pumpAndSettle();
 
-      expect(fake.scanTimeouts, hasLength(1),
-          reason: 'a ready radio is an opportunity, not an instruction');
+      expect(
+        fake.scanTimeouts,
+        hasLength(1),
+        reason: 'a ready radio is an opportunity, not an instruction',
+      );
     });
 
-    testWidgets('a ready signal during a healthy scan changes nothing',
-        (tester) async {
+    testWidgets('a ready signal during a healthy scan changes nothing', (
+      tester,
+    ) async {
       // fbp replays the current adapter state to every new listener, so this
       // exact event arrives moments after every launch.
       // Broadcast: matches fbp's adapterState, and a single-subscription
@@ -456,8 +511,9 @@ void main() {
           child: MaterialApp(home: ScanScreen(active: active)),
         );
 
-    testWidgets('a tab nobody is looking at does not run the radio',
-        (tester) async {
+    testWidgets('a tab nobody is looking at does not run the radio', (
+      tester,
+    ) async {
       final fake = FakeBleService(devicesToEmit: [_device('01')]);
       await tester.pumpWidget(wrapActive(fake, active: false));
       await tester.pumpAndSettle();
@@ -465,8 +521,9 @@ void main() {
       expect(fake.scanTimeouts, isEmpty);
     });
 
-    testWidgets('leaving the tab pauses the scan and returning resumes it',
-        (tester) async {
+    testWidgets('leaving the tab pauses the scan and returning resumes it', (
+      tester,
+    ) async {
       // scanHold keeps the fake's scan open, the way the real continuous
       // scan stays open, so the deferred stop finds one running.
       final fake = FakeBleService(
@@ -490,8 +547,9 @@ void main() {
       expect(fake.scanTimeouts, hasLength(2));
     });
 
-    testWidgets('a quick glance at another tab never touches the radio',
-        (tester) async {
+    testWidgets('a quick glance at another tab never touches the radio', (
+      tester,
+    ) async {
       // Every return is a native scan START, and Android blocks an app that
       // starts more than five in thirty seconds — so a fidgety afternoon of
       // tab flipping must not become a stop/start each way.
@@ -507,18 +565,26 @@ void main() {
       await tester.pumpWidget(wrapActive(fake, active: true));
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(fake.stopScanCount, 0,
-          reason: 'the glance ended inside the grace window');
-      expect(fake.scanTimeouts, hasLength(1),
-          reason: 'the original scan never stopped, so nothing restarted');
+      expect(
+        fake.stopScanCount,
+        0,
+        reason: 'the glance ended inside the grace window',
+      );
+      expect(
+        fake.scanTimeouts,
+        hasLength(1),
+        reason: 'the original scan never stopped, so nothing restarted',
+      );
     });
 
-    testWidgets('what the scan already found survives the trip',
-        (tester) async {
+    testWidgets('what the scan already found survives the trip', (
+      tester,
+    ) async {
       // Keeping the state is the whole reason the shell holds the tab alive;
       // pausing the radio must not throw the list away with it.
-      final fake =
-          FakeBleService(devicesToEmit: [_device('01', name: 'ACME_A')]);
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'ACME_A')],
+      );
       await tester.pumpWidget(wrapActive(fake, active: true));
       await tester.pumpAndSettle();
       expect(find.text('ACME_A'), findsOneWidget);
@@ -531,8 +597,9 @@ void main() {
       expect(find.text('ACME_A'), findsOneWidget);
     });
 
-    testWidgets('coming back does not restart a scan the user stopped',
-        (tester) async {
+    testWidgets('coming back does not restart a scan the user stopped', (
+      tester,
+    ) async {
       final fake = FakeBleService(
         devicesToEmit: [_device('01')],
         scanStepDelay: const Duration(milliseconds: 200),
@@ -552,23 +619,28 @@ void main() {
   });
 
   group('devices that go quiet', () {
-    testWidgets('a device not heard from lately is flagged, not dropped',
-        (tester) async {
+    testWidgets('a device not heard from lately is flagged, not dropped', (
+      tester,
+    ) async {
       // Both rows have to be laid out at once to compare their positions, and
       // the docked ad bar leaves no room for the second on the default surface.
       tester.view.physicalSize = const Size(1200, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
-      final fake = FakeBleService(devicesToEmit: [
-        // The quiet one has by far the better *last* reading, which is exactly
-        // the trap: that number is a memory, not a measurement.
-        _device('01', name: 'ACME_Here', rssi: -80),
-        _device('02',
+      final fake = FakeBleService(
+        devicesToEmit: [
+          // The quiet one has by far the better *last* reading, which is exactly
+          // the trap: that number is a memory, not a measurement.
+          _device('01', name: 'ACME_Here', rssi: -80),
+          _device(
+            '02',
             name: 'ACME_Quiet',
             rssi: -30,
-            seenAgo: DeviceManager.staleAfter * 2),
-      ]);
+            seenAgo: DeviceManager.staleAfter * 2,
+          ),
+        ],
+      );
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
 
@@ -584,10 +656,12 @@ void main() {
       );
     });
 
-    testWidgets('a device still advertising carries no warning',
-        (tester) async {
-      final fake =
-          FakeBleService(devicesToEmit: [_device('01', name: 'ACME_Here')]);
+    testWidgets('a device still advertising carries no warning', (
+      tester,
+    ) async {
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'ACME_Here')],
+      );
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
 
@@ -595,15 +669,20 @@ void main() {
       expect(find.text('Strong signal'), findsOneWidget);
     });
 
-    testWidgets('a device silent long enough is dropped from the list',
-        (tester) async {
+    testWidgets('a device silent long enough is dropped from the list', (
+      tester,
+    ) async {
       // Past the point where a tap could do anything but time out, the row
       // stops being an offer.
-      final fake = FakeBleService(devicesToEmit: [
-        _device('01',
+      final fake = FakeBleService(
+        devicesToEmit: [
+          _device(
+            '01',
             name: 'ACME_Gone',
-            seenAgo: DeviceManager.forgetAfter + const Duration(seconds: 1)),
-      ]);
+            seenAgo: DeviceManager.forgetAfter + const Duration(seconds: 1),
+          ),
+        ],
+      );
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
       expect(find.text('ACME_Gone'), findsOneWidget);
@@ -623,28 +702,33 @@ void main() {
     Widget wrapWithCatalogue(
       FakeBleService fake, {
       required List<ScanMatch> Function(String deviceName) matchFor,
-    }) =>
-        ProviderScope(
-          overrides: [
-            bleServiceProvider.overrideWithValue(fake),
-            sharedPreferencesProvider.overrideWithValue(_prefs),
-            deviceSpecsProvider.overrideWith((ref) => {'bulb.yaml': 'yaml'}),
-            specCodecProvider.overrideWithValue(FakeSpecCodec(
-              spec: _catalogueSpec,
-              scanMatches: (device) => matchFor(device.name),
-            )),
-          ],
-          child: const MaterialApp(home: ScanScreen()),
-        );
+    }) => ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        deviceSpecsProvider.overrideWith((ref) => {'bulb.yaml': 'yaml'}),
+        specCodecProvider.overrideWithValue(
+          FakeSpecCodec(
+            spec: _catalogueSpec,
+            scanMatches: (device) => matchFor(device.name),
+          ),
+        ),
+      ],
+      child: const MaterialApp(home: ScanScreen()),
+    );
 
-    testWidgets('a matched device is drawn with its device-type icon',
-        (tester) async {
-      final fake =
-          FakeBleService(devicesToEmit: [_device('01', name: 'ACME_Bulb')]);
-      await tester.pumpWidget(wrapWithCatalogue(
-        fake,
-        matchFor: (_) => [_scanMatch(MatchConfidence.strong)],
-      ));
+    testWidgets('a matched device is drawn with its device-type icon', (
+      tester,
+    ) async {
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'ACME_Bulb')],
+      );
+      await tester.pumpWidget(
+        wrapWithCatalogue(
+          fake,
+          matchFor: (_) => [_scanMatch(MatchConfidence.strong)],
+        ),
+      );
 
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
@@ -660,15 +744,18 @@ void main() {
       );
     });
 
-    testWidgets('an unmatched device keeps the anonymous glyph',
-        (tester) async {
+    testWidgets('an unmatched device keeps the anonymous glyph', (
+      tester,
+    ) async {
       // The icon is only ever drawn from a matched spec. "LEDBlue-A1B2C3"
       // reads like a light, and reading it would put a guess in the same
       // glyph as a real match.
       final fake = FakeBleService(
-          devicesToEmit: [_device('01', name: 'LEDBlue-A1B2C3')]);
-      await tester
-          .pumpWidget(wrapWithCatalogue(fake, matchFor: (_) => const []));
+        devicesToEmit: [_device('01', name: 'LEDBlue-A1B2C3')],
+      );
+      await tester.pumpWidget(
+        wrapWithCatalogue(fake, matchFor: (_) => const []),
+      );
 
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
@@ -683,19 +770,23 @@ void main() {
       );
     });
 
-    testWidgets('an OUI-only match still shows the type it agrees on',
-        (tester) async {
+    testWidgets('an OUI-only match still shows the type it agrees on', (
+      tester,
+    ) async {
       // The badge stays hedged — "Possibly Acme", not a product name — while
       // the icon says the one thing the tie does agree on.
-      final fake =
-          FakeBleService(devicesToEmit: [_device('01', name: 'Mystery')]);
-      await tester.pumpWidget(wrapWithCatalogue(
-        fake,
-        matchFor: (_) => [
-          _scanMatch(MatchConfidence.possible),
-          _scanMatch(MatchConfidence.possible),
-        ],
-      ));
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'Mystery')],
+      );
+      await tester.pumpWidget(
+        wrapWithCatalogue(
+          fake,
+          matchFor: (_) => [
+            _scanMatch(MatchConfidence.possible),
+            _scanMatch(MatchConfidence.possible),
+          ],
+        ),
+      );
 
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
@@ -705,8 +796,9 @@ void main() {
       expect(find.byIcon(DeviceCategory.light.icon), findsOneWidget);
     });
 
-    testWidgets('recognised devices get their own section, above the rest',
-        (tester) async {
+    testWidgets('recognised devices get their own section, above the rest', (
+      tester,
+    ) async {
       // This asserts on the relative vertical positions of both section
       // headers, so both have to be laid out at once. The list is lazy and the
       // docked ad bar takes a slice of the viewport, which on the default test
@@ -717,17 +809,24 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
-      final fake = FakeBleService(devicesToEmit: [
-        // The unknown device has the far better signal, so ordering can only
-        // come from what the catalogue knows.
-        _device('01', name: 'Anonymous Thing', rssi: -30),
-        _device('02', name: 'ACME_Bulb', rssi: -92),
-      ]);
-      await tester.pumpWidget(wrapWithCatalogue(fake, matchFor: (name) {
-        return name == 'ACME_Bulb'
-            ? [_scanMatch(MatchConfidence.strong)]
-            : const [];
-      }));
+      final fake = FakeBleService(
+        devicesToEmit: [
+          // The unknown device has the far better signal, so ordering can only
+          // come from what the catalogue knows.
+          _device('01', name: 'Anonymous Thing', rssi: -30),
+          _device('02', name: 'ACME_Bulb', rssi: -92),
+        ],
+      );
+      await tester.pumpWidget(
+        wrapWithCatalogue(
+          fake,
+          matchFor: (name) {
+            return name == 'ACME_Bulb'
+                ? [_scanMatch(MatchConfidence.strong)]
+                : const [];
+          },
+        ),
+      );
 
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
@@ -748,14 +847,18 @@ void main() {
       expect(find.text('Anonymous Thing'), findsOneWidget);
     });
 
-    testWidgets('an OUI-only match is a hint, not a supported-device claim',
-        (tester) async {
-      final fake =
-          FakeBleService(devicesToEmit: [_device('01', name: 'Mystery')]);
-      await tester.pumpWidget(wrapWithCatalogue(
-        fake,
-        matchFor: (_) => [_scanMatch(MatchConfidence.possible)],
-      ));
+    testWidgets('an OUI-only match is a hint, not a supported-device claim', (
+      tester,
+    ) async {
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'Mystery')],
+      );
+      await tester.pumpWidget(
+        wrapWithCatalogue(
+          fake,
+          matchFor: (_) => [_scanMatch(MatchConfidence.possible)],
+        ),
+      );
 
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
@@ -766,11 +869,13 @@ void main() {
       expect(find.text('Example Smart Bulb'), findsNothing);
     });
 
-    testWidgets('an unrecognised list keeps the plain Found header',
-        (tester) async {
+    testWidgets('an unrecognised list keeps the plain Found header', (
+      tester,
+    ) async {
       final fake = FakeBleService(devicesToEmit: [_device('01')]);
-      await tester
-          .pumpWidget(wrapWithCatalogue(fake, matchFor: (_) => const []));
+      await tester.pumpWidget(
+        wrapWithCatalogue(fake, matchFor: (_) => const []),
+      );
 
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
@@ -780,8 +885,9 @@ void main() {
     });
   });
 
-  testWidgets('a scan in flight offers a small stop button, and it stops',
-      (tester) async {
+  testWidgets('a scan in flight offers a small stop button, and it stops', (
+    tester,
+  ) async {
     // While scanning the control is a compact stop — the radar already says
     // "scanning", and the results are what the screen is for. It has to
     // actually stop the radio, not just restyle itself.
@@ -842,15 +948,17 @@ void main() {
   });
 
   testWidgets('settings gear opens the Home Assistant screen', (tester) async {
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(FakeBleService()),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-        haApiClientProvider.overrideWithValue(FakeHaApiClient()),
-      ],
-      child: const MaterialApp(home: ScanScreen()),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(FakeBleService()),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+          haApiClientProvider.overrideWithValue(FakeHaApiClient()),
+        ],
+        child: const MaterialApp(home: ScanScreen()),
+      ),
+    );
 
     await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
@@ -858,8 +966,9 @@ void main() {
     expect(find.byType(HaSettingsScreen), findsOneWidget);
   });
 
-  testWidgets('shows a distinct no-results state after an empty scan',
-      (tester) async {
+  testWidgets('shows a distinct no-results state after an empty scan', (
+    tester,
+  ) async {
     // Searching-and-found-nothing-yet vs done-and-found-nothing must not be
     // the same dead-end.
     final fake = FakeBleService();
@@ -878,10 +987,12 @@ void main() {
     expect(find.text('Scan for BLE Devices'), findsNothing);
   });
 
-  testWidgets('permission denial shows specific guidance and open-settings',
-      (tester) async {
-    final fake =
-        FakeBleService(scanError: const BlePermissionDeniedException());
+  testWidgets('permission denial shows specific guidance and open-settings', (
+    tester,
+  ) async {
+    final fake = FakeBleService(
+      scanError: const BlePermissionDeniedException(),
+    );
     await tester.pumpWidget(_wrap(fake));
 
     await tester.tap(find.byType(FloatingActionButton));
@@ -889,25 +1000,32 @@ void main() {
 
     expect(find.text('Bluetooth permission needed'), findsOneWidget);
     // The open-settings action uses a settings icon, not the refresh default.
-    final openSettingsButton =
-        find.widgetWithText(ElevatedButton, 'Open settings');
+    final openSettingsButton = find.widgetWithText(
+      ElevatedButton,
+      'Open settings',
+    );
     expect(openSettingsButton, findsOneWidget);
     expect(
       find.descendant(
-          of: openSettingsButton, matching: find.byIcon(Icons.settings)),
+        of: openSettingsButton,
+        matching: find.byIcon(Icons.settings),
+      ),
       findsOneWidget,
     );
     expect(
       find.descendant(
-          of: openSettingsButton, matching: find.byIcon(Icons.refresh)),
+        of: openSettingsButton,
+        matching: find.byIcon(Icons.refresh),
+      ),
       findsNothing,
     );
     await tester.scrollUntilVisible(find.text('Retry'), 80);
     expect(find.text('Retry'), findsOneWidget);
   });
 
-  testWidgets('tapping a device stops the scan before navigating',
-      (tester) async {
+  testWidgets('tapping a device stops the scan before navigating', (
+    tester,
+  ) async {
     final fake = FakeBleService(devicesToEmit: [_device('01', name: 'ACME_A')]);
     await tester.pumpWidget(_wrap(fake));
 
@@ -925,9 +1043,9 @@ void main() {
   });
 
   testWidgets('non-connectable device tile has no chevron', (tester) async {
-    final fake = FakeBleService(devicesToEmit: [
-      _device('01', name: 'nope', connectable: false),
-    ]);
+    final fake = FakeBleService(
+      devicesToEmit: [_device('01', name: 'nope', connectable: false)],
+    );
     await tester.pumpWidget(_wrap(fake));
 
     await tester.tap(find.byType(FloatingActionButton));
@@ -937,8 +1055,9 @@ void main() {
     // its own.
     expect(
       find.descendant(
-          of: find.byType(ListView),
-          matching: find.byIcon(Icons.chevron_right)),
+        of: find.byType(ListView),
+        matching: find.byIcon(Icons.chevron_right),
+      ),
       findsNothing,
     );
   });

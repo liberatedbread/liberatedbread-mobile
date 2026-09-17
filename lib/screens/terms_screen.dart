@@ -29,12 +29,15 @@ class TermsScreen extends StatelessWidget {
           children: [
             Icon(Icons.bakery_dining_outlined, size: 44, color: scheme.primary),
             const SizedBox(height: 12),
-            Text('Welcome to ${AppConstants.appName}',
-                style: text.headlineSmall),
+            Text(
+              'Welcome to ${AppConstants.appName}',
+              style: text.headlineSmall,
+            ),
             const SizedBox(height: 4),
-            Text(AppConstants.appTagline,
-                style:
-                    text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+            Text(
+              AppConstants.appTagline,
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
             const SizedBox(height: 20),
 
             // Independence / unofficial notice. Deliberately not worded as
@@ -46,21 +49,28 @@ class TermsScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 color: scheme.tertiary.withValues(alpha: .12),
                 borderRadius: BorderRadius.circular(16),
-                border:
-                    Border.all(color: scheme.tertiary.withValues(alpha: .5)),
+                border: Border.all(
+                  color: scheme.tertiary.withValues(alpha: .5),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.science_outlined,
-                          size: 20, color: scheme.tertiary),
+                      Icon(
+                        Icons.science_outlined,
+                        size: 20,
+                        color: scheme.tertiary,
+                      ),
                       const SizedBox(width: 8),
-                      Text('Independent and unofficial',
-                          style: text.titleSmall?.copyWith(
-                              color: scheme.tertiary,
-                              fontWeight: FontWeight.w600)),
+                      Text(
+                        'Independent and unofficial',
+                        style: text.titleSmall?.copyWith(
+                          color: scheme.tertiary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),

@@ -32,8 +32,10 @@ void main() {
   test('credentials come back as the map a render is given', () async {
     await store.save(printer, 'serial', '01P00A123456789');
     await store.save(printer, 'password', 'a1b2c3d4');
-    expect(await store.credentials(printer),
-        {'serial': '01P00A123456789', 'password': 'a1b2c3d4'});
+    expect(await store.credentials(printer), {
+      'serial': '01P00A123456789',
+      'password': 'a1b2c3d4',
+    });
   });
 
   test('one device\'s credentials are not another\'s', () async {
@@ -74,11 +76,13 @@ void main() {
     expect(await store.credentials(printer), {'serial': '01P00A123456789'});
   });
 
-  test('the namespace does not collide with the device-specific stores',
-      () async {
-    // The three older stores key by their own device-issued ids under their
-    // own prefixes; a bare name here would let one read the other's values.
-    await store.save(printer, 'serial', 'value');
-    expect(settings.values.keys.single, startsWith('credential.'));
-  });
+  test(
+    'the namespace does not collide with the device-specific stores',
+    () async {
+      // The three older stores key by their own device-issued ids under their
+      // own prefixes; a bare name here would let one read the other's values.
+      await store.save(printer, 'serial', 'value');
+      expect(settings.values.keys.single, startsWith('credential.'));
+    },
+  );
 }

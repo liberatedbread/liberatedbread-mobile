@@ -67,11 +67,13 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
     );
     // Best-effort side channel to Home Assistant; never blocks or breaks
     // the local UI (the forwarder swallows its own errors).
-    unawaited(forwarder.onDecodedValues(
-      deviceId: widget.deviceId,
-      specChar: widget.specChar,
-      values: decoded,
-    ));
+    unawaited(
+      forwarder.onDecodedValues(
+        deviceId: widget.deviceId,
+        specChar: widget.specChar,
+        values: decoded,
+      ),
+    );
     if (mounted) {
       setState(() {
         _values = decoded;
@@ -112,32 +114,38 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
     final ble = ref.read(bleServiceProvider);
     _notifySub = ble
         .subscribeCharacteristic(
-      widget.deviceId,
-      widget.serviceUuid,
-      widget.specChar.uuid,
-    )
+          widget.deviceId,
+          widget.serviceUuid,
+          widget.specChar.uuid,
+        )
         .listen(
-      (bytes) {
-        unawaited(_decodeAndSet(bytes).catchError((Object e) {
-          if (mounted) {
-            setState(() => _error = friendlyErrorText(
+          (bytes) {
+            unawaited(
+              _decodeAndSet(bytes).catchError((Object e) {
+                if (mounted) {
+                  setState(
+                    () => _error = friendlyErrorText(
+                      e,
+                      context: 'decode ${widget.specChar.uuid}',
+                      fallback: 'Could not decode the latest value.',
+                    ),
+                  );
+                }
+              }),
+            );
+          },
+          onError: (Object e) {
+            if (mounted) {
+              setState(
+                () => _error = friendlyErrorText(
                   e,
-                  context: 'decode ${widget.specChar.uuid}',
-                  fallback: 'Could not decode the latest value.',
-                ));
-          }
-        }));
-      },
-      onError: (Object e) {
-        if (mounted) {
-          setState(() => _error = friendlyErrorText(
-                e,
-                context: 'notify ${widget.specChar.uuid}',
-                fallback: 'Live updates stopped.',
-              ));
-        }
-      },
-    );
+                  context: 'notify ${widget.specChar.uuid}',
+                  fallback: 'Live updates stopped.',
+                ),
+              );
+            }
+          },
+        );
   }
 
   @override
@@ -161,17 +169,23 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
 
   Widget _buildBody() {
     if (_loading && _values == null) {
-      return const Text('Reading...',
-          style: TextStyle(fontStyle: FontStyle.italic));
+      return const Text(
+        'Reading...',
+        style: TextStyle(fontStyle: FontStyle.italic),
+      );
     }
     if (_error != null) {
-      return Text('Error: $_error',
-          style: const TextStyle(color: Colors.red, fontSize: 12));
+      return Text(
+        'Error: $_error',
+        style: const TextStyle(color: Colors.red, fontSize: 12),
+      );
     }
     final values = _values;
     if (values == null || values.isEmpty) {
-      return const Text('(no value)',
-          style: TextStyle(color: Colors.grey, fontSize: 12));
+      return const Text(
+        '(no value)',
+        style: TextStyle(color: Colors.grey, fontSize: 12),
+      );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

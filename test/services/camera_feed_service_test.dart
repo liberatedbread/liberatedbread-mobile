@@ -15,7 +15,10 @@ void main() {
   group('buildJsonRpcFrame', () {
     test('wraps method + params with an id', () {
       final frame = buildJsonRpcFrame(
-          'camera.start_monitor', '{"domain":"lan","interval":0}', 7);
+        'camera.start_monitor',
+        '{"domain":"lan","interval":0}',
+        7,
+      );
       final decoded = jsonDecode(frame) as Map<String, dynamic>;
       expect(decoded['jsonrpc'], '2.0');
       expect(decoded['method'], 'camera.start_monitor');
@@ -24,20 +27,26 @@ void main() {
     });
 
     test('omits params when none / unparseable', () {
-      expect(jsonDecode(buildJsonRpcFrame('m', null, 1)).containsKey('params'),
-          isFalse);
       expect(
-          jsonDecode(buildJsonRpcFrame('m', 'not json', 1))
-              .containsKey('params'),
-          isFalse);
+        jsonDecode(buildJsonRpcFrame('m', null, 1)).containsKey('params'),
+        isFalse,
+      );
+      expect(
+        jsonDecode(buildJsonRpcFrame('m', 'not json', 1)).containsKey('params'),
+        isFalse,
+      );
     });
   });
 
   test('fillCameraUrl substitutes {address} and {port}', () {
     expect(
-        fillCameraUrl('http://{address}/x', '10.0.0.9'), 'http://10.0.0.9/x');
-    expect(fillCameraUrl('rtsp://{address}:{port}/s', 'h', port: 7447),
-        'rtsp://h:7447/s');
+      fillCameraUrl('http://{address}/x', '10.0.0.9'),
+      'http://10.0.0.9/x',
+    );
+    expect(
+      fillCameraUrl('rtsp://{address}:{port}/s', 'h', port: 7447),
+      'rtsp://h:7447/s',
+    );
   });
 
   group('frames (loopback poll + websocket keepalive)', () {
@@ -57,8 +66,11 @@ void main() {
           // Server-side socket; torn down by server.close(force: true).
           // ignore: close_sinks
           final ws = await WebSocketTransformer.upgrade(req);
-          ws.listen((data) => wsFramesSeen.add(data as String),
-              onError: (_) {}, cancelOnError: false);
+          ws.listen(
+            (data) => wsFramesSeen.add(data as String),
+            onError: (_) {},
+            cancelOnError: false,
+          );
         } else if (req.uri.path == '/monitor.jpg') {
           frameTag++;
           req.response
@@ -86,20 +98,20 @@ void main() {
     tearDown(() async => server.close(force: true));
 
     CameraStreamDto pollStream() => const CameraStreamDto(
-          transport: 'mjpeg_snapshot_poll',
-          urlTemplate: 'http://{address}/monitor.jpg',
-          targetFps: 30, // fast poll so the test is quick (floored to 200ms)
-        );
+      transport: 'mjpeg_snapshot_poll',
+      urlTemplate: 'http://{address}/monitor.jpg',
+      targetFps: 30, // fast poll so the test is quick (floored to 200ms)
+    );
 
     CameraKeepaliveDto keepalive() => const CameraKeepaliveDto(
-          transport: 'websocket_jsonrpc',
-          urlTemplate: 'ws://{address}/websocket',
-          startMethod: 'camera.start_monitor',
-          startParamsJson: '{"domain":"lan","interval":0}',
-          stopMethod: 'camera.stop_monitor',
-          stopParamsJson: '{"domain":"lan"}',
-          intervalSeconds: 1,
-        );
+      transport: 'websocket_jsonrpc',
+      urlTemplate: 'ws://{address}/websocket',
+      startMethod: 'camera.start_monitor',
+      startParamsJson: '{"domain":"lan","interval":0}',
+      stopMethod: 'camera.stop_monitor',
+      stopParamsJson: '{"domain":"lan"}',
+      intervalSeconds: 1,
+    );
 
     test('polls JPEG frames and opens the keepalive session', () async {
       const service = CameraFeedService();
@@ -139,26 +151,31 @@ void main() {
 
       final framesAfterCancel = frameTag;
       await Future<void>.delayed(const Duration(milliseconds: 400));
-      expect(frameTag, framesAfterCancel,
-          reason: 'polling stopped after cancel');
+      expect(
+        frameTag,
+        framesAfterCancel,
+        reason: 'polling stopped after cancel',
+      );
     });
 
-    test('a 200 response whose body is not a JPEG is dropped, not emitted',
-        () async {
-      // Exercises the FF D8 magic-byte check: the daemon answers 200 with an
-      // HTML error page, which must not be forwarded as a frame.
-      const stream = CameraStreamDto(
-        transport: 'mjpeg_snapshot_poll',
-        urlTemplate: 'http://{address}/notjpeg',
-        targetFps: 30,
-      );
-      const service = CameraFeedService();
-      final got = <Uint8List>[];
-      final sub = service.frames(host: host, stream: stream).listen(got.add);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      expect(got, isEmpty);
-      await sub.cancel();
-    });
+    test(
+      'a 200 response whose body is not a JPEG is dropped, not emitted',
+      () async {
+        // Exercises the FF D8 magic-byte check: the daemon answers 200 with an
+        // HTML error page, which must not be forwarded as a frame.
+        const stream = CameraStreamDto(
+          transport: 'mjpeg_snapshot_poll',
+          urlTemplate: 'http://{address}/notjpeg',
+          targetFps: 30,
+        );
+        const service = CameraFeedService();
+        final got = <Uint8List>[];
+        final sub = service.frames(host: host, stream: stream).listen(got.add);
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        expect(got, isEmpty);
+        await sub.cancel();
+      },
+    );
   });
 
   group('keepalive reconnect', () {
@@ -184,8 +201,9 @@ void main() {
       });
       addTearDown(() => server.close(force: true));
 
-      const service =
-          CameraFeedService(reconnectDelay: Duration(milliseconds: 200));
+      const service = CameraFeedService(
+        reconnectDelay: Duration(milliseconds: 200),
+      );
       final sub = service
           .frames(
             host: host,
@@ -209,8 +227,11 @@ void main() {
       while (upgrades < 2 && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
-      expect(upgrades, greaterThanOrEqualTo(2),
-          reason: 'the keepalive should reconnect after the socket closed');
+      expect(
+        upgrades,
+        greaterThanOrEqualTo(2),
+        reason: 'the keepalive should reconnect after the socket closed',
+      );
 
       await sub.cancel();
     });

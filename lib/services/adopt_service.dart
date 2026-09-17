@@ -20,10 +20,10 @@ enum AdoptFamily {
   lifx;
 
   static AdoptFamily? fromMethodType(String methodType) => switch (methodType) {
-        'softap_soap' => AdoptFamily.wemo,
-        'softap_udp' => AdoptFamily.lifx,
-        _ => null,
-      };
+    'softap_soap' => AdoptFamily.wemo,
+    'softap_udp' => AdoptFamily.lifx,
+    _ => null,
+  };
 }
 
 /// A home network the device itself reported it can see, reduced to what the UI
@@ -146,8 +146,8 @@ class AdoptService {
     this.wemoPorts = const [49153, 49152, 49154, 49151, 49155],
     this.wemoGateway = '10.22.22.1',
     this.setupRetryGap = const Duration(seconds: 2),
-  })  : soap = soap ?? SoapControlClient(),
-        lifx = lifx ?? LifxControlClient();
+  }) : soap = soap ?? SoapControlClient(),
+       lifx = lifx ?? LifxControlClient();
 
   /// Confirm the client is on the device's setup network and resolve where to
   /// talk to it. For Wemo this fetches `/setup.xml` (caching the control URLs);
@@ -181,18 +181,21 @@ class AdoptService {
     // (nine ports, not the five below); the constants are only a floor for a
     // spec that documents neither, so an older pack still limps rather than
     // dead-ends.
-    final gateway =
-        (gatewayIp != null && gatewayIp.isNotEmpty) ? gatewayIp : wemoGateway;
+    final gateway = (gatewayIp != null && gatewayIp.isNotEmpty)
+        ? gatewayIp
+        : wemoGateway;
     final probePorts = (ports != null && ports.isNotEmpty) ? ports : wemoPorts;
     // Said up front, because the probe is the longest silence in the flow: a
     // device that is not there costs one full HTTP timeout per port, and the
     // worst case is the number a reader needs in order to tell "slow" from
     // "hung".
     final worstCase = SoapControlClient.timeout * probePorts.length;
-    Log.adopt.info('wemo connect: probing $gateway on ${probePorts.length} '
-        'port(s) ${probePorts.join(', ')} — '
-        '${SoapControlClient.timeout.inSeconds}s each, '
-        'up to ${worstCase.inSeconds}s if nothing answers');
+    Log.adopt.info(
+      'wemo connect: probing $gateway on ${probePorts.length} '
+      'port(s) ${probePorts.join(', ')} — '
+      '${SoapControlClient.timeout.inSeconds}s each, '
+      'up to ${worstCase.inSeconds}s if nothing answers',
+    );
     final overall = Stopwatch()..start();
     var answered = 0;
     for (final port in probePorts) {
@@ -203,8 +206,9 @@ class AdoptService {
         // The WiFiSetup service is only listed while the device is in setup
         // mode; its presence proves we are talking to a Wemo AP and not, say, a
         // captive portal that answered /setup.xml with an HTML page.
-        final hasSetup = description.controlUrls.keys
-            .any((type) => type.contains('WiFiSetup'));
+        final hasSetup = description.controlUrls.keys.any(
+          (type) => type.contains('WiFiSetup'),
+        );
         if (!hasSetup) {
           // The single most misreadable outcome in the whole flow: something
           // IS there and did serve a description, so "couldn't reach the
@@ -212,19 +216,21 @@ class AdoptService {
           // provisioned (setup mode closed), which the service list says
           // plainly — so say it plainly.
           Log.adopt.warning(
-              'wemo probe $gateway:$port answered in ${_elapsed(attempt)} but '
-              'lists no WiFiSetup service — this is not a device in setup '
-              'mode. name=${description.friendlyName ?? '<none>'} '
-              'services=[${_serviceNames(description).join(', ')}]');
+            'wemo probe $gateway:$port answered in ${_elapsed(attempt)} but '
+            'lists no WiFiSetup service — this is not a device in setup '
+            'mode. name=${description.friendlyName ?? '<none>'} '
+            'services=[${_serviceNames(description).join(', ')}]',
+          );
           continue;
         }
         Log.adopt.info(
-            'wemo setup AP confirmed at $gateway:$port in ${_elapsed(attempt)}: '
-            'name=${description.friendlyName ?? '<none>'} '
-            'firmware=${description.firmwareVersion ?? '<none>'} '
-            'rtos=${description.rtos ?? '<absent>'} '
-            'iot=${description.iot ?? '<absent>'} '
-            'services=[${_serviceNames(description).join(', ')}]');
+          'wemo setup AP confirmed at $gateway:$port in ${_elapsed(attempt)}: '
+          'name=${description.friendlyName ?? '<none>'} '
+          'firmware=${description.firmwareVersion ?? '<none>'} '
+          'rtos=${description.rtos ?? '<absent>'} '
+          'iot=${description.iot ?? '<absent>'} '
+          'services=[${_serviceNames(description).join(', ')}]',
+        );
         final session = AdoptSession._(
           family: AdoptFamily.wemo,
           specYaml: specYaml,
@@ -237,8 +243,10 @@ class AdoptService {
           metaInfo: await _readMetaInfoEarly(session),
         );
       } catch (e) {
-        Log.adopt.debug('wemo probe $gateway:$port failed after '
-            '${_elapsed(attempt)}: $e');
+        Log.adopt.debug(
+          'wemo probe $gateway:$port failed after '
+          '${_elapsed(attempt)}: $e',
+        );
       }
     }
     // Nothing usable. Which of the two causes it was is worth separating: a
@@ -246,14 +254,16 @@ class AdoptService {
     // state, while total silence is almost always a client that is not on the
     // setup AP at all (or whose traffic left by another interface — the spec
     // lists that as the first cause of "AP is joinable but HTTP times out").
-    Log.adopt.warning(answered == 0
-        ? 'wemo connect: nothing answered on any of ${probePorts.length} '
-            'port(s) at $gateway after ${_elapsed(overall)} — the client is '
-            'probably not joined to the setup AP, or its route to '
-            '$gateway left by another interface'
-        : 'wemo connect: $answered host(s) answered at $gateway in '
-            '${_elapsed(overall)} but none offered WiFiSetup — the device is '
-            'not in setup mode; factory reset it and try again');
+    Log.adopt.warning(
+      answered == 0
+          ? 'wemo connect: nothing answered on any of ${probePorts.length} '
+                'port(s) at $gateway after ${_elapsed(overall)} — the client is '
+                'probably not joined to the setup AP, or its route to '
+                '$gateway left by another interface'
+          : 'wemo connect: $answered host(s) answered at $gateway in '
+                '${_elapsed(overall)} but none offered WiFiSetup — the device is '
+                'not in setup mode; factory reset it and try again',
+    );
     return null;
   }
 
@@ -273,11 +283,16 @@ class AdoptService {
   /// network picker for half a minute over a read provisioning repeats anyway.
   Future<String?> _readMetaInfoEarly(AdoptSession session) async {
     try {
-      final meta = (await _setupRead(session, 'GetMetaInfo',
-          attempts: connectMetaInfoAttempts))['MetaInfo'];
+      final meta = (await _setupRead(
+        session,
+        'GetMetaInfo',
+        attempts: connectMetaInfoAttempts,
+      ))['MetaInfo'];
       if (meta == null) {
-        Log.adopt.warning('wemo GetMetaInfo answered without a MetaInfo value; '
-            'a secured network cannot be encrypted for this device');
+        Log.adopt.warning(
+          'wemo GetMetaInfo answered without a MetaInfo value; '
+          'a secured network cannot be encrypted for this device',
+        );
         return null;
       }
       Log.adopt.debug('wemo meta: ${_metaSummary(meta)}');
@@ -288,9 +303,11 @@ class AdoptService {
       // the earliest possible warning that a secured join will not work.
       // The error itself was just logged by the attempt loop; this line is
       // the consequence, which is the part a reader needs.
-      Log.adopt.warning('wemo connect: no metadata, so a secured network '
-          'cannot be encrypted for this device yet — provision will ask again '
-          'with up to $setupAttempts attempt(s) (${errorType(e)})');
+      Log.adopt.warning(
+        'wemo connect: no metadata, so a secured network '
+        'cannot be encrypted for this device yet — provision will ask again '
+        'with up to $setupAttempts attempt(s) (${errorType(e)})',
+      );
       return null;
     }
   }
@@ -299,16 +316,18 @@ class AdoptService {
   /// because the full `urn:Belkin:service:…` URNs turn one useful log line
   /// into three wrapped ones.
   static List<String> _serviceNames(SoapDeviceDescription description) => [
-        for (final type in description.controlUrls.keys)
-          type.split(':').length > 2 ? type.split(':').skip(3).join(':') : type,
-      ];
+    for (final type in description.controlUrls.keys)
+      type.split(':').length > 2 ? type.split(':').skip(3).join(':') : type,
+  ];
 
   Future<AdoptSession?> _connectLifx(String specYaml) async {
     try {
       final seq = lifx.nextSequence();
       final probe = await codec.buildLifxDiscoveryProbe(sequence: seq);
-      Log.adopt.info('lifx connect: broadcasting GetService to '
-          '$lifxSetupBroadcast');
+      Log.adopt.info(
+        'lifx connect: broadcasting GetService to '
+        '$lifxSetupBroadcast',
+      );
       final replies = await lifx.collect(
         lifxSetupBroadcast,
         Uint8List.fromList(probe),
@@ -324,8 +343,10 @@ class AdoptService {
       for (final reply in replies) {
         try {
           await codec.parseLifxStateService(bytes: reply);
-          Log.adopt.info('lifx setup network confirmed: a StateService reply '
-              'decoded out of ${replies.length} datagram(s)');
+          Log.adopt.info(
+            'lifx setup network confirmed: a StateService reply '
+            'decoded out of ${replies.length} datagram(s)',
+          );
           return AdoptSession._(family: AdoptFamily.lifx, specYaml: specYaml);
         } catch (_) {
           // Not a StateService; keep looking.
@@ -334,8 +355,10 @@ class AdoptService {
     } catch (e) {
       Log.adopt.debug('lifx setup discovery failed: $e');
     }
-    Log.adopt.warning('lifx connect: nothing on the setup network answered '
-        'GetService — the client is probably not joined to the light\'s AP');
+    Log.adopt.warning(
+      'lifx connect: nothing on the setup network answered '
+      'GetService — the client is probably not joined to the light\'s AP',
+    );
     return null;
   }
 
@@ -359,24 +382,30 @@ class AdoptService {
       // An empty picker looks identical to a device that scanned and saw
       // nothing, so the reply's actual shape is the only way to tell them
       // apart afterwards.
-      Log.adopt.warning('wemo GetApList returned no ApList value — the reply '
-          'carried [${reply.keys.join(', ')}]');
+      Log.adopt.warning(
+        'wemo GetApList returned no ApList value — the reply '
+        'carried [${reply.keys.join(', ')}]',
+      );
       return const [];
     }
     final networks = await codec.parseWemoApList(apList: apList);
     final joinable = networks.where((ap) => ap.joinable).length;
-    Log.adopt.info('wemo GetApList: ${networks.length} network(s), '
-        '$joinable joinable '
-        '(${apList.length} bytes, ${'\n'.allMatches(apList).length + 1} lines)');
+    Log.adopt.info(
+      'wemo GetApList: ${networks.length} network(s), '
+      '$joinable joinable '
+      '(${apList.length} bytes, ${'\n'.allMatches(apList).length + 1} lines)',
+    );
     for (final ap in networks) {
       // Per network rather than a summary: the two failures this flow cannot
       // otherwise explain — the target SSID is 5 GHz (so the device never saw
       // it and it is simply absent here), and the target is WPA3 (so it is
       // here but marked Unknown) — are both read off this list.
-      Log.adopt.debug('wemo ap: "${ap.ssid}" channel=${ap.channel} '
-          '${ap.auth}/${ap.encrypt ?? '-'}'
-          '${ap.joinable ? '' : ' NOT JOINABLE — the device cannot express '
-              'this security mode (WPA3 is the usual cause)'}');
+      Log.adopt.debug(
+        'wemo ap: "${ap.ssid}" channel=${ap.channel} '
+        '${ap.auth}/${ap.encrypt ?? '-'}'
+        '${ap.joinable ? '' : ' NOT JOINABLE — the device cannot express '
+                  'this security mode (WPA3 is the usual cause)'}',
+      );
     }
     return [
       for (final ap in networks)
@@ -450,17 +479,21 @@ class AdoptService {
     SetupNetwork network,
     String passphrase,
   ) async {
-    Log.adopt.info('wemo provision: ssid="${network.ssid}" '
-        'auth=${network.auth ?? '<none>'} encrypt=${network.encrypt ?? '<none>'} '
-        'channel=${network.channel?.isEmpty ?? true ? '<none>' : network.channel} '
-        'open=${network.isOpen} joinable=${network.joinable} '
-        'passphrase=${passphrase.length} chars');
+    Log.adopt.info(
+      'wemo provision: ssid="${network.ssid}" '
+      'auth=${network.auth ?? '<none>'} encrypt=${network.encrypt ?? '<none>'} '
+      'channel=${network.channel?.isEmpty ?? true ? '<none>' : network.channel} '
+      'open=${network.isOpen} joinable=${network.joinable} '
+      'passphrase=${passphrase.length} chars',
+    );
     if (!network.joinable) {
       // Not fatal here — the user picked it, so send it — but it is the
       // explanation for the join that is about to silently never happen.
-      Log.adopt.warning('wemo provision: the device reported it cannot express '
-          '"${network.ssid}"\'s security mode; this join will not succeed '
-          'however many variants are tried');
+      Log.adopt.warning(
+        'wemo provision: the device reported it cannot express '
+        '"${network.ssid}"\'s security mode; this join will not succeed '
+        'however many variants are tried',
+      );
     }
 
     // A secured network needs the device metadata the passphrase key derives
@@ -471,8 +504,10 @@ class AdoptService {
       // Normally already in hand, read in the spec's order while connecting.
       meta = session.metaInfo ?? '';
       if (meta.isEmpty) {
-        Log.adopt.info('wemo provision: no metadata from the connect step; '
-            'reading it now, with up to $setupAttempts attempt(s)');
+        Log.adopt.info(
+          'wemo provision: no metadata from the connect step; '
+          'reading it now, with up to $setupAttempts attempt(s)',
+        );
         String? metaInfo;
         try {
           metaInfo = (await _setupRead(session, 'GetMetaInfo'))['MetaInfo'];
@@ -482,17 +517,21 @@ class AdoptService {
           // reach the screen as a bare transport error behind generic
           // "sending the settings failed" text, which names neither the step
           // nor the remedy.
-          Log.adopt.warning('wemo provision: the device never handed over its '
-              'metadata, so the passphrase cannot be encrypted: $e');
+          Log.adopt.warning(
+            'wemo provision: the device never handed over its '
+            'metadata, so the passphrase cannot be encrypted: $e',
+          );
           throw const AdoptException(
-              'The device stopped answering before it handed over the details '
-              'needed to encrypt your Wi-Fi password. Factory reset it and try '
-              'again.');
+            'The device stopped answering before it handed over the details '
+            'needed to encrypt your Wi-Fi password. Factory reset it and try '
+            'again.',
+          );
         }
         if (metaInfo == null) {
           throw const AdoptException(
-              'The device did not return the information needed to encrypt the '
-              'password. Try again from a factory reset.');
+            'The device did not return the information needed to encrypt the '
+            'password. Try again from a factory reset.',
+          );
         }
         meta = metaInfo;
         Log.adopt.debug('wemo meta: ${_metaSummary(metaInfo)}');
@@ -519,27 +558,34 @@ class AdoptService {
         iot: session.description?.iot,
       );
     } catch (e) {
-      throw AdoptException(friendlyErrorText(e,
+      throw AdoptException(
+        friendlyErrorText(
+          e,
           context: 'wemo connect request',
           log: Log.adopt,
-          fallback: 'That password can\'t be used. Wi-Fi passwords must be at '
-              'least 8 characters.'));
+          fallback:
+              'That password can\'t be used. Wi-Fi passwords must be at '
+              'least 8 characters.',
+        ),
+      );
     }
     // The device never says which encryption variant it liked, so the sweep is
     // the flow's other long silence: every variant that does not join costs a
     // full 20-second status poll. Name the size of it, and the setup.xml
     // markers that chose the order, before spending it.
-    Log.adopt
-        .info('wemo provision: ${requests.length} credential variant(s) to '
-            'try (rtos=${session.description?.rtos ?? '<absent>'}, '
-            'iot=${session.description?.iot ?? '<absent>'}), '
-            'up to ${requests.length * 20}s if none joins');
+    Log.adopt.info(
+      'wemo provision: ${requests.length} credential variant(s) to '
+      'try (rtos=${session.description?.rtos ?? '<absent>'}, '
+      'iot=${session.description?.iot ?? '<absent>'}), '
+      'up to ${requests.length * 20}s if none joins',
+    );
 
     // The device only tells us a variant was wrong by never connecting, so each
     // is tried in turn until one joins.
     var everDelivered = false;
     for (final (index, attempt) in requests.indexed) {
-      final label = 'variant ${index + 1}/${requests.length} '
+      final label =
+          'variant ${index + 1}/${requests.length} '
           '(${_variantLabel(attempt)})';
       final outcome = await _tryWemoRequest(session, attempt.request, label);
       if (outcome.status == AdoptStatus.joined) {
@@ -552,10 +598,12 @@ class AdoptService {
       if (outcome.status == AdoptStatus.rejected) {
         // Terminal — a different encryption will not lengthen an
         // 8-character-minimum passphrase.
-        Log.adopt.warning('wemo provision: the device rejected the passphrase '
-            '(network status 2 — shorter than 8 characters); '
-            '${requests.length - index - 1} variant(s) not tried, because none '
-            'of them would make it longer');
+        Log.adopt.warning(
+          'wemo provision: the device rejected the passphrase '
+          '(network status 2 — shorter than 8 characters); '
+          '${requests.length - index - 1} variant(s) not tried, because none '
+          'of them would make it longer',
+        );
         return outcome;
       }
       // sentUnconfirmed means this variant's credentials reached the device;
@@ -565,9 +613,11 @@ class AdoptService {
       if (outcome.status == AdoptStatus.sentUnconfirmed) everDelivered = true;
     }
     if (!everDelivered) {
-      Log.adopt.warning('wemo provision: not one of ${requests.length} '
-          'variant(s) got a first send through — the setup AP went away before '
-          'any credentials landed');
+      Log.adopt.warning(
+        'wemo provision: not one of ${requests.length} '
+        'variant(s) got a first send through — the setup AP went away before '
+        'any credentials landed',
+      );
       return const AdoptOutcome(
         AdoptStatus.unreachable,
         'The device stopped answering on its setup network before the settings '
@@ -575,10 +625,12 @@ class AdoptService {
         'again.',
       );
     }
-    Log.adopt.warning('wemo provision: all ${requests.length} variant(s) were '
-        'delivered and none reported a join. Most likely: wrong passphrase, or '
-        'a 5 GHz-only SSID (every Wemo radio is 2.4 GHz), or the band-steering '
-        'case where one SSID name covers both bands');
+    Log.adopt.warning(
+      'wemo provision: all ${requests.length} variant(s) were '
+      'delivered and none reported a join. Most likely: wrong passphrase, or '
+      'a 5 GHz-only SSID (every Wemo radio is 2.4 GHz), or the band-steering '
+      'case where one SSID name covers both bands',
+    );
     return const AdoptOutcome(
       AdoptStatus.sentUnconfirmed,
       'The device took the settings but did not confirm it joined. Give it a '
@@ -628,18 +680,24 @@ class AdoptService {
     // now joining", NOT "sending failed". So the follow-up send and every poll
     // are guarded: a transient error there leaves the outcome unconfirmed, it
     // does not throw and abort the whole variant sweep.
-    Log.adopt.info('wemo $label: sending ConnectHomeNetwork (twice, '
-        '100ms apart)');
+    Log.adopt.info(
+      'wemo $label: sending ConnectHomeNetwork (twice, '
+      '100ms apart)',
+    );
     try {
       final reply = await _sendWemoRequest(session, request);
       // PairingStatus is an acknowledgement, not the join result — but it is
       // the device's only word between "credentials sent" and twenty seconds
       // of polling, so it is worth having in the transcript.
-      Log.adopt.debug('wemo $label: first send acknowledged, '
-          'PairingStatus=${reply['PairingStatus'] ?? '<absent>'}');
+      Log.adopt.debug(
+        'wemo $label: first send acknowledged, '
+        'PairingStatus=${reply['PairingStatus'] ?? '<absent>'}',
+      );
     } catch (e) {
-      Log.adopt.warning('wemo $label: the first send did not get through, so '
-          'no credentials landed: $e');
+      Log.adopt.warning(
+        'wemo $label: the first send did not get through, so '
+        'no credentials landed: $e',
+      );
       return const AdoptOutcome(AdoptStatus.unreachable, '');
     }
     try {
@@ -648,8 +706,10 @@ class AdoptService {
     } catch (e) {
       // The credentials already landed on the first send; the repeat is only
       // insurance. Do not let its failure mask that.
-      Log.adopt.debug('wemo $label: repeat send failed (non-fatal, the first '
-          'one already delivered the credentials): $e');
+      Log.adopt.debug(
+        'wemo $label: repeat send failed (non-fatal, the first '
+        'one already delivered the credentials): $e',
+      );
     }
 
     // Poll GetNetworkStatus up to the spec's 20-second floor; Rust names the
@@ -666,8 +726,11 @@ class AdoptService {
       await Future<void>.delayed(const Duration(seconds: 1));
       final String? code;
       try {
-        code = (await _sendWemo(session,
-            stateCommand: 'GetNetworkStatus', trace: false))['NetworkStatus'];
+        code = (await _sendWemo(
+          session,
+          stateCommand: 'GetNetworkStatus',
+          trace: false,
+        ))['NetworkStatus'];
         polls++;
       } catch (e) {
         // A dropped setup AP is the expected shape of a successful join; keep
@@ -675,9 +738,11 @@ class AdoptService {
         // it does not.
         failures++;
         if (failures == 1) {
-          Log.adopt.debug('wemo $label: status poll failed at '
-              '${_elapsed(poll)} — this is also what a successful join looks '
-              'like, since the setup AP drops as the device hops away: $e');
+          Log.adopt.debug(
+            'wemo $label: status poll failed at '
+            '${_elapsed(poll)} — this is also what a successful join looks '
+            'like, since the setup AP drops as the device hops away: $e',
+          );
         }
         continue;
       }
@@ -685,15 +750,21 @@ class AdoptService {
       final status = await codec.wemoNetworkStatus(code: code);
       if (code != lastReported) {
         lastReported = code;
-        Log.adopt.debug('wemo $label: NetworkStatus=$code (${status.name}) at '
-            '${_elapsed(poll)}');
+        Log.adopt.debug(
+          'wemo $label: NetworkStatus=$code (${status.name}) at '
+          '${_elapsed(poll)}',
+        );
       }
       switch (status) {
         case WemoJoinStatus.connected:
-          Log.adopt.info('wemo $label: the device reports it joined, after '
-              '${_elapsed(poll)} of polling');
-          return const AdoptOutcome(AdoptStatus.joined,
-              'Connected. The device is joining your Wi-Fi now.');
+          Log.adopt.info(
+            'wemo $label: the device reports it joined, after '
+            '${_elapsed(poll)} of polling',
+          );
+          return const AdoptOutcome(
+            AdoptStatus.joined,
+            'Connected. The device is joining your Wi-Fi now.',
+          );
         case WemoJoinStatus.rejected:
           return const AdoptOutcome(
             AdoptStatus.rejected,
@@ -707,10 +778,11 @@ class AdoptService {
       }
     }
     // Delivered at least once, never confirmed.
-    Log.adopt
-        .warning('wemo $label: delivered, but no join in ${_elapsed(poll)} '
-            '($polls poll(s) answered, $failures failed; '
-            'last NetworkStatus=${lastReported ?? '<never answered>'})');
+    Log.adopt.warning(
+      'wemo $label: delivered, but no join in ${_elapsed(poll)} '
+      '($polls poll(s) answered, $failures failed; '
+      'last NetworkStatus=${lastReported ?? '<never answered>'})',
+    );
     return const AdoptOutcome(AdoptStatus.sentUnconfirmed, '');
   }
 
@@ -722,8 +794,10 @@ class AdoptService {
       try {
         await _sendWemo(session, stateCommand: command);
       } catch (e) {
-        Log.adopt.debug('wemo $command after join failed (non-fatal, '
-            'SetSetupDoneStatus is absent on some firmware): $e');
+        Log.adopt.debug(
+          'wemo $command after join failed (non-fatal, '
+          'SetSetupDoneStatus is absent on some firmware): $e',
+        );
       }
     }
   }
@@ -742,17 +816,23 @@ class AdoptService {
         sequence: lifx.nextSequence(),
       );
     } catch (e) {
-      throw AdoptException(friendlyErrorText(e,
+      throw AdoptException(
+        friendlyErrorText(
+          e,
           context: 'lifx set access point',
           log: Log.adopt,
-          fallback: 'Those network details can\'t be sent to the device.'));
+          fallback: 'Those network details can\'t be sent to the device.',
+        ),
+      );
     }
     // Fire-and-forget by design: the legacy SetAccessPoint has no reply and no
     // status poll. The password is not kept anywhere.
-    Log.adopt.info('lifx provision: sending SetAccessPoint for '
-        '"${network.ssid}" (security=$security, '
-        'passphrase=${passphrase.length} chars) — fire-and-forget, the legacy '
-        'protocol has no reply and no status to poll');
+    Log.adopt.info(
+      'lifx provision: sending SetAccessPoint for '
+      '"${network.ssid}" (security=$security, '
+      'passphrase=${passphrase.length} chars) — fire-and-forget, the legacy '
+      'protocol has no reply and no status to poll',
+    );
     await lifx.send(lifxSetupBroadcast, datagram);
     return const AdoptOutcome(
       AdoptStatus.sentUnconfirmed,
@@ -789,7 +869,7 @@ class AdoptService {
     int? attempts,
   }) async {
     final budget = attempts ?? setupAttempts;
-    for (var attempt = 1;; attempt++) {
+    for (var attempt = 1; ; attempt++) {
       try {
         return await _sendWemo(session, stateCommand: stateCommand);
       } on SoapFaultException {
@@ -801,11 +881,14 @@ class AdoptService {
       } catch (e) {
         if (attempt >= budget) {
           Log.adopt.warning(
-              'wemo $stateCommand failed on all $budget attempt(s): $e');
+            'wemo $stateCommand failed on all $budget attempt(s): $e',
+          );
           rethrow;
         }
-        Log.adopt.warning('wemo $stateCommand failed on attempt $attempt of '
-            '$budget; retrying in ${setupRetryGap.inSeconds}s: $e');
+        Log.adopt.warning(
+          'wemo $stateCommand failed on attempt $attempt of '
+          '$budget; retrying in ${setupRetryGap.inSeconds}s: $e',
+        );
         await Future<void>.delayed(setupRetryGap);
       }
     }
@@ -840,7 +923,8 @@ class AdoptService {
     final path = description.controlPathFor(request);
     if (path == null) {
       throw AdoptException(
-          'The device does not offer ${request.action} in setup mode.');
+        'The device does not offer ${request.action} in setup mode.',
+      );
     }
     // Which path was resolved, and whether it came from the device's own
     // service list or the spec's conventional fallback: the spec repeats more
@@ -852,17 +936,25 @@ class AdoptService {
         : 'spec';
     final call = Stopwatch()..start();
     try {
-      final values =
-          await soap.send(description.host, description.port, path, request);
+      final values = await soap.send(
+        description.host,
+        description.port,
+        path,
+        request,
+      );
       if (trace) {
-        Log.adopt.debug('wemo ${request.action} -> $path ($resolved): ok in '
-            '${_elapsed(call)}, returned [${values.keys.join(', ')}]');
+        Log.adopt.debug(
+          'wemo ${request.action} -> $path ($resolved): ok in '
+          '${_elapsed(call)}, returned [${values.keys.join(', ')}]',
+        );
       }
       return values;
     } catch (e) {
       if (trace) {
-        Log.adopt.debug('wemo ${request.action} -> $path ($resolved): failed '
-            'after ${_elapsed(call)}: $e');
+        Log.adopt.debug(
+          'wemo ${request.action} -> $path ($resolved): failed '
+          'after ${_elapsed(call)}: $e',
+        );
       }
       rethrow;
     }

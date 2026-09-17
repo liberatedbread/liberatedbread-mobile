@@ -23,7 +23,9 @@ Future<(Ecp2Session, FakeEcp2Socket)> authenticatedSession({
 }) async {
   final socket = FakeEcp2Socket();
   final service = Ecp2ControlService(
-      connector: (host, port) async => socket, timeout: timeout);
+    connector: (host, port) async => socket,
+    timeout: timeout,
+  );
   final connecting = service.connect('10.0.0.9', 8060);
   await Future<void>.delayed(Duration.zero);
   socket.receive({
@@ -32,9 +34,13 @@ Future<(Ecp2Session, FakeEcp2Socket)> authenticatedSession({
     'param-methods': ['client-id', 'jwt'],
   });
   await Future<void>.delayed(Duration.zero);
-  expect(socket.sent, hasLength(1),
-      reason: 'the client should answer the '
-          'challenge before anything else');
+  expect(
+    socket.sent,
+    hasLength(1),
+    reason:
+        'the client should answer the '
+        'challenge before anything else',
+  );
   socket.receive({
     'response': 'authenticate',
     'response-id': '${socket.sent.single['request-id']}',
@@ -49,10 +55,14 @@ void main() {
       // The expected value is pinned from the reference implementation
       // (work/roku-apk/ecp2_poc.py), not recomputed here — a regression in
       // the nibble shift or the concatenation changes it.
-      expect(Ecp2Session.paramResponse('QUJDREVGR0hJSg=='),
-          'Vn+SEVU9O68PuAIL9/1EqiDs7h4=');
-      expect(Ecp2Session.paramResponse('AAAAAAAAAAAAAAAAAAAAAA=='),
-          'a03nDziqklN3rsxNkiFGrQUeP64=');
+      expect(
+        Ecp2Session.paramResponse('QUJDREVGR0hJSg=='),
+        'Vn+SEVU9O68PuAIL9/1EqiDs7h4=',
+      );
+      expect(
+        Ecp2Session.paramResponse('AAAAAAAAAAAAAAAAAAAAAA=='),
+        'a03nDziqklN3rsxNkiFGrQUeP64=',
+      );
     });
 
     test('sends the authenticate answer as the first frame', () async {
@@ -68,12 +78,15 @@ void main() {
 
     test('a refused client id fails the connect', () async {
       final socket = FakeEcp2Socket();
-      final service =
-          Ecp2ControlService(connector: (host, port) async => socket);
+      final service = Ecp2ControlService(
+        connector: (host, port) async => socket,
+      );
       final connecting = service.connect('10.0.0.9', 8060);
       await Future<void>.delayed(Duration.zero);
-      socket.receive(
-          {'notify': 'authenticate', 'param-challenge': 'QUJDREVGR0hJSg=='});
+      socket.receive({
+        'notify': 'authenticate',
+        'param-challenge': 'QUJDREVGR0hJSg==',
+      });
       await Future<void>.delayed(Duration.zero);
       socket.receive({
         'response': 'authenticate',
@@ -82,17 +95,23 @@ void main() {
       });
 
       await expectLater(connecting, throwsA(isA<Ecp2Exception>()));
-      expect(socket.closed, isTrue,
-          reason: 'a session that never authenticated must not leak');
+      expect(
+        socket.closed,
+        isTrue,
+        reason: 'a session that never authenticated must not leak',
+      );
     });
 
     test('no challenge at all fails the connect', () async {
       final socket = FakeEcp2Socket();
       final service = Ecp2ControlService(
-          connector: (host, port) async => socket,
-          timeout: const Duration(milliseconds: 50));
+        connector: (host, port) async => socket,
+        timeout: const Duration(milliseconds: 50),
+      );
       await expectLater(
-          service.connect('10.0.0.9', 8060), throwsA(isA<Ecp2Exception>()));
+        service.connect('10.0.0.9', 8060),
+        throwsA(isA<Ecp2Exception>()),
+      );
       expect(socket.closed, isTrue);
     });
   });
@@ -104,7 +123,8 @@ void main() {
       const apps = '<apps><app id="12">Netflix</app></apps>';
 
       final answer = session.send(
-          const HttpRequestDto(method: 'GET', path: '/query/apps', body: ''));
+        const HttpRequestDto(method: 'GET', path: '/query/apps', body: ''),
+      );
       await Future<void>.delayed(Duration.zero);
       expect(socket.sent.last, {'request': 'query-apps', 'request-id': '2'});
       socket.receive({
@@ -122,15 +142,26 @@ void main() {
       final (session, socket) = await authenticatedSession();
       addTearDown(session.close);
 
-      final answer = session.send(const HttpRequestDto(
-          method: 'POST', path: '/keypress/Lit_%20', body: ''));
+      final answer = session.send(
+        const HttpRequestDto(
+          method: 'POST',
+          path: '/keypress/Lit_%20',
+          body: '',
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
       // Lit_%20 is a typed space: the URI encoding is ECP's, ECP2 takes the
       // key name itself.
-      expect(socket.sent.last,
-          {'request': 'key-press', 'request-id': '2', 'param-key': 'Lit_ '});
-      socket.receive(
-          {'response': 'key-press', 'response-id': '2', 'status': '200'});
+      expect(socket.sent.last, {
+        'request': 'key-press',
+        'request-id': '2',
+        'param-key': 'Lit_ ',
+      });
+      socket.receive({
+        'response': 'key-press',
+        'response-id': '2',
+        'status': '200',
+      });
 
       expect(await answer, isEmpty);
     });
@@ -143,8 +174,9 @@ void main() {
         ('/keydown/VolumeDown', 'key-down'),
         ('/keyup/VolumeDown', 'key-up'),
       ]) {
-        final answer =
-            session.send(HttpRequestDto(method: 'POST', path: path, body: ''));
+        final answer = session.send(
+          HttpRequestDto(method: 'POST', path: path, body: ''),
+        );
         await Future<void>.delayed(Duration.zero);
         final frame = socket.sent.last;
         expect(frame['request'], verb);
@@ -162,10 +194,13 @@ void main() {
       final (session, socket) = await authenticatedSession();
       addTearDown(session.close);
 
-      final answer = session.send(const HttpRequestDto(
+      final answer = session.send(
+        const HttpRequestDto(
           method: 'POST',
           path: '/launch/12?contentID=abc&mediaType=movie',
-          body: ''));
+          body: '',
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
       expect(socket.sent.last, {
         'request': 'launch',
@@ -173,8 +208,11 @@ void main() {
         'param-channel-id': '12',
         'param-params': jsonEncode({'contentID': 'abc', 'mediaType': 'movie'}),
       });
-      socket
-          .receive({'response': 'launch', 'response-id': '2', 'status': '200'});
+      socket.receive({
+        'response': 'launch',
+        'response-id': '2',
+        'status': '200',
+      });
       expect(await answer, isEmpty);
     });
 
@@ -182,11 +220,15 @@ void main() {
       final (session, socket) = await authenticatedSession();
       addTearDown(session.close);
 
-      final answer = session.send(const HttpRequestDto(
-          method: 'POST', path: '/keypress/Home', body: ''));
+      final answer = session.send(
+        const HttpRequestDto(method: 'POST', path: '/keypress/Home', body: ''),
+      );
       await Future<void>.delayed(Duration.zero);
-      socket.receive(
-          {'response': 'key-press', 'response-id': '2', 'status': '403'});
+      socket.receive({
+        'response': 'key-press',
+        'response-id': '2',
+        'status': '403',
+      });
 
       await expectLater(answer, throwsA(isA<ControlRefusedException>()));
     });
@@ -196,22 +238,30 @@ void main() {
       addTearDown(session.close);
 
       await expectLater(
-          session.send(const HttpRequestDto(
-              method: 'POST', path: '/input', body: 'x=y')),
-          throwsA(isA<ControlRefusedException>()));
-      expect(socket.sent, hasLength(1),
-          reason: 'nothing but the auth answer should have gone out');
+        session.send(
+          const HttpRequestDto(method: 'POST', path: '/input', body: 'x=y'),
+        ),
+        throwsA(isA<ControlRefusedException>()),
+      );
+      expect(
+        socket.sent,
+        hasLength(1),
+        reason: 'nothing but the auth answer should have gone out',
+      );
     });
 
     test('an unanswered request fails instead of hanging', () async {
       final socket = FakeEcp2Socket();
       final service = Ecp2ControlService(
-          connector: (host, port) async => socket,
-          timeout: const Duration(milliseconds: 50));
+        connector: (host, port) async => socket,
+        timeout: const Duration(milliseconds: 50),
+      );
       final connecting = service.connect('10.0.0.9', 8060);
       await Future<void>.delayed(Duration.zero);
-      socket.receive(
-          {'notify': 'authenticate', 'param-challenge': 'QUJDREVGR0hJSg=='});
+      socket.receive({
+        'notify': 'authenticate',
+        'param-challenge': 'QUJDREVGR0hJSg==',
+      });
       await Future<void>.delayed(Duration.zero);
       socket.receive({
         'response': 'authenticate',
@@ -222,9 +272,15 @@ void main() {
       addTearDown(session.close);
 
       await expectLater(
-          session.send(const HttpRequestDto(
-              method: 'POST', path: '/keypress/Home', body: '')),
-          throwsA(isA<Ecp2Exception>()));
+        session.send(
+          const HttpRequestDto(
+            method: 'POST',
+            path: '/keypress/Home',
+            body: '',
+          ),
+        ),
+        throwsA(isA<Ecp2Exception>()),
+      );
     });
 
     test('query-textedit-state reads a focused field as usable', () async {
@@ -233,39 +289,44 @@ void main() {
 
       final answer = session.queryTextEditFocused();
       await Future<void>.delayed(Duration.zero);
-      expect(socket.sent.last,
-          {'request': 'query-textedit-state', 'request-id': '2'});
+      expect(socket.sent.last, {
+        'request': 'query-textedit-state',
+        'request-id': '2',
+      });
       socket.receive({
         'response': 'query-textedit-state',
         'response-id': '2',
         'status': '200',
-        'content-data': base64
-            .encode(utf8.encode('{"textedit-state":{"textedit-id":"12"}}')),
+        'content-data': base64.encode(
+          utf8.encode('{"textedit-state":{"textedit-id":"12"}}'),
+        ),
       });
 
       expect(await answer, isTrue);
     });
 
-    test('query-textedit-state reads an unfocused device as not usable',
-        () async {
-      final (session, socket) = await authenticatedSession();
-      addTearDown(session.close);
-
-      final answer = session.queryTextEditFocused();
-      await Future<void>.delayed(Duration.zero);
-      socket.receive({
-        'response': 'query-textedit-state',
-        'response-id': '2',
-        'status': '200',
-        'content-data': base64
-            .encode(utf8.encode('{"textedit-state":{"textedit-id":"none"}}')),
-      });
-
-      expect(await answer, isFalse);
-    });
-
     test(
-        'a textedit-state that cannot be read throws, so the caller shows the '
+      'query-textedit-state reads an unfocused device as not usable',
+      () async {
+        final (session, socket) = await authenticatedSession();
+        addTearDown(session.close);
+
+        final answer = session.queryTextEditFocused();
+        await Future<void>.delayed(Duration.zero);
+        socket.receive({
+          'response': 'query-textedit-state',
+          'response-id': '2',
+          'status': '200',
+          'content-data': base64.encode(
+            utf8.encode('{"textedit-state":{"textedit-id":"none"}}'),
+          ),
+        });
+
+        expect(await answer, isFalse);
+      },
+    );
+
+    test('a textedit-state that cannot be read throws, so the caller shows the '
         'keyboard rather than hide it', () async {
       final (session, socket) = await authenticatedSession();
       addTearDown(session.close);
@@ -298,53 +359,71 @@ void main() {
       // ...and one carrying it base64 in content-data, focus cleared.
       socket.receive({
         'notify': 'textedit',
-        'content-data': base64
-            .encode(utf8.encode('{"textedit-state":{"textedit-id":"none"}}')),
+        'content-data': base64.encode(
+          utf8.encode('{"textedit-state":{"textedit-id":"none"}}'),
+        ),
       });
       await Future<void>.delayed(Duration.zero);
 
       expect(focuses, [true, false]);
     });
 
-    test('closing the session fails what is in flight, rather than hanging it',
-        () async {
-      // A request awaiting a reply on a session the screen just disposed used
-      // to sit on its 10 s per-request timeout, resolving long after the
-      // screen was gone. Closing is a definite answer; say so now.
-      final (session, _) = await authenticatedSession();
-      final inFlight = session.send(const HttpRequestDto(
-          method: 'POST', path: '/keypress/Home', body: ''));
-      // The expectation is attached BEFORE the close: the failure lands the
-      // instant close() runs, and an error completed onto a future nobody is
-      // listening to yet is an unhandled async error rather than a caught
-      // one. In the app the caller is already awaiting its send.
-      final settled = expectLater(inFlight, throwsA(isA<Ecp2Exception>()));
-      await Future<void>.delayed(Duration.zero);
+    test(
+      'closing the session fails what is in flight, rather than hanging it',
+      () async {
+        // A request awaiting a reply on a session the screen just disposed used
+        // to sit on its 10 s per-request timeout, resolving long after the
+        // screen was gone. Closing is a definite answer; say so now.
+        final (session, _) = await authenticatedSession();
+        final inFlight = session.send(
+          const HttpRequestDto(
+            method: 'POST',
+            path: '/keypress/Home',
+            body: '',
+          ),
+        );
+        // The expectation is attached BEFORE the close: the failure lands the
+        // instant close() runs, and an error completed onto a future nobody is
+        // listening to yet is an unhandled async error rather than a caught
+        // one. In the app the caller is already awaiting its send.
+        final settled = expectLater(inFlight, throwsA(isA<Ecp2Exception>()));
+        await Future<void>.delayed(Duration.zero);
 
-      await session.close();
-      await settled;
-    });
+        await session.close();
+        await settled;
+      },
+    );
 
     test('overlapping requests match their own responses by id', () async {
       final (session, socket) = await authenticatedSession();
       addTearDown(session.close);
 
-      final first = session.send(const HttpRequestDto(
-          method: 'GET', path: '/query/active-app', body: ''));
-      final second = session.send(const HttpRequestDto(
-          method: 'POST', path: '/keypress/Home', body: ''));
+      final first = session.send(
+        const HttpRequestDto(
+          method: 'GET',
+          path: '/query/active-app',
+          body: '',
+        ),
+      );
+      final second = session.send(
+        const HttpRequestDto(method: 'POST', path: '/keypress/Home', body: ''),
+      );
       await Future<void>.delayed(Duration.zero);
       final firstId = '${socket.sent[socket.sent.length - 2]['request-id']}';
       final secondId = '${socket.sent.last['request-id']}';
       // Answer out of order: the second request's response arrives first.
-      socket.receive(
-          {'response': 'key-press', 'response-id': secondId, 'status': '200'});
+      socket.receive({
+        'response': 'key-press',
+        'response-id': secondId,
+        'status': '200',
+      });
       socket.receive({
         'response': 'query-active-app',
         'response-id': firstId,
         'status': '200',
         'content-data': base64.encode(
-            utf8.encode('<active-app><app id="12">Netflix</app></active-app>')),
+          utf8.encode('<active-app><app id="12">Netflix</app></active-app>'),
+        ),
       });
 
       expect(await second, isEmpty);

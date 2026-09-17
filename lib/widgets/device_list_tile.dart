@@ -157,7 +157,8 @@ class DeviceListTile extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Center(
-                  child: iconWidget ??
+                  child:
+                      iconWidget ??
                       Icon(icon, color: iconColor ?? tint, size: 22),
                 ),
               ),
@@ -211,8 +212,9 @@ class DeviceListTile extends StatelessWidget {
                         Flexible(
                           child: Text(
                             subtitle,
-                            style: text.bodySmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
+                            style: text.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -220,8 +222,9 @@ class DeviceListTile extends StatelessWidget {
                         Text(
                           '  ·  $detail',
                           style: text.bodySmall?.copyWith(
-                            color:
-                                scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                            color: scheme.onSurfaceVariant.withValues(
+                              alpha: 0.7,
+                            ),
                             // Tabular figures stop the row jittering as values
                             // update.
                             fontFeatures: const [FontFeature.tabularFigures()],
@@ -234,8 +237,9 @@ class DeviceListTile extends StatelessWidget {
                       Text(
                         description!,
                         style: text.bodySmall?.copyWith(
-                          color:
-                              scheme.onSurfaceVariant.withValues(alpha: 0.75),
+                          color: scheme.onSurfaceVariant.withValues(
+                            alpha: 0.75,
+                          ),
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -361,11 +365,7 @@ class ActionPillButton extends StatelessWidget {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon),
-          const SizedBox(width: 8),
-          Text(label),
-        ],
+        children: [Icon(icon), const SizedBox(width: 8), Text(label)],
       ),
     );
   }

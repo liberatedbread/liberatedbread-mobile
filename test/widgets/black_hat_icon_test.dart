@@ -5,13 +5,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/widgets/black_hat_icon.dart';
 
 void main() {
-  testWidgets('paints at its given size and colour without throwing',
-      (tester) async {
-    await tester.pumpWidget(const MaterialApp(
-      home: Scaffold(
-        body: Center(child: BlackHatIcon(size: 24, color: Colors.red)),
+  testWidgets('paints at its given size and colour without throwing', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Center(child: BlackHatIcon(size: 24, color: Colors.red)),
+        ),
       ),
-    ));
+    );
     expect(tester.takeException(), isNull);
     // It occupies exactly the box it was asked for.
     final size = tester.getSize(find.byType(BlackHatIcon));

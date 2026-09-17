@@ -30,7 +30,7 @@ class Ecp2ControlService {
   final Duration timeout;
 
   Ecp2ControlService({Ecp2SocketConnector? connector, this.timeout = _timeout})
-      : _connector = connector ?? _defaultConnector;
+    : _connector = connector ?? _defaultConnector;
 
   static const _timeout = Duration(seconds: 10);
 
@@ -73,8 +73,8 @@ abstract class Ecp2Socket {
   Future<void> close();
 }
 
-typedef Ecp2SocketConnector = Future<Ecp2Socket> Function(
-    String host, int port);
+typedef Ecp2SocketConnector =
+    Future<Ecp2Socket> Function(String host, int port);
 
 class _WebSocketEcp2Socket implements Ecp2Socket {
   final WebSocket _socket;
@@ -123,8 +123,11 @@ class Ecp2Session {
   Stream<bool> get textEditFocusChanges => _textEditFocus.stream;
 
   Ecp2Session._(this._socket, this._timeout) {
-    _subscription = _socket.stream
-        .listen(_onFrame, onError: _failAll, onDone: () => _failAll(null));
+    _subscription = _socket.stream.listen(
+      _onFrame,
+      onError: _failAll,
+      onDone: () => _failAll(null),
+    );
   }
 
   /// The client id the official APK ships (jw/b.java), and the shift that
@@ -189,24 +192,31 @@ class Ecp2Session {
     _closed = true;
     final failure = error is Exception ? error : null;
     if (!_challenge.isCompleted) {
-      _challenge.completeError(failure ??
-          const Ecp2Exception('the session closed before authenticating'));
+      _challenge.completeError(
+        failure ??
+            const Ecp2Exception('the session closed before authenticating'),
+      );
     }
     for (final completer in _pending.values) {
       if (!completer.isCompleted) {
         completer.completeError(
-            failure ?? const Ecp2Exception('the session closed mid-request'));
+          failure ?? const Ecp2Exception('the session closed mid-request'),
+        );
       }
     }
     _pending.clear();
   }
 
   Future<void> _authenticate() async {
-    final challenge = await _challenge.future.timeout(_timeout, onTimeout: () {
-      throw const Ecp2Exception('the device sent no authenticate challenge');
+    final challenge = await _challenge.future.timeout(
+      _timeout,
+      onTimeout: () {
+        throw const Ecp2Exception('the device sent no authenticate challenge');
+      },
+    );
+    final result = await _roundTrip('authenticate', {
+      'param-response': paramResponse(challenge),
     });
-    final result = await _roundTrip(
-        'authenticate', {'param-response': paramResponse(challenge)});
     if (result.status != '200') {
       throw Ecp2Exception('authenticate answered status ${result.status}');
     }
@@ -214,16 +224,21 @@ class Ecp2Session {
 
   /// Send one request and wait for the response carrying its request-id.
   Future<({String status, String body})> _roundTrip(
-      String request, Map<String, Object?> params) {
+    String request,
+    Map<String, Object?> params,
+  ) {
     if (_closed) throw const Ecp2Exception('the session is closed');
     final id = '${++_nextId}';
     final completer = Completer<({String status, String body})>();
     _pending[id] = completer;
     _socket.add(jsonEncode({'request': request, 'request-id': id, ...params}));
-    return completer.future.timeout(_timeout, onTimeout: () {
-      _pending.remove(id);
-      throw Ecp2Exception('$request: no answer within $_timeout');
-    });
+    return completer.future.timeout(
+      _timeout,
+      onTimeout: () {
+        _pending.remove(id);
+        throw Ecp2Exception('$request: no answer within $_timeout');
+      },
+    );
   }
 
   /// Send one rendered ECP request down the session, translating the ECP path
@@ -317,7 +332,8 @@ class Ecp2Session {
     final data64 = frame['content-data'];
     if (data64 is String) {
       return _focusFromTextEditState(
-          _tryJson(utf8.decode(base64.decode(data64), allowMalformed: true)));
+        _tryJson(utf8.decode(base64.decode(data64), allowMalformed: true)),
+      );
     }
     return null;
   }

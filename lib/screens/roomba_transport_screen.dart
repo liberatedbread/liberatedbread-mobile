@@ -13,8 +13,9 @@ import '../services/rest980_client.dart';
 import '../services/roomba_credential_store.dart';
 
 /// Home Assistant's own docs for the integration that owns the robot.
-final _haRoomba =
-    Uri.parse('https://www.home-assistant.io/integrations/roomba/');
+final _haRoomba = Uri.parse(
+  'https://www.home-assistant.io/integrations/roomba/',
+);
 final _rest980 = Uri.parse('https://github.com/koalazak/rest980');
 
 /// How this robot should be driven: through Home Assistant, through a rest980
@@ -90,11 +91,13 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
       if (mounted) setState(() => _vacuums = vacuums);
     } catch (e) {
       if (mounted) {
-        setState(() => _error = friendlyErrorText(
-              e,
-              context: 'home assistant',
-              fallback: 'Could not read the robot list from Home Assistant.',
-            ));
+        setState(
+          () => _error = friendlyErrorText(
+            e,
+            context: 'home assistant',
+            fallback: 'Could not read the robot list from Home Assistant.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -135,11 +138,13 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
-        setState(() => _error = friendlyErrorText(
-              e,
-              context: 'rest980',
-              fallback: 'That address did not answer as a rest980 server.',
-            ));
+        setState(
+          () => _error = friendlyErrorText(
+            e,
+            context: 'rest980',
+            fallback: 'That address did not answer as a rest980 server.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -192,14 +197,17 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.home_outlined,
-                    color: theme.colorScheme.onPrimaryContainer),
+                Icon(
+                  Icons.home_outlined,
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Home Assistant — recommended',
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(color: theme.colorScheme.onPrimaryContainer),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
                   ),
                 ),
               ],
@@ -254,7 +262,8 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
 
   Widget _directSection(BuildContext context) {
     final theme = Theme.of(context);
-    final direct = !(widget.credentials?.usesHomeAssistant ?? false) &&
+    final direct =
+        !(widget.credentials?.usesHomeAssistant ?? false) &&
         !(widget.credentials?.usesRest980 ?? false);
     return Card(
       child: Padding(
@@ -284,7 +293,9 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
   }
 
   Widget _rest980Section(
-      BuildContext context, Future<bool> Function(Uri) open) {
+    BuildContext context,
+    Future<bool> Function(Uri) open,
+  ) {
     final theme = Theme.of(context);
     return Card(
       child: Padding(
@@ -347,8 +358,10 @@ class _ErrorCard extends StatelessWidget {
       color: theme.colorScheme.errorContainer,
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Text(message,
-            style: TextStyle(color: theme.colorScheme.onErrorContainer)),
+        child: Text(
+          message,
+          style: TextStyle(color: theme.colorScheme.onErrorContainer),
+        ),
       ),
     );
   }

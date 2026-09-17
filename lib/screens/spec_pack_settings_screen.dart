@@ -104,18 +104,24 @@ class _SpecPackSettingsScreenState
           if (_errorMessage != null)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(_errorMessage!,
-                  style: const TextStyle(color: Colors.red)),
+              child: Text(
+                _errorMessage!,
+                style: const TextStyle(color: Colors.red),
+              ),
             ),
           if (_successMessage != null)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(_successMessage!,
-                  style: TextStyle(color: Colors.green.shade700)),
+              child: Text(
+                _successMessage!,
+                style: TextStyle(color: Colors.green.shade700),
+              ),
             ),
           const Divider(height: 32),
-          Text('Installed packs',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'Installed packs',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 8),
           _buildPackList(),
         ],
@@ -131,16 +137,21 @@ class _SpecPackSettingsScreenState
         child: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Text(
-          friendlyErrorText(e,
-              context: 'list installed packs',
-              fallback: 'Could not read the installed packs.'),
-          style: const TextStyle(color: Colors.red)),
+        friendlyErrorText(
+          e,
+          context: 'list installed packs',
+          fallback: 'Could not read the installed packs.',
+        ),
+        style: const TextStyle(color: Colors.red),
+      ),
       data: (packs) {
         if (packs.isEmpty) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 16),
-            child: Text('No packs installed yet.',
-                style: TextStyle(color: Colors.grey)),
+            child: Text(
+              'No packs installed yet.',
+              style: TextStyle(color: Colors.grey),
+            ),
           );
         }
         return Column(
@@ -206,19 +217,23 @@ class _SpecPackSettingsScreenState
           final base =
               'Installed "${pack.name}" v${pack.version} (${pack.specCount} '
               '${pack.specCount == 1 ? 'spec' : 'specs'}).';
-          setState(() => _successMessage = partialFailures.isEmpty
-              ? base
-              : '$base ${partialFailures.length} file(s) were skipped.');
+          setState(
+            () => _successMessage = partialFailures.isEmpty
+                ? base
+                : '$base ${partialFailures.length} file(s) were skipped.',
+          );
         case InstallFailed(:final error):
           setState(() => _errorMessage = _friendlyError(error));
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _errorMessage = friendlyErrorText(
-              e,
-              context: 'install spec pack',
-              fallback: 'Something went wrong installing that pack.',
-            ));
+        setState(
+          () => _errorMessage = friendlyErrorText(
+            e,
+            context: 'install spec pack',
+            fallback: 'Something went wrong installing that pack.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -251,11 +266,13 @@ class _SpecPackSettingsScreenState
       setState(() => _successMessage = 'Removed "${pack.name}".');
     } catch (e) {
       if (mounted) {
-        setState(() => _errorMessage = friendlyErrorText(
-              e,
-              context: 'remove pack ${pack.name}',
-              fallback: 'Could not remove "${pack.name}".',
-            ));
+        setState(
+          () => _errorMessage = friendlyErrorText(
+            e,
+            context: 'remove pack ${pack.name}',
+            fallback: 'Could not remove "${pack.name}".',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -288,19 +305,23 @@ class _SpecPackSettingsScreenState
           final base =
               'Updated "${pack.name}" v${pack.version} (${pack.specCount} '
               '${pack.specCount == 1 ? 'spec' : 'specs'}).';
-          setState(() => _successMessage = partialFailures.isEmpty
-              ? base
-              : '$base ${partialFailures.length} file(s) were skipped.');
+          setState(
+            () => _successMessage = partialFailures.isEmpty
+                ? base
+                : '$base ${partialFailures.length} file(s) were skipped.',
+          );
         case InstallFailed(:final error):
           setState(() => _errorMessage = _friendlyError(error));
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _errorMessage = friendlyErrorText(
-              e,
-              context: 'refresh spec pack',
-              fallback: 'Something went wrong updating that pack.',
-            ));
+        setState(
+          () => _errorMessage = friendlyErrorText(
+            e,
+            context: 'refresh spec pack',
+            fallback: 'Something went wrong updating that pack.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -313,8 +334,9 @@ class _SpecPackSettingsScreenState
       builder: (context) => AlertDialog(
         title: const Text('Clear all packs?'),
         content: const Text(
-            'This removes every downloaded spec pack from this device. Bundled '
-            'device specs are unaffected. You can reinstall from the URL later.'),
+          'This removes every downloaded spec pack from this device. Bundled '
+          'device specs are unaffected. You can reinstall from the URL later.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),

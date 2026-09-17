@@ -49,6 +49,5 @@ class FakeLifxControlClient extends LifxControlClient {
     required int sequence,
     Duration timeout = const Duration(seconds: 1),
     int retries = 2,
-  }) async =>
-      collectReplies.isEmpty ? null : collectReplies.first;
+  }) async => collectReplies.isEmpty ? null : collectReplies.first;
 }

@@ -23,11 +23,13 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 /// is out of range, or a byte is 0 / above the platform bound. This is what
 /// lets the editor default the canvas to the true panel size before connecting
 /// — a 16×16 default on a 20×20 curtain leaves the outer strands unwritten.
-Future<PanelResolutionDto?> advertisedResolution(
-        {required String specYaml,
-        required List<(int, Uint8List)> manufacturerData}) =>
-    RustLib.instance.api.crateApiDeviceApiAdvertisedResolution(
-        specYaml: specYaml, manufacturerData: manufacturerData);
+Future<PanelResolutionDto?> advertisedResolution({
+  required String specYaml,
+  required List<(int, Uint8List)> manufacturerData,
+}) => RustLib.instance.api.crateApiDeviceApiAdvertisedResolution(
+  specYaml: specYaml,
+  manufacturerData: manufacturerData,
+);
 
 /// Resolve a panel's REAL width/height from its M_DEVICE_INFO_NOTIFY push
 /// (mt=2103) — the second source, used when the advertisement is not on hand
@@ -38,10 +40,11 @@ Future<PanelResolutionDto?> advertisedResolution(
 /// field 9 is height. Also tries each notification whole, in case a higher MTU
 /// delivered it unfragmented. `None` when no DeviceInfo is present or a value is
 /// out of the 1..=255 u8 range.
-Future<PanelResolutionDto?> deviceInfoResolution(
-        {required List<Uint8List> notifications}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiDeviceInfoResolution(notifications: notifications);
+Future<PanelResolutionDto?> deviceInfoResolution({
+  required List<Uint8List> notifications,
+}) => RustLib.instance.api.crateApiDeviceApiDeviceInfoResolution(
+  notifications: notifications,
+);
 
 /// Parse a device spec from a YAML string and return a DTO.
 ///
@@ -66,12 +69,15 @@ Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
 /// Both `set_value` shapes are handled: a command carrying the value in its
 /// single un-defaulted parameter, and a direct write of the encoded value to
 /// a characteristic the entity explicitly nominates.
-Future<EntityWriteDto> encodeEntityValue(
-        {required String specYaml,
-        required String entityName,
-        required double value}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeEntityValue(
-        specYaml: specYaml, entityName: entityName, value: value);
+Future<EntityWriteDto> encodeEntityValue({
+  required String specYaml,
+  required String entityName,
+  required double value,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeEntityValue(
+  specYaml: specYaml,
+  entityName: entityName,
+  value: value,
+);
 
 /// The controls a spec declares for one discovered network device.
 ///
@@ -80,10 +86,13 @@ Future<EntityWriteDto> encodeEntityValue(
 /// A Wemo plug must not grow a Cook Mode picker because its spec also covers
 /// a slow cooker; when the model cannot be identified at all, scoped entities
 /// are dropped rather than guessed.
-Future<NetworkEntitySurfaceDto> networkEntitiesForDevice(
-        {required String specYaml, required List<String> ssdpTargets}) =>
-    RustLib.instance.api.crateApiDeviceApiNetworkEntitiesForDevice(
-        specYaml: specYaml, ssdpTargets: ssdpTargets);
+Future<NetworkEntitySurfaceDto> networkEntitiesForDevice({
+  required String specYaml,
+  required List<String> ssdpTargets,
+}) => RustLib.instance.api.crateApiDeviceApiNetworkEntitiesForDevice(
+  specYaml: specYaml,
+  ssdpTargets: ssdpTargets,
+);
 
 /// [`network_entities_for_device`] with the device's state replies in hand:
 /// probe-identified variants (`identification.state_probe`) resolve strictly
@@ -94,12 +103,15 @@ Future<NetworkEntitySurfaceDto> networkEntitiesForDevice(
 /// flattened key→value map of its reply (dotted keys for nested members,
 /// exactly as the entity `state_mapping` paths are written — the map the
 /// reply decoder already reads).
-Future<NetworkEntitySurfaceDto> networkEntitiesForStateKeys(
-        {required String specYaml,
-        required List<String> ssdpTargets,
-        required Map<String, Map<String, String>> stateKeys}) =>
-    RustLib.instance.api.crateApiDeviceApiNetworkEntitiesForStateKeys(
-        specYaml: specYaml, ssdpTargets: ssdpTargets, stateKeys: stateKeys);
+Future<NetworkEntitySurfaceDto> networkEntitiesForStateKeys({
+  required String specYaml,
+  required List<String> ssdpTargets,
+  required Map<String, Map<String, String>> stateKeys,
+}) => RustLib.instance.api.crateApiDeviceApiNetworkEntitiesForStateKeys(
+  specYaml: specYaml,
+  ssdpTargets: ssdpTargets,
+  stateKeys: stateKeys,
+);
 
 /// Which of a spec's `device.variants[]` the BLE device in front of us could be.
 ///
@@ -122,58 +134,74 @@ Future<NetworkEntitySurfaceDto> networkEntitiesForStateKeys(
 /// Empty means DO NOT NARROW: narrowing a device we cannot identify would
 /// blank it, and the honest fallback is what shipped before this existed. See
 /// `bindings::matched_ble_variant_names` for the matching rule.
-Future<List<String>> bleVariantNamesForDevice(
-        {required String specYaml,
-        required String deviceName,
-        required List<String> serviceUuids}) =>
-    RustLib.instance.api.crateApiDeviceApiBleVariantNamesForDevice(
-        specYaml: specYaml, deviceName: deviceName, serviceUuids: serviceUuids);
+Future<List<String>> bleVariantNamesForDevice({
+  required String specYaml,
+  required String deviceName,
+  required List<String> serviceUuids,
+}) => RustLib.instance.api.crateApiDeviceApiBleVariantNamesForDevice(
+  specYaml: specYaml,
+  deviceName: deviceName,
+  serviceUuids: serviceUuids,
+);
 
 /// Read [`NetworkCapabilitiesDto`] out of a spec.
-Future<NetworkCapabilitiesDto> networkCapabilities(
-        {required String specYaml}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiNetworkCapabilities(specYaml: specYaml);
+Future<NetworkCapabilitiesDto> networkCapabilities({
+  required String specYaml,
+}) => RustLib.instance.api.crateApiDeviceApiNetworkCapabilities(
+  specYaml: specYaml,
+);
 
 /// Render a named command from the spec's `commands` block into a POSTable
 /// request. `values` supplies the parameters the caller owns plus any
 /// read-back values it fetched; the spec's defaults fill the rest.
-Future<SoapRequestDto> renderNetworkCommand(
-        {required String specYaml,
-        required String commandName,
-        required Map<String, String> values}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkCommand(
-        specYaml: specYaml, commandName: commandName, values: values);
+Future<SoapRequestDto> renderNetworkCommand({
+  required String specYaml,
+  required String commandName,
+  required Map<String, String> values,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkCommand(
+  specYaml: specYaml,
+  commandName: commandName,
+  values: values,
+);
 
 /// Render a named `transport: http` command from the spec's `commands` block
 /// into a sendable request — [`render_network_command`]'s sibling for the
 /// transport with no envelope. A SOAP command handed here is declined, and
 /// vice versa; the action's `transport` field says which to call.
-Future<HttpRequestDto> renderNetworkHttpCommand(
-        {required String specYaml,
-        required String commandName,
-        required Map<String, String> values}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkHttpCommand(
-        specYaml: specYaml, commandName: commandName, values: values);
+Future<HttpRequestDto> renderNetworkHttpCommand({
+  required String specYaml,
+  required String commandName,
+  required Map<String, String> values,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkHttpCommand(
+  specYaml: specYaml,
+  commandName: commandName,
+  values: values,
+);
 
 /// Render a named `transport: tcp-json` command into the JSON to send — the
 /// Kasa sibling of [`render_network_command`] / [`render_network_http_command`].
 /// A command for another transport is declined; the action's `transport` says
 /// which renderer to call.
-Future<KasaRequestDto> renderNetworkKasaCommand(
-        {required String specYaml,
-        required String commandName,
-        required Map<String, String> values}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkKasaCommand(
-        specYaml: specYaml, commandName: commandName, values: values);
+Future<KasaRequestDto> renderNetworkKasaCommand({
+  required String specYaml,
+  required String commandName,
+  required Map<String, String> values,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkKasaCommand(
+  specYaml: specYaml,
+  commandName: commandName,
+  values: values,
+);
 
 /// Render the JSON that polls a Kasa state command (`get_sysinfo`). The Kasa
 /// counterpart of [`render_network_state_request`]; the poll is a first-class
 /// command with a `body`, so it renders the same way a control does.
-Future<KasaRequestDto> renderNetworkKasaStateRequest(
-        {required String specYaml, required String stateCommand}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkKasaStateRequest(
-        specYaml: specYaml, stateCommand: stateCommand);
+Future<KasaRequestDto> renderNetworkKasaStateRequest({
+  required String specYaml,
+  required String stateCommand,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkKasaStateRequest(
+  specYaml: specYaml,
+  stateCommand: stateCommand,
+);
 
 /// Encrypt and length-frame a Kasa JSON request for the TCP control socket
 /// (port 9999). Dart writes the returned bytes and reads the reply back through
@@ -195,9 +223,10 @@ Future<Uint8List> kasaEncryptDatagram({required String json}) =>
     RustLib.instance.api.crateApiDeviceApiKasaEncryptDatagram(json: json);
 
 /// Decode a Kasa UDP reply datagram (no length prefix) back to its JSON text.
-Future<String> kasaDecodeDatagram({required List<int> datagram}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiKasaDecodeDatagram(datagram: datagram);
+Future<String> kasaDecodeDatagram({required List<int> datagram}) => RustLib
+    .instance
+    .api
+    .crateApiDeviceApiKasaDecodeDatagram(datagram: datagram);
 
 /// Parse a Tuya discovery datagram (UDP 6666 plaintext or 6667 fixed-key
 /// AES-128-ECB) into the identity it advertises, or `None` when the bytes are
@@ -206,8 +235,9 @@ Future<String> kasaDecodeDatagram({required List<int> datagram}) =>
 /// local key this project does not hold). The decrypt stays in Rust under test,
 /// like the Kasa cipher, rather than being re-implemented in Dart.
 Future<TuyaBroadcastDto?> tuyaParseBroadcast({required List<int> datagram}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiTuyaParseBroadcast(datagram: datagram);
+    RustLib.instance.api.crateApiDeviceApiTuyaParseBroadcast(
+      datagram: datagram,
+    );
 
 /// Render a named `transport: udp` command into the envelope JSON to send —
 /// the Rabbit Air sibling of [`render_network_kasa_command`]. `request_id` is
@@ -215,33 +245,35 @@ Future<TuyaBroadcastDto?> tuyaParseBroadcast({required List<int> datagram}) =>
 /// it); `device_ts` is the device-clock timestamp — the local clock plus the
 /// offset [`rabbit_air_time_sync_offset`] learned, zero offset for the
 /// time-sync request itself.
-Future<RabbitAirRequestDto> renderNetworkRabbitAirCommand(
-        {required String specYaml,
-        required String commandName,
-        required Map<String, String> values,
-        required int requestId,
-        required int deviceTs}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkRabbitAirCommand(
-        specYaml: specYaml,
-        commandName: commandName,
-        values: values,
-        requestId: requestId,
-        deviceTs: deviceTs);
+Future<RabbitAirRequestDto> renderNetworkRabbitAirCommand({
+  required String specYaml,
+  required String commandName,
+  required Map<String, String> values,
+  required int requestId,
+  required int deviceTs,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkRabbitAirCommand(
+  specYaml: specYaml,
+  commandName: commandName,
+  values: values,
+  requestId: requestId,
+  deviceTs: deviceTs,
+);
 
 /// Render the envelope that polls a Rabbit Air state command (`get_state`) —
 /// the counterpart of [`render_network_kasa_state_request`], and of
 /// [`render_network_rabbit_air_command`] for the `time_sync` handshake
 /// command, which is rendered through here too (it takes no caller values).
-Future<RabbitAirRequestDto> renderNetworkRabbitAirStateRequest(
-        {required String specYaml,
-        required String stateCommand,
-        required int requestId,
-        required int deviceTs}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkRabbitAirStateRequest(
-        specYaml: specYaml,
-        stateCommand: stateCommand,
-        requestId: requestId,
-        deviceTs: deviceTs);
+Future<RabbitAirRequestDto> renderNetworkRabbitAirStateRequest({
+  required String specYaml,
+  required String stateCommand,
+  required int requestId,
+  required int deviceTs,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkRabbitAirStateRequest(
+  specYaml: specYaml,
+  stateCommand: stateCommand,
+  requestId: requestId,
+  deviceTs: deviceTs,
+);
 
 /// The UDP port every Rabbit Air purifier listens on (9009), sourced from the
 /// codec so the client never hardcodes a second copy that could drift.
@@ -253,19 +285,25 @@ Future<int> rabbitAirPort() =>
 /// it), a random 16-byte IV appended as the last 16 bytes. Dart writes the
 /// returned bytes as one UDP datagram and reads replies back through
 /// [`rabbit_air_decrypt_datagram`]; the cipher stays in one tested place.
-Future<Uint8List> rabbitAirEncryptDatagram(
-        {required String userKey, required String plaintext}) =>
-    RustLib.instance.api.crateApiDeviceApiRabbitAirEncryptDatagram(
-        userKey: userKey, plaintext: plaintext);
+Future<Uint8List> rabbitAirEncryptDatagram({
+  required String userKey,
+  required String plaintext,
+}) => RustLib.instance.api.crateApiDeviceApiRabbitAirEncryptDatagram(
+  userKey: userKey,
+  plaintext: plaintext,
+);
 
 /// Decrypt a reply datagram (IV = last 16 bytes) back to its JSON text, for
 /// Dart to parse with `dart:convert`. Errors on a wrong key, a short/mis-sized
 /// datagram, or non-UTF-8 payload rather than returning garbage — an
 /// undecryptable datagram is how an unmatched or corrupt reply reads.
-Future<String> rabbitAirDecryptDatagram(
-        {required String userKey, required List<int> datagram}) =>
-    RustLib.instance.api.crateApiDeviceApiRabbitAirDecryptDatagram(
-        userKey: userKey, datagram: datagram);
+Future<String> rabbitAirDecryptDatagram({
+  required String userKey,
+  required List<int> datagram,
+}) => RustLib.instance.api.crateApiDeviceApiRabbitAirDecryptDatagram(
+  userKey: userKey,
+  datagram: datagram,
+);
 
 /// The clock offset a `time_sync` reply teaches: the reply's `data.ts` minus
 /// the local clock (`local_now_secs`, seconds). The client stamps every later
@@ -273,10 +311,13 @@ Future<String> rabbitAirDecryptDatagram(
 /// re-creates the socket. Errors on a reply carrying `error` or no `data.ts`.
 /// The offset is the one signed value here — a device behind the local clock
 /// yields a negative one.
-Future<PlatformInt64> rabbitAirTimeSyncOffset(
-        {required String replyJson, required int localNowSecs}) =>
-    RustLib.instance.api.crateApiDeviceApiRabbitAirTimeSyncOffset(
-        replyJson: replyJson, localNowSecs: localNowSecs);
+Future<PlatformInt64> rabbitAirTimeSyncOffset({
+  required String replyJson,
+  required int localNowSecs,
+}) => RustLib.instance.api.crateApiDeviceApiRabbitAirTimeSyncOffset(
+  replyJson: replyJson,
+  localNowSecs: localNowSecs,
+);
 
 /// Frame a Rabbit Air payload for the BLE command characteristic: the 2-byte
 /// little-endian payload-length prefix, then chunks of `chunk_size` bytes,
@@ -284,10 +325,13 @@ Future<PlatformInt64> rabbitAirTimeSyncOffset(
 /// back through [`rabbit_air_ble_expected_payload_len`]; the payload itself —
 /// cleartext setup JSON or an AES datagram's bytes — is unchanged from what a
 /// UDP datagram would carry.
-Future<List<Uint8List>> rabbitAirBleFrame(
-        {required List<int> payload, required int chunkSize}) =>
-    RustLib.instance.api.crateApiDeviceApiRabbitAirBleFrame(
-        payload: payload, chunkSize: chunkSize);
+Future<List<Uint8List>> rabbitAirBleFrame({
+  required List<int> payload,
+  required int chunkSize,
+}) => RustLib.instance.api.crateApiDeviceApiRabbitAirBleFrame(
+  payload: payload,
+  chunkSize: chunkSize,
+);
 
 /// The total payload length the first notification of a BLE reply announces
 /// (the 2-byte little-endian prefix), or `None` when the chunk is shorter
@@ -296,16 +340,22 @@ Future<List<Uint8List>> rabbitAirBleFrame(
 /// have arrived.
 Future<int?> rabbitAirBleExpectedPayloadLen({required List<int> firstChunk}) =>
     RustLib.instance.api.crateApiDeviceApiRabbitAirBleExpectedPayloadLen(
-        firstChunk: firstChunk);
+      firstChunk: firstChunk,
+    );
 
 /// Render a setup-phase envelope: minified cleartext `{"id":id,"cmd":cmd}`
 /// with `,"data":<object>` appended when `data_json` is supplied — no `ts`,
 /// no encryption, `id` the caller's per-client counter starting at 0. Errors
 /// when `data_json` is not a JSON object.
-Future<String> renderRabbitAirSetupEnvelope(
-        {required int id, required int cmd, String? dataJson}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderRabbitAirSetupEnvelope(
-        id: id, cmd: cmd, dataJson: dataJson);
+Future<String> renderRabbitAirSetupEnvelope({
+  required int id,
+  required int cmd,
+  String? dataJson,
+}) => RustLib.instance.api.crateApiDeviceApiRenderRabbitAirSetupEnvelope(
+  id: id,
+  cmd: cmd,
+  dataJson: dataJson,
+);
 
 /// Generate a user key the way the vendor app does: 32 random uppercase hex
 /// characters. The client pushes it during setup (cmd 5, type 4) and keeps it
@@ -336,10 +386,11 @@ Future<Uint8List> roombaDiscoveryProbe() =>
 /// `None` — not an error — for a datagram that is not from a robot. The probe
 /// is a broadcast and reaches every host on the segment, so a scan must not
 /// fail because a printer answered.
-Future<RoombaAnnouncementDto?> roombaParseAnnouncement(
-        {required List<int> datagram}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiRoombaParseAnnouncement(datagram: datagram);
+Future<RoombaAnnouncementDto?> roombaParseAnnouncement({
+  required List<int> datagram,
+}) => RustLib.instance.api.crateApiDeviceApiRoombaParseAnnouncement(
+  datagram: datagram,
+);
 
 /// The 7-byte password-disclosure probe, written on a TLS connection to
 /// `<robot>:8883` while the robot is in disclosure mode.
@@ -353,9 +404,10 @@ Future<Uint8List> roombaPasswordProbe() =>
 /// text meant to be shown: "not in disclosure mode" (retry the button) reads
 /// differently from "this model cannot disclose locally" (use the account
 /// route), and a client that collapses them sends the user in a circle.
-Future<String> roombaParsePasswordReply({required List<int> reply}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiRoombaParsePasswordReply(reply: reply);
+Future<String> roombaParsePasswordReply({required List<int> reply}) => RustLib
+    .instance
+    .api
+    .crateApiDeviceApiRoombaParsePasswordReply(reply: reply);
 
 /// A spec's WebSocket surface, or null when it declares none.
 Future<WebSocketSurfaceDto?> websocketSurface({required String specYaml}) =>
@@ -367,16 +419,17 @@ Future<WebSocketSurfaceDto?> websocketSurface({required String specYaml}) =>
 /// invented here for the reason the Roomba's timestamp is: this crate has no
 /// counter, and a frame rendered with a fixed id would match every reply to
 /// the same request.
-Future<WebSocketFrameDto> renderNetworkWebsocketCommand(
-        {required String specYaml,
-        required String commandName,
-        required Map<String, String> values,
-        required PlatformInt64 requestId}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkWebsocketCommand(
-        specYaml: specYaml,
-        commandName: commandName,
-        values: values,
-        requestId: requestId);
+Future<WebSocketFrameDto> renderNetworkWebsocketCommand({
+  required String specYaml,
+  required String commandName,
+  required Map<String, String> values,
+  required PlatformInt64 requestId,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkWebsocketCommand(
+  specYaml: specYaml,
+  commandName: commandName,
+  values: values,
+  requestId: requestId,
+);
 
 /// Render one of a spec's `transport: mqtt` commands.
 ///
@@ -385,12 +438,15 @@ Future<WebSocketFrameDto> renderNetworkWebsocketCommand(
 /// generated, held as a credential). A placeholder with no value, or one the
 /// command never declared, is an error rather than a blank: a publish to a
 /// half-rendered topic succeeds at the socket and does nothing at the device.
-Future<MqttRequestDto> renderNetworkMqttCommand(
-        {required String specYaml,
-        required String commandName,
-        required Map<String, String> values}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkMqttCommand(
-        specYaml: specYaml, commandName: commandName, values: values);
+Future<MqttRequestDto> renderNetworkMqttCommand({
+  required String specYaml,
+  required String commandName,
+  required Map<String, String> values,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkMqttCommand(
+  specYaml: specYaml,
+  commandName: commandName,
+  values: values,
+);
 
 /// Fill an MQTT state topic's `{name}` placeholders from stored values.
 ///
@@ -413,10 +469,13 @@ Future<MqttRequestDto> renderNetworkMqttCommand(
 /// malformed or spoofed one carrying `#` would not fill a level, it would
 /// widen the subscription to every topic on the broker. The caller skips
 /// that topic rather than subscribing to something the spec never named.
-Future<String> fillMqttStateTopic(
-        {required String topic, required Map<String, String> values}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiFillMqttStateTopic(topic: topic, values: values);
+Future<String> fillMqttStateTopic({
+  required String topic,
+  required Map<String, String> values,
+}) => RustLib.instance.api.crateApiDeviceApiFillMqttStateTopic(
+  topic: topic,
+  values: values,
+);
 
 /// MQTT CONNECT for a spec-declared broker.
 ///
@@ -424,10 +483,15 @@ Future<String> fillMqttStateTopic(
 /// each sent only when supplied: a broker that expects neither refuses a
 /// CONNECT carrying two empty strings, and one that expects a token takes a
 /// username with no password.
-Future<Uint8List> mqttConnectPacket(
-        {required String clientId, String? username, String? password}) =>
-    RustLib.instance.api.crateApiDeviceApiMqttConnectPacket(
-        clientId: clientId, username: username, password: password);
+Future<Uint8List> mqttConnectPacket({
+  required String clientId,
+  String? username,
+  String? password,
+}) => RustLib.instance.api.crateApiDeviceApiMqttConnectPacket(
+  clientId: clientId,
+  username: username,
+  password: password,
+);
 
 /// Render a named `transport: mqtt` command — the Roomba sibling of
 /// [`render_network_kasa_command`].
@@ -436,14 +500,15 @@ Future<Uint8List> mqttConnectPacket(
 /// clock of its own, and a command rendered with a silently defaulted
 /// timestamp is a plausible-but-wrong request that is painful to debug against
 /// hardware.
-Future<RoombaRequestDto> renderNetworkRoombaCommand(
-        {required String specYaml,
-        required String commandName,
-        required PlatformInt64 epochSeconds}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkRoombaCommand(
-        specYaml: specYaml,
-        commandName: commandName,
-        epochSeconds: epochSeconds);
+Future<RoombaRequestDto> renderNetworkRoombaCommand({
+  required String specYaml,
+  required String commandName,
+  required PlatformInt64 epochSeconds,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkRoombaCommand(
+  specYaml: specYaml,
+  commandName: commandName,
+  epochSeconds: epochSeconds,
+);
 
 /// Flatten a state payload into the dotted paths entities bind to
 /// (`state.reported.batPct`). Booleans come back as `1`/`0` so an entity's
@@ -456,28 +521,37 @@ Future<Map<String, String>> roombaStateFields({required String payload}) =>
     RustLib.instance.api.crateApiDeviceApiRoombaStateFields(payload: payload);
 
 /// MQTT CONNECT, with the BLID as both client id and username.
-Future<Uint8List> roombaConnectPacket(
-        {required String blid, required String password}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiRoombaConnectPacket(blid: blid, password: password);
+Future<Uint8List> roombaConnectPacket({
+  required String blid,
+  required String password,
+}) => RustLib.instance.api.crateApiDeviceApiRoombaConnectPacket(
+  blid: blid,
+  password: password,
+);
 
 /// MQTT SUBSCRIBE at QoS 0.
 ///
 /// The topic filter is the caller's. `#` is a legitimate choice where a spec
 /// cannot say which shape a given firmware publishes on — the Roomba's case —
 /// and a named topic is the ordinary one.
-Future<Uint8List> mqttSubscribePacket(
-        {required String topic, required int packetId}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiMqttSubscribePacket(topic: topic, packetId: packetId);
+Future<Uint8List> mqttSubscribePacket({
+  required String topic,
+  required int packetId,
+}) => RustLib.instance.api.crateApiDeviceApiMqttSubscribePacket(
+  topic: topic,
+  packetId: packetId,
+);
 
 /// MQTT PUBLISH at QoS 0. No packet id, no acknowledgement: a higher QoS
 /// needs bookkeeping the codec deliberately does not hold, and no device
 /// broker in the catalogue acknowledges commands.
-Future<Uint8List> mqttPublishPacket(
-        {required String topic, required String payload}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiMqttPublishPacket(topic: topic, payload: payload);
+Future<Uint8List> mqttPublishPacket({
+  required String topic,
+  required String payload,
+}) => RustLib.instance.api.crateApiDeviceApiMqttPublishPacket(
+  topic: topic,
+  payload: payload,
+);
 
 /// MQTT PINGREQ, sent inside the keepalive window to hold the session open.
 Future<Uint8List> mqttPingreqPacket() =>
@@ -495,55 +569,68 @@ Future<MqttParsedDto> mqttParseIncoming({required List<int> buffer}) =>
 
 /// Render the argument-less request that reads a state command's values —
 /// what a client sends to poll `GetCrockpotState` or `GetBinaryState`.
-Future<SoapRequestDto> renderNetworkStateRequest(
-        {required String specYaml, required String stateCommand}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkStateRequest(
-        specYaml: specYaml, stateCommand: stateCommand);
+Future<SoapRequestDto> renderNetworkStateRequest({
+  required String specYaml,
+  required String stateCommand,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkStateRequest(
+  specYaml: specYaml,
+  stateCommand: stateCommand,
+);
 
 /// Decode one entity's state from the name→value pairs a state call
 /// returned. `None` when the reply did not carry the entity's value — which
 /// renders as unknown, never as a fabricated zero.
-Future<NetworkReadingDto?> readNetworkEntity(
-        {required String specYaml,
-        required String entityName,
-        required Map<String, String> returned}) =>
-    RustLib.instance.api.crateApiDeviceApiReadNetworkEntity(
-        specYaml: specYaml, entityName: entityName, returned: returned);
+Future<NetworkReadingDto?> readNetworkEntity({
+  required String specYaml,
+  required String entityName,
+  required Map<String, String> returned,
+}) => RustLib.instance.api.crateApiDeviceApiReadNetworkEntity(
+  specYaml: specYaml,
+  entityName: entityName,
+  returned: returned,
+);
 
 /// Render the request that reads a state command's values over HTTP — on an
 /// instanced entity, the one GET that enumerates every child and carries all
 /// their state. `values` fills the path's placeholders (the pairing
 /// credential, on the Hue bridge); a missing one fails the render, the same
 /// visible failure a credential-less write gets.
-Future<HttpRequestDto> renderNetworkHttpStateRequest(
-        {required String specYaml,
-        required String stateCommand,
-        required Map<String, String> values}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkHttpStateRequest(
-        specYaml: specYaml, stateCommand: stateCommand, values: values);
+Future<HttpRequestDto> renderNetworkHttpStateRequest({
+  required String specYaml,
+  required String stateCommand,
+  required Map<String, String> values,
+}) => RustLib.instance.api.crateApiDeviceApiRenderNetworkHttpStateRequest(
+  specYaml: specYaml,
+  stateCommand: stateCommand,
+  values: values,
+);
 
 /// Enumerate the children an instanced entity's state reply carries, in the
 /// hub's own order (numeric ids numerically, so light 2 lists before 10).
-Future<List<NetworkInstanceDto>> listNetworkInstances(
-        {required String specYaml,
-        required String entityName,
-        required String stateReply}) =>
-    RustLib.instance.api.crateApiDeviceApiListNetworkInstances(
-        specYaml: specYaml, entityName: entityName, stateReply: stateReply);
+Future<List<NetworkInstanceDto>> listNetworkInstances({
+  required String specYaml,
+  required String entityName,
+  required String stateReply,
+}) => RustLib.instance.api.crateApiDeviceApiListNetworkInstances(
+  specYaml: specYaml,
+  entityName: entityName,
+  stateReply: stateReply,
+);
 
 /// Read one child's roles out of an instanced entity's state reply. Empty
 /// for a child the reply no longer carries — which renders as unknown, never
 /// as a fabricated "off".
-Future<List<NetworkRoleReadingDto>> readNetworkInstance(
-        {required String specYaml,
-        required String entityName,
-        required String stateReply,
-        required String instanceId}) =>
-    RustLib.instance.api.crateApiDeviceApiReadNetworkInstance(
-        specYaml: specYaml,
-        entityName: entityName,
-        stateReply: stateReply,
-        instanceId: instanceId);
+Future<List<NetworkRoleReadingDto>> readNetworkInstance({
+  required String specYaml,
+  required String entityName,
+  required String stateReply,
+  required String instanceId,
+}) => RustLib.instance.api.crateApiDeviceApiReadNetworkInstance(
+  specYaml: specYaml,
+  entityName: entityName,
+  stateReply: stateReply,
+  instanceId: instanceId,
+);
 
 /// Every credential this spec refers to, by name.
 ///
@@ -552,10 +639,11 @@ Future<List<NetworkRoleReadingDto>> readNetworkInstance(
 /// A per-action answer forces the caller to union them itself and gets the
 /// issued-but-unconsumed case (Hue's `clientkey`) wrong, since no action
 /// mentions it at all.
-Future<List<NetworkCredentialDto>> credentialsForDevice(
-        {required String specYaml}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiCredentialsForDevice(specYaml: specYaml);
+Future<List<NetworkCredentialDto>> credentialsForDevice({
+  required String specYaml,
+}) => RustLib.instance.api.crateApiDeviceApiCredentialsForDevice(
+  specYaml: specYaml,
+);
 
 /// Apply a spec-declared credential derivation to what the person typed.
 ///
@@ -564,10 +652,13 @@ Future<List<NetworkCredentialDto>> credentialsForDevice(
 /// from the sticker Wi-Fi password so the person types what is printed rather
 /// than a hash. An unknown name errors instead of silently storing the raw
 /// value under a credential the broker expects derived.
-Future<String> deriveCredentialValue(
-        {required String derivation, required String value}) =>
-    RustLib.instance.api.crateApiDeviceApiDeriveCredentialValue(
-        derivation: derivation, value: value);
+Future<String> deriveCredentialValue({
+  required String derivation,
+  required String value,
+}) => RustLib.instance.api.crateApiDeviceApiDeriveCredentialValue(
+  derivation: derivation,
+  value: value,
+);
 
 /// The UDP port every LIFX device listens on. Exposed so the Dart client need
 /// not hardcode it separately from the protocol module.
@@ -581,37 +672,46 @@ Future<int> lifxPort() => RustLib.instance.api.crateApiDeviceApiLifxPort();
 /// 1500..=9000, `zone` a zone index). `target_mac` is `d0:73:d5:…` or empty for
 /// a device not yet identified (the all-zero target unicast firmware accepts).
 /// `sequence` is the caller's counter, echoed in any reply for correlation.
-Future<Uint8List> renderLifxCommand(
-        {required String action,
-        required Map<String, double> params,
-        required String targetMac,
-        required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderLifxCommand(
-        action: action,
-        params: params,
-        targetMac: targetMac,
-        sequence: sequence);
+Future<Uint8List> renderLifxCommand({
+  required String action,
+  required Map<String, double> params,
+  required String targetMac,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiRenderLifxCommand(
+  action: action,
+  params: params,
+  targetMac: targetMac,
+  sequence: sequence,
+);
 
 /// The tagged-broadcast `GetService` datagram — the discovery probe every LIFX
 /// device answers with a `StateService`.
-Future<Uint8List> buildLifxDiscoveryProbe({required int sequence}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiBuildLifxDiscoveryProbe(sequence: sequence);
+Future<Uint8List> buildLifxDiscoveryProbe({required int sequence}) => RustLib
+    .instance
+    .api
+    .crateApiDeviceApiBuildLifxDiscoveryProbe(sequence: sequence);
 
 /// The `LightGet` datagram that asks a device for its current colour and power.
-Future<Uint8List> buildLifxStateRequest(
-        {required String targetMac, required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiBuildLifxStateRequest(
-        targetMac: targetMac, sequence: sequence);
+Future<Uint8List> buildLifxStateRequest({
+  required String targetMac,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiBuildLifxStateRequest(
+  targetMac: targetMac,
+  sequence: sequence,
+);
 
 /// The `GetColorZones` datagram asking for the colours of zones `start..=end`.
-Future<Uint8List> buildLifxZonesRequest(
-        {required String targetMac,
-        required int start,
-        required int end,
-        required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiBuildLifxZonesRequest(
-        targetMac: targetMac, start: start, end: end, sequence: sequence);
+Future<Uint8List> buildLifxZonesRequest({
+  required String targetMac,
+  required int start,
+  required int end,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiBuildLifxZonesRequest(
+  targetMac: targetMac,
+  start: start,
+  end: end,
+  sequence: sequence,
+);
 
 /// Decode a `StateService` datagram (the discovery reply).
 Future<LifxServiceDto> parseLifxStateService({required List<int> bytes}) =>
@@ -632,20 +732,25 @@ Future<int> lifxDefaultSecurity() =>
     RustLib.instance.api.crateApiDeviceApiLifxDefaultSecurity();
 
 /// The `GetAccessPoints` datagram that asks an unprovisioned device to scan.
-Future<Uint8List> buildLifxGetAccessPoints({required int sequence}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiBuildLifxGetAccessPoints(sequence: sequence);
+Future<Uint8List> buildLifxGetAccessPoints({required int sequence}) => RustLib
+    .instance
+    .api
+    .crateApiDeviceApiBuildLifxGetAccessPoints(sequence: sequence);
 
 /// The `SetAccessPoint` datagram handing the device its home-network
 /// credentials. `password` is sent in plaintext (the legacy exchange has no
 /// credential encryption) — do not persist it.
-Future<Uint8List> renderLifxSetAccessPoint(
-        {required String ssid,
-        required String password,
-        required int security,
-        required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderLifxSetAccessPoint(
-        ssid: ssid, password: password, security: security, sequence: sequence);
+Future<Uint8List> renderLifxSetAccessPoint({
+  required String ssid,
+  required String password,
+  required int security,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiRenderLifxSetAccessPoint(
+  ssid: ssid,
+  password: password,
+  security: security,
+  sequence: sequence,
+);
 
 /// Decode a `StateAccessPoint` (0x132) scan-result datagram.
 Future<LifxAccessPointDto> decodeLifxAccessPoint({required List<int> bytes}) =>
@@ -666,14 +771,15 @@ Future<LifxAccessPointDto> decodeLifxAccessPoint({required List<int> bytes}) =>
 /// - any of its `service_uuids` (case-insensitive) appears in `advertised_service_uuids`.
 ///
 /// Both axes are reported separately so the caller can decide how to rank.
-Future<List<MatchResult>> matchDeviceToSpec(
-        {required List<DeviceSpecDto> specs,
-        required String deviceName,
-        required List<String> advertisedServiceUuids}) =>
-    RustLib.instance.api.crateApiDeviceApiMatchDeviceToSpec(
-        specs: specs,
-        deviceName: deviceName,
-        advertisedServiceUuids: advertisedServiceUuids);
+Future<List<MatchResult>> matchDeviceToSpec({
+  required List<DeviceSpecDto> specs,
+  required String deviceName,
+  required List<String> advertisedServiceUuids,
+}) => RustLib.instance.api.crateApiDeviceApiMatchDeviceToSpec(
+  specs: specs,
+  deviceName: deviceName,
+  advertisedServiceUuids: advertisedServiceUuids,
+);
 
 /// Rank the catalogue against a single device found on the local network, best
 /// match first.
@@ -681,11 +787,13 @@ Future<List<MatchResult>> matchDeviceToSpec(
 /// The Wi-Fi counterpart of [`match_scanned_device`], sharing its confidence
 /// rule so a "Likely supported" badge means the same thing on both tabs.
 /// Returns `vec![]` when nothing matches.
-Future<List<ScanMatch>> matchNetworkDevice(
-        {required List<SpecIdentityDto> identities,
-        required NetworkDeviceDto device}) =>
-    RustLib.instance.api.crateApiDeviceApiMatchNetworkDevice(
-        identities: identities, device: device);
+Future<List<ScanMatch>> matchNetworkDevice({
+  required List<SpecIdentityDto> identities,
+  required NetworkDeviceDto device,
+}) => RustLib.instance.api.crateApiDeviceApiMatchNetworkDevice(
+  identities: identities,
+  device: device,
+);
 
 /// Rank the catalogue against a single device seen during a scan, best match
 /// first.
@@ -698,29 +806,32 @@ Future<List<ScanMatch>> matchNetworkDevice(
 /// anything with a result — a [`MatchConfidence::Possible`] match is one shared
 /// OUI and says only that the device is worth a human's attention, not that the
 /// spec describes it.
-Future<List<ScanMatch>> matchScannedDevice(
-        {required List<SpecIdentityDto> identities,
-        required ScannedDeviceDto device}) =>
-    RustLib.instance.api.crateApiDeviceApiMatchScannedDevice(
-        identities: identities, device: device);
+Future<List<ScanMatch>> matchScannedDevice({
+  required List<SpecIdentityDto> identities,
+  required ScannedDeviceDto device,
+}) => RustLib.instance.api.crateApiDeviceApiMatchScannedDevice(
+  identities: identities,
+  device: device,
+);
 
 /// Encode a named command into bytes for a BLE write.
 ///
 /// Provide either `spec_yaml` (custom device) or `service_uuid` (standard
 /// profile — though standard profiles are read-only). When both are supplied,
 /// the spec wins — see [`select_protocol`].
-Future<Uint8List> encodeCommand(
-        {String? specYaml,
-        String? serviceUuid,
-        required String charUuid,
-        required String commandName,
-        required Map<String, double> params}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeCommand(
-        specYaml: specYaml,
-        serviceUuid: serviceUuid,
-        charUuid: charUuid,
-        commandName: commandName,
-        params: params);
+Future<Uint8List> encodeCommand({
+  String? specYaml,
+  String? serviceUuid,
+  required String charUuid,
+  required String commandName,
+  required Map<String, double> params,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeCommand(
+  specYaml: specYaml,
+  serviceUuid: serviceUuid,
+  charUuid: charUuid,
+  commandName: commandName,
+  params: params,
+);
 
 /// Encode one RGB888 frame into the ordered BLE writes that display it,
 /// dispatched on the spec's `protocol_handler`.
@@ -731,20 +842,21 @@ Future<Uint8List> encodeCommand(
 /// MTU - 3; pass 20 when the MTU is unknown). Errors are typed and
 /// user-presentable: an unknown or missing handler says so instead of
 /// producing bytes that were never going to work.
-Future<ImageWritePlanDto> encodeImageFrame(
-        {required String specYaml,
-        required int width,
-        required int height,
-        required List<int> rgb,
-        required int frameIndex,
-        required int maxPayloadPerWrite}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeImageFrame(
-        specYaml: specYaml,
-        width: width,
-        height: height,
-        rgb: rgb,
-        frameIndex: frameIndex,
-        maxPayloadPerWrite: maxPayloadPerWrite);
+Future<ImageWritePlanDto> encodeImageFrame({
+  required String specYaml,
+  required int width,
+  required int height,
+  required List<int> rgb,
+  required int frameIndex,
+  required int maxPayloadPerWrite,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeImageFrame(
+  specYaml: specYaml,
+  width: width,
+  height: height,
+  rgb: rgb,
+  frameIndex: frameIndex,
+  maxPayloadPerWrite: maxPayloadPerWrite,
+);
 
 /// The bytes that ask a Brother QL printer for its 32-byte status reply
 /// (`ESC i S`). Written to the same raw stream as a job.
@@ -759,10 +871,13 @@ Future<BrotherQlStatusDto> decodeBrotherQlStatus({required List<int> reply}) =>
 /// sized to the loaded media, and encode it as a raster job. The "Print test
 /// label" action: it proves the whole path (encode + transport + cut) without
 /// the caller supplying an image.
-Future<Uint8List> renderBrotherQlTestLabel(
-        {required String specYaml, required BrotherQlJobParamsDto params}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderBrotherQlTestLabel(
-        specYaml: specYaml, params: params);
+Future<Uint8List> renderBrotherQlTestLabel({
+  required String specYaml,
+  required BrotherQlJobParamsDto params,
+}) => RustLib.instance.api.crateApiDeviceApiRenderBrotherQlTestLabel(
+  specYaml: specYaml,
+  params: params,
+);
 
 /// The `camera:` block for a device, or None when it declares no camera. The
 /// typed surface behind the MJPEG snapshot-poll viewer (and its WebSocket
@@ -770,30 +885,31 @@ Future<Uint8List> renderBrotherQlTestLabel(
 Future<CameraDto?> cameraForDevice({required String specYaml}) =>
     RustLib.instance.api.crateApiDeviceApiCameraForDevice(specYaml: specYaml);
 
-Future<StoredUploadPlanDto> encodeStoredImage(
-        {required String specYaml,
-        int? maxWrite,
-        required int width,
-        required int height,
-        required List<int> rgb,
-        required String name,
-        required int cid,
-        required int timeSecs,
-        required String scroll,
-        required int speed,
-        required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeStoredImage(
-        specYaml: specYaml,
-        maxWrite: maxWrite,
-        width: width,
-        height: height,
-        rgb: rgb,
-        name: name,
-        cid: cid,
-        timeSecs: timeSecs,
-        scroll: scroll,
-        speed: speed,
-        sequence: sequence);
+Future<StoredUploadPlanDto> encodeStoredImage({
+  required String specYaml,
+  int? maxWrite,
+  required int width,
+  required int height,
+  required List<int> rgb,
+  required String name,
+  required int cid,
+  required int timeSecs,
+  required String scroll,
+  required int speed,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeStoredImage(
+  specYaml: specYaml,
+  maxWrite: maxWrite,
+  width: width,
+  height: height,
+  rgb: rgb,
+  name: name,
+  cid: cid,
+  timeSecs: timeSecs,
+  scroll: scroll,
+  speed: speed,
+  sequence: sequence,
+);
 
 /// Encode the BLE writes that PERSIST a scrolling-text marquee on the device.
 ///
@@ -803,30 +919,31 @@ Future<StoredUploadPlanDto> encodeStoredImage(
 /// `daniao_store::MAX_TEXT_WIDTH` — a longer run is refused, not wrapped.
 /// The caller (the UI) rasterises the string; everything else matches
 /// [`encode_stored_image`].
-Future<StoredUploadPlanDto> encodeStoredText(
-        {required String specYaml,
-        int? maxWrite,
-        required int textWidth,
-        required int textHeight,
-        required List<int> bits,
-        required String name,
-        required int cid,
-        required int timeSecs,
-        required String scroll,
-        required int speed,
-        required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeStoredText(
-        specYaml: specYaml,
-        maxWrite: maxWrite,
-        textWidth: textWidth,
-        textHeight: textHeight,
-        bits: bits,
-        name: name,
-        cid: cid,
-        timeSecs: timeSecs,
-        scroll: scroll,
-        speed: speed,
-        sequence: sequence);
+Future<StoredUploadPlanDto> encodeStoredText({
+  required String specYaml,
+  int? maxWrite,
+  required int textWidth,
+  required int textHeight,
+  required List<int> bits,
+  required String name,
+  required int cid,
+  required int timeSecs,
+  required String scroll,
+  required int speed,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeStoredText(
+  specYaml: specYaml,
+  maxWrite: maxWrite,
+  textWidth: textWidth,
+  textHeight: textHeight,
+  bits: bits,
+  name: name,
+  cid: cid,
+  timeSecs: timeSecs,
+  scroll: scroll,
+  speed: speed,
+  sequence: sequence,
+);
 
 /// Encode the BLE writes that PERSIST a multi-frame animation as a single
 /// `.eff` container.
@@ -840,26 +957,27 @@ Future<StoredUploadPlanDto> encodeStoredText(
 ///
 /// `frames` are the screens in play order, each row-major RGB888
 /// `width * height * 3` bytes.
-Future<StoredUploadPlanDto> encodeStoredAnimation(
-        {required String specYaml,
-        int? maxWrite,
-        required int width,
-        required int height,
-        required List<Uint8List> frames,
-        required String name,
-        required int cid,
-        required int frameMs,
-        required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeStoredAnimation(
-        specYaml: specYaml,
-        maxWrite: maxWrite,
-        width: width,
-        height: height,
-        frames: frames,
-        name: name,
-        cid: cid,
-        frameMs: frameMs,
-        sequence: sequence);
+Future<StoredUploadPlanDto> encodeStoredAnimation({
+  required String specYaml,
+  int? maxWrite,
+  required int width,
+  required int height,
+  required List<Uint8List> frames,
+  required String name,
+  required int cid,
+  required int frameMs,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeStoredAnimation(
+  specYaml: specYaml,
+  maxWrite: maxWrite,
+  width: width,
+  height: height,
+  frames: frames,
+  name: name,
+  cid: cid,
+  frameMs: frameMs,
+  sequence: sequence,
+);
 
 /// Decode one notification from the stored-upload response characteristic.
 ///
@@ -867,66 +985,96 @@ Future<StoredUploadPlanDto> encodeStoredAnimation(
 /// pushes share the channel, and a caller filters by just ignoring `None`.
 /// The spec is taken so this dispatches like the encoders do; today the one
 /// implemented response format is Daniao's.
-Future<StoredUploadEventDto?> decodeStoredUploadEvent(
-        {required String specYaml, required List<int> bytes}) =>
-    RustLib.instance.api.crateApiDeviceApiDecodeStoredUploadEvent(
-        specYaml: specYaml, bytes: bytes);
+Future<StoredUploadEventDto?> decodeStoredUploadEvent({
+  required String specYaml,
+  required List<int> bytes,
+}) => RustLib.instance.api.crateApiDeviceApiDecodeStoredUploadEvent(
+  specYaml: specYaml,
+  bytes: bytes,
+);
 
 /// Encode the play-by-cid command for RE-triggering a previously stored item
 /// — the replay path, no upload involved. `sequence` is a per-connection
 /// rolling counter (Dart owns it); a distinct value each press keeps two
 /// replays of the same cid from colliding on the wire and being de-duped.
-Future<StoredPlayDto> encodeStoredPlay(
-        {required String specYaml, required int cid, required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeStoredPlay(
-        specYaml: specYaml, cid: cid, sequence: sequence);
+Future<StoredPlayDto> encodeStoredPlay({
+  required String specYaml,
+  required int cid,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeStoredPlay(
+  specYaml: specYaml,
+  cid: cid,
+  sequence: sequence,
+);
 
 /// Encode the global play-speed command (M_SET_PLAY_SPEED, `{i1: speed}`) —
 /// how fast the device advances the playlist. `speed` is the vendor's slider
 /// value (default 100). Returns the framed write to send.
-Future<StoredPlayDto> encodePlaySpeed(
-        {required String specYaml,
-        required int speed,
-        required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodePlaySpeed(
-        specYaml: specYaml, speed: speed, sequence: sequence);
+Future<StoredPlayDto> encodePlaySpeed({
+  required String specYaml,
+  required int speed,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodePlaySpeed(
+  specYaml: specYaml,
+  speed: speed,
+  sequence: sequence,
+);
 
 /// Encode the play/loop-mode command (M_SET_AUTORUN_MODE). `mode` is
 /// `fixed(0) | repeat(1) | random(2)`. Sending fixed after playing a design
 /// pins the device to it across disconnect.
-Future<StoredPlayDto> encodeAutorunMode(
-        {required String specYaml, required int mode, required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeAutorunMode(
-        specYaml: specYaml, mode: mode, sequence: sequence);
+Future<StoredPlayDto> encodeAutorunMode({
+  required String specYaml,
+  required int mode,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeAutorunMode(
+  specYaml: specYaml,
+  mode: mode,
+  sequence: sequence,
+);
 
 /// Encode M_BOOKMARK_ENABLE — activate bookmark/playlist `list_id` so the device
 /// plays only its items (without this, playback stays over the whole stored set).
-Future<StoredPlayDto> encodeBookmarkEnable(
-        {required String specYaml,
-        required int listId,
-        required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeBookmarkEnable(
-        specYaml: specYaml, listId: listId, sequence: sequence);
+Future<StoredPlayDto> encodeBookmarkEnable({
+  required String specYaml,
+  required int listId,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeBookmarkEnable(
+  specYaml: specYaml,
+  listId: listId,
+  sequence: sequence,
+);
 
 /// Encode M_BOOKMARK_CLEAR — empty bookmark/playlist `list_id` before a re-save.
-Future<StoredPlayDto> encodeBookmarkClear(
-        {required String specYaml,
-        required int listId,
-        required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeBookmarkClear(
-        specYaml: specYaml, listId: listId, sequence: sequence);
+Future<StoredPlayDto> encodeBookmarkClear({
+  required String specYaml,
+  required int listId,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeBookmarkClear(
+  specYaml: specYaml,
+  listId: listId,
+  sequence: sequence,
+);
 
 /// Encode the delete-one-stored-design command (M_REMOVE_APP) by cid.
-Future<StoredPlayDto> encodeRemoveApp(
-        {required String specYaml, required int cid, required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeRemoveApp(
-        specYaml: specYaml, cid: cid, sequence: sequence);
+Future<StoredPlayDto> encodeRemoveApp({
+  required String specYaml,
+  required int cid,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeRemoveApp(
+  specYaml: specYaml,
+  cid: cid,
+  sequence: sequence,
+);
 
 /// Encode the clear-all-stored-designs command (M_REMOVE_ALL_APPS).
-Future<StoredPlayDto> encodeRemoveAllApps(
-        {required String specYaml, required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeRemoveAllApps(
-        specYaml: specYaml, sequence: sequence);
+Future<StoredPlayDto> encodeRemoveAllApps({
+  required String specYaml,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeRemoveAllApps(
+  specYaml: specYaml,
+  sequence: sequence,
+);
 
 /// Decode one M_EFFECT_LIST notification into its `{cid, slot}` entries.
 ///
@@ -934,47 +1082,56 @@ Future<StoredPlayDto> encodeRemoveAllApps(
 /// caller decodes each and merges them to map a stored frame's cid to the slot
 /// a playlist must use. A notification that is not an effect list yields an
 /// empty list.
-Future<List<EffectEntryDto>> decodeEffectList(
-        {required String specYaml, required List<int> bytes}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiDecodeEffectList(specYaml: specYaml, bytes: bytes);
+Future<List<EffectEntryDto>> decodeEffectList({
+  required String specYaml,
+  required List<int> bytes,
+}) => RustLib.instance.api.crateApiDeviceApiDecodeEffectList(
+  specYaml: specYaml,
+  bytes: bytes,
+);
 
 /// Encode the writes that loop a set of stored frames as an animation: the
 /// set-playlist command then loop mode. `cids` and `slots` are the stored
 /// frames in play order (paired by index); `slots` are the device-assigned
 /// slots (pass 0 when unknown — play addresses customs by cid). `sequence` is
 /// the rolling counter's next value.
-Future<PlaylistWritesDto> encodeSetPlaylist(
-        {required String specYaml,
-        required List<int> cids,
-        required List<int> slots,
-        required int sequence}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeSetPlaylist(
-        specYaml: specYaml, cids: cids, slots: slots, sequence: sequence);
+Future<PlaylistWritesDto> encodeSetPlaylist({
+  required String specYaml,
+  required List<int> cids,
+  required List<int> slots,
+  required int sequence,
+}) => RustLib.instance.api.crateApiDeviceApiEncodeSetPlaylist(
+  specYaml: specYaml,
+  cids: cids,
+  slots: slots,
+  sequence: sequence,
+);
 
 /// Decode raw bytes from a BLE read/notify into named values.
 ///
 /// Provide either `spec_yaml` (custom device) or `service_uuid` (standard
 /// profile). When both are supplied, the spec wins — see [`select_protocol`].
-Future<List<DecodedValueDto>> decodeValue(
-        {String? specYaml,
-        String? serviceUuid,
-        required String charUuid,
-        required List<int> bytes}) =>
-    RustLib.instance.api.crateApiDeviceApiDecodeValue(
-        specYaml: specYaml,
-        serviceUuid: serviceUuid,
-        charUuid: charUuid,
-        bytes: bytes);
+Future<List<DecodedValueDto>> decodeValue({
+  String? specYaml,
+  String? serviceUuid,
+  required String charUuid,
+  required List<int> bytes,
+}) => RustLib.instance.api.crateApiDeviceApiDecodeValue(
+  specYaml: specYaml,
+  serviceUuid: serviceUuid,
+  charUuid: charUuid,
+  bytes: bytes,
+);
 
 /// Given a list of discovered service UUIDs, return info about any that
 /// match recognized standard Bluetooth profiles (Battery, Device Info, etc.).
 ///
 /// Services that don't match a standard profile are omitted from the result.
-Future<List<ProfileInfoDto>> identifyStandardProfiles(
-        {required List<String> serviceUuids}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiIdentifyStandardProfiles(serviceUuids: serviceUuids);
+Future<List<ProfileInfoDto>> identifyStandardProfiles({
+  required List<String> serviceUuids,
+}) => RustLib.instance.api.crateApiDeviceApiIdentifyStandardProfiles(
+  serviceUuids: serviceUuids,
+);
 
 /// Every softap setup method the given specs declare, catalogue order. Specs
 /// that fail to parse are skipped — the watcher must not lose Wemo because a
@@ -983,8 +1140,9 @@ Future<List<ProfileInfoDto>> identifyStandardProfiles(
 /// Another catalogue sweep, so it stays off the spec cache for the reason
 /// [`load_device_spec`] gives: one pass over every spec would clear the cache
 /// out from under whatever the app is actually polling.
-Future<List<SoftApProfileDto>> softApProfiles(
-        {required List<String> specYamls}) =>
+Future<List<SoftApProfileDto>> softApProfiles({
+  required List<String> specYamls,
+}) =>
     RustLib.instance.api.crateApiDeviceApiSoftApProfiles(specYamls: specYamls);
 
 /// Every BLE-provisioning setup method the given specs declare, catalogue
@@ -993,27 +1151,33 @@ Future<List<SoftApProfileDto>> softApProfiles(
 ///
 /// Same whole-catalogue sweep caveat as [`soft_ap_profiles`]: specs that fail
 /// to parse are skipped, and the pass stays off the spec cache.
-Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
-        {required List<String> specYamls}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiBleProvisioningProfiles(specYamls: specYamls);
+Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles({
+  required List<String> specYamls,
+}) => RustLib.instance.api.crateApiDeviceApiBleProvisioningProfiles(
+  specYamls: specYamls,
+);
 
 /// Whether an advertised BLE name is any profile's setup-mode peripheral; the
 /// index of the first profile it matches, else null. The exact/prefix rule is
 /// the spec's, applied case-insensitively.
-Future<int?> matchBleProvisioningName(
-        {required List<BleProvisioningProfileDto> profiles,
-        required String advertisedName}) =>
-    RustLib.instance.api.crateApiDeviceApiMatchBleProvisioningName(
-        profiles: profiles, advertisedName: advertisedName);
+Future<int?> matchBleProvisioningName({
+  required List<BleProvisioningProfileDto> profiles,
+  required String advertisedName,
+}) => RustLib.instance.api.crateApiDeviceApiMatchBleProvisioningName(
+  profiles: profiles,
+  advertisedName: advertisedName,
+);
 
 /// Whether `ssid` looks like any profile's setup AP; the index of the first
 /// profile it matches, else null. The prefix rule is the spec's:
 /// case-insensitive, anchored at the start.
-Future<int?> matchSoftApSsid(
-        {required List<SoftApProfileDto> profiles, required String ssid}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiMatchSoftApSsid(profiles: profiles, ssid: ssid);
+Future<int?> matchSoftApSsid({
+  required List<SoftApProfileDto> profiles,
+  required String ssid,
+}) => RustLib.instance.api.crateApiDeviceApiMatchSoftApSsid(
+  profiles: profiles,
+  ssid: ssid,
+);
 
 /// The renderable `device.setup` instructions for one spec, or null when the
 /// spec carries none (or fails to parse). Fed the single YAML the caller
@@ -1038,26 +1202,27 @@ Future<SetupInstructionsDto?> setupInstructions({required String specYaml}) =>
 /// secured network `meta_info` is the raw `GetMetaInfo` reply. Fails when the
 /// passphrase is outside the device's documented bounds (under 8 characters is
 /// terminal), before any network I/O.
-Future<List<WemoConnectAttemptDto>> renderWemoConnectRequests(
-        {required String specYaml,
-        required String metaInfo,
-        required String ssid,
-        required String auth,
-        required String encrypt,
-        required String channel,
-        required String passphrase,
-        PlatformInt64? rtos,
-        PlatformInt64? iot}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderWemoConnectRequests(
-        specYaml: specYaml,
-        metaInfo: metaInfo,
-        ssid: ssid,
-        auth: auth,
-        encrypt: encrypt,
-        channel: channel,
-        passphrase: passphrase,
-        rtos: rtos,
-        iot: iot);
+Future<List<WemoConnectAttemptDto>> renderWemoConnectRequests({
+  required String specYaml,
+  required String metaInfo,
+  required String ssid,
+  required String auth,
+  required String encrypt,
+  required String channel,
+  required String passphrase,
+  PlatformInt64? rtos,
+  PlatformInt64? iot,
+}) => RustLib.instance.api.crateApiDeviceApiRenderWemoConnectRequests(
+  specYaml: specYaml,
+  metaInfo: metaInfo,
+  ssid: ssid,
+  auth: auth,
+  encrypt: encrypt,
+  channel: channel,
+  passphrase: passphrase,
+  rtos: rtos,
+  iot: iot,
+);
 
 /// Interpret a `GetNetworkStatus` reply's `NetworkStatus` value.
 Future<WemoJoinStatus> wemoNetworkStatus({required String code}) =>
@@ -1231,10 +1396,7 @@ class CameraDto {
   /// The session to hold open before frames flow (Snapmaker), if any.
   final CameraKeepaliveDto? keepalive;
 
-  const CameraDto({
-    required this.streams,
-    this.keepalive,
-  });
+  const CameraDto({required this.streams, this.keepalive});
 
   @override
   int get hashCode => streams.hashCode ^ keepalive.hashCode;
@@ -2088,10 +2250,7 @@ class FactoryResetDto {
   final String? effect;
   final List<FactoryResetProcedureDto> procedures;
 
-  const FactoryResetDto({
-    this.effect,
-    required this.procedures,
-  });
+  const FactoryResetDto({this.effect, required this.procedures});
 
   @override
   int get hashCode => effect.hashCode ^ procedures.hashCode;
@@ -2294,10 +2453,7 @@ class ImageWriteDto {
   final String characteristicUuid;
   final Uint8List bytes;
 
-  const ImageWriteDto({
-    required this.characteristicUuid,
-    required this.bytes,
-  });
+  const ImageWriteDto({required this.characteristicUuid, required this.bytes});
 
   @override
   int get hashCode => characteristicUuid.hashCode ^ bytes.hashCode;
@@ -2355,9 +2511,7 @@ class ImageWritePlanDto {
 class KasaRequestDto {
   final String json;
 
-  const KasaRequestDto({
-    required this.json,
-  });
+  const KasaRequestDto({required this.json});
 
   @override
   int get hashCode => json.hashCode;
@@ -2566,10 +2720,7 @@ class MacPrefixDto {
   final String prefix;
   final MacPrefixConfidence confidence;
 
-  const MacPrefixDto({
-    required this.prefix,
-    required this.confidence,
-  });
+  const MacPrefixDto({required this.prefix, required this.confidence});
 
   @override
   int get hashCode => prefix.hashCode ^ confidence.hashCode;
@@ -2605,7 +2756,6 @@ enum MatchConfidence {
   /// agreed. A vendor-allocated 128-bit UUID in an advertisement is about as
   /// close to proof as pre-connect scanning gets.
   strong,
-  ;
 }
 
 /// One match returned by [`match_device_to_spec`]. Callers pick whichever
@@ -2694,10 +2844,7 @@ class MqttParsedDto {
   /// treating one read as one packet is the bug this count prevents.
   final int consumed;
 
-  const MqttParsedDto({
-    required this.packets,
-    required this.consumed,
-  });
+  const MqttParsedDto({required this.packets, required this.consumed});
 
   @override
   int get hashCode => packets.hashCode ^ consumed.hashCode;
@@ -2721,10 +2868,7 @@ class MqttRequestDto {
   final String topic;
   final String payload;
 
-  const MqttRequestDto({
-    required this.topic,
-    required this.payload,
-  });
+  const MqttRequestDto({required this.topic, required this.payload});
 
   @override
   int get hashCode => topic.hashCode ^ payload.hashCode;
@@ -2751,10 +2895,7 @@ class NameMatchDto {
   final String kind;
   final String value;
 
-  const NameMatchDto({
-    required this.kind,
-    required this.value,
-  });
+  const NameMatchDto({required this.kind, required this.value});
 
   @override
   int get hashCode => kind.hashCode ^ value.hashCode;
@@ -3288,10 +3429,7 @@ class NetworkInstanceDto {
   /// The child's human-facing name, falling back to the id.
   final String label;
 
-  const NetworkInstanceDto({
-    required this.id,
-    required this.label,
-  });
+  const NetworkInstanceDto({required this.id, required this.label});
 
   @override
   int get hashCode => id.hashCode ^ label.hashCode;
@@ -3312,10 +3450,7 @@ class NetworkOptionDto {
   final String raw;
   final String label;
 
-  const NetworkOptionDto({
-    required this.raw,
-    required this.label,
-  });
+  const NetworkOptionDto({required this.raw, required this.label});
 
   @override
   int get hashCode => raw.hashCode ^ label.hashCode;
@@ -3419,7 +3554,6 @@ enum NetworkReadingKind {
   unknownOption,
   number,
   text,
-  ;
 }
 
 /// One role's reading on one child — `is_on`, `brightness`, … paired with
@@ -3428,10 +3562,7 @@ class NetworkRoleReadingDto {
   final String role;
   final NetworkReadingDto reading;
 
-  const NetworkRoleReadingDto({
-    required this.role,
-    required this.reading,
-  });
+  const NetworkRoleReadingDto({required this.role, required this.reading});
 
   @override
   int get hashCode => role.hashCode ^ reading.hashCode;
@@ -3456,10 +3587,7 @@ class NetworkSourceParamDto {
   /// The credential's name (`username`) or the instance key (`id`).
   final String name;
 
-  const NetworkSourceParamDto({
-    required this.param,
-    required this.name,
-  });
+  const NetworkSourceParamDto({required this.param, required this.name});
 
   @override
   int get hashCode => param.hashCode ^ name.hashCode;
@@ -3478,10 +3606,7 @@ class PanelResolutionDto {
   final int width;
   final int height;
 
-  const PanelResolutionDto({
-    required this.width,
-    required this.height,
-  });
+  const PanelResolutionDto({required this.width, required this.height});
 
   @override
   int get hashCode => width.hashCode ^ height.hashCode;
@@ -3618,10 +3743,7 @@ class PlaylistWritesDto {
   final String serviceUuid;
   final List<ImageWriteDto> writes;
 
-  const PlaylistWritesDto({
-    required this.serviceUuid,
-    required this.writes,
-  });
+  const PlaylistWritesDto({required this.serviceUuid, required this.writes});
 
   @override
   int get hashCode => serviceUuid.hashCode ^ writes.hashCode;
@@ -3745,10 +3867,7 @@ class RabbitAirRequestDto {
   final String json;
   final int requestId;
 
-  const RabbitAirRequestDto({
-    required this.json,
-    required this.requestId,
-  });
+  const RabbitAirRequestDto({required this.json, required this.requestId});
 
   @override
   int get hashCode => json.hashCode ^ requestId.hashCode;
@@ -3851,10 +3970,7 @@ class RoombaRequestDto {
   final String topic;
   final String payload;
 
-  const RoombaRequestDto({
-    required this.topic,
-    required this.payload,
-  });
+  const RoombaRequestDto({required this.topic, required this.payload});
 
   @override
   int get hashCode => topic.hashCode ^ payload.hashCode;
@@ -4262,11 +4378,7 @@ class SetupStepDto {
   /// What confirms it worked, when the spec says.
   final String? expect;
 
-  const SetupStepDto({
-    required this.action,
-    this.actor,
-    this.expect,
-  });
+  const SetupStepDto({required this.action, this.actor, this.expect});
 
   @override
   int get hashCode => action.hashCode ^ actor.hashCode ^ expect.hashCode;
@@ -4551,10 +4663,7 @@ class StoredPlayDto {
   /// The framed play command, ready to write.
   final ImageWriteDto write;
 
-  const StoredPlayDto({
-    required this.serviceUuid,
-    required this.write,
-  });
+  const StoredPlayDto({required this.serviceUuid, required this.write});
 
   @override
   int get hashCode => serviceUuid.hashCode ^ write.hashCode;
@@ -4583,10 +4692,7 @@ class StoredUploadDto {
   /// implements — i.e. `encode_stored_image` will succeed rather than error.
   final bool encodable;
 
-  const StoredUploadDto({
-    this.containerFormat,
-    required this.encodable,
-  });
+  const StoredUploadDto({this.containerFormat, required this.encodable});
 
   @override
   int get hashCode => containerFormat.hashCode ^ encodable.hashCode;
@@ -4651,7 +4757,6 @@ enum StoredUploadEventKind {
 
   /// The transfer failed device-side (`code` is its error).
   failed,
-  ;
 }
 
 /// The BLE writes that persist one image on the device, in send order, plus the
@@ -4712,10 +4817,7 @@ class TroubleshootingDto {
   final String symptom;
   final List<String> causes;
 
-  const TroubleshootingDto({
-    required this.symptom,
-    required this.causes,
-  });
+  const TroubleshootingDto({required this.symptom, required this.causes});
 
   @override
   int get hashCode => symptom.hashCode ^ causes.hashCode;
@@ -4777,11 +4879,7 @@ class TxtMatchDto {
   /// Absent for `present`/`absent`, which test the key itself.
   final String? value;
 
-  const TxtMatchDto({
-    required this.key,
-    required this.kind,
-    this.value,
-  });
+  const TxtMatchDto({required this.key, required this.kind, this.value});
 
   @override
   int get hashCode => key.hashCode ^ kind.hashCode ^ value.hashCode;
@@ -4885,10 +4983,7 @@ class WebSocketFrameDto {
   final String channel;
   final String text;
 
-  const WebSocketFrameDto({
-    required this.channel,
-    required this.text,
-  });
+  const WebSocketFrameDto({required this.channel, required this.text});
 
   @override
   int get hashCode => channel.hashCode ^ text.hashCode;
@@ -4906,10 +5001,7 @@ class WebSocketHeaderDto {
   final String name;
   final String value;
 
-  const WebSocketHeaderDto({
-    required this.name,
-    required this.value,
-  });
+  const WebSocketHeaderDto({required this.name, required this.value});
 
   @override
   int get hashCode => name.hashCode ^ value.hashCode;
@@ -5141,5 +5233,4 @@ enum WemoJoinStatus {
 
   /// Anything else the device might answer.
   unknown,
-  ;
 }

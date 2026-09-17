@@ -7,8 +7,9 @@ import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/services/saved_network_device_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<SavedNetworkDeviceStore> _store(
-    [Map<String, Object> initial = const {}]) async {
+Future<SavedNetworkDeviceStore> _store([
+  Map<String, Object> initial = const {},
+]) async {
   SharedPreferences.setMockInitialValues(initial);
   return SavedNetworkDeviceStore(await SharedPreferences.getInstance());
 }
@@ -18,38 +19,39 @@ NetworkDevice _sighting({
   String name = 'Living Room TV',
   String? hostname,
   Map<String, String> txt = const {},
-}) =>
-    NetworkDevice(
-      host: host,
-      name: name,
-      hostname: hostname,
-      port: 8060,
-      ssdpPort: 8060,
-      ssdpDescriptionPath: '/',
-      ssdpTargets: const ['roku:ecp'],
-      sources: const {NetworkDiscoverySource.ssdp},
-      discoveredAt: DateTime(2026, 1, 1),
-      txt: txt,
-    );
+}) => NetworkDevice(
+  host: host,
+  name: name,
+  hostname: hostname,
+  port: 8060,
+  ssdpPort: 8060,
+  ssdpDescriptionPath: '/',
+  ssdpTargets: const ['roku:ecp'],
+  sources: const {NetworkDiscoverySource.ssdp},
+  discoveredAt: DateTime(2026, 1, 1),
+  txt: txt,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('save/load round-trips every field', () async {
     final store = await _store();
-    await store.save(SavedNetworkDevice(
-      id: 'hn:tv.local',
-      name: 'Living Room TV',
-      lastSeen: DateTime(2026, 2, 3),
-      host: '192.168.1.20',
-      hostname: 'tv.local',
-      port: 8060,
-      ssdpPort: 8060,
-      ssdpDescriptionPath: '/',
-      ssdpTargets: const ['roku:ecp'],
-      category: 'tv',
-      specKey: 'Roku External Control Protocol|Roku',
-    ));
+    await store.save(
+      SavedNetworkDevice(
+        id: 'hn:tv.local',
+        name: 'Living Room TV',
+        lastSeen: DateTime(2026, 2, 3),
+        host: '192.168.1.20',
+        hostname: 'tv.local',
+        port: 8060,
+        ssdpPort: 8060,
+        ssdpDescriptionPath: '/',
+        ssdpTargets: const ['roku:ecp'],
+        category: 'tv',
+        specKey: 'Roku External Control Protocol|Roku',
+      ),
+    );
 
     final loaded = store.load().single;
     expect(loaded.id, 'hn:tv.local');
@@ -67,15 +69,30 @@ void main() {
 
   test('loads newest-first and re-saving an id replaces the record', () async {
     final store = await _store();
-    await store.save(SavedNetworkDevice(
-        id: 'a', name: 'Old', lastSeen: DateTime(2026, 1, 1), host: '1.1.1.1'));
-    await store.save(SavedNetworkDevice(
-        id: 'b', name: 'New', lastSeen: DateTime(2026, 1, 2), host: '2.2.2.2'));
-    await store.save(SavedNetworkDevice(
+    await store.save(
+      SavedNetworkDevice(
+        id: 'a',
+        name: 'Old',
+        lastSeen: DateTime(2026, 1, 1),
+        host: '1.1.1.1',
+      ),
+    );
+    await store.save(
+      SavedNetworkDevice(
+        id: 'b',
+        name: 'New',
+        lastSeen: DateTime(2026, 1, 2),
+        host: '2.2.2.2',
+      ),
+    );
+    await store.save(
+      SavedNetworkDevice(
         id: 'a',
         name: 'Old, moved',
         lastSeen: DateTime(2026, 1, 3),
-        host: '3.3.3.3'));
+        host: '3.3.3.3',
+      ),
+    );
 
     final loaded = store.load();
     expect([for (final d in loaded) d.id], ['a', 'b']);
@@ -97,34 +114,48 @@ void main() {
 
   test('remove deletes by id', () async {
     final store = await _store();
-    await store.save(SavedNetworkDevice(
-        id: 'a', name: 'A', lastSeen: DateTime(2026, 1, 1), host: '1.1.1.1'));
+    await store.save(
+      SavedNetworkDevice(
+        id: 'a',
+        name: 'A',
+        lastSeen: DateTime(2026, 1, 1),
+        host: '1.1.1.1',
+      ),
+    );
     await store.remove('a');
     expect(store.load(), isEmpty);
   });
 
   group('stableIdFor prefers', () {
     test('the advertised MAC above everything', () {
-      final id = SavedNetworkDevice.stableIdFor(_sighting(
-        hostname: 'tv.local',
-        txt: const {'mac': 'aa:bb:cc:dd:ee:ff'},
-      ));
+      final id = SavedNetworkDevice.stableIdFor(
+        _sighting(
+          hostname: 'tv.local',
+          txt: const {'mac': 'aa:bb:cc:dd:ee:ff'},
+        ),
+      );
       expect(id, startsWith('mac:'));
     });
 
     test('the hostname when no MAC is published', () {
-      expect(SavedNetworkDevice.stableIdFor(_sighting(hostname: 'tv.local')),
-          'hn:tv.local');
+      expect(
+        SavedNetworkDevice.stableIdFor(_sighting(hostname: 'tv.local')),
+        'hn:tv.local',
+      );
     });
 
     test('the advertised name when there is no hostname either', () {
       expect(
-          SavedNetworkDevice.stableIdFor(_sighting()), 'name:Living Room TV');
+        SavedNetworkDevice.stableIdFor(_sighting()),
+        'name:Living Room TV',
+      );
     });
 
     test('the address only as a last resort', () {
-      expect(SavedNetworkDevice.stableIdFor(_sighting(name: '')),
-          'host:192.168.1.20');
+      expect(
+        SavedNetworkDevice.stableIdFor(_sighting(name: '')),
+        'host:192.168.1.20',
+      );
     });
   });
 
@@ -166,19 +197,22 @@ void main() {
       sources: const {NetworkDiscoverySource.lanProbe},
     );
 
-    test('toNetworkDevice reports the source the device actually answered on',
-        () {
-      final device = robot.toNetworkDevice();
-      expect(device.sources, {NetworkDiscoverySource.lanProbe});
-      expect(device.answeredLanProtocols, ['irobot-mqtt']);
-      expect(device.serviceTypes, ['_amzn-alexa._tcp.local']);
-      expect(device.server, 'Unspecified, UPnP/1.0');
-      expect(device.pictogram, 'robot-vacuum');
-    });
+    test(
+      'toNetworkDevice reports the source the device actually answered on',
+      () {
+        final device = robot.toNetworkDevice();
+        expect(device.sources, {NetworkDiscoverySource.lanProbe});
+        expect(device.answeredLanProtocols, ['irobot-mqtt']);
+        expect(device.serviceTypes, ['_amzn-alexa._tcp.local']);
+        expect(device.server, 'Unspecified, UPnP/1.0');
+        expect(device.pictogram, 'robot-vacuum');
+      },
+    );
 
     test('toJson/fromJson preserves them', () {
       final restored = SavedNetworkDevice.fromJson(
-          jsonDecode(jsonEncode(robot.toJson())) as Map<String, dynamic>);
+        jsonDecode(jsonEncode(robot.toJson())) as Map<String, dynamic>,
+      );
       expect(restored, isNotNull);
       expect(restored!.sources, {NetworkDiscoverySource.lanProbe});
       expect(restored.answeredLanProtocols, ['irobot-mqtt']);
@@ -187,20 +221,26 @@ void main() {
       expect(restored.pictogram, 'robot-vacuum');
     });
 
-    test('a record saved before sources were stored keeps the old derivation',
-        () {
-      final legacy = SavedNetworkDevice.fromJson(const {
-        'id': 'hn:old.local',
-        'name': 'Old',
-        'lastSeen': '2026-02-03T00:00:00.000',
-        'host': '192.168.1.9',
-        'ssdpPort': 8060,
-      });
-      expect(legacy!.sources, isEmpty);
-      expect(legacy.toNetworkDevice().sources, {NetworkDiscoverySource.ssdp},
-          reason: 'a record with no recorded sources falls back rather than '
-              'coming back with none at all');
-    });
+    test(
+      'a record saved before sources were stored keeps the old derivation',
+      () {
+        final legacy = SavedNetworkDevice.fromJson(const {
+          'id': 'hn:old.local',
+          'name': 'Old',
+          'lastSeen': '2026-02-03T00:00:00.000',
+          'host': '192.168.1.9',
+          'ssdpPort': 8060,
+        });
+        expect(legacy!.sources, isEmpty);
+        expect(
+          legacy.toNetworkDevice().sources,
+          {NetworkDiscoverySource.ssdp},
+          reason:
+              'a record with no recorded sources falls back rather than '
+              'coming back with none at all',
+        );
+      },
+    );
 
     test('a source this build has not heard of is dropped, not fatal', () {
       final restored = SavedNetworkDevice.fromJson(const {

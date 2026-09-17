@@ -16,55 +16,55 @@ import '../fakes/fake_spec_codec.dart';
 const _stateChar = '90759319-1668-44da-9ef3-492d593bd1e5';
 
 EntityActionDto _setValue({String? command}) => EntityActionDto(
-      role: 'set_value',
-      serviceUuid: '0313fb4e-198b-4f64-a883-52b218c10ccc',
-      characteristicUuid: _stateChar,
-      commandName: command,
-      userParams: const [],
-    );
+  role: 'set_value',
+  serviceUuid: '0313fb4e-198b-4f64-a883-52b218c10ccc',
+  characteristicUuid: _stateChar,
+  commandName: command,
+  userParams: const [],
+);
 
 /// Gerbing's resolved shape: a 0-100% heat channel written directly, read
 /// back through the same characteristic.
 EntityDto _heatEntity({bool writable = true}) => EntityDto(
-    options: const [],
-    name: 'Heat Level 1',
-    platform: 'number',
-    unit: '%',
-    stateCharacteristic: _stateChar,
-    canNotify: false,
-    hasFormat: true,
-    valueField: 'heat_percent',
-    onWhenNonzero: false,
-    actions: writable ? [_setValue()] : const [],
-    setpointMin: 0,
-    setpointMax: 100,
-    setpointStep: 1,
-    variants: const []);
+  options: const [],
+  name: 'Heat Level 1',
+  platform: 'number',
+  unit: '%',
+  stateCharacteristic: _stateChar,
+  canNotify: false,
+  hasFormat: true,
+  valueField: 'heat_percent',
+  onWhenNonzero: false,
+  actions: writable ? [_setValue()] : const [],
+  setpointMin: 0,
+  setpointMax: 100,
+  setpointStep: 1,
+  variants: const [],
+);
 
 Widget _wrap(
   EntityDto entity, {
   required FakeSpecCodec codec,
   required FakeBleService ble,
   String? stateServiceUuid = 's',
-}) =>
-    ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(ble),
-        specCodecProvider.overrideWithValue(codec),
-      ],
-      child: MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: SetpointControlCard(
-              deviceId: 'd',
-              stateServiceUuid: stateServiceUuid,
-              entity: entity,
-              specYaml: 'y',
-            ),
-          ),
+}) => ProviderScope(
+  overrides: [
+    bleServiceProvider.overrideWithValue(ble),
+    specCodecProvider.overrideWithValue(codec),
+  ],
+  child: MaterialApp(
+    home: Scaffold(
+      body: SingleChildScrollView(
+        child: SetpointControlCard(
+          deviceId: 'd',
+          stateServiceUuid: stateServiceUuid,
+          entity: entity,
+          specYaml: 'y',
         ),
       ),
-    );
+    ),
+  ),
+);
 
 FakeSpecCodec _codecReading(
   int raw, {
@@ -72,30 +72,30 @@ FakeSpecCodec _codecReading(
   double? valueOffset,
   String? unit,
   String? unitSource,
-}) =>
-    FakeSpecCodec(
-      decoded: [
-        DecodedValueDto(
-          name: 'heat_percent',
-          valueType: 'uint',
-          display: '$raw',
-          uintValue: raw,
-          scale: scale,
-          valueOffset: valueOffset,
-          unit: unit,
-          unitSource: unitSource,
-        ),
-      ],
-      entityWrite: EntityWriteDto(
-        serviceUuid: 's',
-        characteristicUuid: _stateChar,
-        bytes: Uint8List.fromList([60]),
-      ),
-    );
+}) => FakeSpecCodec(
+  decoded: [
+    DecodedValueDto(
+      name: 'heat_percent',
+      valueType: 'uint',
+      display: '$raw',
+      uintValue: raw,
+      scale: scale,
+      valueOffset: valueOffset,
+      unit: unit,
+      unitSource: unitSource,
+    ),
+  ],
+  entityWrite: EntityWriteDto(
+    serviceUuid: 's',
+    characteristicUuid: _stateChar,
+    bytes: Uint8List.fromList([60]),
+  ),
+);
 
 void main() {
-  testWidgets('shows the live reading and a slider bounded by the spec',
-      (tester) async {
+  testWidgets('shows the live reading and a slider bounded by the spec', (
+    tester,
+  ) async {
     final codec = _codecReading(40);
     await tester.pumpWidget(
       _wrap(_heatEntity(), codec: codec, ble: FakeBleService()),
@@ -111,8 +111,9 @@ void main() {
     expect(slider.divisions, 100, reason: 'step 1 over a 0-100 range');
   });
 
-  testWidgets('sends the chosen value in decoded units on release',
-      (tester) async {
+  testWidgets('sends the chosen value in decoded units on release', (
+    tester,
+  ) async {
     final codec = _codecReading(40);
     final ble = FakeBleService();
     await tester.pumpWidget(_wrap(_heatEntity(), codec: codec, ble: ble));
@@ -138,8 +139,9 @@ void main() {
     await tester.pumpWidget(_wrap(_heatEntity(), codec: codec, ble: ble));
     await tester.pumpAndSettle();
 
-    final gesture =
-        await tester.startGesture(tester.getCenter(find.byType(Slider)));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(Slider)),
+    );
     await gesture.moveBy(const Offset(60, 0));
     await tester.pump();
     await gesture.moveBy(const Offset(60, 0));
@@ -151,22 +153,24 @@ void main() {
     expect(codec.encodeEntityValueCalls, hasLength(1));
   });
 
-  testWidgets('applies scale and offset to the displayed reading',
-      (tester) async {
+  testWidgets('applies scale and offset to the displayed reading', (
+    tester,
+  ) async {
     // Gerbing's thermometer: value = raw * 0.5 + 85 °F. Raw 100 is 135 °F,
     // and dropping the offset would read 50.
     const entity = EntityDto(
-        options: [],
-        name: 'Temperature Channel 1',
-        platform: 'number',
-        deviceClass: 'temperature',
-        stateCharacteristic: _stateChar,
-        canNotify: false,
-        hasFormat: true,
-        valueField: 'heat_percent',
-        onWhenNonzero: false,
-        actions: [],
-        variants: []);
+      options: [],
+      name: 'Temperature Channel 1',
+      platform: 'number',
+      deviceClass: 'temperature',
+      stateCharacteristic: _stateChar,
+      canNotify: false,
+      hasFormat: true,
+      valueField: 'heat_percent',
+      onWhenNonzero: false,
+      actions: [],
+      variants: [],
+    );
     await tester.pumpWidget(
       _wrap(
         entity,
@@ -181,26 +185,28 @@ void main() {
     expect(find.text('100'), findsNothing);
   });
 
-  testWidgets('a read-only setpoint states its range instead of a control',
-      (tester) async {
+  testWidgets('a read-only setpoint states its range instead of a control', (
+    tester,
+  ) async {
     // Ember's target temperature: its bytes cannot be encoded yet, but the
     // declared 49-63 °C range is still worth telling the user.
     const entity = EntityDto(
-        options: [],
-        name: 'Target Temperature',
-        platform: 'number',
-        deviceClass: 'temperature',
-        unit: 'C',
-        stateCharacteristic: _stateChar,
-        canNotify: false,
-        hasFormat: true,
-        valueField: 'heat_percent',
-        valueScale: 0.01,
-        onWhenNonzero: false,
-        actions: [],
-        setpointMin: 49,
-        setpointMax: 63,
-        variants: []);
+      options: [],
+      name: 'Target Temperature',
+      platform: 'number',
+      deviceClass: 'temperature',
+      unit: 'C',
+      stateCharacteristic: _stateChar,
+      canNotify: false,
+      hasFormat: true,
+      valueField: 'heat_percent',
+      valueScale: 0.01,
+      onWhenNonzero: false,
+      actions: [],
+      setpointMin: 49,
+      setpointMax: 63,
+      variants: [],
+    );
     await tester.pumpWidget(
       _wrap(entity, codec: _codecReading(5500), ble: FakeBleService()),
     );
@@ -209,8 +215,10 @@ void main() {
     expect(find.byType(Slider), findsNothing);
     // 5500 centidegrees, shown to the 0.5 resolution a 49-63 range implies.
     expect(find.text('55.0'), findsOneWidget);
-    expect(find.textContaining('does not describe how to set it yet'),
-        findsOneWidget);
+    expect(
+      find.textContaining('does not describe how to set it yet'),
+      findsOneWidget,
+    );
     expect(find.textContaining('49'), findsOneWidget);
   });
 
@@ -218,60 +226,8 @@ void main() {
     /// A writable setpoint with whatever bounds a case wants to try.
     EntityDto boundedEntity({double? min, double? max, double? step}) =>
         EntityDto(
-            options: const [],
-            name: 'Heat Level 1',
-            platform: 'number',
-            unit: '%',
-            stateCharacteristic: _stateChar,
-            canNotify: false,
-            hasFormat: true,
-            valueField: 'heat_percent',
-            onWhenNonzero: false,
-            actions: [_setValue()],
-            setpointMin: min,
-            setpointMax: max,
-            setpointStep: step,
-            variants: const []);
-
-    testWidgets('inverted bounds fall back to steppers instead of throwing',
-        (tester) async {
-      // `Slider` asserts min <= max and `num.clamp` throws on an inverted
-      // range, so this used to take the whole device panel down. Specs load
-      // from arbitrary remote pack URLs and the Rust parser validates command
-      // PARAMETER bounds, not entity min/max — and an entity declaring `min`
-      // alone can invert on its own, when the fallback `max` comes from the
-      // bound field's raw range mapped through a scale below 1.
-      await tester.pumpWidget(_wrap(
-        boundedEntity(min: 100, max: 2.55),
-        codec: _codecReading(40),
-        ble: FakeBleService(),
-      ));
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.byType(Slider), findsNothing);
-      expect(find.text('Set'), findsOneWidget,
-          reason: 'the unbounded stepper control is the honest fallback');
-    });
-
-    testWidgets('zero-width bounds fall back too', (tester) async {
-      await tester.pumpWidget(_wrap(
-        boundedEntity(min: 50, max: 50),
-        codec: _codecReading(40),
-        ble: FakeBleService(),
-      ));
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.byType(Slider), findsNothing);
-    });
-
-    testWidgets('a read-only entity with inverted bounds states nothing',
-        (tester) async {
-      // The "Accepts 100–2.55" line would be the same nonsense in prose.
-      const entity = EntityDto(
-          options: [],
-          name: 'Target',
+          options: const [],
+          name: 'Heat Level 1',
           platform: 'number',
           unit: '%',
           stateCharacteristic: _stateChar,
@@ -279,29 +235,97 @@ void main() {
           hasFormat: true,
           valueField: 'heat_percent',
           onWhenNonzero: false,
-          actions: [],
-          setpointMin: 100,
-          setpointMax: 2.55,
-          variants: []);
+          actions: [_setValue()],
+          setpointMin: min,
+          setpointMax: max,
+          setpointStep: step,
+          variants: const [],
+        );
+
+    testWidgets('inverted bounds fall back to steppers instead of throwing', (
+      tester,
+    ) async {
+      // `Slider` asserts min <= max and `num.clamp` throws on an inverted
+      // range, so this used to take the whole device panel down. Specs load
+      // from arbitrary remote pack URLs and the Rust parser validates command
+      // PARAMETER bounds, not entity min/max — and an entity declaring `min`
+      // alone can invert on its own, when the fallback `max` comes from the
+      // bound field's raw range mapped through a scale below 1.
+      await tester.pumpWidget(
+        _wrap(
+          boundedEntity(min: 100, max: 2.55),
+          codec: _codecReading(40),
+          ble: FakeBleService(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(Slider), findsNothing);
+      expect(
+        find.text('Set'),
+        findsOneWidget,
+        reason: 'the unbounded stepper control is the honest fallback',
+      );
+    });
+
+    testWidgets('zero-width bounds fall back too', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          boundedEntity(min: 50, max: 50),
+          codec: _codecReading(40),
+          ble: FakeBleService(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(Slider), findsNothing);
+    });
+
+    testWidgets('a read-only entity with inverted bounds states nothing', (
+      tester,
+    ) async {
+      // The "Accepts 100–2.55" line would be the same nonsense in prose.
+      const entity = EntityDto(
+        options: [],
+        name: 'Target',
+        platform: 'number',
+        unit: '%',
+        stateCharacteristic: _stateChar,
+        canNotify: false,
+        hasFormat: true,
+        valueField: 'heat_percent',
+        onWhenNonzero: false,
+        actions: [],
+        setpointMin: 100,
+        setpointMax: 2.55,
+        variants: [],
+      );
       await tester.pumpWidget(
         _wrap(entity, codec: _codecReading(40), ble: FakeBleService()),
       );
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.textContaining('does not describe how to set it yet'),
-          findsNothing);
+      expect(
+        find.textContaining('does not describe how to set it yet'),
+        findsNothing,
+      );
     });
 
-    testWidgets('a range finer than the screen becomes a continuous slider',
-        (tester) async {
+    testWidgets('a range finer than the screen becomes a continuous slider', (
+      tester,
+    ) async {
       // A uint32 direct-write setpoint stepped by 1 asks for 4.3 billion
       // discrete stops. Divisions are capped rather than handed through.
-      await tester.pumpWidget(_wrap(
-        boundedEntity(min: 0, max: 4294967295, step: 1),
-        codec: _codecReading(40),
-        ble: FakeBleService(),
-      ));
+      await tester.pumpWidget(
+        _wrap(
+          boundedEntity(min: 0, max: 4294967295, step: 1),
+          codec: _codecReading(40),
+          ble: FakeBleService(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
@@ -310,31 +334,40 @@ void main() {
     });
   });
 
-  testWidgets('a write-only setpoint says the current value is unknown',
-      (tester) async {
+  testWidgets('a write-only setpoint says the current value is unknown', (
+    tester,
+  ) async {
     final entity = EntityDto(
-        options: const [],
-        name: 'Heat Level 1',
-        platform: 'number',
-        unit: '%',
-        canNotify: false,
-        hasFormat: false,
-        onWhenNonzero: false,
-        actions: [_setValue()],
-        setpointMin: 0,
-        setpointMax: 100,
-        setpointStep: 1,
-        variants: const []);
+      options: const [],
+      name: 'Heat Level 1',
+      platform: 'number',
+      unit: '%',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [_setValue()],
+      setpointMin: 0,
+      setpointMax: 100,
+      setpointStep: 1,
+      variants: const [],
+    );
     final codec = _codecReading(0);
     await tester.pumpWidget(
-      _wrap(entity,
-          codec: codec, ble: FakeBleService(), stateServiceUuid: null),
+      _wrap(
+        entity,
+        codec: codec,
+        ble: FakeBleService(),
+        stateServiceUuid: null,
+      ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('Current value unknown'), findsOneWidget);
-    expect(find.byType(Slider), findsOneWidget,
-        reason: 'not knowing the state does not stop us setting it');
+    expect(
+      find.byType(Slider),
+      findsOneWidget,
+      reason: 'not knowing the state does not stop us setting it',
+    );
   });
 
   testWidgets('marks a unit that follows a device setting', (tester) async {
@@ -350,14 +383,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byTooltip('The device decides this unit; it is not fixed by the '
-          'protocol.'),
+      find.byTooltip(
+        'The device decides this unit; it is not fixed by the '
+        'protocol.',
+      ),
       findsOneWidget,
     );
   });
 
-  testWidgets('a rejected value surfaces instead of looking applied',
-      (tester) async {
+  testWidgets('a rejected value surfaces instead of looking applied', (
+    tester,
+  ) async {
     final codec = FakeSpecCodec(
       decoded: const [
         DecodedValueDto(
@@ -376,23 +412,28 @@ void main() {
     await tester.drag(find.byType(Slider), const Offset(400, 0));
     await tester.pumpAndSettle();
 
-    expect(ble.writes, isEmpty,
-        reason: 'nothing is written when encoding fails');
+    expect(
+      ble.writes,
+      isEmpty,
+      reason: 'nothing is written when encoding fails',
+    );
     expect(find.byType(SnackBar), findsOneWidget);
   });
 
-  testWidgets('without a declared range the control offers steppers',
-      (tester) async {
+  testWidgets('without a declared range the control offers steppers', (
+    tester,
+  ) async {
     // No min/max means a slider would be inventing bounds.
     final entity = EntityDto(
-        options: const [],
-        name: 'Animation Speed',
-        platform: 'number',
-        canNotify: false,
-        hasFormat: false,
-        onWhenNonzero: false,
-        actions: [_setValue(command: 'set_speed')],
-        variants: const []);
+      options: const [],
+      name: 'Animation Speed',
+      platform: 'number',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [_setValue(command: 'set_speed')],
+      variants: const [],
+    );
     final codec = _codecReading(0);
     final ble = FakeBleService();
     await tester.pumpWidget(
@@ -403,8 +444,11 @@ void main() {
     expect(find.byType(Slider), findsNothing);
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
-    expect(codec.encodeEntityValueCalls, isEmpty,
-        reason: 'nudging stages a value; Set sends it');
+    expect(
+      codec.encodeEntityValueCalls,
+      isEmpty,
+      reason: 'nudging stages a value; Set sends it',
+    );
 
     await tester.tap(find.text('Set'));
     await tester.pumpAndSettle();

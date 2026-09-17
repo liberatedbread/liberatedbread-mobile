@@ -46,8 +46,9 @@ Future<void> _pumpUntil(
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('turn all lights off drives every member of the group',
-      (tester) async {
+  testWidgets('turn all lights off drives every member of the group', (
+    tester,
+  ) async {
     // Standalone (the linux-desktop per-file job) this suite brings the
     // bridge up itself; in ci_all_test.dart it is grouped after the suites
     // that already did. The real codec is the point — see the header.

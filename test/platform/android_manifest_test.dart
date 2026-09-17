@@ -39,9 +39,9 @@ const Map<String, List<String>> _permissionToManifestEntries = {
 };
 
 Set<String> _declaredPermissions(String manifest) => {
-      for (final element in xmlElementAttributes(manifest, 'uses-permission'))
-        if (element['android:name'] != null) element['android:name']!,
-    };
+  for (final element in xmlElementAttributes(manifest, 'uses-permission'))
+    if (element['android:name'] != null) element['android:name']!,
+};
 
 void main() {
   late String manifest;
@@ -51,23 +51,23 @@ void main() {
   setUpAll(() {
     manifest = readRepoFile(
       _manifestPath,
-      consequence: 'Without it the Android app cannot be built or installed '
+      consequence:
+          'Without it the Android app cannot be built or installed '
           'at all.',
     );
     declared = _declaredPermissions(manifest);
     androidRequests = findPermissionUsages(
       readRepoFile(
         _bleServicePath,
-        consequence: 'It is the ground truth for which runtime permissions '
+        consequence:
+            'It is the ground truth for which runtime permissions '
             'the app requests.',
       ),
     ).where((usage) => usage.androidGuarded).toList();
   });
 
-  group('AndroidManifest declares the runtime permissions the code requests',
-      () {
-    test('the scan of real_ble_service.dart found the Android request block',
-        () {
+  group('AndroidManifest declares the runtime permissions the code requests', () {
+    test('the scan of real_ble_service.dart found the Android request block', () {
       // Anti-vacuity guard: every dynamic assertion below is derived from this
       // scan, so if the scanner ever silently returns nothing, they would all
       // pass while checking nothing.
@@ -78,7 +78,8 @@ void main() {
           'bluetoothConnect',
           'locationWhenInUse',
         }),
-        reason: 'RealBleService.requestPermissions() is expected to request '
+        reason:
+            'RealBleService.requestPermissions() is expected to request '
             'bluetoothScan, bluetoothConnect and locationWhenInUse inside its '
             'Platform.isAndroid branch. Not finding them means either the code '
             'stopped requesting them (Android BLE scanning then fails at '
@@ -90,12 +91,14 @@ void main() {
     test('every Permission the Android branch requests is mapped here', () {
       final unmapped = androidRequests
           .where(
-              (usage) => !_permissionToManifestEntries.containsKey(usage.name))
+            (usage) => !_permissionToManifestEntries.containsKey(usage.name),
+          )
           .toList();
       expect(
         unmapped,
         isEmpty,
-        reason: 'RealBleService.requestPermissions() now asks Android for '
+        reason:
+            'RealBleService.requestPermissions() now asks Android for '
             '$unmapped, which this test does not know how to check. Add the '
             'permission to _permissionToManifestEntries with the '
             '<uses-permission> entry it needs — otherwise a request for an '
@@ -111,7 +114,8 @@ void main() {
           expect(
             declared,
             contains(entry),
-            reason: '$_bleServicePath requests Permission.${usage.name} '
+            reason:
+                '$_bleServicePath requests Permission.${usage.name} '
                 '(line ${usage.line}) but $_manifestPath does not declare '
                 '$entry. Android refuses the request outright and reports '
                 'permanentlyDenied without showing a dialog, so '
@@ -135,7 +139,8 @@ void main() {
           'android.permission.ACCESS_FINE_LOCATION',
           'android.permission.ACCESS_COARSE_LOCATION',
         ]),
-        reason: 'BLUETOOTH_SCAN, BLUETOOTH_CONNECT and the '
+        reason:
+            'BLUETOOTH_SCAN, BLUETOOTH_CONNECT and the '
             'ACCESS_FINE/COARSE_LOCATION pair are what Android 12+ needs to '
             'discover and talk to a peripheral (FINE is also what makes scan '
             'results non-empty on API 23-30, and COARSE must accompany it or '
@@ -148,7 +153,8 @@ void main() {
       expect(
         declared,
         contains('android.permission.INTERNET'),
-        reason: 'The Home Assistant client (lib/services/http_ha_api_client'
+        reason:
+            'The Home Assistant client (lib/services/http_ha_api_client'
             '.dart) POSTs registration and webhook payloads over HTTP. Without '
             'android.permission.INTERNET every socket fails with '
             'SocketException: Permission denied, so HA setup can never '
@@ -163,7 +169,8 @@ void main() {
           'android.permission.ACCESS_WIFI_STATE',
           'android.permission.CHANGE_WIFI_MULTICAST_STATE',
         ]),
-        reason: 'The Wi-Fi tab (lib/services/real_network_scan_service.dart) '
+        reason:
+            'The Wi-Fi tab (lib/services/real_network_scan_service.dart) '
             'discovers devices over mDNS and SSDP, both of which are IP '
             'multicast. Without CHANGE_WIFI_MULTICAST_STATE the app cannot '
             'take a multicast lock, and the Wi-Fi driver filters multicast '
@@ -179,20 +186,23 @@ void main() {
       // assertion above passes either way, which is exactly how this shipped.
       final activity = readRepoFile(
         'android/app/src/main/kotlin/ca/pigscanfly/liberatedbread/MainActivity.kt',
-        consequence: 'It hosts the Flutter engine; without it the Android app '
+        consequence:
+            'It hosts the Flutter engine; without it the Android app '
             'has no entry point.',
       );
       expect(
         activity,
         contains('createMulticastLock'),
-        reason: 'MainActivity must create the multicast lock that '
+        reason:
+            'MainActivity must create the multicast lock that '
             'CHANGE_WIFI_MULTICAST_STATE authorises, or Android drops every '
             'mDNS and SSDP reply before the app sees it.',
       );
       expect(
         activity,
         contains(MulticastLock.channel.name),
-        reason: 'The method-channel name in MainActivity must match '
+        reason:
+            'The method-channel name in MainActivity must match '
             'MulticastLock.channel — asserted against the Dart constant '
             'itself, not a third copy of the string, so the two sides cannot '
             'drift together past this test. A mismatch is silent: the Dart '
@@ -201,7 +211,8 @@ void main() {
       expect(
         activity,
         contains(RegExp(r'override fun onDestroy\(\)')),
-        reason: 'The lock stops the Wi-Fi chip filtering multicast for the '
+        reason:
+            'The lock stops the Wi-Fi chip filtering multicast for the '
             'whole device, so a scan torn down without its release reaching '
             'the platform must not leave it held for the process lifetime. '
             '(A smoke check: it proves the override exists, not that it '
@@ -223,13 +234,15 @@ void main() {
       'android.permission.BLUETOOTH_ADMIN',
     ]) {
       test('$legacy is declared with maxSdkVersion 30', () {
-        final declared = xmlElementAttributes(manifest, 'uses-permission')
-            .where((e) => e['android:name'] == legacy)
-            .toList();
+        final declared = xmlElementAttributes(
+          manifest,
+          'uses-permission',
+        ).where((e) => e['android:name'] == legacy).toList();
         expect(
           declared,
           hasLength(1),
-          reason: '$legacy must be declared. minSdk is 24 '
+          reason:
+              '$legacy must be declared. minSdk is 24 '
               '(android/app/build.gradle), but BLUETOOTH_SCAN/'
               'BLUETOOTH_CONNECT only apply from API 31, and '
               'flutter_blue_plus_android deliberately declares no permissions '
@@ -239,7 +252,8 @@ void main() {
         expect(
           declared.single['android:maxSdkVersion'],
           '30',
-          reason: '$legacy must carry android:maxSdkVersion="30" so it is not '
+          reason:
+              '$legacy must carry android:maxSdkVersion="30" so it is not '
               'requested on Android 12+, where it was replaced by the '
               'BLUETOOTH_SCAN/BLUETOOTH_CONNECT pair.',
         );
@@ -252,15 +266,20 @@ void main() {
       final gradle = repoFile('android/app/build.gradle').readAsStringSync();
       // Both DSL spellings: the Flutter migrator flipped `minSdk` to
       // `minSdkVersion` when it applied the newDsl opt-out.
-      final match =
-          RegExp(r'minSdk(?:Version)?\s*=\s*(\d+)').firstMatch(gradle);
-      expect(match, isNotNull,
-          reason: 'Could not read minSdk from android/app/build.gradle.');
+      final match = RegExp(
+        r'minSdk(?:Version)?\s*=\s*(\d+)',
+      ).firstMatch(gradle);
+      expect(
+        match,
+        isNotNull,
+        reason: 'Could not read minSdk from android/app/build.gradle.',
+      );
       final minSdk = int.parse(match!.group(1)!);
       expect(
         minSdk,
         lessThanOrEqualTo(30),
-        reason: 'minSdk is now $minSdk, above the API 30 ceiling of the legacy '
+        reason:
+            'minSdk is now $minSdk, above the API 30 ceiling of the legacy '
             'BLUETOOTH/BLUETOOTH_ADMIN permissions. Those declarations are now '
             'dead weight — remove them and delete this group.',
       );
@@ -283,13 +302,15 @@ void main() {
       expect(
         applications,
         hasLength(1),
-        reason: 'Expected exactly one <application> element in '
+        reason:
+            'Expected exactly one <application> element in '
             '$_manifestPath.',
       );
       expect(
         applications.single['android:usesCleartextTraffic'],
         'true',
-        reason: 'android:usesCleartextTraffic must stay "true". This is a '
+        reason:
+            'android:usesCleartextTraffic must stay "true". This is a '
             'deliberate product requirement, not an oversight: with cleartext '
             'blocked, every request to a plain-http:// LAN Home Assistant '
             '(the common case — see lib/core/ha_url.dart, which supports '
@@ -309,14 +330,16 @@ void main() {
       expect(
         feature,
         hasLength(1),
-        reason: 'android.hardware.bluetooth_le must be declared in '
+        reason:
+            'android.hardware.bluetooth_le must be declared in '
             '$_manifestPath so Play Store listings and device filtering '
             'reflect that the app uses BLE.',
       );
       expect(
         feature.single['android:required'],
         'false',
-        reason: 'android.hardware.bluetooth_le must be required="false". '
+        reason:
+            'android.hardware.bluetooth_le must be required="false". '
             'Declaring it required (or omitting android:required, which '
             'defaults to true) makes Google Play hide the app from every '
             'device without BLE hardware — including emulators and '

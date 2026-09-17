@@ -10,32 +10,39 @@ import 'package:liberated_bread_mobile/widgets/raw_characteristic_widget.dart';
 import '../fakes/fake_ble_service.dart';
 
 Widget _wrap(Widget child, FakeBleService fake) => ProviderScope(
-      overrides: [bleServiceProvider.overrideWithValue(fake)],
-      child: MaterialApp(home: Scaffold(body: ListView(children: [child]))),
-    );
+  overrides: [bleServiceProvider.overrideWithValue(fake)],
+  child: MaterialApp(
+    home: Scaffold(body: ListView(children: [child])),
+  ),
+);
 
 const _charUuid = '00002a19-0000-1000-8000-00805f9b34fb';
 const _serviceUuid = '0000180f-0000-1000-8000-00805f9b34fb';
 
 void main() {
-  testWidgets('readable characteristic shows hex value after read',
-      (tester) async {
-    final fake = FakeBleService(readValues: {
-      _charUuid: const [0x55, 0xaa]
-    });
-    await tester.pumpWidget(_wrap(
-      const RawCharacteristicWidget(
-        deviceId: '01',
-        serviceUuid: _serviceUuid,
-        characteristic: BleDiscoveredCharacteristic(
-          uuid: _charUuid,
-          canRead: true,
-          canWrite: false,
-          canNotify: false,
+  testWidgets('readable characteristic shows hex value after read', (
+    tester,
+  ) async {
+    final fake = FakeBleService(
+      readValues: {
+        _charUuid: const [0x55, 0xaa],
+      },
+    );
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
         ),
+        fake,
       ),
-      fake,
-    ));
+    );
 
     await tester.pumpAndSettle();
     expect(find.text('55 aa'), findsOneWidget);
@@ -43,43 +50,50 @@ void main() {
 
   testWidgets('read error is surfaced in the subtitle', (tester) async {
     final fake = FakeBleService(readError: StateError('denied'));
-    await tester.pumpWidget(_wrap(
-      const RawCharacteristicWidget(
-        deviceId: '01',
-        serviceUuid: _serviceUuid,
-        characteristic: BleDiscoveredCharacteristic(
-          uuid: _charUuid,
-          canRead: true,
-          canWrite: false,
-          canNotify: false,
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
         ),
+        fake,
       ),
-      fake,
-    ));
+    );
 
     await tester.pumpAndSettle();
-    expect(find.textContaining('Could not read this characteristic'),
-        findsOneWidget);
+    expect(
+      find.textContaining('Could not read this characteristic'),
+      findsOneWidget,
+    );
     expect(find.textContaining('Bad state'), findsNothing);
   });
 
-  testWidgets('writable characteristic writes parsed hex bytes',
-      (tester) async {
+  testWidgets('writable characteristic writes parsed hex bytes', (
+    tester,
+  ) async {
     final fake = FakeBleService();
-    await tester.pumpWidget(_wrap(
-      const RawCharacteristicWidget(
-        deviceId: '01',
-        serviceUuid: _serviceUuid,
-        characteristic: BleDiscoveredCharacteristic(
-          uuid: _charUuid,
-          canRead: false,
-          canWrite: true,
-          canWriteWithoutResponse: true,
-          canNotify: false,
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: false,
+            canWrite: true,
+            canWriteWithoutResponse: true,
+            canNotify: false,
+          ),
         ),
+        fake,
       ),
-      fake,
-    ));
+    );
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), '01 aa ff');
@@ -93,19 +107,21 @@ void main() {
 
   testWidgets('invalid hex is rejected without a write', (tester) async {
     final fake = FakeBleService();
-    await tester.pumpWidget(_wrap(
-      const RawCharacteristicWidget(
-        deviceId: '01',
-        serviceUuid: _serviceUuid,
-        characteristic: BleDiscoveredCharacteristic(
-          uuid: _charUuid,
-          canRead: false,
-          canWrite: true,
-          canNotify: false,
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+          ),
         ),
+        fake,
       ),
-      fake,
-    ));
+    );
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'zz');
@@ -117,39 +133,44 @@ void main() {
   });
 
   testWidgets('read-only characteristic offers no write field', (tester) async {
-    await tester.pumpWidget(_wrap(
-      const RawCharacteristicWidget(
-        deviceId: '01',
-        serviceUuid: _serviceUuid,
-        characteristic: BleDiscoveredCharacteristic(
-          uuid: _charUuid,
-          canRead: true,
-          canWrite: false,
-          canNotify: false,
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
         ),
+        FakeBleService(),
       ),
-      FakeBleService(),
-    ));
+    );
     await tester.pumpAndSettle();
 
     expect(find.byType(TextField), findsNothing);
   });
 
-  testWidgets('non-readable characteristic renders no-value placeholder',
-      (tester) async {
-    await tester.pumpWidget(_wrap(
-      const RawCharacteristicWidget(
-        deviceId: '01',
-        serviceUuid: _serviceUuid,
-        characteristic: BleDiscoveredCharacteristic(
-          uuid: _charUuid,
-          canRead: false,
-          canWrite: true,
-          canNotify: false,
+  testWidgets('non-readable characteristic renders no-value placeholder', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+          ),
         ),
+        FakeBleService(),
       ),
-      FakeBleService(),
-    ));
+    );
 
     await tester.pumpAndSettle();
     expect(find.text('(no value)'), findsOneWidget);
@@ -158,22 +179,26 @@ void main() {
   testWidgets('printable values also render as ASCII', (tester) async {
     // The capability the deleted CharacteristicScreen had and the live browser
     // did not: seeing "OK" next to "4f 4b" while reverse-engineering.
-    final fake = FakeBleService(readValues: {
-      _charUuid: const [0x4f, 0x4b]
-    });
-    await tester.pumpWidget(_wrap(
-      const RawCharacteristicWidget(
-        deviceId: '01',
-        serviceUuid: _serviceUuid,
-        characteristic: BleDiscoveredCharacteristic(
-          uuid: _charUuid,
-          canRead: true,
-          canWrite: false,
-          canNotify: false,
+    final fake = FakeBleService(
+      readValues: {
+        _charUuid: const [0x4f, 0x4b],
+      },
+    );
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
         ),
+        fake,
       ),
-      fake,
-    ));
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('4f 4b'), findsOneWidget);
@@ -181,22 +206,26 @@ void main() {
   });
 
   testWidgets('binary values show hex only', (tester) async {
-    final fake = FakeBleService(readValues: {
-      _charUuid: const [0x01, 0x80, 0xff]
-    });
-    await tester.pumpWidget(_wrap(
-      const RawCharacteristicWidget(
-        deviceId: '01',
-        serviceUuid: _serviceUuid,
-        characteristic: BleDiscoveredCharacteristic(
-          uuid: _charUuid,
-          canRead: true,
-          canWrite: false,
-          canNotify: false,
+    final fake = FakeBleService(
+      readValues: {
+        _charUuid: const [0x01, 0x80, 0xff],
+      },
+    );
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
         ),
+        fake,
       ),
-      fake,
-    ));
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('01 80 ff'), findsOneWidget);

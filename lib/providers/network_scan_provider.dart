@@ -66,14 +66,14 @@ class NetworkIdentity {
   });
 
   NetworkIdentity.of(NetworkDevice device)
-      : name = device.name,
-        hostname = device.hostname,
-        port = device.port,
-        serviceTypes = device.serviceTypes,
-        ssdpTargets = device.ssdpTargets,
-        answeredLanProtocols = device.answeredLanProtocols,
-        txt = device.txt,
-        mac = device.advertisedMac;
+    : name = device.name,
+      hostname = device.hostname,
+      port = device.port,
+      serviceTypes = device.serviceTypes,
+      ssdpTargets = device.ssdpTargets,
+      answeredLanProtocols = device.answeredLanProtocols,
+      txt = device.txt,
+      mac = device.advertisedMac;
 
   @override
   bool operator ==(Object other) =>
@@ -89,19 +89,21 @@ class NetworkIdentity {
 
   @override
   int get hashCode => Object.hash(
-      name,
-      hostname,
-      port,
-      mac,
-      Object.hashAll(serviceTypes),
-      Object.hashAll(ssdpTargets),
-      Object.hashAll(answeredLanProtocols),
-      // Unordered, to agree with mapEquals above. txt joined == without
-      // joining hashCode, which parked every ESPHome node on a LAN in one
-      // hash bucket as a Riverpod family key — the exact fan-out the txt
-      // comparison exists to disambiguate.
-      Object.hashAllUnordered(
-          txt.entries.map((e) => Object.hash(e.key, e.value))));
+    name,
+    hostname,
+    port,
+    mac,
+    Object.hashAll(serviceTypes),
+    Object.hashAll(ssdpTargets),
+    Object.hashAll(answeredLanProtocols),
+    // Unordered, to agree with mapEquals above. txt joined == without
+    // joining hashCode, which parked every ESPHome node on a LAN in one
+    // hash bucket as a Riverpod family key — the exact fan-out the txt
+    // comparison exists to disambiguate.
+    Object.hashAllUnordered(
+      txt.entries.map((e) => Object.hash(e.key, e.value)),
+    ),
+  );
 }
 
 /// What the catalogue makes of one device on the network, or null when nothing
@@ -110,34 +112,35 @@ class NetworkIdentity {
 /// with DHCP, and dead identities must not accumulate for the app's lifetime.
 final networkGuessProvider = FutureProvider.autoDispose
     .family<ScanGuess?, NetworkIdentity>((ref, identity) async {
-  final codec = ref.watch(specCodecProvider);
-  final identities = await ref.watch(specIdentitiesProvider.future);
-  if (identities.isEmpty) return null;
+      final codec = ref.watch(specCodecProvider);
+      final identities = await ref.watch(specIdentitiesProvider.future);
+      if (identities.isEmpty) return null;
 
-  final List<ScanMatch> matches;
-  try {
-    matches = await codec.matchNetworkDevice(
-      identities: identities,
-      device: NetworkDeviceDto(
-        name: identity.name,
-        hostname: identity.hostname,
-        serviceTypes: identity.serviceTypes,
-        ssdpTargets: identity.ssdpTargets,
-        answeredLanProtocols: identity.answeredLanProtocols,
-        port: identity.port,
-        txt: identity.txt,
-        mac: identity.mac,
-      ),
-    );
-  } catch (e) {
-    // A scan must not fail because matching did.
-    Log.spec.warning(
-        'network matching failed for "${identity.hostname ?? identity.name}"',
-        error: e);
-    return null;
-  }
-  return ScanGuess.fromMatches(matches);
-});
+      final List<ScanMatch> matches;
+      try {
+        matches = await codec.matchNetworkDevice(
+          identities: identities,
+          device: NetworkDeviceDto(
+            name: identity.name,
+            hostname: identity.hostname,
+            serviceTypes: identity.serviceTypes,
+            ssdpTargets: identity.ssdpTargets,
+            answeredLanProtocols: identity.answeredLanProtocols,
+            port: identity.port,
+            txt: identity.txt,
+            mac: identity.mac,
+          ),
+        );
+      } catch (e) {
+        // A scan must not fail because matching did.
+        Log.spec.warning(
+          'network matching failed for "${identity.hostname ?? identity.name}"',
+          error: e,
+        );
+        return null;
+      }
+      return ScanGuess.fromMatches(matches);
+    });
 
 /// A network device paired with what the catalogue makes of it.
 typedef RankedNetworkDevice = Ranked<NetworkDevice>;
@@ -146,14 +149,13 @@ typedef RankedNetworkDevice = Ranked<NetworkDevice>;
 /// strength here, and a stable order matters more — mDNS and SSDP answer at
 /// wildly different speeds, and rows must not shuffle under a finger.
 ({List<RankedNetworkDevice> likelySupported, List<RankedNetworkDevice> other})
-    rankNetworkDevices(
+rankNetworkDevices(
   List<NetworkDevice> devices,
   ScanGuess? Function(NetworkDevice device) guessFor,
-) =>
-        rankDevices(
-          devices,
-          guessFor,
-          (a, b) => a.device.displayName
-              .toLowerCase()
-              .compareTo(b.device.displayName.toLowerCase()),
-        );
+) => rankDevices(
+  devices,
+  guessFor,
+  (a, b) => a.device.displayName.toLowerCase().compareTo(
+    b.device.displayName.toLowerCase(),
+  ),
+);

@@ -16,84 +16,86 @@ const _svc = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _cmdChar = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 DeviceSpecDto _bulbSpec() => DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Bulb',
-      manufacturer: 'Acme',
-      manufacturerStatus: 'abandoned',
-      protocol: 'ble',
-      localNamePrefixes: const [],
-      localNames: const [],
-      serviceUuids: const [_svc],
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      services: const [],
-      entities: const [
-        EntityDto(
-            options: [],
-            name: 'Bulb',
-            platform: 'light',
-            canNotify: false,
-            hasFormat: false,
-            onWhenNonzero: false,
-            actions: [
-              EntityActionDto(
-                role: 'turn_off',
-                serviceUuid: _svc,
-                characteristicUuid: _cmdChar,
-                commandName: 'power_off',
-                userParams: [],
-              ),
-            ],
-            variants: []),
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'Bulb',
+  manufacturer: 'Acme',
+  manufacturerStatus: 'abandoned',
+  protocol: 'ble',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [_svc],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  services: const [],
+  entities: const [
+    EntityDto(
+      options: [],
+      name: 'Bulb',
+      platform: 'light',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        EntityActionDto(
+          role: 'turn_off',
+          serviceUuid: _svc,
+          characteristicUuid: _cmdChar,
+          commandName: 'power_off',
+          userParams: [],
+        ),
       ],
-    );
+      variants: [],
+    ),
+  ],
+);
 
 /// A spec whose only verb is turn_on — the xkglow shape, used to prove the
 /// pre-connect skip.
 DeviceSpecDto _onOnlySpec() => DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'OnOnly',
-      manufacturer: 'Acme',
-      manufacturerStatus: 'abandoned',
-      protocol: 'ble',
-      localNamePrefixes: const [],
-      localNames: const [],
-      serviceUuids: const [_svc],
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      services: const [],
-      entities: const [
-        EntityDto(
-            options: [],
-            name: 'LEDs',
-            platform: 'light',
-            canNotify: false,
-            hasFormat: false,
-            onWhenNonzero: false,
-            actions: [
-              EntityActionDto(
-                role: 'turn_on',
-                serviceUuid: _svc,
-                characteristicUuid: _cmdChar,
-                commandName: 'on',
-                userParams: [],
-              ),
-            ],
-            variants: []),
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'OnOnly',
+  manufacturer: 'Acme',
+  manufacturerStatus: 'abandoned',
+  protocol: 'ble',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [_svc],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  services: const [],
+  entities: const [
+    EntityDto(
+      options: [],
+      name: 'LEDs',
+      platform: 'light',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        EntityActionDto(
+          role: 'turn_on',
+          serviceUuid: _svc,
+          characteristicUuid: _cmdChar,
+          commandName: 'on',
+          userParams: [],
+        ),
       ],
-    );
+      variants: [],
+    ),
+  ],
+);
 
 const _controlService = BleDiscoveredService(
   uuid: _svc,
@@ -156,27 +158,24 @@ class _PerDeviceFakeBle extends FakeBleService {
 }
 
 void main() {
-  test('runs members strictly one at a time, stopping the scan first',
-      () async {
+  test('runs members strictly one at a time, stopping the scan first', () async {
     final ble = FakeBleService(servicesToReturn: const [_controlService]);
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x00]));
     final runner = GroupRunner(ble: ble, codec: codec);
 
-    final events = await runner
-        .run(
-          GroupOp.turnOff,
-          [
-            _member('A', spec: _bulbSpec(), yaml: 'y'),
-            _member('B', spec: _bulbSpec(), yaml: 'y')
-          ],
-          stop: StopSignal(),
-        )
-        .toList();
+    final events = await runner.run(GroupOp.turnOff, [
+      _member('A', spec: _bulbSpec(), yaml: 'y'),
+      _member('B', spec: _bulbSpec(), yaml: 'y'),
+    ], stop: StopSignal()).toList();
 
     expect(ble.stopScanCount, 1);
     // One device fully finishes (including disconnect) before the next starts.
-    expect(
-        ble.events, ['connect:A', 'disconnect:A', 'connect:B', 'disconnect:B']);
+    expect(ble.events, [
+      'connect:A',
+      'disconnect:A',
+      'connect:B',
+      'disconnect:B',
+    ]);
     final byDevice = {
       for (final e in events)
         if (e.status == GroupDeviceStatus.ok) e.deviceId: e,
@@ -192,23 +191,21 @@ void main() {
     expect(codec.encodeCalls.first.serviceUuid, _svc);
   });
 
-  test('a member whose spec lacks the op is skipped without connecting',
-      () async {
-    final ble = FakeBleService(servicesToReturn: const [_controlService]);
-    final runner = GroupRunner(ble: ble, codec: FakeSpecCodec());
+  test(
+    'a member whose spec lacks the op is skipped without connecting',
+    () async {
+      final ble = FakeBleService(servicesToReturn: const [_controlService]);
+      final runner = GroupRunner(ble: ble, codec: FakeSpecCodec());
 
-    final events = await runner
-        .run(
-          GroupOp.turnOff,
-          [_member('A', spec: _onOnlySpec(), yaml: 'y')],
-          stop: StopSignal(),
-        )
-        .toList();
+      final events = await runner.run(GroupOp.turnOff, [
+        _member('A', spec: _onOnlySpec(), yaml: 'y'),
+      ], stop: StopSignal()).toList();
 
-    expect(events.single.status, GroupDeviceStatus.skipped);
-    expect(events.single.detail, "Not supported by this device's spec");
-    expect(ble.events, isEmpty); // never connected
-  });
+      expect(events.single.status, GroupDeviceStatus.skipped);
+      expect(events.single.detail, "Not supported by this device's spec");
+      expect(ble.events, isEmpty); // never connected
+    },
+  );
 
   test('a connect failure fails that member and the run continues', () async {
     final ble = _PerDeviceFakeBle(
@@ -216,18 +213,14 @@ void main() {
       servicesToReturn: const [_controlService],
     );
     final runner = GroupRunner(
-        ble: ble, codec: FakeSpecCodec(encoded: Uint8List.fromList([0x00])));
+      ble: ble,
+      codec: FakeSpecCodec(encoded: Uint8List.fromList([0x00])),
+    );
 
-    final events = await runner
-        .run(
-          GroupOp.turnOff,
-          [
-            _member('A', spec: _bulbSpec(), yaml: 'y'),
-            _member('B', spec: _bulbSpec(), yaml: 'y')
-          ],
-          stop: StopSignal(),
-        )
-        .toList();
+    final events = await runner.run(GroupOp.turnOff, [
+      _member('A', spec: _bulbSpec(), yaml: 'y'),
+      _member('B', spec: _bulbSpec(), yaml: 'y'),
+    ], stop: StopSignal()).toList();
 
     final a = events.lastWhere((e) => e.deviceId == 'A');
     final b = events.lastWhere((e) => e.deviceId == 'B');
@@ -243,15 +236,13 @@ void main() {
       servicesToReturn: const [_controlService],
     );
     final runner = GroupRunner(
-        ble: ble, codec: FakeSpecCodec(encoded: Uint8List.fromList([0x00])));
+      ble: ble,
+      codec: FakeSpecCodec(encoded: Uint8List.fromList([0x00])),
+    );
 
-    final events = await runner
-        .run(
-          GroupOp.turnOff,
-          [_member('A', spec: _bulbSpec(), yaml: 'y')],
-          stop: StopSignal(),
-        )
-        .toList();
+    final events = await runner.run(GroupOp.turnOff, [
+      _member('A', spec: _bulbSpec(), yaml: 'y'),
+    ], stop: StopSignal()).toList();
 
     expect(events.last.status, GroupDeviceStatus.failed);
     expect(ble.events, ['connect:A', 'disconnect:A']);
@@ -264,14 +255,10 @@ void main() {
     final stop = StopSignal();
 
     final events = <GroupRunEvent>[];
-    await for (final event in runner.run(
-      GroupOp.turnOff,
-      [
-        _member('A', spec: _bulbSpec(), yaml: 'y'),
-        _member('B', spec: _bulbSpec(), yaml: 'y')
-      ],
-      stop: stop,
-    )) {
+    await for (final event in runner.run(GroupOp.turnOff, [
+      _member('A', spec: _bulbSpec(), yaml: 'y'),
+      _member('B', spec: _bulbSpec(), yaml: 'y'),
+    ], stop: stop)) {
       events.add(event);
       // Cancel as soon as A lands; B must not get radio time.
       if (event.deviceId == 'A' && event.status == GroupDeviceStatus.ok) {
@@ -285,94 +272,85 @@ void main() {
     expect(ble.events, isNot(contains('connect:B')));
   });
 
-  test(
-      'a spec that promises the op but a unit without the characteristic '
+  test('a spec that promises the op but a unit without the characteristic '
       'is skipped as not found', () async {
     // Discovery returns no services at all: the family spec's variant gap.
     final ble = FakeBleService(servicesToReturn: const []);
     final runner = GroupRunner(
-        ble: ble, codec: FakeSpecCodec(encoded: Uint8List.fromList([0x00])));
+      ble: ble,
+      codec: FakeSpecCodec(encoded: Uint8List.fromList([0x00])),
+    );
 
-    final events = await runner
-        .run(
-          GroupOp.turnOff,
-          [_member('A', spec: _bulbSpec(), yaml: 'y')],
-          stop: StopSignal(),
-        )
-        .toList();
+    final events = await runner.run(GroupOp.turnOff, [
+      _member('A', spec: _bulbSpec(), yaml: 'y'),
+    ], stop: StopSignal()).toList();
 
     expect(events.last.status, GroupDeviceStatus.skipped);
     expect(events.last.detail, 'Not found on this device');
     expect(ble.events, ['connect:A', 'disconnect:A']);
   });
 
-  test('battery reads work with no spec at all through the SIG service',
-      () async {
-    final ble = FakeBleService(
-      servicesToReturn: const [_batteryService],
-      readValues: {
-        batteryLevelCharUuid.toLowerCase(): const [87]
-      },
-    );
-    final codec = FakeSpecCodec(decoded: const [
-      DecodedValueDto(
-        name: 'battery_percent',
-        valueType: 'uint8',
-        display: '87',
-        uintValue: 87,
-      ),
-    ]);
-    final runner = GroupRunner(ble: ble, codec: codec);
+  test(
+    'battery reads work with no spec at all through the SIG service',
+    () async {
+      final ble = FakeBleService(
+        servicesToReturn: const [_batteryService],
+        readValues: {
+          batteryLevelCharUuid.toLowerCase(): const [87],
+        },
+      );
+      final codec = FakeSpecCodec(
+        decoded: const [
+          DecodedValueDto(
+            name: 'battery_percent',
+            valueType: 'uint8',
+            display: '87',
+            uintValue: 87,
+          ),
+        ],
+      );
+      final runner = GroupRunner(ble: ble, codec: codec);
 
-    final events = await runner
-        .run(
-          GroupOp.readBattery,
-          [_member('A')],
-          stop: StopSignal(),
-        )
-        .toList();
+      final events = await runner.run(GroupOp.readBattery, [
+        _member('A'),
+      ], stop: StopSignal()).toList();
 
-    final done = events.last;
-    expect(done.status, GroupDeviceStatus.ok);
-    expect(done.readings.single.label, 'Battery');
-    expect(done.readings.single.value, '87 %');
-  });
+      final done = events.last;
+      expect(done.status, GroupDeviceStatus.ok);
+      expect(done.readings.single.label, 'Battery');
+      expect(done.readings.single.value, '87 %');
+    },
+  );
 
   test('a member with no battery surface is skipped, not failed', () async {
     final ble = FakeBleService(servicesToReturn: const [_controlService]);
     final runner = GroupRunner(ble: ble, codec: FakeSpecCodec());
 
-    final events = await runner
-        .run(
-          GroupOp.readBattery,
-          [_member('A')],
-          stop: StopSignal(),
-        )
-        .toList();
+    final events = await runner.run(GroupOp.readBattery, [
+      _member('A'),
+    ], stop: StopSignal()).toList();
 
     expect(events.last.status, GroupDeviceStatus.skipped);
     expect(events.last.detail, 'No battery reading on this device');
   });
 
-  test('a read error on the only reading fails the member after disconnect',
-      () async {
-    final ble = FakeBleService(
-      servicesToReturn: const [_batteryService],
-      readError: Exception('read refused'),
-    );
-    final runner = GroupRunner(ble: ble, codec: FakeSpecCodec());
+  test(
+    'a read error on the only reading fails the member after disconnect',
+    () async {
+      final ble = FakeBleService(
+        servicesToReturn: const [_batteryService],
+        readError: Exception('read refused'),
+      );
+      final runner = GroupRunner(ble: ble, codec: FakeSpecCodec());
 
-    final events = await runner
-        .run(
-          GroupOp.readBattery,
-          [_member('A')],
-          stop: StopSignal(),
-        )
-        .toList();
+      final events = await runner.run(GroupOp.readBattery, [
+        _member('A'),
+      ], stop: StopSignal()).toList();
 
-    expect(events.last.status, GroupDeviceStatus.failed);
-    expect(ble.events, ['connect:A', 'disconnect:A']);
-  });
+      expect(events.last.status, GroupDeviceStatus.failed);
+      expect(ble.events, ['connect:A', 'disconnect:A']);
+    },
+  );
 
   test('a member without a stored spec resolves one after discovery', () async {
     final ble = FakeBleService(servicesToReturn: const [_controlService]);
@@ -388,13 +366,9 @@ void main() {
       },
     );
 
-    final events = await runner
-        .run(
-          GroupOp.turnOff,
-          [_member('A')],
-          stop: StopSignal(),
-        )
-        .toList();
+    final events = await runner.run(GroupOp.turnOff, [
+      _member('A'),
+    ], stop: StopSignal()).toList();
 
     expect(resolverCalls, 1);
     expect(events.last.status, GroupDeviceStatus.ok);
@@ -405,13 +379,9 @@ void main() {
     final ble = FakeBleService(servicesToReturn: const [_controlService]);
     final runner = GroupRunner(ble: ble, codec: FakeSpecCodec());
 
-    final events = await runner
-        .run(
-          GroupOp.readSensors,
-          [_member('A')],
-          stop: StopSignal(),
-        )
-        .toList();
+    final events = await runner.run(GroupOp.readSensors, [
+      _member('A'),
+    ], stop: StopSignal()).toList();
 
     expect(events.last.status, GroupDeviceStatus.skipped);
     expect(events.last.detail, 'No spec matched this device');
@@ -423,11 +393,9 @@ void main() {
     final runner = GroupRunner(ble: ble, codec: codec);
 
     final sub = runner
-        .run(
-          GroupOp.turnOff,
-          [_member('A', spec: _bulbSpec(), yaml: 'y')],
-          stop: StopSignal(),
-        )
+        .run(GroupOp.turnOff, [
+          _member('A', spec: _bulbSpec(), yaml: 'y'),
+        ], stop: StopSignal())
         .listen(null);
     // Give the generator a beat to connect, then cancel the listener the way
     // a disposed screen would.

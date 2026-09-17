@@ -47,7 +47,9 @@ void main() {
   test('write then read round-trips the value', () async {
     await store.write('spec_pack_source', 'https://example.com/packs.json');
     expect(
-        await store.read('spec_pack_source'), 'https://example.com/packs.json');
+      await store.read('spec_pack_source'),
+      'https://example.com/packs.json',
+    );
   });
 
   test('write overwrites rather than appending', () async {
@@ -70,11 +72,13 @@ void main() {
     await expectLater(store.delete('never-written'), completes);
   });
 
-  test('writes land in the underlying SharedPreferences, not a private map',
-      () async {
-    // The point of this implementation over an in-memory one: another reader
-    // of the same SharedPreferences instance must see the value.
-    await store.write('spec_pack_source', 'https://example.com/p.json');
-    expect(prefs.getString('spec_pack_source'), 'https://example.com/p.json');
-  });
+  test(
+    'writes land in the underlying SharedPreferences, not a private map',
+    () async {
+      // The point of this implementation over an in-memory one: another reader
+      // of the same SharedPreferences instance must see the value.
+      await store.write('spec_pack_source', 'https://example.com/p.json');
+      expect(prefs.getString('spec_pack_source'), 'https://example.com/p.json');
+    },
+  );
 }

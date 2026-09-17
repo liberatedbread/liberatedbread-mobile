@@ -27,7 +27,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Map<String, Map<String, String>>
-      dco_decode_Map_String_Map_String_String_None_None(dynamic raw);
+  dco_decode_Map_String_Map_String_String_None_None(dynamic raw);
 
   @protected
   Map<String, String> dco_decode_Map_String_String_None(dynamic raw);
@@ -40,7 +40,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BleProvisioningProfileDto dco_decode_ble_provisioning_profile_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   bool dco_decode_bool(dynamic raw);
@@ -50,7 +51,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BrotherQlJobParamsDto dco_decode_box_autoadd_brother_ql_job_params_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   CameraDto dco_decode_box_autoadd_camera_dto(dynamic raw);
@@ -78,7 +80,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkCredentialIssuanceDto
-      dco_decode_box_autoadd_network_credential_issuance_dto(dynamic raw);
+  dco_decode_box_autoadd_network_credential_issuance_dto(dynamic raw);
 
   @protected
   NetworkDeviceDto dco_decode_box_autoadd_network_device_dto(dynamic raw);
@@ -97,7 +99,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RoombaAnnouncementDto dco_decode_box_autoadd_roomba_announcement_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   SafetyAdvisoryDto dco_decode_box_autoadd_safety_advisory_dto(dynamic raw);
@@ -110,14 +113,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SetupInstructionsDto dco_decode_box_autoadd_setup_instructions_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   StoredUploadDto dco_decode_box_autoadd_stored_upload_dto(dynamic raw);
 
   @protected
   StoredUploadEventDto dco_decode_box_autoadd_stored_upload_event_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   TuyaBroadcastDto dco_decode_box_autoadd_tuya_broadcast_dto(dynamic raw);
@@ -133,7 +138,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   WebSocketSurfaceDto dco_decode_box_autoadd_web_socket_surface_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   BrotherQlJobParamsDto dco_decode_brother_ql_job_params_dto(dynamic raw);
@@ -227,7 +233,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BleProvisioningProfileDto> dco_decode_list_ble_provisioning_profile_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   List<CameraStreamDto> dco_decode_list_camera_stream_dto(dynamic raw);
@@ -255,7 +262,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<FactoryResetProcedureDto> dco_decode_list_factory_reset_procedure_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   List<FormatFieldDto> dco_decode_list_format_field_dto(dynamic raw);
@@ -286,7 +294,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<NetworkCredentialDto> dco_decode_list_network_credential_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   List<NetworkEntityDto> dco_decode_list_network_entity_dto(dynamic raw);
@@ -302,11 +311,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<NetworkRoleReadingDto> dco_decode_list_network_role_reading_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   List<NetworkSourceParamDto> dco_decode_list_network_source_param_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   List<ParameterDto> dco_decode_list_parameter_dto(dynamic raw);
@@ -331,7 +342,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ProfileCharacteristicDto> dco_decode_list_profile_characteristic_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   List<ProfileInfoDto> dco_decode_list_profile_info_dto(dynamic raw);
@@ -341,14 +353,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<(String, Map<String, String>)>
-      dco_decode_list_record_string_map_string_string_none(dynamic raw);
+  dco_decode_list_record_string_map_string_string_none(dynamic raw);
 
   @protected
   List<(String, String)> dco_decode_list_record_string_string(dynamic raw);
 
   @protected
   List<(int, Uint8List)> dco_decode_list_record_u_16_list_prim_u_8_strict(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   List<ScanMatch> dco_decode_list_scan_match(dynamic raw);
@@ -391,7 +404,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<WemoConnectAttemptDto> dco_decode_list_wemo_connect_attempt_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   MacPrefixConfidence dco_decode_mac_prefix_confidence(dynamic raw);
@@ -428,7 +442,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkCredentialIssuanceDto dco_decode_network_credential_issuance_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   NetworkDeviceDto dco_decode_network_device_dto(dynamic raw);
@@ -471,7 +486,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CameraKeepaliveDto? dco_decode_opt_box_autoadd_camera_keepalive_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   double? dco_decode_opt_box_autoadd_f_64(dynamic raw);
@@ -493,15 +509,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkCredentialIssuanceDto?
-      dco_decode_opt_box_autoadd_network_credential_issuance_dto(dynamic raw);
+  dco_decode_opt_box_autoadd_network_credential_issuance_dto(dynamic raw);
 
   @protected
   NetworkReadingDto? dco_decode_opt_box_autoadd_network_reading_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   PanelResolutionDto? dco_decode_opt_box_autoadd_panel_resolution_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw);
@@ -511,26 +529,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RoombaAnnouncementDto? dco_decode_opt_box_autoadd_roomba_announcement_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   SafetyAdvisoryDto? dco_decode_opt_box_autoadd_safety_advisory_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   SecurityAdvisoryDto? dco_decode_opt_box_autoadd_security_advisory_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   SetupInstructionsDto? dco_decode_opt_box_autoadd_setup_instructions_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   StoredUploadDto? dco_decode_opt_box_autoadd_stored_upload_dto(dynamic raw);
 
   @protected
   StoredUploadEventDto? dco_decode_opt_box_autoadd_stored_upload_event_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   TuyaBroadcastDto? dco_decode_opt_box_autoadd_tuya_broadcast_dto(dynamic raw);
@@ -546,7 +569,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   WebSocketSurfaceDto? dco_decode_opt_box_autoadd_web_socket_surface_dto(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   List<String>? dco_decode_opt_list_String(dynamic raw);
@@ -580,7 +604,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   (String, Map<String, String>) dco_decode_record_string_map_string_string_none(
-      dynamic raw);
+    dynamic raw,
+  );
 
   @protected
   (String, String) dco_decode_record_string_string(dynamic raw);
@@ -701,23 +726,27 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Map<String, Map<String, String>>
-      sse_decode_Map_String_Map_String_String_None_None(
-          SseDeserializer deserializer);
+  sse_decode_Map_String_Map_String_String_None_None(
+    SseDeserializer deserializer,
+  );
 
   @protected
   Map<String, String> sse_decode_Map_String_String_None(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   Map<String, double> sse_decode_Map_String_f_64_None(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
   BleProvisioningProfileDto sse_decode_ble_provisioning_profile_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
@@ -727,92 +756,111 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BrotherQlJobParamsDto sse_decode_box_autoadd_brother_ql_job_params_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   CameraDto sse_decode_box_autoadd_camera_dto(SseDeserializer deserializer);
 
   @protected
   CameraKeepaliveDto sse_decode_box_autoadd_camera_keepalive_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   double sse_decode_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
   FactoryResetDto sse_decode_box_autoadd_factory_reset_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
   ImageUploadDto sse_decode_box_autoadd_image_upload_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   ImageWriteDto sse_decode_box_autoadd_image_write_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   MacPrefixDto sse_decode_box_autoadd_mac_prefix_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkCredentialIssuanceDto
-      sse_decode_box_autoadd_network_credential_issuance_dto(
-          SseDeserializer deserializer);
+  sse_decode_box_autoadd_network_credential_issuance_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkDeviceDto sse_decode_box_autoadd_network_device_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkReadingDto sse_decode_box_autoadd_network_reading_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   PanelResolutionDto sse_decode_box_autoadd_panel_resolution_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   QuerySourceDto sse_decode_box_autoadd_query_source_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   RejoinDto sse_decode_box_autoadd_rejoin_dto(SseDeserializer deserializer);
 
   @protected
   RoombaAnnouncementDto sse_decode_box_autoadd_roomba_announcement_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   SafetyAdvisoryDto sse_decode_box_autoadd_safety_advisory_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   SecurityAdvisoryDto sse_decode_box_autoadd_security_advisory_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   SetupInstructionsDto sse_decode_box_autoadd_setup_instructions_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   StoredUploadDto sse_decode_box_autoadd_stored_upload_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   StoredUploadEventDto sse_decode_box_autoadd_stored_upload_event_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   TuyaBroadcastDto sse_decode_box_autoadd_tuya_broadcast_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
@@ -825,22 +873,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   WebSocketSurfaceDto sse_decode_box_autoadd_web_socket_surface_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   BrotherQlJobParamsDto sse_decode_brother_ql_job_params_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   BrotherQlStatusDto sse_decode_brother_ql_status_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   CameraDto sse_decode_camera_dto(SseDeserializer deserializer);
 
   @protected
   CameraKeepaliveDto sse_decode_camera_keepalive_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   CameraStreamDto sse_decode_camera_stream_dto(SseDeserializer deserializer);
@@ -877,7 +929,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FactoryResetProcedureDto sse_decode_factory_reset_procedure_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   FormatFieldDto sse_decode_format_field_dto(SseDeserializer deserializer);
@@ -899,14 +952,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ImageWritePlanDto sse_decode_image_write_plan_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   KasaRequestDto sse_decode_kasa_request_dto(SseDeserializer deserializer);
 
   @protected
   LifxAccessPointDto sse_decode_lifx_access_point_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   LifxServiceDto sse_decode_lifx_service_dto(SseDeserializer deserializer);
@@ -925,108 +980,132 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<BleProvisioningProfileDto> sse_decode_list_ble_provisioning_profile_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<CameraStreamDto> sse_decode_list_camera_stream_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<CharacteristicDto> sse_decode_list_characteristic_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<CommandDto> sse_decode_list_command_dto(SseDeserializer deserializer);
 
   @protected
   List<DecodedValueDto> sse_decode_list_decoded_value_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<DeviceSpecDto> sse_decode_list_device_spec_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<EffectEntryDto> sse_decode_list_effect_entry_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<EntityActionDto> sse_decode_list_entity_action_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<EntityDto> sse_decode_list_entity_dto(SseDeserializer deserializer);
 
   @protected
   List<FactoryResetProcedureDto> sse_decode_list_factory_reset_procedure_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<FormatFieldDto> sse_decode_list_format_field_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<ImageWriteDto> sse_decode_list_image_write_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<LifxZoneColorDto> sse_decode_list_lifx_zone_color_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<Uint8List> sse_decode_list_list_prim_u_8_strict(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<MacPrefixDto> sse_decode_list_mac_prefix_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<MatchResult> sse_decode_list_match_result(SseDeserializer deserializer);
 
   @protected
   List<MqttIncomingDto> sse_decode_list_mqtt_incoming_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<NameMatchDto> sse_decode_list_name_match_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<NetworkActionDto> sse_decode_list_network_action_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<NetworkCredentialDto> sse_decode_list_network_credential_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<NetworkEntityDto> sse_decode_list_network_entity_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<NetworkInstanceDto> sse_decode_list_network_instance_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<NetworkOptionDto> sse_decode_list_network_option_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<NetworkReadBackDto> sse_decode_list_network_read_back_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<NetworkRoleReadingDto> sse_decode_list_network_role_reading_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<NetworkSourceParamDto> sse_decode_list_network_source_param_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<ParameterDto> sse_decode_list_parameter_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer);
@@ -1048,28 +1127,34 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ProfileCharacteristicDto> sse_decode_list_profile_characteristic_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<ProfileInfoDto> sse_decode_list_profile_info_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<(String, double)> sse_decode_list_record_string_f_64(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<(String, Map<String, String>)>
-      sse_decode_list_record_string_map_string_string_none(
-          SseDeserializer deserializer);
+  sse_decode_list_record_string_map_string_string_none(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<(String, String)> sse_decode_list_record_string_string(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<(int, Uint8List)> sse_decode_list_record_u_16_list_prim_u_8_strict(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer);
@@ -1079,54 +1164,66 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<SetupMethodDto> sse_decode_list_setup_method_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<SetupStageDto> sse_decode_list_setup_stage_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<SetupStepDto> sse_decode_list_setup_step_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<SoftApProfileDto> sse_decode_list_soft_ap_profile_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<SpecIdentityDto> sse_decode_list_spec_identity_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<TroubleshootingDto> sse_decode_list_troubleshooting_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<TxtMatchDto> sse_decode_list_txt_match_dto(SseDeserializer deserializer);
 
   @protected
   List<TxtMatchGroupDto> sse_decode_list_txt_match_group_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<WebSocketChannelDto> sse_decode_list_web_socket_channel_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<WebSocketHeaderDto> sse_decode_list_web_socket_header_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<WemoAccessPointDto> sse_decode_list_wemo_access_point_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<WemoConnectAttemptDto> sse_decode_list_wemo_connect_attempt_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   MacPrefixConfidence sse_decode_mac_prefix_confidence(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   MacPrefixDto sse_decode_mac_prefix_dto(SseDeserializer deserializer);
@@ -1154,15 +1251,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkCapabilitiesDto sse_decode_network_capabilities_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkCredentialDto sse_decode_network_credential_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkCredentialIssuanceDto sse_decode_network_credential_issuance_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkDeviceDto sse_decode_network_device_dto(SseDeserializer deserializer);
@@ -1172,34 +1272,41 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkEntitySurfaceDto sse_decode_network_entity_surface_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkInstanceDto sse_decode_network_instance_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkOptionDto sse_decode_network_option_dto(SseDeserializer deserializer);
 
   @protected
   NetworkReadBackDto sse_decode_network_read_back_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkReadingDto sse_decode_network_reading_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkReadingKind sse_decode_network_reading_kind(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkRoleReadingDto sse_decode_network_role_reading_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkSourceParamDto sse_decode_network_source_param_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -1209,82 +1316,100 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CameraDto? sse_decode_opt_box_autoadd_camera_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   CameraKeepaliveDto? sse_decode_opt_box_autoadd_camera_keepalive_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
   FactoryResetDto? sse_decode_opt_box_autoadd_factory_reset_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
   ImageUploadDto? sse_decode_opt_box_autoadd_image_upload_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   ImageWriteDto? sse_decode_opt_box_autoadd_image_write_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   MacPrefixDto? sse_decode_opt_box_autoadd_mac_prefix_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkCredentialIssuanceDto?
-      sse_decode_opt_box_autoadd_network_credential_issuance_dto(
-          SseDeserializer deserializer);
+  sse_decode_opt_box_autoadd_network_credential_issuance_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkReadingDto? sse_decode_opt_box_autoadd_network_reading_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   PanelResolutionDto? sse_decode_opt_box_autoadd_panel_resolution_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   QuerySourceDto? sse_decode_opt_box_autoadd_query_source_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   RejoinDto? sse_decode_opt_box_autoadd_rejoin_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   RoombaAnnouncementDto? sse_decode_opt_box_autoadd_roomba_announcement_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   SafetyAdvisoryDto? sse_decode_opt_box_autoadd_safety_advisory_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   SecurityAdvisoryDto? sse_decode_opt_box_autoadd_security_advisory_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   SetupInstructionsDto? sse_decode_opt_box_autoadd_setup_instructions_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   StoredUploadDto? sse_decode_opt_box_autoadd_stored_upload_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   StoredUploadEventDto? sse_decode_opt_box_autoadd_stored_upload_event_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   TuyaBroadcastDto? sse_decode_opt_box_autoadd_tuya_broadcast_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
@@ -1297,7 +1422,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   WebSocketSurfaceDto? sse_decode_opt_box_autoadd_web_socket_surface_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<String>? sse_decode_opt_list_String(SseDeserializer deserializer);
@@ -1307,18 +1433,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PanelResolutionDto sse_decode_panel_resolution_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   ParameterDto sse_decode_parameter_dto(SseDeserializer deserializer);
 
   @protected
   PlaylistWritesDto sse_decode_playlist_writes_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   ProfileCharacteristicDto sse_decode_profile_characteristic_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   ProfileInfoDto sse_decode_profile_info_dto(SseDeserializer deserializer);
@@ -1328,36 +1457,42 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RabbitAirRequestDto sse_decode_rabbit_air_request_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer);
 
   @protected
   (String, Map<String, String>) sse_decode_record_string_map_string_string_none(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   (String, String) sse_decode_record_string_string(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   (int, Uint8List) sse_decode_record_u_16_list_prim_u_8_strict(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   RejoinDto sse_decode_rejoin_dto(SseDeserializer deserializer);
 
   @protected
   RoombaAnnouncementDto sse_decode_roomba_announcement_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   RoombaRequestDto sse_decode_roomba_request_dto(SseDeserializer deserializer);
 
   @protected
   SafetyAdvisoryDto sse_decode_safety_advisory_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   ScanMatch sse_decode_scan_match(SseDeserializer deserializer);
@@ -1367,14 +1502,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SecurityAdvisoryDto sse_decode_security_advisory_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   ServiceDto sse_decode_service_dto(SseDeserializer deserializer);
 
   @protected
   SetupInstructionsDto sse_decode_setup_instructions_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   SetupMethodDto sse_decode_setup_method_dto(SseDeserializer deserializer);
@@ -1402,19 +1539,23 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredUploadEventDto sse_decode_stored_upload_event_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   StoredUploadEventKind sse_decode_stored_upload_event_kind(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   StoredUploadPlanDto sse_decode_stored_upload_plan_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   TroubleshootingDto sse_decode_troubleshooting_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   TuyaBroadcastDto sse_decode_tuya_broadcast_dto(SseDeserializer deserializer);
@@ -1442,53 +1583,69 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   WebSocketChannelDto sse_decode_web_socket_channel_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   WebSocketFrameDto sse_decode_web_socket_frame_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   WebSocketHeaderDto sse_decode_web_socket_header_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   WebSocketSurfaceDto sse_decode_web_socket_surface_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   WemoAccessPointDto sse_decode_wemo_access_point_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   WemoConnectAttemptDto sse_decode_wemo_connect_attempt_dto(
-      SseDeserializer deserializer);
+    SseDeserializer deserializer,
+  );
 
   @protected
   WemoJoinStatus sse_decode_wemo_join_status(SseDeserializer deserializer);
 
   @protected
   void sse_encode_AnyhowException(
-      AnyhowException self, SseSerializer serializer);
+    AnyhowException self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_Map_String_Map_String_String_None_None(
-      Map<String, Map<String, String>> self, SseSerializer serializer);
+    Map<String, Map<String, String>> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_Map_String_String_None(
-      Map<String, String> self, SseSerializer serializer);
+    Map<String, String> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_Map_String_f_64_None(
-      Map<String, double> self, SseSerializer serializer);
+    Map<String, double> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
   void sse_encode_ble_provisioning_profile_dto(
-      BleProvisioningProfileDto self, SseSerializer serializer);
+    BleProvisioningProfileDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
@@ -1498,94 +1655,138 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_box_autoadd_brother_ql_job_params_dto(
-      BrotherQlJobParamsDto self, SseSerializer serializer);
+    BrotherQlJobParamsDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_camera_dto(
-      CameraDto self, SseSerializer serializer);
+    CameraDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_camera_keepalive_dto(
-      CameraKeepaliveDto self, SseSerializer serializer);
+    CameraKeepaliveDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_factory_reset_dto(
-      FactoryResetDto self, SseSerializer serializer);
+    FactoryResetDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_i_64(
-      PlatformInt64 self, SseSerializer serializer);
+    PlatformInt64 self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_image_upload_dto(
-      ImageUploadDto self, SseSerializer serializer);
+    ImageUploadDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_image_write_dto(
-      ImageWriteDto self, SseSerializer serializer);
+    ImageWriteDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_mac_prefix_dto(
-      MacPrefixDto self, SseSerializer serializer);
+    MacPrefixDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_network_credential_issuance_dto(
-      NetworkCredentialIssuanceDto self, SseSerializer serializer);
+    NetworkCredentialIssuanceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_network_device_dto(
-      NetworkDeviceDto self, SseSerializer serializer);
+    NetworkDeviceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_network_reading_dto(
-      NetworkReadingDto self, SseSerializer serializer);
+    NetworkReadingDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_panel_resolution_dto(
-      PanelResolutionDto self, SseSerializer serializer);
+    PanelResolutionDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_query_source_dto(
-      QuerySourceDto self, SseSerializer serializer);
+    QuerySourceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_rejoin_dto(
-      RejoinDto self, SseSerializer serializer);
+    RejoinDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_roomba_announcement_dto(
-      RoombaAnnouncementDto self, SseSerializer serializer);
+    RoombaAnnouncementDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_safety_advisory_dto(
-      SafetyAdvisoryDto self, SseSerializer serializer);
+    SafetyAdvisoryDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_scanned_device_dto(
-      ScannedDeviceDto self, SseSerializer serializer);
+    ScannedDeviceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_security_advisory_dto(
-      SecurityAdvisoryDto self, SseSerializer serializer);
+    SecurityAdvisoryDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_setup_instructions_dto(
-      SetupInstructionsDto self, SseSerializer serializer);
+    SetupInstructionsDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_stored_upload_dto(
-      StoredUploadDto self, SseSerializer serializer);
+    StoredUploadDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_stored_upload_event_dto(
-      StoredUploadEventDto self, SseSerializer serializer);
+    StoredUploadEventDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_tuya_broadcast_dto(
-      TuyaBroadcastDto self, SseSerializer serializer);
+    TuyaBroadcastDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
@@ -1598,74 +1799,102 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_box_autoadd_web_socket_surface_dto(
-      WebSocketSurfaceDto self, SseSerializer serializer);
+    WebSocketSurfaceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_brother_ql_job_params_dto(
-      BrotherQlJobParamsDto self, SseSerializer serializer);
+    BrotherQlJobParamsDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_brother_ql_status_dto(
-      BrotherQlStatusDto self, SseSerializer serializer);
+    BrotherQlStatusDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_camera_dto(CameraDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_camera_keepalive_dto(
-      CameraKeepaliveDto self, SseSerializer serializer);
+    CameraKeepaliveDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_camera_stream_dto(
-      CameraStreamDto self, SseSerializer serializer);
+    CameraStreamDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_characteristic_dto(
-      CharacteristicDto self, SseSerializer serializer);
+    CharacteristicDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_command_dto(CommandDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_decoded_value_dto(
-      DecodedValueDto self, SseSerializer serializer);
+    DecodedValueDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_device_spec_dto(DeviceSpecDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_effect_entry_dto(
-      EffectEntryDto self, SseSerializer serializer);
+    EffectEntryDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_entity_action_dto(
-      EntityActionDto self, SseSerializer serializer);
+    EntityActionDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_entity_dto(EntityDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_entity_write_dto(
-      EntityWriteDto self, SseSerializer serializer);
+    EntityWriteDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
   void sse_encode_factory_reset_dto(
-      FactoryResetDto self, SseSerializer serializer);
+    FactoryResetDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_factory_reset_procedure_dto(
-      FactoryResetProcedureDto self, SseSerializer serializer);
+    FactoryResetProcedureDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_format_field_dto(
-      FormatFieldDto self, SseSerializer serializer);
+    FormatFieldDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_http_request_dto(
-      HttpRequestDto self, SseSerializer serializer);
+    HttpRequestDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
@@ -1675,33 +1904,45 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_image_upload_dto(
-      ImageUploadDto self, SseSerializer serializer);
+    ImageUploadDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_image_write_dto(ImageWriteDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_image_write_plan_dto(
-      ImageWritePlanDto self, SseSerializer serializer);
+    ImageWritePlanDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_kasa_request_dto(
-      KasaRequestDto self, SseSerializer serializer);
+    KasaRequestDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_lifx_access_point_dto(
-      LifxAccessPointDto self, SseSerializer serializer);
+    LifxAccessPointDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_lifx_service_dto(
-      LifxServiceDto self, SseSerializer serializer);
+    LifxServiceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_lifx_state_dto(LifxStateDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_lifx_zone_color_dto(
-      LifxZoneColorDto self, SseSerializer serializer);
+    LifxZoneColorDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_lifx_zones_dto(LifxZonesDto self, SseSerializer serializer);
@@ -1711,298 +1952,438 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_ble_provisioning_profile_dto(
-      List<BleProvisioningProfileDto> self, SseSerializer serializer);
+    List<BleProvisioningProfileDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_camera_stream_dto(
-      List<CameraStreamDto> self, SseSerializer serializer);
+    List<CameraStreamDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_characteristic_dto(
-      List<CharacteristicDto> self, SseSerializer serializer);
+    List<CharacteristicDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_command_dto(
-      List<CommandDto> self, SseSerializer serializer);
+    List<CommandDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_decoded_value_dto(
-      List<DecodedValueDto> self, SseSerializer serializer);
+    List<DecodedValueDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_device_spec_dto(
-      List<DeviceSpecDto> self, SseSerializer serializer);
+    List<DeviceSpecDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_effect_entry_dto(
-      List<EffectEntryDto> self, SseSerializer serializer);
+    List<EffectEntryDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_entity_action_dto(
-      List<EntityActionDto> self, SseSerializer serializer);
+    List<EntityActionDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_entity_dto(
-      List<EntityDto> self, SseSerializer serializer);
+    List<EntityDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_factory_reset_procedure_dto(
-      List<FactoryResetProcedureDto> self, SseSerializer serializer);
+    List<FactoryResetProcedureDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_format_field_dto(
-      List<FormatFieldDto> self, SseSerializer serializer);
+    List<FormatFieldDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_image_write_dto(
-      List<ImageWriteDto> self, SseSerializer serializer);
+    List<ImageWriteDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_lifx_zone_color_dto(
-      List<LifxZoneColorDto> self, SseSerializer serializer);
+    List<LifxZoneColorDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_list_prim_u_8_strict(
-      List<Uint8List> self, SseSerializer serializer);
+    List<Uint8List> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_mac_prefix_dto(
-      List<MacPrefixDto> self, SseSerializer serializer);
+    List<MacPrefixDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_match_result(
-      List<MatchResult> self, SseSerializer serializer);
+    List<MatchResult> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_mqtt_incoming_dto(
-      List<MqttIncomingDto> self, SseSerializer serializer);
+    List<MqttIncomingDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_name_match_dto(
-      List<NameMatchDto> self, SseSerializer serializer);
+    List<NameMatchDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_network_action_dto(
-      List<NetworkActionDto> self, SseSerializer serializer);
+    List<NetworkActionDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_network_credential_dto(
-      List<NetworkCredentialDto> self, SseSerializer serializer);
+    List<NetworkCredentialDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_network_entity_dto(
-      List<NetworkEntityDto> self, SseSerializer serializer);
+    List<NetworkEntityDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_network_instance_dto(
-      List<NetworkInstanceDto> self, SseSerializer serializer);
+    List<NetworkInstanceDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_network_option_dto(
-      List<NetworkOptionDto> self, SseSerializer serializer);
+    List<NetworkOptionDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_network_read_back_dto(
-      List<NetworkReadBackDto> self, SseSerializer serializer);
+    List<NetworkReadBackDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_network_role_reading_dto(
-      List<NetworkRoleReadingDto> self, SseSerializer serializer);
+    List<NetworkRoleReadingDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_network_source_param_dto(
-      List<NetworkSourceParamDto> self, SseSerializer serializer);
+    List<NetworkSourceParamDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_parameter_dto(
-      List<ParameterDto> self, SseSerializer serializer);
+    List<ParameterDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_prim_i_64_strict(
-      Int64List self, SseSerializer serializer);
+    Int64List self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_prim_u_16_strict(
-      Uint16List self, SseSerializer serializer);
+    Uint16List self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_prim_u_32_loose(
-      List<int> self, SseSerializer serializer);
+    List<int> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_prim_u_32_strict(
-      Uint32List self, SseSerializer serializer);
+    Uint32List self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_prim_u_8_strict(
-      Uint8List self, SseSerializer serializer);
+    Uint8List self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_profile_characteristic_dto(
-      List<ProfileCharacteristicDto> self, SseSerializer serializer);
+    List<ProfileCharacteristicDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_profile_info_dto(
-      List<ProfileInfoDto> self, SseSerializer serializer);
+    List<ProfileInfoDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_record_string_f_64(
-      List<(String, double)> self, SseSerializer serializer);
+    List<(String, double)> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_record_string_map_string_string_none(
-      List<(String, Map<String, String>)> self, SseSerializer serializer);
+    List<(String, Map<String, String>)> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_record_string_string(
-      List<(String, String)> self, SseSerializer serializer);
+    List<(String, String)> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_record_u_16_list_prim_u_8_strict(
-      List<(int, Uint8List)> self, SseSerializer serializer);
+    List<(int, Uint8List)> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_scan_match(
-      List<ScanMatch> self, SseSerializer serializer);
+    List<ScanMatch> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_service_dto(
-      List<ServiceDto> self, SseSerializer serializer);
+    List<ServiceDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_setup_method_dto(
-      List<SetupMethodDto> self, SseSerializer serializer);
+    List<SetupMethodDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_setup_stage_dto(
-      List<SetupStageDto> self, SseSerializer serializer);
+    List<SetupStageDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_setup_step_dto(
-      List<SetupStepDto> self, SseSerializer serializer);
+    List<SetupStepDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_soft_ap_profile_dto(
-      List<SoftApProfileDto> self, SseSerializer serializer);
+    List<SoftApProfileDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_spec_identity_dto(
-      List<SpecIdentityDto> self, SseSerializer serializer);
+    List<SpecIdentityDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_troubleshooting_dto(
-      List<TroubleshootingDto> self, SseSerializer serializer);
+    List<TroubleshootingDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_txt_match_dto(
-      List<TxtMatchDto> self, SseSerializer serializer);
+    List<TxtMatchDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_txt_match_group_dto(
-      List<TxtMatchGroupDto> self, SseSerializer serializer);
+    List<TxtMatchGroupDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_web_socket_channel_dto(
-      List<WebSocketChannelDto> self, SseSerializer serializer);
+    List<WebSocketChannelDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_web_socket_header_dto(
-      List<WebSocketHeaderDto> self, SseSerializer serializer);
+    List<WebSocketHeaderDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_wemo_access_point_dto(
-      List<WemoAccessPointDto> self, SseSerializer serializer);
+    List<WemoAccessPointDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_wemo_connect_attempt_dto(
-      List<WemoConnectAttemptDto> self, SseSerializer serializer);
+    List<WemoConnectAttemptDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_mac_prefix_confidence(
-      MacPrefixConfidence self, SseSerializer serializer);
+    MacPrefixConfidence self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_mac_prefix_dto(MacPrefixDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_match_confidence(
-      MatchConfidence self, SseSerializer serializer);
+    MatchConfidence self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_match_result(MatchResult self, SseSerializer serializer);
 
   @protected
   void sse_encode_mqtt_incoming_dto(
-      MqttIncomingDto self, SseSerializer serializer);
+    MqttIncomingDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_mqtt_parsed_dto(MqttParsedDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_mqtt_request_dto(
-      MqttRequestDto self, SseSerializer serializer);
+    MqttRequestDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_name_match_dto(NameMatchDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_network_action_dto(
-      NetworkActionDto self, SseSerializer serializer);
+    NetworkActionDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_capabilities_dto(
-      NetworkCapabilitiesDto self, SseSerializer serializer);
+    NetworkCapabilitiesDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_credential_dto(
-      NetworkCredentialDto self, SseSerializer serializer);
+    NetworkCredentialDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_credential_issuance_dto(
-      NetworkCredentialIssuanceDto self, SseSerializer serializer);
+    NetworkCredentialIssuanceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_device_dto(
-      NetworkDeviceDto self, SseSerializer serializer);
+    NetworkDeviceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_entity_dto(
-      NetworkEntityDto self, SseSerializer serializer);
+    NetworkEntityDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_entity_surface_dto(
-      NetworkEntitySurfaceDto self, SseSerializer serializer);
+    NetworkEntitySurfaceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_instance_dto(
-      NetworkInstanceDto self, SseSerializer serializer);
+    NetworkInstanceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_option_dto(
-      NetworkOptionDto self, SseSerializer serializer);
+    NetworkOptionDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_read_back_dto(
-      NetworkReadBackDto self, SseSerializer serializer);
+    NetworkReadBackDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_reading_dto(
-      NetworkReadingDto self, SseSerializer serializer);
+    NetworkReadingDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_reading_kind(
-      NetworkReadingKind self, SseSerializer serializer);
+    NetworkReadingKind self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_role_reading_dto(
-      NetworkRoleReadingDto self, SseSerializer serializer);
+    NetworkRoleReadingDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_network_source_param_dto(
-      NetworkSourceParamDto self, SseSerializer serializer);
+    NetworkSourceParamDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
@@ -2012,82 +2393,120 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_camera_dto(
-      CameraDto? self, SseSerializer serializer);
+    CameraDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_camera_keepalive_dto(
-      CameraKeepaliveDto? self, SseSerializer serializer);
+    CameraKeepaliveDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_factory_reset_dto(
-      FactoryResetDto? self, SseSerializer serializer);
+    FactoryResetDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_i_64(
-      PlatformInt64? self, SseSerializer serializer);
+    PlatformInt64? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_image_upload_dto(
-      ImageUploadDto? self, SseSerializer serializer);
+    ImageUploadDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_image_write_dto(
-      ImageWriteDto? self, SseSerializer serializer);
+    ImageWriteDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_mac_prefix_dto(
-      MacPrefixDto? self, SseSerializer serializer);
+    MacPrefixDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_network_credential_issuance_dto(
-      NetworkCredentialIssuanceDto? self, SseSerializer serializer);
+    NetworkCredentialIssuanceDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_network_reading_dto(
-      NetworkReadingDto? self, SseSerializer serializer);
+    NetworkReadingDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_panel_resolution_dto(
-      PanelResolutionDto? self, SseSerializer serializer);
+    PanelResolutionDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_query_source_dto(
-      QuerySourceDto? self, SseSerializer serializer);
+    QuerySourceDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_rejoin_dto(
-      RejoinDto? self, SseSerializer serializer);
+    RejoinDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_roomba_announcement_dto(
-      RoombaAnnouncementDto? self, SseSerializer serializer);
+    RoombaAnnouncementDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_safety_advisory_dto(
-      SafetyAdvisoryDto? self, SseSerializer serializer);
+    SafetyAdvisoryDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_security_advisory_dto(
-      SecurityAdvisoryDto? self, SseSerializer serializer);
+    SecurityAdvisoryDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_setup_instructions_dto(
-      SetupInstructionsDto? self, SseSerializer serializer);
+    SetupInstructionsDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_stored_upload_dto(
-      StoredUploadDto? self, SseSerializer serializer);
+    StoredUploadDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_stored_upload_event_dto(
-      StoredUploadEventDto? self, SseSerializer serializer);
+    StoredUploadEventDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_tuya_broadcast_dto(
-      TuyaBroadcastDto? self, SseSerializer serializer);
+    TuyaBroadcastDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
@@ -2100,94 +2519,132 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_web_socket_surface_dto(
-      WebSocketSurfaceDto? self, SseSerializer serializer);
+    WebSocketSurfaceDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_list_String(List<String>? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_list_prim_i_64_strict(
-      Int64List? self, SseSerializer serializer);
+    Int64List? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_panel_resolution_dto(
-      PanelResolutionDto self, SseSerializer serializer);
+    PanelResolutionDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_parameter_dto(ParameterDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_playlist_writes_dto(
-      PlaylistWritesDto self, SseSerializer serializer);
+    PlaylistWritesDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_profile_characteristic_dto(
-      ProfileCharacteristicDto self, SseSerializer serializer);
+    ProfileCharacteristicDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_profile_info_dto(
-      ProfileInfoDto self, SseSerializer serializer);
+    ProfileInfoDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_query_source_dto(
-      QuerySourceDto self, SseSerializer serializer);
+    QuerySourceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_rabbit_air_request_dto(
-      RabbitAirRequestDto self, SseSerializer serializer);
+    RabbitAirRequestDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_record_string_f_64(
-      (String, double) self, SseSerializer serializer);
+    (String, double) self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_record_string_map_string_string_none(
-      (String, Map<String, String>) self, SseSerializer serializer);
+    (String, Map<String, String>) self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_record_string_string(
-      (String, String) self, SseSerializer serializer);
+    (String, String) self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_record_u_16_list_prim_u_8_strict(
-      (int, Uint8List) self, SseSerializer serializer);
+    (int, Uint8List) self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_rejoin_dto(RejoinDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_roomba_announcement_dto(
-      RoombaAnnouncementDto self, SseSerializer serializer);
+    RoombaAnnouncementDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_roomba_request_dto(
-      RoombaRequestDto self, SseSerializer serializer);
+    RoombaRequestDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_safety_advisory_dto(
-      SafetyAdvisoryDto self, SseSerializer serializer);
+    SafetyAdvisoryDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_scan_match(ScanMatch self, SseSerializer serializer);
 
   @protected
   void sse_encode_scanned_device_dto(
-      ScannedDeviceDto self, SseSerializer serializer);
+    ScannedDeviceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_security_advisory_dto(
-      SecurityAdvisoryDto self, SseSerializer serializer);
+    SecurityAdvisoryDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_service_dto(ServiceDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_setup_instructions_dto(
-      SetupInstructionsDto self, SseSerializer serializer);
+    SetupInstructionsDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_setup_method_dto(
-      SetupMethodDto self, SseSerializer serializer);
+    SetupMethodDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_setup_stage_dto(SetupStageDto self, SseSerializer serializer);
@@ -2197,49 +2654,69 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_soap_request_dto(
-      SoapRequestDto self, SseSerializer serializer);
+    SoapRequestDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_soft_ap_profile_dto(
-      SoftApProfileDto self, SseSerializer serializer);
+    SoftApProfileDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_spec_identity_dto(
-      SpecIdentityDto self, SseSerializer serializer);
+    SpecIdentityDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_stored_play_dto(StoredPlayDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_stored_upload_dto(
-      StoredUploadDto self, SseSerializer serializer);
+    StoredUploadDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_stored_upload_event_dto(
-      StoredUploadEventDto self, SseSerializer serializer);
+    StoredUploadEventDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_stored_upload_event_kind(
-      StoredUploadEventKind self, SseSerializer serializer);
+    StoredUploadEventKind self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_stored_upload_plan_dto(
-      StoredUploadPlanDto self, SseSerializer serializer);
+    StoredUploadPlanDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_troubleshooting_dto(
-      TroubleshootingDto self, SseSerializer serializer);
+    TroubleshootingDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_tuya_broadcast_dto(
-      TuyaBroadcastDto self, SseSerializer serializer);
+    TuyaBroadcastDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_txt_match_dto(TxtMatchDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_txt_match_group_dto(
-      TxtMatchGroupDto self, SseSerializer serializer);
+    TxtMatchGroupDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_u_16(int self, SseSerializer serializer);
@@ -2258,31 +2735,45 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_web_socket_channel_dto(
-      WebSocketChannelDto self, SseSerializer serializer);
+    WebSocketChannelDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_web_socket_frame_dto(
-      WebSocketFrameDto self, SseSerializer serializer);
+    WebSocketFrameDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_web_socket_header_dto(
-      WebSocketHeaderDto self, SseSerializer serializer);
+    WebSocketHeaderDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_web_socket_surface_dto(
-      WebSocketSurfaceDto self, SseSerializer serializer);
+    WebSocketSurfaceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_wemo_access_point_dto(
-      WemoAccessPointDto self, SseSerializer serializer);
+    WemoAccessPointDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_wemo_connect_attempt_dto(
-      WemoConnectAttemptDto self, SseSerializer serializer);
+    WemoConnectAttemptDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_wemo_join_status(
-      WemoJoinStatus self, SseSerializer serializer);
+    WemoJoinStatus self,
+    SseSerializer serializer,
+  );
 }
 
 // Section: wire_class

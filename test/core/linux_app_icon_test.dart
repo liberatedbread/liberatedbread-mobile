@@ -30,13 +30,16 @@ import 'package:flutter_test/flutter_test.dart';
 /// Sizes parsed out of a source file, in the order they appear.
 List<int> _sizesIn(String source, RegExp pattern, String what) {
   final match = pattern.firstMatch(source);
-  expect(match, isNotNull,
-      reason: 'Could not find $what — it was renamed or removed, and this '
-          'test can no longer check it. Fix the pattern in this test.');
-  return RegExp(r'\d+')
-      .allMatches(match!.group(1)!)
-      .map((m) => int.parse(m.group(0)!))
-      .toList();
+  expect(
+    match,
+    isNotNull,
+    reason:
+        'Could not find $what — it was renamed or removed, and this '
+        'test can no longer check it. Fix the pattern in this test.',
+  );
+  return RegExp(
+    r'\d+',
+  ).allMatches(match!.group(1)!).map((m) => int.parse(m.group(0)!)).toList();
 }
 
 String _read(String path) {
@@ -53,18 +56,32 @@ void main() {
   test('every Linux icon size is on disk and is a real PNG', () {
     for (final size in expected) {
       final file = File('linux/resources/app_icon_$size.png');
-      expect(file.existsSync(), isTrue,
-          reason: 'linux/resources/app_icon_$size.png is missing. Regenerate '
-              'with: cd tool/branding && npm run icons');
+      expect(
+        file.existsSync(),
+        isTrue,
+        reason:
+            'linux/resources/app_icon_$size.png is missing. Regenerate '
+            'with: cd tool/branding && npm run icons',
+      );
 
       // PNG magic. Catches a placeholder, a truncated write, or a file that a
       // conversion step left as something else entirely.
       final bytes = file.readAsBytesSync();
-      expect(bytes.length, greaterThan(100),
-          reason: 'app_icon_$size.png is too small to be a real icon');
-      expect(bytes.take(8).toList(),
-          [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
-          reason: 'app_icon_$size.png is not a PNG');
+      expect(
+        bytes.length,
+        greaterThan(100),
+        reason: 'app_icon_$size.png is too small to be a real icon',
+      );
+      expect(bytes.take(8).toList(), [
+        0x89,
+        0x50,
+        0x4E,
+        0x47,
+        0x0D,
+        0x0A,
+        0x1A,
+        0x0A,
+      ], reason: 'app_icon_$size.png is not a PNG');
 
       // Dimensions live in the IHDR chunk: big-endian width then height at
       // byte 16. Asserting them catches the failure that matters most here —
@@ -75,10 +92,16 @@ void main() {
           (bytes[offset + 1] << 16) |
           (bytes[offset + 2] << 8) |
           bytes[offset + 3];
-      expect(be32(16), size,
-          reason: 'app_icon_$size.png is not ${size}px wide');
-      expect(be32(20), size,
-          reason: 'app_icon_$size.png is not ${size}px tall');
+      expect(
+        be32(16),
+        size,
+        reason: 'app_icon_$size.png is not ${size}px wide',
+      );
+      expect(
+        be32(20),
+        size,
+        reason: 'app_icon_$size.png is not ${size}px tall',
+      );
     }
   });
 
@@ -93,11 +116,18 @@ void main() {
 
     // The output path is half the contract; my_application.cc reads these
     // names literally.
-    expect(source, contains("const LINUX_DIR = 'linux/resources'"),
-        reason: 'The generator must write to linux/resources/ — CMake copies '
-            'that exact directory into the bundle.');
-    expect(source, contains(r'app_icon_${size}.png'),
-        reason: 'The generated file name must stay app_icon_<size>.png');
+    expect(
+      source,
+      contains("const LINUX_DIR = 'linux/resources'"),
+      reason:
+          'The generator must write to linux/resources/ — CMake copies '
+          'that exact directory into the bundle.',
+    );
+    expect(
+      source,
+      contains(r'app_icon_${size}.png'),
+      reason: 'The generated file name must stay app_icon_<size>.png',
+    );
   });
 
   test('the GTK runner loads exactly those sizes', () {
@@ -106,19 +136,27 @@ void main() {
       RegExp(r'kAppIconSizes\[\] = \{([^}]*)\}'),
       'kAppIconSizes in my_application.cc',
     );
-    expect(sizes, expected,
-        reason: 'my_application.cc asks for sizes the generator does not '
-            'render (or ignores ones it does). A size it cannot find is '
-            'skipped silently at runtime.');
+    expect(
+      sizes,
+      expected,
+      reason:
+          'my_application.cc asks for sizes the generator does not '
+          'render (or ignores ones it does). A size it cannot find is '
+          'skipped silently at runtime.',
+    );
   });
 
   test('CMake copies the icons into the bundle', () {
     final cmake = _read('linux/CMakeLists.txt');
     expect(
-      cmake.contains(RegExp(
-          r'install\(DIRECTORY "\$\{CMAKE_CURRENT_SOURCE_DIR\}/resources"')),
+      cmake.contains(
+        RegExp(
+          r'install\(DIRECTORY "\$\{CMAKE_CURRENT_SOURCE_DIR\}/resources"',
+        ),
+      ),
       isTrue,
-      reason: 'linux/CMakeLists.txt no longer installs linux/resources/. '
+      reason:
+          'linux/CMakeLists.txt no longer installs linux/resources/. '
           'Without it the bundle ships no icons and the loader finds nothing. '
           'This is exactly how `flutter create` regenerating the scaffold '
           'would break it — the same way it resets APPLICATION_ID.',
@@ -143,17 +181,27 @@ void main() {
   // compositor draws no window icon at all and matches the surface's app_id
   // against an installed .desktop file instead. The process name set here IS
   // that app_id, and the installer names its entry after the same string.
-  test('the Wayland app_id matches the desktop entry it is installed under',
-      () {
-    expect(_read('linux/main.cc'), contains('g_set_prgname(APPLICATION_ID)'),
-        reason: 'Without this the Wayland app_id is the binary name, which '
+  test(
+    'the Wayland app_id matches the desktop entry it is installed under',
+    () {
+      expect(
+        _read('linux/main.cc'),
+        contains('g_set_prgname(APPLICATION_ID)'),
+        reason:
+            'Without this the Wayland app_id is the binary name, which '
             'matches no .desktop file, and the alt-tab switcher shows a '
-            'generic icon however many PNGs the app loads.');
+            'generic icon however many PNGs the app loads.',
+      );
 
-    const appId = 'ca.pigscanfly.liberatedbread';
-    expect(_read('linux/CMakeLists.txt'),
-        contains('set(APPLICATION_ID "$appId")'));
-    expect(_read('scripts/install-linux-desktop-entry.sh'),
-        contains('APP_ID="$appId"'));
-  });
+      const appId = 'ca.pigscanfly.liberatedbread';
+      expect(
+        _read('linux/CMakeLists.txt'),
+        contains('set(APPLICATION_ID "$appId")'),
+      );
+      expect(
+        _read('scripts/install-linux-desktop-entry.sh'),
+        contains('APP_ID="$appId"'),
+      );
+    },
+  );
 }

@@ -20,35 +20,43 @@ void main() {
   final codec = FakeSpecCodec(
     networkRabbitAirRequest: (name, values, requestId, deviceTs) =>
         RabbitAirRequestDto(
-            json:
-                '{"id":$requestId,"cmd":${name == 'time_sync' ? 9 : 4},"ts":$deviceTs}',
-            requestId: requestId),
+          json:
+              '{"id":$requestId,"cmd":${name == 'time_sync' ? 9 : 4},"ts":$deviceTs}',
+          requestId: requestId,
+        ),
   );
   const key = '0123456789abcdeffedcba9876543210';
   const otherKey = 'fedcba98765432100123456789abcdef';
 
-  RabbitAirControlClient client({
-    RabbitAirExchange? exchange,
-  }) =>
-      RabbitAirControlClient(codec,
-          exchange: exchange ?? (h, p, d, t) async => [], random: Random(7));
+  RabbitAirControlClient client({RabbitAirExchange? exchange}) =>
+      RabbitAirControlClient(
+        codec,
+        exchange: exchange ?? (h, p, d, t) async => [],
+        random: Random(7),
+      );
 
-  Future<RabbitAirRequestDto> request(RabbitAirControlClient c,
-          {String command = 'get_state'}) =>
-      codec.renderNetworkRabbitAirStateRequest(
-          specYaml: 'yaml',
-          stateCommand: command,
-          requestId: c.nextRequestId(),
-          deviceTs: 100);
+  Future<RabbitAirRequestDto> request(
+    RabbitAirControlClient c, {
+    String command = 'get_state',
+  }) => codec.renderNetworkRabbitAirStateRequest(
+    specYaml: 'yaml',
+    stateCommand: command,
+    requestId: c.nextRequestId(),
+    deviceTs: 100,
+  );
 
   /// A stand-in purifier: decrypts what arrived, answers cmd 9 with a clock
   /// 120 s ahead of the local one and cmd 4 with a canned state, everything
   /// encrypted back under [deviceKey].
-  RabbitAirExchange purifier(String deviceKey,
-      {void Function(String plaintext)? saw}) {
+  RabbitAirExchange purifier(
+    String deviceKey, {
+    void Function(String plaintext)? saw,
+  }) {
     return (host, port, datagram, timeout) async {
       final plaintext = await codec.rabbitAirDecryptDatagram(
-          userKey: deviceKey, datagram: datagram);
+        userKey: deviceKey,
+        datagram: datagram,
+      );
       saw?.call(plaintext);
       final decoded = jsonDecode(plaintext) as Map;
       final id = decoded['id'];
@@ -56,85 +64,127 @@ void main() {
           ? '{"id":$id,"data":{"ts":${DateTime.now().millisecondsSinceEpoch ~/ 1000 + 120}}}'
           : '{"id":$id,"data":{"power":true,"speed":3}}';
       return [
-        Uint8List.fromList(await codec.rabbitAirEncryptDatagram(
-            userKey: deviceKey, plaintext: reply))
+        Uint8List.fromList(
+          await codec.rabbitAirEncryptDatagram(
+            userKey: deviceKey,
+            plaintext: reply,
+          ),
+        ),
       ];
     };
   }
 
   group('RabbitAirControlClient.send', () {
     test(
-        'returns on the first matching reply instead of waiting out the window',
-        () async {
-      // The production exchange streams datagrams as they land: a purifier
-      // answers in milliseconds, and every exchange used to sit out the full
-      // 2 s window regardless — 4 s for the first read, 6 s on retries.
-      Stream<Uint8List> purifierStream(
-          String host, int port, Uint8List datagram, Duration timeout) async* {
-        final plaintext = await codec.rabbitAirDecryptDatagram(
-            userKey: key, datagram: datagram);
-        final id = (jsonDecode(plaintext) as Map)['id'];
-        yield Uint8List.fromList(await codec.rabbitAirEncryptDatagram(
-            userKey: key, plaintext: '{"id":$id,"data":{"power":true}}'));
-        // The window stays open (nothing closes this stream); the caller
-        // must not wait for it.
-        await Completer<void>().future;
-      }
+      'returns on the first matching reply instead of waiting out the window',
+      () async {
+        // The production exchange streams datagrams as they land: a purifier
+        // answers in milliseconds, and every exchange used to sit out the full
+        // 2 s window regardless — 4 s for the first read, 6 s on retries.
+        Stream<Uint8List> purifierStream(
+          String host,
+          int port,
+          Uint8List datagram,
+          Duration timeout,
+        ) async* {
+          final plaintext = await codec.rabbitAirDecryptDatagram(
+            userKey: key,
+            datagram: datagram,
+          );
+          final id = (jsonDecode(plaintext) as Map)['id'];
+          yield Uint8List.fromList(
+            await codec.rabbitAirEncryptDatagram(
+              userKey: key,
+              plaintext: '{"id":$id,"data":{"power":true}}',
+            ),
+          );
+          // The window stays open (nothing closes this stream); the caller
+          // must not wait for it.
+          await Completer<void>().future;
+        }
 
-      final c = RabbitAirControlClient(codec,
-          replies: purifierStream, random: Random(7));
-      final req = await request(c);
-      final reply = await c
-          .send('10.0.0.3', 9009, req, userKey: key)
-          .timeout(const Duration(milliseconds: 500));
-      expect(reply, contains('"power":true'));
-    });
+        final c = RabbitAirControlClient(
+          codec,
+          replies: purifierStream,
+          random: Random(7),
+        );
+        final req = await request(c);
+        final reply = await c
+            .send('10.0.0.3', 9009, req, userKey: key)
+            .timeout(const Duration(milliseconds: 500));
+        expect(reply, contains('"power":true'));
+      },
+    );
 
-    test('encrypts the envelope, and returns the reply that echoes its id',
-        () async {
-      String? sawPlaintext;
-      final c = client(exchange: purifier(key, saw: (p) => sawPlaintext = p));
-      final req = await request(c);
+    test(
+      'encrypts the envelope, and returns the reply that echoes its id',
+      () async {
+        String? sawPlaintext;
+        final c = client(exchange: purifier(key, saw: (p) => sawPlaintext = p));
+        final req = await request(c);
 
-      final reply = await c.send('10.0.0.9', 9009, req, userKey: key);
+        final reply = await c.send('10.0.0.9', 9009, req, userKey: key);
 
-      // What went on the wire is the encrypted rendered envelope — decrypting
-      // it recovers exactly the JSON the codec rendered.
-      expect(sawPlaintext, req.json);
-      final decoded = jsonDecode(reply) as Map;
-      expect(decoded['id'], req.requestId);
-      expect((decoded['data'] as Map)['power'], isTrue);
-    });
+        // What went on the wire is the encrypted rendered envelope — decrypting
+        // it recovers exactly the JSON the codec rendered.
+        expect(sawPlaintext, req.json);
+        final decoded = jsonDecode(reply) as Map;
+        expect(decoded['id'], req.requestId);
+        expect((decoded['data'] as Map)['power'], isTrue);
+      },
+    );
 
     test('ignores datagrams that do not decrypt or echo another id', () async {
-      final c = client(exchange: (host, port, datagram, timeout) async {
-        final plaintext = await codec.rabbitAirDecryptDatagram(
-            userKey: key, datagram: datagram);
-        final id = (jsonDecode(plaintext) as Map)['id'];
-        return [
-          // Another conversation's traffic under ANOTHER key — undecryptable.
-          Uint8List.fromList(await codec.rabbitAirEncryptDatagram(
-              userKey: otherKey, plaintext: '{"id":$id,"data":{}}')),
-          // Ours, but echoing a nonce we did not send.
-          Uint8List.fromList(await codec.rabbitAirEncryptDatagram(
-              userKey: key, plaintext: '{"id":${id + 1},"data":{}}')),
-          // The real answer.
-          Uint8List.fromList(await codec.rabbitAirEncryptDatagram(
-              userKey: key, plaintext: '{"id":$id,"data":{"power":false}}')),
-        ];
-      });
+      final c = client(
+        exchange: (host, port, datagram, timeout) async {
+          final plaintext = await codec.rabbitAirDecryptDatagram(
+            userKey: key,
+            datagram: datagram,
+          );
+          final id = (jsonDecode(plaintext) as Map)['id'];
+          return [
+            // Another conversation's traffic under ANOTHER key — undecryptable.
+            Uint8List.fromList(
+              await codec.rabbitAirEncryptDatagram(
+                userKey: otherKey,
+                plaintext: '{"id":$id,"data":{}}',
+              ),
+            ),
+            // Ours, but echoing a nonce we did not send.
+            Uint8List.fromList(
+              await codec.rabbitAirEncryptDatagram(
+                userKey: key,
+                plaintext: '{"id":${id + 1},"data":{}}',
+              ),
+            ),
+            // The real answer.
+            Uint8List.fromList(
+              await codec.rabbitAirEncryptDatagram(
+                userKey: key,
+                plaintext: '{"id":$id,"data":{"power":false}}',
+              ),
+            ),
+          ];
+        },
+      );
 
-      final reply =
-          await c.send('10.0.0.9', 9009, await request(c), userKey: key);
+      final reply = await c.send(
+        '10.0.0.9',
+        9009,
+        await request(c),
+        userKey: key,
+      );
       expect((jsonDecode(reply) as Map)['data'], {'power': false});
     });
 
     test('retries per the vendor discipline, then throws', () async {
       var sends = 0;
-      final c = client(exchange: (host, port, datagram, timeout) async {
-        sends++;
-        return [];
-      });
+      final c = client(
+        exchange: (host, port, datagram, timeout) async {
+          sends++;
+          return [];
+        },
+      );
       await expectLater(
         c.send('10.0.0.9', 9009, await request(c), userKey: key),
         throwsA(isA<RabbitAirControlException>()),
@@ -142,23 +192,27 @@ void main() {
       expect(sends, RabbitAirControlClient.attempts);
     });
 
-    test('a malformed stored key fails at the codec, before the wire',
-        () async {
-      final c = client();
-      await expectLater(
-        c.send('10.0.0.9', 9009, await request(c), userKey: 'not-hex'),
-        throwsA(isA<FormatException>()),
-      );
-    });
+    test(
+      'a malformed stored key fails at the codec, before the wire',
+      () async {
+        final c = client();
+        await expectLater(
+          c.send('10.0.0.9', 9009, await request(c), userKey: 'not-hex'),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
   });
 
   group('RabbitAirControlClient.syncClock', () {
     test('learns the offset once and stamps later requests with it', () async {
       var sends = 0;
-      final c = client(exchange: (host, port, datagram, timeout) async {
-        sends++;
-        return purifier(key)(host, port, datagram, timeout);
-      });
+      final c = client(
+        exchange: (host, port, datagram, timeout) async {
+          sends++;
+          return purifier(key)(host, port, datagram, timeout);
+        },
+      );
 
       await c.syncClock('10.0.0.9', 9009, specYaml: 'yaml', userKey: key);
       expect(sends, 1);
@@ -173,38 +227,45 @@ void main() {
       expect(sends, 1);
     });
 
-    test('a failed exchange forgets the offset, so the next one re-syncs',
-        () async {
-      var answer = true;
-      var timeSyncs = 0;
-      final c = client(exchange: (host, port, datagram, timeout) async {
-        if (!answer) return [];
-        final plaintext = await codec.rabbitAirDecryptDatagram(
-            userKey: key, datagram: datagram);
-        if ((jsonDecode(plaintext) as Map)['cmd'] == 9) timeSyncs++;
-        return purifier(key)(host, port, datagram, timeout);
-      });
+    test(
+      'a failed exchange forgets the offset, so the next one re-syncs',
+      () async {
+        var answer = true;
+        var timeSyncs = 0;
+        final c = client(
+          exchange: (host, port, datagram, timeout) async {
+            if (!answer) return [];
+            final plaintext = await codec.rabbitAirDecryptDatagram(
+              userKey: key,
+              datagram: datagram,
+            );
+            if ((jsonDecode(plaintext) as Map)['cmd'] == 9) timeSyncs++;
+            return purifier(key)(host, port, datagram, timeout);
+          },
+        );
 
-      await c.syncClock('10.0.0.9', 9009, specYaml: 'yaml', userKey: key);
-      expect(timeSyncs, 1);
+        await c.syncClock('10.0.0.9', 9009, specYaml: 'yaml', userKey: key);
+        expect(timeSyncs, 1);
 
-      // The device goes silent; the poll fails, and the vendor rule — an
-      // error re-creates the socket, a new socket re-syncs — applies.
-      answer = false;
-      await expectLater(
-        c.send('10.0.0.9', 9009, await request(c), userKey: key),
-        throwsA(isA<RabbitAirControlException>()),
-      );
+        // The device goes silent; the poll fails, and the vendor rule — an
+        // error re-creates the socket, a new socket re-syncs — applies.
+        answer = false;
+        await expectLater(
+          c.send('10.0.0.9', 9009, await request(c), userKey: key),
+          throwsA(isA<RabbitAirControlException>()),
+        );
 
-      answer = true;
-      await c.syncClock('10.0.0.9', 9009, specYaml: 'yaml', userKey: key);
-      expect(timeSyncs, 2);
-    });
+        answer = true;
+        await c.syncClock('10.0.0.9', 9009, specYaml: 'yaml', userKey: key);
+        expect(timeSyncs, 2);
+      },
+    );
   });
 
   group('rabbitAirStateFields', () {
     test('lifts the reply data object into name→value pairs', () {
-      const reply = '{"id":42,"data":{"power":true,"mode":2,"speed":3,'
+      const reply =
+          '{"id":42,"data":{"power":true,"mode":2,"speed":3,'
           '"filter_life":4320,"rssi":-55}}';
       final fields = rabbitAirStateFields(reply);
       expect(fields['power'], 'true');
@@ -222,8 +283,9 @@ void main() {
       expect(rabbitAirStateFields('not json at all'), isEmpty);
       // error: false is not an error.
       expect(
-          rabbitAirStateFields('{"id":1,"error":false,"data":{"power":true}}'),
-          {'power': 'true'});
+        rabbitAirStateFields('{"id":1,"error":false,"data":{"power":true}}'),
+        {'power': 'true'},
+      );
     });
   });
 
@@ -236,20 +298,22 @@ void main() {
     });
   });
 
-  test('a hostname instead of an address fails the exchange, never hangs',
-      () async {
-    // Exercises the REAL default reply stream: InternetAddress() on a
-    // hostname throws INSIDE its async onListen, and that error used to
-    // escape as an unhandled zone error — the timeout window Timer was never
-    // created, so the await-for upstairs waited forever on a stream that
-    // would neither err nor close. The outer .timeout is the hang detector.
-    final c = RabbitAirControlClient(codec, random: Random(7));
-    final rendered = await request(c);
-    await expectLater(
-      c
-          .send('rabbitair.invalid.hostname', 1447, rendered, userKey: key)
-          .timeout(const Duration(seconds: 8)),
-      throwsA(isNot(isA<TimeoutException>())),
-    );
-  });
+  test(
+    'a hostname instead of an address fails the exchange, never hangs',
+    () async {
+      // Exercises the REAL default reply stream: InternetAddress() on a
+      // hostname throws INSIDE its async onListen, and that error used to
+      // escape as an unhandled zone error — the timeout window Timer was never
+      // created, so the await-for upstairs waited forever on a stream that
+      // would neither err nor close. The outer .timeout is the hang detector.
+      final c = RabbitAirControlClient(codec, random: Random(7));
+      final rendered = await request(c);
+      await expectLater(
+        c
+            .send('rabbitair.invalid.hostname', 1447, rendered, userKey: key)
+            .timeout(const Duration(seconds: 8)),
+        throwsA(isNot(isA<TimeoutException>())),
+      );
+    },
+  );
 }

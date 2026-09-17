@@ -127,7 +127,9 @@ String decodedTextOf(
   final decimals = scaleOverride != null
       ? decimalsForTransform(scale: scaleOverride)
       : decimalsForTransform(
-          scale: value.scale, valueOffset: value.valueOffset);
+          scale: value.scale,
+          valueOffset: value.valueOffset,
+        );
   return decoded.toStringAsFixed(decimals);
 }
 

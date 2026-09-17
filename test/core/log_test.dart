@@ -7,7 +7,8 @@ import 'package:liberated_bread_mobile/core/log.dart';
 /// A stack trace with a stable, asserted-on rendering.
 class _FakeStack implements StackTrace {
   @override
-  String toString() => '#0      first (file.dart:1:2)\n'
+  String toString() =>
+      '#0      first (file.dart:1:2)\n'
       '#1      second (file.dart:3:4)';
 }
 
@@ -23,8 +24,8 @@ class _MultiLineError implements Exception {
 List<String> _captureConsole() {
   final printed = <String>[];
   final original = debugPrint;
-  debugPrint =
-      (String? message, {int? wrapWidth}) => printed.add(message ?? '');
+  debugPrint = (String? message, {int? wrapWidth}) =>
+      printed.add(message ?? '');
   addTearDown(() => debugPrint = original);
   return printed;
 }
@@ -75,10 +76,12 @@ void main() {
     });
 
     test('the severity order is debug < info < warning < error', () {
-      expect(
-        LogLevel.values,
-        [LogLevel.debug, LogLevel.info, LogLevel.warning, LogLevel.error],
-      );
+      expect(LogLevel.values, [
+        LogLevel.debug,
+        LogLevel.info,
+        LogLevel.warning,
+        LogLevel.error,
+      ]);
     });
   });
 
@@ -155,41 +158,35 @@ void main() {
       Log.app.info('h');
       Log.ui.info('i');
 
-      expect(
-        records.map((r) => r.category),
-        [
-          'ble',
-          'spec',
-          'ha',
-          'net',
-          'adopt',
-          'hub',
-          'packs',
-          'ads',
-          'app',
-          'ui'
-        ],
-      );
+      expect(records.map((r) => r.category), [
+        'ble',
+        'spec',
+        'ha',
+        'net',
+        'adopt',
+        'hub',
+        'packs',
+        'ads',
+        'app',
+        'ui',
+      ]);
     });
 
     test('the category set is fixed', () {
       // Logger's constructor is private, so a call site cannot invent a tag
       // ('BLE', 'bluetooth', a typo) and split the output. This pins the set.
-      expect(
-        Log.categories.map((c) => c.category),
-        [
-          'ble',
-          'spec',
-          'ha',
-          'net',
-          'adopt',
-          'hub',
-          'packs',
-          'ads',
-          'app',
-          'ui'
-        ],
-      );
+      expect(Log.categories.map((c) => c.category), [
+        'ble',
+        'spec',
+        'ha',
+        'net',
+        'adopt',
+        'hub',
+        'packs',
+        'ads',
+        'app',
+        'ui',
+      ]);
     });
 
     test('carry an error and a stack trace', () {
@@ -231,25 +228,32 @@ void main() {
       Object? error,
       StackTrace? stackTrace,
       String category = 'ble',
-    }) =>
-        LogRecord(
-          time: DateTime(2026, 7, 30, 14, 2, 11, 482),
-          level: level,
-          category: category,
-          message: 'scan started',
-          error: error,
-          stackTrace: stackTrace,
-        );
+    }) => LogRecord(
+      time: DateTime(2026, 7, 30, 14, 2, 11, 482),
+      level: level,
+      category: category,
+      message: 'scan started',
+      error: error,
+      stackTrace: stackTrace,
+    );
 
     test('shows the time, the level and the category', () {
-      expect(record(LogLevel.info).format(),
-          '14:02:11.482 INFO  [ble] scan started');
-      expect(record(LogLevel.debug).format(),
-          '14:02:11.482 DEBUG [ble] scan started');
-      expect(record(LogLevel.warning).format(),
-          '14:02:11.482 WARN  [ble] scan started');
-      expect(record(LogLevel.error).format(),
-          '14:02:11.482 ERROR [ble] scan started');
+      expect(
+        record(LogLevel.info).format(),
+        '14:02:11.482 INFO  [ble] scan started',
+      );
+      expect(
+        record(LogLevel.debug).format(),
+        '14:02:11.482 DEBUG [ble] scan started',
+      );
+      expect(
+        record(LogLevel.warning).format(),
+        '14:02:11.482 WARN  [ble] scan started',
+      );
+      expect(
+        record(LogLevel.error).format(),
+        '14:02:11.482 ERROR [ble] scan started',
+      );
     });
 
     test('keeps a single-line error on the same line', () {
@@ -270,8 +274,11 @@ void main() {
 
     test('indents a stack trace under its line', () {
       expect(
-        record(LogLevel.error, error: 'boom', stackTrace: _FakeStack())
-            .format(),
+        record(
+          LogLevel.error,
+          error: 'boom',
+          stackTrace: _FakeStack(),
+        ).format(),
         '14:02:11.482 ERROR [ble] scan started: boom\n'
         '  #0      first (file.dart:1:2)\n'
         '  #1      second (file.dart:3:4)',
@@ -281,7 +288,9 @@ void main() {
     test('formats the time zero-padded to milliseconds', () {
       expect(formatLogTime(DateTime(2026, 1, 2, 3, 4, 5, 6)), '03:04:05.006');
       expect(
-          formatLogTime(DateTime(2026, 1, 2, 23, 59, 59, 999)), '23:59:59.999');
+        formatLogTime(DateTime(2026, 1, 2, 23, 59, 59, 999)),
+        '23:59:59.999',
+      );
     });
   });
 
@@ -358,8 +367,10 @@ void main() {
       Log.ads.debug('config fetch returned HTTP 400');
       Log.ble.info('scan started');
 
-      expect(records.map((r) => r.message),
-          ['datagram from 10.0.0.4', 'scan started']);
+      expect(records.map((r) => r.message), [
+        'datagram from 10.0.0.4',
+        'scan started',
+      ]);
     });
 
     test('a category can also be turned DOWN below the global level', () {
@@ -371,8 +382,10 @@ void main() {
       Log.ads.warning('banner config unreadable');
       Log.ble.debug('kept');
 
-      expect(
-          records.map((r) => r.message), ['banner config unreadable', 'kept']);
+      expect(records.map((r) => r.message), [
+        'banner config unreadable',
+        'kept',
+      ]);
     });
 
     test('clearing an override returns the category to minLevel', () {
@@ -482,11 +495,11 @@ void main() {
 
   group('LogBuffer', () {
     LogRecord record(String message) => LogRecord(
-          time: DateTime(2026, 1, 2, 14, 2, 11, 482),
-          level: LogLevel.info,
-          category: 'ble',
-          message: message,
-        );
+      time: DateTime(2026, 1, 2, 14, 2, 11, 482),
+      level: LogLevel.info,
+      category: 'ble',
+      message: message,
+    );
 
     test('keeps records oldest-first', () {
       final buffer = LogBuffer(capacity: 10)
@@ -503,40 +516,56 @@ void main() {
         buffer.add(record('line $i'));
       }
       expect(buffer.length, 3);
-      expect(
-          buffer.records.map((r) => r.message), ['line 2', 'line 3', 'line 4']);
+      expect(buffer.records.map((r) => r.message), [
+        'line 2',
+        'line 3',
+        'line 4',
+      ]);
     });
 
     test('export renders one record per line, newest last', () {
       final buffer = LogBuffer()
         ..add(record('first'))
         ..add(record('second'));
-      expect(buffer.export(),
-          '14:02:11.482 INFO  [ble] first\n14:02:11.482 INFO  [ble] second');
+      expect(
+        buffer.export(),
+        '14:02:11.482 INFO  [ble] first\n14:02:11.482 INFO  [ble] second',
+      );
     });
 
     test('export narrows by level and category', () {
       // So a bug report carries the thirty lines someone was looking at rather
       // than five hundred, which is the difference between read and skimmed.
       final buffer = LogBuffer()
-        ..add(LogRecord(
+        ..add(
+          LogRecord(
             time: DateTime(2026),
             level: LogLevel.debug,
             category: 'ble',
-            message: 'chatter'))
-        ..add(LogRecord(
+            message: 'chatter',
+          ),
+        )
+        ..add(
+          LogRecord(
             time: DateTime(2026),
             level: LogLevel.warning,
             category: 'ble',
-            message: 'kept'))
-        ..add(LogRecord(
+            message: 'kept',
+          ),
+        )
+        ..add(
+          LogRecord(
             time: DateTime(2026),
             level: LogLevel.error,
             category: 'net',
-            message: 'other category'));
+            message: 'other category',
+          ),
+        );
 
-      final exported =
-          buffer.export(minLevel: LogLevel.warning, categories: {'ble'});
+      final exported = buffer.export(
+        minLevel: LogLevel.warning,
+        categories: {'ble'},
+      );
 
       expect(exported, contains('kept'));
       expect(exported, isNot(contains('chatter')));
@@ -606,7 +635,10 @@ void main() {
       Object thrown;
       try {
         throw const FormatException(
-            'Unterminated string', '{"token":"super-secret-token', 28);
+          'Unterminated string',
+          '{"token":"super-secret-token',
+          28,
+        );
       } catch (e) {
         thrown = e;
       }
@@ -619,7 +651,8 @@ void main() {
 
     test('logSafeUrl drops credentials, query and fragment', () {
       final url = Uri.parse(
-          'https://user:hunter2@example.com/packs/pack.json?token=abc#frag');
+        'https://user:hunter2@example.com/packs/pack.json?token=abc#frag',
+      );
 
       final safe = logSafeUrl(url);
 
@@ -629,8 +662,10 @@ void main() {
     });
 
     test('logSafeUrl keeps a non-default port, which is diagnostic', () {
-      expect(logSafeUrl(Uri.parse('http://ha.local:8123/api/x')),
-          'http://ha.local:8123/api/x');
+      expect(
+        logSafeUrl(Uri.parse('http://ha.local:8123/api/x')),
+        'http://ha.local:8123/api/x',
+      );
     });
   });
 }

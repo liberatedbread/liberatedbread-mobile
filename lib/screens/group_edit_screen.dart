@@ -66,20 +66,25 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
       if (existing == null) {
         await notifier.create(name: name, deviceIds: ordered);
       } else {
-        await notifier
-            .update(existing.copyWith(name: name, deviceIds: ordered));
+        await notifier.update(
+          existing.copyWith(name: name, deviceIds: ordered),
+        );
       }
     } catch (e) {
       // A failed prefs write must not strand the screen: without this the
       // error escapes to the zone, the button stays stuck on "saving", and
       // the user gets no say in what happened.
-      messenger.showSnackBar(SnackBar(
-        content: Text(friendlyErrorText(
-          e,
-          context: 'save group',
-          fallback: 'Could not save this group.',
-        )),
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            friendlyErrorText(
+              e,
+              context: 'save group',
+              fallback: 'Could not save this group.',
+            ),
+          ),
+        ),
+      );
       return;
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -98,8 +103,9 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Delete "${group.name}"?'),
-        content:
-            const Text('The devices stay saved — only the group goes away.'),
+        content: const Text(
+          'The devices stay saved — only the group goes away.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -183,8 +189,9 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
               Text(
                 'No saved devices to add. Connect to a device from the '
                 'Nearby tab first.',
-                style:
-                    text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             for (final device in candidates) ...[
               _PickRow(
@@ -272,11 +279,7 @@ class _PickRow extends StatelessWidget {
                 value: selected,
                 onChanged: (value) => onChanged(value ?? false),
               ),
-              Icon(
-                icon,
-                size: 20,
-                color: scheme.onSurfaceVariant,
-              ),
+              Icon(icon, size: 20, color: scheme.onSurfaceVariant),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -284,15 +287,17 @@ class _PickRow extends StatelessWidget {
                   children: [
                     Text(
                       name.isNotEmpty ? name : 'Unknown device',
-                      style: text.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w600),
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
                       categoryLabel ?? 'Kind not known yet',
-                      style: text.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant),
+                      style: text.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),

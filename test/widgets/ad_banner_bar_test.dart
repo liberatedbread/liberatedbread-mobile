@@ -20,21 +20,18 @@ late SharedPreferences _prefs;
 /// The bar mounted the way the scan screen mounts it. The service override
 /// fails fast, pinning the bundled fallback so widget assertions are stable.
 Widget _wrap({required List<Uri> opened}) => ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        adBannerServiceProvider.overrideWithValue(
-          AdBannerService(
-              client: MockClient((_) async => http.Response('', 500))),
-        ),
-        urlOpenerProvider.overrideWithValue((url) async {
-          opened.add(url);
-          return true;
-        }),
-      ],
-      child: const MaterialApp(
-        home: Scaffold(bottomNavigationBar: AdBannerBar()),
-      ),
-    );
+  overrides: [
+    sharedPreferencesProvider.overrideWithValue(_prefs),
+    adBannerServiceProvider.overrideWithValue(
+      AdBannerService(client: MockClient((_) async => http.Response('', 500))),
+    ),
+    urlOpenerProvider.overrideWithValue((url) async {
+      opened.add(url);
+      return true;
+    }),
+  ],
+  child: const MaterialApp(home: Scaffold(bottomNavigationBar: AdBannerBar())),
+);
 
 void main() {
   setUp(() async {
@@ -42,8 +39,9 @@ void main() {
     _prefs = await SharedPreferences.getInstance();
   });
 
-  testWidgets('renders the banner with an AD tag on the first frame',
-      (tester) async {
+  testWidgets('renders the banner with an AD tag on the first frame', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(opened: []));
 
     // No pumps beyond the first frame: the fallback must already be there.
@@ -63,8 +61,9 @@ void main() {
     expect(opened, [AdBanner.fallback.url]);
   });
 
-  testWidgets('the close button dismisses without opening anything',
-      (tester) async {
+  testWidgets('the close button dismisses without opening anything', (
+    tester,
+  ) async {
     final opened = <Uri>[];
     await tester.pumpWidget(_wrap(opened: opened));
 
@@ -74,12 +73,15 @@ void main() {
     expect(find.text('AD'), findsNothing);
     expect(find.text(AdBanner.fallback.message), findsNothing);
     expect(opened, isEmpty);
-    expect(_prefs.getString(AdBannerNotifier.dismissedKey),
-        jsonEncode([AdBanner.fallback.id]));
+    expect(
+      _prefs.getString(AdBannerNotifier.dismissedKey),
+      jsonEncode([AdBanner.fallback.id]),
+    );
   });
 
-  testWidgets('a maximum-length CTA ellipsizes on a narrow screen',
-      (tester) async {
+  testWidgets('a maximum-length CTA ellipsizes on a narrow screen', (
+    tester,
+  ) async {
     // 320dp is the narrowest mainstream phone width; an unbounded CTA next to
     // the fixed icons would overflow the row here and fail the test through
     // the framework's overflow exception.
@@ -105,10 +107,11 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('renders nothing when the promotion was already dismissed',
-      (tester) async {
+  testWidgets('renders nothing when the promotion was already dismissed', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({
-      AdBannerNotifier.dismissedKey: jsonEncode([AdBanner.fallback.id])
+      AdBannerNotifier.dismissedKey: jsonEncode([AdBanner.fallback.id]),
     });
     _prefs = await SharedPreferences.getInstance();
 

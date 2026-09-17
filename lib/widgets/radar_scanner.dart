@@ -90,11 +90,7 @@ class _RadarScannerState extends State<RadarScanner>
               color: scheme.onSurface,
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              Icons.bluetooth,
-              color: scheme.surface,
-              size: 30,
-            ),
+            child: Icon(Icons.bluetooth, color: scheme.surface, size: 30),
           ),
         ),
       ),

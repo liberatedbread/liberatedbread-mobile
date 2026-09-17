@@ -44,9 +44,7 @@ class HuePairingService {
   static const defaultWindow = Duration(seconds: 45);
   static const defaultInterval = Duration(seconds: 2);
 
-  HuePairingService({required SpecCodec codec, required HubHttpClient client})
-      : _codec = codec,
-        _client = client;
+  HuePairingService({required this._codec, required this._client});
 
   /// Poll `create_user` until the button is pressed, the [window] closes, or
   /// [cancelled] completes (the user dismissed the sheet).
@@ -78,10 +76,12 @@ class HuePairingService {
     // an error (the caller's own screen tearing down mid-pairing) would
     // otherwise surface as an unhandled async error from a chain nobody
     // awaits. Either way the answer is the same — stop polling.
-    unawaited(cancelled?.then(
-      (_) => wasCancelled = true,
-      onError: (Object _) => wasCancelled = true,
-    ));
+    unawaited(
+      cancelled?.then(
+        (_) => wasCancelled = true,
+        onError: (Object _) => wasCancelled = true,
+      ),
+    );
 
     while (clock.now().isBefore(deadline)) {
       if (wasCancelled) throw PairingCancelledException();

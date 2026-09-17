@@ -6,8 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/device_group_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<DeviceGroupStore> _store(
-    [Map<String, Object> initial = const {}]) async {
+Future<DeviceGroupStore> _store([
+  Map<String, Object> initial = const {},
+]) async {
   SharedPreferences.setMockInitialValues(initial);
   return DeviceGroupStore(await SharedPreferences.getInstance());
 }
@@ -22,11 +23,13 @@ void main() {
 
   test('save/load round-trips a group', () async {
     final store = await _store();
-    await store.save(const DeviceGroup(
-      id: 'g1',
-      name: 'Living Room',
-      deviceIds: ['AA:BB', 'CC:DD'],
-    ));
+    await store.save(
+      const DeviceGroup(
+        id: 'g1',
+        name: 'Living Room',
+        deviceIds: ['AA:BB', 'CC:DD'],
+      ),
+    );
 
     final loaded = store.load().single;
     expect(loaded.id, 'g1');
@@ -37,10 +40,12 @@ void main() {
   test('updating a group keeps its place; new groups append', () async {
     final store = await _store();
     await store.save(const DeviceGroup(id: 'g1', name: 'First', deviceIds: []));
-    await store
-        .save(const DeviceGroup(id: 'g2', name: 'Second', deviceIds: []));
-    await store.save(const DeviceGroup(
-        id: 'g1', name: 'First renamed', deviceIds: ['AA:BB']));
+    await store.save(
+      const DeviceGroup(id: 'g2', name: 'Second', deviceIds: []),
+    );
+    await store.save(
+      const DeviceGroup(id: 'g1', name: 'First renamed', deviceIds: ['AA:BB']),
+    );
 
     final loaded = store.load();
     expect([for (final g in loaded) g.id], ['g1', 'g2']);
@@ -57,14 +62,19 @@ void main() {
     expect(store.load().single.id, 'g2');
   });
 
-  test(
-      'removeDevice prunes a forgotten device from every group but keeps '
+  test('removeDevice prunes a forgotten device from every group but keeps '
       'the groups', () async {
     final store = await _store();
-    await store.save(const DeviceGroup(
-        id: 'g1', name: 'Living Room', deviceIds: ['AA:BB', 'CC:DD']));
-    await store
-        .save(const DeviceGroup(id: 'g2', name: 'Solo', deviceIds: ['AA:BB']));
+    await store.save(
+      const DeviceGroup(
+        id: 'g1',
+        name: 'Living Room',
+        deviceIds: ['AA:BB', 'CC:DD'],
+      ),
+    );
+    await store.save(
+      const DeviceGroup(id: 'g2', name: 'Solo', deviceIds: ['AA:BB']),
+    );
     await store.removeDevice('AA:BB');
 
     final loaded = store.load();
@@ -74,11 +84,13 @@ void main() {
     expect(loaded.last.deviceIds, isEmpty);
   });
 
-  test('a corrupt blob loads as empty instead of throwing at startup',
-      () async {
-    final store = await _store({'device_groups_v1': 'not-json{'});
-    expect(store.load(), isEmpty);
-  });
+  test(
+    'a corrupt blob loads as empty instead of throwing at startup',
+    () async {
+      final store = await _store({'device_groups_v1': 'not-json{'});
+      expect(store.load(), isEmpty);
+    },
+  );
 
   test('bad records and non-string member ids are skipped', () async {
     final store = await _store({

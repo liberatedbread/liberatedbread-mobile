@@ -57,8 +57,9 @@ class _AdoptDeviceCardState extends ConsumerState<AdoptDeviceCard>
 
     return Card(
       margin: EdgeInsets.zero,
-      color:
-          isNearby ? scheme.secondaryContainer : scheme.surfaceContainerHighest,
+      color: isNearby
+          ? scheme.secondaryContainer
+          : scheme.surfaceContainerHighest,
       child: InkWell(
         onTap: widget.onTap,
         borderRadius: BorderRadius.circular(12),
@@ -71,8 +72,9 @@ class _AdoptDeviceCardState extends ConsumerState<AdoptDeviceCard>
                 turns: _spin,
                 child: Icon(
                   Icons.wifi_tethering,
-                  color:
-                      isNearby ? scheme.onSecondaryContainer : scheme.secondary,
+                  color: isNearby
+                      ? scheme.onSecondaryContainer
+                      : scheme.secondary,
                 ),
               ),
               const SizedBox(width: 16),
@@ -91,7 +93,7 @@ class _AdoptDeviceCardState extends ConsumerState<AdoptDeviceCard>
                     Text(
                       isNearby
                           ? 'A "${nearby.profile.ssidPrefix}…" setup network is '
-                              'in range — tap to set it up'
+                                'in range — tap to set it up'
                           : 'Set up a reset Wemo or LIFX device on your Wi-Fi',
                       style: text.bodySmall?.copyWith(
                         color: isNearby
@@ -103,10 +105,12 @@ class _AdoptDeviceCardState extends ConsumerState<AdoptDeviceCard>
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(Icons.chevron_right,
-                  color: isNearby
-                      ? scheme.onSecondaryContainer
-                      : scheme.onSurfaceVariant),
+              Icon(
+                Icons.chevron_right,
+                color: isNearby
+                    ? scheme.onSecondaryContainer
+                    : scheme.onSurfaceVariant,
+              ),
             ],
           ),
         ),

@@ -17,17 +17,23 @@ Future<void> mockReset() => RustLib.instance.api.crateApiMockApiMockReset();
 /// bytes. Spec parse failures are logged once per `(char_uuid, message)`
 /// pair to stderr — repeated reads against a broken YAML won't spam — and
 /// the read falls back to a fixed-length zero buffer.
-Future<Uint8List> mockReadCharacteristic(
-        {required String deviceId,
-        required String charUuid,
-        required String specYaml}) =>
-    RustLib.instance.api.crateApiMockApiMockReadCharacteristic(
-        deviceId: deviceId, charUuid: charUuid, specYaml: specYaml);
+Future<Uint8List> mockReadCharacteristic({
+  required String deviceId,
+  required String charUuid,
+  required String specYaml,
+}) => RustLib.instance.api.crateApiMockApiMockReadCharacteristic(
+  deviceId: deviceId,
+  charUuid: charUuid,
+  specYaml: specYaml,
+);
 
 /// Simulate writing a characteristic value for a mock device.
-Future<void> mockWriteCharacteristic(
-        {required String deviceId,
-        required String charUuid,
-        required List<int> value}) =>
-    RustLib.instance.api.crateApiMockApiMockWriteCharacteristic(
-        deviceId: deviceId, charUuid: charUuid, value: value);
+Future<void> mockWriteCharacteristic({
+  required String deviceId,
+  required String charUuid,
+  required List<int> value,
+}) => RustLib.instance.api.crateApiMockApiMockWriteCharacteristic(
+  deviceId: deviceId,
+  charUuid: charUuid,
+  value: value,
+);

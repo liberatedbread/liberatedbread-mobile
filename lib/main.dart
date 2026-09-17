@@ -19,8 +19,11 @@ Future<void> main() async {
   // user can copy a report from) never saw them.
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
-    Log.app.error('uncaught Flutter error',
-        error: details.exception, stackTrace: details.stack);
+    Log.app.error(
+      'uncaught Flutter error',
+      error: details.exception,
+      stackTrace: details.stack,
+    );
   };
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
     Log.app.error('uncaught error', error: error, stackTrace: stack);

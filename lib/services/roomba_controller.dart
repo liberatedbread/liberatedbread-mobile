@@ -80,14 +80,11 @@ class DirectRoombaController implements RoombaController {
   final RoombaCredentials _credentials;
 
   DirectRoombaController({
-    required RoombaMqttClient client,
-    required String specYaml,
-    required String host,
-    required RoombaCredentials credentials,
-  })  : _client = client,
-        _specYaml = specYaml,
-        _host = host,
-        _credentials = credentials;
+    required this._client,
+    required this._specYaml,
+    required this._host,
+    required this._credentials,
+  });
 
   @override
   Future<void> connect() => _client.connect(_host, _credentials);
@@ -124,9 +121,7 @@ class Rest980Controller implements RoombaController {
   final _state = StreamController<Map<String, String>>.broadcast();
   Timer? _poll;
 
-  Rest980Controller({required Rest980Client client, required String baseUrl})
-      : _client = client,
-        _baseUrl = baseUrl;
+  Rest980Controller({required this._client, required this._baseUrl});
 
   /// Set by [close]. Checked again AFTER the seed read in [connect], because
   /// that read can take up to the client's timeout and the device screen
@@ -181,7 +176,6 @@ class Rest980Controller implements RoombaController {
   bool supports(String commandName) => Rest980Client.supports(commandName);
 
   @override
-
   /// Stop polling and close the stream. Terminal: the interface offers only
   /// `close`, and every caller treats it as the end of the controller —
   /// the device screen closes on dispose and builds a fresh controller to
@@ -224,11 +218,7 @@ class HaRoombaController implements RoombaController {
   /// the safe reading is "the four core commands", not "nothing".
   HaEntityState? _entity;
 
-  HaRoombaController({
-    required HaRoombaClient client,
-    required String entityId,
-  })  : _client = client,
-        _entityId = entityId;
+  HaRoombaController({required this._client, required this._entityId});
 
   /// See the rest980 controller's note: a close() that lands during the seed
   /// read must win over the timer connect() is about to install.
@@ -259,11 +249,13 @@ class HaRoombaController implements RoombaController {
         // from an unreachable server and must not read as one: the robot was
         // removed or renamed in HA, and re-adopting is the fix.
         if (!_state.isClosed) {
-          _state.addError(HaServerException(
-            404,
-            'Home Assistant no longer has $_entityId. It may have been '
-            'removed or renamed there.',
-          ));
+          _state.addError(
+            HaServerException(
+              404,
+              'Home Assistant no longer has $_entityId. It may have been '
+              'removed or renamed there.',
+            ),
+          );
         }
         return;
       }
@@ -310,7 +302,6 @@ class HaRoombaController implements RoombaController {
   }
 
   @override
-
   /// Stop polling and close the stream. Terminal: the interface offers only
   /// `close`, and every caller treats it as the end of the controller —
   /// the device screen closes on dispose and builds a fresh controller to
@@ -360,8 +351,9 @@ RoombaController roombaControllerFor({
   if (entityId != null && entityId.isNotEmpty) {
     final client = haClient?.call();
     if (client != null) {
-      Log.hub
-          .info('roomba ${credentials.blid}: via Home Assistant ($entityId)');
+      Log.hub.info(
+        'roomba ${credentials.blid}: via Home Assistant ($entityId)',
+      );
       return HaRoombaController(client: client, entityId: entityId);
     }
     // The silent fallback. Worth a warning rather than a debug line: the robot
@@ -376,8 +368,9 @@ RoombaController roombaControllerFor({
   final baseUrl = credentials.rest980BaseUrl;
   if (baseUrl != null && baseUrl.isNotEmpty) {
     // Host only, never the URL: Log.hub lines carry no paths (see log.dart).
-    Log.hub
-        .info('roomba ${credentials.blid}: via rest980 at ${_hostOf(baseUrl)}');
+    Log.hub.info(
+      'roomba ${credentials.blid}: via rest980 at ${_hostOf(baseUrl)}',
+    );
     return Rest980Controller(client: restClient(), baseUrl: baseUrl);
   }
   Log.hub.info('roomba ${credentials.blid}: direct to the robot');

@@ -117,12 +117,12 @@ class SpecPack {
   int get specCount => specFiles.length;
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'version': version,
-        'source_url': sourceUrl,
-        'spec_files': specFiles,
-        'installed_at': installedAt.toIso8601String(),
-      };
+    'name': name,
+    'version': version,
+    'source_url': sourceUrl,
+    'spec_files': specFiles,
+    'installed_at': installedAt.toIso8601String(),
+  };
 
   static SpecPack? tryFromJson(String jsonText) {
     Object? decoded;
@@ -145,8 +145,9 @@ class SpecPack {
     for (final f in specFiles) {
       if (f is String) files.add(f);
     }
-    final parsedAt =
-        installedAt is String ? DateTime.tryParse(installedAt) : null;
+    final parsedAt = installedAt is String
+        ? DateTime.tryParse(installedAt)
+        : null;
     return SpecPack(
       name: name,
       version: version,
@@ -231,13 +232,12 @@ class SpecPackService {
   final Duration timeout;
 
   SpecPackService({
-    required http.Client client,
+    required this._client,
     required CacheDirResolver cacheDirResolver,
     SpecValidator? specValidator,
     this.timeout = const Duration(seconds: 15),
-  })  : _client = client,
-        _resolveCacheDir = cacheDirResolver,
-        _validateSpec = specValidator;
+  }) : _resolveCacheDir = cacheDirResolver,
+       _validateSpec = specValidator;
 
   /// Whether [input] is a usable http/https manifest URL.
   static bool isValidManifestUrl(String input) {
@@ -255,8 +255,12 @@ class SpecPackService {
     final url = manifestUrl.trim();
     if (!isValidManifestUrl(url)) {
       Log.packs.warning('install refused: not a valid http(s) URL');
-      return const InstallFailed(SpecPackError(
-          SpecPackErrorKind.invalidUrl, 'Enter a valid http(s) URL.'));
+      return const InstallFailed(
+        SpecPackError(
+          SpecPackErrorKind.invalidUrl,
+          'Enter a valid http(s) URL.',
+        ),
+      );
     }
     final manifestUri = Uri.parse(url);
     Log.packs.info('installing from ${logSafeUrl(manifestUri)}');
@@ -271,8 +275,10 @@ class SpecPackService {
     // downloaded. The same-origin guard below still uses the original.
     final Uri manifestBase;
     try {
-      final fetched =
-          await _fetch(manifestUri, SpecPackLimits.maxManifestBytes);
+      final fetched = await _fetch(
+        manifestUri,
+        SpecPackLimits.maxManifestBytes,
+      );
       manifestBytes = fetched.bytes;
       manifestBase = fetched.uri;
     } on _FetchException catch (e) {
@@ -284,18 +290,26 @@ class SpecPackService {
       manifest = SpecPackManifest.tryParse(utf8.decode(manifestBytes));
     } on FormatException {
       Log.packs.warning('manifest rejected: not valid UTF-8 text');
-      return const InstallFailed(SpecPackError(
+      return const InstallFailed(
+        SpecPackError(
           SpecPackErrorKind.malformedManifest,
-          'The manifest was not valid UTF-8 text.'));
+          'The manifest was not valid UTF-8 text.',
+        ),
+      );
     }
     if (manifest == null) {
       Log.packs.warning('manifest rejected: not a valid spec-pack manifest');
-      return const InstallFailed(SpecPackError(
+      return const InstallFailed(
+        SpecPackError(
           SpecPackErrorKind.malformedManifest,
-          'The manifest is not a valid spec-pack manifest.'));
+          'The manifest is not a valid spec-pack manifest.',
+        ),
+      );
     }
-    Log.packs.debug('manifest "${manifest.name}" v${manifest.version} lists '
-        '${manifest.specs.length} spec(s)');
+    Log.packs.debug(
+      'manifest "${manifest.name}" v${manifest.version} lists '
+      '${manifest.specs.length} spec(s)',
+    );
 
     // 2. Download each spec, capping per-file and total size.
     final downloaded = <String, Uint8List>{};
@@ -309,8 +323,12 @@ class SpecPackService {
       if (specFile.contains('://') ||
           specFile.startsWith('/') ||
           specFile.startsWith('\\')) {
-        failures.add(SpecDownloadFailure(
-            specFile, 'spec path must be relative and same-origin'));
+        failures.add(
+          SpecDownloadFailure(
+            specFile,
+            'spec path must be relative and same-origin',
+          ),
+        );
         continue;
       }
       final specUri = manifestBase.resolve(specFile);
@@ -320,13 +338,15 @@ class SpecPackService {
       }
       if (!_sameOrigin(manifestUri, specUri)) {
         failures.add(
-            SpecDownloadFailure(specFile, 'cross-origin spec URL rejected'));
+          SpecDownloadFailure(specFile, 'cross-origin spec URL rejected'),
+        );
         continue;
       }
       final remaining = SpecPackLimits.maxTotalBytes - totalBytes;
       if (remaining <= 0) {
         failures.add(
-            SpecDownloadFailure(specFile, 'total download size cap reached'));
+          SpecDownloadFailure(specFile, 'total download size cap reached'),
+        );
         continue;
       }
       final cap = remaining < SpecPackLimits.maxSpecBytes
@@ -358,8 +378,9 @@ class SpecPackService {
             valid = false;
           }
           if (!valid) {
-            failures
-                .add(SpecDownloadFailure(specFile, 'not a valid device spec'));
+            failures.add(
+              SpecDownloadFailure(specFile, 'not a valid device spec'),
+            );
             continue;
           }
         }
@@ -371,11 +392,16 @@ class SpecPackService {
     }
 
     if (downloaded.isEmpty) {
-      Log.packs.warning('install failed: none of the ${manifest.specs.length} '
-          'spec(s) could be downloaded — ${_summarize(failures)}');
-      return const InstallFailed(SpecPackError(
+      Log.packs.warning(
+        'install failed: none of the ${manifest.specs.length} '
+        'spec(s) could be downloaded — ${_summarize(failures)}',
+      );
+      return const InstallFailed(
+        SpecPackError(
           SpecPackErrorKind.noSpecsInstalled,
-          'None of the specs in the manifest could be downloaded.'));
+          'None of the specs in the manifest could be downloaded.',
+        ),
+      );
     }
 
     // 3. Persist to the cache (replace any same-named pack).
@@ -390,19 +416,28 @@ class SpecPackService {
       // cacheIo is the one error kind whose message the settings screen shows
       // verbatim, so it has to read like a sentence; the raw failure (a path,
       // an errno) is for the log, not the user.
-      Log.packs.error('install failed: could not write the pack to storage',
-          error: e);
-      return const InstallFailed(SpecPackError(SpecPackErrorKind.cacheIo,
-          'Could not save the pack to this device\'s storage.'));
+      Log.packs.error(
+        'install failed: could not write the pack to storage',
+        error: e,
+      );
+      return const InstallFailed(
+        SpecPackError(
+          SpecPackErrorKind.cacheIo,
+          'Could not save the pack to this device\'s storage.',
+        ),
+      );
     }
     // One aggregate line, not one per spec: a manifest may list up to
     // SpecPackLimits.maxSpecCount entries and this must not become a wall.
     if (failures.isNotEmpty) {
       Log.packs.warning(
-          '${failures.length} spec(s) skipped: ${_summarize(failures)}');
+        '${failures.length} spec(s) skipped: ${_summarize(failures)}',
+      );
     }
-    Log.packs.info('installed "${pack.name}" v${pack.version}: '
-        '${pack.specCount} spec(s) cached');
+    Log.packs.info(
+      'installed "${pack.name}" v${pack.version}: '
+      '${pack.specCount} spec(s) cached',
+    );
     return InstallOk(pack, partialFailures: failures);
   }
 
@@ -441,14 +476,16 @@ class SpecPackService {
         if (pack != null) {
           packs.add(pack);
         } else {
-          Log.packs
-              .warning('skipping corrupt pack record ${manifestFile.path}');
+          Log.packs.warning(
+            'skipping corrupt pack record ${manifestFile.path}',
+          );
         }
       } catch (e) {
         // Skip an unreadable/corrupt pack record, but make the drop visible.
         Log.packs.warning(
-            'skipping unreadable pack record ${manifestFile.path}',
-            error: e);
+          'skipping unreadable pack record ${manifestFile.path}',
+          error: e,
+        );
       }
     }
     packs.sort((a, b) => b.installedAt.compareTo(a.installedAt));
@@ -469,8 +506,9 @@ class SpecPackService {
       packs = await listInstalledPacks();
     } catch (e) {
       Log.packs.warning(
-          'could not list cached packs; falling back to bundled specs only',
-          error: e);
+        'could not list cached packs; falling back to bundled specs only',
+        error: e,
+      );
       return result;
     }
     if (packs.isEmpty) return result;
@@ -485,17 +523,21 @@ class SpecPackService {
             result['pack:${pack.name}/$file'] = await f.readAsString();
           } else {
             Log.packs.warning(
-                'cached spec missing on disk: pack:${pack.name}/$file');
+              'cached spec missing on disk: pack:${pack.name}/$file',
+            );
           }
         } catch (e) {
           Log.packs.warning(
-              'skipping unreadable cached spec pack:${pack.name}/$file',
-              error: e);
+            'skipping unreadable cached spec pack:${pack.name}/$file',
+            error: e,
+          );
         }
       }
     }
-    Log.packs.debug('loaded ${result.length} cached spec(s) from '
-        '${packs.length} pack(s)');
+    Log.packs.debug(
+      'loaded ${result.length} cached spec(s) from '
+      '${packs.length} pack(s)',
+    );
     return result;
   }
 
@@ -561,7 +603,8 @@ class SpecPackService {
         final stored = SpecPack.tryFromJson(await manifestFile.readAsString());
         if (stored != null && stored.name != manifest.name) {
           throw StateError(
-              'Pack "${manifest.name}" collides with existing "${stored.name}" at ${dir.path}');
+            'Pack "${manifest.name}" collides with existing "${stored.name}" at ${dir.path}',
+          );
         }
       } catch (e) {
         if (e is StateError) rethrow;
@@ -587,8 +630,12 @@ class SpecPackService {
     for (final entry in specs.entries) {
       final safeName = _safeFileName(entry.key);
       if (!usedNames.add(safeName)) {
-        failures.add(SpecDownloadFailure(entry.key,
-            'on-disk name "$safeName" collides with another spec in this pack'));
+        failures.add(
+          SpecDownloadFailure(
+            entry.key,
+            'on-disk name "$safeName" collides with another spec in this pack',
+          ),
+        );
         continue;
       }
       final file = File('${specsDir.path}/$safeName');
@@ -611,8 +658,9 @@ class SpecPackService {
       specFiles: storedFiles,
       installedAt: DateTime.now(),
     );
-    await File('${stagingDir.path}/manifest.json')
-        .writeAsString(jsonEncode(pack.toJson()), flush: true);
+    await File(
+      '${stagingDir.path}/manifest.json',
+    ).writeAsString(jsonEncode(pack.toJson()), flush: true);
 
     // Atomic swap: only after all writes succeed.
     if (await dir.exists()) await dir.delete(recursive: true);
@@ -651,9 +699,10 @@ class SpecPackService {
         Log.packs.info('moved the spec-pack cache out of Documents');
       } catch (e) {
         Log.packs.warning(
-            'could not move the spec-pack cache; keeping it '
-            'where it is',
-            error: e);
+          'could not move the spec-pack cache; keeping it '
+          'where it is',
+          error: e,
+        );
         return legacyBase;
       }
     }
@@ -669,23 +718,36 @@ class SpecPackService {
   Future<({Uint8List bytes, Uri uri})> _fetch(Uri uri, int maxBytes) async {
     final origin = uri;
     var current = uri;
-    for (var hop = 0;; hop++) {
+    for (var hop = 0; ; hop++) {
       http.StreamedResponse response;
       try {
         final request = http.Request('GET', current)..followRedirects = false;
         response = await _client.send(request).timeout(timeout);
       } on TimeoutException {
-        throw _FetchException(const SpecPackError(
-            SpecPackErrorKind.timeout, 'The request timed out.'));
+        throw _FetchException(
+          const SpecPackError(
+            SpecPackErrorKind.timeout,
+            'The request timed out.',
+          ),
+        );
       } on http.ClientException catch (e) {
-        throw _FetchException(SpecPackError(
-            SpecPackErrorKind.network, 'Could not connect: ${e.message}'));
+        throw _FetchException(
+          SpecPackError(
+            SpecPackErrorKind.network,
+            'Could not connect: ${e.message}',
+          ),
+        );
       } on SocketException catch (e) {
-        throw _FetchException(SpecPackError(
-            SpecPackErrorKind.network, 'Could not connect: ${e.message}'));
+        throw _FetchException(
+          SpecPackError(
+            SpecPackErrorKind.network,
+            'Could not connect: ${e.message}',
+          ),
+        );
       } on Object catch (e) {
         throw _FetchException(
-            SpecPackError(SpecPackErrorKind.network, 'Request failed: $e'));
+          SpecPackError(SpecPackErrorKind.network, 'Request failed: $e'),
+        );
       }
 
       // Manual, same-origin-only redirect handling.
@@ -693,17 +755,29 @@ class SpecPackService {
         unawaited(response.stream.drain<void>().catchError((_) {}));
         final location = response.headers['location'];
         if (location == null || location.isEmpty) {
-          throw _FetchException(SpecPackError(SpecPackErrorKind.http,
-              'Redirect (HTTP ${response.statusCode}) without a location.'));
+          throw _FetchException(
+            SpecPackError(
+              SpecPackErrorKind.http,
+              'Redirect (HTTP ${response.statusCode}) without a location.',
+            ),
+          );
         }
         if (hop >= _maxRedirects) {
-          throw _FetchException(const SpecPackError(
-              SpecPackErrorKind.network, 'Too many redirects.'));
+          throw _FetchException(
+            const SpecPackError(
+              SpecPackErrorKind.network,
+              'Too many redirects.',
+            ),
+          );
         }
         final next = current.resolve(location);
         if (!_sameOrigin(origin, next)) {
-          throw _FetchException(const SpecPackError(
-              SpecPackErrorKind.network, 'Refused a cross-origin redirect.'));
+          throw _FetchException(
+            const SpecPackError(
+              SpecPackErrorKind.network,
+              'Refused a cross-origin redirect.',
+            ),
+          );
         }
         current = next;
         continue;
@@ -712,15 +786,23 @@ class SpecPackService {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         // Drain so the connection can be reused/closed cleanly.
         unawaited(response.stream.drain<void>().catchError((_) {}));
-        throw _FetchException(SpecPackError(SpecPackErrorKind.http,
-            'Server returned HTTP ${response.statusCode}.'));
+        throw _FetchException(
+          SpecPackError(
+            SpecPackErrorKind.http,
+            'Server returned HTTP ${response.statusCode}.',
+          ),
+        );
       }
 
       final contentLength = response.contentLength;
       if (contentLength != null && contentLength > maxBytes) {
         unawaited(response.stream.drain<void>().catchError((_) {}));
-        throw _FetchException(const SpecPackError(
-            SpecPackErrorKind.tooLarge, 'The file is larger than allowed.'));
+        throw _FetchException(
+          const SpecPackError(
+            SpecPackErrorKind.tooLarge,
+            'The file is larger than allowed.',
+          ),
+        );
       }
 
       final bytes = <int>[];
@@ -728,19 +810,27 @@ class SpecPackService {
         await for (final chunk in response.stream.timeout(timeout)) {
           bytes.addAll(chunk);
           if (bytes.length > maxBytes) {
-            throw _FetchException(const SpecPackError(
+            throw _FetchException(
+              const SpecPackError(
                 SpecPackErrorKind.tooLarge,
-                'The file is larger than allowed.'));
+                'The file is larger than allowed.',
+              ),
+            );
           }
         }
       } on _FetchException {
         rethrow;
       } on TimeoutException {
-        throw _FetchException(const SpecPackError(
-            SpecPackErrorKind.timeout, 'The download stalled.'));
+        throw _FetchException(
+          const SpecPackError(
+            SpecPackErrorKind.timeout,
+            'The download stalled.',
+          ),
+        );
       } on Object catch (e) {
         throw _FetchException(
-            SpecPackError(SpecPackErrorKind.network, 'Download failed: $e'));
+          SpecPackError(SpecPackErrorKind.network, 'Download failed: $e'),
+        );
       }
       return (bytes: Uint8List.fromList(bytes), uri: current);
     }

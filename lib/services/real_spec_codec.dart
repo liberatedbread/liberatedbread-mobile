@@ -22,38 +22,34 @@ class RealSpecCodec implements SpecCodec {
     required String yaml,
     required String deviceName,
     required List<String> serviceUuids,
-  }) =>
-      rust.bleVariantNamesForDevice(
-        specYaml: yaml,
-        deviceName: deviceName,
-        serviceUuids: serviceUuids,
-      );
+  }) => rust.bleVariantNamesForDevice(
+    specYaml: yaml,
+    deviceName: deviceName,
+    serviceUuids: serviceUuids,
+  );
 
   @override
   Future<List<MatchResult>> matchDeviceToSpec({
     required List<DeviceSpecDto> specs,
     required String deviceName,
     required List<String> advertisedServiceUuids,
-  }) =>
-      rust.matchDeviceToSpec(
-        specs: specs,
-        deviceName: deviceName,
-        advertisedServiceUuids: advertisedServiceUuids,
-      );
+  }) => rust.matchDeviceToSpec(
+    specs: specs,
+    deviceName: deviceName,
+    advertisedServiceUuids: advertisedServiceUuids,
+  );
 
   @override
   Future<List<ScanMatch>> matchScannedDevice({
     required List<SpecIdentityDto> identities,
     required ScannedDeviceDto device,
-  }) =>
-      rust.matchScannedDevice(identities: identities, device: device);
+  }) => rust.matchScannedDevice(identities: identities, device: device);
 
   @override
   Future<List<ScanMatch>> matchNetworkDevice({
     required List<SpecIdentityDto> identities,
     required NetworkDeviceDto device,
-  }) =>
-      rust.matchNetworkDevice(identities: identities, device: device);
+  }) => rust.matchNetworkDevice(identities: identities, device: device);
 
   @override
   Future<Uint8List> encodeCommand({
@@ -62,14 +58,13 @@ class RealSpecCodec implements SpecCodec {
     required String charUuid,
     required String commandName,
     required Map<String, double> params,
-  }) =>
-      rust.encodeCommand(
-        specYaml: specYaml,
-        serviceUuid: serviceUuid,
-        charUuid: charUuid,
-        commandName: commandName,
-        params: params,
-      );
+  }) => rust.encodeCommand(
+    specYaml: specYaml,
+    serviceUuid: serviceUuid,
+    charUuid: charUuid,
+    commandName: commandName,
+    params: params,
+  );
 
   @override
   Future<List<DecodedValueDto>> decodeValue({
@@ -77,31 +72,28 @@ class RealSpecCodec implements SpecCodec {
     String? serviceUuid,
     required String charUuid,
     required List<int> bytes,
-  }) =>
-      rust.decodeValue(
-        specYaml: specYaml,
-        serviceUuid: serviceUuid,
-        charUuid: charUuid,
-        bytes: bytes,
-      );
+  }) => rust.decodeValue(
+    specYaml: specYaml,
+    serviceUuid: serviceUuid,
+    charUuid: charUuid,
+    bytes: bytes,
+  );
 
   @override
   Future<List<ProfileInfoDto>> identifyStandardProfiles(
     List<String> serviceUuids,
-  ) =>
-      rust.identifyStandardProfiles(serviceUuids: serviceUuids);
+  ) => rust.identifyStandardProfiles(serviceUuids: serviceUuids);
 
   @override
   Future<EntityWriteDto> encodeEntityValue({
     required String specYaml,
     required String entityName,
     required double value,
-  }) =>
-      rust.encodeEntityValue(
-        specYaml: specYaml,
-        entityName: entityName,
-        value: value,
-      );
+  }) => rust.encodeEntityValue(
+    specYaml: specYaml,
+    entityName: entityName,
+    value: value,
+  );
 
   @override
   Future<ImageWritePlanDto> encodeImageFrame({
@@ -111,118 +103,112 @@ class RealSpecCodec implements SpecCodec {
     required List<int> rgb,
     required int frameIndex,
     required int maxPayloadPerWrite,
-  }) =>
-      rust.encodeImageFrame(
-        specYaml: specYaml,
-        width: width,
-        height: height,
-        rgb: rgb,
-        frameIndex: frameIndex,
-        maxPayloadPerWrite: maxPayloadPerWrite,
-      );
+  }) => rust.encodeImageFrame(
+    specYaml: specYaml,
+    width: width,
+    height: height,
+    rgb: rgb,
+    frameIndex: frameIndex,
+    maxPayloadPerWrite: maxPayloadPerWrite,
+  );
 
   @override
   Future<PanelResolutionDto?> advertisedResolution({
     required String specYaml,
     required Map<int, List<int>> manufacturerData,
-  }) =>
-      rust.advertisedResolution(
-        specYaml: specYaml,
-        manufacturerData: [
-          for (final e in manufacturerData.entries)
-            (e.key, Uint8List.fromList(e.value)),
-        ],
-      );
+  }) => rust.advertisedResolution(
+    specYaml: specYaml,
+    manufacturerData: [
+      for (final e in manufacturerData.entries)
+        (e.key, Uint8List.fromList(e.value)),
+    ],
+  );
 
   @override
   Future<PanelResolutionDto?> deviceInfoResolution({
     required List<List<int>> notifications,
-  }) =>
-      rust.deviceInfoResolution(
-        notifications: [
-          for (final n in notifications) Uint8List.fromList(n),
-        ],
-      );
+  }) => rust.deviceInfoResolution(
+    notifications: [for (final n in notifications) Uint8List.fromList(n)],
+  );
 
   @override
   Future<NetworkEntitySurfaceDto> networkEntitiesForDevice({
     required String specYaml,
     required List<String> ssdpTargets,
-  }) =>
-      rust.networkEntitiesForDevice(
-          specYaml: specYaml, ssdpTargets: ssdpTargets);
+  }) => rust.networkEntitiesForDevice(
+    specYaml: specYaml,
+    ssdpTargets: ssdpTargets,
+  );
 
   @override
   Future<NetworkEntitySurfaceDto> networkEntitiesForStateKeys({
     required String specYaml,
     required List<String> ssdpTargets,
     required Map<String, Map<String, String>> stateKeys,
-  }) =>
-      rust.networkEntitiesForStateKeys(
-          specYaml: specYaml, ssdpTargets: ssdpTargets, stateKeys: stateKeys);
+  }) => rust.networkEntitiesForStateKeys(
+    specYaml: specYaml,
+    ssdpTargets: ssdpTargets,
+    stateKeys: stateKeys,
+  );
 
   @override
   Future<NetworkCapabilitiesDto> networkCapabilities({
     required String specYaml,
-  }) =>
-      rust.networkCapabilities(specYaml: specYaml);
+  }) => rust.networkCapabilities(specYaml: specYaml);
 
   @override
   Future<List<NetworkCredentialDto>> credentialsForDevice(String specYaml) =>
       rust.credentialsForDevice(specYaml: specYaml);
 
   @override
-  Future<String> deriveCredentialValue(
-          {required String derivation, required String value}) =>
-      rust.deriveCredentialValue(derivation: derivation, value: value);
+  Future<String> deriveCredentialValue({
+    required String derivation,
+    required String value,
+  }) => rust.deriveCredentialValue(derivation: derivation, value: value);
 
   @override
   Future<SoapRequestDto> renderNetworkCommand({
     required String specYaml,
     required String commandName,
     required Map<String, String> values,
-  }) =>
-      rust.renderNetworkCommand(
-        specYaml: specYaml,
-        commandName: commandName,
-        values: values,
-      );
+  }) => rust.renderNetworkCommand(
+    specYaml: specYaml,
+    commandName: commandName,
+    values: values,
+  );
 
   @override
   Future<HttpRequestDto> renderNetworkHttpCommand({
     required String specYaml,
     required String commandName,
     required Map<String, String> values,
-  }) =>
-      rust.renderNetworkHttpCommand(
-        specYaml: specYaml,
-        commandName: commandName,
-        values: values,
-      );
+  }) => rust.renderNetworkHttpCommand(
+    specYaml: specYaml,
+    commandName: commandName,
+    values: values,
+  );
 
   @override
   Future<HttpRequestDto> renderNetworkHttpStateRequest({
     required String specYaml,
     required String stateCommand,
     required Map<String, String> values,
-  }) =>
-      rust.renderNetworkHttpStateRequest(
-        specYaml: specYaml,
-        stateCommand: stateCommand,
-        values: values,
-      );
+  }) => rust.renderNetworkHttpStateRequest(
+    specYaml: specYaml,
+    stateCommand: stateCommand,
+    values: values,
+  );
 
   @override
   Future<List<NetworkInstanceDto>> listNetworkInstances({
     required String specYaml,
     required String entityName,
     required String stateReply,
-  }) =>
-      rust.listNetworkInstances(
-        specYaml: specYaml,
-        entityName: entityName,
-        stateReply: stateReply,
-      );
+  }) => rust.listNetworkInstances(
+    specYaml: specYaml,
+    entityName: entityName,
+    stateReply: stateReply,
+  );
 
   @override
   Future<List<NetworkRoleReadingDto>> readNetworkInstance({
@@ -230,41 +216,41 @@ class RealSpecCodec implements SpecCodec {
     required String entityName,
     required String stateReply,
     required String instanceId,
-  }) =>
-      rust.readNetworkInstance(
-        specYaml: specYaml,
-        entityName: entityName,
-        stateReply: stateReply,
-        instanceId: instanceId,
-      );
+  }) => rust.readNetworkInstance(
+    specYaml: specYaml,
+    entityName: entityName,
+    stateReply: stateReply,
+    instanceId: instanceId,
+  );
 
   @override
   Future<SoapRequestDto> renderNetworkStateRequest({
     required String specYaml,
     required String stateCommand,
-  }) =>
-      rust.renderNetworkStateRequest(
-          specYaml: specYaml, stateCommand: stateCommand);
+  }) => rust.renderNetworkStateRequest(
+    specYaml: specYaml,
+    stateCommand: stateCommand,
+  );
 
   @override
   Future<KasaRequestDto> renderNetworkKasaCommand({
     required String specYaml,
     required String commandName,
     required Map<String, String> values,
-  }) =>
-      rust.renderNetworkKasaCommand(
-        specYaml: specYaml,
-        commandName: commandName,
-        values: values,
-      );
+  }) => rust.renderNetworkKasaCommand(
+    specYaml: specYaml,
+    commandName: commandName,
+    values: values,
+  );
 
   @override
   Future<KasaRequestDto> renderNetworkKasaStateRequest({
     required String specYaml,
     required String stateCommand,
-  }) =>
-      rust.renderNetworkKasaStateRequest(
-          specYaml: specYaml, stateCommand: stateCommand);
+  }) => rust.renderNetworkKasaStateRequest(
+    specYaml: specYaml,
+    stateCommand: stateCommand,
+  );
 
   @override
   Future<List<int>> kasaEncodeFrame({required String json}) =>
@@ -293,14 +279,13 @@ class RealSpecCodec implements SpecCodec {
     required Map<String, String> values,
     required int requestId,
     required int deviceTs,
-  }) =>
-      rust.renderNetworkRabbitAirCommand(
-        specYaml: specYaml,
-        commandName: commandName,
-        values: values,
-        requestId: requestId,
-        deviceTs: deviceTs,
-      );
+  }) => rust.renderNetworkRabbitAirCommand(
+    specYaml: specYaml,
+    commandName: commandName,
+    values: values,
+    requestId: requestId,
+    deviceTs: deviceTs,
+  );
 
   @override
   Future<RabbitAirRequestDto> renderNetworkRabbitAirStateRequest({
@@ -308,13 +293,12 @@ class RealSpecCodec implements SpecCodec {
     required String stateCommand,
     required int requestId,
     required int deviceTs,
-  }) =>
-      rust.renderNetworkRabbitAirStateRequest(
-        specYaml: specYaml,
-        stateCommand: stateCommand,
-        requestId: requestId,
-        deviceTs: deviceTs,
-      );
+  }) => rust.renderNetworkRabbitAirStateRequest(
+    specYaml: specYaml,
+    stateCommand: stateCommand,
+    requestId: requestId,
+    deviceTs: deviceTs,
+  );
 
   @override
   Future<int> rabbitAirPort() => rust.rabbitAirPort();
@@ -323,43 +307,40 @@ class RealSpecCodec implements SpecCodec {
   Future<List<int>> rabbitAirEncryptDatagram({
     required String userKey,
     required String plaintext,
-  }) =>
-      rust.rabbitAirEncryptDatagram(userKey: userKey, plaintext: plaintext);
+  }) => rust.rabbitAirEncryptDatagram(userKey: userKey, plaintext: plaintext);
 
   @override
   Future<String> rabbitAirDecryptDatagram({
     required String userKey,
     required List<int> datagram,
-  }) =>
-      rust.rabbitAirDecryptDatagram(userKey: userKey, datagram: datagram);
+  }) => rust.rabbitAirDecryptDatagram(userKey: userKey, datagram: datagram);
 
   @override
   Future<int> rabbitAirTimeSyncOffset({
     required String replyJson,
     required int localNowSecs,
-  }) =>
-      rust.rabbitAirTimeSyncOffset(
-          replyJson: replyJson, localNowSecs: localNowSecs);
+  }) => rust.rabbitAirTimeSyncOffset(
+    replyJson: replyJson,
+    localNowSecs: localNowSecs,
+  );
 
   @override
   Future<List<List<int>>> rabbitAirBleFrame({
     required List<int> payload,
     required int chunkSize,
-  }) =>
-      rust.rabbitAirBleFrame(payload: payload, chunkSize: chunkSize);
+  }) => rust.rabbitAirBleFrame(payload: payload, chunkSize: chunkSize);
 
   @override
-  Future<int?> rabbitAirBleExpectedPayloadLen(
-          {required List<int> firstChunk}) =>
-      rust.rabbitAirBleExpectedPayloadLen(firstChunk: firstChunk);
+  Future<int?> rabbitAirBleExpectedPayloadLen({
+    required List<int> firstChunk,
+  }) => rust.rabbitAirBleExpectedPayloadLen(firstChunk: firstChunk);
 
   @override
   Future<String> renderRabbitAirSetupEnvelope({
     required int id,
     required int cmd,
     String? dataJson,
-  }) =>
-      rust.renderRabbitAirSetupEnvelope(id: id, cmd: cmd, dataJson: dataJson);
+  }) => rust.renderRabbitAirSetupEnvelope(id: id, cmd: cmd, dataJson: dataJson);
 
   @override
   Future<String> rabbitAirGenerateUserKey() => rust.rabbitAirGenerateUserKey();
@@ -379,8 +360,7 @@ class RealSpecCodec implements SpecCodec {
   @override
   Future<RoombaAnnouncementDto?> roombaParseAnnouncement({
     required List<int> datagram,
-  }) =>
-      rust.roombaParseAnnouncement(datagram: datagram);
+  }) => rust.roombaParseAnnouncement(datagram: datagram);
 
   @override
   Future<List<int>> roombaPasswordProbe() => rust.roombaPasswordProbe();
@@ -394,12 +374,11 @@ class RealSpecCodec implements SpecCodec {
     required String specYaml,
     required String commandName,
     required int epochSeconds,
-  }) =>
-      rust.renderNetworkRoombaCommand(
-        specYaml: specYaml,
-        commandName: commandName,
-        epochSeconds: epochSeconds,
-      );
+  }) => rust.renderNetworkRoombaCommand(
+    specYaml: specYaml,
+    commandName: commandName,
+    epochSeconds: epochSeconds,
+  );
 
   @override
   Future<Map<String, String>> roombaStateFields({required String payload}) =>
@@ -409,8 +388,7 @@ class RealSpecCodec implements SpecCodec {
   Future<List<int>> roombaConnectPacket({
     required String blid,
     required String password,
-  }) =>
-      rust.roombaConnectPacket(blid: blid, password: password);
+  }) => rust.roombaConnectPacket(blid: blid, password: password);
 
   @override
   Future<WebSocketSurfaceDto?> websocketSurface(String specYaml) =>
@@ -422,55 +400,52 @@ class RealSpecCodec implements SpecCodec {
     required String commandName,
     required Map<String, String> values,
     required int requestId,
-  }) =>
-      rust.renderNetworkWebsocketCommand(
-        specYaml: specYaml,
-        commandName: commandName,
-        values: values,
-        requestId: requestId,
-      );
+  }) => rust.renderNetworkWebsocketCommand(
+    specYaml: specYaml,
+    commandName: commandName,
+    values: values,
+    requestId: requestId,
+  );
 
   @override
   Future<List<int>> mqttConnectPacket({
     required String clientId,
     String? username,
     String? password,
-  }) =>
-      rust.mqttConnectPacket(
-          clientId: clientId, username: username, password: password);
+  }) => rust.mqttConnectPacket(
+    clientId: clientId,
+    username: username,
+    password: password,
+  );
 
   @override
   Future<MqttRequestDto> renderNetworkMqttCommand({
     required String specYaml,
     required String commandName,
     required Map<String, String> values,
-  }) =>
-      rust.renderNetworkMqttCommand(
-        specYaml: specYaml,
-        commandName: commandName,
-        values: values,
-      );
+  }) => rust.renderNetworkMqttCommand(
+    specYaml: specYaml,
+    commandName: commandName,
+    values: values,
+  );
 
   @override
   Future<String> fillMqttStateTopic({
     required String topic,
     required Map<String, String> values,
-  }) =>
-      rust.fillMqttStateTopic(topic: topic, values: values);
+  }) => rust.fillMqttStateTopic(topic: topic, values: values);
 
   @override
   Future<List<int>> mqttSubscribePacket({
     required String topic,
     required int packetId,
-  }) =>
-      rust.mqttSubscribePacket(topic: topic, packetId: packetId);
+  }) => rust.mqttSubscribePacket(topic: topic, packetId: packetId);
 
   @override
   Future<List<int>> mqttPublishPacket({
     required String topic,
     required String payload,
-  }) =>
-      rust.mqttPublishPacket(topic: topic, payload: payload);
+  }) => rust.mqttPublishPacket(topic: topic, payload: payload);
 
   @override
   Future<List<int>> mqttPingreqPacket() => rust.mqttPingreqPacket();
@@ -487,12 +462,11 @@ class RealSpecCodec implements SpecCodec {
     required String specYaml,
     required String entityName,
     required Map<String, String> returned,
-  }) =>
-      rust.readNetworkEntity(
-        specYaml: specYaml,
-        entityName: entityName,
-        returned: returned,
-      );
+  }) => rust.readNetworkEntity(
+    specYaml: specYaml,
+    entityName: entityName,
+    returned: returned,
+  );
 
   @override
   Future<StoredUploadPlanDto> encodeStoredImage({
@@ -507,20 +481,19 @@ class RealSpecCodec implements SpecCodec {
     required String scroll,
     required int speed,
     required int sequence,
-  }) =>
-      rust.encodeStoredImage(
-        specYaml: specYaml,
-        maxWrite: maxWrite,
-        width: width,
-        height: height,
-        rgb: rgb,
-        name: name,
-        cid: cid,
-        timeSecs: timeSecs,
-        scroll: scroll,
-        speed: speed,
-        sequence: sequence,
-      );
+  }) => rust.encodeStoredImage(
+    specYaml: specYaml,
+    maxWrite: maxWrite,
+    width: width,
+    height: height,
+    rgb: rgb,
+    name: name,
+    cid: cid,
+    timeSecs: timeSecs,
+    scroll: scroll,
+    speed: speed,
+    sequence: sequence,
+  );
 
   @override
   Future<StoredUploadPlanDto> encodeStoredText({
@@ -535,20 +508,19 @@ class RealSpecCodec implements SpecCodec {
     required String scroll,
     required int speed,
     required int sequence,
-  }) =>
-      rust.encodeStoredText(
-        specYaml: specYaml,
-        maxWrite: maxWrite,
-        textWidth: textWidth,
-        textHeight: textHeight,
-        bits: bits,
-        name: name,
-        cid: cid,
-        timeSecs: timeSecs,
-        scroll: scroll,
-        speed: speed,
-        sequence: sequence,
-      );
+  }) => rust.encodeStoredText(
+    specYaml: specYaml,
+    maxWrite: maxWrite,
+    textWidth: textWidth,
+    textHeight: textHeight,
+    bits: bits,
+    name: name,
+    cid: cid,
+    timeSecs: timeSecs,
+    scroll: scroll,
+    speed: speed,
+    sequence: sequence,
+  );
 
   @override
   Future<StoredUploadPlanDto> encodeStoredAnimation({
@@ -561,36 +533,33 @@ class RealSpecCodec implements SpecCodec {
     required int cid,
     required int frameMs,
     required int sequence,
-  }) =>
-      rust.encodeStoredAnimation(
-        specYaml: specYaml,
-        maxWrite: maxWrite,
-        width: width,
-        height: height,
-        frames: frames.map(Uint8List.fromList).toList(),
-        name: name,
-        cid: cid,
-        frameMs: frameMs,
-        sequence: sequence,
-      );
+  }) => rust.encodeStoredAnimation(
+    specYaml: specYaml,
+    maxWrite: maxWrite,
+    width: width,
+    height: height,
+    frames: frames.map(Uint8List.fromList).toList(),
+    name: name,
+    cid: cid,
+    frameMs: frameMs,
+    sequence: sequence,
+  );
 
   @override
   Future<StoredUploadEventDto?> decodeStoredUploadEvent({
     required String specYaml,
     required List<int> bytes,
-  }) =>
-      rust.decodeStoredUploadEvent(
-        specYaml: specYaml,
-        bytes: Uint8List.fromList(bytes),
-      );
+  }) => rust.decodeStoredUploadEvent(
+    specYaml: specYaml,
+    bytes: Uint8List.fromList(bytes),
+  );
 
   @override
   Future<StoredPlayDto> encodeStoredPlay({
     required String specYaml,
     required int cid,
     required int sequence,
-  }) =>
-      rust.encodeStoredPlay(specYaml: specYaml, cid: cid, sequence: sequence);
+  }) => rust.encodeStoredPlay(specYaml: specYaml, cid: cid, sequence: sequence);
 
   @override
   Future<int> lifxPort() => rust.lifxPort();
@@ -601,13 +570,12 @@ class RealSpecCodec implements SpecCodec {
     required Map<String, double> params,
     required String targetMac,
     required int sequence,
-  }) =>
-      rust.renderLifxCommand(
-        action: action,
-        params: params,
-        targetMac: targetMac,
-        sequence: sequence,
-      );
+  }) => rust.renderLifxCommand(
+    action: action,
+    params: params,
+    targetMac: targetMac,
+    sequence: sequence,
+  );
 
   @override
   Future<Uint8List> buildLifxDiscoveryProbe({required int sequence}) =>
@@ -617,8 +585,7 @@ class RealSpecCodec implements SpecCodec {
   Future<Uint8List> buildLifxStateRequest({
     required String targetMac,
     required int sequence,
-  }) =>
-      rust.buildLifxStateRequest(targetMac: targetMac, sequence: sequence);
+  }) => rust.buildLifxStateRequest(targetMac: targetMac, sequence: sequence);
 
   @override
   Future<Uint8List> buildLifxZonesRequest({
@@ -626,13 +593,12 @@ class RealSpecCodec implements SpecCodec {
     required int start,
     required int end,
     required int sequence,
-  }) =>
-      rust.buildLifxZonesRequest(
-        targetMac: targetMac,
-        start: start,
-        end: end,
-        sequence: sequence,
-      );
+  }) => rust.buildLifxZonesRequest(
+    targetMac: targetMac,
+    start: start,
+    end: end,
+    sequence: sequence,
+  );
 
   @override
   Future<LifxServiceDto> parseLifxStateService({required List<int> bytes}) =>
@@ -659,18 +625,17 @@ class RealSpecCodec implements SpecCodec {
     required String password,
     required int security,
     required int sequence,
-  }) =>
-      rust.renderLifxSetAccessPoint(
-        ssid: ssid,
-        password: password,
-        security: security,
-        sequence: sequence,
-      );
+  }) => rust.renderLifxSetAccessPoint(
+    ssid: ssid,
+    password: password,
+    security: security,
+    sequence: sequence,
+  );
 
   @override
-  Future<LifxAccessPointDto> decodeLifxAccessPoint(
-          {required List<int> bytes}) =>
-      rust.decodeLifxAccessPoint(bytes: bytes);
+  Future<LifxAccessPointDto> decodeLifxAccessPoint({
+    required List<int> bytes,
+  }) => rust.decodeLifxAccessPoint(bytes: bytes);
 
   @override
   Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls) =>
@@ -682,23 +647,23 @@ class RealSpecCodec implements SpecCodec {
 
   @override
   Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
-          List<String> specYamls) =>
-      rust.bleProvisioningProfiles(specYamls: specYamls);
+    List<String> specYamls,
+  ) => rust.bleProvisioningProfiles(specYamls: specYamls);
 
   @override
   Future<int?> matchBleProvisioningName({
     required List<BleProvisioningProfileDto> profiles,
     required String advertisedName,
-  }) =>
-      rust.matchBleProvisioningName(
-          profiles: profiles, advertisedName: advertisedName);
+  }) => rust.matchBleProvisioningName(
+    profiles: profiles,
+    advertisedName: advertisedName,
+  );
 
   @override
   Future<int?> matchSoftApSsid({
     required List<SoftApProfileDto> profiles,
     required String ssid,
-  }) =>
-      rust.matchSoftApSsid(profiles: profiles, ssid: ssid);
+  }) => rust.matchSoftApSsid(profiles: profiles, ssid: ssid);
 
   @override
   Future<List<WemoConnectAttemptDto>> renderWemoConnectRequests({
@@ -711,18 +676,17 @@ class RealSpecCodec implements SpecCodec {
     required String passphrase,
     int? rtos,
     int? iot,
-  }) =>
-      rust.renderWemoConnectRequests(
-        specYaml: specYaml,
-        metaInfo: metaInfo,
-        ssid: ssid,
-        auth: auth,
-        encrypt: encrypt,
-        channel: channel,
-        passphrase: passphrase,
-        rtos: rtos,
-        iot: iot,
-      );
+  }) => rust.renderWemoConnectRequests(
+    specYaml: specYaml,
+    metaInfo: metaInfo,
+    ssid: ssid,
+    auth: auth,
+    encrypt: encrypt,
+    channel: channel,
+    passphrase: passphrase,
+    rtos: rtos,
+    iot: iot,
+  );
 
   @override
   Future<WemoJoinStatus> wemoNetworkStatus({required String code}) =>
@@ -738,89 +702,92 @@ class RealSpecCodec implements SpecCodec {
     required List<int> cids,
     required List<int> slots,
     required int sequence,
-  }) =>
-      rust.encodeSetPlaylist(
-        specYaml: specYaml,
-        cids: cids,
-        slots: slots,
-        sequence: sequence,
-      );
+  }) => rust.encodeSetPlaylist(
+    specYaml: specYaml,
+    cids: cids,
+    slots: slots,
+    sequence: sequence,
+  );
 
   @override
   Future<List<EffectEntryDto>> decodeEffectList({
     required String specYaml,
     required List<int> bytes,
-  }) =>
-      rust.decodeEffectList(
-        specYaml: specYaml,
-        bytes: Uint8List.fromList(bytes),
-      );
+  }) => rust.decodeEffectList(
+    specYaml: specYaml,
+    bytes: Uint8List.fromList(bytes),
+  );
 
   @override
   Future<StoredPlayDto> encodePlaySpeed({
     required String specYaml,
     required int speed,
     required int sequence,
-  }) =>
-      rust.encodePlaySpeed(
-          specYaml: specYaml, speed: speed, sequence: sequence);
+  }) => rust.encodePlaySpeed(
+    specYaml: specYaml,
+    speed: speed,
+    sequence: sequence,
+  );
 
   @override
   Future<StoredPlayDto> encodeAutorunMode({
     required String specYaml,
     required int mode,
     required int sequence,
-  }) =>
-      rust.encodeAutorunMode(
-          specYaml: specYaml, mode: mode, sequence: sequence);
+  }) => rust.encodeAutorunMode(
+    specYaml: specYaml,
+    mode: mode,
+    sequence: sequence,
+  );
 
   @override
   Future<StoredPlayDto> encodeBookmarkEnable({
     required String specYaml,
     required int listId,
     required int sequence,
-  }) =>
-      rust.encodeBookmarkEnable(
-          specYaml: specYaml, listId: listId, sequence: sequence);
+  }) => rust.encodeBookmarkEnable(
+    specYaml: specYaml,
+    listId: listId,
+    sequence: sequence,
+  );
 
   @override
   Future<StoredPlayDto> encodeBookmarkClear({
     required String specYaml,
     required int listId,
     required int sequence,
-  }) =>
-      rust.encodeBookmarkClear(
-          specYaml: specYaml, listId: listId, sequence: sequence);
+  }) => rust.encodeBookmarkClear(
+    specYaml: specYaml,
+    listId: listId,
+    sequence: sequence,
+  );
 
   @override
   Future<StoredPlayDto> encodeRemoveApp({
     required String specYaml,
     required int cid,
     required int sequence,
-  }) =>
-      rust.encodeRemoveApp(specYaml: specYaml, cid: cid, sequence: sequence);
+  }) => rust.encodeRemoveApp(specYaml: specYaml, cid: cid, sequence: sequence);
 
   @override
   Future<StoredPlayDto> encodeRemoveAllApps({
     required String specYaml,
     required int sequence,
-  }) =>
-      rust.encodeRemoveAllApps(specYaml: specYaml, sequence: sequence);
+  }) => rust.encodeRemoveAllApps(specYaml: specYaml, sequence: sequence);
 
   @override
   Future<Uint8List> brotherQlStatusRequest() => rust.brotherQlStatusRequest();
 
   @override
-  Future<BrotherQlStatusDto> decodeBrotherQlStatus(
-          {required List<int> reply}) =>
-      rust.decodeBrotherQlStatus(reply: reply);
+  Future<BrotherQlStatusDto> decodeBrotherQlStatus({
+    required List<int> reply,
+  }) => rust.decodeBrotherQlStatus(reply: reply);
 
   @override
   Future<Uint8List> renderBrotherQlTestLabel({
     required String specYaml,
     required BrotherQlJobParamsDto params,
-  }) =>
-      rust.renderBrotherQlTestLabel(specYaml: specYaml, params: params);
+  }) => rust.renderBrotherQlTestLabel(specYaml: specYaml, params: params);
 
   @override
   Future<CameraDto?> cameraForDevice({required String specYaml}) =>

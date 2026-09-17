@@ -16,48 +16,53 @@ const _stateChar = 'fc540007-236c-4c94-8fa9-944a3e5353fa';
 /// Ember's charging-base shape: a status byte where exactly `on_value` means
 /// docked.
 EntityDto _chargingEntity({int? onValue = 1, String? deviceClass}) => EntityDto(
-    options: const [],
-    name: 'Charging Base',
-    platform: 'binary_sensor',
-    deviceClass: deviceClass,
-    stateCharacteristic: _stateChar,
-    canNotify: false,
-    hasFormat: true,
-    valueField: 'on_charging_base',
-    onValue: onValue,
-    onWhenNonzero: false,
-    actions: const [],
-    variants: const []);
+  options: const [],
+  name: 'Charging Base',
+  platform: 'binary_sensor',
+  deviceClass: deviceClass,
+  stateCharacteristic: _stateChar,
+  canNotify: false,
+  hasFormat: true,
+  valueField: 'on_charging_base',
+  onValue: onValue,
+  onWhenNonzero: false,
+  actions: const [],
+  variants: const [],
+);
 
 Widget _wrap(EntityDto entity, FakeSpecCodec codec) => ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(
-          FakeBleService(readValues: const {
-            _stateChar: [1],
-          }),
-        ),
-        specCodecProvider.overrideWithValue(codec),
-      ],
-      child: MaterialApp(
-        home: Scaffold(
-          body: BinarySensorCard(
-            deviceId: 'd',
-            serviceUuid: 's',
-            entity: entity,
-            specYaml: 'y',
-          ),
-        ),
+  overrides: [
+    bleServiceProvider.overrideWithValue(
+      FakeBleService(
+        readValues: const {
+          _stateChar: [1],
+        },
       ),
-    );
+    ),
+    specCodecProvider.overrideWithValue(codec),
+  ],
+  child: MaterialApp(
+    home: Scaffold(
+      body: BinarySensorCard(
+        deviceId: 'd',
+        serviceUuid: 's',
+        entity: entity,
+        specYaml: 'y',
+      ),
+    ),
+  ),
+);
 
-FakeSpecCodec _codecReturning(int raw) => FakeSpecCodec(decoded: [
-      DecodedValueDto(
-        name: 'on_charging_base',
-        valueType: 'uint',
-        display: '$raw',
-        uintValue: raw,
-      ),
-    ]);
+FakeSpecCodec _codecReturning(int raw) => FakeSpecCodec(
+  decoded: [
+    DecodedValueDto(
+      name: 'on_charging_base',
+      valueType: 'uint',
+      display: '$raw',
+      uintValue: raw,
+    ),
+  ],
+);
 
 void main() {
   testWidgets('reads On when the value matches on_value', (tester) async {
@@ -78,30 +83,34 @@ void main() {
   });
 
   testWidgets('without on_value any nonzero value reads On', (tester) async {
-    await tester
-        .pumpWidget(_wrap(_chargingEntity(onValue: null), _codecReturning(2)));
+    await tester.pumpWidget(
+      _wrap(_chargingEntity(onValue: null), _codecReturning(2)),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('On'), findsOneWidget);
   });
 
   testWidgets('a bool field speaks for itself', (tester) async {
-    final codec = FakeSpecCodec(decoded: const [
-      DecodedValueDto(
-        name: 'on_charging_base',
-        valueType: 'bool',
-        display: 'on',
-        boolValue: true,
-      ),
-    ]);
+    final codec = FakeSpecCodec(
+      decoded: const [
+        DecodedValueDto(
+          name: 'on_charging_base',
+          valueType: 'bool',
+          display: 'on',
+          boolValue: true,
+        ),
+      ],
+    );
     await tester.pumpWidget(_wrap(_chargingEntity(onValue: null), codec));
     await tester.pumpAndSettle();
 
     expect(find.text('On'), findsOneWidget);
   });
 
-  testWidgets('problem device_class words the states as Problem/OK',
-      (tester) async {
+  testWidgets('problem device_class words the states as Problem/OK', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _wrap(_chargingEntity(deviceClass: 'problem'), _codecReturning(0)),
     );
@@ -111,18 +120,20 @@ void main() {
     expect(find.text('Off'), findsNothing);
   });
 
-  testWidgets('reports a missing format block instead of a blank state',
-      (tester) async {
+  testWidgets('reports a missing format block instead of a blank state', (
+    tester,
+  ) async {
     const entity = EntityDto(
-        options: [],
-        name: 'Lid',
-        platform: 'binary_sensor',
-        stateCharacteristic: _stateChar,
-        canNotify: false,
-        hasFormat: false,
-        onWhenNonzero: false,
-        actions: [],
-        variants: []);
+      options: [],
+      name: 'Lid',
+      platform: 'binary_sensor',
+      stateCharacteristic: _stateChar,
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [],
+      variants: [],
+    );
     await tester.pumpWidget(_wrap(entity, _codecReturning(0)));
     await tester.pumpAndSettle();
 

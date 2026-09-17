@@ -30,17 +30,18 @@ class _FakeFeed implements CameraFeedService {
     required String host,
     required CameraStreamDto stream,
     CameraKeepaliveDto? keepalive,
-  }) =>
-      controller.stream;
+  }) => controller.stream;
 }
 
-const _pollCamera = CameraDto(streams: [
-  CameraStreamDto(
-    transport: 'mjpeg_snapshot_poll',
-    urlTemplate: 'http://{address}/monitor.jpg',
-    targetFps: 1,
-  ),
-]);
+const _pollCamera = CameraDto(
+  streams: [
+    CameraStreamDto(
+      transport: 'mjpeg_snapshot_poll',
+      urlTemplate: 'http://{address}/monitor.jpg',
+      targetFps: 1,
+    ),
+  ],
+);
 
 Uint8List _jpeg() => Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
 
@@ -49,26 +50,33 @@ void main() {
   // CircularProgressIndicator, whose animation never settles. Drive explicit
   // pumps instead, and dispose the card at the end so its first-frame Timer and
   // feed subscription are cancelled (no pending-timer teardown failure).
-  Future<void> pump(WidgetTester tester,
-      {required CameraDto? camera, required StreamController<Uint8List> feed}) {
-    return tester.pumpWidget(ProviderScope(
-      overrides: [
-        specCodecProvider
-            .overrideWithValue(FakeSpecCodec(cameraResult: camera)),
-        cameraFeedServiceProvider.overrideWithValue(_FakeFeed(feed)),
-      ],
-      child: const MaterialApp(
-        home: Scaffold(
-          body: CameraViewCard(specYaml: 'yaml', host: '10.0.0.5'),
+  Future<void> pump(
+    WidgetTester tester, {
+    required CameraDto? camera,
+    required StreamController<Uint8List> feed,
+  }) {
+    return tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(
+            FakeSpecCodec(cameraResult: camera),
+          ),
+          cameraFeedServiceProvider.overrideWithValue(_FakeFeed(feed)),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: CameraViewCard(specYaml: 'yaml', host: '10.0.0.5'),
+          ),
         ),
       ),
-    ));
+    );
   }
 
   // Tear the card down by replacing the tree, so its dispose() runs.
   Future<void> disposeCard(WidgetTester tester) async {
-    await tester
-        .pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: SizedBox())),
+    );
     await tester.pump();
   }
 
@@ -103,17 +111,22 @@ void main() {
     await disposeCard(tester);
   });
 
-  testWidgets('leaving the screen cancels the feed subscription',
-      (tester) async {
+  testWidgets('leaving the screen cancels the feed subscription', (
+    tester,
+  ) async {
     var cancelled = false;
-    final feed =
-        StreamController<Uint8List>.broadcast(onCancel: () => cancelled = true);
+    final feed = StreamController<Uint8List>.broadcast(
+      onCancel: () => cancelled = true,
+    );
     await pump(tester, camera: _pollCamera, feed: feed);
     await tester.pump(); // resolve + subscribe
 
     await disposeCard(tester); // disposes CameraViewCard
-    expect(cancelled, isTrue,
-        reason: 'dispose must cancel the feed, not leak the subscription');
+    expect(
+      cancelled,
+      isTrue,
+      reason: 'dispose must cancel the feed, not leak the subscription',
+    );
     await feed.close();
   });
 }

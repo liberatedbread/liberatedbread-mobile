@@ -68,8 +68,9 @@ const Duration _ageTick = Duration(seconds: 5);
 /// of the session, and the tab's whole energy story would hinge on nobody
 /// ever pressing its most prominent button. The downshift is a seamless
 /// restart: the device list survives scan restarts by design.
-const Duration _activeBurst =
-    Duration(seconds: AppConstants.defaultScanDuration);
+const Duration _activeBurst = Duration(
+  seconds: AppConstants.defaultScanDuration,
+);
 
 /// How long a switch away from this tab must last before the radio is
 /// actually stopped.
@@ -115,8 +116,7 @@ bool ageTickNeedsRepaint({
   required bool dropped,
   required Set<String> stale,
   required Set<String> previouslyStale,
-}) =>
-    dropped || stale.isNotEmpty || !setEquals(stale, previouslyStale);
+}) => dropped || stale.isNotEmpty || !setEquals(stale, previouslyStale);
 
 class _ScanScreenState extends ConsumerState<ScanScreen>
     with WidgetsBindingObserver {
@@ -312,46 +312,49 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         }
       });
     }
-    _scanSub = _bleService.scan(timeout: null, intensity: intensity).listen(
-      (device) {
-        if (!mounted) return;
-        final isNew = _deviceManager.getById(device.id) == null;
-        _deviceManager.addOrUpdate(device);
-        // A new device is worth a frame of its own; an rssi tick on a known
-        // one can wait for the next coalesced repaint.
-        if (isNew) {
-          _repaintNow();
-        } else {
-          _scheduleRepaint();
-        }
-      },
-      onError: (Object e) {
-        if (!mounted) return;
-        setState(() {
-          _isScanning = false;
-          _hasScanned = true;
-          if (e is BlePermissionDeniedException) {
-            _permissionDenied = true;
-            _error = null;
-          } else {
-            _error = friendlyErrorText(
-              e,
-              context: 'BLE scan',
-              fallback: 'Scanning failed. Check that Bluetooth is on, then '
-                  'try again.',
-            );
-          }
-        });
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() {
-          _isScanning = false;
-          _hasScanned = true;
-        });
-      },
-      cancelOnError: true,
-    );
+    _scanSub = _bleService
+        .scan(timeout: null, intensity: intensity)
+        .listen(
+          (device) {
+            if (!mounted) return;
+            final isNew = _deviceManager.getById(device.id) == null;
+            _deviceManager.addOrUpdate(device);
+            // A new device is worth a frame of its own; an rssi tick on a known
+            // one can wait for the next coalesced repaint.
+            if (isNew) {
+              _repaintNow();
+            } else {
+              _scheduleRepaint();
+            }
+          },
+          onError: (Object e) {
+            if (!mounted) return;
+            setState(() {
+              _isScanning = false;
+              _hasScanned = true;
+              if (e is BlePermissionDeniedException) {
+                _permissionDenied = true;
+                _error = null;
+              } else {
+                _error = friendlyErrorText(
+                  e,
+                  context: 'BLE scan',
+                  fallback:
+                      'Scanning failed. Check that Bluetooth is on, then '
+                      'try again.',
+                );
+              }
+            });
+          },
+          onDone: () {
+            if (!mounted) return;
+            setState(() {
+              _isScanning = false;
+              _hasScanned = true;
+            });
+          },
+          cancelOnError: true,
+        );
   }
 
   /// Stop the scan. [byUser] separates "they pressed stop" from the automatic
@@ -457,7 +460,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
-                  builder: (_) => const SpecPackSettingsScreen()),
+                builder: (_) => const SpecPackSettingsScreen(),
+              ),
             ),
           ),
           IconButton(
@@ -474,7 +478,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
-                  builder: (_) => const DiagnosticsScreen()),
+                builder: (_) => const DiagnosticsScreen(),
+              ),
             ),
           ),
           // Privacy policy, disclaimer, licences: the Terms gate shows them
@@ -589,12 +594,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       subtitle: stale
           ? 'Not seen for $age'
           : (device.isConnectable
-              ? _signalLabel(device.rssi)
-              : 'Not connectable'),
+                ? _signalLabel(device.rssi)
+                : 'Not connectable'),
       detail: stale ? 'last ${device.rssi} dBm' : '${device.rssi} dBm',
       rssi: device.rssi,
       stale: stale,
-      staleReason: 'No advertisement for $age — the device may be out of '
+      staleReason:
+          'No advertisement for $age — the device may be out of '
           'range or powered off',
       icon: guess?.iconOr(unknownDeviceIcon) ?? unknownDeviceIcon,
       // A suspected-malicious device (a skimmer) gets the black-hat pictogram,
@@ -605,8 +611,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       iconColor: warning == null
           ? null
           : (guess!.isMalicious || warning.severity == 'vulnerable'
-              ? scheme.error
-              : scheme.tertiary),
+                ? scheme.error
+                : scheme.tertiary),
       badge: warning == null ? guess?.label : _warningBadge(guess!),
       badgeIsClaim: warning == null && entry.isLikelySupported,
       // Only worth saying for a device the badge could not place. Once the
@@ -630,10 +636,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   /// The scan badge for a security-warning row — short, and worded by severity.
   String _warningBadge(ScanGuess guess) => switch (guess.advisory!.severity) {
-        'malicious' => 'Possible skimmer',
-        'vulnerable' => 'Security risk',
-        _ => 'Reported issue',
-      };
+    'malicious' => 'Possible skimmer',
+    'vulnerable' => 'Security risk',
+    _ => 'Reported issue',
+  };
 
   /// Open the warning page for a flagged device — not the control screen. Does
   /// not touch the scan the way [_connect] does: nothing connects, so the scan
@@ -719,8 +725,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           const SizedBox(height: 4),
           Center(
             child: TextButton(
-              onPressed:
-                  _isScanning ? null : () => _startScan(ScanIntensity.active),
+              onPressed: _isScanning
+                  ? null
+                  : () => _startScan(ScanIntensity.active),
               style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
               child: const Text('Retry'),
             ),
@@ -730,8 +737,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           const SizedBox(height: 24),
           Center(
             child: ActionPillButton(
-              onPressed:
-                  _isScanning ? null : () => _startScan(ScanIntensity.active),
+              onPressed: _isScanning
+                  ? null
+                  : () => _startScan(ScanIntensity.active),
               icon: Icons.refresh,
               label: 'Retry',
             ),
@@ -791,11 +799,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// ORDERS by the band as well, a stray third opinion would let a row sort
   /// below one it out-describes.
   static String _signalLabel(int rssi) => switch (signalBars(rssi)) {
-        4 => 'Strong signal',
-        3 => 'Good signal',
-        2 => 'Fair signal',
-        _ => 'Weak signal',
-      };
+    4 => 'Strong signal',
+    3 => 'Good signal',
+    2 => 'Fair signal',
+    _ => 'Weak signal',
+  };
 }
 
 class _MockBadge extends StatelessWidget {
@@ -817,10 +825,10 @@ class _MockBadge extends StatelessWidget {
           child: Text(
             'MOCK',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: fg,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                ),
+              color: fg,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
           ),
         ),
       ),

@@ -12,7 +12,8 @@ import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/services/ad_banner_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const _remoteJson = '{"version": 1, "banner": {"id": "promo-2", '
+const _remoteJson =
+    '{"version": 1, "banner": {"id": "promo-2", '
     '"message": "Fresh deal.", "cta": "Go", '
     '"url": "https://liberatedbread.com/shop/"}}';
 
@@ -21,12 +22,14 @@ const _disabledJson = '{"version": 1, "banner": null}';
 late SharedPreferences _prefs;
 
 ProviderContainer _container(MockClientHandler handler) {
-  final container = ProviderContainer(overrides: [
-    sharedPreferencesProvider.overrideWithValue(_prefs),
-    adBannerServiceProvider.overrideWithValue(
-      AdBannerService(client: MockClient(handler)),
-    ),
-  ]);
+  final container = ProviderContainer(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(_prefs),
+      adBannerServiceProvider.overrideWithValue(
+        AdBannerService(client: MockClient(handler)),
+      ),
+    ],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -81,34 +84,41 @@ void main() {
     expect(_prefs.getString(AdBannerNotifier.cacheKey), isNull);
   });
 
-  test('a remote kill switch hides the banner and sticks for next launch',
-      () async {
-    final container =
-        _container((_) async => http.Response(_disabledJson, 200));
+  test(
+    'a remote kill switch hides the banner and sticks for next launch',
+    () async {
+      final container = _container(
+        (_) async => http.Response(_disabledJson, 200),
+      );
 
-    expect(container.read(adBannerProvider), AdBanner.fallback);
-    await _until(() => container.read(adBannerProvider) == null);
+      expect(container.read(adBannerProvider), AdBanner.fallback);
+      await _until(() => container.read(adBannerProvider) == null);
 
-    // A second container over the same prefs — "the next launch" — must seed
-    // hidden from the cache, not flash the fallback first.
-    final next = _container((_) async => http.Response(_disabledJson, 200));
-    expect(next.read(adBannerProvider), isNull);
-  });
+      // A second container over the same prefs — "the next launch" — must seed
+      // hidden from the cache, not flash the fallback first.
+      final next = _container((_) async => http.Response(_disabledJson, 200));
+      expect(next.read(adBannerProvider), isNull);
+    },
+  );
 
-  test('seeds from the cached config without waiting for the network',
-      () async {
-    SharedPreferences.setMockInitialValues(
-        {AdBannerNotifier.cacheKey: _remoteJson});
-    _prefs = await SharedPreferences.getInstance();
-    // The network only ever fails; the cached banner must appear anyway.
-    final container = _container((_) async => http.Response('', 500));
+  test(
+    'seeds from the cached config without waiting for the network',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        AdBannerNotifier.cacheKey: _remoteJson,
+      });
+      _prefs = await SharedPreferences.getInstance();
+      // The network only ever fails; the cached banner must appear anyway.
+      final container = _container((_) async => http.Response('', 500));
 
-    expect(container.read(adBannerProvider)?.id, 'promo-2');
-  });
+      expect(container.read(adBannerProvider)?.id, 'promo-2');
+    },
+  );
 
   test('a corrupt cache falls back to the bundled banner', () async {
-    SharedPreferences.setMockInitialValues(
-        {AdBannerNotifier.cacheKey: '{not json'});
+    SharedPreferences.setMockInitialValues({
+      AdBannerNotifier.cacheKey: '{not json',
+    });
     _prefs = await SharedPreferences.getInstance();
     final container = _container((_) async => http.Response('', 500));
 
@@ -124,29 +134,34 @@ void main() {
         .dismiss(AdBanner.fallback.id);
 
     expect(container.read(adBannerProvider), isNull);
-    expect(_prefs.getString(AdBannerNotifier.dismissedKey),
-        jsonEncode([AdBanner.fallback.id]));
+    expect(
+      _prefs.getString(AdBannerNotifier.dismissedKey),
+      jsonEncode([AdBanner.fallback.id]),
+    );
 
     // Next launch: same promotion stays hidden.
     final next = _container((_) async => http.Response('', 500));
     expect(next.read(adBannerProvider), isNull);
   });
 
-  test('a legacy single-id dismissal is honored, then migrated forward',
-      () async {
-    // A build before the set-of-ids change wrote one dismissed id under the old
-    // key; that dismissal must survive the upgrade.
-    SharedPreferences.setMockInitialValues(
-        {AdBannerNotifier.legacyDismissedKey: AdBanner.fallback.id});
-    _prefs = await SharedPreferences.getInstance();
-    final container = _container((_) async => http.Response('', 500));
+  test(
+    'a legacy single-id dismissal is honored, then migrated forward',
+    () async {
+      // A build before the set-of-ids change wrote one dismissed id under the old
+      // key; that dismissal must survive the upgrade.
+      SharedPreferences.setMockInitialValues({
+        AdBannerNotifier.legacyDismissedKey: AdBanner.fallback.id,
+      });
+      _prefs = await SharedPreferences.getInstance();
+      final container = _container((_) async => http.Response('', 500));
 
-    expect(container.read(adBannerProvider), isNull);
-  });
+      expect(container.read(adBannerProvider), isNull);
+    },
+  );
 
   test('a new promotion id resurfaces after a dismissal', () async {
     SharedPreferences.setMockInitialValues({
-      AdBannerNotifier.dismissedKey: jsonEncode([AdBanner.fallback.id])
+      AdBannerNotifier.dismissedKey: jsonEncode([AdBanner.fallback.id]),
     });
     _prefs = await SharedPreferences.getInstance();
     final container = _container((_) async => http.Response(_remoteJson, 200));
@@ -167,11 +182,12 @@ void main() {
       },
     });
     SharedPreferences.setMockInitialValues({
-      AdBannerNotifier.dismissedKey: jsonEncode(['promo-2'])
+      AdBannerNotifier.dismissedKey: jsonEncode(['promo-2']),
     });
     _prefs = await SharedPreferences.getInstance();
-    final container =
-        _container((_) async => http.Response(dismissedRemote, 200));
+    final container = _container(
+      (_) async => http.Response(dismissedRemote, 200),
+    );
 
     expect(container.read(adBannerProvider), AdBanner.fallback);
     // The fetch caches the config; the banner it names is dismissed, so the
@@ -181,7 +197,8 @@ void main() {
   });
 
   group('device-targeted banners', () {
-    const targetedJson = '{"version": 1,'
+    const targetedJson =
+        '{"version": 1,'
         '"banner": {"id": "global-1", "message": "Shop dead devices.",'
         ' "url": "https://liberatedbread.com/shop/"},'
         '"targets": ['
@@ -193,58 +210,83 @@ void main() {
         '   "url": "https://liberatedbread.com/shop/printers/"}'
         ']}';
 
-    test('a device shows its spec-key banner over the category and global',
-        () async {
-      SharedPreferences.setMockInitialValues(
-          {AdBannerNotifier.cacheKey: targetedJson});
-      _prefs = await SharedPreferences.getInstance();
-      final container = _container((_) async => http.Response('', 500));
+    test(
+      'a device shows its spec-key banner over the category and global',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          AdBannerNotifier.cacheKey: targetedJson,
+        });
+        _prefs = await SharedPreferences.getInstance();
+        final container = _container((_) async => http.Response('', 500));
 
-      final banner = container.read(deviceAdBannerProvider(
-          const DeviceAdContext(
-              category: 'printer', specKey: 'Brother QL|Brother')));
-      expect(banner?.id, 'labels-1');
-      // The global scan banner is unaffected.
-      expect(container.read(adBannerProvider)?.id, 'global-1');
-    });
+        final banner = container.read(
+          deviceAdBannerProvider(
+            const DeviceAdContext(
+              category: 'printer',
+              specKey: 'Brother QL|Brother',
+            ),
+          ),
+        );
+        expect(banner?.id, 'labels-1');
+        // The global scan banner is unaffected.
+        expect(container.read(adBannerProvider)?.id, 'global-1');
+      },
+    );
 
-    test('a device with only a category match shows the category banner',
-        () async {
-      SharedPreferences.setMockInitialValues(
-          {AdBannerNotifier.cacheKey: targetedJson});
-      _prefs = await SharedPreferences.getInstance();
-      final container = _container((_) async => http.Response('', 500));
+    test(
+      'a device with only a category match shows the category banner',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          AdBannerNotifier.cacheKey: targetedJson,
+        });
+        _prefs = await SharedPreferences.getInstance();
+        final container = _container((_) async => http.Response('', 500));
 
-      final banner = container.read(deviceAdBannerProvider(
-          const DeviceAdContext(category: 'printer', specKey: 'Other|Maker')));
-      expect(banner?.id, 'printers-1');
-    });
+        final banner = container.read(
+          deviceAdBannerProvider(
+            const DeviceAdContext(category: 'printer', specKey: 'Other|Maker'),
+          ),
+        );
+        expect(banner?.id, 'printers-1');
+      },
+    );
 
     test('an unmatched device falls back to the global banner', () async {
-      SharedPreferences.setMockInitialValues(
-          {AdBannerNotifier.cacheKey: targetedJson});
+      SharedPreferences.setMockInitialValues({
+        AdBannerNotifier.cacheKey: targetedJson,
+      });
       _prefs = await SharedPreferences.getInstance();
       final container = _container((_) async => http.Response('', 500));
 
-      final banner = container.read(deviceAdBannerProvider(
-          const DeviceAdContext(category: 'light', specKey: 'Bulb|Maker')));
+      final banner = container.read(
+        deviceAdBannerProvider(
+          const DeviceAdContext(category: 'light', specKey: 'Bulb|Maker'),
+        ),
+      );
       expect(banner?.id, 'global-1');
     });
 
-    test('dismissing a targeted banner falls through to the next tier',
-        () async {
-      SharedPreferences.setMockInitialValues(
-          {AdBannerNotifier.cacheKey: targetedJson});
-      _prefs = await SharedPreferences.getInstance();
-      final container = _container((_) async => http.Response('', 500));
+    test(
+      'dismissing a targeted banner falls through to the next tier',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          AdBannerNotifier.cacheKey: targetedJson,
+        });
+        _prefs = await SharedPreferences.getInstance();
+        final container = _container((_) async => http.Response('', 500));
 
-      const ctx =
-          DeviceAdContext(category: 'printer', specKey: 'Brother QL|Brother');
-      expect(container.read(deviceAdBannerProvider(ctx))?.id, 'labels-1');
+        const ctx = DeviceAdContext(
+          category: 'printer',
+          specKey: 'Brother QL|Brother',
+        );
+        expect(container.read(deviceAdBannerProvider(ctx))?.id, 'labels-1');
 
-      await container.read(adBannerStateProvider.notifier).dismiss('labels-1');
-      // The spec-key promo is gone; the category promo takes its place.
-      expect(container.read(deviceAdBannerProvider(ctx))?.id, 'printers-1');
-    });
+        await container
+            .read(adBannerStateProvider.notifier)
+            .dismiss('labels-1');
+        // The spec-key promo is gone; the category promo takes its place.
+        expect(container.read(deviceAdBannerProvider(ctx))?.id, 'printers-1');
+      },
+    );
   });
 }
