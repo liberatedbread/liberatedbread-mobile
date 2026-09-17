@@ -64,11 +64,15 @@ class TermsScreen extends StatelessWidget {
                         color: scheme.tertiary,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        'Independent and unofficial',
-                        style: text.titleSmall?.copyWith(
-                          color: scheme.tertiary,
-                          fontWeight: FontWeight.w600,
+                      // Expanded so the heading wraps at large text sizes
+                      // instead of overflowing past the icon.
+                      Expanded(
+                        child: Text(
+                          'Independent and unofficial',
+                          style: text.titleSmall?.copyWith(
+                            color: scheme.tertiary,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],

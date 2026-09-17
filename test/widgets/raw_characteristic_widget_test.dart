@@ -231,4 +231,69 @@ void main() {
     expect(find.text('01 80 ff'), findsOneWidget);
     expect(find.textContaining('"'), findsNothing);
   });
+
+  // F-055: the error, write-status and placeholder lines used
+  // Colors.red/green/grey literals, which fail contrast on the light surface
+  // and ignore dark mode.
+  testWidgets('status lines use theme roles, not literals', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
+        ),
+        FakeBleService(readError: StateError('denied')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final scheme = Theme.of(tester.element(find.byType(Scaffold))).colorScheme;
+    expect(
+      tester
+          .widget<Text>(
+            find.textContaining('Could not read this characteristic'),
+          )
+          .style
+          ?.color,
+      scheme.error,
+    );
+
+    // A fresh tree, not a rebuild: pumping the same widget shape reuses its
+    // State and the first read (the error) would stay on screen.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: false,
+            canWrite: true,
+            canWriteWithoutResponse: true,
+            canNotify: false,
+          ),
+        ),
+        FakeBleService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.text('(no value)')).style?.color,
+      scheme.onSurfaceVariant,
+    );
+
+    await tester.enterText(find.byType(TextField), '01 aa ff');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.textContaining('Wrote 01 aa ff')).style?.color,
+      scheme.tertiary,
+    );
+  });
 }

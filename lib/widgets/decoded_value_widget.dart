@@ -168,6 +168,10 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
   }
 
   Widget _buildBody() {
+    // Theme roles, not Colors.* literals: grey fails contrast on the light
+    // surface and neither adapts to dark mode.
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     if (_loading && _values == null) {
       return const Text(
         'Reading...',
@@ -177,14 +181,14 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
     if (_error != null) {
       return Text(
         'Error: $_error',
-        style: const TextStyle(color: Colors.red, fontSize: 12),
+        style: text.bodySmall?.copyWith(color: scheme.error),
       );
     }
     final values = _values;
     if (values == null || values.isEmpty) {
-      return const Text(
+      return Text(
         '(no value)',
-        style: TextStyle(color: Colors.grey, fontSize: 12),
+        style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
       );
     }
     return Column(

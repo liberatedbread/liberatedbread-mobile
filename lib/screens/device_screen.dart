@@ -332,12 +332,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hasBanner = _adCategory != null || _adSpecKey != null;
     return Scaffold(
       // The device-targeted promo (label-roll supplies for a BLE label printer,
       // a filter kit for a Rabbit Air, …), shown only ONCE a spec has matched —
       // the connecting/failed/unmatched states get no bar, so no shop banner
       // clutters an error screen (and its ~48 px does not squeeze those layouts).
-      bottomNavigationBar: (_adCategory != null || _adSpecKey != null)
+      bottomNavigationBar: hasBanner
           ? DeviceAdBannerBar(category: _adCategory, specKey: _adSpecKey)
           : null,
       appBar: AppBar(
@@ -375,7 +376,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           ],
         ),
       ),
-      body: _buildBody(),
+      // Landscape is declared for iPhone, so without this the body's 16-24 pt
+      // padding sits under the notch / Dynamic Island on one side and the home
+      // indicator below, while the app bar above it is inset correctly. When
+      // the ad bar is present it owns the bottom inset itself.
+      body: SafeArea(bottom: !hasBanner, child: _buildBody()),
     );
   }
 
@@ -733,11 +738,15 @@ class _PairingProgress extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     const steps = ['Connecting', 'Discovering services'];
 
+    // Scrollable, not a bare Column: in landscape the body is ~320 pt tall
+    // and this stack needs more, which pushed the actions off-screen; at a
+    // large text size the same happens in portrait. Center keeps it centred
+    // whenever it does fit.
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             const RadarScanner(scanning: true, size: 168),
             const SizedBox(height: 32),
@@ -782,15 +791,17 @@ class _PairingProgress extends StatelessWidget {
                         color: scheme.outlineVariant,
                       ),
                     const SizedBox(width: 10),
-                    Text(
-                      steps[i],
-                      style: text.bodyMedium?.copyWith(
-                        color: i <= step
-                            ? scheme.onSurface
-                            : scheme.onSurfaceVariant,
-                        fontWeight: i == step
-                            ? FontWeight.w600
-                            : FontWeight.w400,
+                    Flexible(
+                      child: Text(
+                        steps[i],
+                        style: text.bodyMedium?.copyWith(
+                          color: i <= step
+                              ? scheme.onSurface
+                              : scheme.onSurfaceVariant,
+                          fontWeight: i == step
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
                       ),
                     ),
                   ],
@@ -858,11 +869,15 @@ class _StatusState extends StatelessWidget {
         ? scheme.onErrorContainer
         : scheme.onTertiaryContainer;
 
+    // Scrollable, not a bare Column: in landscape the body is ~320 pt tall
+    // and this stack needs more, which pushed the actions off-screen; at a
+    // large text size the same happens in portrait. Center keeps it centred
+    // whenever it does fit.
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               width: 96,

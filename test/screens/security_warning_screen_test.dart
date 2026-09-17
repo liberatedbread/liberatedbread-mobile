@@ -128,4 +128,47 @@ void main() {
 
     expect(find.textContaining('This might be'), findsOneWidget);
   });
+
+  // F-051: the "How to fix it" heading sat beside its icon as a bare Text,
+  // so at accessibility text sizes on a narrow phone it overflowed the row.
+  testWidgets('renders without overflow at 320 pt and 3x text', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    const advisory = SecurityAdvisoryDto(
+      severity: 'vulnerable',
+      summary: 'A shared key unlocks and immobilizes the car.',
+      detail: 'The longer explanation of the flaw.',
+      advisoryUrl: 'https://example.test/advisory',
+      mitigationSummary: 'Update the firmware in the KARR app.',
+      mitigationUrl: 'https://example.test/patch',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(3.0)),
+            child: SecurityWarningScreen(
+              device: _device(),
+              advisory: advisory,
+              guess: _guess(advisory),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+
+    // The list is lazy and at 3x the heading is well below the fold; only a
+    // built Row can overflow, so scroll until it is.
+    await tester.scrollUntilVisible(find.text('How to fix it'), 200);
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('How to fix it'), findsOneWidget);
+  });
 }

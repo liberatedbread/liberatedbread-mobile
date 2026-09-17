@@ -168,10 +168,14 @@ class SecurityWarningScreen extends StatelessWidget {
                           color: scheme.primary,
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          'How to fix it',
-                          style: text.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
+                        // Expanded so the heading wraps at large text sizes
+                        // instead of overflowing past the icon.
+                        Expanded(
+                          child: Text(
+                            'How to fix it',
+                            style: text.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ],

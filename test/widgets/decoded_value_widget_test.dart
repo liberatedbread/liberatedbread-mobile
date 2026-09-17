@@ -379,4 +379,53 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Brightness: 42'), findsOneWidget);
   });
+
+  // F-055: the error and empty lines used Colors.red/grey literals, which
+  // fail contrast on the light surface and ignore dark mode.
+  testWidgets('error and empty states use theme roles, not literals', (
+    tester,
+  ) async {
+    const widget = DecodedValueWidget(
+      deviceId: 'd',
+      serviceUuid: 's',
+      specYaml: 'y',
+      specChar: _statusChar,
+      canRead: true,
+      canNotify: false,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        widget,
+        ble: FakeBleService(readError: StateError('denied')),
+        codec: FakeSpecCodec(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final scheme = Theme.of(tester.element(find.byType(Scaffold))).colorScheme;
+    expect(
+      tester.widget<Text>(find.textContaining('Error:')).style?.color,
+      scheme.error,
+    );
+
+    // A fresh tree, not a rebuild: pumping the same widget shape reuses its
+    // State and the first read (the error) would stay on screen.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(
+      _wrap(
+        widget,
+        ble: FakeBleService(
+          readValues: const {
+            '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80],
+          },
+        ),
+        codec: FakeSpecCodec(decoded: const []),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.text('(no value)')).style?.color,
+      scheme.onSurfaceVariant,
+    );
+  });
 }

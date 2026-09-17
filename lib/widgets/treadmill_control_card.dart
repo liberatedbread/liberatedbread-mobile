@@ -775,7 +775,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                         ? scheme.onSurfaceVariant
                         : _failed
                         ? scheme.error
-                        : Colors.green,
+                        : scheme.tertiary,
                   ),
                 ),
               ),

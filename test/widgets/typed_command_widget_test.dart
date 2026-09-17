@@ -791,4 +791,43 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
     await tester.pumpAndSettle();
   });
+
+  // F-055: the description, status and unsupported-parameter lines used
+  // Colors.grey/red/green literals, which fail contrast on the light surface
+  // and ignore dark mode.
+  testWidgets('description and status lines use theme roles, not literals', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(encoded: Uint8List.fromList([1, 1])),
+      ),
+    );
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Power on'));
+    await tester.pumpAndSettle();
+    final scheme = Theme.of(tester.element(find.byType(Scaffold))).colorScheme;
+    expect(
+      tester.widget<Text>(find.text('Turn the bulb on')).style?.color,
+      scheme.onSurfaceVariant,
+    );
+    expect(
+      tester.widget<Text>(find.text('Sent')).style?.color,
+      scheme.tertiary,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(encodeError: StateError('bad param')),
+      ),
+    );
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Power on'));
+    await tester.pumpAndSettle();
+    final status = find.descendant(
+      of: find.byType(Card),
+      matching: find.textContaining('did not accept that command'),
+    );
+    expect(tester.widget<Text>(status).style?.color, scheme.error);
+  });
 }

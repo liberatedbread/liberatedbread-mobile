@@ -165,21 +165,26 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
     final open = ref.read(urlOpenerProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('How to reach this robot')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (_error != null) ...[
-            _ErrorCard(message: _error!),
-            const SizedBox(height: 16),
+      // Landscape is declared for iPhone; an explicitly-padded ListView ignores
+      // MediaQuery.padding, so without this the cards' edge sat under the
+      // notch / Dynamic Island and the last one under the home indicator.
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (_error != null) ...[
+              _ErrorCard(message: _error!),
+              const SizedBox(height: 16),
+            ],
+            _haSection(context, open),
+            if (widget.credentials != null) ...[
+              const SizedBox(height: 24),
+              _directSection(context),
+              const SizedBox(height: 24),
+              _rest980Section(context, open),
+            ],
           ],
-          _haSection(context, open),
-          if (widget.credentials != null) ...[
-            const SizedBox(height: 24),
-            _directSection(context),
-            const SizedBox(height: 24),
-            _rest980Section(context, open),
-          ],
-        ],
+        ),
       ),
     );
   }

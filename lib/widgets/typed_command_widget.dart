@@ -112,7 +112,9 @@ class TypedCommandWidget extends StatelessWidget {
         child: Text(
           '${blocked.length} command${blocked.length == 1 ? '' : 's'} in this '
           'spec use an encoding this app cannot send yet$detail.',
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       ),
     ];
@@ -351,6 +353,10 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
 
   @override
   Widget build(BuildContext context) {
+    // Theme roles, not Colors.* literals: grey and green fail contrast on the
+    // light surface and none of them adapt to dark mode.
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     final command = widget.command;
     final label = humanizeName(command.name);
     return Card(
@@ -366,7 +372,9 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
                 padding: const EdgeInsets.only(top: 2),
                 child: Text(
                   command.description,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             const SizedBox(height: 8),
@@ -408,9 +416,8 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
                       ? const SizedBox.shrink()
                       : Text(
                           _status!,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _failed ? Colors.red : Colors.green,
+                          style: text.bodySmall?.copyWith(
+                            color: _failed ? scheme.error : scheme.tertiary,
                           ),
                         ),
                 ),
@@ -453,7 +460,9 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         child: Text(
           '${humanizeName(p.name)}: unsupported parameter type '
           '(${p.valueType})',
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       );
     }

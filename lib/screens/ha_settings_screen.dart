@@ -41,32 +41,39 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final configAsync = ref.watch(haConfigProvider);
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Home Assistant')),
-      body: configAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              friendlyErrorText(
-                e,
-                context: 'load HA settings',
-                fallback: 'Could not load your Home Assistant settings.',
+      // Landscape is declared for iPhone; the explicitly-padded ListViews below
+      // ignore MediaQuery.padding, so without this the form's edge sat under
+      // the notch / Dynamic Island and the last row under the home indicator.
+      body: SafeArea(
+        child: configAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                friendlyErrorText(
+                  e,
+                  context: 'load HA settings',
+                  fallback: 'Could not load your Home Assistant settings.',
+                ),
+                style: TextStyle(color: scheme.error),
               ),
-              style: const TextStyle(color: Colors.red),
             ),
           ),
+          data: (config) => config != null && config.isRegistered
+              ? _buildRegisteredView(config)
+              : _buildSetupForm(),
         ),
-        data: (config) => config != null && config.isRegistered
-            ? _buildRegisteredView(config)
-            : _buildSetupForm(),
       ),
     );
   }
 
   Widget _buildSetupForm() {
     final urlKind = classifyHaUrl(_urlController.text);
+    final scheme = Theme.of(context).colorScheme;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -106,10 +113,7 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
         if (_errorMessage != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              _errorMessage!,
-              style: const TextStyle(color: Colors.red),
-            ),
+            child: Text(_errorMessage!, style: TextStyle(color: scheme.error)),
           ),
         const SizedBox(height: 8),
         FilledButton.icon(
@@ -129,6 +133,10 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
 
   Widget _buildRegisteredView(HaConfig config) {
     final forwarder = ref.watch(haForwarderProvider);
+    // Theme roles, not Colors.* literals: grey and green fail contrast on the
+    // light surface and none of them adapt to dark mode.
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     final webhookId = config.webhookId!;
     final maskedWebhook = webhookId.length > 8
         ? '${webhookId.substring(0, 8)}...'
@@ -144,7 +152,7 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.green.shade700),
+                    Icon(Icons.check_circle, color: scheme.tertiary),
                     const SizedBox(width: 8),
                     const Text(
                       'Connected',
@@ -156,7 +164,9 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
                 Text(config.baseUrl),
                 Text(
                   'Webhook: $maskedWebhook',
-                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  style: textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -192,10 +202,7 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
         if (_errorMessage != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              _errorMessage!,
-              style: const TextStyle(color: Colors.red),
-            ),
+            child: Text(_errorMessage!, style: TextStyle(color: scheme.error)),
           ),
         ListenableBuilder(
           listenable: forwarder.status,
@@ -215,9 +222,10 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
               padding: const EdgeInsets.all(12),
               child: Text(
                 text,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: status.lastError != null ? Colors.red : Colors.grey,
+                style: textTheme.bodySmall?.copyWith(
+                  color: status.lastError != null
+                      ? scheme.error
+                      : scheme.onSurfaceVariant,
                 ),
               ),
             );

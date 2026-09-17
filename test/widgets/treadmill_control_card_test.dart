@@ -787,6 +787,32 @@ void main() {
       reason: 'the belt in front of us is the FTMS generation',
     );
   });
+
+  // F-055: the sent-status line used a Colors.green literal, which fails
+  // contrast on the light surface and ignores dark mode.
+  testWidgets('the sent status uses the theme role, not a literal', (
+    tester,
+  ) async {
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xA7]));
+    await tester.pumpWidget(_wrap(ble: FakeBleService(), codec: codec));
+
+    await tester.tap(find.text('Start'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Start'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final scheme = Theme.of(tester.element(find.byType(Scaffold))).colorScheme;
+    final status = find.descendant(
+      of: find.byType(TreadmillControlCard),
+      matching: find.text('Sent Start belt'),
+    );
+    expect(tester.widget<Text>(status).style?.color, scheme.tertiary);
+  });
 }
 
 /// A treadmill-category spec whose one write characteristic carries [commands]

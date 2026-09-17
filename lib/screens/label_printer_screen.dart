@@ -292,7 +292,11 @@ class _StatusCard extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             const SizedBox(width: 14),
-            Text('Reading printer status…', style: text.bodyMedium),
+            // Expanded so the line wraps at large text sizes instead of
+            // overflowing past the spinner.
+            Expanded(
+              child: Text('Reading printer status…', style: text.bodyMedium),
+            ),
           ],
         ),
       );

@@ -219,6 +219,10 @@ class _RawCharacteristicWidgetState
   }
 
   Widget _buildWriteRow() {
+    // Theme roles, not Colors.* literals: grey and green fail contrast on the
+    // light surface and none of them adapt to dark mode.
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
       child: Column(
@@ -259,7 +263,7 @@ class _RawCharacteristicWidgetState
               padding: const EdgeInsets.only(top: 4),
               child: Text(
                 'Error: $_writeError',
-                style: const TextStyle(color: Colors.red, fontSize: 12),
+                style: text.bodySmall?.copyWith(color: scheme.error),
               ),
             ),
           if (_writeStatus != null)
@@ -267,7 +271,7 @@ class _RawCharacteristicWidgetState
               padding: const EdgeInsets.only(top: 4),
               child: Text(
                 _writeStatus!,
-                style: const TextStyle(color: Colors.green, fontSize: 12),
+                style: text.bodySmall?.copyWith(color: scheme.tertiary),
               ),
             ),
         ],
@@ -276,6 +280,8 @@ class _RawCharacteristicWidgetState
   }
 
   Widget _buildValue() {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     if (_loading) {
       return const Text(
         'Reading...',
@@ -285,13 +291,13 @@ class _RawCharacteristicWidgetState
     if (_error != null) {
       return Text(
         'Error: $_error',
-        style: const TextStyle(color: Colors.red, fontSize: 12),
+        style: text.bodySmall?.copyWith(color: scheme.error),
       );
     }
     if (_value == null) {
-      return const Text(
+      return Text(
         '(no value)',
-        style: TextStyle(color: Colors.grey, fontSize: 12),
+        style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
       );
     }
     final ascii = asciiPreview(_value!);
@@ -302,7 +308,7 @@ class _RawCharacteristicWidgetState
         if (ascii != null)
           Text(
             '"$ascii"',
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
       ],
     );

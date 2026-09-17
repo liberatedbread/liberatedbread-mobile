@@ -264,4 +264,90 @@ void main() {
     // Device id survives so a re-registration reuses the same HA entry.
     expect(store.values[HaConfigNotifier.deviceIdKey], 'dev1');
   });
+
+  // F-018 / F-055: the explicitly-padded ListViews ignored MediaQuery.padding
+  // (so in landscape the form sat under the notch), and the error/status
+  // lines used Colors.red/grey/green literals that fail contrast on the light
+  // surface and ignore dark mode.
+  group('insets and colour roles', () {
+    Widget wrapAt({
+      required InMemorySettingsStore store,
+      EdgeInsets padding = EdgeInsets.zero,
+    }) => ProviderScope(
+      overrides: [
+        settingsStoreProvider.overrideWithValue(store),
+        haApiClientProvider.overrideWithValue(FakeHaApiClient()),
+        urlOpenerProvider.overrideWithValue((url) async => true),
+      ],
+      child: MaterialApp(
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(padding: padding),
+            child: const HaSettingsScreen(),
+          ),
+        ),
+      ),
+    );
+
+    ColorScheme schemeOf(WidgetTester tester) =>
+        Theme.of(tester.element(find.byType(Scaffold))).colorScheme;
+
+    Color? colorOf(WidgetTester tester, Finder finder) =>
+        tester.widget<Text>(finder).style?.color;
+
+    testWidgets('the form is inset from the notch side in landscape', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(667, 375);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        wrapAt(
+          store: InMemorySettingsStore(),
+          padding: const EdgeInsets.only(left: 59),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The 59 pt inset plus the list's own 16 pt padding.
+      expect(
+        tester.getTopLeft(find.byType(TextField).first).dx,
+        closeTo(75, 1),
+      );
+    });
+
+    testWidgets('the setup form error uses the error role', (tester) async {
+      await tester.pumpWidget(wrapAt(store: InMemorySettingsStore()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Connect'));
+      await tester.pump();
+
+      expect(
+        colorOf(tester, find.text('Enter both a URL and an access token.')),
+        schemeOf(tester).error,
+      );
+    });
+
+    testWidgets('the registered view uses theme roles for its status', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrapAt(store: _registeredStore()));
+      await tester.pumpAndSettle();
+
+      final scheme = schemeOf(tester);
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.check_circle)).color,
+        scheme.tertiary,
+      );
+      expect(
+        colorOf(tester, find.textContaining('Webhook:')),
+        scheme.onSurfaceVariant,
+      );
+      expect(
+        colorOf(tester, find.textContaining('No updates sent yet')),
+        scheme.onSurfaceVariant,
+      );
+    });
+  });
 }

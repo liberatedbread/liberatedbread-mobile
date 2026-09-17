@@ -911,6 +911,130 @@ void main() {
       expect(find.text('Set up Wi-Fi'), findsNothing);
     });
   });
+  // F-016 / F-018: the full-screen connecting and failed states were bare
+  // centred Columns with no SafeArea. In landscape (declared for iPhone) the
+  // body is ~300 pt tall and those stacks need ~400, so Retry and "Try to
+  // find device" were pushed off-screen; at an accessibility text size the
+  // same happened in portrait; and the padding sat under the notch.
+  group('small surfaces', () {
+    Widget wrapAt(
+      FakeBleService fake, {
+      EdgeInsets padding = EdgeInsets.zero,
+      double textScale = 1.0,
+    }) => ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        numberRegistryProvider.overrideWith((ref) async => _registry),
+      ],
+      child: MaterialApp(
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              padding: padding,
+              textScaler: TextScaler.linear(textScale),
+            ),
+            child: DeviceScreen(device: _device),
+          ),
+        ),
+      ),
+    );
+
+    void surface(WidgetTester tester, Size size) {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    const landscape = Size(667, 375);
+    const portrait = Size(375, 667);
+
+    // The gate is never released, so the screen stays on its connecting
+    // state for the whole test instead of racing the fake's instant connect.
+    testWidgets('the connecting state does not overflow in landscape', (
+      tester,
+    ) async {
+      surface(tester, landscape);
+      await tester.pumpWidget(
+        wrapAt(FakeBleService(connectGate: Completer<void>())),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.text('Connecting...'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the connecting steps do not overflow at 3x text', (
+      tester,
+    ) async {
+      surface(tester, portrait);
+      await tester.pumpWidget(
+        wrapAt(FakeBleService(connectGate: Completer<void>()), textScale: 3.0),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.text('Discovering services'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the failed state scrolls in landscape, keeping every action '
+        'reachable', (tester) async {
+      surface(tester, landscape);
+      await tester.pumpWidget(
+        wrapAt(FakeBleService(connectError: StateError('out of range'))),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Try to find device'), findsOneWidget);
+      // The quietest action sits at the bottom; scrolling to it must work,
+      // and tapping Retry afterwards must still land.
+      await tester.ensureVisible(find.text('Try to find device'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Retry'));
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Retry'), findsOneWidget);
+    });
+
+    testWidgets('the failed state does not overflow at 3x text in portrait', (
+      tester,
+    ) async {
+      surface(tester, portrait);
+      await tester.pumpWidget(
+        wrapAt(
+          FakeBleService(connectError: StateError('out of range')),
+          textScale: 3.0,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      await tester.ensureVisible(find.text('Try to find device'));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the body is inset from the notch side and the home '
+        'indicator', (tester) async {
+      surface(tester, landscape);
+      await tester.pumpWidget(
+        wrapAt(
+          FakeBleService(connectError: StateError('out of range')),
+          padding: const EdgeInsets.only(left: 59, bottom: 34),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final body = tester.getRect(find.byType(SingleChildScrollView));
+      // Centred within the 608 pt right of the notch inset, not the full
+      // 667 — which is where it sat without the SafeArea.
+      expect(body.center.dx, closeTo(59 + (667 - 59) / 2, 1));
+      // And it stops above the home indicator rather than running under it.
+      expect(body.bottom, closeTo(375 - 34, 1));
+    });
+  });
 }
 
 /// The one catalogue entry the setup-CTA tests need: a spec that declares the

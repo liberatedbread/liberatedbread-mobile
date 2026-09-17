@@ -213,6 +213,81 @@ void main() {
     expect(find.textContaining('Cleared all'), findsOneWidget);
     expect(find.text('No packs installed yet.'), findsOneWidget);
   });
+  // F-018 / F-055: the explicitly-padded ListView ignored MediaQuery.padding
+  // (so in landscape the field sat under the notch), and the error/success/
+  // empty messages used Colors.red/green/grey literals that fail contrast on
+  // the light surface and ignore dark mode.
+  group('insets and colour roles', () {
+    ColorScheme schemeOf(WidgetTester tester) =>
+        Theme.of(tester.element(find.byType(Scaffold))).colorScheme;
+
+    Color? colorOf(WidgetTester tester, Finder finder) =>
+        tester.widget<Text>(finder).style?.color;
+
+    testWidgets('the form is inset from the notch side in landscape', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(667, 375);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            prefsSettingsStoreProvider.overrideWith(
+              (ref) async => InMemorySettingsStore(),
+            ),
+            specPackServiceProvider.overrideWithValue(FakeSpecPackService()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(padding: const EdgeInsets.only(left: 59)),
+                child: const SpecPackSettingsScreen(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The 59 pt inset plus the list's own 16 pt padding.
+      expect(tester.getTopLeft(find.byType(TextField)).dx, closeTo(75, 1));
+    });
+
+    testWidgets('empty, error and success messages use theme roles', (
+      tester,
+    ) async {
+      final service = FakeSpecPackService(
+        nextResult: InstallOk(_pack(name: 'Fresh Pack', version: '2.0.0')),
+      );
+      await tester.pumpWidget(_wrap(service));
+      await tester.pumpAndSettle();
+      final scheme = schemeOf(tester);
+
+      expect(
+        colorOf(tester, find.text('No packs installed yet.')),
+        scheme.onSurfaceVariant,
+      );
+
+      await tester.enterText(find.byType(TextField), 'not-a-url');
+      await tester.tap(find.text('Install / Refresh'));
+      await tester.pumpAndSettle();
+      expect(colorOf(tester, find.textContaining('valid http')), scheme.error);
+
+      await tester.enterText(
+        find.byType(TextField),
+        'https://specs.example.com/pack.json',
+      );
+      await tester.tap(find.text('Install / Refresh'));
+      await tester.pumpAndSettle();
+      expect(
+        colorOf(tester, find.textContaining('Installed "Fresh Pack"')),
+        scheme.tertiary,
+      );
+    });
+  });
 }
 
 /// A fake whose pack listing fails, to exercise the settings error branch.

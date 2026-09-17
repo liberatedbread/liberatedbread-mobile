@@ -43,6 +43,7 @@ class _SpecPackSettingsScreenState
       _seeded = true;
     }
 
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Device Spec Packs'),
@@ -54,83 +55,89 @@ class _SpecPackSettingsScreenState
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text(
-            'Install a pack of device specs from a URL so new device support '
-            'arrives without an app update. The URL points at a JSON manifest '
-            'listing the spec files to download.',
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _urlController,
-            enabled: !_busy,
-            keyboardType: TextInputType.url,
-            autocorrect: false,
-            onChanged: (_) => setState(() {
-              _errorMessage = null;
-              _successMessage = null;
-            }),
-            decoration: const InputDecoration(
-              labelText: 'Pack manifest URL',
-              hintText: 'https://example.com/pack.json',
-              border: OutlineInputBorder(),
+      // Landscape is declared for iPhone; an explicitly-padded ListView ignores
+      // MediaQuery.padding, so without this the field's edge sat under the
+      // notch / Dynamic Island and the last row under the home indicator.
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text(
+              'Install a pack of device specs from a URL so new device support '
+              'arrives without an app update. The URL points at a JSON manifest '
+              'listing the spec files to download.',
             ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _busy ? null : _install,
-                  icon: _busy
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.download),
-                  label: Text(_busy ? 'Installing...' : 'Install / Refresh'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _urlController,
+              enabled: !_busy,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              onChanged: (_) => setState(() {
+                _errorMessage = null;
+                _successMessage = null;
+              }),
+              decoration: const InputDecoration(
+                labelText: 'Pack manifest URL',
+                hintText: 'https://example.com/pack.json',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : _install,
+                    icon: _busy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.download),
+                    label: Text(_busy ? 'Installing...' : 'Install / Refresh'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: _busy ? null : _resetUrl,
+                  child: const Text('Reset URL'),
+                ),
+              ],
+            ),
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  _errorMessage!,
+                  style: TextStyle(color: scheme.error),
                 ),
               ),
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: _busy ? null : _resetUrl,
-                child: const Text('Reset URL'),
+            if (_successMessage != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  _successMessage!,
+                  style: TextStyle(color: scheme.tertiary),
+                ),
               ),
-            ],
-          ),
-          if (_errorMessage != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                _errorMessage!,
-                style: const TextStyle(color: Colors.red),
-              ),
+            const Divider(height: 32),
+            Text(
+              'Installed packs',
+              style: Theme.of(context).textTheme.titleMedium,
             ),
-          if (_successMessage != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                _successMessage!,
-                style: TextStyle(color: Colors.green.shade700),
-              ),
-            ),
-          const Divider(height: 32),
-          Text(
-            'Installed packs',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          _buildPackList(),
-        ],
+            const SizedBox(height: 8),
+            _buildPackList(),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildPackList() {
     final packsAsync = ref.watch(installedSpecPacksProvider);
+    final scheme = Theme.of(context).colorScheme;
     return packsAsync.when(
       loading: () => const Padding(
         padding: EdgeInsets.all(24),
@@ -142,15 +149,15 @@ class _SpecPackSettingsScreenState
           context: 'list installed packs',
           fallback: 'Could not read the installed packs.',
         ),
-        style: const TextStyle(color: Colors.red),
+        style: TextStyle(color: scheme.error),
       ),
       data: (packs) {
         if (packs.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
             child: Text(
               'No packs installed yet.',
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: scheme.onSurfaceVariant),
             ),
           );
         }
@@ -190,9 +197,10 @@ class _SpecPackSettingsScreenState
 
   Future<void> _install() async {
     final url = _urlController.text.trim();
-    if (!SpecPackService.isValidManifestUrl(url)) {
+    final problem = SpecPackService.manifestUrlProblem(url);
+    if (problem != null) {
       setState(() {
-        _errorMessage = 'Enter a valid http:// or https:// URL.';
+        _errorMessage = problem.message;
         _successMessage = null;
       });
       return;
@@ -363,7 +371,9 @@ class _SpecPackSettingsScreenState
 
   String _friendlyError(SpecPackError error) {
     return switch (error.kind) {
-      SpecPackErrorKind.invalidUrl => 'Enter a valid http:// or https:// URL.',
+      // The service's message says why (a plain http:// address is only
+      // accepted for a server on the user's own network).
+      SpecPackErrorKind.invalidUrl => error.message,
       SpecPackErrorKind.timeout =>
         'The download timed out. Check your connection and try again.',
       SpecPackErrorKind.network =>

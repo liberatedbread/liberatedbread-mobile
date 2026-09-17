@@ -10,6 +10,53 @@ import 'package:flutter/material.dart';
 
 import '../core/find_device.dart' show signalBars;
 
+/// The subtitle with the trailing detail (signal, last-seen, host:port).
+///
+/// The detail wins the space: it is the row's one specific fact, so the
+/// subtitle gives way first and is ellipsized to nothing before the detail
+/// loses a character. But the detail is capped at the row's width, so a long
+/// host:port at an accessibility text size ellipsizes instead of overflowing
+/// — as a plain non-flex Text in the Row it ran straight past the edge.
+class _SubtitleAndDetail extends StatelessWidget {
+  final String subtitle;
+  final String detail;
+
+  const _SubtitleAndDetail({required this.subtitle, required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          Flexible(
+            child: Text(
+              subtitle,
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+            child: Text(
+              '  ·  $detail',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: text.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                // Tabular figures stop the row jittering as values update.
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Section label with a count pill, e.g. "Found · 2".
 class SectionHeader extends StatelessWidget {
   final String label;
@@ -209,25 +256,10 @@ class DeviceListTile extends StatelessWidget {
                           _SignalBars(rssi: rssi!, color: scheme.secondary),
                           const SizedBox(width: 8),
                         ],
-                        Flexible(
-                          child: Text(
-                            subtitle,
-                            style: text.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Text(
-                          '  ·  $detail',
-                          style: text.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant.withValues(
-                              alpha: 0.7,
-                            ),
-                            // Tabular figures stop the row jittering as values
-                            // update.
-                            fontFeatures: const [FontFeature.tabularFigures()],
+                        Expanded(
+                          child: _SubtitleAndDetail(
+                            subtitle: subtitle,
+                            detail: detail,
                           ),
                         ),
                       ],
