@@ -56,6 +56,7 @@ library;
 
 import 'dart:convert' show jsonDecode;
 import 'dart:io' show Platform;
+import 'dart:typed_data' show Uint16List;
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show rootBundle;
@@ -85,7 +86,7 @@ import 'package:liberated_bread_mobile/services/real_network_scan_service.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 import 'package:liberated_bread_mobile/services/secure_settings_store.dart';
 import 'package:liberated_bread_mobile/src/rust/api/device_api.dart'
-    show NetworkDeviceDto, identifyStandardProfiles;
+    show NetworkDeviceDto, ScannedDeviceDto, identifyStandardProfiles;
 import 'package:liberated_bread_mobile/src/rust/frb_generated.dart'
     show RustLib;
 
@@ -529,10 +530,57 @@ void main() {
           isNotEmpty,
           reason: 'no connectable advertiser was heard in 10 s',
         );
-        target = seen.values.reduce((x, y) => x.rssi >= y.rssi ? x : y);
+        // Which advertisers were in the room, strongest first — the operator
+        // put a device next to the phone and needs to see whether that is the
+        // one this connected to, or a neighbour's.
+        final ranked = seen.values.toList()
+          ..sort((x, y) => y.rssi.compareTo(x.rssi));
+        _say('${ranked.length} connectable advertiser(s), strongest first:');
+        for (final d in ranked.take(5)) {
+          _say(
+            '  ${d.rssi} dBm  "${d.name.isEmpty ? '(no name)' : d.name}"  '
+            '${d.id}',
+          );
+        }
+        target = ranked.first;
       }
       final id = target!.id;
       _say('found "${target.name}" as $id (rssi ${target.rssi}); connecting');
+
+      // What the shipped catalogue makes of a REAL advertisement. The host
+      // suites match against advertisements a test wrote, so this is the only
+      // place the identity projection and the Rust matcher meet a device
+      // nobody designed the fixture for — the BLE half of the LAN catalogue
+      // check above.
+      {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        final identities = await container.read(specIdentitiesProvider.future);
+        const codec = RealSpecCodec();
+        final matches = await codec.matchScannedDevice(
+          identities: identities,
+          device: ScannedDeviceDto(
+            name: target.name,
+            serviceUuids: target.serviceUuids,
+            companyIds: Uint16List.fromList(target.companyIds),
+            macAddress: null,
+          ),
+        );
+        if (matches.isEmpty) {
+          _say(
+            'catalogue: nothing in ${identities.length} identities claims '
+            'this advertiser (name "${target.name}", '
+            '${target.serviceUuids.length} service uuid(s), '
+            '${target.companyIds.length} company id(s))',
+          );
+        } else {
+          final best = matches.first;
+          _say(
+            'catalogue: -> ${best.deviceName} (${best.manufacturer}, '
+            '${best.confidence.name}; ${matches.length} candidate(s))',
+          );
+        }
+      }
 
       await ble.connect(id);
       try {
