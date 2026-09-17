@@ -397,6 +397,41 @@ void main() {
     });
   });
 
+  group('install - transport', () {
+    test(
+      'a plain-http manifest off the local network is never fetched',
+      () async {
+        var requests = 0;
+        final service = _service(tempDir, (request) async {
+          requests++;
+          return http.Response(_manifestJson(), 200);
+        });
+        final result = await service.install('http://specs.example.com/p.json');
+        expect(result, isA<InstallFailed>());
+        final error = (result as InstallFailed).error;
+        expect(error.kind, SpecPackErrorKind.invalidUrl);
+        expect(error.message, contains('https only'));
+        expect(
+          requests,
+          0,
+          reason: 'refused before any bytes leave the device',
+        );
+        expect(await service.listInstalledPacks(), isEmpty);
+      },
+    );
+
+    test('a plain-http manifest on the local network installs', () async {
+      final service = _service(tempDir, (request) async {
+        if (request.url.path.endsWith('p.json')) {
+          return http.Response(_manifestJson(), 200);
+        }
+        return http.Response('device_name: Bulb', 200);
+      });
+      final result = await service.install('http://192.168.1.20:8000/p.json');
+      expect(result, isA<InstallOk>());
+    });
+  });
+
   group('migrateCacheDir', () {
     test('moves a Documents-era cache into the new base once', () async {
       final legacy = Directory('${tempDir.path}/Documents');
@@ -510,12 +545,67 @@ void main() {
   });
 
   group('isValidManifestUrl', () {
-    test('accepts http and https', () {
-      expect(SpecPackService.isValidManifestUrl('http://a.com/p.json'), isTrue);
+    test('accepts https anywhere, and http only on the local network', () {
+      // F-009: a pack decides what the app sends to LAN devices and which
+      // credentials fill it, and nothing on the install path verifies a
+      // hash — so a cleartext fetch across the internet is refused, while a
+      // laptop serving a pack under development is still reachable.
       expect(
         SpecPackService.isValidManifestUrl('https://a.com/p.json'),
         isTrue,
       );
+      expect(
+        SpecPackService.isValidManifestUrl('http://a.com/p.json'),
+        isFalse,
+      );
+      expect(
+        SpecPackService.manifestUrlProblem('http://a.com/p.json'),
+        isA<SpecPackError>()
+            .having((e) => e.kind, 'kind', SpecPackErrorKind.invalidUrl)
+            .having((e) => e.message, 'message', contains('https only')),
+      );
+      for (final local in [
+        'http://localhost:8000/p.json',
+        'http://127.0.0.1:8000/p.json',
+        'http://10.1.2.3/p.json',
+        'http://172.16.0.9/p.json',
+        'http://192.168.1.20:8080/p.json',
+        'http://169.254.10.10/p.json',
+        'http://[::1]:8000/p.json',
+        'http://[fe80::1%25en0]/p.json',
+        'http://[fd12::1]/p.json',
+      ]) {
+        expect(
+          SpecPackService.manifestUrlProblem(local),
+          isNull,
+          reason: '$local is on the local network',
+        );
+      }
+      for (final remote in [
+        'http://8.8.8.8/p.json',
+        'http://172.32.0.1/p.json',
+        'http://[2001:db8::1]/p.json',
+        'http://raw.githubusercontent.com/x/p.json',
+        'http://mylocalhost.example/p.json',
+      ]) {
+        expect(
+          SpecPackService.isValidManifestUrl(remote),
+          isFalse,
+          reason: '$remote is not on the local network',
+        );
+      }
+    });
+
+    test('isLocalNetworkHost is decided by the literal, never by DNS', () {
+      expect(SpecPackService.isLocalNetworkHost('localhost'), isTrue);
+      expect(SpecPackService.isLocalNetworkHost('LOCALHOST'), isTrue);
+      expect(SpecPackService.isLocalNetworkHost('pack.localhost'), isTrue);
+      expect(SpecPackService.isLocalNetworkHost('192.168.0.1'), isTrue);
+      expect(SpecPackService.isLocalNetworkHost('::1'), isTrue);
+      expect(SpecPackService.isLocalNetworkHost('fc00::1'), isTrue);
+      expect(SpecPackService.isLocalNetworkHost('example.com'), isFalse);
+      expect(SpecPackService.isLocalNetworkHost('100.64.0.1'), isFalse);
+      expect(SpecPackService.isLocalNetworkHost('::ffff:8.8.8.8'), isFalse);
     });
 
     test('rejects empty, whitespace, and non-http schemes', () {

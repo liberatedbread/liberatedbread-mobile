@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../core/ha_url.dart' show isPrivateIpv4;
 import '../core/log.dart';
 
 /// Downloads and caches a "pack" of device-spec YAML files described by a remote
@@ -160,7 +161,10 @@ class SpecPack {
 
 /// Why an install failed, for the UI to render a friendly message.
 enum SpecPackErrorKind {
-  /// The manifest URL is not a valid http/https URL.
+  /// The manifest URL is not one an install accepts: malformed, not
+  /// http(s), or plain `http://` to a host off the local network. The
+  /// [SpecPackError.message] says which — see
+  /// [SpecPackService.manifestUrlProblem].
   invalidUrl,
 
   /// A request exceeded the timeout.
@@ -239,28 +243,77 @@ class SpecPackService {
   }) : _resolveCacheDir = cacheDirResolver,
        _validateSpec = specValidator;
 
-  /// Whether [input] is a usable http/https manifest URL.
-  static bool isValidManifestUrl(String input) {
+  /// Whether [input] is a manifest URL an install would accept — see
+  /// [manifestUrlProblem] for the reason when it is not.
+  static bool isValidManifestUrl(String input) =>
+      manifestUrlProblem(input) == null;
+
+  /// Why [input] cannot be installed from, or null when it can.
+  ///
+  /// A well-formed `https://` URL always can. A plain `http://` one can only
+  /// when its host is on the user's own network (loopback, RFC 1918,
+  /// link-local — the address of a laptop serving a pack under development),
+  /// because a pack decides what the app sends to LAN devices, which
+  /// stored credentials fill the requests, and each device's TLS policy —
+  /// and nothing on the install path checks a hash or a signature. Fetched
+  /// in clear across the internet, all of that is whatever the network on
+  /// the way chose to hand over; the banner check, which decides far less,
+  /// has refused non-https since it was written. Redirects are followed only
+  /// to the same origin ([_fetch]), so an https install cannot be downgraded
+  /// on the way either.
+  static SpecPackError? manifestUrlProblem(String input) {
+    const invalid = SpecPackError(
+      SpecPackErrorKind.invalidUrl,
+      'Enter a valid http(s) URL.',
+    );
     final trimmed = input.trim();
-    if (trimmed.isEmpty || trimmed.contains(RegExp(r'\s'))) return false;
+    if (trimmed.isEmpty || trimmed.contains(RegExp(r'\s'))) return invalid;
     final uri = Uri.tryParse(trimmed);
-    return uri != null &&
-        (uri.scheme == 'http' || uri.scheme == 'https') &&
-        uri.host.isNotEmpty;
+    if (uri == null || uri.host.isEmpty) return invalid;
+    switch (uri.scheme) {
+      case 'https':
+        return null;
+      case 'http':
+        if (isLocalNetworkHost(uri.host)) return null;
+        return const SpecPackError(
+          SpecPackErrorKind.invalidUrl,
+          'Spec packs are installed over https only. A plain http:// address '
+          'is accepted just for a server on your own network (a private or '
+          'loopback address such as 192.168.x.x or localhost).',
+        );
+      default:
+        return invalid;
+    }
+  }
+
+  /// Whether [host] (as [Uri.host] spells it — an IPv6 literal without its
+  /// brackets) names something on the user's own network: `localhost`, an
+  /// RFC 1918 / loopback / link-local IPv4 literal, or an IPv6 loopback,
+  /// unique-local or link-local literal. A DNS name other than `localhost`
+  /// is not, whatever it resolves to: the resolution is the attacker's too.
+  @visibleForTesting
+  static bool isLocalNetworkHost(String host) {
+    final lower = host.toLowerCase();
+    if (lower == 'localhost' || lower.endsWith('.localhost')) return true;
+    if (isPrivateIpv4(lower)) return true;
+    // An IPv6 literal, with any zone id (`fe80::1%en0`) set aside.
+    final address = InternetAddress.tryParse(lower.split('%').first);
+    if (address == null || address.type != InternetAddressType.IPv6) {
+      return false;
+    }
+    if (address.isLoopback || address.isLinkLocal) return true;
+    // fc00::/7 — unique local.
+    return (address.rawAddress[0] & 0xfe) == 0xfc;
   }
 
   /// Fetch [manifestUrl], download the specs it lists, and cache the lot. Any
   /// previously-cached pack with the same name is replaced. Never throws.
   Future<InstallResult> install(String manifestUrl) async {
     final url = manifestUrl.trim();
-    if (!isValidManifestUrl(url)) {
-      Log.packs.warning('install refused: not a valid http(s) URL');
-      return const InstallFailed(
-        SpecPackError(
-          SpecPackErrorKind.invalidUrl,
-          'Enter a valid http(s) URL.',
-        ),
-      );
+    final problem = manifestUrlProblem(url);
+    if (problem != null) {
+      Log.packs.warning('install refused: ${problem.kind.name}');
+      return InstallFailed(problem);
     }
     final manifestUri = Uri.parse(url);
     Log.packs.info('installing from ${logSafeUrl(manifestUri)}');

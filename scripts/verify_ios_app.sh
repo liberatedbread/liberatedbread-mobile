@@ -14,9 +14,10 @@
 #      raise the system prompt at all — lib/services/real_ble_service.dart
 #      deliberately relies on that instead of asking permission_handler. Drop
 #      NSBluetoothAlwaysUsageDescription and iOS kills the app the moment it
-#      touches CBCentralManager; drop NSLocalNetworkUsageDescription or
-#      NSAllowsLocalNetworking and every http:// Home Assistant call fails.
-#      All of it compiles perfectly.
+#      touches CBCentralManager; drop NSLocalNetworkUsageDescription and the
+#      local-network prompt never appears. NSAllowsLocalNetworking is checked
+#      too, as a declaration rather than a control — see the note at that
+#      check. All of it compiles perfectly.
 #   2. The Rust library not actually being linked in. cargokit builds the crate
 #      as a static archive and rust_builder/ios/liberated_bread_core.podspec
 #      force-loads it (OTHER_LDFLAGS = -force_load .../libliberated_bread_core.a).
@@ -344,15 +345,23 @@ for key in "${REQUIRED_STRING_KEYS[@]}"; do
   fi
 done
 
-# usesCleartextTraffic has no iOS equivalent; NSAllowsLocalNetworking is what
-# lets the app reach a plain-http Home Assistant on the LAN. A bare
-# NSAppTransportSecurity dict with the flag flipped to false compiles fine and
-# breaks every local connection at runtime, so assert the value, not the key.
+# NSAllowsLocalNetworking is an ACCURATE DECLARATION of what this app does,
+# not a switch that governs it. App Transport Security is enforced inside
+# NSURLSession/CFNetwork and WKWebView; every socket this app opens is dart:io
+# (HttpClient, WebSocket, SecureSocket, raw UDP), which never passes through
+# ATS, so plain http:// to a LAN Home Assistant works with or without the key,
+# and its absence would not protect a token sent to a public http:// URL either
+# (that guard, where it exists, is in Dart). The key still belongs in the
+# plist: App Review reads NSAppTransportSecurity as the app's statement of its
+# cleartext use, and the honest statement for an app whose whole purpose is
+# talking http to devices on the local network is "local networking, and
+# nothing arbitrary". A build that drops or flips it has changed a
+# declaration the review answers rely on, so assert the value, not the key.
 ats_local="$(plist_get "NSAppTransportSecurity:NSAllowsLocalNetworking" || true)"
 if [[ "$ats_local" != "true" ]]; then
-  fail "NSAppTransportSecurity:NSAllowsLocalNetworking is '${ats_local:-<absent>}', expected 'true' — plain-http Home Assistant servers on the LAN would be blocked by ATS."
+  fail "NSAppTransportSecurity:NSAllowsLocalNetworking is '${ats_local:-<absent>}', expected 'true' — the plist no longer declares the app's local-network cleartext use (dart:io traffic is unaffected by ATS either way; this is the declaration App Review reads)."
 else
-  log "  ok  NSAppTransportSecurity:NSAllowsLocalNetworking = true"
+  log "  ok  NSAppTransportSecurity:NSAllowsLocalNetworking = true (a declaration; ATS does not govern dart:io traffic)"
 fi
 
 # NSBonjourServices governs mDNS done through the Bonjour APIs (NWBrowser,

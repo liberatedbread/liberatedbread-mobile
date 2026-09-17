@@ -19,6 +19,15 @@ import '../services/spec_codec.dart';
 ///
 /// Other transports (RTSP/HLS/WebRTC) are recognised but not rendered here —
 /// the app ships no video player — so those fall through to "not shown".
+///
+/// Frames are held as one [ImageProvider] at a time. `Image.memory` keys the
+/// global [ImageCache] on the bytes object, so a polled feed that handed each
+/// frame straight to it left every decoded bitmap resident until the cache's
+/// 100 MB ceiling forced the oldest out — ~30 s of a 720p feed at 1 fps, and
+/// held for as long as the screen stayed open. Each new frame evicts the
+/// previous provider, dispose evicts the last, and decoding is sized to the
+/// card's own width so a 1280-wide snapshot is not decoded at 1280 to be drawn
+/// at 360.
 class CameraViewCard extends ConsumerStatefulWidget {
   final String specYaml;
   final String host;
@@ -32,7 +41,17 @@ class CameraViewCard extends ConsumerStatefulWidget {
 class _CameraViewCardState extends ConsumerState<CameraViewCard> {
   CameraStreamDto? _pollStream;
   StreamSubscription<Uint8List>? _sub;
-  Uint8List? _frame;
+
+  /// The latest frame, as the one provider the card owns — see the class
+  /// note. Replaced, never accumulated.
+  ImageProvider? _frame;
+
+  /// The decode width for the next frame, in physical pixels: the card's
+  /// laid-out width times the device pixel ratio, recorded by the layout
+  /// pass so the next frame is decoded no larger than it will be drawn. Null
+  /// until the card has laid out once, in which case a frame decodes at its
+  /// native size.
+  int? _cacheWidth;
   String? _error;
   Timer? _firstFrameTimeout;
 
@@ -72,10 +91,7 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
                 // timeout and clear any prior error.
                 _firstFrameTimeout?.cancel();
                 _firstFrameTimeout = null;
-                setState(() {
-                  _frame = bytes;
-                  _error = null;
-                });
+                _showFrame(bytes);
               },
               onError: (Object e) {
                 Log.spec.debug('camera feed error', error: e);
@@ -98,11 +114,47 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
     }
   }
 
+  /// Swap the displayed frame for [bytes], and drop the one it replaces
+  /// from the image cache.
+  ///
+  /// The provider is built here rather than in build(), because the cache
+  /// key is the provider: the previous one has to be the very object that
+  /// was drawn for its eviction to find the entry. `ResizeImage` wraps the
+  /// bytes so the decode is sized to the card; its key wraps the inner key,
+  /// which is why the eviction goes through the wrapper.
+  void _showFrame(Uint8List bytes) {
+    final previous = _frame;
+    final next = ResizeImage.resizeIfNeeded(
+      _cacheWidth,
+      null,
+      MemoryImage(bytes),
+    );
+    setState(() {
+      _frame = next;
+      _error = null;
+    });
+    if (previous != null) _evict(previous);
+  }
+
+  /// Best effort: an entry that is still decoding or was never inserted
+  /// evicts as false, which is fine — the point is that nothing stays.
+  static void _evict(ImageProvider provider) {
+    unawaited(
+      provider.evict().catchError((Object e) {
+        Log.spec.debug('camera frame evict failed', error: e);
+        return false;
+      }),
+    );
+  }
+
   @override
   void dispose() {
     _firstFrameTimeout?.cancel();
     unawaited(_sub?.cancel());
     _sub = null;
+    final last = _frame;
+    _frame = null;
+    if (last != null) _evict(last);
     super.dispose();
   }
 
@@ -141,29 +193,40 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
           ),
           AspectRatio(
             aspectRatio: 16 / 9,
-            child: Container(
-              color: Colors.black,
-              alignment: Alignment.center,
-              child: _error != null
-                  ? Text(
-                      _error!,
-                      style: text.bodySmall?.copyWith(color: scheme.error),
-                    )
-                  : frame != null
-                  ? Image.memory(
-                      frame,
-                      gaplessPlayback: true,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, _, _) => const Icon(
-                        Icons.broken_image_outlined,
-                        color: Colors.white54,
-                      ),
-                    )
-                  : const SizedBox(
-                      width: 28,
-                      height: 28,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Recorded, not setState'd: it is read when the NEXT frame
+                // arrives, and the frame in hand is already sized.
+                final width = constraints.maxWidth;
+                if (width.isFinite && width > 0) {
+                  _cacheWidth = (width * MediaQuery.devicePixelRatioOf(context))
+                      .ceil();
+                }
+                return Container(
+                  color: Colors.black,
+                  alignment: Alignment.center,
+                  child: _error != null
+                      ? Text(
+                          _error!,
+                          style: text.bodySmall?.copyWith(color: scheme.error),
+                        )
+                      : frame != null
+                      ? Image(
+                          image: frame,
+                          gaplessPlayback: true,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, _, _) => const Icon(
+                            Icons.broken_image_outlined,
+                            color: Colors.white54,
+                          ),
+                        )
+                      : const SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                );
+              },
             ),
           ),
         ],

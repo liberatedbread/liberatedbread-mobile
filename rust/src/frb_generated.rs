@@ -4475,6 +4475,18 @@ impl SseDecode for crate::api::device_api::FormatFieldDto {
     }
 }
 
+impl SseDecode for crate::api::device_api::HttpHeaderDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_value = <String>::sse_decode(deserializer);
+        return crate::api::device_api::HttpHeaderDto {
+            name: var_name,
+            value: var_value,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::HttpRequestDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4482,11 +4494,14 @@ impl SseDecode for crate::api::device_api::HttpRequestDto {
         let mut var_path = <String>::sse_decode(deserializer);
         let mut var_body = <String>::sse_decode(deserializer);
         let mut var_scheme = <Option<String>>::sse_decode(deserializer);
+        let mut var_headers =
+            <Vec<crate::api::device_api::HttpHeaderDto>>::sse_decode(deserializer);
         return crate::api::device_api::HttpRequestDto {
             method: var_method,
             path: var_path,
             body: var_body,
             scheme: var_scheme,
+            headers: var_headers,
         };
     }
 }
@@ -4813,6 +4828,20 @@ impl SseDecode for Vec<crate::api::device_api::FormatFieldDto> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<crate::api::device_api::FormatFieldDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::HttpHeaderDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::HttpHeaderDto>::sse_decode(
                 deserializer,
             ));
         }
@@ -7892,6 +7921,27 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::FormatFieldDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::HttpHeaderDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.value.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::HttpHeaderDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::HttpHeaderDto>
+    for crate::api::device_api::HttpHeaderDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::HttpHeaderDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::HttpRequestDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -7899,6 +7949,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::HttpRequestDto {
             self.path.into_into_dart().into_dart(),
             self.body.into_into_dart().into_dart(),
             self.scheme.into_into_dart().into_dart(),
+            self.headers.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -9874,6 +9925,14 @@ impl SseEncode for crate::api::device_api::FormatFieldDto {
     }
 }
 
+impl SseEncode for crate::api::device_api::HttpHeaderDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.value, serializer);
+    }
+}
+
 impl SseEncode for crate::api::device_api::HttpRequestDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -9881,6 +9940,7 @@ impl SseEncode for crate::api::device_api::HttpRequestDto {
         <String>::sse_encode(self.path, serializer);
         <String>::sse_encode(self.body, serializer);
         <Option<String>>::sse_encode(self.scheme, serializer);
+        <Vec<crate::api::device_api::HttpHeaderDto>>::sse_encode(self.headers, serializer);
     }
 }
 
@@ -10108,6 +10168,16 @@ impl SseEncode for Vec<crate::api::device_api::FormatFieldDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::device_api::FormatFieldDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::HttpHeaderDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::HttpHeaderDto>::sse_encode(item, serializer);
         }
     }
 }

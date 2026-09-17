@@ -191,9 +191,27 @@ self-classification report — a once-a-year email (template at the bottom) to
 - **Privacy Policy URL:** `https://liberatedbread.com/privacy/` (matches the
   in-app link).
 - **Data collection:** the app collects nothing → answer **"Data Not
-  Collected."** (It makes one anonymous GET for a promo banner and, only if the
-  user configures it, talks to their own Home Assistant — no identifiers leave
-  the device.)
+  Collected."** The rationale, which must match the description below and the
+  comment in `ios/Runner/PrivacyInfo.xcprivacy` word for word in substance: no
+  account is required, no analytics or advertising SDK is linked, and nothing
+  about what the user controls is reported anywhere. The app is not
+  offline-only, though — these are the connections it opens beyond the user's
+  own devices, every one optional or anonymous, and none a collection of data
+  by this app:
+  - an anonymous GET for the promotional banner config;
+  - a device-profile pack download, if the user installs one — from GitHub or
+    a URL they enter (`lib/services/spec_pack_service.dart`);
+  - the user's own Home Assistant server, if they configure it;
+  - a one-time sign-in to iRobot's cloud, only if the user picks the account
+    route for a robot vacuum instead of typing its details in by hand
+    (`lib/services/irobot_cloud_service.dart`) — their vendor account
+    credentials go to the vendor to read the robot's local password, which is
+    what makes local control possible afterwards; the password is used once
+    and not stored. Disclosed on the form that asks for them.
+
+  If App Review asks how "Data Not Collected" squares with a sign-in form, the
+  answer is the last bullet: the credentials are sent to the vendor, not to
+  us, and no identifier leaves the device for this app's benefit.
 
 ## Step 8 — Listing metadata + screenshots (ASC)
 

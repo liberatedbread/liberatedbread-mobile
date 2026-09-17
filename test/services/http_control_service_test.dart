@@ -14,6 +14,8 @@ import 'package:http/testing.dart';
 import 'package:liberated_bread_mobile/core/error_text.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/src/rust/api/device_api.dart'
+    show HttpHeaderDto;
 
 void main() {
   const press = HttpRequestDto(
@@ -291,6 +293,77 @@ void main() {
       reason: 'an empty ECP body must not be labelled as either',
     );
     expect(contentTypeFor('   '), isNull);
+  });
+
+  test('spec-declared headers ride the request, on every method', () async {
+    // R-032: the transport could send no header at all, so a Vizio key press
+    // (PUT, JSON body, AUTH token) went out unauthenticated as text/plain. The
+    // rendered request now carries what the spec declared, and a declared
+    // Content-Type — in any letter case — replaces the inferred one rather
+    // than joining it.
+    final seen = <http.Request>[];
+    final client = HttpControlClient(
+      httpClient: MockClient((request) async {
+        seen.add(request);
+        return http.Response('{"STATUS":{"RESULT":"success"}}', 200);
+      }),
+    );
+
+    await client.send(
+      '10.0.0.9',
+      7345,
+      const HttpRequestDto(
+        method: 'PUT',
+        path: '/key_command/',
+        body: '{"KEYLIST":[{"CODESET":11,"CODE":1,"ACTION":"KEYPRESS"}]}',
+        headers: [
+          HttpHeaderDto(name: 'content-type', value: 'application/json'),
+          HttpHeaderDto(name: 'AUTH', value: 'Z2x6aHh4eQ=='),
+        ],
+      ),
+    );
+    await client.send(
+      '10.0.0.9',
+      7345,
+      const HttpRequestDto(
+        method: 'GET',
+        path: '/state/device/power_mode',
+        body: '',
+        headers: [HttpHeaderDto(name: 'AUTH', value: 'Z2x6aHh4eQ==')],
+      ),
+    );
+    await client.send(
+      '10.0.0.9',
+      7345,
+      const HttpRequestDto(
+        method: 'POST',
+        path: '/pairing/start',
+        body: '{"DEVICE_ID":"lb"}',
+        headers: [HttpHeaderDto(name: 'X-Client', value: 'lb')],
+      ),
+    );
+
+    expect(seen[0].method, 'PUT');
+    expect(seen[0].headers['auth'], 'Z2x6aHh4eQ==');
+    expect(
+      seen[0].headers['content-type'],
+      'application/json',
+      reason: 'the declared Content-Type wins over the inferred one',
+    );
+    expect(seen[1].method, 'GET');
+    expect(seen[1].headers['auth'], 'Z2x6aHh4eQ==');
+    // No declared Content-Type: the body's own kind is still inferred, and
+    // the other header rides beside it.
+    expect(seen[2].headers['content-type'], 'application/json; charset=utf-8');
+    expect(seen[2].headers['x-client'], 'lb');
+
+    expect(
+      headersFor(
+        const HttpRequestDto(method: 'POST', path: '/keypress/Home', body: ''),
+      ),
+      isNull,
+      reason: 'an ECP keypress still adds no header of its own',
+    );
   });
 
   test(

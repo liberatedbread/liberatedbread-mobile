@@ -2276,6 +2276,9 @@ pub fn render_network_command(
 /// The sibling of [`SoapRequestDto`] for transports where the method and the
 /// path ARE the request — Roku ECP's keypresses. The address is the caller's:
 /// discovery already knows the host and port.
+// `#[frb]` on the struct is what lets the field-level `frb(default)` below
+// exist: the attribute macro strips its own field attributes.
+#[frb]
 #[derive(Debug, Clone)]
 pub struct HttpRequestDto {
     /// `GET` | `POST` | …, as the spec spelled it.
@@ -2291,6 +2294,23 @@ pub struct HttpRequestDto {
     /// LAN device carries. Device-level, not per-command: no spec mixes
     /// schemes across commands.
     pub scheme: Option<String>,
+    /// Headers the command declares, rendered — placeholders filled, a
+    /// credential-sourced one from the same stored value a body placeholder
+    /// reads. The sender puts every one on the wire as given; a
+    /// `Content-Type` here wins over the one it would infer from the body.
+    /// Empty for every command that declares none, which is the whole
+    /// catalogue as vendored (Vizio SmartCast's `AUTH` is the first user).
+    /// Defaulted on the Dart side so the many callers that build a request
+    /// by hand — an ECP keypress, a Hue config read — need not name it.
+    #[frb(default = "const []")]
+    pub headers: Vec<HttpHeaderDto>,
+}
+
+/// One rendered request header, name and value as they go on the wire.
+#[derive(Debug, Clone)]
+pub struct HttpHeaderDto {
+    pub name: String,
+    pub value: String,
 }
 
 impl From<crate::protocol::http::HttpRequest> for HttpRequestDto {
@@ -2300,6 +2320,11 @@ impl From<crate::protocol::http::HttpRequest> for HttpRequestDto {
             path: request.path,
             body: request.body,
             scheme: None,
+            headers: request
+                .headers
+                .into_iter()
+                .map(|(name, value)| HttpHeaderDto { name, value })
+                .collect(),
         }
     }
 }

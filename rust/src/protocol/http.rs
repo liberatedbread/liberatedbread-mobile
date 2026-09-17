@@ -69,6 +69,13 @@ pub struct HttpRequest {
     /// `<volume>30</volume>`). The caller sends a Content-Type only when
     /// this is non-empty.
     pub body: String,
+    /// Request headers the command declares, name → value, in declared
+    /// order and with every `{name}` placeholder filled — a header-borne
+    /// credential (Vizio's `AUTH`) resolves through exactly the path a body
+    /// placeholder does, stored-credential remap included. Empty for the
+    /// whole catalogue as vendored today. A `Content-Type` here overrides
+    /// the one the caller would infer from the body.
+    pub headers: Vec<(String, String)>,
 }
 
 /// Render one of the spec's `commands` into a request.
@@ -110,7 +117,63 @@ pub fn render_command(
         method: method.to_string(),
         path: substitute(path, command, command_name, values)?,
         body: render_http_body(command, command_name, values)?,
+        headers: render_headers(command, command_name, values)?,
     })
+}
+
+/// Fill a command's declared `headers`, in declared order.
+///
+/// Each value is a template on the same terms as a literal `body`: the exact
+/// `{name}` of a declared parameter is replaced (resolution order: the
+/// caller's value, the stored credential its `source:` names, its `default`),
+/// and a missing one fails the render rather than sending a header with a
+/// hole in it — an `AUTH:` with nothing after it is a request the set will
+/// refuse, and refusing here names the credential instead. A resolved value
+/// is written verbatim (a token is not a path; percent-encoding it would
+/// corrupt it), which is why the one thing that IS checked is that neither
+/// the name nor the value can end the header line: a CR or LF in a
+/// user-typed or device-supplied value would otherwise start a header of the
+/// attacker's choosing.
+fn render_headers(
+    command: &SpecCommand,
+    command_name: &str,
+    values: &BTreeMap<String, String>,
+) -> Result<Vec<(String, String)>, ProtocolError> {
+    let mut rendered = Vec::with_capacity(command.headers.len());
+    for (name, template) in &command.headers {
+        if name.is_empty() || !name.bytes().all(is_header_name_byte) {
+            return Err(ProtocolError::UnsupportedCommandEncoding(format!(
+                "{command_name} declares header {name:?}, which is not a valid header name"
+            )));
+        }
+        let template = scalar_to_string(template).ok_or_else(|| {
+            ProtocolError::UnsupportedCommandEncoding(format!(
+                "{command_name} declares header {name} with a non-scalar value"
+            ))
+        })?;
+        let value = fill_placeholders(&template, command, command_name, values, |param, raw| {
+            if raw.contains(['\r', '\n', '\0']) {
+                return Err(ProtocolError::ParameterInvalid {
+                    name: param.to_string(),
+                    value: 0.0,
+                    reason: "a header value cannot contain a line break".to_string(),
+                });
+            }
+            Ok(raw.to_string())
+        })?;
+        if value.contains(['\r', '\n', '\0']) {
+            return Err(ProtocolError::UnsupportedCommandEncoding(format!(
+                "{command_name} declares header {name} with a line break in its value"
+            )));
+        }
+        rendered.push((name.clone(), value));
+    }
+    Ok(rendered)
+}
+
+/// RFC 9110's `tchar`: what an HTTP field name may be made of.
+fn is_header_name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
 }
 
 /// The request body an HTTP command declares: a JSON object from its
@@ -589,6 +652,12 @@ pub fn path_renderable_from_spec(spec: &DeviceSpec, path: &str) -> bool {
 /// name — the reading is a resource, and reading a resource is a GET of it.
 /// See [`crate::spec::bindings::state_binding`], which is what decides that a
 /// given `state_topic` means this rather than an MQTT subscription.
+///
+/// Only the second vocabulary can carry headers: a command declares them, an
+/// endpoint entry and a bare path have nowhere to. A device whose state reads
+/// need a credential header (Vizio's `/state/device/power_mode` wants `AUTH`)
+/// has to name a `commands` entry from `state_command` for the poll to be
+/// authenticated.
 pub fn render_state_request(
     spec: &DeviceSpec,
     state_command: &str,
@@ -599,6 +668,7 @@ pub fn render_state_request(
             method,
             path: fill_path(spec, &path, values, state_command)?,
             body: String::new(),
+            headers: Vec::new(),
         });
     }
     if let Some(command) = spec.commands.get(state_command) {
@@ -609,6 +679,7 @@ pub fn render_state_request(
             method: "GET".to_string(),
             path: fill_path(spec, state_command, values, state_command)?,
             body: String::new(),
+            headers: Vec::new(),
         });
     }
     Err(ProtocolError::CommandNotFound {
@@ -956,6 +1027,31 @@ commands:
     body: '{"a": 1}'
     arguments:
       b: 2
+  press_auth:
+    description: "The SmartCast shape: a JSON PUT under a credential header."
+    transport: "http"
+    method: "PUT"
+    path: "/key_command/"
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+      X-Client: "lb/{app_id}"
+    arguments: {CODESET: 11, CODE: 1, ACTION: "KEYPRESS"}
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The token pairing issued."
+      app_id:
+        type: "string"
+        default: 12
+  bad_header_name:
+    description: "A header name the wire cannot carry."
+    transport: "http"
+    method: "GET"
+    path: "/x"
+    headers:
+      "Bad Name": "v"
 "#;
 
     fn spec() -> DeviceSpec {
@@ -1121,6 +1217,90 @@ commands:
     fn a_missing_placeholder_in_an_xml_body_is_an_error_not_a_blank() {
         let err = render_request(&spec(), "press_preset", &values(&[])).unwrap_err();
         assert!(matches!(&err, ProtocolError::ParameterMissing(p) if p == "press_preset.n"));
+    }
+
+    #[test]
+    fn headers_render_in_declared_order_with_credentials_filled() {
+        let request =
+            render_request(&spec(), "press_auth", &values(&[("auth_token", "Z2x6")])).unwrap();
+        assert_eq!(request.method, "PUT");
+        assert_eq!(
+            request.body,
+            r#"{"CODESET":11,"CODE":1,"ACTION":"KEYPRESS"}"#
+        );
+        assert_eq!(
+            request.headers,
+            vec![
+                ("Content-Type".to_string(), "application/json".to_string()),
+                ("AUTH".to_string(), "Z2x6".to_string()),
+                ("X-Client".to_string(), "lb/12".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_header_credential_is_a_credential_like_any_other() {
+        // The same declaration that fills the header is what the credentials
+        // card reads, so a header-borne token is asked for, not guessed.
+        let spec = spec();
+        let required = crate::spec::credentials::required_credentials(&spec);
+        let auth = required
+            .iter()
+            .find(|c| c.name == "auth_token")
+            .expect("the header's credential is declared");
+        assert_eq!(auth.needed_by, vec!["press_auth".to_string()]);
+        assert!(auth.must_be_asked_for());
+        // And a stored credential filed under its own name fills it, as a
+        // body placeholder is filled.
+        let request = render_request(&spec, "press_auth", &values(&[("auth_token", "t")])).unwrap();
+        assert!(request
+            .headers
+            .contains(&("AUTH".to_string(), "t".to_string())));
+    }
+
+    #[test]
+    fn a_missing_header_credential_fails_the_send() {
+        let err = render_request(&spec(), "press_auth", &values(&[])).unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::ParameterMissing(name) if name == "press_auth.auth_token")
+        );
+    }
+
+    #[test]
+    fn a_header_value_is_written_verbatim_but_cannot_break_the_line() {
+        // A token is not a path: `+`, `/` and `=` go out as they are.
+        let request =
+            render_request(&spec(), "press_auth", &values(&[("auth_token", "a+b/c==")])).unwrap();
+        assert!(request
+            .headers
+            .contains(&("AUTH".to_string(), "a+b/c==".to_string())));
+
+        let err = render_request(
+            &spec(),
+            "press_auth",
+            &values(&[("auth_token", "x\r\nEvil: yes")]),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            &err,
+            ProtocolError::ParameterInvalid { name, .. } if name == "auth_token"
+        ));
+    }
+
+    #[test]
+    fn a_header_name_the_wire_cannot_carry_is_refused() {
+        let err = render_request(&spec(), "bad_header_name", &values(&[])).unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::UnsupportedCommandEncoding(msg) if msg.contains("Bad Name"))
+        );
+    }
+
+    #[test]
+    fn a_command_without_headers_renders_none() {
+        let request = render_request(&spec(), "press_home", &values(&[])).unwrap();
+        assert!(request.headers.is_empty());
+        let request = render_state_request(&spec(), "/json/state", &values(&[])).unwrap();
+        assert!(request.headers.is_empty());
     }
 
     #[test]

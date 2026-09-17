@@ -609,6 +609,46 @@ in rust/tests/vendored_assets.rs — for every vendored spec, every http command
 with an `example_body` must render to it (with placeholder values from the
 spec's parameter examples) — so a mismatch fails CI rather than a user's TV.
 
+### R-032 — vizio-smartcast key commands declare neither their `AUTH` credential nor their `Content-Type`, so the app cannot authenticate a press; the schema has no `headers` key for a command to declare them under
+
+**Where.** vendor/protocol-specs/device-specs/devices/vizio-smartcast.yaml:583-1000
+(every `press_*` command), :285 (`smartcast_common.request_format.http.headers`,
+prose only); device-specs/schema.json `commands.additionalProperties.properties`
+(no `headers`).
+
+**Evidence.**
+
+The app's HTTP transport now sends per-command headers: the Rust renderer
+reads `headers:` off a command (name → value, `{name}` placeholders filled
+from `parameters` exactly as a `body` template's are, a `source:
+credential:<name>` parameter resolving from the stored credential), and the
+sender puts them on the wire, a declared `Content-Type` replacing the one it
+infers from the body. Nothing in the vendored catalogue declares one yet. The
+Vizio spec states its needs in prose — "Content-Type: application/json on
+PUTs; AUTH: <token> on authenticated calls" — but its twenty-two `press_*`
+commands and three state paths declare no header and no credential, so
+`credentials_for_device` returns nothing, no card asks for the token, and
+every press still goes out unauthenticated.
+
+**Fix (upstream).**
+
+1. schema.json: add `headers` to the command object — `{"type": "object",
+   "additionalProperties": {"type": "string"}}`, "request headers this
+   command sends; values may carry `{name}` placeholders filled from
+   `parameters`" — the same shape `websocket.connect.headers` already has.
+2. vizio-smartcast.yaml: on every authenticated command declare
+   `headers: {Content-Type: "application/json", AUTH: "{auth_token}"}` and
+   `parameters: {auth_token: {type: string, source: "credential:auth_token",
+   description: "The AUTH_TOKEN pairing issued."}}`; on the pairing
+   endpoints, `Content-Type` alone. The `issues_credentials` entry for
+   `auth_token` should name `pair_confirm` and its reply path
+   `ITEM.AUTH_TOKEN` so the pairing flow, not the person, fills it.
+3. The state reads (`/state/device/power_mode`, `/app/current`, the current
+   input) are bare `state_topic` paths and can carry no header; declare each
+   as a `commands` entry with the `AUTH` header and point the entity's
+   `state_command` at it.
+4. Render the `KEYLIST` wrapper — R-033 above.
+
 ## App-side status of the verified items (2026-09-16)
 
 - **R-141 / R-214 (xkglow-chrome `set_rgb_color`)** — the app now lets

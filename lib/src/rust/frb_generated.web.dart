@@ -193,6 +193,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FormatFieldDto dco_decode_format_field_dto(dynamic raw);
 
   @protected
+  HttpHeaderDto dco_decode_http_header_dto(dynamic raw);
+
+  @protected
   HttpRequestDto dco_decode_http_request_dto(dynamic raw);
 
   @protected
@@ -267,6 +270,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<FormatFieldDto> dco_decode_list_format_field_dto(dynamic raw);
+
+  @protected
+  List<HttpHeaderDto> dco_decode_list_http_header_dto(dynamic raw);
 
   @protected
   List<ImageWriteDto> dco_decode_list_image_write_dto(dynamic raw);
@@ -936,6 +942,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FormatFieldDto sse_decode_format_field_dto(SseDeserializer deserializer);
 
   @protected
+  HttpHeaderDto sse_decode_http_header_dto(SseDeserializer deserializer);
+
+  @protected
   HttpRequestDto sse_decode_http_request_dto(SseDeserializer deserializer);
 
   @protected
@@ -1026,6 +1035,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<FormatFieldDto> sse_decode_list_format_field_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<HttpHeaderDto> sse_decode_list_http_header_dto(
     SseDeserializer deserializer,
   );
 
@@ -1891,6 +1905,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_http_header_dto(HttpHeaderDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_http_request_dto(
     HttpRequestDto self,
     SseSerializer serializer,
@@ -2013,6 +2030,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_format_field_dto(
     List<FormatFieldDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_http_header_dto(
+    List<HttpHeaderDto> self,
     SseSerializer serializer,
   );
 

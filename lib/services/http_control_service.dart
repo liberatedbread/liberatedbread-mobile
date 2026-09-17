@@ -185,20 +185,19 @@ class HttpControlClient {
     }
     final scheme = secure ? 'https' : 'http';
     final uri = Uri.parse('$scheme://$host:$port').resolve(request.path);
+    // The spec's own headers (a Vizio `AUTH` token, rendered by Rust from
+    // the stored credential) over the Content-Type inferred from the body.
+    final headers = headersFor(request);
     final http.Response response;
     try {
       switch (request.method.toUpperCase()) {
         case 'GET':
-          response = await client.get(uri).timeout(timeout);
+          response = await client.get(uri, headers: headers).timeout(timeout);
         case 'POST':
           // ECP commands carry an empty body and no headers; a spec that
           // declares a body gets it sent verbatim, labelled by what it is.
           response = await client
-              .post(
-                uri,
-                body: request.body,
-                headers: contentTypeFor(request.body),
-              )
+              .post(uri, body: request.body, headers: headers)
               .timeout(timeout);
         case 'PUT':
           // The body-carrying sibling of POST — the Hue bridge's whole write
@@ -206,11 +205,7 @@ class HttpControlClient {
           // so a spec's PUT command renders as a live control; this arm is
           // what makes the press actually go somewhere.
           response = await client
-              .put(
-                uri,
-                body: request.body,
-                headers: contentTypeFor(request.body),
-              )
+              .put(uri, body: request.body, headers: headers)
               .timeout(timeout);
         default:
           throw HttpControlException(
@@ -349,4 +344,25 @@ Map<String, String>? contentTypeFor(String body) {
   if (trimmed.isEmpty) return null;
   final type = trimmed.startsWith('<') ? 'text/xml' : 'application/json';
   return {'Content-Type': '$type; charset=utf-8'};
+}
+
+/// Every header a rendered request goes out with, or none.
+///
+/// The spec's declared headers, already rendered by Rust (placeholders
+/// filled, a `credential:`-sourced one from the same stored value a body
+/// placeholder reads), plus the Content-Type [contentTypeFor] infers from the
+/// body — unless the spec declares its own, in any letter case, which wins:
+/// the author who wrote `Content-Type: application/json` on a PUT knows the
+/// endpoint better than a guess from the body's first character does. Until
+/// this the transport could send no header at all, so Vizio SmartCast's
+/// twenty-two admitted key controls each went out unauthenticated and as
+/// `text/plain`, and the set answered 403 to every one.
+Map<String, String>? headersFor(HttpRequestDto request) {
+  final declared = {for (final h in request.headers) h.name: h.value};
+  final declaresContentType = declared.keys.any(
+    (name) => name.toLowerCase() == 'content-type',
+  );
+  final inferred = declaresContentType ? null : contentTypeFor(request.body);
+  final merged = {...?inferred, ...declared};
+  return merged.isEmpty ? null : merged;
 }

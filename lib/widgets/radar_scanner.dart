@@ -15,6 +15,16 @@ import 'package:flutter/material.dart';
 /// Respects `MediaQuery.disableAnimations` (the platform reduce-motion
 /// setting): the sweep is replaced by a still ring rather than spinning
 /// indefinitely for users who asked the system to stop moving things.
+///
+/// Drawn as two layers so the sweep costs a transform per frame, not a blur.
+/// The track and its blurred halo never move: they sit in their own
+/// [RepaintBoundary] under a painter that repaints only when its colours
+/// change, so the Gaussian blur is rasterised once per theme rather than
+/// once per frame. The arc is painted once at the top of the ring, in its
+/// own boundary, and a [RotationTransition] driven straight by the ticker
+/// turns that cached layer — the ambient scan runs with no timeout, and on a
+/// ProMotion iPhone this used to be a fresh blur pass 120 times a second for
+/// as long as the Nearby tab was open.
 class RadarScanner extends StatefulWidget {
   final bool scanning;
   final double size;
@@ -65,59 +75,80 @@ class _RadarScannerState extends State<RadarScanner>
     return SizedBox(
       width: widget.size,
       height: widget.size,
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) {
-          return CustomPaint(
-            painter: _RadarPainter(
-              progress: sweeping ? _controller.value : 0,
-              sweeping: sweeping,
-              // A low-alpha outline reads as a hairline track; the raw
-              // outlineVariant is too warm and muddies the hero.
-              track: scheme.outlineVariant.withValues(alpha: 0.45),
-              accent: scheme.secondary,
-              glow: scheme.secondary.withValues(alpha: 0.35),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // The still layer: track and halo. Rasterised once and reused for
+          // every frame of the sweep — nothing in it depends on the ticker.
+          RepaintBoundary(
+            child: CustomPaint(
+              painter: RadarTrackPainter(
+                sweeping: sweeping,
+                // A low-alpha outline reads as a hairline track; the raw
+                // outlineVariant is too warm and muddies the hero.
+                track: scheme.outlineVariant.withValues(alpha: 0.45),
+                glow: scheme.secondary.withValues(alpha: 0.35),
+              ),
             ),
-            child: child,
-          );
-        },
-        // The glyph is passed as `child` so it isn't rebuilt on every frame.
-        child: Center(
-          child: Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              color: scheme.onSurface,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.bluetooth, color: scheme.surface, size: 30),
           ),
-        ),
+          // The moving layer: the arc, painted once at the top and turned by
+          // the ticker. RotationTransition listens to the controller itself,
+          // so a tick rebuilds nothing — it re-composites one cached layer.
+          if (sweeping)
+            RotationTransition(
+              turns: _controller,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: RadarArcPainter(accent: scheme.secondary),
+                ),
+              ),
+            ),
+          Center(
+            child: Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: scheme.onSurface,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.bluetooth, color: scheme.surface, size: 30),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _RadarPainter extends CustomPainter {
-  final double progress;
+/// The ring's inset from the widget's edge; shared by both painters so the
+/// arc sits exactly on the track it sweeps.
+const double _ringInset = 12;
+
+/// The still layer: the thin track that is always visible, and — while
+/// sweeping — the blurred halo on the ring. Repaints only when a colour or
+/// the sweeping flag changes, never per frame.
+@visibleForTesting
+class RadarTrackPainter extends CustomPainter {
   final bool sweeping;
   final Color track;
-  final Color accent;
   final Color glow;
 
-  _RadarPainter({
-    required this.progress,
+  /// How many times any instance has painted — the test's evidence that the
+  /// blur is not being re-run per frame.
+  @visibleForTesting
+  static int debugPaintCount = 0;
+
+  RadarTrackPainter({
     required this.sweeping,
     required this.track,
-    required this.accent,
     required this.glow,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
+    debugPaintCount++;
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 12;
-    final rect = Rect.fromCircle(center: center, radius: radius);
+    final radius = size.width / 2 - _ringInset;
 
     // Track: a thin ring that stays visible when idle so the layout never
     // jumps between states.
@@ -143,11 +174,39 @@ class _RadarPainter extends CustomPainter {
         ..color = glow
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
     );
+  }
 
-    // Leading arc, drawn with a gradient that fades out behind the head so the
-    // sweep reads directionally.
+  @override
+  bool shouldRepaint(RadarTrackPainter old) =>
+      old.sweeping != sweeping || old.track != track || old.glow != glow;
+}
+
+/// The moving layer: the leading arc, painted once with its head at the top
+/// of the ring. The sweep is the [RotationTransition] above turning this
+/// layer, so the painter itself has no notion of progress and repaints only
+/// when the accent colour changes.
+@visibleForTesting
+class RadarArcPainter extends CustomPainter {
+  final Color accent;
+
+  /// See [RadarTrackPainter.debugPaintCount].
+  @visibleForTesting
+  static int debugPaintCount = 0;
+
+  RadarArcPainter({required this.accent});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    debugPaintCount++;
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - _ringInset;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+
+    // Drawn with a gradient that fades out behind the head so the sweep
+    // reads directionally. The head sits at 12 o'clock; rotation does the
+    // rest.
     const arcLength = math.pi * 0.85;
-    final start = progress * 2 * math.pi - math.pi / 2;
+    const start = -math.pi / 2;
     canvas.drawArc(
       rect,
       start,
@@ -161,15 +220,11 @@ class _RadarPainter extends CustomPainter {
           startAngle: start,
           endAngle: start + arcLength,
           colors: [accent.withValues(alpha: 0), accent],
-          transform: GradientRotation(start),
+          transform: const GradientRotation(start),
         ).createShader(rect),
     );
   }
 
   @override
-  bool shouldRepaint(_RadarPainter old) =>
-      old.progress != progress ||
-      old.sweeping != sweeping ||
-      old.accent != accent ||
-      old.track != track;
+  bool shouldRepaint(RadarArcPainter old) => old.accent != accent;
 }

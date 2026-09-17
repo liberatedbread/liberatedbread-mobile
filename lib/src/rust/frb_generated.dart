@@ -4821,16 +4821,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  HttpHeaderDto dco_decode_http_header_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return HttpHeaderDto(
+      name: dco_decode_String(arr[0]),
+      value: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
   HttpRequestDto dco_decode_http_request_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return HttpRequestDto(
       method: dco_decode_String(arr[0]),
       path: dco_decode_String(arr[1]),
       body: dco_decode_String(arr[2]),
       scheme: dco_decode_opt_String(arr[3]),
+      headers: dco_decode_list_http_header_dto(arr[4]),
     );
   }
 
@@ -5052,6 +5065,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<FormatFieldDto> dco_decode_list_format_field_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_format_field_dto).toList();
+  }
+
+  @protected
+  List<HttpHeaderDto> dco_decode_list_http_header_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_http_header_dto).toList();
   }
 
   @protected
@@ -7168,17 +7187,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  HttpHeaderDto sse_decode_http_header_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_value = sse_decode_String(deserializer);
+    return HttpHeaderDto(name: var_name, value: var_value);
+  }
+
+  @protected
   HttpRequestDto sse_decode_http_request_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_method = sse_decode_String(deserializer);
     var var_path = sse_decode_String(deserializer);
     var var_body = sse_decode_String(deserializer);
     var var_scheme = sse_decode_opt_String(deserializer);
+    var var_headers = sse_decode_list_http_header_dto(deserializer);
     return HttpRequestDto(
       method: var_method,
       path: var_path,
       body: var_body,
       scheme: var_scheme,
+      headers: var_headers,
     );
   }
 
@@ -7497,6 +7526,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <FormatFieldDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_format_field_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<HttpHeaderDto> sse_decode_list_http_header_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <HttpHeaderDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_http_header_dto(deserializer));
     }
     return ans_;
   }
@@ -10041,6 +10084,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_http_header_dto(
+    HttpHeaderDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.value, serializer);
+  }
+
+  @protected
   void sse_encode_http_request_dto(
     HttpRequestDto self,
     SseSerializer serializer,
@@ -10050,6 +10103,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.path, serializer);
     sse_encode_String(self.body, serializer);
     sse_encode_opt_String(self.scheme, serializer);
+    sse_encode_list_http_header_dto(self.headers, serializer);
   }
 
   @protected
@@ -10308,6 +10362,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_format_field_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_http_header_dto(
+    List<HttpHeaderDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_http_header_dto(item, serializer);
     }
   }
 

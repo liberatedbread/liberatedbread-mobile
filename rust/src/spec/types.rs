@@ -372,6 +372,20 @@ pub struct SpecCommand {
     /// placeholders substituted from `parameters`, exactly as they are.
     #[serde(default)]
     pub body: Option<String>,
+    /// Request headers a `transport: http` command sends, name → value, in
+    /// declared order. A value may carry `{name}` placeholders filled from
+    /// `parameters` exactly as a `body` template's are — which is how a
+    /// header-borne credential is declared: `headers: {AUTH: "{auth_token}"}`
+    /// with `auth_token: {source: "credential:auth_token"}`, so the same
+    /// credential machinery that fills a body fills the header, and the
+    /// credentials card asks for it. A declared `Content-Type` overrides the
+    /// one the sender would otherwise infer from the body's first character.
+    ///
+    /// Not in the vendored schema yet (its command objects are open, so the
+    /// key parses); Vizio SmartCast is the spec that needs it — every key
+    /// press is a PUT with a JSON body and an `AUTH` header.
+    #[serde(default)]
+    pub headers: IndexMap<String, serde_yaml::Value>,
     /// Argument name → value as both go on the wire. `"{name}"` is substituted
     /// from the like-named parameter; anything else is a literal this
     /// invocation has already decided.
