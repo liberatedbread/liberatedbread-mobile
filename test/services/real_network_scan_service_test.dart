@@ -597,12 +597,16 @@ void main() {
   });
 
   group('scanFailureFor', () {
-    // The rule that decides what an empty scan means. It used to be
-    // unreachable: both transports reported "did the socket open", which is
-    // true even when the OS is dropping every reply, so the denial branch
-    // could not fire on the one platform that has a denial to report.
+    // The rule that decides what an empty scan means.
     test('a transport that heard something means nothing is wrong', () {
-      for (final other in TransportOutcome.values) {
+      // Anything but a `denied` alongside `heard` — traffic reached us, so
+      // nothing is filtering it.
+      for (final other in [
+        TransportOutcome.heard,
+        TransportOutcome.silent,
+        TransportOutcome.failed,
+        TransportOutcome.skipped,
+      ]) {
         expect(
           scanFailureFor(
             outcomes: [TransportOutcome.heard, other],
@@ -614,7 +618,23 @@ void main() {
       }
     });
 
-    test('neither transport starting is unavailable, on every platform', () {
+    test('an observed EHOSTUNREACH is a denial, and wins outright', () {
+      // A transport that actually saw the OS refuse to send is proof, not a
+      // guess: it points at Settings even when another transport failed for a
+      // different reason (F-001).
+      for (final other in TransportOutcome.values) {
+        expect(
+          scanFailureFor(
+            outcomes: [TransportOutcome.denied, other],
+            isApplePlatform: true,
+          ),
+          isA<LocalNetworkDeniedException>(),
+          reason: 'the observed denial is not inferred from silence',
+        );
+      }
+    });
+
+    test('every probing transport failing is unavailable, everywhere', () {
       for (final apple in [true, false]) {
         expect(
           scanFailureFor(
@@ -625,6 +645,34 @@ void main() {
           reason:
               'no interface and no multicast route is not a permission '
               'question, it is a missing network',
+        );
+        // Skipped transports do not count against the "all failed" test, so a
+        // listen-only transport that could not bind cannot hide the fact that
+        // every transport that actually tried failed (R-023).
+        expect(
+          scanFailureFor(
+            outcomes: const [TransportOutcome.failed, TransportOutcome.skipped],
+            isApplePlatform: apple,
+          ),
+          isA<NetworkUnavailableException>(),
+          reason: 'the only transport that probed failed to send at all',
+        );
+      }
+    });
+
+    test('a scan where nothing probed is not a failure', () {
+      // Everything was skipped (no codec, no service types, refused binds):
+      // there is no evidence either way, so no error — not "unavailable".
+      for (final apple in [true, false]) {
+        expect(
+          scanFailureFor(
+            outcomes: const [
+              TransportOutcome.skipped,
+              TransportOutcome.skipped,
+            ],
+            isApplePlatform: apple,
+          ),
+          isNull,
         );
       }
     });
@@ -637,11 +685,15 @@ void main() {
         ),
         isA<LocalNetworkDeniedException>(),
       );
-      // One started and heard nothing while the other never started at all:
-      // still silence, still the same advice.
+      // One heard nothing, one never started, one had nothing to do: still
+      // silence, still the same advice.
       expect(
         scanFailureFor(
-          outcomes: const [TransportOutcome.silent, TransportOutcome.failed],
+          outcomes: const [
+            TransportOutcome.silent,
+            TransportOutcome.failed,
+            TransportOutcome.skipped,
+          ],
           isApplePlatform: true,
         ),
         isA<LocalNetworkDeniedException>(),
@@ -661,6 +713,169 @@ void main() {
         isNull,
       );
     });
+  });
+
+  group('isLocalNetworkDenied', () {
+    SocketException withErrno(int code) =>
+        SocketException('Send failed', osError: OSError('', code));
+
+    test('EHOSTUNREACH (errno 65) on Apple is the local-network gate', () {
+      expect(withErrno(65), predicate<Object>((e) => e is SocketException));
+      expect(
+        isLocalNetworkDenied(withErrno(65), isApplePlatform: true),
+        isTrue,
+      );
+    });
+
+    test('errno 65 is only the gate on Apple', () {
+      // 65 is ENOPKG on Linux, and no other platform has this permission.
+      expect(
+        isLocalNetworkDenied(withErrno(65), isApplePlatform: false),
+        isFalse,
+      );
+    });
+
+    test('a no-network error (ENETUNREACH, 51) is not a denial', () {
+      // Airplane mode is a missing network, not a blocked permission — it must
+      // read as unavailable, not as "check Settings" (R-023).
+      expect(
+        isLocalNetworkDenied(withErrno(51), isApplePlatform: true),
+        isFalse,
+      );
+    });
+
+    test('a non-socket error is never a denial', () {
+      expect(
+        isLocalNetworkDenied(StateError('boom'), isApplePlatform: true),
+        isFalse,
+      );
+    });
+  });
+
+  group('trustedSelfReportedHost', () {
+    test('accepts a private LAN IPv4 literal', () {
+      expect(
+        trustedSelfReportedHost('192.168.1.9', '192.168.1.50'),
+        '192.168.1.9',
+      );
+      expect(trustedSelfReportedHost('10.0.0.9', '10.0.0.1'), '10.0.0.9');
+    });
+
+    test('rejects an off-LAN (public) address and a hostname', () {
+      // The attack: a beacon claims a control host the app can be steered to.
+      expect(trustedSelfReportedHost('8.8.8.8', '192.168.1.50'), isNull);
+      expect(
+        trustedSelfReportedHost('evil.example.net', '192.168.1.50'),
+        isNull,
+      );
+    });
+
+    test('rejects an empty or null value', () {
+      expect(trustedSelfReportedHost('', '192.168.1.50'), isNull);
+      expect(trustedSelfReportedHost(null, '192.168.1.50'), isNull);
+    });
+
+    test('requireLan: false (SSDP) accepts any IP literal, rejects a name', () {
+      // A UPnP LOCATION may legitimately be any IP literal, so the SSDP path
+      // does not demand an RFC1918 range — but a hostname is still refused, so
+      // it cannot be re-pointed off the segment through DNS (R-024).
+      expect(
+        trustedSelfReportedHost(
+          '203.0.113.7',
+          '203.0.113.7',
+          requireLan: false,
+        ),
+        '203.0.113.7',
+      );
+      expect(
+        trustedSelfReportedHost(
+          'device.example.net',
+          '192.168.1.50',
+          requireLan: false,
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('parseMdnsResponse (reflector guard, R-026)', () {
+    // A minimal DNS message builder: header + one question + the given RRs.
+    List<int> message({
+      required bool response,
+      required List<({String name, int type})> records,
+    }) {
+      final b = BytesBuilder();
+      void name(String n) {
+        for (final label in n.split('.')) {
+          if (label.isEmpty) continue;
+          final bytes = utf8.encode(label);
+          b.addByte(bytes.length);
+          b.add(bytes);
+        }
+        b.addByte(0);
+      }
+
+      final an = records.length;
+      b.add([
+        0, 0, // id
+        response ? 0x84 : 0x00, 0x00, // flags (QR set for a response)
+        0, 0, // qdcount 0
+        (an >> 8) & 0xff, an & 0xff, // ancount
+        0, 0, 0, 0, // ns/ar
+      ]);
+      for (final r in records) {
+        name(r.name);
+        b.add([
+          (r.type >> 8) & 0xff, r.type & 0xff, // TYPE
+          0x00, 0x01, // CLASS IN
+          0, 0, 0, 0, // TTL
+          0x00, 0x00, // RDLENGTH 0 (rdata omitted; owner+type is all we read)
+        ]);
+      }
+      return b.toBytes();
+    }
+
+    test('a query is never parsed into a summary', () {
+      final query = message(
+        response: false,
+        records: const [(name: '_snapmaker._tcp.local', type: 12)],
+      );
+      expect(parseMdnsResponse(query), isNull);
+    });
+
+    test('reads owner names and flags an A record', () {
+      final resp = message(
+        response: true,
+        records: const [
+          (name: 'hue._hue._tcp.local', type: 33), // SRV
+          (name: 'hue.local', type: 1), // A
+        ],
+      );
+      final summary = parseMdnsResponse(resp)!;
+      expect(summary.hasAddressRecord, isTrue);
+      expect(summary.ownerNames, contains('hue._hue._tcp.local'));
+    });
+
+    test(
+      'a PTR/SRV-only response (no A) is the source-capture rescue case',
+      () {
+        // Exactly the Snapmaker U1: it answers for its type but publishes no
+        // address, so the source-capture backstop is allowed to mint it.
+        final resp = message(
+          response: true,
+          records: const [
+            (name: '_snaptxt._tcp.local', type: 12), // PTR
+            (name: 'snap._snaptxt._tcp.local', type: 33), // SRV
+          ],
+        );
+        final summary = parseMdnsResponse(resp)!;
+        expect(summary.hasAddressRecord, isFalse);
+        expect(
+          summary.ownerNames.any((n) => n.endsWith('_snaptxt._tcp.local')),
+          isTrue,
+        );
+      },
+    );
   });
 
   group('LIFX discovery', () {
@@ -786,6 +1001,19 @@ void main() {
           codec,
         );
         expect(silent!.host, '192.168.1.50');
+
+        // A hostile or garbage `ip` — off-LAN or not an address — is rejected
+        // and the datagram source is used instead, so the app cannot be steered
+        // to open its MQTT/TLS session (carrying the stored password) at an
+        // arbitrary host (R-024).
+        final spoofed = await roombaDeviceFrom(
+          datagram(
+            '{"hostname":"Roomba-ABC123","ip":"8.8.8.8"}',
+            from: '192.168.1.50',
+          ),
+          codec,
+        );
+        expect(spoofed!.host, '192.168.1.50');
       },
     );
   });

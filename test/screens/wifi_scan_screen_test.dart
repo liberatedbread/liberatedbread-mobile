@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -240,9 +241,14 @@ void main() {
     expect(find.text('_ipp._tcp'), findsOneWidget);
   });
 
-  testWidgets('a denied local network gets its own guidance', (tester) async {
-    // The generic empty state would read as "you have no devices", which is
-    // the wrong thing to tell someone whose permission was refused.
+  testWidgets('an empty scan on Apple offers the hedged guidance', (
+    tester,
+  ) async {
+    // The hedged message is rendered verbatim as guidance under a "Nothing
+    // answered" headline — not flattened into a "Local network access needed"
+    // assertion that points at a toggle that may already be on (F-015). The
+    // Settings path is a secondary hint beside "Scan again", not a prominent
+    // pill claiming the cause.
     final service = _FakeNetworkScanService(
       error: const LocalNetworkDeniedException(),
     );
@@ -251,11 +257,42 @@ void main() {
     await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
 
-    expect(find.text('Local network access needed'), findsOneWidget);
-    expect(
-      find.widgetWithText(ElevatedButton, 'Open settings'),
-      findsOneWidget,
-    );
+    expect(find.text('Nothing answered'), findsOneWidget);
+    expect(find.text('Local network access needed'), findsNothing);
+    // The exception's own hedged wording is on screen as the subhead.
+    expect(find.textContaining('If Local Network'), findsOneWidget);
+    expect(find.text('Scan again'), findsOneWidget);
+    // 'Open settings' is a secondary text button, no longer a headline pill.
+    expect(find.widgetWithText(TextButton, 'Open settings'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, 'Open settings'), findsNothing);
+  });
+
+  testWidgets('iOS silently re-runs one scan before showing the hint', (
+    tester,
+  ) async {
+    // The first scan of a fresh iOS install can end empty because the system
+    // Local Network prompt was up while the probes went out; nothing retries
+    // after the user taps Allow. The screen re-runs one window, once, before
+    // it reports anything (F-001).
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    try {
+      final service = _FakeNetworkScanService(
+        error: const LocalNetworkDeniedException(),
+      );
+      await tester.pumpWidget(_wrap(service));
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      // Two scans ran: the first, and the one silent auto-retry.
+      expect(service.extraTargetsPerScan.length, 2);
+      // After the retry also came back denied, the hedged guidance is shown.
+      expect(find.text('Nothing answered'), findsOneWidget);
+    } finally {
+      // Must be unset before the test body ends: the framework asserts no
+      // foundation debug override leaks out of a test.
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('an empty scan offers a retry, not a dead end', (tester) async {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -45,7 +46,23 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   bool _isScanning = false;
   bool _hasScanned = false;
   String? _error;
-  bool _permissionDenied = false;
+
+  /// The hedged "nothing answered" guidance from a [LocalNetworkDeniedException]
+  /// when a scan came back empty on an Apple platform. Rendered verbatim as the
+  /// subhead rather than flattened into an assertion that Local Network access
+  /// is off: an empty network, a build with no multicast entitlement, a
+  /// VPN/cellular egress and the first-run prompt race all reach this state with
+  /// the permission toggle already on (F-015). Null when this scan did not end
+  /// that way.
+  String? _localNetworkHint;
+
+  /// One silent re-scan is allowed per screen session: the first scan of a
+  /// fresh iOS install can end empty because the system Local Network prompt
+  /// was up while the probes went out, and nothing retries after the user taps
+  /// Allow (F-001). Guards against re-running forever on a genuinely empty or
+  /// blocked network.
+  bool _autoRetriedThisSession = false;
+
   StreamSubscription<NetworkDevice>? _scanSub;
 
   // Captured in initState: `ref` is unusable from dispose(), and the scan has
@@ -65,7 +82,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     setState(() {
       _isScanning = true;
       _error = null;
-      _permissionDenied = false;
+      _localNetworkHint = null;
       _found.clear();
     });
 
@@ -105,11 +122,24 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
           },
           onError: (Object e) {
             if (!mounted) return;
+            // First silent scan on iOS: re-run one window rather than reporting
+            // it, in case the system Local Network prompt was up while the
+            // probes went out (F-001). One shot per session.
+            if (e is LocalNetworkDeniedException &&
+                defaultTargetPlatform == TargetPlatform.iOS &&
+                !_autoRetriedThisSession) {
+              _autoRetriedThisSession = true;
+              unawaited(_startScan());
+              return;
+            }
             setState(() {
               _isScanning = false;
               _hasScanned = true;
               if (e is LocalNetworkDeniedException) {
-                _permissionDenied = true;
+                // Keep the hedged message ("Nothing answered ... if Local
+                // Network access is off ... check Settings") and render it as
+                // guidance, not as an assertion that the toggle is off (F-015).
+                _localNetworkHint = e.message;
                 _error = null;
               } else {
                 _error = friendlyErrorText(
@@ -141,7 +171,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   }
 
   String get _headline {
-    if (_permissionDenied) return 'Local network access needed';
+    if (_localNetworkHint != null) return 'Nothing answered';
     if (_error != null) return 'Scan failed';
     if (_isScanning) return 'Looking for devices...';
     if (_found.isNotEmpty) {
@@ -153,10 +183,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   }
 
   String get _subhead {
-    if (_permissionDenied) {
-      return 'Allow local network access for Liberated Bread so it can see '
-          'devices on your Wi-Fi.';
-    }
+    if (_localNetworkHint != null) return _localNetworkHint!;
     if (_error != null) return _error!;
     if (_isScanning) {
       return 'Asking over mDNS and SSDP. This takes a few seconds — some '
@@ -249,18 +276,6 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 ),
               ),
             ),
-            if (_permissionDenied) ...[
-              const SizedBox(height: 24),
-              Center(
-                child: ActionPillButton(
-                  onPressed: () => unawaited(
-                    openAppSettings().catchError((Object _) => false),
-                  ),
-                  icon: Icons.settings,
-                  label: 'Open settings',
-                ),
-              ),
-            ],
             if (_hasScanned && !_isScanning && _found.isEmpty) ...[
               const SizedBox(height: 24),
               Center(
@@ -270,6 +285,23 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                   label: 'Scan again',
                 ),
               ),
+              // An empty scan on Apple may be a blocked Local Network
+              // permission rather than a truly empty network — but it may just
+              // as easily be an empty network, so Settings is offered as a
+              // secondary hint beside 'Scan again', not asserted as the cause
+              // with a prominent pill (F-015).
+              if (_localNetworkHint != null) ...[
+                const SizedBox(height: 8),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () => unawaited(
+                      openAppSettings().catchError((Object _) => false),
+                    ),
+                    icon: const Icon(Icons.settings, size: 18),
+                    label: const Text('Open settings'),
+                  ),
+                ),
+              ],
             ],
             if (ranked.likelySupported.isNotEmpty) ...[
               const SizedBox(height: 36),
@@ -639,10 +671,16 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 color: scheme.onSurfaceVariant,
               ),
               const SizedBox(width: 8),
-              Text(
-                'Likely controlled via UniFi Protect',
-                style: text.titleSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
+              // Flexible + softWrap: at XXL Dynamic Type on a narrow phone the
+              // ~285 pt left of the icon is not enough for this title, and an
+              // unwrapped Text beside an Icon overflows the row (F-051).
+              Flexible(
+                child: Text(
+                  'Likely controlled via UniFi Protect',
+                  softWrap: true,
+                  style: text.titleSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ],
