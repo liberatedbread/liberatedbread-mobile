@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +13,19 @@ import 'src/rust/frb_generated.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Uncaught errors into the diagnostics log buffer. Without these two hooks
+  // a framework error or an unhandled async error went to the console only,
+  // which on a phone is nowhere — the Diagnostics screen (the one place a
+  // user can copy a report from) never saw them.
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    Log.app.error('uncaught Flutter error',
+        error: details.exception, stackTrace: details.stack);
+  };
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    Log.app.error('uncaught error', error: error, stackTrace: stack);
+    return true;
+  };
   // Initialize the Rust core. The native library is built and bundled per
   // platform by the rust_builder (cargokit) plugin. If it still can't be loaded
   // (e.g. a host unit-test run without the host library on the library path),

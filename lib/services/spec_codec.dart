@@ -609,6 +609,9 @@ abstract class SpecCodec {
   /// uploader writes and, when the spec declares one, a play-by-id command.
   Future<StoredUploadPlanDto> encodeStoredImage({
     required String specYaml,
+    // Usable bytes per BLE write on the live link (MTU - 3): DATA packets
+    // are sized to fit it. Null sizes them from the spec alone.
+    int? maxWrite,
     required int width,
     required int height,
     required List<int> rgb,
@@ -631,6 +634,9 @@ abstract class SpecCodec {
   /// than the panel so the text scrolls.
   Future<StoredUploadPlanDto> encodeStoredText({
     required String specYaml,
+    // Usable bytes per BLE write on the live link (MTU - 3): DATA packets
+    // are sized to fit it. Null sizes them from the spec alone.
+    int? maxWrite,
     required int textWidth,
     required int textHeight,
     required List<int> bits,
@@ -668,6 +674,9 @@ abstract class SpecCodec {
   /// vendor's 20 fps).
   Future<StoredUploadPlanDto> encodeStoredAnimation({
     required String specYaml,
+    // Usable bytes per BLE write on the live link (MTU - 3): DATA packets
+    // are sized to fit it. Null sizes them from the spec alone.
+    int? maxWrite,
     required int width,
     required int height,
     required List<List<int>> frames,

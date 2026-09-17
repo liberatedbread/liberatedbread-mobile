@@ -36,6 +36,9 @@ class DeviceScreen extends ConsumerStatefulWidget {
 }
 
 class _DeviceScreenState extends ConsumerState<DeviceScreen> {
+  /// Set by the first Disconnect tap; see onDisconnect.
+  bool _leaving = false;
+
   _ScreenState _state = _ScreenState.connecting;
   // Set when "Try to find device" started the current connect attempt: the
   // find screen needs a live link for its RSSI ping, so from the failed and
@@ -498,9 +501,14 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 // navigator is captured before the await so no BuildContext
                 // crosses the async gap, and the mounted guard keeps a
                 // pop-during-teardown from popping the listing itself.
+                // Once. A second tap while the first is still tearing down
+                // popped again after the screen had gone — the HomeShell
+                // underneath, leaving an empty Navigator.
+                if (_leaving) return;
+                _leaving = true;
                 final navigator = Navigator.of(context);
                 await _cleanupConnection();
-                if (!mounted) return;
+                if (!mounted || !navigator.canPop()) return;
                 navigator.pop();
               },
             ),

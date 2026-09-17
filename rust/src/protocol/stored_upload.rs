@@ -121,6 +121,7 @@ pub fn encode_stored_play(
 /// `file_type` 3).
 pub fn encode_stored_image(
     spec: &DeviceSpec,
+    max_write: Option<usize>,
     program: &StoredProgram<'_>,
     sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
@@ -135,6 +136,7 @@ pub fn encode_stored_image(
         file_type,
         None,
         sequence,
+        max_write,
     )
 }
 
@@ -142,6 +144,7 @@ pub fn encode_stored_image(
 /// image microapp).
 pub fn encode_stored_text(
     spec: &DeviceSpec,
+    max_write: Option<usize>,
     program: &daniao_store::StoredText<'_>,
     sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
@@ -156,6 +159,7 @@ pub fn encode_stored_text(
         file_type,
         None,
         sequence,
+        max_write,
     )
 }
 
@@ -167,6 +171,7 @@ pub fn encode_stored_text(
 /// way (by cid).
 pub fn encode_stored_animation(
     spec: &DeviceSpec,
+    max_write: Option<usize>,
     anim: &daniao_store::StoredAnimation<'_>,
     sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
@@ -181,6 +186,7 @@ pub fn encode_stored_animation(
         0,
         Some(&path),
         sequence,
+        max_write,
     )
 }
 
@@ -213,11 +219,23 @@ fn assemble_plan(
     file_type: u32,
     path: Option<&str>,
     sequence: u16,
+    max_write: Option<usize>,
 ) -> Result<StoredUploadPlan, ProtocolError> {
-    let frame_size = feature
+    let spec_frame = feature
         .frame_size
         .map(|n| n as usize)
         .unwrap_or(daniao_upload::DEFAULT_FRAME_SIZE);
+    // The spec's frame size is what the vendor app sends over a link it has
+    // negotiated a 512-byte MTU on. Each DATA packet is the frame plus the
+    // 8-byte header, and flutter_blue_plus refuses a write longer than
+    // MTU - 3 outright — so on any link with MTU < 511 (every iPhone that has
+    // not finished negotiating, most Android stacks by default) every save
+    // failed on the first DATA packet. `max_write` is the usable bytes per
+    // write the caller measured on the live link; the frame shrinks to fit.
+    let frame_size = match max_write {
+        Some(budget) => spec_frame.min(budget.saturating_sub(daniao_upload::HEADER_LEN).max(1)),
+        None => spec_frame,
+    };
     // The transfer id is echoed by the device; the low byte of the cid is a
     // fine, stable choice (the vendor uses a rolling counter, which the device
     // only needs to match within one transfer).
@@ -712,7 +730,7 @@ services:
     #[test]
     fn plan_has_uploader_writes_targeting_the_uploader_characteristic() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
+        let plan = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
         assert!(!plan.upload_writes.is_empty());
         assert!(plan
             .upload_writes
@@ -723,9 +741,28 @@ services:
     }
 
     #[test]
+    fn data_packets_shrink_to_the_write_budget() {
+        // A 2x2 picture is well under one spec frame (500 bytes + 8 header),
+        // so without a budget the whole container rides in one DATA write.
+        // On a link whose usable write is 64 bytes every write has to fit,
+        // header included; the spec's frame size only ever caps it.
+        let rgb = red_2x2();
+        let unbounded = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
+        let bounded = encode_stored_image(&spec(), Some(64), &program(&rgb), 0).unwrap();
+        assert!(bounded.upload_writes.len() > unbounded.upload_writes.len());
+        assert!(bounded.upload_writes.iter().all(|w| w.bytes.len() <= 64));
+        // A budget larger than the spec frame changes nothing.
+        let roomy = encode_stored_image(&spec(), Some(4096), &program(&rgb), 0).unwrap();
+        assert_eq!(roomy.upload_writes.len(), unbounded.upload_writes.len());
+        // An absurd budget still produces packets rather than a panic.
+        let tiny = encode_stored_image(&spec(), Some(3), &program(&rgb), 0).unwrap();
+        assert!(!tiny.upload_writes.is_empty());
+    }
+
+    #[test]
     fn plan_names_the_response_characteristic_from_the_spec() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
+        let plan = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
         assert_eq!(
             plan.response_characteristic_uuid.as_deref(),
             Some("01010074-1972-1925-3022-077119514e44"),
@@ -736,7 +773,7 @@ services:
     #[test]
     fn stored_play_replays_by_cid_without_an_upload() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
+        let plan = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
         let (service, write) = encode_stored_play(&spec(), 79009, 0).unwrap();
         assert_eq!(service, "00000074-1972-1925-3022-077119514e44");
         // Byte-identical to the play write the upload plan tacks on AT THE SAME
@@ -887,7 +924,7 @@ services:
     #[test]
     fn play_write_is_fragment_framed_and_plays_by_cid() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
+        let plan = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
         let play = plan.play_write.expect("play_command declared");
         assert_eq!(
             play.characteristic_uuid,
@@ -915,6 +952,7 @@ services:
         let bits = vec![1u8; 32 * 12];
         let text_plan = encode_stored_text(
             &s,
+            None,
             &StoredText {
                 name: "hi",
                 cid: 900010,
@@ -940,6 +978,7 @@ services:
         let frames: Vec<&[u8]> = vec![&frame, &frame];
         let anim_plan = encode_stored_animation(
             &s,
+            None,
             &StoredAnimation {
                 name: "a",
                 cid: 900011,
@@ -981,6 +1020,6 @@ services:
         )
         .unwrap();
         let rgb = red_2x2();
-        assert!(encode_stored_image(&bare, &program(&rgb), 0).is_err());
+        assert!(encode_stored_image(&bare, None, &program(&rgb), 0).is_err());
     }
 }

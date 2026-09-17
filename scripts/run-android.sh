@@ -315,7 +315,7 @@ fi
 if [[ "$ACTION" == "live" ]]; then
   ARGS=("run" "-d" "$DEVICE_ID")
   [[ "$RELEASE" == "true" ]] && ARGS+=("--release")
-  ARGS+=("${DEFINES[@]}")
+  (( ${#DEFINES[@]} > 0 )) && ARGS+=("${DEFINES[@]}")
   (( ${#PASSTHROUGH[@]} > 0 )) && ARGS+=("${PASSTHROUGH[@]}")
   log "Live (hot reload). Press r to reload, q to quit."
   log "flutter ${ARGS[*]}"

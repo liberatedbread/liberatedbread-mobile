@@ -225,6 +225,12 @@ final specIdentitiesProvider =
         pictogram: p.spec.pictogram,
         adminUrl: p.spec.adminUrl,
         integration: p.spec.integration,
+        // The scan-list badge, the warning screen and the malicious-device
+        // alert all read the advisory off the identity the matcher returns;
+        // leaving it out here made the whole security-warning feature inert
+        // in production while its widget tests (which build identities by
+        // hand) stayed green.
+        securityAdvisory: p.spec.securityAdvisory,
         localNamePrefixes: p.spec.localNamePrefixes,
         localNames: p.spec.localNames,
         serviceUuids: p.spec.serviceUuids,

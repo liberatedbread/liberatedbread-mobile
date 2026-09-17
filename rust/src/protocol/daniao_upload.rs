@@ -33,7 +33,7 @@ use crate::error::ProtocolError;
 use crate::spec::types::{CharacteristicProperty, DeviceSpec};
 
 /// Upload framing constants read from the captured vendor transfer.
-const HEADER_LEN: usize = 8;
+pub(crate) const HEADER_LEN: usize = 8;
 const HDR_CONST_3: u8 = 0x11;
 const HDR_CONST_4: u8 = 0xFF;
 /// Frames larger than this are split; the vendor uses 500.

@@ -1027,11 +1027,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       // The play write the plan tacks on carries this rolling serial, distinct
       // from the pre-play `ui_start_sync`/`effect_list` writes below.
       final playSeq = _nextSequence();
+      // DATA packets are sized to the link: the spec's 500-byte frames only
+      // fit a 512-byte MTU, and flutter_blue_plus refuses a write longer than
+      // MTU - 3 outright.
+      final maxWrite = await _resolvePayloadPerWrite();
       final StoredUploadPlanDto plan;
       switch (options.kind) {
         case _StoredKind.picture:
           plan = await codec.encodeStoredImage(
             specYaml: specYaml,
+            maxWrite: maxWrite,
             width: width,
             height: height,
             rgb: currentFrame,
@@ -1045,6 +1050,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         case _StoredKind.text:
           plan = await codec.encodeStoredText(
             specYaml: specYaml,
+            maxWrite: maxWrite,
             textWidth: raster!.width,
             textHeight: raster.height,
             bits: raster.bits,
@@ -1321,9 +1327,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // the response channel ONCE — re-subscribing per frame cost ~6s of CCCD
     // churn each on the Linux backend (7 frames ≈ 50s wasted before this).
     final plans = <StoredUploadPlanDto>[];
+    final maxWrite = await _resolvePayloadPerWrite();
     for (var i = 0; i < frames.length; i++) {
       plans.add(await codec.encodeStoredImage(
         specYaml: specYaml,
+        maxWrite: maxWrite,
         width: width,
         height: height,
         rgb: frames[i],

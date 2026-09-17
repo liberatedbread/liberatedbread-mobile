@@ -497,6 +497,7 @@ class RealSpecCodec implements SpecCodec {
   @override
   Future<StoredUploadPlanDto> encodeStoredImage({
     required String specYaml,
+    int? maxWrite,
     required int width,
     required int height,
     required List<int> rgb,
@@ -509,6 +510,7 @@ class RealSpecCodec implements SpecCodec {
   }) =>
       rust.encodeStoredImage(
         specYaml: specYaml,
+        maxWrite: maxWrite,
         width: width,
         height: height,
         rgb: rgb,
@@ -523,6 +525,7 @@ class RealSpecCodec implements SpecCodec {
   @override
   Future<StoredUploadPlanDto> encodeStoredText({
     required String specYaml,
+    int? maxWrite,
     required int textWidth,
     required int textHeight,
     required List<int> bits,
@@ -535,6 +538,7 @@ class RealSpecCodec implements SpecCodec {
   }) =>
       rust.encodeStoredText(
         specYaml: specYaml,
+        maxWrite: maxWrite,
         textWidth: textWidth,
         textHeight: textHeight,
         bits: bits,
@@ -549,6 +553,7 @@ class RealSpecCodec implements SpecCodec {
   @override
   Future<StoredUploadPlanDto> encodeStoredAnimation({
     required String specYaml,
+    int? maxWrite,
     required int width,
     required int height,
     required List<List<int>> frames,
@@ -559,6 +564,7 @@ class RealSpecCodec implements SpecCodec {
   }) =>
       rust.encodeStoredAnimation(
         specYaml: specYaml,
+        maxWrite: maxWrite,
         width: width,
         height: height,
         frames: frames.map(Uint8List.fromList).toList(),

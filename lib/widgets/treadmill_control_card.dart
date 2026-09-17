@@ -246,6 +246,16 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
       if (minDisplay > maxDisplay) {
         (minDisplay, maxDisplay) = (maxDisplay, minDisplay);
       }
+      // The entity's own declared range wins over the parameter's byte
+      // range. An FTMS pad's speed parameter is a u16 in 0.01 km/h (0-655),
+      // capped by the parameter's max to 25 km/h; the spec's entity clamps
+      // it at 12, which is what the belt can do. The card offered the 25 and
+      // sent it — the encoder only checks the parameter's bound.
+      final entityMin = speedAction?.min;
+      final entityMax = speedAction?.max;
+      if (entityMin != null && entityMin > minDisplay) minDisplay = entityMin;
+      if (entityMax != null && entityMax < maxDisplay) maxDisplay = entityMax;
+      if (minDisplay > maxDisplay) minDisplay = maxDisplay;
       speed = _ResolvedSpeed(
         speedEntry.serviceUuid,
         speedEntry.charUuid,

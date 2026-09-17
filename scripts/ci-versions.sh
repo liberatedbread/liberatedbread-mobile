@@ -198,7 +198,9 @@ ci_versions_print() {
            CI_RUST_ANDROID_TARGETS CI_RUST_IOS_TARGETS \
            CI_EMULATOR_API CI_EMULATOR_TARGET CI_EMULATOR_ARCH CI_EMULATOR_PROFILE \
            CI_EMULATOR_SYSTEM_IMAGE CI_LINUX_DESKTOP_PACKAGES; do
-    printf '%s=%s\n' "$v" "${!v}"
+    # %q: shell-quoted, so `eval "$(./scripts/ci-versions.sh)"` survives the
+    # space-separated package list instead of running its second word.
+    printf '%s=%q\n' "$v" "${!v}"
   done
 }
 

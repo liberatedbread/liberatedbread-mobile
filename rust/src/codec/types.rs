@@ -446,7 +446,11 @@ pub fn unsupported_encoding_kind(command: &Command) -> Option<String> {
     if command.payload.is_some() {
         return Some("structured payload".to_string());
     }
-    None
+    // Nothing at all to send. Reported here rather than at send time
+    // because this is the predicate the UI enables Send on: ~60 vendored
+    // commands (a `read`-only role, a name with only prose) were listed as
+    // encodable and then failed every press with EmptyCommand.
+    Some("nothing to send (no value, template or payload)".to_string())
 }
 
 pub fn encode_command(
@@ -2228,10 +2232,16 @@ mod tests {
     }
 
     #[test]
-    fn encode_command_with_neither_value_nor_template_is_empty_command() {
+    fn encode_command_with_neither_value_nor_template_is_refused_up_front() {
+        // Reported by the same predicate the UI enables Send on, so a
+        // command with nothing to send is listed as unsupported rather than
+        // enabled and then failing every press with EmptyCommand.
+        assert!(unsupported_encoding_kind(&bare_cmd()).is_some());
         match encode_command(&bare_cmd(), &HashMap::new()) {
-            Err(ProtocolError::EmptyCommand) => (),
-            other => panic!("expected EmptyCommand, got {other:?}"),
+            Err(ProtocolError::UnsupportedCommandEncoding(kind)) => {
+                assert!(kind.contains("nothing to send"), "got kind {kind}")
+            }
+            other => panic!("expected UnsupportedCommandEncoding, got {other:?}"),
         }
     }
 

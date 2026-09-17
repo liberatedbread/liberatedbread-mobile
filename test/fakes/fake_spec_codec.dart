@@ -172,6 +172,9 @@ class FakeSpecCodec implements SpecCodec {
   final List<({String commandName, Map<String, String> values})>
       renderNetworkRabbitAirCommandCalls = [];
 
+  /// The write budgets passed to the stored encoders, in call order.
+  final List<int?> storedMaxWrites = [];
+
   /// Every [encodeStoredImage] call, in order, for assertions.
   final List<
       ({
@@ -1099,6 +1102,7 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<StoredUploadPlanDto> encodeStoredImage({
     required String specYaml,
+    int? maxWrite,
     required int width,
     required int height,
     required List<int> rgb,
@@ -1109,6 +1113,7 @@ class FakeSpecCodec implements SpecCodec {
     required int speed,
     required int sequence,
   }) async {
+    storedMaxWrites.add(maxWrite);
     encodeStoredCalls.add((
       specYaml: specYaml,
       width: width,
@@ -1151,6 +1156,7 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<StoredUploadPlanDto> encodeStoredText({
     required String specYaml,
+    int? maxWrite,
     required int textWidth,
     required int textHeight,
     required List<int> bits,
@@ -1161,6 +1167,7 @@ class FakeSpecCodec implements SpecCodec {
     required int speed,
     required int sequence,
   }) async {
+    storedMaxWrites.add(maxWrite);
     encodeTextCalls.add((
       name: name,
       cid: cid,
@@ -1176,6 +1183,7 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<StoredUploadPlanDto> encodeStoredAnimation({
     required String specYaml,
+    int? maxWrite,
     required int width,
     required int height,
     required List<List<int>> frames,
@@ -1184,6 +1192,7 @@ class FakeSpecCodec implements SpecCodec {
     required int frameMs,
     required int sequence,
   }) async {
+    storedMaxWrites.add(maxWrite);
     encodeAnimationCalls.add((
       name: name,
       cid: cid,

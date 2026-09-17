@@ -119,6 +119,43 @@ void main() {
         reason: 'the prefix must not lose its verdict on the way to matching',
       );
     });
+
+    test('carries the security advisory the scan list badges from', () async {
+      // The badge, the warning screen and the malicious-device alert all read
+      // the advisory off the identity the matcher returns. It was left out of
+      // this projection, which made the whole feature inert in production
+      // while the widget tests, which build identities by hand, stayed green.
+      const advisory = SecurityAdvisoryDto(
+          severity: 'malicious', summary: 'Skimmer module signature.');
+      final flagged = DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallbackTypes: const [],
+        txtMatchGroups: const [],
+        hiddenEntityNames: const [],
+        deviceName: 'HC-05 skimmer',
+        manufacturer: 'Unknown',
+        manufacturerStatus: 'unsupported',
+        protocol: 'ble',
+        category: 'other',
+        securityAdvisory: advisory,
+        localNamePrefixes: const ['HC-05'],
+        localNames: const [],
+        serviceUuids: const [],
+        companyIds: Uint16List(0),
+        macPrefixes: const [],
+        mdnsServiceTypes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        defaultPort: null,
+        entities: const <EntityDto>[],
+        services: const [],
+      );
+      final c = _container(FakeSpecCodec(spec: flagged));
+
+      final identities = await c.read(specIdentitiesProvider.future);
+
+      expect(identities.single.securityAdvisory?.severity, 'malicious');
+    });
   });
 
   group('scanGuessProvider', () {

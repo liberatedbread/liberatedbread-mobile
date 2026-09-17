@@ -11,6 +11,7 @@ use flutter_rust_bridge::frb;
 use crate::codec::types::DecodedValue;
 use crate::protocol::dispatch::select_protocol;
 use crate::protocol::profiles;
+use crate::protocol::profiles::normalize_uuid;
 use crate::protocol::traits::DeviceProtocol;
 use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
@@ -1226,10 +1227,18 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
             .is_some()
             .then(|| entity.state_characteristic.clone())
             .flatten(),
+        // Indicate counts: it is the same subscription from the app's side
+        // (the CCCD write differs by one bit, and the platform handles it)
+        // and several SIG profiles — Blood Pressure Measurement 0x2A35 among
+        // them — are indicate-only. Reporting those as not subscribable
+        // left the entity on a permanent read error.
         can_notify: state.is_some_and(|(_, characteristic)| {
-            characteristic
-                .properties
-                .contains(&CharacteristicProperty::Notify)
+            characteristic.properties.iter().any(|p| {
+                matches!(
+                    p,
+                    CharacteristicProperty::Notify | CharacteristicProperty::Indicate
+                )
+            })
         }),
         // Whether the bound characteristic declares a byte layout. Without
         // one there is nothing to decode the payload with, so the UI shows
@@ -4010,10 +4019,19 @@ fn match_axes(
     let mut service_uuids: Vec<String> = Vec::new();
     let mut shared_service_uuids: Vec<String> = Vec::new();
     for spec_uuid in &identity.service_uuids {
+        // Both sides normalised: a spec writes the 128-bit SIG-base form
+        // ("0000fff0-0000-1000-8000-00805f9b34fb"), the scan path forwards
+        // whatever the platform advertised, and the CONNECT path (Dart's
+        // SpecMatchRequest.forServices) folds discovered UUIDs to the short
+        // form ("fff0") before sending them. A raw case-insensitive compare
+        // therefore never matched a base-form identification UUID after
+        // connect, so any spec identified by service UUID alone fell back
+        // to the raw GATT browser once connected.
+        let spec_norm = normalize_uuid(spec_uuid);
         let matched = device
             .service_uuids
             .iter()
-            .any(|adv| adv.eq_ignore_ascii_case(spec_uuid));
+            .any(|adv| normalize_uuid(adv) == spec_norm);
         if !matched {
             continue;
         }
@@ -4827,6 +4845,9 @@ fn brother_ql_test_canvas(width: usize, height: usize) -> Vec<u8> {
 #[allow(clippy::too_many_arguments)]
 pub fn encode_stored_image(
     spec_yaml: String,
+    // Usable bytes per BLE write on the live link (MTU - 3), or None to size
+    // frames from the spec alone; see stored_upload::assemble_plan.
+    max_write: Option<u32>,
     width: u32,
     height: u32,
     rgb: Vec<u8>,
@@ -4853,8 +4874,12 @@ pub fn encode_stored_image(
             rgb: &rgb,
         },
     };
-    let plan =
-        crate::protocol::stored_upload::encode_stored_image(&spec, &program, sequence as u16)?;
+    let plan = crate::protocol::stored_upload::encode_stored_image(
+        &spec,
+        max_write.map(|n| n as usize),
+        &program,
+        sequence as u16,
+    )?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -4867,6 +4892,9 @@ pub fn encode_stored_image(
 #[allow(clippy::too_many_arguments)]
 pub fn encode_stored_text(
     spec_yaml: String,
+    // Usable bytes per BLE write on the live link (MTU - 3), or None to size
+    // frames from the spec alone; see stored_upload::assemble_plan.
+    max_write: Option<u32>,
     text_width: u32,
     text_height: u32,
     bits: Vec<u8>,
@@ -4891,8 +4919,12 @@ pub fn encode_stored_text(
             bits: &bits,
         },
     };
-    let plan =
-        crate::protocol::stored_upload::encode_stored_text(&spec, &program, sequence as u16)?;
+    let plan = crate::protocol::stored_upload::encode_stored_text(
+        &spec,
+        max_write.map(|n| n as usize),
+        &program,
+        sequence as u16,
+    )?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -4913,6 +4945,9 @@ pub fn encode_stored_text(
 #[allow(clippy::too_many_arguments)]
 pub fn encode_stored_animation(
     spec_yaml: String,
+    // Usable bytes per BLE write on the live link (MTU - 3), or None to size
+    // frames from the spec alone; see stored_upload::assemble_plan.
+    max_write: Option<u32>,
     width: u32,
     height: u32,
     frames: Vec<Vec<u8>>,
@@ -4944,8 +4979,12 @@ pub fn encode_stored_animation(
         frames: &frame_refs,
         timestamp,
     };
-    let plan =
-        crate::protocol::stored_upload::encode_stored_animation(&spec, &anim, sequence as u16)?;
+    let plan = crate::protocol::stored_upload::encode_stored_animation(
+        &spec,
+        max_write.map(|n| n as usize),
+        &anim,
+        sequence as u16,
+    )?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -6140,6 +6179,31 @@ device:
         assert!(match_device_to_spec(vec![dto], "HC-05Foo".into(), vec![])
             .iter()
             .all(|m| !m.matched_by_name_prefix));
+    }
+
+    #[test]
+    fn match_by_service_uuid_accepts_the_short_form_the_connect_path_sends() {
+        // Dart's SpecMatchRequest.forServices folds every discovered UUID to
+        // the short form before sending it, while the spec writes the 128-bit
+        // SIG-base form. A raw compare matched neither way after connect, so
+        // a spec identified by service UUID alone fell back to the raw GATT
+        // browser once connected.
+        let dto = load_device_spec(TEST_YAML.into()).unwrap();
+        let results =
+            match_device_to_spec(vec![dto.clone()], "Unknown".into(), vec!["fff0".into()]);
+        assert_eq!(
+            results.len(),
+            1,
+            "short form must match the base-form spec UUID"
+        );
+        assert_eq!(
+            results[0].matched_service_uuids,
+            vec!["0000fff0-0000-1000-8000-00805f9b34fb".to_string()],
+            "the report keeps the spec's own spelling"
+        );
+        // Leading zeros and case on the short form are folded too.
+        let results = match_device_to_spec(vec![dto], "Unknown".into(), vec!["0000FFF0".into()]);
+        assert_eq!(results.len(), 1);
     }
 
     #[test]

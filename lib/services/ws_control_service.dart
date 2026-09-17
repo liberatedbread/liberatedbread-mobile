@@ -47,6 +47,24 @@ typedef WsConnect = Future<WsSocket> Function(
 );
 
 /// The socket could not be opened, or the device hung up.
+/// A WebSocket URL with its query string removed, for messages and logs.
+///
+/// Samsung's pairing token travels as a query parameter of the socket URL,
+/// and the three connection failures below used to quote the whole URL into
+/// a WsConnectionException — which the screen shows and the info log keeps.
+String redactUrl(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return '<url>';
+  if (!uri.hasQuery) return uri.toString();
+  final bare = Uri(
+    scheme: uri.scheme,
+    host: uri.host,
+    port: uri.hasPort ? uri.port : null,
+    path: uri.path,
+  );
+  return '$bare?…';
+}
+
 class WsConnectionException implements UserFacingException {
   @override
   final String message;
@@ -101,14 +119,16 @@ WsConnect _connectorFor(WebSocketSurfaceDto surface) {
       return _RealWsSocket(socket, client);
     } on SocketException catch (e) {
       client.close(force: true);
-      throw WsConnectionException('Could not reach $url — ${e.message}');
+      throw WsConnectionException(
+          'Could not reach ${redactUrl(url)} — ${e.message}');
     } on WebSocketException catch (e) {
       client.close(force: true);
       throw WsConnectionException(
-          '$url refused the WebSocket upgrade — ${e.message}');
+          '${redactUrl(url)} refused the WebSocket upgrade — ${e.message}');
     } on HandshakeException catch (e) {
       client.close(force: true);
-      throw WsConnectionException('The TLS handshake with $url failed ($e).');
+      throw WsConnectionException(
+          'The TLS handshake with ${redactUrl(url)} failed ($e).');
     }
   };
 }

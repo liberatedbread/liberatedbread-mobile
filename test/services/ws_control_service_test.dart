@@ -72,6 +72,19 @@ void main() {
     ],
   );
 
+  test('connection failures never quote the pairing token', () {
+    // Samsung's token rides in the socket URL's query string, and the three
+    // connection failures used to interpolate the whole URL into a
+    // WsConnectionException — shown on screen and kept in the info log.
+    expect(
+      redactUrl('wss://tv.local:8002/api/v2/channels/samsung.remote.control'
+          '?name=TGliZXJhdGVk&token=12345678'),
+      'wss://tv.local:8002/api/v2/channels/samsung.remote.control?…',
+    );
+    expect(redactUrl('ws://tv.local:8001/api/v2'), 'ws://tv.local:8001/api/v2');
+    expect(redactUrl('not a url ::'), isNot(contains('token')));
+  });
+
   test('opens the declared address and stores the token the TV issues',
       () async {
     final tv = ScriptedWsSocket();
