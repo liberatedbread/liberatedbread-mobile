@@ -619,11 +619,25 @@ keychain, with the measurements printed as `[hardware]` lines.
 ./scripts/run-ios-device-tests.sh --live-ble-name "SD-1234"   # connect to that peripheral too
 ./scripts/run-ios-device-tests.sh --live-ble-any         # ...or to the nearest connectable one (read-only)
 ./scripts/run-ios-device-tests.sh --if-present           # exit 0 when no phone is paired
+./scripts/run-ios-device-tests.sh --launcher flutter     # `flutter test -d`, see below
 ./scripts/run-android-device-tests.sh --all              # the same suite on an attached Android phone
 ```
 
 Both runners share the suite and its flags; the Android one needs no
-entitlement handling. Each LAN host the scan finds is also put through the
+entitlement handling. The iOS runner has two ways onto the phone. By default
+it builds each suite as the app's Dart target (`flutter build ios
+--config-only -t …`) and runs it with `xcodebuild test` on the `RunnerTests`
+XCTest target, which `ios/RunnerTests/RunnerTests.m` hosts through
+`integration_test`'s `INTEGRATION_TEST_IOS_RUNNER` macro: every Dart test
+becomes its own XCTest case, the `.xcresult` bundle and the full log land in
+`build/ios-device-tests/`, and no Xcode.app session is involved — so it works
+from any shell, CI included. `--launcher flutter` runs `flutter test -d
+<udid>` instead, which streams the output live but, on iOS 17+, attaches its
+debugger through Xcode.app and therefore needs macOS to have granted the
+calling shell control of Xcode (an Automation prompt); without that grant it
+waits forever. The phone must be unlocked for either lane. Xcode needs an
+Apple ID in the app's team signed in once (Xcode ▸ Settings ▸ Accounts) so
+automatic signing can mint the development profile. Each LAN host the scan finds is also put through the
 catalogue matcher and the verdict printed, so a recognised printer or hub on
 the operator's network is the end-to-end proof that discovery, the identity
 projection and the Rust matcher agree on a real device. The device pickers
