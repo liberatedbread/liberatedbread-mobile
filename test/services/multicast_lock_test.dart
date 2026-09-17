@@ -61,7 +61,18 @@ void main() {
     await expectLater(lock.release(), completes);
   });
 
-  test('a scan takes the lock and gives it back', () async {
+  // The two below drive RealNetworkScanService.scan() for real, and carry
+  // the tag per test because flutter_test's group() takes none. The service
+  // has no transport seam — mDNS, SSDP and every vendor probe are `dart:io`
+  // sockets opened inside scan() — so there is no way to run its lock
+  // handling without binding 5353/1900 and waiting real seconds (the SSDP
+  // half alone spaces its two sends 500ms apart, and the second test sleeps
+  // 800ms of wall time on purpose). That is exactly what the `netdisco` tag
+  // exists to keep out of the unit lane: scripts/ci-netdisco-tests.sh runs
+  // these, serially, alongside the other on-the-wire suites. The three
+  // tests above stay in the unit lane because they never leave the mocked
+  // method channel.
+  test('a scan takes the lock and gives it back', tags: ['netdisco'], () async {
     final lock = MulticastLock(isSupported: true);
     final service = RealNetworkScanService(multicastLock: lock);
 
@@ -83,7 +94,7 @@ void main() {
   });
 
   test('a cancelled scan finishing does not release a newer scan\'s lock',
-      () async {
+      tags: ['netdisco'], () async {
     // `networkScanServiceProvider` hands out one shared instance, and the scan
     // lifecycle used to live on its fields. Cancel a scan and start another
     // and the first was still parked in the mDNS resolution window; when it

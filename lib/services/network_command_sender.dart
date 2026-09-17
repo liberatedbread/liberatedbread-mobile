@@ -672,17 +672,26 @@ class NetworkCommandSender {
   /// path: [openSignedSession] returns null and this is a plain send on the
   /// discovered port.
   Future<String> sendHttpRequest(HttpRequestDto request) async {
-    final session = await openSignedSession();
-    if (session != null) {
+    // At most two tries over the session: the one that finds it dead, and
+    // one over its replacement.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final session = await openSignedSession();
+      if (session == null) break;
       try {
         return await session.send(request);
       } on ControlRefusedException {
         // ECP2 has no equivalent for this path, or the device refused it over
         // the session — fall through to the plain path below.
+        break;
       } on Ecp2Exception {
-        // The session faltered; fall back to plain ECP for this request. A
-        // socket that truly died self-closes and throws fast next time, so the
-        // fallback stays cheap and the keyboard watch keeps owning the session.
+        // A session the device dropped UNDER this request (its socket
+        // closed mid-round-trip) is reopened by the next openSignedSession
+        // and the request retried once, so the press that discovers the
+        // drop still lands. Any other falter — a timeout on a session that
+        // is still up — falls back to plain ECP for this request only; the
+        // session stays owned by the keyboard watch and the next send
+        // tries it again.
+        if (!session.isClosed) break;
       }
     }
     // The device's own TLS policy, before the first handshake. Once per
@@ -739,9 +748,22 @@ class NetworkCommandSender {
   /// latched: it clears the in-flight handle so the next caller re-attempts,
   /// so a hiccup while the keyboard watch opens the session cannot poison the
   /// control fallback.
+  ///
+  /// A session the device has since dropped is not "opened once and reused":
+  /// it marks itself dead when its socket closes (a reboot, sleep, a Wi-Fi
+  /// blip) and fails every request at once, so it is let go and a fresh one
+  /// opened. Serving the corpse instead — as this did — sent every later
+  /// press down the plain-ECP fallback, which a Limited-mode Roku refuses,
+  /// leaving the set uncontrollable until the screen was closed and reopened.
   Future<Ecp2Session?> openSignedSession() {
     final session = _ecp2;
-    if (session != null) return Future.value(session);
+    if (session != null) {
+      if (!session.isClosed) return Future.value(session);
+      _ecp2 = null;
+      // Its socket is already gone; this releases the focus stream and the
+      // subscription the dead session still holds.
+      unawaited(session.close());
+    }
     final port = controlPort;
     if (_closed || _ecp2Unavailable || !isRoku || port == null) {
       return Future.value(null);
@@ -755,14 +777,26 @@ class NetworkCommandSender {
         unawaited(opened.close());
         return null;
       }
+      _ecp2Proven = true;
       return _ecp2 = opened;
     }).catchError((Object e) {
       _ecp2Opening = null;
-      if (e is Ecp2Exception) _ecp2Unavailable = true;
+      // A device that has authenticated once speaks ECP2; a failure to open
+      // a REPLACEMENT session is the TV still rebooting or still asleep, not
+      // "no ECP2 here", and latching it would put the set back on the
+      // permanent fallback this reopen exists to end. Each attempt is still
+      // bounded by the service's timeout and shared by concurrent callers
+      // through `_ecp2Opening`.
+      if (e is Ecp2Exception && !_ecp2Proven) _ecp2Unavailable = true;
       Log.net.debug('ecp2 session failed for $host: $e');
       return null;
     });
   }
+
+  /// Whether a session on this device has ever authenticated — the
+  /// difference between "no ECP2 here" (latched) and "the TV is away for a
+  /// moment" (retried) when a later open fails.
+  bool _ecp2Proven = false;
 
   /// The Kasa send: render the JSON command and write it to the plug over
   /// the socket. Like the HTTP send there is no read-back and no

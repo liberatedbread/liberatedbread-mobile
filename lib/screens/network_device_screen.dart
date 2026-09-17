@@ -302,13 +302,27 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     if (!hasKeyboard || widget.controls.capabilities?.signedSession != 'ecp2') {
       return;
     }
-    final session = await _sender.openSignedSession();
+    var session = await _sender.openSignedSession();
     if (session == null || !mounted) return;
     _keyboardSub = session.textEditFocusChanges.listen(_setKeyboardFocused);
     Future<void> poll() async {
       final gen = _keyboardStateGen;
       try {
-        final focused = await session.queryTextEditFocused();
+        // Ask the sender for the session on every poll rather than holding
+        // the first handle: when the TV drops the socket the sender opens a
+        // fresh session on the next send, and a poll still bound to the dead
+        // one would fail forever while the presses next to it worked. A new
+        // handle also carries a new focus stream, so the notice subscription
+        // moves with it.
+        final current = await _sender.openSignedSession();
+        if (current == null || !mounted) return;
+        if (!identical(current, session)) {
+          session = current;
+          await _keyboardSub?.cancel();
+          _keyboardSub =
+              current.textEditFocusChanges.listen(_setKeyboardFocused);
+        }
+        final focused = await current.queryTextEditFocused();
         // Drop a reply a notice has already superseded (see _keyboardStateGen).
         if (gen == _keyboardStateGen) _setKeyboardFocused(focused);
       } catch (e) {

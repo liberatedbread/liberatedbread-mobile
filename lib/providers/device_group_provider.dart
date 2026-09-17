@@ -10,6 +10,8 @@ import '../services/group_runner.dart';
 import '../services/saved_device_store.dart';
 import '../services/saved_network_device_store.dart';
 import '../services/device_credential_store.dart';
+import '../services/rabbit_air_key_store.dart';
+import '../services/roomba_credential_store.dart';
 import '../services/tls_trust.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
@@ -107,9 +109,16 @@ Future<void> forgetDevice({
   required SavedDevicesNotifier savedDevices,
   required DeviceGroupsNotifier groups,
   required String deviceId,
+  RabbitAirKeyStore? rabbitAir,
 }) async {
   await groups.pruneDevice(deviceId);
   await savedDevices.remove(deviceId);
+  // The one secret a BLE record can own: a Rabbit Air driven over BLE files
+  // its AES user key under the BLE identity until a handshake reveals the
+  // Thing ID (RabbitAirBleControl.bleScope), and nothing else ever clears
+  // that scope. Forgetting the device has to mean forgetting it — see the
+  // network sibling below for the longer argument.
+  await rabbitAir?.forget('ble-$deviceId');
 }
 
 /// [forgetDevice]'s network sibling, with the same crash-safe order. The
@@ -125,6 +134,10 @@ Future<void> forgetNetworkDevice({
   required String host,
   String? recordedIdentity,
   Set<String> recordedIdentities = const {},
+  RoombaCredentialStore? roomba,
+  RabbitAirKeyStore? rabbitAir,
+  String? blid,
+  String? hostname,
 }) async {
   await groups.pruneDevice(networkMemberId(deviceId));
   await savedDevices.remove(deviceId);
@@ -168,6 +181,38 @@ Future<void> forgetNetworkDevice({
     // one leaves it half-remembered under secrets the person can no longer
     // see to correct.
     await credentials.forget(identity);
+  }
+  // The two bespoke stores sit OUTSIDE that sweep on purpose — they key by a
+  // device-issued id, not by the identity above (device_credential_store.dart
+  // says so) — which is exactly how Remove came to leave a Roomba's local
+  // password and a Rabbit Air's AES user key in the keychain while the
+  // SnackBar said "Removed". Both are long-lived LAN secrets with no other
+  // way out: re-saving the device silently reused them, and a purifier that
+  // was factory-reset (which mints a new key) had no path to drop the stale
+  // one. The stores are optional only because the caller resolves them from
+  // its ref; every caller in the app is expected to pass them.
+  //
+  // [blid] is what the robot's announcement carried (`txt['blid']`), the
+  // same value its password is filed under. The purifier's key is cleared
+  // under every scope it could have been filed — the mDNS hostname (the
+  // Thing ID, which the provisioner writes bare and mDNS may carry with a
+  // `.local` suffix), the bare host the LAN screen falls back to when
+  // discovery carried no hostname, and the RabbitAir-<MAC>.local a
+  // cloud-less unit announces. Same idempotence argument as the identity
+  // forms above: over-forgetting costs the re-pair the user asked for.
+  if (blid != null && blid.isNotEmpty) await roomba?.forget(blid);
+  if (rabbitAir != null) {
+    final fallbackHostname = rabbitAirFallbackHostname(deviceMac);
+    final scopes = <String>{
+      if (hostname != null && hostname.isNotEmpty) hostname,
+      if (hostname != null && hostname.endsWith('.local'))
+        hostname.substring(0, hostname.length - '.local'.length),
+      host,
+      if (fallbackHostname != null) fallbackHostname,
+    };
+    for (final scope in scopes) {
+      await rabbitAir.forget(scope);
+    }
   }
 }
 

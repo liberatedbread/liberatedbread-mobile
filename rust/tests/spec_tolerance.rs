@@ -80,6 +80,29 @@ fn wifi_spec_parses_with_no_ble_services() {
     );
 }
 
+/// The Frigidaire set-point is declared `uint8` — the BLE vocabulary, which
+/// the vendored schema does not forbid — and the OCP endpoint takes
+/// `{"<attribute>": <value>}` with the value as a JSON number. A renderer
+/// that knew only the JSON type names quoted it, and the set-point never
+/// changed.
+#[test]
+fn frigidaire_set_temperature_renders_its_uint8_argument_as_a_number() {
+    use liberated_bread_core::protocol::http;
+    use std::collections::BTreeMap;
+
+    let spec = parse_device_spec(include_str!("specs/frigidaire-window-ac.yaml"))
+        .expect("wifi spec should parse");
+    let values: BTreeMap<String, String> = [("temperature", "22"), ("appliance_id", "abc123")]
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+        .collect();
+    let request = http::render_request(&spec, "set_temperature", &values)
+        .expect("set_temperature renders with a temperature and the appliance id");
+    assert_eq!(request.method, "PUT");
+    assert_eq!(request.path, "/appliance/api/v2/appliances/abc123/command");
+    assert_eq!(request.body, r#"{"targetTemperatureC":22}"#);
+}
+
 #[test]
 fn ble_spec_still_exposes_characteristics() {
     // The tolerance changes must not stop the parser from surfacing the fields

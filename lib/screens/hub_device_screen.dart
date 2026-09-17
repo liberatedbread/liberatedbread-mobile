@@ -52,6 +52,29 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
   String? _bridgeId;
   HubCredentials? _credentials;
 
+  /// The id the device at this address claims for itself, kept once its
+  /// certificate agreed with the claim — even when the saved sighting did
+  /// not. That disagreement is the "you replaced the bridge" case, and this
+  /// is the identity pairing has to target after the old one is forgotten.
+  String? _probedBridgeId;
+
+  /// The id the sighting carried, which is what any stored pairing and pin
+  /// for this device are keyed by when the probe never got as far as
+  /// confirming one.
+  String? get _advertisedBridgeId {
+    final advertised = widget.device.txt['bridgeid'];
+    if (advertised == null || advertised.length != 16) return null;
+    return advertised.toUpperCase();
+  }
+
+  /// What "Forget this bridge" acts on. The resolved id when there is one;
+  /// otherwise the advertised id, because a load that failed its identity
+  /// check never resolved anything, and yet the stale credential and pin it
+  /// is warning about are sitting in the store under the advertised key.
+  /// Deciding this from [_bridgeId] alone made the menu item a silent no-op
+  /// in exactly the state whose error text told the user to use it.
+  String? get _forgetTarget => _bridgeId ?? _advertisedBridgeId;
+
   /// Raw state replies per state_command — handed back to the codec, which
   /// is the only layer that parses them.
   final Map<String, String> _stateBodies = {};
@@ -109,6 +132,12 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+      // Only promise the menu action when there is an id to perform it
+      // under; a banner that says "forget it below" above a greyed-out item
+      // is the dead end this used to be.
+      final tlsAdvice = _forgetTarget == null
+          ? 'If you replaced the bridge, scan again and pair with the new one.'
+          : 'If you replaced the bridge, forget it below and pair again.';
       setState(() {
         _loading = false;
         _error = friendlyErrorText(
@@ -116,8 +145,8 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
           context: 'hub control',
           fallback: e is HubTlsException
               ? 'The bridge failed its security check: it presented a '
-                  'different certificate than the one this app pinned. If '
-                  'you replaced the bridge, forget it below and pair again.'
+                  'different certificate than the one this app pinned. '
+                  '$tlsAdvice'
               : 'Could not reach the bridge. It may have a new address — '
                   'try scanning again.',
         );
@@ -150,13 +179,15 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       throw HubTlsException(
           'the bridge claims id $claimed but its certificate says $seenCn');
     }
-    final advertised = widget.device.txt['bridgeid'];
-    if (advertised != null &&
-        advertised.length == 16 &&
-        advertised.toUpperCase() != claimed) {
+    // Past the certificate check the claim is the device's own, verified
+    // identity; remember it before the sighting gets its say, so a forget of
+    // the stale sighting has something trustworthy to pair with next.
+    _probedBridgeId = claimed;
+    final advertised = _advertisedBridgeId;
+    if (advertised != null && advertised != claimed) {
       throw HubTlsException(
-          'this was saved as bridge ${advertised.toUpperCase()}, but the '
-          'device at ${widget.device.host} says it is $claimed');
+          'this was saved as bridge $advertised, but the device at '
+          '${widget.device.host} says it is $claimed');
     }
     return claimed;
   }
@@ -317,7 +348,7 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
   }
 
   Future<void> _forget() async {
-    final bridgeId = _bridgeId;
+    final bridgeId = _forgetTarget;
     if (bridgeId == null) return;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -349,6 +380,17 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       _childrenByEntity.clear();
       _readings.clear();
     });
+    if (_bridgeId != null) return;
+    // The load never resolved an identity: the sighting's id and the
+    // device's disagreed, or the certificate did. The user has now said the
+    // saved bridge is gone, so the device actually at this address is the one
+    // to deal with — its own verified id, when the probe got that far,
+    // becomes the screen's, which enables Pair with it and keys the new
+    // credential and pin correctly. Without one (the certificate itself
+    // disagreed with the claim) there is nothing safe to pair with, and the
+    // reload reports that again rather than leaving a stale banner.
+    _bridgeId = _probedBridgeId;
+    await _load();
   }
 
   Future<void> _loadSafely() async {
@@ -387,20 +429,25 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       appBar: AppBar(
         title: Text(widget.device.displayName),
         actions: [
-          if (paired)
-            IconButton(
-              tooltip: 'Refresh',
-              onPressed: _loading ? null : () => unawaited(_load()),
-              icon: const Icon(Icons.refresh),
-            ),
+          // Offered in every settled state, not only when paired: a load that
+          // failed on the probe (a transient TLS or transport error) had no
+          // way back short of leaving the screen.
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _loading ? null : () => unawaited(_load()),
+            icon: const Icon(Icons.refresh),
+          ),
           PopupMenuButton<String>(
             onSelected: (choice) {
               if (choice == 'forget') unawaited(_forget());
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'forget',
-                child: Text('Forget this bridge'),
+                // Greyed rather than a silent no-op when nothing is known
+                // to forget under.
+                enabled: _forgetTarget != null,
+                child: const Text('Forget this bridge'),
               ),
             ],
           ),

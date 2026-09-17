@@ -565,6 +565,99 @@ fn vendored_specs_decode_with_offsets_and_value_tables() {
     assert_eq!(decoded[0].value_label.as_deref(), Some("heating"));
 }
 
+/// A `string`/`bytes` format field's `length` is a ceiling, and the catalogue
+/// says so in as many words: ember-mug's `Mug Name` is `length: 16` with the
+/// note "reads five bytes, EMBER ... an upper bound and not a length", and
+/// xiaomi-miflora's 0x1a02 "returns variable-length data" with the firmware
+/// string at offset 2 of a reply the hardware sends seven bytes long. Both
+/// used to decode to `BufferTooShort`, and on the MiFlora that took the
+/// battery beside the string down too — the spec's only battery source.
+#[test]
+fn vendored_variable_length_fields_decode_from_short_replies() {
+    use liberated_bread_core::api::device_api::decode_value;
+
+    let read = |file: &str| {
+        let path = spec_path(file);
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+    };
+
+    let decoded = decode_value(
+        Some(read("ember-mug.yaml")),
+        None,
+        "fc540001-236c-4c94-8fa9-944a3e5353fa".into(),
+        b"EMBER".to_vec(),
+    )
+    .expect("a five-byte name against a sixteen-byte ceiling decodes");
+    assert_eq!(decoded[0].string_value.as_deref(), Some("EMBER"));
+
+    let decoded = decode_value(
+        Some(read("xiaomi-miflora.yaml")),
+        None,
+        "00001a02-0000-1000-8000-00805f9b34fb".into(),
+        vec![0x63, 0x27, b'3', b'.', b'2', b'.', b'2'],
+    )
+    .expect("the seven-byte reply the hardware sends decodes");
+    let field = |name: &str| {
+        decoded
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap_or_else(|| panic!("{name} must be decoded"))
+    };
+    assert_eq!(field("battery").uint_value, Some(99));
+    assert_eq!(
+        field("firmware_version").string_value.as_deref(),
+        Some("3.2.2")
+    );
+}
+
+/// xkglow-chrome's `set_rgb_color` declares a fixed `value` AND a
+/// parameterised `template`. The template must be the command: the raw
+/// browser's zone/red/green/blue controls reach the wire, and the DTO does
+/// not call the command fixed while still listing parameters for it.
+#[test]
+fn the_vendored_xkglow_set_rgb_color_honours_its_parameters() {
+    use liberated_bread_core::api::device_api::{encode_command, load_device_spec};
+    use std::collections::HashMap;
+
+    let yaml = fs::read_to_string(spec_path("xkglow-chrome.yaml")).expect("spec reads");
+    const ZONE_COMMAND: &str = "458a7133-0009-4e37-a4a4-5d8492586977";
+
+    let params = HashMap::from([
+        ("zone".to_string(), 3.0),
+        ("red".to_string(), 0.0),
+        ("green".to_string(), 128.0),
+        ("blue".to_string(), 255.0),
+    ]);
+    let bytes = encode_command(
+        Some(yaml.clone()),
+        None,
+        ZONE_COMMAND.into(),
+        "set_rgb_color".into(),
+        params,
+    )
+    .expect("set_rgb_color encodes from its template");
+    assert_eq!(
+        bytes,
+        vec![0x00, 0x03, 0x04, 0x00, 0x80, 0xFF],
+        "the caller's zone and colour must reach the wire, not the fixed red"
+    );
+
+    let dto = load_device_spec(yaml).expect("xkglow-chrome loads");
+    let command = dto
+        .services
+        .iter()
+        .flat_map(|s| &s.characteristics)
+        .filter(|c| c.uuid.eq_ignore_ascii_case(ZONE_COMMAND))
+        .flat_map(|c| &c.commands)
+        .find(|c| c.name == "set_rgb_color")
+        .expect("set_rgb_color is on the zone command characteristic");
+    assert!(
+        !command.is_fixed,
+        "a command whose parameters the encoder honours must not be called fixed"
+    );
+    assert!(command.is_encodable);
+}
+
 /// A characteristic that encrypts or frames its payloads must resolve no
 /// control actions, however sendable the command itself looks.
 ///
@@ -1003,6 +1096,60 @@ fn vendored_specs_resolve_the_network_surface_honestly() {
     assert_eq!(roku.signed_session.as_deref(), Some("ecp2"));
     assert_eq!(roku.default_port, Some(8060));
     assert_eq!(roku.default_scheme, None);
+}
+
+/// The catalogue's HTTP writes are mostly declared as a literal `body:` with
+/// no `arguments:` — WLED, Valetudo, Bose SoundTouch, Divoom — and for a long
+/// time the renderer never read that field: every one of those controls was
+/// offered, and every press POSTed an empty body. This drives the real files.
+#[test]
+fn vendored_literal_http_bodies_render_filled_not_empty() {
+    use liberated_bread_core::protocol::http;
+    use liberated_bread_core::spec::parser::parse_device_spec;
+    use std::collections::BTreeMap;
+
+    let spec = |file: &str| {
+        let path = spec_path(file);
+        let yaml =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        parse_device_spec(&yaml).unwrap_or_else(|e| panic!("{file} parses: {e}"))
+    };
+    let values = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    };
+
+    // WLED: a fixed JSON body, and a `uint8` placeholder in numeric position
+    // that must render as a number.
+    let wled = spec("wled-controller.yaml");
+    let on = http::render_request(&wled, "turn_on", &values(&[])).expect("turn_on renders");
+    assert_eq!(on.method, "POST");
+    assert_eq!(on.path, "/json/state");
+    assert_eq!(on.body, r#"{"on": true}"#);
+    let bri = http::render_request(&wled, "set_brightness", &values(&[("brightness", "100")]))
+        .expect("set_brightness renders");
+    assert_eq!(bri.body, r#"{"bri": 100}"#);
+    let fx = http::render_request(&wled, "set_effect", &values(&[("effect", "12")]))
+        .expect("set_effect renders");
+    assert_eq!(fx.body, r#"{"seg": [{"id": 0, "fx": 12}]}"#);
+
+    // Valetudo: a fixed JSON body on a PUT.
+    let valetudo = spec("valetudo.yaml");
+    let start = http::render_request(&valetudo, "start", &values(&[])).expect("start renders");
+    assert_eq!(start.body, r#"{"action":"start"}"#);
+
+    // Bose SoundTouch: XML bodies, fixed and with an integer placeholder.
+    let bose = spec("bose-soundtouch.yaml");
+    let power = http::render_request(&bose, "power", &values(&[])).expect("power renders");
+    assert_eq!(
+        power.body,
+        r#"<key state="press" sender="Gabbo">POWER</key>"#
+    );
+    let volume = http::render_request(&bose, "set_volume", &values(&[("level", "30")]))
+        .expect("set_volume renders");
+    assert_eq!(volume.body, "<volume>30</volume>");
 }
 
 /// The vendored iDotMatrix spec now reports its image uploads encodable.
@@ -2511,6 +2658,34 @@ fn a_bare_shared_service_type_claims_nothing_in_the_catalogue() {
         matches.len(),
         matches.iter().map(|m| &m.device_name).collect::<Vec<_>>()
     );
+
+    // The SSDP counterpart. bose-soundtouch and hisense-vidaa both declare
+    // the DLNA renderer class, squeezebox-slimproto the server class, and the
+    // scan's `ssdp:all` search collects exactly those STs from every Sonos,
+    // smart TV and NAS on the link — each of which came back a Strong Bose
+    // tied with a Strong Hisense, or a Strong Squeezebox.
+    for class in [
+        "urn:schemas-upnp-org:device:MediaRenderer:1",
+        "urn:schemas-upnp-org:device:MediaServer:1",
+    ] {
+        let dlna = NetworkDeviceDto {
+            name: String::new(),
+            hostname: None,
+            service_types: Vec::new(),
+            ssdp_targets: vec![class.into()],
+            answered_lan_protocols: Vec::new(),
+            txt: Default::default(),
+            port: None,
+            mac: None,
+        };
+        let matches = match_network_device(identities.clone(), dlna);
+        assert!(
+            matches.is_empty(),
+            "a host whose only signal is `{class}` was claimed by {} spec(s): {:?}",
+            matches.len(),
+            matches.iter().map(|m| &m.device_name).collect::<Vec<_>>()
+        );
+    }
 
     // The half that must keep working: the same host, publishing what ESPHome
     // publishes, is an ESPHome node.

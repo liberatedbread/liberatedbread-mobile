@@ -60,11 +60,14 @@ pub struct HttpRequest {
     pub method: String,
     /// Path with every placeholder substituted, starting with `/`.
     pub path: String,
-    /// Request body: empty when the command declares no `arguments` (ECP
-    /// keypresses carry the whole instruction in the path), or a compact
-    /// JSON object in the spec's declared argument order otherwise (the Hue
-    /// bridge's `{"on":true,"bri":200}`). The caller sends a Content-Type
-    /// only when this is non-empty.
+    /// Request body: empty when the command declares neither `arguments`
+    /// nor `body` (ECP keypresses carry the whole instruction in the path);
+    /// a compact JSON object in the spec's declared argument order when it
+    /// declares `arguments` (the Hue bridge's `{"on":true,"bri":200}`); or
+    /// the spec's literal `body` with its placeholders filled when it
+    /// declares that instead (WLED's `{"bri": 200}`, SoundTouch's
+    /// `<volume>30</volume>`). The caller sends a Content-Type only when
+    /// this is non-empty.
     pub body: String,
 }
 
@@ -106,8 +109,46 @@ pub fn render_command(
     Ok(HttpRequest {
         method: method.to_string(),
         path: substitute(path, command, command_name, values)?,
-        body: render_body(command, command_name, values)?,
+        body: render_http_body(command, command_name, values)?,
     })
+}
+
+/// The request body an HTTP command declares: a JSON object from its
+/// `arguments`, its literal `body` template with the placeholders filled, or
+/// the empty string when it declares neither.
+///
+/// A literal `body` is how most of the catalogue's HTTP writes are declared —
+/// WLED's `{"on": true}`, Valetudo's `{"action":"start"}`, SoundTouch's
+/// `<key state="press" sender="Gabbo">POWER</key>` — and for a long time it
+/// was never read on this transport: the admission gate offered those
+/// controls, every press POSTed an empty body, and nothing changed at the
+/// device. It is filled by [`render_literal_body`], with the same typed,
+/// injection-safe placeholder rules the Kasa transport applies to its bodies.
+///
+/// A command declaring both is a spec bug rather than a merge — two answers
+/// to one question — and is refused exactly as the MQTT renderer refuses it,
+/// so the mistake surfaces at the first render instead of as half a payload.
+/// This dispatch is the HTTP transport's own; [`render_body`] stays the
+/// arguments-only renderer the WebSocket, MQTT and Roomba transports share,
+/// each with its own reading of a literal `body`.
+fn render_http_body(
+    command: &SpecCommand,
+    command_name: &str,
+    values: &BTreeMap<String, String>,
+) -> Result<String, ProtocolError> {
+    match command.body.as_deref() {
+        Some(_) if !command.arguments.is_empty() => {
+            // Named as an unsupported encoding rather than a missing
+            // parameter: nothing is missing, the command asks for two bodies
+            // at once.
+            Err(ProtocolError::UnsupportedCommandEncoding(format!(
+                "{command_name} declares both `arguments` and `body`; an HTTP \
+                 command has one body, so declare one or the other"
+            )))
+        }
+        Some(body) => render_literal_body(body, command, command_name, values),
+        None => render_body(command, command_name, values),
+    }
 }
 
 /// Build the JSON request body from a command's `arguments`, or the empty
@@ -121,6 +162,10 @@ pub fn render_command(
 /// resolution order, same fail-visibly rule); anything else is a literal the
 /// command already chose, carried with its YAML type intact
 /// (`generateclientkey: true` is a JSON `true`).
+///
+/// A literal `body` is not this function's business — it is the HTTP
+/// transport's ([`render_http_body`]) and every other caller's own — so a
+/// command declaring one and no `arguments` renders as empty here.
 pub(crate) fn render_body(
     command: &SpecCommand,
     command_name: &str,
@@ -151,6 +196,115 @@ fn placeholder(value: &str) -> Option<&str> {
         .filter(|name| !name.is_empty())
 }
 
+/// Fill a command's literal `body` template.
+///
+/// The template's first character says which grammar the values must respect,
+/// because "fill in the blank" is only safe when the blank's surroundings are
+/// known: the catalogue's literal bodies are JSON documents or XML fragments,
+/// nothing else. A body opening with `<` is markup, and a value landing in it
+/// is XML-escaped — a `&` or `<` in a user-typed value would otherwise end the
+/// element it sits in. Anything else is treated as JSON and filled by the Kasa
+/// renderer's rule: only the exact `{name}` token of a DECLARED parameter is
+/// replaced (every other brace is the author's JSON syntax), a string value is
+/// JSON-escaped, and a numeric or boolean value is validated against its
+/// declared type so `1},"x":{` dies as ParameterInvalid instead of rendering
+/// as a valid document with an injected member.
+fn render_literal_body(
+    body: &str,
+    command: &SpecCommand,
+    command_name: &str,
+    values: &BTreeMap<String, String>,
+) -> Result<String, ProtocolError> {
+    if body.trim_start().starts_with('<') {
+        substitute_markup(body, command, command_name, values)
+    } else {
+        crate::protocol::kasa::substitute(body, command, command_name, values)
+    }
+}
+
+/// Replace every `{name}` in an XML template with its parameter's value.
+///
+/// Braces are not XML syntax, so the path renderer's brace scanner applies
+/// as written — an undeclared placeholder fails visibly rather than going out
+/// literally. A string value is escaped for element content and attribute
+/// values alike (SoundTouch's `<volume>{level}</volume>` is content, but a
+/// future template may quote a value); a numeric or boolean one is validated
+/// by its declared type and written bare, because `</key><key>...` contains
+/// no digit and must not become markup.
+fn substitute_markup(
+    template: &str,
+    command: &SpecCommand,
+    command_name: &str,
+    values: &BTreeMap<String, String>,
+) -> Result<String, ProtocolError> {
+    fill_placeholders(template, command, command_name, values, |param, raw| {
+        let parameter = command.parameters.get(param);
+        match declared_type(parameter.and_then(|p| p.value_type.as_deref())) {
+            DeclaredType::String => Ok(xml_escape(raw)),
+            _ => typed_json(parameter, param, raw).map(|v| v.to_string()),
+        }
+    })
+}
+
+/// The five characters XML reserves, replaced by their entities.
+fn xml_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// The JSON value a parameter's declared `type` renders as.
+///
+/// The catalogue's network specs write their types in the BLE vocabulary as
+/// often as in JSON's — Frigidaire's set-point is a `uint8`, ratgdo's door
+/// position a `float`, WLED's brightness a `uint8` — and the vendored schema
+/// constrains none of it. Matching only the JSON names quoted every one of
+/// those (`{"targetTemperatureC":"22"}`, which the endpoint ignores) and,
+/// worse, skipped the numeric validation that keeps a placeholder in numeric
+/// position from carrying injected syntax. So the mapping lives in one place
+/// and both renderers ask it; the fixed-width names carry the range the width
+/// implies, which is the type's own meaning and costs nothing to enforce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeclaredType {
+    /// An integer, with the inclusive range its width name implies (`uint8`
+    /// is 0..=255); `integer` and `int64` carry none.
+    Integer(Option<(i64, i64)>),
+    Number,
+    Boolean,
+    String,
+}
+
+/// Map a declared type name to what it renders as. Absent, unknown, and
+/// `string` all mean a string, which is the YAML default reading.
+pub(crate) fn declared_type(declared: Option<&str>) -> DeclaredType {
+    match declared {
+        Some("integer") | Some("int64") => DeclaredType::Integer(None),
+        Some("int8") => DeclaredType::Integer(Some((i8::MIN as i64, i8::MAX as i64))),
+        Some("int16") => DeclaredType::Integer(Some((i16::MIN as i64, i16::MAX as i64))),
+        Some("int32") => DeclaredType::Integer(Some((i32::MIN as i64, i32::MAX as i64))),
+        Some("uint8") => DeclaredType::Integer(Some((0, u8::MAX as i64))),
+        Some("uint16") => DeclaredType::Integer(Some((0, u16::MAX as i64))),
+        Some("uint24") => DeclaredType::Integer(Some((0, 0xFF_FFFF))),
+        // `varint` is the BLE vocabulary's unbounded-width unsigned; the same
+        // 32-bit ceiling `ValueType::integer_range` gives it.
+        Some("uint32") | Some("varint") => DeclaredType::Integer(Some((0, u32::MAX as i64))),
+        // Parsed as i64, so the upper half of the range is unreachable anyway.
+        Some("uint64") => DeclaredType::Integer(Some((0, i64::MAX))),
+        Some("number") | Some("float") | Some("double") => DeclaredType::Number,
+        Some("boolean") | Some("bool") => DeclaredType::Boolean,
+        _ => DeclaredType::String,
+    }
+}
+
 /// Coerce a substituted string to the JSON type its parameter declares. An
 /// undeclared type is a string, which is the YAML default reading.
 ///
@@ -173,27 +327,40 @@ pub(crate) fn typed_json(
         value: raw.parse().unwrap_or(0.0),
         reason: reason.to_string(),
     };
-    match declared {
-        "integer" => raw
-            .trim()
-            .parse::<i64>()
-            .map(serde_json::Value::from)
-            .map_err(|_| invalid("declared integer, and this is not one")),
-        "number" => {
+    match declared_type(Some(declared)) {
+        DeclaredType::Integer(range) => {
+            let integer: i64 = raw.trim().parse().map_err(|_| {
+                invalid(&format!("declared {declared}, and this is not an integer"))
+            })?;
+            if let Some((min, max)) = range {
+                if integer < min || integer > max {
+                    return Err(ProtocolError::ParameterOutOfRange {
+                        name: name.to_string(),
+                        value: integer as f64,
+                        min: min as f64,
+                        max: max as f64,
+                    });
+                }
+            }
+            Ok(serde_json::Value::from(integer))
+        }
+        DeclaredType::Number => {
             let number: f64 = raw
                 .trim()
                 .parse()
-                .map_err(|_| invalid("declared number, and this is not one"))?;
+                .map_err(|_| invalid(&format!("declared {declared}, and this is not a number")))?;
             serde_json::Number::from_f64(number)
                 .map(serde_json::Value::Number)
-                .ok_or_else(|| invalid("declared number, and this is not finite"))
+                .ok_or_else(|| invalid(&format!("declared {declared}, and this is not finite")))
         }
-        "boolean" => match raw.trim() {
+        DeclaredType::Boolean => match raw.trim() {
             "true" | "1" => Ok(serde_json::Value::Bool(true)),
             "false" | "0" => Ok(serde_json::Value::Bool(false)),
-            _ => Err(invalid("declared boolean, and this is neither")),
+            _ => Err(invalid(&format!(
+                "declared {declared}, and this is neither"
+            ))),
         },
-        _ => Ok(serde_json::Value::String(raw.to_string())),
+        DeclaredType::String => Ok(serde_json::Value::String(raw.to_string())),
     }
 }
 
@@ -239,6 +406,22 @@ fn substitute(
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
+    fill_placeholders(template, command, command_name, values, |_, raw| {
+        Ok(percent_encode(raw))
+    })
+}
+
+/// The brace scanner behind [`substitute`] and [`substitute_markup`]: the
+/// same placeholder grammar and resolution order, with `render` deciding how
+/// a resolved value is written into its surroundings (percent-encoded in a
+/// path, entity-escaped in markup).
+fn fill_placeholders(
+    template: &str,
+    command: &SpecCommand,
+    command_name: &str,
+    values: &BTreeMap<String, String>,
+    render: impl Fn(&str, &str) -> Result<String, ProtocolError>,
+) -> Result<String, ProtocolError> {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(start) = rest.find('{') {
@@ -252,7 +435,7 @@ fn substitute(
         };
         let param = &tail[1..end];
         let value = resolve_param(command, command_name, param, values)?;
-        out.push_str(&percent_encode(&value));
+        out.push_str(&render(param, &value)?);
         rest = &tail[end + 1..];
     }
     out.push_str(rest);
@@ -718,6 +901,61 @@ commands:
       api_version:
         type: "string"
         default: "6"
+  light_on:
+    description: "A literal JSON body with nothing to fill — the WLED shape."
+    transport: "http"
+    method: "POST"
+    path: "/json/state"
+    body: '{"on": true}'
+  light_level:
+    description: "A literal JSON body with a placeholder in NUMERIC position,
+      typed in the BLE vocabulary."
+    transport: "http"
+    method: "POST"
+    path: "/json/state"
+    body: '{"bri": {brightness}}'
+    parameters:
+      brightness:
+        type: "uint8"
+        required: true
+  name_segment:
+    description: "A literal JSON body with a placeholder inside a string."
+    transport: "http"
+    method: "POST"
+    path: "/json/state"
+    body: '{"seg": [{"id": 0, "n": "{label}"}]}'
+    parameters:
+      label:
+        type: "string"
+        required: true
+  press_preset:
+    description: "A literal XML body with a numeric placeholder — SoundTouch."
+    transport: "http"
+    method: "POST"
+    path: "/key"
+    body: '<key state="press" sender="Gabbo">PRESET_{n}</key>'
+    parameters:
+      n:
+        type: "integer"
+        required: true
+  set_zone_name:
+    description: "A literal XML body with a string placeholder."
+    transport: "http"
+    method: "POST"
+    path: "/name"
+    body: '<name>{label}</name>'
+    parameters:
+      label:
+        type: "string"
+        required: true
+  two_bodies:
+    description: "Declares both — a spec bug, not a merge."
+    transport: "http"
+    method: "POST"
+    path: "/x"
+    body: '{"a": 1}'
+    arguments:
+      b: 2
 "#;
 
     fn spec() -> DeviceSpec {
@@ -795,6 +1033,130 @@ commands:
         assert!(err.to_string().contains("no_such_command"));
     }
 
+    // ── Literal bodies: the `body:` most of the catalogue's HTTP writes
+    // declare, which used to render as nothing at all.
+
+    #[test]
+    fn a_literal_json_body_renders_verbatim() {
+        let request = render_request(&spec(), "light_on", &values(&[])).unwrap();
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/json/state");
+        assert_eq!(request.body, r#"{"on": true}"#);
+    }
+
+    #[test]
+    fn a_literal_body_placeholder_renders_by_its_declared_type() {
+        // `uint8` is the BLE vocabulary; in numeric position it must render
+        // bare, not as the string "100" the JSON-names-only match produced.
+        let request =
+            render_request(&spec(), "light_level", &values(&[("brightness", "100")])).unwrap();
+        assert_eq!(request.body, r#"{"bri": 100}"#);
+    }
+
+    #[test]
+    fn a_literal_body_placeholder_refuses_injected_syntax() {
+        let err = render_request(
+            &spec(),
+            "light_level",
+            &values(&[("brightness", r#"1},"x":{"#)]),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::ParameterInvalid { name, .. } if name == "brightness"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn a_fixed_width_type_refuses_a_value_past_its_width() {
+        let err =
+            render_request(&spec(), "light_level", &values(&[("brightness", "300")])).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                ProtocolError::ParameterOutOfRange { name, max, .. }
+                    if name == "brightness" && *max == 255.0
+            ),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn a_string_inside_a_literal_json_body_is_escaped() {
+        let request = render_request(
+            &spec(),
+            "name_segment",
+            &values(&[("label", r#"Desk "A""#)]),
+        )
+        .unwrap();
+        assert_eq!(request.body, r#"{"seg": [{"id": 0, "n": "Desk \"A\""}]}"#);
+    }
+
+    #[test]
+    fn an_xml_body_escapes_a_string_value() {
+        let request = render_request(
+            &spec(),
+            "set_zone_name",
+            &values(&[("label", "Tom & <Jerry>")]),
+        )
+        .unwrap();
+        assert_eq!(request.body, "<name>Tom &amp; &lt;Jerry&gt;</name>");
+    }
+
+    #[test]
+    fn an_xml_body_validates_a_numeric_value_and_writes_it_bare() {
+        let request = render_request(&spec(), "press_preset", &values(&[("n", "3")])).unwrap();
+        assert_eq!(
+            request.body,
+            r#"<key state="press" sender="Gabbo">PRESET_3</key>"#
+        );
+        // Markup in a numeric slot is not a number; it must not become an
+        // element.
+        let err =
+            render_request(&spec(), "press_preset", &values(&[("n", "3</key><key>")])).unwrap_err();
+        assert!(matches!(&err, ProtocolError::ParameterInvalid { name, .. } if name == "n"));
+    }
+
+    #[test]
+    fn a_missing_placeholder_in_an_xml_body_is_an_error_not_a_blank() {
+        let err = render_request(&spec(), "press_preset", &values(&[])).unwrap_err();
+        assert!(matches!(&err, ProtocolError::ParameterMissing(p) if p == "press_preset.n"));
+    }
+
+    #[test]
+    fn a_command_declaring_both_arguments_and_body_is_refused() {
+        let err = render_request(&spec(), "two_bodies", &values(&[])).unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::UnsupportedCommandEncoding(why) if why.contains("two_bodies")),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn declared_types_map_the_ble_vocabulary_onto_json() {
+        assert_eq!(declared_type(None), DeclaredType::String);
+        assert_eq!(declared_type(Some("string")), DeclaredType::String);
+        assert_eq!(declared_type(Some("bytes")), DeclaredType::String);
+        assert_eq!(declared_type(Some("integer")), DeclaredType::Integer(None));
+        assert_eq!(
+            declared_type(Some("uint8")),
+            DeclaredType::Integer(Some((0, 255)))
+        );
+        assert_eq!(
+            declared_type(Some("int16")),
+            DeclaredType::Integer(Some((-32768, 32767)))
+        );
+        assert_eq!(
+            declared_type(Some("varint")),
+            DeclaredType::Integer(Some((0, u32::MAX as i64)))
+        );
+        assert_eq!(declared_type(Some("number")), DeclaredType::Number);
+        assert_eq!(declared_type(Some("float")), DeclaredType::Number);
+        assert_eq!(declared_type(Some("double")), DeclaredType::Number);
+        assert_eq!(declared_type(Some("boolean")), DeclaredType::Boolean);
+        assert_eq!(declared_type(Some("bool")), DeclaredType::Boolean);
+    }
+
     // ── The hub side: JSON bodies, credentialed paths, instanced children ──
     //
     // A miniature hub, so these exercise the rules rather than one catalogue
@@ -830,6 +1192,20 @@ commands:
       wantkey: true
     parameters:
       devicetype: { type: "string", required: true }
+  move_cover:
+    description: "Arguments typed in the BLE vocabulary — the ratgdo/ESPHome
+      and Frigidaire shapes."
+    transport: "http"
+    method: "POST"
+    path: "/cover/set"
+    arguments:
+      position: "{position}"
+      level: "{level}"
+      lit: "{lit}"
+    parameters:
+      position: { type: "float", required: true }
+      level: { type: "uint8", required: true }
+      lit: { type: "bool", required: true }
 http_endpoints:
   - method: "GET"
     path: "/api/{token}/things"
@@ -938,6 +1314,20 @@ entities:
             request.body,
             r#"{"devicetype":"opengreeniot#hub","wantkey":true}"#
         );
+    }
+
+    #[test]
+    fn arguments_typed_in_the_ble_vocabulary_render_as_numbers() {
+        // `float`, `uint8` and `bool` are what the catalogue's network specs
+        // actually write; each used to fall through to the string arm and
+        // render quoted, which the endpoints ignore.
+        let request = render_request(
+            &hub(),
+            "move_cover",
+            &values(&[("position", "42.5"), ("level", "7"), ("lit", "true")]),
+        )
+        .unwrap();
+        assert_eq!(request.body, r#"{"position":42.5,"level":7,"lit":true}"#);
     }
 
     #[test]

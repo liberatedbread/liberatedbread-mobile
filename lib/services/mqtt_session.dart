@@ -237,6 +237,16 @@ class MqttSession {
   Timer? _ping;
   final _buffer = <int>[];
 
+  /// Whether the last PINGREQ is still unanswered. Set when one is written,
+  /// cleared by ANY packet from the broker (anything arriving proves the
+  /// link, and a busy broker's PUBLISHes may well beat its PINGRESP), and
+  /// read by the next tick: a ping unanswered for a whole keepalive period
+  /// is the only sign of a half-open link — a phone that walked out of
+  /// Wi-Fi range, a robot that lost power without sending FIN — that the OS
+  /// will not report for minutes. Until then the writes just buffer,
+  /// [isConnected] stays true, and every press "succeeds" into the void.
+  bool _pingOutstanding = false;
+
   /// Bumped every time the session is torn down, so a chunk decode suspended
   /// across an `await` can tell it belongs to a session that has since closed
   /// (or been reopened) and bail before it touches the shared buffer. Without
@@ -349,17 +359,43 @@ class MqttSession {
       rethrow;
     }
 
+    // The CONNACK can be the broker's last word: a hang-up right behind it
+    // fails the session — close() nulls the socket — in the same turn that
+    // completed the ack, before this method resumes. Installing the
+    // keepalive then would orphan a timer close() has already run past, and
+    // returning normally would hand the caller a session that is already
+    // gone: its very next subscribe would throw a raw hang-up outside the
+    // translating catch its connect sat in. Identity, not null, for the
+    // reason the ping callback gives below.
+    if (!identical(_socket, socket)) {
+      throw onHangUp?.call() ??
+          const MqttConnectionException('The device closed the connection.');
+    }
+
     Log.hub.debug('$_label: login acknowledged');
 
+    _pingOutstanding = false;
+    // Never two timers on one session: a previous one would keep firing
+    // against the socket it can no longer tell from the current one.
+    _ping?.cancel();
     _ping = Timer.periodic(pingInterval, (_) async {
       final open = _socket;
       if (open == null) return;
+      if (_pingOutstanding) {
+        // See [_pingOutstanding]. Failing the session is what makes the
+        // next send REOPEN (_fail's close() nulls the socket) instead of
+        // publishing into a corpse for as long as the OS takes to notice.
+        _fail(const MqttConnectionException(
+            'The device stopped answering keepalives.'));
+        return;
+      }
       final packet = await _codec.mqttPingreqPacket();
       // Re-check across the await, and check IDENTITY rather than null:
       // close() can land in that window, and a later connect() can even have
       // put a new socket in place. Writing to the old one throws inside a
       // timer callback, where nothing is waiting to catch it.
       if (!identical(_socket, open)) return;
+      _pingOutstanding = true;
       open.add(packet);
     });
   }
@@ -426,6 +462,9 @@ class MqttSession {
     if (generation != _generation) return;
     _buffer.removeRange(0, parsed.consumed);
 
+    // Any complete packet answers the keepalive — PINGRESP included, which
+    // is otherwise the `default` below.
+    if (parsed.packets.isNotEmpty) _pingOutstanding = false;
     for (final packet in parsed.packets) {
       switch (packet.kind) {
         case 'connack':

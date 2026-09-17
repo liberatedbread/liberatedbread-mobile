@@ -6,6 +6,7 @@
 // and where the key lands. Driven against a scripted link — no radio, no
 // codec native library (the fake codec renders the real cleartext envelopes).
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +26,14 @@ class _FakeLink implements RabbitAirBleLink {
   int emptyNetworkPolls = 0;
   bool refuseCmd5 = false;
 
+  /// The leave-setup ack never arrives: cmd 2 fails the way the client's
+  /// response window does when the indication is lost.
+  bool failCmd2 = false;
+
+  /// When set, cmd 2 is held open on this completer — [disconnect] fails it
+  /// the way [RabbitAirBleClient.disconnect] fails an exchange in flight.
+  Completer<List<int>>? holdCmd2;
+
   final sent = <Map<String, Object?>>[];
   int connects = 0;
   int disconnects = 0;
@@ -43,6 +52,11 @@ class _FakeLink implements RabbitAirBleLink {
   @override
   Future<void> disconnect() async {
     disconnects++;
+    final held = holdCmd2;
+    if (held != null && !held.isCompleted) {
+      held.completeError(
+          const RabbitAirBleException('disconnected mid-exchange'));
+    }
   }
 
   @override
@@ -76,6 +90,12 @@ class _FakeLink implements RabbitAirBleLink {
         if (refuseCmd5) return _json({'id': id, 'error': 3});
         return _json({'id': id});
       case 2:
+        if (failCmd2) {
+          throw const RabbitAirBleException(
+              'the purifier did not answer within 7s');
+        }
+        final held = holdCmd2;
+        if (held != null) return held.future;
         return _json({'id': id});
     }
     throw StateError('unexpected command ${request['cmd']}');
@@ -196,6 +216,49 @@ void main() {
     expect(store.values, isEmpty);
     // And the purifier was never told to leave setup mode.
     expect(link.cmds, isNot(contains(2)));
+  });
+
+  /// Once cmd 5 is acknowledged the purifier REQUIRES the key, and the key
+  /// exists nowhere but in this join. It must be on disk before cmd 2 goes
+  /// out: with the old order a lost leave-setup ack left a unit that had left
+  /// setup mode with a key nobody stored — a factory reset to recover.
+  test('the key is stored before leaving setup, so a lost cmd 2 ack keeps it',
+      () async {
+    setUpService();
+    link.failCmd2 = true;
+
+    await service.begin('01');
+    await service.join(ssid: 'Cottage', passphrase: 'hunter2', security: 3);
+
+    expect(service.state.step, RabbitAirProvisionStep.failed);
+    expect(states.map((s) => s.step), contains(RabbitAirProvisionStep.leaving),
+        reason: 'the failure is reported at the step that failed');
+    expect(link.cmds, contains(5), reason: 'the purifier holds the key');
+    expect(
+        await RabbitAirKeyStore(store).userKey('abcdef1234_000000000000000000'),
+        isNotNull,
+        reason: 'the key the purifier now requires must not be lost with it');
+  });
+
+  /// The setup screen's dispose drops the link (cancelLink) — backing out
+  /// during "leaving" fails the exchange in flight exactly like a lost ack.
+  test('backing out while leaving setup still leaves the key stored', () async {
+    setUpService();
+    link.holdCmd2 = Completer<List<int>>();
+
+    await service.begin('01');
+    final joining =
+        service.join(ssid: 'Cottage', passphrase: 'hunter2', security: 3);
+    await pumpEventQueue();
+    expect(link.cmds, contains(2), reason: 'held at the leave-setup step');
+
+    await service.cancelLink();
+    await joining;
+
+    expect(service.state.step, RabbitAirProvisionStep.failed);
+    expect(
+        await RabbitAirKeyStore(store).userKey('abcdef1234_000000000000000000'),
+        isNotNull);
   });
 
   test('an unconfirmed join still ends done, verified false', () async {

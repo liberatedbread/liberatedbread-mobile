@@ -151,8 +151,15 @@ pub fn render_state_request(
 /// `json_escape` touches and used to render as a perfectly valid document
 /// carrying an injected command. It now dies as ParameterInvalid, by name.
 ///
-/// `pub(crate)` because Rabbit Air's envelope bodies carry the same `{name}`
-/// placeholders with the same semantics — one substitution rule, one home.
+/// Which parameters are "numeric or boolean" is the HTTP renderer's
+/// `declared_type`, not a match on the three JSON names: the catalogue declares
+/// its types in the BLE vocabulary as readily (WLED's `bri` is a `uint8`),
+/// and a `uint8` that fell through to the string arm was the injection case
+/// above with the guard switched off.
+///
+/// `pub(crate)` because Rabbit Air's envelope bodies and the HTTP transport's
+/// literal JSON bodies carry the same `{name}` placeholders with the same
+/// semantics — one substitution rule, one home.
 pub(crate) fn substitute(
     template: &str,
     command: &SpecCommand,
@@ -164,12 +171,12 @@ pub(crate) fn substitute(
         let placeholder = format!("{{{name}}}");
         if out.contains(&placeholder) {
             let value = resolve_param(command, command_name, name, values)?;
-            let rendered = match parameter.value_type.as_deref() {
-                Some("integer") | Some("number") | Some("boolean") => {
-                    crate::protocol::http::typed_json(Some(parameter), name, &value)?.to_string()
-                }
-                _ => json_escape(&value),
-            };
+            let rendered =
+                match crate::protocol::http::declared_type(parameter.value_type.as_deref()) {
+                    crate::protocol::http::DeclaredType::String => json_escape(&value),
+                    _ => crate::protocol::http::typed_json(Some(parameter), name, &value)?
+                        .to_string(),
+                };
             out = out.replace(&placeholder, &rendered);
         }
     }
@@ -303,6 +310,14 @@ commands:
       brightness:
         type: "integer"
         required: true
+  set_brightness_u8:
+    description: "The same numeric slot, typed in the BLE vocabulary."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"brightness":{brightness}}}}'
+    parameters:
+      brightness:
+        type: "uint8"
+        required: true
   over_soap:
     description: "A transport this module does not speak."
     transport: "soap"
@@ -420,6 +435,45 @@ entities:
         .unwrap_err();
         assert!(
             matches!(&err, ProtocolError::ParameterInvalid { name, .. } if name == "brightness"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn a_ble_vocabulary_numeric_placeholder_is_validated_not_escaped() {
+        // `uint8` used to miss the numeric match and fall through to
+        // `json_escape`, which leaves `{ } , :` alone — the injection above
+        // with the guard switched off. The declared type must still guard.
+        let request = render_request(
+            &spec(),
+            "set_brightness_u8",
+            &values(&[("brightness", "50")]),
+        )
+        .expect("renders");
+        assert!(
+            request.json.contains(r#""brightness":50"#),
+            "{}",
+            request.json
+        );
+        let err = render_request(
+            &spec(),
+            "set_brightness_u8",
+            &values(&[("brightness", r#"1},"system":{"reboot":{}"#)]),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::ParameterInvalid { name, .. } if name == "brightness"),
+            "unexpected error: {err}"
+        );
+        // And the width is the type's own meaning: 256 is not a uint8.
+        let err = render_request(
+            &spec(),
+            "set_brightness_u8",
+            &values(&[("brightness", "256")]),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::ParameterOutOfRange { name, .. } if name == "brightness"),
             "unexpected error: {err}"
         );
     }

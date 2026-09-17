@@ -106,6 +106,12 @@ class Ecp2Session {
   var _nextId = 0;
   var _closed = false;
 
+  /// Whether the socket has gone under this session — the device dropped it
+  /// (a reboot, sleep, a Wi-Fi blip) or [close] ran. A closed session fails
+  /// every request at once, so a holder that sees this must reopen rather
+  /// than keep it.
+  bool get isClosed => _closed;
+
   /// Whether a text field is focused on the device right now — the signal that
   /// makes the on-screen keyboard usable. Fed by [queryTextEditFocused] and by
   /// the device's unsolicited `textedit` notices; broadcast so the screen can

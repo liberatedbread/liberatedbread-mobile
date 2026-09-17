@@ -215,6 +215,112 @@ void main() {
     expect(connects, 1, reason: 'unavailability is memoized');
   });
 
+  /// The keypress codec the ECP2 tests below share: real ECP paths, which the
+  /// session translates to its verbs.
+  FakeSpecCodec keypressCodec() => FakeSpecCodec()
+    ..networkHttpRequest = (name, values) => HttpRequestDto(
+          method: 'POST',
+          path:
+              name == 'press_power_off' ? '/keypress/PowerOff' : '/keypress/On',
+          body: '',
+        );
+
+  /// A Roku sender whose ECP2 connector hands out a fresh auto-answering
+  /// socket per connect (recorded in [sockets]) and whose plain path counts
+  /// its hits in [plainHits] — 403, as a Limited-mode set answers.
+  NetworkCommandSender rokuSender({
+    required List<AutoEcp2Socket> sockets,
+    required List<int> plainHits,
+    bool Function()? tvUp,
+  }) {
+    final ecpCodec = keypressCodec();
+    return NetworkCommandSender(
+      host: '192.0.2.9',
+      discoveredControlPort: 8060,
+      devicePort: null,
+      ssdpTargets: const ['roku:ecp'],
+      capabilities: rokuCapabilities,
+      specYaml: 'yaml',
+      codec: ecpCodec,
+      http: HttpControlClient(httpClient: MockClient((request) async {
+        plainHits.add(403);
+        return http.Response('denied', 403);
+      })),
+      soap: SoapControlClient(
+          httpClient: MockClient((request) async =>
+              fail('no SOAP exchange belongs in this test'))),
+      kasa: KasaControlClient(ecpCodec),
+      rabbitAir: RabbitAirControlClient(ecpCodec),
+      ecp2: Ecp2ControlService(connector: (host, port) async {
+        if (tvUp != null && !tvUp()) {
+          throw const Ecp2Exception(
+              'the device sent no authenticate challenge');
+        }
+        final socket = AutoEcp2Socket();
+        sockets.add(socket);
+        socket.begin();
+        return socket;
+      }),
+    );
+  }
+
+  /// The TV reboots, sleeps or the Wi-Fi blips: its WebSocket closes and the
+  /// session marks itself dead. Serving that session anyway sent every later
+  /// press down the plain path, which a Limited-mode set refuses — the set
+  /// was uncontrollable until the screen was closed and reopened.
+  test('a session the device dropped is reopened on the next send', () async {
+    final sockets = <AutoEcp2Socket>[];
+    final plainHits = <int>[];
+    final s = rokuSender(sockets: sockets, plainHits: plainHits);
+    addTearDown(s.close);
+
+    await s.sendAction(action('turn_off', 'press_power_off'), {});
+    expect(sockets, hasLength(1));
+
+    // The device's end goes away.
+    await sockets.single.close();
+    await pumpEventQueue();
+
+    await s.sendAction(action('turn_on', 'press_power_on'), {});
+    expect(sockets, hasLength(2),
+        reason: 'the dead session is replaced, not served');
+    expect(sockets.last.sent.map((f) => f['request']), contains('key-press'),
+        reason: 'the press rode the fresh session');
+    expect(plainHits, isEmpty,
+        reason: 'a Limited-mode set never sees the plain fallback');
+  });
+
+  /// A device that authenticated once speaks ECP2. Failing to open the
+  /// REPLACEMENT — the TV is still rebooting — must not latch "no ECP2
+  /// here", or the set is back on the permanent fallback the reopen ends.
+  test('a proven device\'s failed reopen is retried, not latched', () async {
+    final sockets = <AutoEcp2Socket>[];
+    final plainHits = <int>[];
+    var tvUp = true;
+    final s =
+        rokuSender(sockets: sockets, plainHits: plainHits, tvUp: () => tvUp);
+    addTearDown(s.close);
+
+    await s.sendAction(action('turn_off', 'press_power_off'), {});
+    await sockets.single.close();
+    await pumpEventQueue();
+
+    // Still rebooting: the reopen fails and THIS press falls back (and is
+    // refused, honestly).
+    tvUp = false;
+    await expectLater(
+      s.sendAction(action('turn_on', 'press_power_on'), {}),
+      throwsA(isA<ControlRefusedException>()),
+    );
+    expect(plainHits, hasLength(1));
+
+    // Back up: the next press reconnects instead of staying on the fallback.
+    tvUp = true;
+    await s.sendAction(action('turn_on', 'press_power_on'), {});
+    expect(sockets, hasLength(2), reason: 'reopened once the set was back');
+    expect(plainHits, hasLength(1), reason: 'no further fallback');
+  });
+
   test('a device that advertised no control port fails the http send visibly',
       () async {
     final s = sender(

@@ -224,17 +224,25 @@ class RabbitAirProvisionService {
       }
       await _exchange(5, {'type': 4, 'value': key});
 
-      emit(_state.copyWith(step: RabbitAirProvisionStep.leaving));
-      await _exchange(2);
-
-      // The key is the whole point of the exercise: file it where the LAN
-      // control path looks — under the mDNS hostname, which is the Thing ID
-      // when the vendor cloud flow ran, and RabbitAir-<WIFI MAC>.local when
-      // it did not (hardware-verified). A purifier that answered cmd 255
-      // with neither name nor mac falls back to the BLE identity, which
-      // strands the key from LAN use but keeps BLE control working.
+      // The key is the whole point of the exercise, and from this moment the
+      // purifier REQUIRES it — so it is filed now, before the unit is told to
+      // leave setup mode, not after. The key exists nowhere but this local:
+      // when the leave-setup ack's indication was lost (the link drops as the
+      // unit joins Wi-Fi), the screen backed out mid-join (its dispose drops
+      // the link, which fails the exchange), or the app was killed in
+      // between, the old order left a unit that had left setup mode with a
+      // key nobody stored — recoverable only by a factory reset. Filed where
+      // the LAN control path looks: under the mDNS hostname, which is the
+      // Thing ID when the vendor cloud flow ran, and RabbitAir-<WIFI
+      // MAC>.local when it did not (hardware-verified). A purifier that
+      // answered cmd 255 with neither name nor mac falls back to the BLE
+      // identity, which strands the key from LAN use but keeps BLE control
+      // working.
       final scope = _thingId ?? _fallbackHostname ?? 'ble-$_deviceId';
       await keyStore.saveUserKey(scope, key);
+
+      emit(_state.copyWith(step: RabbitAirProvisionStep.leaving));
+      await _exchange(2);
 
       var verified = false;
       final verifier = _verifier;

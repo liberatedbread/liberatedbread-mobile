@@ -14,6 +14,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/mqtt_session.dart';
 
@@ -41,6 +42,19 @@ class _ScriptedBroker implements MqttSocket {
 
   Future<void> hangUp() async {
     if (!_out.isClosed) await _out.close();
+  }
+}
+
+/// A live broker: answers every PINGREQ with a PINGRESP, as the protocol
+/// requires. The plain [_ScriptedBroker] swallows them — which is exactly
+/// what a half-open TCP link looks like from this side.
+class _PingingBroker extends _ScriptedBroker {
+  @override
+  void add(List<int> bytes) {
+    super.add(bytes);
+    if (bytes.isNotEmpty && bytes.first == 0xC0 && !_out.isClosed) {
+      scheduleMicrotask(() => send([0xD0, 0x00]));
+    }
   }
 }
 
@@ -300,6 +314,102 @@ void main() {
     expect(session.isConnected, isFalse);
     expect(errors, hasLength(1),
         reason: 'aftermath chunks must not re-report the failure');
+  });
+
+  /// A half-open link — the phone walked out of Wi-Fi range, the robot lost
+  /// power without sending FIN — never errors the socket: writes buffer,
+  /// isConnected stays true, and every press "succeeds" silently for as long
+  /// as the OS takes to give up. The keepalive is the only thing that can
+  /// notice, and it used to write PINGREQs without ever checking for the
+  /// answer.
+  group('keepalive', () {
+    MqttSession sessionOn(_ScriptedBroker broker) => MqttSession(
+          codec: codec,
+          connect: (host, port, timeout) async {
+            scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+            return broker;
+          },
+        );
+
+    test(
+        'a PINGREQ the broker never answers fails the session within one '
+        'keepalive period', () {
+      fakeAsync((async) {
+        final broker = _ScriptedBroker();
+        final session = sessionOn(broker);
+        unawaited(session.connect('10.0.0.5', 1883, clientId: 'c'));
+        async.flushMicrotasks();
+        expect(session.isConnected, isTrue);
+        final errors = <Object>[];
+        session.messages.listen((_) {}, onError: errors.add);
+
+        async.elapse(MqttSession.pingInterval);
+        expect(broker.written.last, [0xC0, 0x00],
+            reason: 'the first ping goes out on schedule');
+        expect(session.isConnected, isTrue,
+            reason: 'one ping in flight is not yet a verdict');
+
+        async.elapse(MqttSession.pingInterval);
+        expect(session.isConnected, isFalse,
+            reason: 'a ping unanswered for a whole period is a dead link, '
+                'and the next send must reopen rather than buffer');
+        expect(
+          errors.single,
+          isA<MqttConnectionException>()
+              .having((e) => e.message, 'message', contains('keepalive')),
+        );
+        expect(broker.closed, isTrue);
+
+        unawaited(session.dispose());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('a broker that answers its pings keeps the session up', () {
+      fakeAsync((async) {
+        final broker = _PingingBroker();
+        final session = sessionOn(broker);
+        unawaited(session.connect('10.0.0.5', 1883, clientId: 'c'));
+        async.flushMicrotasks();
+        final errors = <Object>[];
+        session.messages.listen((_) {}, onError: errors.add);
+
+        async.elapse(MqttSession.pingInterval * 4);
+
+        expect(broker.written.where((p) => p.first == 0xC0), hasLength(4),
+            reason: 'every period pinged — none skipped for a false verdict');
+        expect(session.isConnected, isTrue);
+        expect(errors, isEmpty);
+
+        unawaited(session.dispose());
+        async.flushMicrotasks();
+      });
+    });
+
+    /// PINGRESP is not the only proof of life: a busy broker's PUBLISHes may
+    /// well beat it, and a link that is delivering data is not half-open.
+    test('any packet from the broker answers the keepalive', () {
+      fakeAsync((async) {
+        final broker = _ScriptedBroker();
+        final session = sessionOn(broker);
+        unawaited(session.connect('10.0.0.5', 1883, clientId: 'c'));
+        async.flushMicrotasks();
+        final errors = <Object>[];
+        session.messages.listen((_) {}, onError: errors.add);
+
+        async.elapse(MqttSession.pingInterval);
+        // A PUBLISH instead of the PINGRESP.
+        broker.send([0x30, 0x05, 0x00, 0x01, 0x74, 0x7B, 0x7D]);
+        async.flushMicrotasks();
+        async.elapse(MqttSession.pingInterval);
+
+        expect(session.isConnected, isTrue);
+        expect(errors, isEmpty);
+
+        unawaited(session.dispose());
+        async.flushMicrotasks();
+      });
+    });
   });
 
   /// A wedged peer with a zero receive window never drains a flush. close()

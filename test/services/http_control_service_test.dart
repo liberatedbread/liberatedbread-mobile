@@ -205,6 +205,45 @@ void main() {
         const ControlUnreachableException().message, contains('not reachable'));
   });
 
+  test('a body travels under the content type it is written in', () async {
+    // package:http defaults a string body to text/plain. The Rust renderer
+    // now fills literal `body:` templates (JSON for WLED and Valetudo, XML
+    // for Bose SoundTouch), and those endpoints are entitled to refuse a
+    // body mislabelled as plain text. The empty-bodied ECP commands keep
+    // sending no header at all.
+    final seen = <http.Request>[];
+    final client = HttpControlClient(
+      httpClient: MockClient((request) async {
+        seen.add(request);
+        return http.Response('', 200);
+      }),
+    );
+
+    await client.send(
+        '10.0.0.9',
+        80,
+        const HttpRequestDto(
+            method: 'POST', path: '/json/state', body: '{"on": true}'));
+    await client.send(
+        '10.0.0.9',
+        8090,
+        const HttpRequestDto(
+            method: 'POST',
+            path: '/key',
+            body: '<key state="press">POWER</key>'));
+    await client.send('10.0.0.9', 8060,
+        const HttpRequestDto(method: 'POST', path: '/keypress/Home', body: ''));
+
+    expect(seen[0].headers['content-type'], 'application/json; charset=utf-8');
+    expect(seen[1].headers['content-type'], 'text/xml; charset=utf-8');
+    // package:http labels even an empty string body text/plain on its own;
+    // the point is that this transport adds nothing to that.
+    expect(seen[2].headers['content-type'] ?? '',
+        isNot(anyOf(contains('json'), contains('xml'))),
+        reason: 'an empty ECP body must not be labelled as either');
+    expect(contentTypeFor('   '), isNull);
+  });
+
   test('a PUT carries its body — the write method the climate specs declare',
       () async {
     // Rust's SENDABLE_METHODS admits PUT, so a spec's PUT command renders as

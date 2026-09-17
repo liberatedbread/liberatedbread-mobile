@@ -170,6 +170,28 @@ void main() {
     expect(ble.disconnectedIds, ['01']);
   });
 
+  /// RabbitAirBleControl forgets a FAILED attach and retries on the next
+  /// tap. That only works if the client forgets it too: with the device id
+  /// left claimed, the retry returned at once with no UUIDs and every send
+  /// after it threw a bare StateError until the panel was rebuilt.
+  test('a failed attach is forgotten, so the retry attaches for real',
+      () async {
+    setUpClient();
+    // The first attempt: discovery handed over a device without the command
+    // characteristic (or the link dropped mid-discovery).
+    await expectLater(client.attach('01', services: const []),
+        throwsA(isA<RabbitAirBleException>()));
+    expect(ble.subscriptions, isEmpty);
+
+    await client.attach('01', services: const [_rabbitService]);
+    expect(ble.subscriptions, [_charUuid], reason: 'a real second attach');
+
+    final reply = client.sendCommand([1]);
+    await Future<void>.delayed(Duration.zero);
+    answer([7], 510);
+    expect(await reply, [7], reason: 'sends work over the retried attach');
+  });
+
   test(
       'attach borrows the caller\'s connection: disconnect releases only '
       'the subscription', () async {

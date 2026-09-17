@@ -130,6 +130,18 @@ impl<'a> IntoIterator for &'a DecodedValues {
 /// `parse_device_spec`, so a field slice shorter than the type's fixed width
 /// is reported as [`ProtocolError::BufferTooShort`] (with slice-relative
 /// `needed`/`got`) rather than panicking on the index below.
+///
+/// For `bytes` and `string` fields the declared `length` is a CEILING, not a
+/// size: the field is whatever the device sent between `offset` and the end
+/// of its reply, up to `length`. That is how the catalogue writes them — an
+/// Ember mug's name is `length: 16` and reads five bytes ("EMBER"), a MiFlora
+/// firmware string is `length: 8` at offset 2 of a 7-byte reply — and a
+/// device that answers with fewer bytes than the ceiling has not answered
+/// wrongly. Demanding the full extent turned every such read into
+/// `BufferTooShort`, and because [`decode_all_fields`] stops at the first
+/// error, it also blanked the fixed-width siblings that HAD decoded (the
+/// MiFlora's battery, its only battery source). A reply that ends before the
+/// field even starts is still too short: nothing of it was delivered.
 pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, ProtocolError> {
     let end = field
         .offset
@@ -138,12 +150,28 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
             offset: field.offset,
             length: field.length,
         })?;
-    if bytes.len() < end {
-        return Err(ProtocolError::BufferTooShort {
-            needed: end,
-            got: bytes.len(),
-        });
-    }
+    // Only the two sequence types take the ceiling reading. A `varint` also
+    // has no fixed width, but it is self-delimiting: cutting its slice at the
+    // buffer's end would turn a short read into "malformed varint", blaming
+    // the device's bytes for what was a short reply.
+    let variable_length = matches!(field.field_type, ValueType::Bytes | ValueType::String);
+    let end = if variable_length {
+        if bytes.len() < field.offset {
+            return Err(ProtocolError::BufferTooShort {
+                needed: field.offset,
+                got: bytes.len(),
+            });
+        }
+        end.min(bytes.len())
+    } else {
+        if bytes.len() < end {
+            return Err(ProtocolError::BufferTooShort {
+                needed: end,
+                got: bytes.len(),
+            });
+        }
+        end
+    };
 
     let slice = &bytes[field.offset..end];
 
@@ -471,7 +499,13 @@ pub fn encode_command_with_bytes(
     params: &HashMap<String, f64>,
     bytes_params: &HashMap<String, Vec<u8>>,
 ) -> Result<Vec<u8>, ProtocolError> {
-    if let Some(ref value) = command.value {
+    // A command declaring BOTH `value` and `template` is encoded from the
+    // template. `parse_device_spec` already drops the `value` of such a
+    // command, so a parsed spec never reaches this branch with both; the
+    // rule is restated here because this encoder is `pub` and a hand-built
+    // `Command` must send the same bytes a parsed one would. See
+    // `spec::parser::prefer_template_over_value` for why template wins.
+    if let (Some(value), None) = (&command.value, &command.template) {
         return pad_to_fixed_length(value.clone(), command);
     }
     if let Some(bytes) = command.payload_bytes() {
@@ -1293,6 +1327,117 @@ mod tests {
         );
     }
 
+    /// ember-mug's `Mug Name`: `length: 16`, and the hardware reads five
+    /// bytes. The sixteen is a ceiling, so the five are the value.
+    #[test]
+    fn decode_string_shorter_than_its_declared_length_is_the_bytes_sent() {
+        let field = FormatField {
+            offset: 0,
+            length: 16,
+            name: "name".into(),
+            field_type: ValueType::String,
+            ..Default::default()
+        };
+        assert_eq!(
+            decode_field(b"EMBER", &field).unwrap(),
+            DecodedValue::String("EMBER".into())
+        );
+    }
+
+    #[test]
+    fn decode_bytes_shorter_than_its_declared_length_is_the_bytes_sent() {
+        let field = FormatField {
+            offset: 1,
+            length: 8,
+            name: "payload".into(),
+            field_type: ValueType::Bytes,
+            ..Default::default()
+        };
+        assert_eq!(
+            decode_field(&[0x00, 0xDE, 0xAD], &field).unwrap(),
+            DecodedValue::Bytes(vec![0xDE, 0xAD])
+        );
+        // A reply that stops exactly where the field starts has sent an
+        // empty field, not a short one.
+        assert_eq!(
+            decode_field(&[0x00], &field).unwrap(),
+            DecodedValue::Bytes(vec![])
+        );
+    }
+
+    /// A reply that ends BEFORE a variable-length field starts is still too
+    /// short: the tolerance is for a short field, not an absent one.
+    #[test]
+    fn decode_variable_field_starting_past_the_buffer_is_too_short() {
+        let field = FormatField {
+            offset: 2,
+            length: 8,
+            name: "firmware_version".into(),
+            field_type: ValueType::String,
+            ..Default::default()
+        };
+        match decode_field(&[0x63], &field) {
+            Err(ProtocolError::BufferTooShort { needed, got }) => {
+                assert_eq!(needed, 2);
+                assert_eq!(got, 1);
+            }
+            other => panic!("expected BufferTooShort, got {other:?}"),
+        }
+    }
+
+    /// xiaomi-miflora 0x1a02: `battery` (uint8 at 0) beside
+    /// `firmware_version` (string, offset 2, length 8), and the device
+    /// answers with seven bytes. The string must come back as what was sent
+    /// AND the battery beside it must survive — before, the short string
+    /// aborted the whole decode and the app showed "could not read" for the
+    /// spec's only battery source.
+    #[test]
+    fn decode_all_fields_keeps_fixed_siblings_when_a_trailing_string_is_short() {
+        let fields = vec![
+            FormatField {
+                offset: 0,
+                length: 1,
+                name: "battery".into(),
+                field_type: ValueType::Uint8,
+                ..Default::default()
+            },
+            FormatField {
+                offset: 2,
+                length: 8,
+                name: "firmware_version".into(),
+                field_type: ValueType::String,
+                ..Default::default()
+            },
+        ];
+        let reply = [0x63, 0x27, b'3', b'.', b'2', b'.', b'2'];
+        let decoded = decode_all_fields(&reply, &fields).unwrap();
+        assert_eq!(decoded["battery"], DecodedValue::Uint(99));
+        assert_eq!(
+            decoded["firmware_version"],
+            DecodedValue::String("3.2.2".into())
+        );
+    }
+
+    /// The strict rule stays for fixed-width types: a short `uint16` is a
+    /// short read, not a smaller number.
+    #[test]
+    fn decode_fixed_width_field_short_of_its_extent_is_still_too_short() {
+        let field = FormatField {
+            offset: 1,
+            length: 2,
+            name: "raw".into(),
+            field_type: ValueType::Uint16,
+            ..Default::default()
+        };
+        match decode_field(&[0x00, 0x01], &field) {
+            Err(ProtocolError::BufferTooShort { needed, got }) => {
+                assert_eq!(needed, 3);
+                assert_eq!(got, 2);
+            }
+            other => panic!("expected BufferTooShort, got {other:?}"),
+        }
+    }
+
     #[test]
     fn decode_offset_overflow_returns_typed_error() {
         let field = FormatField {
@@ -1340,6 +1485,49 @@ mod tests {
         };
         let bytes = encode_command(&cmd, &HashMap::new()).unwrap();
         assert_eq!(bytes, vec![0x01, 0x01]);
+    }
+
+    /// xkglow-chrome's `set_rgb_color` shape: a `value` AND a `template`
+    /// with parameters. The parser strips such a `value`, but this encoder
+    /// is `pub`, so a hand-built command must make the same choice — the
+    /// template, filled from the caller's parameters — rather than sending
+    /// the fixed bytes and discarding the sliders' values.
+    #[test]
+    fn encode_prefers_template_when_a_command_declares_both() {
+        let mut cmd = Command {
+            description: "Set solid RGB colour for a zone".into(),
+            value: Some(vec![0x00, 0x00, 0x04, 0xFF, 0x00, 0x00]),
+            template: Some(vec![
+                TemplateElement::Byte(0x00),
+                TemplateElement::Param("zone".into()),
+                TemplateElement::Byte(0x04),
+                TemplateElement::Param("red".into()),
+                TemplateElement::Param("green".into()),
+                TemplateElement::Param("blue".into()),
+            ]),
+            parameters: None,
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: None,
+        };
+        cmd.parameters = Some(pset([
+            ("zone", param(ValueType::Uint8, None, None)),
+            ("red", param(ValueType::Uint8, None, None)),
+            ("green", param(ValueType::Uint8, None, None)),
+            ("blue", param(ValueType::Uint8, None, None)),
+        ]));
+        let params = HashMap::from([
+            ("zone".to_string(), 2.0),
+            ("red".to_string(), 0.0),
+            ("green".to_string(), 0x80 as f64),
+            ("blue".to_string(), 0xFF as f64),
+        ]);
+        let bytes = encode_command(&cmd, &params).unwrap();
+        assert_eq!(bytes, vec![0x00, 0x02, 0x04, 0x00, 0x80, 0xFF]);
     }
 
     /// A fixed-width frame goes out at its declared width, not the template's.

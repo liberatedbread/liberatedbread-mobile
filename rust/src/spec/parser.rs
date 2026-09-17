@@ -44,11 +44,58 @@ const MAX_FIELD_EXTENT: usize = 65_536;
 /// - An `auto` role must fit the parameter's declared `type` — a two-byte
 ///   `crc16_modbus` on a `uint8` would compute fine and then fail encoding
 ///   on every send, complaining about a value the author never wrote.
+///
+/// One normalisation runs alongside: a command declaring both `value` and
+/// `template` keeps the template and loses the value
+/// ([`prefer_template_over_value`]).
 pub fn parse_device_spec(yaml: &str) -> Result<DeviceSpec, SpecError> {
     let mut spec: DeviceSpec = serde_yaml::from_str(yaml)?;
     hoist_device_nested_capabilities(&mut spec);
+    prefer_template_over_value(&mut spec);
     validate_spec(&spec)?;
     Ok(spec)
+}
+
+/// Drop the `value` of any command that also declares a `template`.
+///
+/// The two are rival envelopes for the same bytes, and every consumer used
+/// to settle the rivalry on its own: the encoder sent `value`, the entity
+/// binder called the command fixed, and the DTO still listed the template's
+/// parameters — so the raw command browser drew zone/red/green/blue sliders
+/// for xkglow-chrome's `set_rgb_color` and Send wrote the fixed bytes
+/// (zone 0, pure red) whatever the user chose. Deciding it once, here, is
+/// what makes those consumers agree.
+///
+/// Template over value, and normalising rather than rejecting, because:
+/// - The template is the fuller statement. It says what varies and how,
+///   and the parameters beside it are the author's promise that a user can
+///   choose those bytes. A `value` beside it can only ever be one filling
+///   of the template — xkglow's is exactly the template with zone 0 and
+///   red 255 — so nothing the author wrote is lost.
+/// - Rejecting would cost the whole spec for one redundant line. The
+///   catalogue is vendored unmodified and the Dart loader skips an
+///   unparseable spec, so a load-time error here is a missing device, not
+///   a corrected one. The remaining damage — the light entity's `turn_on`
+///   role, which the fixed bytes used to serve, now needs a parameter the
+///   spec gives no default for and stops resolving — is the honest reading
+///   of that spec, and the upstream fix (a separate fixed `turn_on`, a
+///   `default` on `zone`) is filed in SPECS_TO_FIX.md.
+///
+/// `codec::types::encode_command_with_bytes` restates the same preference
+/// for a hand-built `Command`, so the two cannot drift.
+fn prefer_template_over_value(spec: &mut DeviceSpec) {
+    for service in &mut spec.services {
+        for characteristic in &mut service.characteristics {
+            let Some(commands) = &mut characteristic.commands else {
+                continue;
+            };
+            for command in commands.values_mut() {
+                if command.template.is_some() {
+                    command.value = None;
+                }
+            }
+        }
+    }
 }
 
 /// Read `features` and `protocol_handler` from under `device:` when the top
@@ -1436,6 +1483,66 @@ services:
         let spec =
             parse_device_spec(&yaml).expect("a descriptive key here must not fail the parse");
         assert_eq!(spec.device.name, "x");
+    }
+
+    /// xkglow-chrome's `set_rgb_color` declares a fixed `value` AND a
+    /// parameterised `template`. The template wins at load time, so every
+    /// consumer downstream sees one parameterised command: the encoder
+    /// fills it from the caller's values instead of writing the fixed
+    /// bytes, and nothing calls it fixed.
+    #[test]
+    fn template_wins_when_a_command_declares_both_value_and_template() {
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_rgb_color:
+            description: Set solid RGB colour for a zone
+            value: [0x00, 0x00, 0x04, 0xFF, 0x00, 0x00]
+            template: [0x00, "{zone}", 0x04, "{red}", "{green}", "{blue}"]
+            parameters:
+              zone: { type: uint8, min: 0, max: 255 }
+              red: { type: uint8, min: 0, max: 255 }
+              green: { type: uint8, min: 0, max: 255 }
+              blue: { type: uint8, min: 0, max: 255 }"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("both envelopes must still load");
+        let cmd = spec.services[0].characteristics[0]
+            .commands
+            .as_ref()
+            .unwrap()
+            .get("set_rgb_color")
+            .unwrap();
+        assert!(cmd.value.is_none(), "the fixed value must be dropped");
+        assert!(cmd.template.is_some());
+
+        let params = HashMap::from([
+            ("zone".to_string(), 1.0),
+            ("red".to_string(), 10.0),
+            ("green".to_string(), 20.0),
+            ("blue".to_string(), 30.0),
+        ]);
+        assert_eq!(
+            encode_command(cmd, &params).unwrap(),
+            vec![0x00, 0x01, 0x04, 10, 20, 30]
+        );
+    }
+
+    /// The normalisation is scoped to the conflict: a plain fixed command
+    /// keeps its `value`, a plain templated one is untouched.
+    #[test]
+    fn a_lone_value_or_template_is_left_alone() {
+        let spec = parse_device_spec(EXAMPLE_BULB_YAML).unwrap();
+        let commands = spec.services[0].characteristics[0]
+            .commands
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            commands.get("power_on").unwrap().value,
+            Some(vec![0x01, 0x01])
+        );
+        let dim = commands.get("set_brightness").unwrap();
+        assert!(dim.value.is_none());
+        assert!(dim.template.is_some());
     }
 
     #[test]

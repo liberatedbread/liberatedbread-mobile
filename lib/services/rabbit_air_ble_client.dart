@@ -101,8 +101,12 @@ class RabbitAirBleClient implements RabbitAirBleLink {
     try {
       await attach(deviceId);
     } catch (_) {
-      // A half-attached client must not keep the link it opened.
-      await disconnect();
+      // A half-attached client must not keep the link it opened. attach()
+      // has already forgotten the device (so the next attempt is a real
+      // retry), which means disconnect() no longer knows which link this
+      // was — drop it here, by the id this method still holds.
+      _ownsConnection = false;
+      await _ble.disconnect(deviceId).catchError((_) {});
       rethrow;
     }
   }
@@ -119,36 +123,54 @@ class RabbitAirBleClient implements RabbitAirBleLink {
     if (_deviceId == deviceId) return;
     _deviceId = deviceId;
 
-    // The MTU the link actually carries, minus the 5 bytes of ATT overhead
-    // the codec prices in. The BleService owns negotiation at connect (the
-    // platform may refuse the request or not support making one — Apple
-    // platforms negotiate on their own), so whatever it reports here is the
-    // truth to size for; a tiny or implausible report floors at the smallest
-    // chunk that still carries an ATT write, slow but correct.
-    final mtu = await _ble.mtu(deviceId).catchError((_) => 23);
-    _chunkSize = mtu - 5 >= 18 ? mtu - 5 : 18;
+    try {
+      // The MTU the link actually carries, minus the 5 bytes of ATT overhead
+      // the codec prices in. The BleService owns negotiation at connect (the
+      // platform may refuse the request or not support making one — Apple
+      // platforms negotiate on their own), so whatever it reports here is the
+      // truth to size for; a tiny or implausible report floors at the
+      // smallest chunk that still carries an ATT write, slow but correct.
+      final mtu = await _ble.mtu(deviceId).catchError((_) => 23);
+      _chunkSize = mtu - 5 >= 18 ? mtu - 5 : 18;
 
-    final serviceUuid = (await _codec.rabbitAirBleServiceUuid()).toLowerCase();
-    final charUuid =
-        (await _codec.rabbitAirBleCommandCharacteristicUuid()).toLowerCase();
-    final discovered = services ?? await _ble.discoverServices(deviceId);
-    for (final service in discovered) {
-      if (normalizeUuid(service.uuid) != normalizeUuid(serviceUuid)) continue;
-      for (final characteristic in service.characteristics) {
-        if (normalizeUuid(characteristic.uuid) == normalizeUuid(charUuid)) {
-          _serviceUuid = service.uuid;
-          _characteristicUuid = characteristic.uuid;
+      final serviceUuid =
+          (await _codec.rabbitAirBleServiceUuid()).toLowerCase();
+      final charUuid =
+          (await _codec.rabbitAirBleCommandCharacteristicUuid()).toLowerCase();
+      final discovered = services ?? await _ble.discoverServices(deviceId);
+      for (final service in discovered) {
+        if (normalizeUuid(service.uuid) != normalizeUuid(serviceUuid)) {
+          continue;
+        }
+        for (final characteristic in service.characteristics) {
+          if (normalizeUuid(characteristic.uuid) == normalizeUuid(charUuid)) {
+            _serviceUuid = service.uuid;
+            _characteristicUuid = characteristic.uuid;
+          }
         }
       }
+      if (_serviceUuid == null || _characteristicUuid == null) {
+        throw const RabbitAirBleException(
+            'the device does not offer the Rabbit Air command characteristic '
+            '— is it a Rabbit Air purifier?');
+      }
+      _notifySub = _ble
+          .subscribeCharacteristic(
+              deviceId, _serviceUuid!, _characteristicUuid!)
+          .listen(_enqueueChunk, onError: _failPending);
+    } catch (_) {
+      // A failed attach is forgotten entirely, or the guard above turns
+      // every later attempt into a no-op: the device id was claimed before
+      // the first await (so a concurrent attach cannot double-subscribe),
+      // and left claimed by a discovery that threw or a device without the
+      // characteristic, the BLE controls panel's retry on the next tap
+      // returned here at once with no UUIDs — and every send after it threw
+      // a bare StateError instead of asking the device again.
+      _deviceId = null;
+      _serviceUuid = null;
+      _characteristicUuid = null;
+      rethrow;
     }
-    if (_serviceUuid == null || _characteristicUuid == null) {
-      throw const RabbitAirBleException(
-          'the device does not offer the Rabbit Air command characteristic — '
-          'is it a Rabbit Air purifier?');
-    }
-    _notifySub = _ble
-        .subscribeCharacteristic(deviceId, _serviceUuid!, _characteristicUuid!)
-        .listen(_enqueueChunk, onError: _failPending);
   }
 
   @override

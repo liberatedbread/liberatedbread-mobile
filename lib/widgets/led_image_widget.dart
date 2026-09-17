@@ -1813,7 +1813,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    final width = painter.width.ceil().clamp(1, 4096);
+    // 2040 is the widest text layer the Daniao container can describe (its
+    // row stride is one byte); the Rust encoder refuses more with a typed
+    // error, so clamp here and the user sees a marquee, not an error.
+    final width = painter.width.ceil().clamp(1, 2040);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     canvas.drawRect(

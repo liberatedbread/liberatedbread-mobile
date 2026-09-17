@@ -54,6 +54,17 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   double? _assumed;
   List<DecodedValueDto>? _assumedBaseline;
 
+  /// The fan slider's position while a drag is in progress, cleared when the
+  /// gesture ends and the value is sent. Kept apart from [_assumed] because
+  /// [_buildCard] clears that whenever the live value's decode is not the
+  /// one it was set against — and during a drag it never is: the baseline is
+  /// only recorded at release. Routing the drag through [_assumed] meant
+  /// every `onChanged` was undone by the rebuild it triggered, so the thumb
+  /// sat pinned at the device's reported speed for the whole gesture and
+  /// only the release value went out. A live value never supersedes a drag
+  /// the user's finger is still on.
+  double? _dragging;
+
   EntityActionDto? _action(String role) =>
       widget.entity.actions.where((a) => a.role == role).firstOrNull;
 
@@ -290,7 +301,7 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
     final busy = _sendingRole != null;
     final min = percentage?.min ?? 0;
     final max = percentage?.max ?? 100;
-    final speed = _assumed ?? value?.decodedNumber;
+    final speed = _dragging ?? _assumed ?? value?.decodedNumber;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,11 +329,12 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
             value: (speed ?? min).clamp(min, max),
             min: min,
             max: max,
-            onChanged: busy ? null : (v) => setState(() => _assumed = v),
+            onChanged: busy ? null : (v) => setState(() => _dragging = v),
             onChangeEnd: busy
                 ? null
                 : (v) {
                     final param = percentage.userParams.firstOrNull;
+                    _dragging = null;
                     _assumedBaseline = value?.decoded;
                     unawaited(_send(percentage,
                         params: param == null

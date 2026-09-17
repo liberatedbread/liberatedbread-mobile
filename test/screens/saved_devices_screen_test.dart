@@ -6,10 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_group_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
+import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
 import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
+import '../fakes/in_memory_settings_store.dart';
 
 late SharedPreferences _prefs;
 
@@ -17,6 +19,10 @@ Widget _wrap() => ProviderScope(
       overrides: [
         bleServiceProvider.overrideWithValue(FakeBleService()),
         sharedPreferencesProvider.overrideWithValue(_prefs),
+        // Forget now clears the Roomba and Rabbit Air secrets too, and the
+        // real store behind them is the keychain plugin, whose platform
+        // channel never answers in a widget test — the forget would hang.
+        settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
       ],
       child: const MaterialApp(home: SavedDevicesScreen()),
     );
@@ -62,10 +68,48 @@ void main() {
 
     await tester.tap(find.byTooltip('Forget Probe One'));
     await tester.pumpAndSettle();
+    // Nothing happens until the dialog is answered.
+    expect(find.text('Forget Probe One?'), findsOneWidget);
+    expect(find.text('Removed Probe One'), findsNothing);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Forget'));
+    await tester.pumpAndSettle();
 
     expect(find.text('Probe One'), findsNothing);
     expect(find.text('Removed Probe One'), findsOneWidget);
     expect(find.text('No saved devices yet'), findsOneWidget);
+  });
+
+  testWidgets('a forget that is cancelled leaves the device and its groups',
+      (tester) async {
+    // Regression. The close icon used to act on the first tap: it sits on the
+    // trailing edge of a row whose whole surface is the reconnect target, and
+    // what it does (for a Wi-Fi device: the stored password, the certificate
+    // pin, the group memberships) has no undo. Every other destructive flow
+    // in the app confirms first; this one must too.
+    SharedPreferences.setMockInitialValues({
+      'saved_devices_v1':
+          '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
+      'device_groups_v1': '[{"id":"g1","name":"Room","deviceIds":["aa","bb"]}]',
+    });
+    _prefs = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(_wrap());
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(SavedDevicesScreen)),
+        listen: false);
+
+    await tester.tap(find.byTooltip('Forget Probe One'));
+    await tester.pumpAndSettle();
+    expect(find.text('Forget Probe One?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Probe One'), findsOneWidget);
+    expect(find.text('Removed Probe One'), findsNothing);
+    expect(container.read(deviceGroupsProvider).single.deviceIds, ['aa', 'bb']);
+    expect(container.read(savedDevicesProvider).map((d) => d.id), ['aa']);
   });
 
   testWidgets('a device saved without a name still has a title',
@@ -96,6 +140,8 @@ void main() {
         listen: false);
 
     await tester.tap(find.byTooltip('Forget Probe One'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Forget'));
     await tester.pumpAndSettle();
 
     expect(container.read(deviceGroupsProvider).single.deviceIds, ['bb']);

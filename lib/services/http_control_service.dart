@@ -192,15 +192,20 @@ class HttpControlClient {
           response = await client.get(uri).timeout(timeout);
         case 'POST':
           // ECP commands carry an empty body and no headers; a spec that
-          // declares a body gets it sent verbatim.
-          response =
-              await client.post(uri, body: request.body).timeout(timeout);
+          // declares a body gets it sent verbatim, labelled by what it is.
+          response = await client
+              .post(uri,
+                  body: request.body, headers: contentTypeFor(request.body))
+              .timeout(timeout);
         case 'PUT':
           // The body-carrying sibling of POST — the Hue bridge's whole write
           // surface, and the Frigidaires'. Rust's SENDABLE_METHODS names it,
           // so a spec's PUT command renders as a live control; this arm is
           // what makes the press actually go somewhere.
-          response = await client.put(uri, body: request.body).timeout(timeout);
+          response = await client
+              .put(uri,
+                  body: request.body, headers: contentTypeFor(request.body))
+              .timeout(timeout);
         default:
           throw HttpControlException(
               'unsupported method ${request.method} for $uri');
@@ -317,4 +322,20 @@ class ControlRefusedException implements UserFacingException {
       'The device refused the command. Look for a "control by mobile apps" '
       'or "network control" setting on the device itself and enable it, '
       'then try again.';
+}
+
+/// The Content-Type a rendered body should travel under, or none for an
+/// empty one.
+///
+/// package:http labels a string body `text/plain; charset=utf-8` unless told
+/// otherwise. WLED tolerates that; a Valetudo (JSON) or a Bose SoundTouch
+/// (XML) endpoint is entitled not to, and until the Rust renderer started
+/// filling literal `body:` templates nothing here ever sent one. The body's
+/// own first character says which of the two it is — the spec vocabulary has
+/// no third kind — and an empty body (Roku ECP, Kasa) keeps sending none.
+Map<String, String>? contentTypeFor(String body) {
+  final trimmed = body.trimLeft();
+  if (trimmed.isEmpty) return null;
+  final type = trimmed.startsWith('<') ? 'text/xml' : 'application/json';
+  return {'Content-Type': '$type; charset=utf-8'};
 }

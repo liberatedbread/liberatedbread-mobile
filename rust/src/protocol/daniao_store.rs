@@ -82,7 +82,9 @@ impl Scroll {
 #[derive(Debug, Clone)]
 pub struct StoredProgram<'a> {
     /// Display name stored on the device (the vendor truncates to 15 chars;
-    /// this does not, leaving policy to the caller/UI).
+    /// this does not, leaving policy to the caller/UI). It must still fit the
+    /// container's 256-byte header — [`MAX_NAME_BYTES`] — or the build fails
+    /// rather than corrupt the program.
     pub name: &'a str,
     /// The slot id to store under. Novel ids are accepted by hardware.
     pub cid: u32,
@@ -151,6 +153,31 @@ pub struct StoredAnimation<'a> {
 /// The largest palette the image layer's 4-bit indices can address.
 const MAX_PALETTE: usize = 16;
 
+/// The most bytes of `name` a "DN" container can carry.
+///
+/// The TinyProgram protobuf lives in the header between offset 10 and the
+/// base AMX at 256, and embeds the name twice (`name` and `description`), so
+/// each byte of name costs two of that 246-byte budget. The other fields cost
+/// at most 43 bytes at their widest varints, which leaves room for 101 — a
+/// name the device would only ever show 15 characters of anyway, so the round
+/// number under it is the limit. The bound is checked against the encoded
+/// program, not this constant; the constant is here so a caller can say the
+/// limit before asking, and a test pins that the two agree.
+pub const MAX_NAME_BYTES: usize = 100;
+
+/// Where the TinyProgram starts and must end within the 256-byte header.
+const TINY_PROGRAM_OFFSET: usize = 10;
+const HEADER_LEN: usize = 256;
+
+/// The widest 1-bit text layer `packageText`'s header can describe: its
+/// `bytes_per_row` is one byte, so 255 bytes of 8 pixels. Wider than the
+/// panel by design — that is what scrolls — but not unbounded.
+pub const MAX_TEXT_WIDTH: u32 = u8::MAX as u32 * 8;
+
+/// The tallest layer, text or image: the header's height (and the image
+/// layer's width) is a single byte.
+pub const MAX_LAYER_DIM: u32 = u8::MAX as u32;
+
 use crate::error::ProtocolError;
 
 /// Build the "DN" AMX container for a stored image microapp.
@@ -181,6 +208,20 @@ pub fn build_image_container(program: &StoredProgram<'_>) -> Result<Vec<u8>, Pro
                 img.width,
                 img.height,
                 img.rgb.len()
+            ),
+        });
+    }
+
+    // The image header writes width and height as one byte each and has no
+    // per-row stride to fall back on, so a canvas past 255 either way would
+    // wrap its dimension byte and decode as a different picture. The layer
+    // writes are infallible; the check lives here, before any of them.
+    if img.width > MAX_LAYER_DIM || img.height > MAX_LAYER_DIM {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!(
+                "{}x{} exceeds the {MAX_LAYER_DIM}-pixel width and height the \
+                 stored image header can describe",
+                img.width, img.height
             ),
         });
     }
@@ -248,6 +289,22 @@ pub fn build_text_container(program: &StoredText<'_>) -> Result<Vec<u8>, Protoco
                 t.width,
                 t.height,
                 t.bits.len()
+            ),
+        });
+    }
+    // `packageText` writes `bytes_per_row` as one byte and the device reads
+    // rows by it, so a marquee wider than 2040 px used to ship a stride of
+    // `ceil(w/8) mod 256` under a length that said otherwise — decoded as
+    // noise, with a valid CRC. The rasteriser's own clamp is 4096, so the
+    // bound is enforced here, where the layer format is known. The width byte
+    // itself wraps past 255 exactly as the vendor app's does for every marquee
+    // wider than the panel, which the device evidently tolerates.
+    if t.width > MAX_TEXT_WIDTH || t.height > MAX_LAYER_DIM {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!(
+                "{}x{} text bitmap exceeds the {MAX_TEXT_WIDTH}x{MAX_LAYER_DIM} \
+                 the stored text header can describe",
+                t.width, t.height
             ),
         });
     }
@@ -484,6 +541,25 @@ fn assemble_container(
     let total = cn * 4096;
 
     let tiny = encode_tiny_program(name, cid, frames, binsize as u32, datasize as u32);
+    // The header is a fixed 256 bytes and the base AMX is laid down right
+    // after it, so a TinyProgram that runs past 256 used to have its tail
+    // overwritten by the AMX — a program with a valid CRC over corrupt bytes,
+    // which the device refuses without saying why — and one longer than the
+    // whole buffer panicked on the slice, which crossed the FFI as a
+    // PanicException. The name is the only unbounded input, so it is the
+    // one the error names.
+    let budget = HEADER_LEN - TINY_PROGRAM_OFFSET;
+    if tiny.len() > budget {
+        return Err(ProtocolError::ParameterInvalid {
+            name: "name".to_string(),
+            value: name.len() as f64,
+            reason: format!(
+                "the stored name is {} bytes; the program header holds at most \
+                 {MAX_NAME_BYTES} (the device shows 15 characters)",
+                name.len()
+            ),
+        });
+    }
     let mut buf = vec![0u8; total];
     buf[0] = b'D';
     buf[1] = b'N';
@@ -492,9 +568,9 @@ fn assemble_container(
     buf[4..8].copy_from_slice(&cid.to_le_bytes());
     buf[8] = cn as u8;
     // buf[9] is the header CRC, filled after the body is laid down.
-    buf[10..10 + tiny.len()].copy_from_slice(&tiny);
+    buf[TINY_PROGRAM_OFFSET..TINY_PROGRAM_OFFSET + tiny.len()].copy_from_slice(&tiny);
 
-    let mut off = 256;
+    let mut off = HEADER_LEN;
     buf[off..off + binsize].copy_from_slice(BASE_AMX);
     off += binsize;
     buf[off..off + nn.len()].copy_from_slice(nn);
@@ -913,6 +989,125 @@ mod tests {
             timestamp: 0,
         })
         .is_err());
+    }
+
+    fn text_program<'a>(name: &'a str, width: u32, height: u32, bits: &'a [u8]) -> StoredText<'a> {
+        StoredText {
+            name,
+            cid: 900003,
+            time_secs: 8,
+            scroll: Scroll::Left,
+            speed: 4,
+            text: TextContent {
+                width,
+                height,
+                bits,
+            },
+        }
+    }
+
+    #[test]
+    fn a_name_the_header_cannot_hold_is_a_typed_error_not_a_corrupt_program() {
+        // 200 bytes of name is 400 bytes of TinyProgram: past the base AMX at
+        // offset 256. This used to build, with the AMX copy overwriting the
+        // protobuf's tail and the CRC sealing the damage.
+        let name = "n".repeat(200);
+        let bits = vec![1u8; 8];
+        let err = build_text_container(&text_program(&name, 8, 1, &bits)).unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::ParameterInvalid { name, .. } if name == "name"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn a_huge_name_is_a_typed_error_not_a_slice_panic() {
+        // Past the whole 4096-byte buffer: used to panic on the header slice,
+        // which crosses the FFI as a PanicException rather than an error.
+        let name = "n".repeat(5000);
+        let rgb = red_2x2();
+        let err = build_image_container(&StoredProgram {
+            name: &name,
+            cid: 1,
+            time_secs: 1,
+            scroll: Scroll::None,
+            speed: 1,
+            image: ImageLayer {
+                width: 2,
+                height: 2,
+                rgb: &rgb,
+            },
+        })
+        .unwrap_err();
+        assert!(matches!(&err, ProtocolError::ParameterInvalid { name, .. } if name == "name"));
+    }
+
+    #[test]
+    fn the_longest_allowed_name_fits_the_header_at_the_widest_varints() {
+        // The advertised limit must hold whatever the other fields cost, so
+        // encode with every varint at its widest.
+        let name = "n".repeat(MAX_NAME_BYTES);
+        let tiny = encode_tiny_program(&name, u32::MAX, u32::MAX, u32::MAX, u32::MAX);
+        assert!(
+            tiny.len() <= HEADER_LEN - TINY_PROGRAM_OFFSET,
+            "{} bytes of TinyProgram for a {MAX_NAME_BYTES}-byte name",
+            tiny.len()
+        );
+        // And a real build with that name leaves the base AMX where it goes.
+        let bits = vec![1u8; 8];
+        let buf = build_text_container(&text_program(&name, 8, 1, &bits)).unwrap();
+        assert_eq!(&buf[256..256 + BASE_AMX.len()], BASE_AMX);
+        assert_eq!(buf[9], crc8(&buf[10..]));
+    }
+
+    #[test]
+    fn the_widest_text_layer_a_row_stride_byte_can_describe_is_accepted() {
+        let bits = vec![1u8; MAX_TEXT_WIDTH as usize];
+        let buf = build_text_container(&text_program("wide", MAX_TEXT_WIDTH, 1, &bits)).unwrap();
+        // The text layer follows the base AMX and one 51-byte options record
+        // (10-byte block header); its stride byte must say 255 rows of 8.
+        let layer = 256 + BASE_AMX.len() + 10 + 51;
+        assert_eq!(buf[layer], 253);
+        assert_eq!(buf[layer + 7], 255, "bytes_per_row");
+    }
+
+    #[test]
+    fn a_text_layer_wider_than_the_stride_byte_is_rejected() {
+        // 2041 px is 256 bytes per row, which the header byte would write as
+        // 0: the device would read no bytes per row under a length that says
+        // otherwise, and the marquee decoded as noise under a valid CRC.
+        let width = MAX_TEXT_WIDTH + 1;
+        let bits = vec![1u8; width as usize];
+        let err = build_text_container(&text_program("wide", width, 1, &bits)).unwrap_err();
+        assert!(matches!(err, ProtocolError::ImageDimensionsInvalid { .. }));
+    }
+
+    #[test]
+    fn a_text_layer_taller_than_the_height_byte_is_rejected() {
+        let height = MAX_LAYER_DIM + 1;
+        let bits = vec![1u8; 8 * height as usize];
+        let err = build_text_container(&text_program("tall", 8, height, &bits)).unwrap_err();
+        assert!(matches!(err, ProtocolError::ImageDimensionsInvalid { .. }));
+    }
+
+    #[test]
+    fn an_image_wider_than_the_width_byte_is_rejected() {
+        let width = MAX_LAYER_DIM + 1;
+        let rgb = vec![0xFFu8; width as usize * 3];
+        let err = build_image_container(&StoredProgram {
+            name: "wide",
+            cid: 1,
+            time_secs: 1,
+            scroll: Scroll::None,
+            speed: 1,
+            image: ImageLayer {
+                width,
+                height: 1,
+                rgb: &rgb,
+            },
+        })
+        .unwrap_err();
+        assert!(matches!(err, ProtocolError::ImageDimensionsInvalid { .. }));
     }
 
     #[test]

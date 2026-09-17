@@ -609,3 +609,23 @@ in rust/tests/vendored_assets.rs — for every vendored spec, every http command
 with an `example_body` must render to it (with placeholder values from the
 spec's parameter examples) — so a mismatch fails CI rather than a user's TV.
 
+## App-side status of the verified items (2026-09-16)
+
+- **R-141 / R-214 (xkglow-chrome `set_rgb_color`)** — the app now lets
+  `template` win when a command declares both, so the zone/RGB sliders work.
+  Consequence: the light entity's `turn_on` role, which the fixed `value`
+  bytes used to serve, no longer resolves because `zone` has no default.
+  Upstream: delete `value:` from `set_rgb_color`, add `default: 0` to `zone`
+  (so `set_color` qualifies), add a separate fixed `turn_on` command for the
+  entity, and consider a schema rule that forbids `value` and `template` on
+  one command.
+- **R-211 (hisense-vidaa)** — its only identification axis is the shared
+  `MediaRenderer:1`, which the matcher now treats like a SIG-assigned UUID
+  (reported, never promoting), so the spec matches nothing on the network scan
+  until it names a vendor-specific axis: the manufacturer / modelDescription
+  descriptor narrowing its prose describes, or an mDNS type / TXT rule the
+  matcher executes.
+- **R-152 / R-153** — no spec change needed: the renderer now honours literal
+  `body:` templates and the BLE-vocabulary numeric type names (`uint8`,
+  `float`, ...) on http arguments.
+

@@ -18,12 +18,14 @@ import 'package:liberated_bread_mobile/providers/scan_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/device_group_store.dart';
 import 'package:liberated_bread_mobile/services/group_runner.dart';
+import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
 import 'package:liberated_bread_mobile/services/saved_device_store.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_spec_codec.dart';
+import '../fakes/in_memory_settings_store.dart';
 
 const _svc = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _chr = '0000fff1-0000-1000-8000-00805f9b34fb';
@@ -264,6 +266,29 @@ void main() {
       expect(calls, ['pruneDevice', 'remove']);
       expect(container.read(savedDevicesProvider), isEmpty);
       expect(container.read(deviceGroupsProvider).single.deviceIds, isEmpty);
+    });
+
+    /// A Rabbit Air driven over BLE files its AES user key under the BLE
+    /// identity, and nothing else ever clears that scope.
+    test('forgets the Rabbit Air key filed under the BLE scope', () async {
+      final container = await _container();
+      final savedNotifier = container.read(savedDevicesProvider.notifier);
+      await savedNotifier
+          .save(SavedDevice(id: 'AA:BB', name: 'Purifier', lastSeen: seen));
+      final settings = InMemorySettingsStore({
+        'rabbitair.ble-AA:BB.userkey': '0123456789abcdef0123456789abcdef',
+        'rabbitair.ble-CC:DD.userkey': 'ffffffffffffffffffffffffffffffff',
+      });
+
+      await forgetDevice(
+        savedDevices: savedNotifier,
+        groups: container.read(deviceGroupsProvider.notifier),
+        deviceId: 'AA:BB',
+        rabbitAir: RabbitAirKeyStore(settings),
+      );
+
+      expect(settings.values.keys, ['rabbitair.ble-CC:DD.userkey'],
+          reason: 'this purifier\'s key is gone; another\'s stays');
     });
   });
 

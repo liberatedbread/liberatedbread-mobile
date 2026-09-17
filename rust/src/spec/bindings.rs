@@ -2136,7 +2136,8 @@ entities:
 
     /// A fixed command can serve on/off but never a color role: user input
     /// cannot flow into fixed bytes (xkglow's `set_rgb_color` declares both
-    /// `value` and parameters; `value` wins at encode time).
+    /// `value` and parameters; the parser drops `value` when a `template` is
+    /// also declared, so the template wins — see `prefer_template_over_value`).
     #[test]
     fn fixed_command_serves_power_but_not_color() {
         let spec = spec_with(

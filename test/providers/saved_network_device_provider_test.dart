@@ -8,6 +8,8 @@ import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_network_device_provider.dart';
 import 'package:liberated_bread_mobile/services/device_credential_store.dart';
 import 'package:liberated_bread_mobile/services/device_group_store.dart';
+import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
+import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
 import 'package:liberated_bread_mobile/services/tls_trust.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -360,6 +362,95 @@ void main() {
     expect(await pins.pin(oldIdentity), isNull,
         reason: 'the orphaned old-host pin must be cleared, not left forever');
     expect(await credentials.credentials(oldIdentity), isEmpty);
+  });
+
+  /// The bespoke stores key by a device-issued id, outside the identity
+  /// sweep above — which is how Remove came to leave a robot's local password
+  /// and a purifier's AES key in the keychain while saying "Removed".
+  test('forgetting a Roomba clears the password filed under its blid',
+      () async {
+    final c = await container();
+    final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
+    final groups = c.read(deviceGroupsProvider.notifier);
+    final record = await savedNetwork.touch(NetworkDevice(
+      host: '192.168.1.30',
+      name: 'Roomba',
+      hostname: 'iRobot-ABC123.local',
+      txt: const {'blid': 'abc123'},
+      sources: const {NetworkDiscoverySource.lanProbe},
+      discoveredAt: DateTime.utc(2026),
+    ));
+
+    final settings = InMemorySettingsStore();
+    final roomba = RoombaCredentialStore(settings);
+    await settings.write('roomba.ABC123.password', 'local-password');
+    await settings.write('roomba.ABC123.name', 'Roomba');
+    // A neighbour's robot stays.
+    await settings.write('roomba.OTHER1.password', 'other');
+
+    await forgetNetworkDevice(
+      savedDevices: savedNetwork,
+      groups: groups,
+      deviceId: record.id,
+      trust: TlsTrust(CertificatePinStore(settings)),
+      credentials: DeviceCredentialStore(settings),
+      host: record.host,
+      roomba: roomba,
+      rabbitAir: RabbitAirKeyStore(settings),
+      blid: record.txt['blid'],
+      hostname: record.hostname,
+    );
+
+    expect(await roomba.credentials('abc123'), isNull,
+        reason: 'the local password is the secret Remove promised to drop');
+    expect(settings.values.keys, ['roomba.OTHER1.password']);
+  });
+
+  test('forgetting a Rabbit Air clears its user key under every scope',
+      () async {
+    final c = await container();
+    final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
+    final groups = c.read(deviceGroupsProvider.notifier);
+    const thingId = 'abcdef1234_000000000000000000';
+    final record = await savedNetwork.touch(NetworkDevice(
+      host: '192.168.1.31',
+      name: 'Rabbit Air',
+      hostname: '$thingId.local',
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    ));
+
+    final settings = InMemorySettingsStore();
+    final keys = RabbitAirKeyStore(settings);
+    // Every scope a key has been filed under in this app's life: the bare
+    // Thing ID (the provisioner), the mDNS hostname, the host (a record
+    // with no hostname), and the cloud-less fallback hostname.
+    for (final scope in [
+      thingId,
+      '$thingId.local',
+      '192.168.1.31',
+      'RabbitAir-A1B2C3D4E5F6.local',
+    ]) {
+      await keys.saveUserKey(scope, '0123456789abcdef0123456789abcdef');
+    }
+    await keys.saveUserKey(
+        'other-purifier', 'ffffffffffffffffffffffffffffffff');
+
+    await forgetNetworkDevice(
+      savedDevices: savedNetwork,
+      groups: groups,
+      deviceId: record.id,
+      trust: TlsTrust(CertificatePinStore(settings)),
+      credentials: DeviceCredentialStore(settings),
+      deviceMac: 'a1:b2:c3:d4:e5:f6',
+      host: record.host,
+      roomba: RoombaCredentialStore(settings),
+      rabbitAir: keys,
+      hostname: record.hostname,
+    );
+
+    expect(settings.values.keys, ['rabbitair.other-purifier.userkey'],
+        reason: 'every scope of this purifier is gone; the other one stays');
   });
 
   test('member id namespace round-trips and never collides with bare ids', () {

@@ -9,6 +9,7 @@ import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/device_group_provider.dart';
 import '../providers/network_control_provider.dart';
+import '../providers/roomba_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/saved_network_device_provider.dart';
 import '../services/number_registry.dart';
@@ -59,9 +60,50 @@ class SavedDevicesScreen extends ConsumerWidget {
     );
   }
 
+  /// Ask before forgetting. The close icon sits on the trailing edge of a
+  /// row whose whole surface is the reconnect tap target, so a thumb aimed
+  /// at the row lands on it easily — and what it does has no undo: a Wi-Fi
+  /// device's stored password, certificate pin and group memberships go with
+  /// the record, and getting them back means the device's own pairing dance
+  /// (a Roomba's Home button, a Hue bridge's link button). Every other
+  /// destructive flow in the app confirms first; this one was the exception.
+  ///
+  /// Returns false when the dialog was dismissed or cancelled.
+  Future<bool> _confirmForget(
+      BuildContext context, String name, String consequence) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Forget $name?'),
+        content: Text(consequence),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Forget'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
   Future<void> _forget(
       BuildContext context, WidgetRef ref, SavedDevice saved) async {
-    // Everything context- or ref-derived is resolved before the first await:
+    final confirmed = await _confirmForget(
+      context,
+      saved.name.isNotEmpty ? saved.name : 'Unknown device',
+      'It comes off this list and out of any groups it is in. Connect to it '
+      'again from the Nearby tab to bring it back.',
+    );
+    // The dialog is modal, so the screen is normally still here — but the
+    // dialog resolves null on a route pop too, and a context that is gone
+    // has no messenger to look up.
+    if (!confirmed || !context.mounted) return;
+    // Everything context- or ref-derived is resolved before the next await:
     // both lookups throw once this screen is disposed, and a forget should
     // finish even if the user navigates away mid-write.
     final messenger = ScaffoldMessenger.of(context);
@@ -71,6 +113,8 @@ class SavedDevicesScreen extends ConsumerWidget {
       savedDevices: savedDevices,
       groups: groups,
       deviceId: saved.id,
+      // A Rabbit Air set up over BLE files its key under the BLE scope.
+      rabbitAir: ref.read(rabbitAirKeyStoreProvider),
     );
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }
@@ -98,6 +142,14 @@ class SavedDevicesScreen extends ConsumerWidget {
 
   Future<void> _forgetNetwork(
       BuildContext context, WidgetRef ref, SavedNetworkDevice saved) async {
+    final confirmed = await _confirmForget(
+      context,
+      saved.name.isNotEmpty ? saved.name : 'Unknown device',
+      'This also removes its stored password and certificate from this '
+      'phone and takes it out of any groups it is in. Getting it back means '
+      'pairing with the device again.',
+    );
+    if (!confirmed || !context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     final savedDevices = ref.read(savedNetworkDevicesProvider.notifier);
     final groups = ref.read(deviceGroupsProvider.notifier);
@@ -112,6 +164,14 @@ class SavedDevicesScreen extends ConsumerWidget {
       // …and whatever its spec said it needed, for the same reason.
       credentials: ref.read(deviceCredentialStoreProvider),
       deviceMac: saved.toNetworkDevice().advertisedMac,
+      // The two secrets that are not "spec credentials": a Roomba's local
+      // password is filed under its blid, a Rabbit Air's key under the
+      // hostname it was provisioned as. Neither store had a caller here, so
+      // "forget" left both behind while telling the user it had not.
+      roomba: ref.read(roombaCredentialStoreProvider),
+      rabbitAir: ref.read(rabbitAirKeyStoreProvider),
+      blid: saved.txt['blid'],
+      hostname: saved.hostname,
       host: saved.host,
       // What the record says its pins were actually keyed by at write time.
       recordedIdentity: saved.credentialIdentity,

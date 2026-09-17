@@ -4221,7 +4221,11 @@ fn match_network_axes(
             .any(|t| t.eq_ignore_ascii_case(target))
         {
             // SSDP search targets carry no TXT narrowing, so a shared one
-            // (`upnp:rootdevice`) can only ever corroborate.
+            // (`upnp:rootdevice`, a DLNA `MediaRenderer:1`) can only ever
+            // corroborate. The narrowing a spec like hisense-vidaa describes
+            // — a manufacturer or model line in the descriptor at LOCATION
+            // — is prose this matcher does not execute, so such a spec
+            // matches nothing until it names a vendor-specific axis.
             record(target, &normalize_service_type(target), false);
         }
     }
@@ -4314,6 +4318,18 @@ fn is_shared_service_type(normalized: &str) -> bool {
         "upnp:rootdevice"
             | "ssdp:all"
             | "urn:schemas-upnp-org:device:basic:1"
+            // The UPnP AV device classes. `MediaRenderer:1` is what every
+            // DLNA renderer answers — Sonos, Samsung and LG sets, Kodi, an
+            // Xbox, a Denon receiver — and `MediaServer:1` every DLNA
+            // server, from a NAS to Plex. bose-soundtouch and hisense-vidaa
+            // declare the renderer, squeezebox-slimproto the server, and the
+            // scan's `ssdp:all` M-SEARCH collects exactly these STs, so
+            // before this entry every renderer on the link came back a
+            // Strong "Bose SoundTouch" tied with a Strong "Hisense VIDAA
+            // TV". Lower-case because the caller compares the
+            // `normalize_service_type` stem, which folds case.
+            | "urn:schemas-upnp-org:device:mediarenderer:1"
+            | "urn:schemas-upnp-org:device:mediaserver:1"
             // Whole-ecosystem DNS-SD types. HomeKit and AirPlay in particular
             // cover hundreds of unrelated products.
             | "_hap._tcp"
@@ -4840,6 +4856,41 @@ fn brother_ql_test_canvas(width: usize, height: usize) -> Vec<u8> {
 /// Returns the ordered Uploader-characteristic writes plus, when the spec
 /// declares a `play_command`, a fragment-framed write that plays the item
 /// immediately. Errors are typed and user-presentable.
+/// Refuse a stored-design canvas the "DN" container's layer header cannot
+/// describe, before the spec is even parsed.
+///
+/// `daniao_store::package_text` and `package_image` write the layer's
+/// height, width and (for text) `bytes_per_row` into ONE BYTE each,
+/// narrowing with `as u8`, and nothing before this boundary bounded the
+/// canvas: the UI rasterises a marquee at the text's full run, so a long
+/// sentence went out with a wrapped stride or dimension byte, the upload
+/// committed, the app reported "saved", and the panel played noise. The
+/// limits are the container's — `daniao_store::MAX_TEXT_WIDTH` (the stride
+/// byte; the device tolerates a wrapped width byte, the vendor app's own
+/// marquees rely on it) and `daniao_store::MAX_LAYER_DIM` for every other
+/// edge — restated here rather than duplicated as numbers, so the boundary
+/// and the builder can never disagree about what fits. The builder checks
+/// again, which is right: it is `pub` too. This gate exists so the FFI's
+/// answer names the limit in the same breath as the layer, whatever spec
+/// Dart hands over, and the UI can cap or split its rasteriser on it.
+fn check_stored_layer_edges(
+    layer: &str,
+    width: u32,
+    height: u32,
+    max_width: u32,
+    max_height: u32,
+) -> Result<(), crate::error::ProtocolError> {
+    if width > max_width || height > max_height {
+        return Err(crate::error::ProtocolError::ImageDimensionsInvalid {
+            reason: format!(
+                "stored {layer} is {width}x{height} px; the device's stored-design \
+                 container can describe a {layer} of at most {max_width}x{max_height}"
+            ),
+        });
+    }
+    Ok(())
+}
+
 // The flat argument list is the FFI surface flutter_rust_bridge exposes to
 // Dart; grouping into a struct would churn the generated bindings.
 #[allow(clippy::too_many_arguments)]
@@ -4858,7 +4909,8 @@ pub fn encode_stored_image(
     speed: u32,
     sequence: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
-    use crate::protocol::daniao_store::{ImageLayer, StoredProgram};
+    use crate::protocol::daniao_store::{ImageLayer, StoredProgram, MAX_LAYER_DIM};
+    check_stored_layer_edges("image", width, height, MAX_LAYER_DIM, MAX_LAYER_DIM)?;
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let program = StoredProgram {
         name: &name,
@@ -4887,8 +4939,10 @@ pub fn encode_stored_image(
 ///
 /// `bits` is the rendered text bitmap — one byte per pixel (`0` off, non-zero
 /// lit), row-major, `text_width * text_height` bytes. The width is usually
-/// wider than the panel so the text scrolls. The caller (the UI) rasterises the
-/// string; everything else matches [`encode_stored_image`].
+/// wider than the panel so the text scrolls, but never wider than
+/// `daniao_store::MAX_TEXT_WIDTH` — a longer run is refused, not wrapped.
+/// The caller (the UI) rasterises the string; everything else matches
+/// [`encode_stored_image`].
 #[allow(clippy::too_many_arguments)]
 pub fn encode_stored_text(
     spec_yaml: String,
@@ -4905,7 +4959,14 @@ pub fn encode_stored_text(
     speed: u32,
     sequence: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
-    use crate::protocol::daniao_store::{StoredText, TextContent};
+    use crate::protocol::daniao_store::{StoredText, TextContent, MAX_LAYER_DIM, MAX_TEXT_WIDTH};
+    check_stored_layer_edges(
+        "text",
+        text_width,
+        text_height,
+        MAX_TEXT_WIDTH,
+        MAX_LAYER_DIM,
+    )?;
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let program = StoredText {
         name: &name,
@@ -7587,6 +7648,51 @@ device:
             ..anonymous_host()
         };
         assert!(match_network_device(vec![identity], device).is_empty());
+    }
+
+    /// The UPnP AV device classes are the same shape as `upnp:rootdevice`
+    /// one level down: bose-soundtouch and hisense-vidaa both declare
+    /// `MediaRenderer:1`, squeezebox declares `MediaServer:1`, and every
+    /// Sonos, smart TV and NAS on the link answers one of them. A host whose
+    /// only signal is such a class is a renderer or a server, not a product.
+    #[test]
+    fn a_generic_upnp_device_class_alone_is_not_evidence() {
+        for shared in [
+            "urn:schemas-upnp-org:device:MediaRenderer:1",
+            "urn:schemas-upnp-org:device:MediaServer:1",
+        ] {
+            let mut identity = network_identity();
+            identity.mdns_service_types.clear();
+            identity.ssdp_search_targets = vec![shared.into()];
+            identity.local_name_prefix_clear();
+
+            let device = NetworkDeviceDto {
+                ssdp_targets: vec![shared.into()],
+                ..anonymous_host()
+            };
+            assert!(
+                match_network_device(vec![identity], device).is_empty(),
+                "{shared} is answered by a whole category of hardware"
+            );
+        }
+    }
+
+    /// The other half: a spec that also names a vendor type still matches,
+    /// at Strong, and the shared class is reported beside it — it
+    /// corroborates, it just never carries the match by itself.
+    #[test]
+    fn a_generic_upnp_device_class_still_corroborates_a_vendor_type() {
+        let mut identity = network_identity();
+        identity.ssdp_search_targets = vec!["urn:schemas-upnp-org:device:MediaRenderer:1".into()];
+
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ssdp_targets: vec!["urn:schemas-upnp-org:device:MediaRenderer:1".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(matches[0].matched_service_types.len(), 2);
     }
 
     #[test]
