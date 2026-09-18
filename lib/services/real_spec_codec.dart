@@ -1143,6 +1143,10 @@ class RustSpecCatalogue implements SpecCatalogue {
   }
 
   @override
+  Future<List<UdpProbeDto>> udpBroadcastProbes() =>
+      _handle.udpBroadcastProbes();
+
+  @override
   Future<List<SpecMatch>> matchDevice({
     required String deviceName,
     required List<String> serviceUuids,

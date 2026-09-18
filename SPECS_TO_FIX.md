@@ -952,13 +952,22 @@ code comment already explains why they cannot move, so this list is only the
 actionable part. Ordered by how much each would reduce "adding a device means
 editing the app".
 
-### S-10 — `discovery.methods[].udp_broadcast` is declared by thirteen specs and executed by none
+### S-10 — `discovery.methods[].udp_broadcast` was declared by ten specs and executed by none
 
-Thirteen specs carry the block (`irobot-roomba`, `tplink-kasa-smart-plug`,
+**Partly addressed in the app.** The blocks are now read as data and the
+probes that carry a payload are sent (`CatalogueHandle::udp_broadcast_probes`,
+and the catalogue transport in `real_network_scan_service.dart`). What remains
+below is what the SPEC still has to change. The count is also corrected: the
+original filing said thirteen, counting three specs that mention
+`udp_broadcast` but declare no method — both `frigidaire-*-ac` name a SoftAP
+provisioning port under `provisioning_local_only`, and `squeezebox-slimproto`
+describes a player finding a server, which is not a probe this app sends.
+
+Ten specs carry a real block (`irobot-roomba`, `tplink-kasa-smart-plug`,
 `ubiquiti-unifi-device`, `mikrotik-routeros`, `tuya-generic-device`,
-`tuya-wifi-gas-sensor`, `unifi-protect-camera`, `squeezebox-slimproto`, both
-`frigidaire-*-ac`, `limitlessled-milight-bridge`, `aqara-hub`,
-`synology-diskstation`). Rust reads `discovery.methods[]` only for
+`tuya-wifi-gas-sensor`, `unifi-protect-camera`,
+`limitlessled-milight-bridge`, `aqara-hub`,
+`synology-diskstation`). Rust read `discovery.methods[]` only for
 `ble_scan.local_name` and the mDNS keys; `spec/types.rs` says the rest is
 "preserved unexecuted".
 
@@ -1136,6 +1145,69 @@ with a two-sided form for humidity. Worth noting the Airthings device reports
 its own thresholds over `griffin_ui_settings`, so a declarative version would
 be strictly more honest than a transcription. Lowest priority of these — the
 current numbers are defensible — but it is the same shape as the rest.
+
+### S-20 — the Aqara hub's probe payload is not expressible, so it lives in prose
+
+`aqara-hub.yaml` declares a `udp_broadcast` method with `port: 10008`, a
+multicast `broadcast_address: 230.0.0.1`, `passive_ok: false` — and no
+`probe_hex`. It is the only block in the catalogue that says neither what to
+send nor that the device speaks first, so a client reading the schema alone
+gets nothing it can act on.
+
+The reason is in the notes, and it is a real limit rather than an omission: the
+datagram is `{"command":"whois","address":"<your LAN IP>","port":"<your UDP
+listen port>"}`, so the payload depends on the sending phone. No fixed hex
+string can stand for it.
+
+Ask: a templated payload alongside `probe_hex` — say `probe_template` with a
+small set of substitutions the client fills in (`{local_ip}`, `{listen_port}`),
+and a `response_port` for the unicast reply the hub sends back. Two other
+blocks would use the same mechanism if it existed; Govee sends to 4001 and
+listens on 4002, which S-10 already asks for.
+
+Also worth stating: this is the catalogue's only `broadcast_address` that is a
+multicast group rather than a broadcast address. A client has to JOIN it, not
+broadcast to it, and nothing in the block says which. A `multicast: true` flag,
+or the `multicast_group` key S-10 asks for, would settle it.
+
+### S-21 — a spec can declare a probe but no token to recognise the answer by
+
+`identification.lan_protocols` is what a device that answered a vendor probe is
+matched on: the app tags the discovered device with the token and the matcher
+treats it as a strong, never-shared identifier. Eight specs declare one.
+
+Two specs that declare a `udp_broadcast` probe do not:
+`limitlessled-milight-bridge` and `synology-diskstation`. The app can now send
+their probes and read the MAC and module out of the reply, and the device
+appears on the Wi-Fi screen — but nothing joins it back to the spec that found
+it, so it is listed as an unidentified host rather than as a MiLight bridge.
+
+Ask: every spec declaring a `udp_broadcast` probe should also declare a
+`lan_protocols` token for it. The probe and the token are two halves of one
+fact, and a schema rule requiring the second where the first exists would keep
+them together.
+
+### S-22 — `identity_mapping.source: tlv:<name>` names a field the spec never defines
+
+Four probes read their identity out of a TLV reply and name the field by a
+word: `tlv:mac`, `tlv:serial`, `tlv:hostname` on `synology-diskstation`, and
+the same shape on the Ubiquiti pair. Nothing anywhere says which TLV tag number
+carries `mac`. The app's Ubiquiti and MikroTik parsers know, because the tag
+numbers are hardcoded in `real_network_scan_service.dart` from vendor
+documentation; a client with only the spec cannot follow.
+
+This is why the generic reader executes `json:`, `csv:` and `payload` sources
+and refuses `tlv:` outright. Reading a MAC from a guessed offset is worse than
+finding no MAC, because the MAC is what the device is remembered by.
+
+Ask: either name the tag number in the source (`tlv:0x0005`, which the schema's
+own description for that key already contemplates) or give the spec a
+`tlv_fields:` table mapping name to tag. The Synology block is the sharper case
+— its notes say the reply carries a `SYNO` magic and that the project has never
+driven a unit, so the field names appear to be aspirational rather than
+observed. Until it says how to recognise a `findhostd` datagram, that probe
+cannot be executed safely: it is `passive_ok`, so honouring it means binding UDP
+9999 and treating whatever arrives as a NAS.
 
 ### Also worth extending an existing ask
 

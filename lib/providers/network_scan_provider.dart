@@ -10,6 +10,7 @@ import '../services/network_scan_service.dart';
 import '../services/real_network_scan_service.dart';
 import '../services/spec_codec.dart';
 import 'ble_provider.dart' show isMockMode;
+import 'device_spec_match_provider.dart';
 import 'scan_match_provider.dart';
 import 'spec_codec_provider.dart';
 
@@ -18,7 +19,24 @@ final networkScanServiceProvider = Provider<NetworkScanService>((ref) {
   if (isMockMode) return MockNetworkScanService();
   // The codec runs the Kasa cipher on the discovery datagram; without it the
   // Kasa broadcast transport simply does not run.
-  final service = RealNetworkScanService(codec: ref.read(specCodecProvider));
+  final service = RealNetworkScanService(
+    codec: ref.read(specCodecProvider),
+    // The catalogue's own UDP probes, for the devices with no hand-written
+    // transport. Read lazily, per scan: the catalogue loads asynchronously
+    // while the first screen builds, and a scan that starts before it is
+    // ready should run its other transports rather than wait. A catalogue
+    // that is not loaded yet answers with no probes and the scan is one
+    // transport lighter, which is what it was before this existed.
+    probeSource: () async {
+      try {
+        final catalogue = await ref.read(specCatalogueProvider.future);
+        return await catalogue.udpBroadcastProbes();
+      } catch (e) {
+        Log.net.debug('catalogue probes unavailable: $e');
+        return const [];
+      }
+    },
+  );
   // Multicast sockets and the mDNS client outlive a widget if nobody closes
   // them, and a leaked bound socket keeps the radio awake.
   ref.onDispose(() => service.stopScan());

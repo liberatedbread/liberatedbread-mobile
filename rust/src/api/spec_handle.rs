@@ -654,6 +654,11 @@ pub struct UdpProbeDto {
     /// The device announces itself unprompted, so a caller that only listens
     /// still finds it. Tuya and Synology are found this way.
     pub passive_ok: bool,
+    /// The vendor LAN-protocol tokens the spec declares, so a device that
+    /// answers this probe can be matched back to the spec that sent it. Empty
+    /// where the spec declares none, and then the answering device is found but
+    /// not named (SPECS_TO_FIX.md S-21).
+    pub lan_protocols: Vec<String>,
     /// How to read a reply, as the spec names it (`json`, `tlv`, …). Advisory:
     /// the app's own parsers are keyed off the spec, not off this string.
     pub response_format: Option<String>,
@@ -719,6 +724,7 @@ impl CatalogueHandle {
                         .unwrap_or_else(|| "255.255.255.255".to_string()),
                     probe: bytes,
                     passive_ok,
+                    lan_protocols: entry.identity.lan_protocols.clone(),
                     response_format: probe.response_format.clone(),
                     stable_keys: mapping.stable_keys.iter().map(field).collect(),
                     display_field: mapping.display.as_ref().map(field),
@@ -733,7 +739,9 @@ impl CatalogueHandle {
 #[frb(ignore)]
 fn decode_hex(hex: &str) -> Option<Vec<u8>> {
     let trimmed = hex.trim();
-    if trimmed.is_empty() || !trimmed.len().is_multiple_of(2) {
+    // `% 2` rather than `is_multiple_of`, which is newer than this crate's
+    // minimum Rust (1.85).
+    if trimmed.is_empty() || trimmed.len() % 2 != 0 {
         return None;
     }
     (0..trimmed.len())

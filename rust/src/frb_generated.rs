@@ -8092,6 +8092,7 @@ impl SseDecode for crate::api::spec_handle::UdpProbeDto {
         let mut var_broadcastAddress = <String>::sse_decode(deserializer);
         let mut var_probe = <Vec<u8>>::sse_decode(deserializer);
         let mut var_passiveOk = <bool>::sse_decode(deserializer);
+        let mut var_lanProtocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_responseFormat = <Option<String>>::sse_decode(deserializer);
         let mut var_stableKeys =
             <Vec<crate::api::spec_handle::UdpIdentityFieldDto>>::sse_decode(deserializer);
@@ -8105,6 +8106,7 @@ impl SseDecode for crate::api::spec_handle::UdpProbeDto {
             broadcast_address: var_broadcastAddress,
             probe: var_probe,
             passive_ok: var_passiveOk,
+            lan_protocols: var_lanProtocols,
             response_format: var_responseFormat,
             stable_keys: var_stableKeys,
             display_field: var_displayField,
@@ -11102,6 +11104,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::spec_handle::UdpProbeDto {
             self.broadcast_address.into_into_dart().into_dart(),
             self.probe.into_into_dart().into_dart(),
             self.passive_ok.into_into_dart().into_dart(),
+            self.lan_protocols.into_into_dart().into_dart(),
             self.response_format.into_into_dart().into_dart(),
             self.stable_keys.into_into_dart().into_dart(),
             self.display_field.into_into_dart().into_dart(),
@@ -13458,6 +13461,7 @@ impl SseEncode for crate::api::spec_handle::UdpProbeDto {
         <String>::sse_encode(self.broadcast_address, serializer);
         <Vec<u8>>::sse_encode(self.probe, serializer);
         <bool>::sse_encode(self.passive_ok, serializer);
+        <Vec<String>>::sse_encode(self.lan_protocols, serializer);
         <Option<String>>::sse_encode(self.response_format, serializer);
         <Vec<crate::api::spec_handle::UdpIdentityFieldDto>>::sse_encode(
             self.stable_keys,

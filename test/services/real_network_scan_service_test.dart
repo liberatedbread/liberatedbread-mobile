@@ -12,6 +12,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/services/network_scan_service.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart'
+    show UdpIdentityFieldDto;
 import 'package:liberated_bread_mobile/services/real_network_scan_service.dart';
 
 import '../fakes/fake_spec_codec.dart';
@@ -40,6 +42,7 @@ NetworkDevice _device({
 );
 
 void main() {
+  _catalogueProbeTests();
   group('parseSsdpHeaders', () {
     const response =
         'HTTP/1.1 200 OK\r\n'
@@ -1036,5 +1039,85 @@ void main() {
         expect(spoofed!.host, '192.168.1.50');
       },
     );
+  });
+}
+
+void _catalogueProbeTests() {
+  // The reply reader the catalogue-driven transport runs in place of a
+  // hand-written parser per vendor. What it must get right is not the happy
+  // path — it is refusing to read a field it cannot read, because a value it
+  // invents becomes the identity a device is remembered by.
+  group('readUdpIdentityFields', () {
+    UdpIdentityFieldDto field(String dialect, String path, String name) =>
+        UdpIdentityFieldDto(dialect: dialect, path: path, name: name);
+
+    test('reads the CSV columns a Milight bridge answers with', () {
+      // Hardware-verified in the spec: `ip,mac,module`, one ASCII line.
+      const reply = '192.0.2.194,34EAE7AABBCC,HF-LPB130';
+      final read = readUdpIdentityFields(utf8.encode(reply), [
+        field('csv', '1', 'mac'),
+        field('csv', '2', 'module'),
+      ]);
+
+      expect(read, {'mac': '34EAE7AABBCC', 'module': 'HF-LPB130'});
+    });
+
+    test('a column the reply does not have reads nothing, not empty', () {
+      // The v1-v5 bridges answer `ip,mac,` with the name field empty, and a
+      // column past the end is a different thing again. Neither may become a
+      // key with a blank value: `txt` is what the row is drawn from.
+      final read = readUdpIdentityFields(utf8.encode('192.0.2.194,AABBCC,'), [
+        field('csv', '2', 'module'),
+        field('csv', '7', 'nothing'),
+      ]);
+
+      expect(read, isEmpty);
+    });
+
+    test('reads a dotted JSON path', () {
+      final read = readUdpIdentityFields(
+        utf8.encode('{"result":{"mac":"a1b2c3","fw":42,"on":true}}'),
+        [
+          field('json', 'result.mac', 'mac'),
+          field('json', 'result.fw', 'fw'),
+          field('json', 'result.on', 'on'),
+          field('json', 'result.missing', 'missing'),
+          field('json', 'result.mac.deeper', 'deeper'),
+        ],
+      );
+
+      expect(read, {'mac': 'a1b2c3', 'fw': '42', 'on': 'true'});
+    });
+
+    test(
+      'a TLV field reads nothing — the tag numbering is not in the spec',
+      () {
+        // Deliberate: Synology and the UniFi gear declare `tlv:` sources, and
+        // the tag→field mapping is prose. Reading a MAC out of the wrong offset
+        // would be worse than not finding the device (SPECS_TO_FIX.md S-22).
+        final read = readUdpIdentityFields(
+          const [1, 6, 0xAA, 0xBB],
+          [field('tlv', 'mac', 'mac')],
+        );
+
+        expect(read, isEmpty);
+      },
+    );
+
+    test('a binary reply does not parse as text', () {
+      // 0xFF is not valid UTF-8. The reader must say "nothing here" rather
+      // than decode it lossily and hand back replacement characters, which
+      // would read as a perfectly good identity.
+      final read = readUdpIdentityFields(
+        const [0xFF, 0xFE, 0xFF],
+        [field('payload', '', 'raw'), field('csv', '0', 'first')],
+      );
+
+      expect(read, isEmpty);
+    });
+
+    test('no fields declared reads nothing', () {
+      expect(readUdpIdentityFields(utf8.encode('anything'), const []), isEmpty);
+    });
   });
 }

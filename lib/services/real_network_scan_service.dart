@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:multicast_dns/multicast_dns.dart';
 
 import '../core/error_text.dart';
@@ -141,9 +142,12 @@ const _goveeProbe = '{"msg":{"cmd":"scan","data":{"account_topic":"reserve"}}}';
 
 // iRobot Roomba/Braava answer an ASCII probe broadcast to UDP 5678 — the SAME
 // port MikroTik MNDP uses — with a JSON blob. Discovery lives in the roomba
-// transport (`_runRoomba`), which takes its probe from the spec and builds the
-// record carrying the control port; the MNDP socket, bound to the same port,
-// recognises those replies only so it does not log them as junk.
+// transport (`_runRoomba`), which sends `roomba::DISCOVERY_PROBE` from the Rust
+// crate and builds the record carrying the control port; the MNDP socket, bound
+// to the same port, recognises those replies only so it does not log them as
+// junk. (Those nine bytes are ALSO what the spec declares, and a test pins that
+// the two agree — but this transport sends the constant, not the spec. An
+// earlier version of this comment claimed otherwise.)
 
 /// KNXnet/IP routers/interfaces answer a SEARCH_REQUEST multicast to
 /// 224.0.23.12:3671 with a SEARCH_RESPONSE (device-info DIB). The HPAI in the
@@ -397,6 +401,125 @@ String? mdnsPictogram(Iterable<String> serviceTypes) {
     if (printerTypes.contains(t)) return 'printer';
   }
   return null;
+}
+
+/// Where a scan gets the UDP probes the catalogue declares.
+typedef UdpProbeSource = Future<List<UdpProbeDto>> Function();
+
+/// The specs whose `udp_broadcast` probe this file already sends by hand.
+///
+/// Each of these has a transport above that does more than send bytes and read
+/// fields: a cipher over the datagram (Kasa), a bind on the vendor's own port
+/// because the answer comes back broadcast (MikroTik), a TLV reply format the
+/// spec states in prose (Ubiquiti, UniFi Protect), or a JSON reply that is also
+/// the adoption handshake (iRobot). The catalogue transport skips them so a
+/// device is not probed twice and, more to the point, so a reply that the hand
+/// written parser reads fully is not also half-read by the generic one.
+///
+/// Matched on the catalogue key, which is the spec's filename. A spec that is
+/// renamed upstream falls out of this list and gets probed twice — harmless,
+/// and a test pins the four names so it does not pass unnoticed.
+bool _probesWithTheirOwnTransport(String specKey) {
+  const handled = {
+    'tplink-kasa-smart-plug.yaml',
+    'mikrotik-routeros.yaml',
+    'ubiquiti-unifi-device.yaml',
+    'unifi-protect-camera.yaml',
+    'irobot-roomba.yaml',
+  };
+  // Keys are asset paths in production (`assets/specs/<file>.yaml`) and bare
+  // filenames in the Rust tests, so compare on the last segment.
+  return handled.contains(specKey.split('/').last);
+}
+
+/// Read the identity fields a spec's `udp_broadcast.identity_mapping` names
+/// out of one reply datagram.
+///
+/// The counterpart of the hand-written parsers below, for probes that have no
+/// transport of their own: the spec says which dialect its reply speaks and
+/// which field carries the MAC or the model, and this executes that rather
+/// than another vendor function. Returns only the fields it could actually
+/// read, so a caller can tell "this datagram identified nothing" — which is
+/// how a stray packet on a vendor port is rejected instead of becoming a row.
+///
+/// Three of the catalogue's four dialects are read here. `tlv:<field>` is not:
+/// a TLV reply needs the vendor's own tag numbering, which the spec states in
+/// prose and not as data, so those probes keep their hand-written parser
+/// (SPECS_TO_FIX.md S-22).
+@visibleForTesting
+Map<String, String> readUdpIdentityFields(
+  List<int> payload,
+  List<UdpIdentityFieldDto> fields,
+) {
+  if (fields.isEmpty) return const {};
+  String? text;
+  String? asText() {
+    // A reply is decoded at most once, and a binary one decodes to null rather
+    // than to replacement characters that would then "parse".
+    if (text != null) return text;
+    try {
+      return text = utf8.decode(payload);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Object? json;
+  var jsonTried = false;
+  Object? asJson() {
+    if (jsonTried) return json;
+    jsonTried = true;
+    final body = asText();
+    if (body == null) return null;
+    try {
+      return json = jsonDecode(body);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  final out = <String, String>{};
+  for (final field in fields) {
+    final String? value;
+    switch (field.dialect) {
+      case 'payload':
+        value = asText()?.trim();
+      case 'csv':
+        final body = asText();
+        final column = int.tryParse(field.path);
+        if (body == null || column == null) {
+          value = null;
+        } else {
+          final columns = body.trim().split(',');
+          value = column >= 0 && column < columns.length
+              ? columns[column].trim()
+              : null;
+        }
+      case 'json':
+        Object? node = asJson();
+        for (final segment in field.path.split('.')) {
+          if (node is Map && node.containsKey(segment)) {
+            node = node[segment];
+          } else {
+            node = null;
+            break;
+          }
+        }
+        value = switch (node) {
+          String s => s,
+          num n => '$n',
+          bool b => '$b',
+          _ => null,
+        };
+      default:
+        // An unknown or unexecutable dialect (`tlv:`) reads nothing rather
+        // than guessing — a wrong MAC is worse than no MAC, because it is
+        // what the device is remembered by.
+        value = null;
+    }
+    if (value != null && value.isNotEmpty) out[field.name] = value;
+  }
+  return out;
 }
 
 /// Parse a Ubiquiti discovery reply (UDP 10001) into hostname / MAC / platform.
@@ -943,9 +1066,18 @@ class RealNetworkScanService implements NetworkScanService {
   /// .list`.
   final InterfaceLister interfaceLister;
 
+  /// Where the scan gets the UDP probes the catalogue declares.
+  ///
+  /// Injected rather than read from a provider so the socket-level suites can
+  /// hand this service a probe list without standing up the native catalogue,
+  /// and so a scan with no catalogue loaded yet runs its other transports
+  /// unchanged. Null means the catalogue-driven transport is skipped.
+  final UdpProbeSource? probeSource;
+
   RealNetworkScanService({
     MulticastLock? multicastLock,
     this.codec,
+    this.probeSource,
     InterfaceLister? interfaceLister,
   }) : multicastLock = multicastLock ?? MulticastLock(),
        interfaceLister = interfaceLister ?? NetworkInterface.list;
@@ -1134,6 +1266,16 @@ class RealNetworkScanService implements NetworkScanService {
               timeout,
               codec,
             ).catchError((Object e) => onError('Roomba', e)),
+          // Everything else the catalogue declares a broadcast probe for. The
+          // transports above are the ones with a reply format this file parses
+          // by hand; this one sends what the specs say and reads the replies
+          // the way the specs say, so a new device of that shape needs no code
+          // here at all.
+          _runCatalogueProbes(
+            session,
+            emit,
+            timeout,
+          ).catchError((Object e) => onError('catalogue probes', e)),
         ]);
 
         final failure = scanFailureFor(
@@ -1515,6 +1657,175 @@ class RealNetworkScanService implements NetworkScanService {
       );
     } catch (e) {
       Log.net.debug('IP_MULTICAST_IF not set on ${addr.address}: $e');
+    }
+  }
+
+  /// Send every UDP probe the catalogue declares that no transport above
+  /// already covers, and emit whatever answers.
+  ///
+  /// Ten bundled specs declare a `udp_broadcast` method. Four have a
+  /// hand-written transport here, and until this existed the other six were
+  /// simply not looked for: the payload, the port and the reply's shape were
+  /// all in the spec, and the app read none of it (SPECS_TO_FIX.md S-10).
+  /// Adding a device that answers its own broadcast now takes a spec.
+  ///
+  /// Two deliberate limits. Only probes with a payload run: a `passive_ok`
+  /// block says a device announces itself, but nothing in the block says how
+  /// to recognise its datagram, so binding that port and emitting whatever
+  /// arrived would invent devices out of unrelated traffic. And a reply that
+  /// identifies nothing is dropped, the same rule the Ubiquiti transport
+  /// applies — answering on a vendor port is not by itself a device.
+  Future<TransportOutcome> _runCatalogueProbes(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+  ) async {
+    final source = probeSource;
+    if (source == null) return TransportOutcome.skipped;
+    final probes = (await source())
+        .where(
+          (p) => p.probe.isNotEmpty && !_probesWithTheirOwnTransport(p.specKey),
+        )
+        .toList();
+    if (probes.isEmpty) return TransportOutcome.skipped;
+
+    // One socket per port, not per probe: the Milight bridge declares two
+    // probes on 48899 because its firmwares answer different strings, and two
+    // sockets on one port is a bind clash on Android for no gain.
+    final byPort = <int, List<UdpProbeDto>>{};
+    for (final probe in probes) {
+      (byPort[probe.port] ??= []).add(probe);
+    }
+    Log.net.debug(
+      'catalogue probes: ${probes.length} on ports ${byPort.keys.join(', ')}',
+    );
+
+    final outcomes = await Future.wait([
+      for (final entry in byPort.entries)
+        _runCatalogueProbePort(
+          session,
+          emit,
+          timeout,
+          entry.key,
+          entry.value,
+        ).catchError((Object e) {
+          // One vendor port failing must not take the others, nor the scan:
+          // this whole transport is additive, and everything it finds is
+          // something the app could not find at all before.
+          Log.net.debug('catalogue probe port ${entry.key} failed: $e');
+          return TransportOutcome.skipped;
+        }),
+    ]);
+    // Heard beats denied beats silent: one port that answered proves the
+    // local-network permission the whole scan is judged on, and one port that
+    // could not bind must not read as a denial when another one worked.
+    if (outcomes.contains(TransportOutcome.heard)) {
+      return TransportOutcome.heard;
+    }
+    if (outcomes.contains(TransportOutcome.denied)) {
+      return TransportOutcome.denied;
+    }
+    return outcomes.contains(TransportOutcome.silent)
+        ? TransportOutcome.silent
+        : TransportOutcome.skipped;
+  }
+
+  /// Run the probes that share one port, on one socket.
+  Future<TransportOutcome> _runCatalogueProbePort(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+    int port,
+    List<UdpProbeDto> probes,
+  ) async {
+    final socket = await RawDatagramSocket.bind(
+      InternetAddress.anyIPv4,
+      0,
+      reuseAddress: true,
+    );
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
+    session.catalogueProbeSockets.add(socket);
+    socket.broadcastEnabled = true;
+    var heard = false;
+    final seen = <String>{};
+    try {
+      // Twice, like every other broadcast here: UDP is lossy and a dropped
+      // probe means a bridge never heard from.
+      for (var attempt = 0; attempt < 2; attempt++) {
+        for (final probe in probes) {
+          final InternetAddress target;
+          try {
+            target = InternetAddress(probe.broadcastAddress);
+          } on ArgumentError {
+            // A spec naming an address that is not one: skip that probe
+            // rather than the port.
+            Log.net.debug(
+              '${probe.specKey}: "${probe.broadcastAddress}" is not an address',
+            );
+            continue;
+          }
+          socket.send(probe.probe, target, port);
+        }
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
+          break;
+        }
+      }
+
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+
+        // Every probe on this port gets a look at the reply: which one a
+        // device answered is not knowable from the datagram, and the fields
+        // that read are the ones whose dialect fits.
+        Map<String, String> fields = const {};
+        UdpProbeDto? answered;
+        for (final probe in probes) {
+          final read = readUdpIdentityFields(datagram.data, [
+            ...probe.stableKeys,
+            ?probe.displayField,
+          ]);
+          if (read.length > fields.length) {
+            fields = read;
+            answered = probe;
+          }
+        }
+        if (answered == null || fields.isEmpty) {
+          Log.net.debug(
+            'rejected catalogue :$port datagram from '
+            '${datagram.address.address} (${datagram.data.length}B, '
+            'no id parsed)',
+          );
+          continue;
+        }
+
+        heard = true;
+        final host = datagram.address.address;
+        if (!seen.add(host)) continue;
+        final display = answered.displayField;
+        emit(
+          NetworkDevice(
+            host: host,
+            name: display == null ? '' : fields[display.name] ?? '',
+            answeredLanProtocols: answered.lanProtocols,
+            txt: fields,
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      socket.close();
+      session.catalogueProbeSockets.remove(socket);
     }
   }
 
@@ -2681,6 +2992,11 @@ class _ScanSession {
   RawDatagramSocket? knxSocket;
   RawDatagramSocket? roombaSocket;
 
+  /// One socket per port the catalogue-driven probe transport is using. A list
+  /// rather than a field because the ports come from the specs, not from this
+  /// file, so how many there are is not known here.
+  final List<RawDatagramSocket> catalogueProbeSockets = [];
+
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
   /// transport parked in a delay never looks at a flag.
@@ -2741,5 +3057,9 @@ class _ScanSession {
     knxSocket = null;
     roombaSocket?.close();
     roombaSocket = null;
+    for (final socket in catalogueProbeSockets) {
+      socket.close();
+    }
+    catalogueProbeSockets.clear();
   }
 }

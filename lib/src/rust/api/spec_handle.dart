@@ -322,6 +322,12 @@ class UdpProbeDto {
   /// still finds it. Tuya and Synology are found this way.
   final bool passiveOk;
 
+  /// The vendor LAN-protocol tokens the spec declares, so a device that
+  /// answers this probe can be matched back to the spec that sent it. Empty
+  /// where the spec declares none, and then the answering device is found but
+  /// not named (SPECS_TO_FIX.md S-21).
+  final List<String> lanProtocols;
+
   /// How to read a reply, as the spec names it (`json`, `tlv`, …). Advisory:
   /// the app's own parsers are keyed off the spec, not off this string.
   final String? responseFormat;
@@ -340,6 +346,7 @@ class UdpProbeDto {
     required this.broadcastAddress,
     required this.probe,
     required this.passiveOk,
+    required this.lanProtocols,
     this.responseFormat,
     required this.stableKeys,
     this.displayField,
@@ -354,6 +361,7 @@ class UdpProbeDto {
       broadcastAddress.hashCode ^
       probe.hashCode ^
       passiveOk.hashCode ^
+      lanProtocols.hashCode ^
       responseFormat.hashCode ^
       stableKeys.hashCode ^
       displayField.hashCode;
@@ -370,6 +378,7 @@ class UdpProbeDto {
           broadcastAddress == other.broadcastAddress &&
           probe == other.probe &&
           passiveOk == other.passiveOk &&
+          lanProtocols == other.lanProtocols &&
           responseFormat == other.responseFormat &&
           stableKeys == other.stableKeys &&
           displayField == other.displayField;

@@ -24,12 +24,16 @@
 @Tags(['netdisco'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/services/multicast_lock.dart';
 import 'package:liberated_bread_mobile/services/real_network_scan_service.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart'
+    show UdpIdentityFieldDto, UdpProbeDto;
 
 /// The addresses scripts/net_virtual_device.py's bundled scenario advertises.
 /// TEST-NET-2, so they cannot collide with anything real.
@@ -101,6 +105,7 @@ class _VirtualNetwork {
 }
 
 void main() {
+  _catalogueProbeTransportTests();
   final network = _VirtualNetwork();
 
   setUpAll(network.start);
@@ -355,5 +360,168 @@ void main() {
       await first.cancel();
       await second.cancel();
     },
+  );
+}
+
+/// The catalogue-driven probe transport, on a real socket.
+///
+/// The unit tests cover the reply reader; this covers the part that only a
+/// wire can show — that a probe the catalogue declares is actually SENT, that
+/// the answer becomes a row, and that two probes sharing a port share one
+/// socket (the Milight bridge declares two, because its firmwares answer
+/// different strings, and two binds on one port is a clash on Android).
+void _catalogueProbeTransportTests() {
+  // The real bytes from limitlessled-milight-bridge.yaml: ASCII
+  // "HF-A11ASSISTHREAD" and "Link_Wi-Fi".
+  final hfProbe = utf8.encode('HF-A11ASSISTHREAD');
+  final linkProbe = utf8.encode('Link_Wi-Fi');
+
+  UdpProbeDto milightProbe(List<int> payload) => UdpProbeDto(
+    specKey: 'limitlessled-milight-bridge.yaml',
+    index: 0,
+    displayName: 'MiLight/LimitlessLED bridge',
+    port: 0, // replaced per test with the port the fake bridge bound
+    broadcastAddress: '127.0.0.1',
+    probe: Uint8List.fromList(payload),
+    passiveOk: false,
+    lanProtocols: const [],
+    stableKeys: const [
+      UdpIdentityFieldDto(dialect: 'csv', path: '1', name: 'mac'),
+    ],
+    displayField: const UdpIdentityFieldDto(
+      dialect: 'csv',
+      path: '2',
+      name: 'module',
+    ),
+  );
+
+  test('sends a declared probe and turns the answer into a device', () async {
+    // A bridge that answers only the HF-A11 string, which is what the observed
+    // unit did — the spec says to try both and treat silence on one as
+    // inconclusive.
+    final bridge = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
+    final heard = <String>[];
+    bridge.listen((event) {
+      if (event != RawSocketEvent.read) return;
+      final datagram = bridge.receive();
+      if (datagram == null) return;
+      final asked = utf8.decode(datagram.data, allowMalformed: true);
+      heard.add(asked);
+      if (asked != 'HF-A11ASSISTHREAD') return;
+      bridge.send(
+        utf8.encode('127.0.0.1,34EAE7AABBCC,HF-LPB130'),
+        datagram.address,
+        datagram.port,
+      );
+    });
+
+    final port = bridge.port;
+    final service = RealNetworkScanService(
+      multicastLock: MulticastLock(isSupported: false),
+      probeSource: () async => [
+        for (final payload in [hfProbe, linkProbe])
+          milightProbe(payload).copyWithPort(port),
+      ],
+    );
+
+    final found = <NetworkDevice>[];
+    final sub = service
+        .scan(timeout: const Duration(seconds: 3))
+        .listen(found.add);
+    await Future<void>.delayed(const Duration(seconds: 4));
+    await sub.cancel();
+    bridge.close();
+
+    expect(
+      heard,
+      containsAll(<String>['HF-A11ASSISTHREAD', 'Link_Wi-Fi']),
+      reason: 'both declared probes go out, on the one shared socket',
+    );
+    // Matched on the identity the fake bridge answered with, not on "has a
+    // mac": the other transports are running on the same wire, and whatever
+    // else is on the developer's LAN is not this test's business.
+    final bridgeRow = found
+        .where((d) => d.txt['mac'] == '34EAE7AABBCC')
+        .toList();
+    expect(bridgeRow, hasLength(1));
+    expect(
+      bridgeRow.single.name,
+      'HF-LPB130',
+      reason: 'the display field the spec names, read out of the CSV reply',
+    );
+  });
+
+  test('a reply that identifies nothing does not become a device', () async {
+    // Answering on a vendor port is not by itself a device: something else on
+    // the LAN using the same port must not turn into a row the user is asked
+    // to adopt.
+    final noise = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    noise.listen((event) {
+      if (event != RawSocketEvent.read) return;
+      final datagram = noise.receive();
+      if (datagram == null) return;
+      noise.send(const [0xFF, 0x00, 0xFF], datagram.address, datagram.port);
+    });
+
+    final service = RealNetworkScanService(
+      multicastLock: MulticastLock(isSupported: false),
+      probeSource: () async => [milightProbe(hfProbe).copyWithPort(noise.port)],
+    );
+
+    final found = <NetworkDevice>[];
+    final sub = service
+        .scan(timeout: const Duration(seconds: 3))
+        .listen(found.add);
+    await Future<void>.delayed(const Duration(seconds: 4));
+    await sub.cancel();
+    noise.close();
+
+    expect(
+      found.where((d) => d.host == '127.0.0.1'),
+      isEmpty,
+      reason: 'the only thing on loopback was the noise source',
+    );
+  });
+
+  test('no probe source leaves every other transport running', () async {
+    // The catalogue loads asynchronously while the first screen builds, so a
+    // scan can start before it is ready. That must cost the catalogue probes
+    // and nothing else.
+    final service = RealNetworkScanService(
+      multicastLock: MulticastLock(isSupported: false),
+    );
+    var closed = false;
+    final sub = service
+        .scan(timeout: const Duration(seconds: 2))
+        .listen((_) {}, onDone: () => closed = true);
+    // Polled rather than slept: the budget is the scan's, but the transports
+    // finish when the wire lets them, and a fixed wait makes this fail on a
+    // busy machine for a reason that has nothing to do with probes.
+    for (var i = 0; i < 60 && !closed; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    await sub.cancel();
+
+    expect(closed, isTrue, reason: 'the scan completed rather than throwing');
+  });
+}
+
+extension on UdpProbeDto {
+  /// The fake bridge binds an ephemeral port, so the probe has to be pointed
+  /// at whatever it got.
+  UdpProbeDto copyWithPort(int port) => UdpProbeDto(
+    specKey: specKey,
+    index: index,
+    displayName: displayName,
+    port: port,
+    broadcastAddress: broadcastAddress,
+    probe: probe,
+    passiveOk: passiveOk,
+    lanProtocols: lanProtocols,
+    stableKeys: stableKeys,
+    displayField: displayField,
   );
 }

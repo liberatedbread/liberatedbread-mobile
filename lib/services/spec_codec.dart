@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart' show immutable;
 
 import '../src/rust/api/device_api.dart';
 import '../src/rust/api/spec_handle.dart'
-    show CatalogueEntryDto, SpecLoadFailureDto;
+    show CatalogueEntryDto, SpecLoadFailureDto, UdpProbeDto;
 
 // Re-export the flutter_rust_bridge DTOs so widgets and tests depend on this
 // abstraction instead of importing the generated bindings directly. The DTOs
@@ -119,7 +119,11 @@ export 'package:flutter_rust_bridge/flutter_rust_bridge.dart' show Int64List;
 // other DTO is: consumers depend on this abstraction, not on where
 // flutter_rust_bridge happened to put a file.
 export '../src/rust/api/spec_handle.dart'
-    show CatalogueEntryDto, SpecLoadFailureDto;
+    show
+        CatalogueEntryDto,
+        SpecLoadFailureDto,
+        UdpIdentityFieldDto,
+        UdpProbeDto;
 
 /// Abstraction over the Rust device-spec codec (flutter_rust_bridge FFI).
 ///
@@ -1034,6 +1038,13 @@ abstract class SpecCatalogue {
   /// the per-spec call path, so the screen's first `decodeValue` does not
   /// re-send the YAML. [index] must be a [specs] index.
   Future<DeviceSpecDto> specAt(int index);
+
+  /// Every UDP discovery probe the catalogue declares, bytes already decoded.
+  ///
+  /// The scan service sends these rather than holding a payload constant and a
+  /// transport per vendor — adding a device that answers its own broadcast
+  /// then takes a spec and nothing else (SPECS_TO_FIX.md S-10).
+  Future<List<UdpProbeDto>> udpBroadcastProbes();
 }
 
 /// One catalogue member as the non-rendering paths see it: the YAML it was
@@ -1218,6 +1229,15 @@ class FallbackSpecCatalogue implements SpecCatalogue {
       for (final entry in parsed) entry.spec,
     ], const []);
   }
+
+  /// No probes from the fallback catalogue.
+  ///
+  /// The probe blocks are read by the Rust spec model, which is exactly what
+  /// this catalogue exists to do without. A build that has fallen back to it
+  /// has bigger problems than a Milight bridge it cannot find, and answering
+  /// "none" costs only the probes the dedicated transports send anyway.
+  @override
+  Future<List<UdpProbeDto>> udpBroadcastProbes() async => const [];
 
   @override
   Future<List<SpecMatch>> matchDevice({

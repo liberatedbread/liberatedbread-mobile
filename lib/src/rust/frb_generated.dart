@@ -7542,8 +7542,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   UdpProbeDto dco_decode_udp_probe_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 10)
-      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return UdpProbeDto(
       specKey: dco_decode_String(arr[0]),
       index: dco_decode_u_32(arr[1]),
@@ -7552,9 +7552,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       broadcastAddress: dco_decode_String(arr[4]),
       probe: dco_decode_list_prim_u_8_strict(arr[5]),
       passiveOk: dco_decode_bool(arr[6]),
-      responseFormat: dco_decode_opt_String(arr[7]),
-      stableKeys: dco_decode_list_udp_identity_field_dto(arr[8]),
-      displayField: dco_decode_opt_box_autoadd_udp_identity_field_dto(arr[9]),
+      lanProtocols: dco_decode_list_String(arr[7]),
+      responseFormat: dco_decode_opt_String(arr[8]),
+      stableKeys: dco_decode_list_udp_identity_field_dto(arr[9]),
+      displayField: dco_decode_opt_box_autoadd_udp_identity_field_dto(arr[10]),
     );
   }
 
@@ -10886,6 +10887,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_broadcastAddress = sse_decode_String(deserializer);
     var var_probe = sse_decode_list_prim_u_8_strict(deserializer);
     var var_passiveOk = sse_decode_bool(deserializer);
+    var var_lanProtocols = sse_decode_list_String(deserializer);
     var var_responseFormat = sse_decode_opt_String(deserializer);
     var var_stableKeys = sse_decode_list_udp_identity_field_dto(deserializer);
     var var_displayField = sse_decode_opt_box_autoadd_udp_identity_field_dto(
@@ -10899,6 +10901,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       broadcastAddress: var_broadcastAddress,
       probe: var_probe,
       passiveOk: var_passiveOk,
+      lanProtocols: var_lanProtocols,
       responseFormat: var_responseFormat,
       stableKeys: var_stableKeys,
       displayField: var_displayField,
@@ -13777,6 +13780,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.broadcastAddress, serializer);
     sse_encode_list_prim_u_8_strict(self.probe, serializer);
     sse_encode_bool(self.passiveOk, serializer);
+    sse_encode_list_String(self.lanProtocols, serializer);
     sse_encode_opt_String(self.responseFormat, serializer);
     sse_encode_list_udp_identity_field_dto(self.stableKeys, serializer);
     sse_encode_opt_box_autoadd_udp_identity_field_dto(
