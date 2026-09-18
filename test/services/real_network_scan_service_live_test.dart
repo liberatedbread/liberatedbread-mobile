@@ -280,6 +280,41 @@ void main() {
     await sub.cancel();
   });
 
+  test('a stop during a bind leaves no socket behind (R-027)', () async {
+    // Binding is an await and a stop can land inside it. The transport then
+    // assigned its socket to a session that had already run stop, so nothing
+    // closed it: the port stayed bound for the rest of the budget — on
+    // Android, where these binds are exclusive, long enough to make the next
+    // scan fail on a port nothing appears to be using.
+    final service = RealNetworkScanService(
+      multicastLock: MulticastLock(isSupported: false),
+    );
+    var closed = false;
+    final sub = service
+        .scan(timeout: const Duration(minutes: 1))
+        .listen((_) {}, onDone: () => closed = true);
+
+    // Immediately: several transports are still inside their bind await.
+    await service.stopScan();
+    await Future<void>.delayed(const Duration(seconds: 2));
+    expect(closed, isTrue);
+
+    // The proof the ports came back: a whole second scan binds them.
+    var secondClosed = false;
+    final second = service
+        .scan(timeout: const Duration(seconds: 2))
+        .listen((_) {}, onDone: () => secondClosed = true);
+    await Future<void>.delayed(const Duration(seconds: 5));
+    expect(
+      secondClosed,
+      isTrue,
+      reason: 'the next scan bound every port the first one had taken',
+    );
+
+    await sub.cancel();
+    await second.cancel();
+  });
+
   test(
     'stopScan ends every scan on the instance, not just the newest',
     () async {

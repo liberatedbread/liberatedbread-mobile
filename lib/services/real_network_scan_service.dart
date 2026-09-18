@@ -1422,6 +1422,7 @@ class RealNetworkScanService implements NetworkScanService {
       Log.net.debug('mDNS source-capture unavailable: $e');
       return TransportOutcome.skipped;
     }
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.mdnsCaptureSocket = socket;
     try {
       socket.joinMulticast(InternetAddress(_mdnsMulticast));
@@ -1533,6 +1534,7 @@ class RealNetworkScanService implements NetworkScanService {
       0,
       reuseAddress: true,
     );
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.ubiquitiSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -1627,6 +1629,7 @@ class RealNetworkScanService implements NetworkScanService {
       // Never bound, so it cannot say the network is empty or blocked (R-023).
       return TransportOutcome.skipped;
     }
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.mikrotikSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -1842,6 +1845,7 @@ class RealNetworkScanService implements NetworkScanService {
       Log.net.debug('Wiz bind failed: $e');
       return TransportOutcome.skipped;
     }
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.wizSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -1915,6 +1919,7 @@ class RealNetworkScanService implements NetworkScanService {
       Log.net.debug('Yeelight bind failed: $e');
       return TransportOutcome.skipped;
     }
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.yeelightSocket = socket;
     socket.broadcastEnabled = true;
     _setMulticastInterface(socket, session);
@@ -2075,6 +2080,7 @@ class RealNetworkScanService implements NetworkScanService {
       Log.net.debug('KNX bind failed: $e');
       return TransportOutcome.skipped;
     }
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.knxSocket = socket;
     _setMulticastInterface(socket, session);
     var heard = false;
@@ -2262,6 +2268,7 @@ class RealNetworkScanService implements NetworkScanService {
       0,
       reuseAddress: true,
     );
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.ssdpSocket = socket;
     socket.broadcastEnabled = true;
     _setMulticastInterface(socket, session);
@@ -2373,6 +2380,7 @@ class RealNetworkScanService implements NetworkScanService {
       0,
       reuseAddress: true,
     );
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.lifxSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -2445,6 +2453,7 @@ class RealNetworkScanService implements NetworkScanService {
       0,
       reuseAddress: true,
     );
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.kasaSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -2576,6 +2585,7 @@ class RealNetworkScanService implements NetworkScanService {
       0,
       reuseAddress: true,
     );
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.roombaSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
@@ -2683,6 +2693,21 @@ class _ScanSession {
 
   /// Waits [duration], or until [stop] is called. True when stopped.
   Future<bool> sleepUnlessStopped(Duration duration) => _stop.sleep(duration);
+
+  /// True when this session was stopped while [socket] was being bound.
+  ///
+  /// R-027: binding is an await, and a stop can land inside it. The transport
+  /// then assigned its socket to a session that had already run [stop], so
+  /// nothing ever closed it: the port stayed bound and the stream stayed open
+  /// for the rest of the scan's budget — on Android, where these binds are
+  /// exclusive, long enough to make the NEXT scan fail on a port nothing
+  /// appears to be using. Called immediately after every bind; the caller
+  /// returns without starting.
+  bool stoppedDuringBind(RawDatagramSocket socket) {
+    if (!stopped) return false;
+    socket.close();
+    return true;
+  }
 
   void stop() {
     // Idempotent (StopSignal guards the complete): every path out of a scan
