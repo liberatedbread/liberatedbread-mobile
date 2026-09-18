@@ -208,7 +208,7 @@ void main() {
     test(
       'mdnsPtrQuery encodes the name as length-prefixed labels + PTR/IN',
       () {
-        final q = mdnsPtrQuery('_snapmaker._tcp.local');
+        final q = mdnsPtrQuery('_snapmaker._tcp.local')!;
         // Header: 12 bytes, qdcount 1.
         expect(q.sublist(0, 12), [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
         // Labels: <len>_snapmaker <len>_tcp <len>local <root>.
@@ -219,6 +219,26 @@ void main() {
         expect(q.sublist(q.length - 5), [0, 0, 12, 0, 1]);
       },
     );
+
+    test('mdnsPtrQuery refuses what it cannot put on the wire (R-031)', () {
+      // The source-capture loop used to encode whatever string the catalogue
+      // held, including the ones normalizeMdnsServiceType had already
+      // rejected — so one typo in a spec broadcast a malformed question to
+      // every device on the network, once per scan.
+      expect(mdnsPtrQuery('not-a-service-type'), isNull);
+      expect(mdnsPtrQuery(''), isNull);
+      expect(mdnsPtrQuery('_snapmaker._sctp.local'), isNull);
+      // A label past the DNS limit of 63 bytes, and a name past 255.
+      expect(mdnsPtrQuery('_${'a' * 64}._tcp.local'), isNull);
+      expect(
+        mdnsPtrQuery(
+          '_${'a' * 60}.${'b' * 60}.${'c' * 60}.${'d' * 60}._tcp.local',
+        ),
+        isNull,
+      );
+      // A trailing dot is still the same question.
+      expect(mdnsPtrQuery('_snapmaker._tcp.local.'), isNotNull);
+    });
 
     test('mdnsFirstLabelBytes returns the vendor label, or null when tiny', () {
       expect(

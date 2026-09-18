@@ -333,15 +333,31 @@ String? normalizeMdnsServiceType(String raw) {
 
 /// Build a raw mDNS PTR query datagram for a service type (`_snapmaker._tcp
 /// .local`), used by the source-capture listener to prompt the responders.
-List<int> mdnsPtrQuery(String serviceType) {
+/// Null when [serviceType] cannot be put on the wire as a question.
+///
+/// R-031: this used to take whatever string the catalogue held and encode it,
+/// including the ones [normalizeMdnsServiceType] had already rejected — so a
+/// spec with a typo made the app broadcast a malformed question to every
+/// device on the network, once per scan. A DNS label is also at most 63
+/// bytes and the name at most 255; a longer one produced a datagram no
+/// responder could parse, which is a query that can only ever waste the
+/// network's time.
+List<int>? mdnsPtrQuery(String serviceType) {
+  final normalised = normalizeMdnsServiceType(serviceType);
+  if (normalised == null) return null;
+  final labels = [
+    for (final label in normalised.split('.'))
+      if (label.isNotEmpty) utf8.encode(label),
+  ];
+  if (labels.any((l) => l.isEmpty || l.length > 63)) return null;
+  // Every label carries a length byte, plus the root label's zero.
+  if (labels.fold<int>(1, (n, l) => n + 1 + l.length) > 255) return null;
   final b = BytesBuilder();
   // Header: id 0, flags 0, qdcount 1, an/ns/ar 0.
   b.add(const [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
-  for (final label in serviceType.split('.')) {
-    if (label.isEmpty) continue;
-    final bytes = utf8.encode(label);
-    b.addByte(bytes.length);
-    b.add(bytes);
+  for (final label in labels) {
+    b.addByte(label.length);
+    b.add(label);
   }
   b.addByte(0); // root label
   b.add(const [0, 12, 0, 1]); // QTYPE PTR, QCLASS IN
@@ -1420,7 +1436,12 @@ class RealNetworkScanService implements NetworkScanService {
     try {
       final target = InternetAddress(_mdnsMulticast);
       for (final raw in serviceTypes) {
-        socket.send(mdnsPtrQuery(raw), target, _mdnsPort);
+        final query = mdnsPtrQuery(raw);
+        if (query == null) {
+          Log.net.debug('not a service type worth asking about: "$raw"');
+          continue;
+        }
+        socket.send(query, target, _mdnsPort);
       }
       final deadline = DateTime.now().add(timeout);
       await for (final event in socket.timeout(
@@ -2388,7 +2409,12 @@ class RealNetworkScanService implements NetworkScanService {
             port: _lifxPort,
             ssdpTargets: const [_lifxSearchTarget],
             txt: {'mac': mac},
-            sources: const {NetworkDiscoverySource.ssdp},
+            // R-030: a vendor UDP probe, like Kasa and the robot — nothing
+            // about LIFX is SSDP. The row said SSDP, so the Wi-Fi tab told
+            // the user a bulb had been found by a protocol it does not
+            // speak, and anything keying off the source to decide how to
+            // talk to it was reading a fiction.
+            sources: const {NetworkDiscoverySource.lanProbe},
             discoveredAt: DateTime.now(),
           ),
         );
