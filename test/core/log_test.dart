@@ -400,11 +400,31 @@ void main() {
       expect(records, isEmpty);
     });
 
-    test('the release floor still applies to a category override', () {
-      // A category turned down in a release build must not become a hole in
-      // the rule that verbose logging does not ship.
+    test('a category turned DOWN is honoured in a release build too', () {
+      // R-077: the test here was called "the release floor still applies to a
+      // category override", set no override, and asserted the global rule —
+      // so it named the opposite of what ships and could not have noticed
+      // either behaviour change. The override-is-exempt direction is already
+      // covered under "release gating"; what nothing covered is the other
+      // direction, which is the one that could quietly re-enable output: a
+      // category turned DOWN must stay down, and must not be raised back to
+      // the floor by it.
+      Log.minLevel = LogLevel.debug;
+      Log.setCategoryLevel(Log.net, LogLevel.error);
+      addTearDown(() => Log.setCategoryLevel(Log.net, null));
+
       expect(
-        Log.clampToReleaseFloor(LogLevel.debug, releaseMode: true),
+        Log.effectiveLevelIn(Log.net.category, releaseMode: true),
+        LogLevel.error,
+        reason: 'quieter than the floor stays quieter than the floor',
+      );
+      expect(
+        Log.effectiveLevelIn(Log.net.category, releaseMode: false),
+        LogLevel.error,
+      );
+      // …while a category with no override follows the floored global.
+      expect(
+        Log.effectiveLevelIn(Log.ble.category, releaseMode: true),
         LogLevel.warning,
       );
     });
