@@ -321,8 +321,13 @@ bool isBridgeUninitialised(Object error) =>
 /// choice (see [specChoicesProvider]) wins whenever its spec still matches;
 /// otherwise a unique top candidate is chosen automatically, and a tie is
 /// returned as [SpecMatchOutcome.needsChoice] for the UI to resolve.
-final matchedDeviceSpecProvider =
-    FutureProvider.family<SpecMatchOutcome, SpecMatchRequest>((ref, req) async {
+/// R-070: `autoDispose`, which its sibling above already claimed it was. The
+/// family key is (device id, name, discovered UUID set), so without it every
+/// device ever connected in this run kept its match — and its resolved
+/// `MatchedSpec`, which now holds a Rust-side parse — alive for the life of
+/// the process. A device that is disconnected is a key nobody should hold.
+final matchedDeviceSpecProvider = FutureProvider.autoDispose
+    .family<SpecMatchOutcome, SpecMatchRequest>((ref, req) async {
       // Watched (not read) so saving a choice recomputes this match in place —
       // but select()ed down to THIS device's entry, so answering the chooser for
       // one device doesn't invalidate every other device's cached match (the

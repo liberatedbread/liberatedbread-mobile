@@ -801,4 +801,40 @@ void main() {
       expect(r.chosen!.yaml, 'yaml-b');
     },
   );
+
+  test('a device nobody is watching does not keep its match (R-070)', () async {
+    // The family key is (device id, name, discovered uuid set), so without
+    // autoDispose every device ever connected in a run kept its match — and
+    // its resolved spec, which now holds a Rust-side parse — for the life of
+    // the process.
+    final codec = FakeSpecCodec(
+      spec: _spec,
+      matches: [
+        MatchResult(
+          spec: _spec,
+          matchedByNamePrefix: true,
+          matchedServiceUuids: const [_svcUuid],
+          confidence: MatchConfidence.strong,
+        ),
+      ],
+    );
+    final c = await _container(codec, const {'bulb.yaml': 'dummy-yaml'});
+
+    final sub = c.listen(matchedDeviceSpecProvider(_req()), (_, _) {});
+    await c.read(matchedDeviceSpecProvider(_req()).future);
+    expect(
+      c.exists(matchedDeviceSpecProvider(_req())),
+      isTrue,
+      reason: 'held while something is watching it',
+    );
+
+    sub.close();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      c.exists(matchedDeviceSpecProvider(_req())),
+      isFalse,
+      reason: 'the last listener going away releases the match',
+    );
+  });
 }
