@@ -115,9 +115,18 @@ class SoapControlClient {
     String host,
     int port,
     String controlPath,
-    SoapRequestDto request,
-  ) async {
-    final uri = Uri(scheme: 'http', host: host, port: port, path: controlPath);
+    SoapRequestDto request, {
+
+    /// The description's `URLBase`, when it declared one. Passed per call
+    /// rather than held: one client serves every device on the network.
+    String? urlBase,
+  }) async {
+    final uri = resolveControlUri(
+      host: host,
+      port: port,
+      controlUrl: controlPath,
+      urlBase: urlBase,
+    );
     final httpRequest = http.Request('POST', uri)
       ..headers.addAll({
         // The quotes in SOAPACTION are part of the value; the DTO carries
@@ -204,10 +213,16 @@ class SoapDeviceDescription {
   /// serviceType URN → controlURL, exactly as the device stated them.
   final Map<String, String> controlUrls;
 
+  /// The description's `URLBase`, when it declared one. UDA 1.0 lets relative
+  /// `controlURL`s resolve against it; 1.1 deprecated it, so this is usually
+  /// null and the description's own address is the base.
+  final String? urlBase;
+
   const SoapDeviceDescription({
     required this.host,
     required this.port,
     required this.controlUrls,
+    this.urlBase,
     this.friendlyName,
     this.deviceType,
     this.udn,
@@ -277,6 +292,7 @@ class SoapDeviceDescription {
     return SoapDeviceDescription(
       host: host,
       port: port,
+      urlBase: text('URLBase'),
       friendlyName: text('friendlyName'),
       deviceType: text('deviceType'),
       udn: text('UDN'),
@@ -296,6 +312,50 @@ class SoapDeviceDescription {
   /// offer the service rather than POST to a guessed path.
   String? controlPathFor(SoapRequestDto request) =>
       controlUrls[request.service] ?? request.path;
+}
+
+/// Where a `controlURL` from a device description actually points.
+///
+/// UDA 1.0 allows a service's `controlURL` to be an absolute URL, and
+/// Sony/Panasonic-era firmware writes them that way; it also allows a
+/// `URLBase` element that relative URLs resolve against. Treated as a bare
+/// path — which is what this client did — an absolute one became
+/// `http://<host>:<port>/http://<host>/control`, a URL the device answers
+/// with 404, reported to the user as the device refusing the command.
+///
+/// An absolute URL is honoured only when it names the device we are already
+/// talking to. A description that points its control endpoint at some OTHER
+/// host is either broken or someone else's business: the path is taken and
+/// the host is not, rather than POSTing a command — with whatever it carries
+/// — to an address the user never chose. (The same rule as the discovery
+/// path applies for the same reason.)
+Uri resolveControlUri({
+  required String host,
+  required int port,
+  required String controlUrl,
+  String? urlBase,
+}) {
+  final device = Uri(scheme: 'http', host: host, port: port, path: '/');
+  final base = (urlBase == null || urlBase.trim().isEmpty)
+      ? device
+      : (Uri.tryParse(urlBase.trim()) ?? device);
+  final resolved = base.hasScheme
+      ? base.resolve(controlUrl)
+      : device.resolve(controlUrl);
+  if (resolved.host.isEmpty) {
+    return device.resolve(controlUrl);
+  }
+  if (resolved.host != host) {
+    // Keep the path, drop the host it tried to send us to.
+    return Uri(
+      scheme: 'http',
+      host: host,
+      port: port,
+      path: resolved.path,
+      query: resolved.query.isEmpty ? null : resolved.query,
+    );
+  }
+  return resolved;
 }
 
 /// The transport failed: unreachable host, non-200, unparseable reply.

@@ -825,6 +825,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         description.port,
         path,
         request,
+        urlBase: description.urlBase,
       );
     }
     await _decodeEntities();

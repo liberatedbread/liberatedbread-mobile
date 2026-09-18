@@ -774,7 +774,13 @@ class NetworkGroupRunner {
         );
         final path = desc.controlPathFor(request);
         if (path == null) return null;
-        returned = await _soap.send(desc.host, desc.port, path, request);
+        returned = await _soap.send(
+          desc.host,
+          desc.port,
+          path,
+          request,
+          urlBase: desc.urlBase,
+        );
       }
       final reading = await _codec.readNetworkEntity(
         specYaml: specYaml,

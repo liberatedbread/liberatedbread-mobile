@@ -197,6 +197,69 @@ void main() {
     });
   });
 
+  group('resolveControlUri (R-039)', () {
+    // UDA 1.0 lets a service spell its controlURL as an absolute URL, and
+    // Sony/Panasonic-era firmware does. Treated as a bare path — which is
+    // what this client did — it became
+    // http://<host>:<port>/http://<host>/control, which the device answers
+    // with a 404 reported to the user as "the device did not accept that".
+    test('a bare path is joined to the device', () {
+      expect(
+        resolveControlUri(host: '10.0.0.5', port: 49153, controlUrl: '/ctl'),
+        Uri.parse('http://10.0.0.5:49153/ctl'),
+      );
+    });
+
+    test('an absolute url naming this device is honoured whole', () {
+      expect(
+        resolveControlUri(
+          host: '10.0.0.5',
+          port: 49153,
+          controlUrl: 'http://10.0.0.5:49153/upnp/control/basicevent1',
+        ),
+        Uri.parse('http://10.0.0.5:49153/upnp/control/basicevent1'),
+      );
+    });
+
+    test('an absolute url naming somewhere else keeps only its path', () {
+      // A description that points its control endpoint at another host is
+      // either broken or someone else's business, and the POST carries the
+      // command — so the path is taken and the host is not.
+      final uri = resolveControlUri(
+        host: '10.0.0.5',
+        port: 49153,
+        controlUrl: 'http://192.168.9.9:80/upnp/control/basicevent1',
+      );
+      expect(uri.host, '10.0.0.5');
+      expect(uri.port, 49153);
+      expect(uri.path, '/upnp/control/basicevent1');
+    });
+
+    test('a relative url resolves against a declared URLBase', () {
+      expect(
+        resolveControlUri(
+          host: '10.0.0.5',
+          port: 49153,
+          controlUrl: 'control/basicevent1',
+          urlBase: 'http://10.0.0.5:49153/upnp/',
+        ),
+        Uri.parse('http://10.0.0.5:49153/upnp/control/basicevent1'),
+      );
+    });
+
+    test('a malformed URLBase falls back to the device address', () {
+      expect(
+        resolveControlUri(
+          host: '10.0.0.5',
+          port: 49153,
+          controlUrl: '/ctl',
+          urlBase: '   ',
+        ),
+        Uri.parse('http://10.0.0.5:49153/ctl'),
+      );
+    });
+  });
+
   group('send', () {
     test('POSTs the rendered body with the exact SOAPACTION header', () async {
       late http.Request seen;

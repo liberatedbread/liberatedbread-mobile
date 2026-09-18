@@ -941,6 +941,7 @@ class AdoptService {
         description.port,
         path,
         request,
+        urlBase: description.urlBase,
       );
       if (trace) {
         Log.adopt.debug(
