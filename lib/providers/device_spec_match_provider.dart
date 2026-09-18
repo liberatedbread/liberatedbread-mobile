@@ -283,7 +283,16 @@ List<SpecMatch> topTiedSpecMatches(List<SpecMatch> ranked) {
 final specCatalogueProvider = FutureProvider<SpecCatalogue>((ref) async {
   final codec = ref.watch(specCodecProvider);
   final specYamls = await ref.watch(deviceSpecsProvider.future);
-  final catalogue = await codec.loadCatalogue(specYamls);
+  // R-081: timed through the shared helper rather than a local Stopwatch.
+  // This is the load the whole handle redesign was about — it used to block
+  // the calling isolate for the better part of a second — so "how long did it
+  // take on this device" is a question worth being able to answer from a
+  // diagnostics capture rather than only from a benchmark on a desk.
+  final catalogue = await Log.spec.timed(
+    'loading ${specYamls.length} spec(s)',
+    () => codec.loadCatalogue(specYamls),
+    level: LogLevel.info,
+  );
 
   // Counted rather than logged per spec: when the native library is not up
   // (a host test that pumps the app before RustLib.init, or a device build

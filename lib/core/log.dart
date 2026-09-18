@@ -131,14 +131,16 @@ class Logger {
 
   /// Run [body], and log how long it took.
   ///
-  /// Provided for new call sites, and currently used by none: this is the
-  /// shared form of a pattern that is still hand-rolled in `AdoptService`
-  /// (`Stopwatch` plus its private `_elapsed`) and written nowhere else, which
-  /// is the problem it exists to solve — "how long did the probe take" is the
-  /// first question about every network exchange in this app and only one
-  /// place can answer it. Reaching for this instead of a local `Stopwatch` is
-  /// the point; converting the adoption service is a separate change, so do
-  /// not read this doc as saying it already happened.
+  /// The shared form of a pattern this app keeps needing: "how long did that
+  /// take" is the first question about every network exchange here. Used by
+  /// the catalogue load (`specCatalogueProvider`), which is the measurement
+  /// the spec-handle redesign turned on its head.
+  ///
+  /// `AdoptService` still hand-rolls its own `Stopwatch` and `_elapsed`, and
+  /// deliberately: its lines interpolate the elapsed time INTO a sentence
+  /// ("wemo probe answered in 240 ms but offered no WiFiSetup"), which this
+  /// helper's one-line form cannot say. Converting it would cost those
+  /// sentences, so do not read this doc as asking for it.
   ///
   /// A failure is logged too, at [LogLevel.warning] with its elapsed time, and
   /// then rethrown — the caller's error handling is unchanged, and the timing

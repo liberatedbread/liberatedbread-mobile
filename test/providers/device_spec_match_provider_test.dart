@@ -837,4 +837,24 @@ void main() {
       reason: 'the last listener going away releases the match',
     );
   });
+
+  test('the catalogue load says how long it took (R-081)', () async {
+    // The load the handle redesign was about: it used to block the calling
+    // isolate for most of a second, so "how long on THIS device" is a
+    // question a diagnostics capture should be able to answer rather than
+    // only a benchmark on a desk. Timed through the shared helper, which
+    // until now had no caller at all.
+    final records = Log.captureRecords();
+    Log.minLevel = LogLevel.debug;
+    addTearDown(Log.reset);
+
+    final codec = FakeSpecCodec(spec: _spec);
+    final c = await _container(codec, const {'bulb.yaml': 'dummy-yaml'});
+    await c.read(specCatalogueProvider.future);
+
+    expect(
+      records.map((r) => r.message),
+      contains(allOf(contains('loading 1 spec(s)'), contains('took'))),
+    );
+  });
 }
