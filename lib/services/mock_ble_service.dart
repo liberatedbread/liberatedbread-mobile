@@ -239,6 +239,11 @@ class MockBleService implements BleService {
 
   // [intensity] is accepted and ignored: the pretend radio has no duty cycle
   // to trade against, so demo mode behaves identically either way.
+  /// Whether the simulator has been reset for this service instance.
+  ///
+  /// See the note in [scan]: reset once, not once per scan.
+  bool _mockStateReset = false;
+
   @override
   Stream<IoTDevice> scan({
     Duration? timeout = const Duration(
@@ -246,8 +251,17 @@ class MockBleService implements BleService {
     ),
     ScanIntensity intensity = ScanIntensity.active,
   }) async* {
-    // Fresh mock state per scan when Rust is driving the simulator.
-    if (rustAvailable) {
+    // R-018: mock state is reset when demo mode STARTS, not on every scan.
+    //
+    // A scan used to wipe everything the user had written — a bulb they had
+    // turned on, a setpoint they had moved — and the scan screen now starts
+    // scans routinely: on the burst downshift, on resume, on coming back
+    // from a device screen. So a demo user turned a light on, went back, and
+    // found it off again, which reads as the app failing to send rather than
+    // as the simulator being reset underneath them. A fresh run still starts
+    // clean, because the flag lives with this instance.
+    if (rustAvailable && !_mockStateReset) {
+      _mockStateReset = true;
       try {
         await rust.mockReset();
       } catch (_) {

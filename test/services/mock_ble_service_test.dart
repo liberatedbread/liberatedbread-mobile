@@ -237,6 +237,32 @@ void main() {
   });
 
   group('writeCharacteristic then readCharacteristic', () {
+    test(
+      'a later scan does not undo what demo mode was told (R-018)',
+      () async {
+        // The scan screen starts scans routinely — the burst downshift, resume,
+        // coming back from a device screen — and each one used to wipe the
+        // simulator. A demo user turned a light on, went back, and found it
+        // off, which reads as the app failing to send rather than as the
+        // simulator being reset underneath them.
+        const device = 'AA:BB:CC:DD:EE:01';
+        const service_ = '0000fff0-0000-1000-8000-00805f9b34fb';
+        const characteristic = '0000fff1-0000-1000-8000-00805f9b34fb';
+        await service.scan().toList();
+        await service.writeCharacteristic(device, service_, characteristic, [
+          0x01,
+          0x50,
+        ]);
+
+        await service.scan().toList();
+
+        expect(
+          await service.readCharacteristic(device, service_, characteristic),
+          [0x01, 0x50],
+        );
+      },
+    );
+
     test('returns written value', () async {
       await service.writeCharacteristic(
         'AA:BB:CC:DD:EE:01',
