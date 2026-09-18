@@ -182,6 +182,16 @@ bool isSpuriousLinuxNotifyTimeout(Object error, {required bool isLinux}) =>
 ///   0x0F insufficient encryption.
 const _attPairingErrorCodes = {0x05, 0x08, 0x0F};
 
+/// Whether [error] is the link having dropped while an operation was running.
+///
+/// fbp's own `deviceIsDisconnected`, matched on platform and code for the
+/// reason its siblings give: the same number from a native stack is an ATT
+/// code meaning something else entirely.
+bool isLinkDroppedError(Object error) =>
+    error is FlutterBluePlusException &&
+    error.platform == ErrorPlatform.fbp &&
+    error.code == FbpErrorCode.deviceIsDisconnected.index;
+
 /// Whether [error] is the peripheral never answering, rather than refusing.
 ///
 /// flutter_blue_plus reports its own timeout as `ErrorPlatform.fbp` with
@@ -1396,6 +1406,12 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     // [isPairingRequiredError]), and narrowing the catch would let exactly that
     // case through untranslated.
     return operation().onError<Object>((error, stack) {
+      if (isLinkDroppedError(error)) {
+        // The device hung up mid-operation. Ordinary on a security device
+        // that has just refused something; the plugin's own wording is not.
+        Log.ble.warning('$deviceId dropped the link mid-operation ($error)');
+        throw const BleLinkDroppedException();
+      }
       if (isCharacteristicSilentError(error)) {
         // Not a refusal and not a dropped link: the characteristic simply
         // never replied. Typed here so the plugin's own string does not reach

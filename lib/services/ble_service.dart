@@ -137,6 +137,29 @@ class BleCharacteristicSilentException implements UserFacingException {
   String toString() => message;
 }
 
+/// The link dropped while an operation was in flight.
+///
+/// Found on the same Schlage lock (2026-09-17): after refusing one read it
+/// hung up, and the next read arrived as the plugin's
+/// `fbp-code: 6 | Device is disconnected`. A security device dropping a
+/// central that asked for something it should not have is ordinary behaviour,
+/// not a bug — but "Device is disconnected" is the plugin talking to a
+/// developer, and the user needs to know the device went away and a retry
+/// reconnects.
+class BleLinkDroppedException implements UserFacingException {
+  @override
+  final String message;
+  const BleLinkDroppedException([
+    this.message =
+        'The device disconnected before it answered. Some devices hang up '
+        'when asked for something they will not share. Try again to '
+        'reconnect.',
+  ]);
+
+  @override
+  String toString() => message;
+}
+
 class BleDeviceUnheardException implements UserFacingException {
   @override
   final String message;

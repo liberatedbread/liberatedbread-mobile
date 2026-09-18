@@ -765,6 +765,32 @@ void main() {
       );
     });
 
+    test('a link that drops mid-operation is its own answer', () {
+      // The same lock, moments later: having refused one read it hung up,
+      // and the next arrived as "fbp-code: 6 | Device is disconnected".
+      final dropped = FlutterBluePlusException(
+        ErrorPlatform.fbp,
+        'readCharacteristic',
+        FbpErrorCode.deviceIsDisconnected.index,
+        'Device is disconnected',
+      );
+      expect(isLinkDroppedError(dropped), isTrue);
+      expect(isCharacteristicSilentError(dropped), isFalse);
+      expect(isPairingRequiredError(dropped), isFalse);
+      // …and the same number from a native stack is an ATT code, not this.
+      expect(
+        isLinkDroppedError(
+          FlutterBluePlusException(
+            ErrorPlatform.android,
+            'readCharacteristic',
+            FbpErrorCode.deviceIsDisconnected.index,
+            'att',
+          ),
+        ),
+        isFalse,
+      );
+    });
+
     test('a refusal stays a refusal, not silence', () {
       final refusal = FlutterBluePlusException(
         ErrorPlatform.apple,
