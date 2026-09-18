@@ -223,36 +223,16 @@ class ScanIdentity {
 final specIdentitiesProvider = FutureProvider<List<SpecIdentityDto>>((
   ref,
 ) async {
-  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  return [
-    for (final p in parsed)
-      SpecIdentityDto(
-        deviceName: p.spec.deviceName,
-        manufacturer: p.spec.manufacturer,
-        category: p.spec.category,
-        pictogram: p.spec.pictogram,
-        adminUrl: p.spec.adminUrl,
-        integration: p.spec.integration,
-        // The scan-list badge, the warning screen and the malicious-device
-        // alert all read the advisory off the identity the matcher returns;
-        // leaving it out here made the whole security-warning feature inert
-        // in production while its widget tests (which build identities by
-        // hand) stayed green.
-        securityAdvisory: p.spec.securityAdvisory,
-        localNamePrefixes: p.spec.localNamePrefixes,
-        localNames: p.spec.localNames,
-        serviceUuids: p.spec.serviceUuids,
-        companyIds: p.spec.companyIds,
-        macPrefixes: p.spec.macPrefixes,
-        mdnsServiceTypes: p.spec.mdnsServiceTypes,
-        ssdpSearchTargets: p.spec.ssdpSearchTargets,
-        lanProtocols: p.spec.lanProtocols,
-        defaultPort: p.spec.defaultPort,
-        nameMatchers: p.spec.nameMatchers,
-        txtMatchGroups: p.spec.txtMatchGroups,
-        platformFallbackTypes: p.spec.platformFallbackTypes,
-      ),
-  ];
+  final catalogue = await ref.watch(specCatalogueProvider.future);
+  // The projection is the catalogue's own — built once where the specs were
+  // parsed (in Rust, on the production codec), not rebuilt per spec here out
+  // of a DTO that no longer crosses. The scan-list badge, the warning screen
+  // and the malicious-device alert all read the advisory off the identity the
+  // matcher returns, so a field dropped from this projection makes a whole
+  // feature inert in production while its widget tests (which build
+  // identities by hand) stay green; the golden test compares the projection
+  // to the by-value one over the entire vendored catalogue.
+  return [for (final entry in catalogue.specs) entry.identity];
 });
 
 /// What the catalogue makes of one scanned device, or `null` when nothing

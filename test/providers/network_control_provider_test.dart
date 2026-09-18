@@ -54,7 +54,12 @@ ProviderContainer _container(
   final container = ProviderContainer(
     overrides: [
       specCodecProvider.overrideWithValue(codec),
-      parsedDeviceSpecsProvider.overrideWith((ref) async => parsed),
+      specCatalogueProvider.overrideWith(
+        (ref) async => FallbackSpecCatalogue.fromParsed(
+          ref.watch(specCodecProvider),
+          parsed,
+        ),
+      ),
     ],
   );
   addTearDown(container.dispose);

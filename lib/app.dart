@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/constants.dart';
 import 'core/theme.dart';
 import 'providers/saved_device_provider.dart';
+import 'providers/startup_warmup.dart';
 import 'screens/home_shell.dart';
 import 'screens/terms_screen.dart';
 
@@ -46,6 +47,10 @@ class _TermsGateState extends ConsumerState<_TermsGate> {
     _accepted =
         (prefs.getInt(AppConstants.termsAcceptedKey) ?? 0) >=
         AppConstants.termsVersion;
+    // The first screen the app has is the first chance to start the catalogue
+    // and registry loads. Without this they began when the first scan result
+    // arrived, which is the worst moment for them.
+    warmStartupCaches(ref);
   }
 
   Future<void> _accept() async {

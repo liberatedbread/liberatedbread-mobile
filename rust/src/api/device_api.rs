@@ -1596,13 +1596,23 @@ pub fn encode_entity_value(
     value: f64,
 ) -> anyhow::Result<EntityWriteDto> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    encode_entity_value_with_spec(&spec, entity_name, value)
+}
+
+/// [`encode_entity_value`] against a spec that is already parsed — the body
+/// both the by-YAML entry point and [`super::spec_handle::LoadedSpec`] run.
+pub(crate) fn encode_entity_value_with_spec(
+    spec: &DeviceSpec,
+    entity_name: String,
+    value: f64,
+) -> anyhow::Result<EntityWriteDto> {
     let entity = spec
         .entities
         .iter()
         .find(|e| e.name == entity_name)
         .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))?;
 
-    let actions = bindings::resolve_entity_actions(&spec, entity);
+    let actions = bindings::resolve_entity_actions(spec, entity);
     let action = actions
         .iter()
         .find(|a| a.role == "set_value")
@@ -1624,7 +1634,7 @@ pub fn encode_entity_value(
         }
     }
 
-    let transform = bindings::setpoint_transform(&spec, entity, action);
+    let transform = bindings::setpoint_transform(spec, entity, action);
     let raw = transform.encode(value).ok_or_else(|| {
         anyhow::anyhow!("entity '{entity_name}' declares scale 0, which cannot be inverted")
     })?;
@@ -3269,7 +3279,17 @@ pub fn render_network_state_request(
     state_command: String,
 ) -> anyhow::Result<SoapRequestDto> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let request = crate::protocol::soap::render_state_request(&spec, &state_command)?;
+    render_network_state_request_with_spec(&spec, state_command)
+}
+
+/// [`render_network_state_request`] against a spec that is already parsed —
+/// the body both the by-YAML entry point and
+/// [`super::spec_handle::LoadedSpec`] run.
+pub(crate) fn render_network_state_request_with_spec(
+    spec: &DeviceSpec,
+    state_command: String,
+) -> anyhow::Result<SoapRequestDto> {
+    let request = crate::protocol::soap::render_state_request(spec, &state_command)?;
     Ok(SoapRequestDto::from(request))
 }
 
@@ -3294,13 +3314,19 @@ pub fn read_network_entity(
     returned: HashMap<String, String>,
 ) -> anyhow::Result<Option<NetworkReadingDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let entity = spec
-        .entities
-        .iter()
-        .find(|e| e.name == entity_name)
-        .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))?;
+    read_network_entity_with_spec(&spec, entity_name, returned)
+}
+
+/// [`read_network_entity`] against a spec that is already parsed — the body
+/// both the by-YAML entry point and [`super::spec_handle::LoadedSpec`] run.
+pub(crate) fn read_network_entity_with_spec(
+    spec: &DeviceSpec,
+    entity_name: String,
+    returned: HashMap<String, String>,
+) -> anyhow::Result<Option<NetworkReadingDto>> {
+    let entity = find_entity(spec, &entity_name)?;
     let returned = returned.into_iter().collect();
-    Ok(crate::protocol::soap::read_entity(&spec, entity, &returned).map(reading_to_dto))
+    Ok(crate::protocol::soap::read_entity(spec, entity, &returned).map(reading_to_dto))
 }
 
 /// One [`EntityReading`] as the DTO Dart draws — shared by the SOAP and HTTP
@@ -3393,13 +3419,25 @@ pub fn render_network_http_state_request(
     values: HashMap<String, String>,
 ) -> anyhow::Result<HttpRequestDto> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    render_network_http_state_request_with_spec(&spec, state_command, values)
+}
+
+/// [`render_network_http_state_request`] against a spec that is already
+/// parsed — the body both the by-YAML entry point and
+/// [`super::spec_handle::LoadedSpec`] run. This is the 4-second network poll,
+/// so it is the one that most wants the spec to stay on this side.
+pub(crate) fn render_network_http_state_request_with_spec(
+    spec: &DeviceSpec,
+    state_command: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<HttpRequestDto> {
     let request = crate::protocol::http::render_state_request(
-        &spec,
+        spec,
         &state_command,
         &values.into_iter().collect(),
     )?;
     let mut dto = HttpRequestDto::from(request);
-    dto.scheme = http_scheme_of(&spec);
+    dto.scheme = http_scheme_of(spec);
     Ok(dto)
 }
 
@@ -3411,7 +3449,18 @@ pub fn list_network_instances(
     state_reply: String,
 ) -> anyhow::Result<Vec<NetworkInstanceDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let entity = find_entity(&spec, &entity_name)?;
+    list_network_instances_with_spec(&spec, entity_name, state_reply)
+}
+
+/// [`list_network_instances`] against a spec that is already parsed — the
+/// body both the by-YAML entry point and [`super::spec_handle::LoadedSpec`]
+/// run.
+pub(crate) fn list_network_instances_with_spec(
+    spec: &DeviceSpec,
+    entity_name: String,
+    state_reply: String,
+) -> anyhow::Result<Vec<NetworkInstanceDto>> {
+    let entity = find_entity(spec, &entity_name)?;
     Ok(crate::protocol::http::list_instances(entity, &state_reply)?
         .into_iter()
         .map(|instance| NetworkInstanceDto {
@@ -3431,7 +3480,18 @@ pub fn read_network_instance(
     instance_id: String,
 ) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let entity = find_entity(&spec, &entity_name)?;
+    read_network_instance_with_spec(&spec, entity_name, state_reply, instance_id)
+}
+
+/// [`read_network_instance`] against a spec that is already parsed — the body
+/// both the by-YAML entry point and [`super::spec_handle::LoadedSpec`] run.
+pub(crate) fn read_network_instance_with_spec(
+    spec: &DeviceSpec,
+    entity_name: String,
+    state_reply: String,
+    instance_id: String,
+) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
+    let entity = find_entity(spec, &entity_name)?;
     Ok(
         crate::protocol::http::read_instance_entity(entity, &state_reply, &instance_id)?
             .into_iter()
@@ -4592,17 +4652,46 @@ pub fn match_device_to_spec(
     specs
         .into_iter()
         .filter_map(|spec| {
-            let axes = match_axes(&SpecIdentityDto::from(&spec), &device, None);
-            // Built before the struct moves the axes apart.
-            let matched_service_uuids = axes.all_service_uuids();
-            (!axes.is_empty()).then(|| MatchResult {
+            let hit = match_connected_device(&SpecIdentityDto::from(&spec), &device)?;
+            Some(MatchResult {
                 spec,
-                matched_by_name_prefix: axes.by_name_prefix,
-                confidence: axes.confidence(),
-                matched_service_uuids,
+                matched_by_name_prefix: hit.matched_by_name_prefix,
+                confidence: hit.confidence,
+                matched_service_uuids: hit.matched_service_uuids,
             })
         })
         .collect()
+}
+
+/// One catalogue entry's match against a device we are already connected to:
+/// which axes hit, with no spec attached. `None` when nothing matched.
+///
+/// The axes rule for the post-connect path, in one place, so
+/// [`match_device_to_spec`] (which ships whole specs both ways) and
+/// [`super::spec_handle::CatalogueHandle::match_device`] (which ships two
+/// strings and gets indices back) cannot drift apart.
+#[frb(ignore)]
+pub(crate) fn match_connected_device(
+    identity: &SpecIdentityDto,
+    device: &ScannedDeviceDto,
+) -> Option<ConnectedMatch> {
+    let axes = match_axes(identity, device, None);
+    // Built before the struct moves the axes apart.
+    let matched_service_uuids = axes.all_service_uuids();
+    (!axes.is_empty()).then(|| ConnectedMatch {
+        matched_by_name_prefix: axes.by_name_prefix,
+        confidence: axes.confidence(),
+        matched_service_uuids,
+    })
+}
+
+/// What [`match_connected_device`] found. Not an FFI type: the two callers
+/// project it into their own result shape.
+#[frb(ignore)]
+pub(crate) struct ConnectedMatch {
+    pub matched_by_name_prefix: bool,
+    pub confidence: MatchConfidence,
+    pub matched_service_uuids: Vec<String>,
 }
 
 /// Rank the catalogue against a single device found on the local network, best
@@ -4740,12 +4829,28 @@ pub fn encode_command(
     // tables, and a caller naming both halves of the pair (the group runner)
     // must get the pair it named. Spec-only keeps the historical whole-spec
     // search; service-only still selects a standard profile.
-    if let (Some(yaml), Some(service)) = (spec_yaml.as_deref(), &service_uuid) {
+    if let Some(yaml) = spec_yaml.as_deref() {
         let spec = crate::protocol::dispatch::parse_or_cached(yaml)?;
-        let proto = crate::protocol::generic::GenericProtocol::scoped(spec, Some(service.clone()));
-        return Ok(proto.encode_command(&char_uuid, &command_name, &params)?);
+        return encode_command_with_spec(spec, service_uuid, char_uuid, command_name, params);
     }
-    let proto = select_protocol(spec_yaml.as_deref(), service_uuid.as_deref())?;
+    let proto = select_protocol(None, service_uuid.as_deref())?;
+    Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
+}
+
+/// [`encode_command`] against a spec that is already parsed — the body both
+/// the by-YAML entry point and [`super::spec_handle::LoadedSpec`] run.
+///
+/// The scoping rule lives here so it cannot drift between the two: with a
+/// service named, the lookup is confined to that service; without one it is
+/// the historical whole-spec search.
+pub(crate) fn encode_command_with_spec(
+    spec: std::sync::Arc<DeviceSpec>,
+    service_uuid: Option<String>,
+    char_uuid: String,
+    command_name: String,
+    params: HashMap<String, f64>,
+) -> anyhow::Result<Vec<u8>> {
+    let proto = crate::protocol::generic::GenericProtocol::scoped(spec, service_uuid);
     Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
 }
 
@@ -5526,11 +5631,22 @@ pub fn decode_value(
     bytes: Vec<u8>,
 ) -> anyhow::Result<Vec<DecodedValueDto>> {
     let proto = select_protocol(spec_yaml.as_deref(), service_uuid.as_deref())?;
-    let decoded = proto.decode_value(&char_uuid, &bytes)?;
+    decode_with_protocol(proto.as_ref(), &char_uuid, &bytes)
+}
+
+/// [`decode_value`] once a protocol has been selected — the body both the
+/// by-YAML entry point and [`super::spec_handle::LoadedSpec`] run, so a
+/// decode means the same thing whichever one asked.
+pub(crate) fn decode_with_protocol(
+    proto: &dyn DeviceProtocol,
+    char_uuid: &str,
+    bytes: &[u8],
+) -> anyhow::Result<Vec<DecodedValueDto>> {
+    let decoded = proto.decode_value(char_uuid, bytes)?;
     // Presentation metadata is looked up by field name rather than by position:
     // `decode_all_fields` collapses a repeated field name into one entry, so the
     // two lists are not guaranteed to line up index for index.
-    let meta = proto.field_meta_for_characteristic(&char_uuid);
+    let meta = proto.field_meta_for_characteristic(char_uuid);
     Ok(decoded
         .iter()
         .map(|(name, value)| {

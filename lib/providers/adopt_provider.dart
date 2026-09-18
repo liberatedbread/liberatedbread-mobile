@@ -61,12 +61,10 @@ class AdoptableDevice {
 /// here briefly inverted that and silently handed adopt the stale bundled
 /// spec. Loud either way; until the profile DTOs carry a spec key, a
 /// same-name collision between unrelated specs still shadows one of them.
-Map<String, ({DeviceSpecDto spec, String yaml})> _specsByDeviceName(
-  List<({DeviceSpecDto spec, String yaml})> parsed,
-) {
-  final byName = <String, ({DeviceSpecDto spec, String yaml})>{};
+Map<String, CatalogueSpec> _specsByDeviceName(List<CatalogueSpec> parsed) {
+  final byName = <String, CatalogueSpec>{};
   for (final entry in parsed) {
-    final name = entry.spec.deviceName;
+    final name = entry.deviceName;
     if (byName.containsKey(name)) {
       Log.spec.warning(
         'two specs share device name "$name"; adopt takes the '
@@ -82,8 +80,8 @@ final adoptableDevicesProvider = FutureProvider<List<AdoptableDevice>>((
   ref,
 ) async {
   final codec = ref.watch(specCodecProvider);
-  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  final byName = _specsByDeviceName(parsed);
+  final catalogue = await ref.watch(specCatalogueProvider.future);
+  final byName = _specsByDeviceName(catalogue.specs);
   // Profiles come from the WINNING copies only. Generating them from every
   // parsed copy paired a card's profile (SSID prefix, gateway, ports) with a
   // different copy's YAML: the dedupe below keeps the first profile it sees
@@ -146,9 +144,9 @@ final bleAdoptableDevicesProvider = FutureProvider<List<BleAdoptableDevice>>((
   ref,
 ) async {
   final codec = ref.watch(specCodecProvider);
-  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
+  final catalogue = await ref.watch(specCatalogueProvider.future);
   // The same join, the same shadowing rule — one definition for both flows.
-  final byName = _specsByDeviceName(parsed);
+  final byName = _specsByDeviceName(catalogue.specs);
   // Winning copies only, for the reason the softap join above gives: a
   // profile and the YAML beside it must come from the same spec.
   final profiles = await codec.bleProvisioningProfiles([
@@ -167,7 +165,7 @@ final bleAdoptableDevicesProvider = FutureProvider<List<BleAdoptableDevice>>((
       BleAdoptableDevice(
         profile: profile,
         specYaml: spec.yaml,
-        protocolHandler: spec.spec.protocolHandler,
+        protocolHandler: spec.protocolHandler,
       ),
     );
   }

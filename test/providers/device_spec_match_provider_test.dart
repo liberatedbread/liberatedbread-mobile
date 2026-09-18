@@ -80,6 +80,32 @@ Future<ProviderContainer> _container(
   return c;
 }
 
+/// The catalogue entry a parsed spec would become, so the ranking tests can
+/// state their fixtures as specs (which is how they read) while the functions
+/// under test take what matching now returns: an entry plus the axes that
+/// hit.
+CatalogueSpec _entry(DeviceSpecDto spec, {int index = 0}) => CatalogueSpec(
+  index: index,
+  key: '${spec.deviceName}|${spec.manufacturer}',
+  yaml: '${spec.deviceName}-yaml',
+  identity: specIdentityOf(spec),
+  protocolHandler: spec.protocolHandler,
+  gattServiceUuids: [for (final s in spec.services) s.uuid],
+);
+
+SpecMatch _match(
+  DeviceSpecDto spec, {
+  bool byNamePrefix = false,
+  List<String> serviceUuids = const [],
+  MatchConfidence confidence = MatchConfidence.likely,
+  int index = 0,
+}) => SpecMatch(
+  entry: _entry(spec, index: index),
+  matchedByNamePrefix: byNamePrefix,
+  confidence: confidence,
+  matchedServiceUuids: serviceUuids,
+);
+
 SpecMatchRequest _req({
   String deviceId = 'AA:BB',
   String deviceName = 'ACME_X',
@@ -92,22 +118,16 @@ SpecMatchRequest _req({
 
 void main() {
   group('rank + evidence policy (pure)', () {
-    final nameOnly = MatchResult(
-      spec: _spec,
-      matchedByNamePrefix: true,
-      matchedServiceUuids: const [],
-      confidence: MatchConfidence.likely,
-    );
-    final uuidOnly = MatchResult(
-      spec: _spec,
-      matchedByNamePrefix: false,
-      matchedServiceUuids: const [_svcUuid],
+    final nameOnly = _match(_spec, byNamePrefix: true);
+    final uuidOnly = _match(
+      _spec,
+      serviceUuids: const [_svcUuid],
       confidence: MatchConfidence.strong,
     );
-    final corroborated = MatchResult(
-      spec: _spec,
-      matchedByNamePrefix: true,
-      matchedServiceUuids: const [_svcUuid],
+    final corroborated = _match(
+      _spec,
+      byNamePrefix: true,
+      serviceUuids: const [_svcUuid],
       confidence: MatchConfidence.strong,
     );
 
@@ -173,12 +193,8 @@ void main() {
           ),
         ],
       );
-      final match = MatchResult(
-        spec: advOnly,
-        matchedByNamePrefix: true,
-        matchedServiceUuids: [], // the adv UUID matched nothing discovered
-        confidence: MatchConfidence.likely,
-      );
+      // The adv UUID matched nothing discovered, so the name is the only axis.
+      final match = _match(advOnly, byNamePrefix: true);
       expect(
         isContradictedNameOnlyMatch(match, discoveredUuids: const [_svcUuid]),
         isFalse,
@@ -210,12 +226,7 @@ void main() {
         entities: <EntityDto>[],
         services: [],
       );
-      final match = MatchResult(
-        spec: nameIsOnlyAxis,
-        matchedByNamePrefix: true,
-        matchedServiceUuids: [],
-        confidence: MatchConfidence.likely,
-      );
+      final match = _match(nameIsOnlyAxis, byNamePrefix: true);
       expect(
         isContradictedNameOnlyMatch(match, discoveredUuids: const ['1234']),
         isFalse,
@@ -263,6 +274,35 @@ void main() {
     expect(r.chosen, isNotNull);
     expect(r.chosen!.spec.deviceName, 'Bulb');
     expect(r.chosen!.yaml, 'dummy-yaml');
+  });
+
+  test('an installed pack copy shadows the bundled spec it corrects', () async {
+    // Both copies share an identity, so both match; the pack's loads after
+    // the bundled one and must be the copy the screen drives with. Before
+    // matching returned indices this was an explicit `lastWhere` over the
+    // parsed catalogue, and it is still the rule — just expressed as the
+    // last entry under the identity key.
+    final codec = FakeSpecCodec(
+      spec: _spec,
+      specByYaml: {'bundled-yaml': _spec, 'pack-yaml': _spec},
+      matches: [
+        MatchResult(
+          spec: _spec,
+          matchedByNamePrefix: true,
+          matchedServiceUuids: const [_svcUuid],
+          confidence: MatchConfidence.strong,
+        ),
+      ],
+    );
+    final c = await _container(codec, const {
+      'bulb.yaml': 'bundled-yaml',
+      'pack:corrections/bulb.yaml': 'pack-yaml',
+    });
+
+    final r = await c.read(matchedDeviceSpecProvider(_req()).future);
+
+    expect(r.chosen, isNotNull);
+    expect(r.chosen!.yaml, 'pack-yaml');
   });
 
   test(
@@ -636,9 +676,9 @@ void main() {
       'c.yaml': 'c',
     });
 
-    final parsed = await c.read(parsedDeviceSpecsProvider.future);
+    final catalogue = await c.read(specCatalogueProvider.future);
 
-    expect(parsed, isEmpty);
+    expect(catalogue.specs, isEmpty);
     final bridgeLines = records
         .where((r) => r.message.contains('native codec unavailable'))
         .toList();
@@ -657,7 +697,7 @@ void main() {
     final codec = FakeSpecCodec(loadError: const FormatException('bad yaml'));
     final c = await _container(codec, const {'a.yaml': 'a', 'b.yaml': 'b'});
 
-    await c.read(parsedDeviceSpecsProvider.future);
+    await c.read(specCatalogueProvider.future);
 
     expect(
       records.where((r) => r.message.startsWith('failed to parse spec')),

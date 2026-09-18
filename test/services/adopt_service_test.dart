@@ -237,7 +237,7 @@ void main() {
     test('connect returns null when the AP has no WiFiSetup service', () async {
       if (skipUnlessRust()) return;
       final service = AdoptService(
-        codec: const RealSpecCodec(),
+        codec: RealSpecCodec(),
         soap: SoapControlClient(
           httpClient: MockClient((r) async => http.Response(_notSetupXml, 200)),
         ),
@@ -273,7 +273,7 @@ void main() {
         if (skipUnlessRust()) return;
         final ap = _WemoAp();
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
           wemoPorts: const [49153],
@@ -305,7 +305,7 @@ void main() {
         if (skipUnlessRust()) return;
         final ap = _WemoAp();
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
           wemoPorts: const [49153],
@@ -335,7 +335,7 @@ void main() {
         if (skipUnlessRust()) return;
         final ap = _WemoAp();
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
           wemoPorts: const [49153],
@@ -365,7 +365,7 @@ void main() {
       if (skipUnlessRust()) return;
       final ap = _WemoAp()..apListFailuresBeforeOk = 2;
       final service = AdoptService(
-        codec: const RealSpecCodec(),
+        codec: RealSpecCodec(),
         soap: SoapControlClient(httpClient: ap.client),
         lifx: FakeLifxControlClient(),
         wemoPorts: const [49153],
@@ -403,7 +403,7 @@ void main() {
         // and a warning about a device that is answering perfectly well.
         final ap = _WemoAp()..metaFailuresBeforeOk = 1;
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
           wemoPorts: const [49153],
@@ -432,7 +432,7 @@ void main() {
         if (skipUnlessRust()) return;
         final ap = _WemoAp()..faultOnApList = true;
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
           wemoPorts: const [49153],
@@ -465,7 +465,7 @@ void main() {
         // user had typed a password and picked a network.
         final ap = _WemoAp()..metaFailuresBeforeOk = 99;
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
           wemoPorts: const [49153],
@@ -516,7 +516,7 @@ void main() {
         if (skipUnlessRust()) return;
         final ap = _WemoAp();
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
           wemoPorts: const [49153],
@@ -550,7 +550,7 @@ void main() {
         if (skipUnlessRust()) return;
         final ap = _WemoAp();
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
           wemoPorts: const [49153],
@@ -608,7 +608,7 @@ void main() {
       if (skipUnlessRust()) return;
       final ap = _WemoAp();
       final service = AdoptService(
-        codec: const RealSpecCodec(),
+        codec: RealSpecCodec(),
         soap: SoapControlClient(httpClient: ap.client),
         lifx: FakeLifxControlClient(),
         wemoPorts: const [49153],
@@ -632,7 +632,7 @@ void main() {
       if (skipUnlessRust()) return;
       final ap = _WemoAp()..networkStatus = '2';
       final service = AdoptService(
-        codec: const RealSpecCodec(),
+        codec: RealSpecCodec(),
         soap: SoapControlClient(httpClient: ap.client),
         lifx: FakeLifxControlClient(),
         wemoPorts: const [49153],
@@ -661,7 +661,7 @@ void main() {
         // fallback list. Only the spec-derived port passed to connect reaches it.
         final ap = _WemoAp()..onlyPort = 49157;
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
         );
@@ -692,7 +692,7 @@ void main() {
         // must not surface as "sending failed".
         final ap = _WemoAp()..statusFailuresBeforeOk = 2;
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
           wemoPorts: const [49153],
@@ -726,7 +726,7 @@ void main() {
         // aborts the whole variant sweep.
         final ap = _WemoAp()..failConnect = true;
         final service = AdoptService(
-          codec: const RealSpecCodec(),
+          codec: RealSpecCodec(),
           soap: SoapControlClient(httpClient: ap.client),
           lifx: FakeLifxControlClient(),
           wemoPorts: const [49153],
@@ -757,7 +757,7 @@ void main() {
         Future<String> firstBodyFor(String setupXml) async {
           final ap = _WemoAp()..setupXml = setupXml;
           final service = AdoptService(
-            codec: const RealSpecCodec(),
+            codec: RealSpecCodec(),
             soap: SoapControlClient(httpClient: ap.client),
             lifx: FakeLifxControlClient(),
             wemoPorts: const [49153],

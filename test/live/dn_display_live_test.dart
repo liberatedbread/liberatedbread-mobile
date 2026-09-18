@@ -64,7 +64,7 @@ void main() {
       final specYaml = File(
         'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
       ).readAsStringSync();
-      const codec = RealSpecCodec();
+      final codec = RealSpecCodec();
       final ble = RealBleService();
 
       // Scan until the target advertises, exactly like the app: BlueZ only

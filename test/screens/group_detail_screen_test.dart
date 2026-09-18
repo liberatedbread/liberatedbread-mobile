@@ -138,8 +138,11 @@ Widget _wrap(
     bleServiceProvider.overrideWithValue(ble),
     specCodecProvider.overrideWithValue(codec),
     scanGuessProvider.overrideWith((ref, identity) async => null),
-    parsedDeviceSpecsProvider.overrideWith(
-      (ref) async => [(spec: _bulbSpec, yaml: 'bulb-yaml')],
+    specCatalogueProvider.overrideWith(
+      (ref) async => FallbackSpecCatalogue.fromParsed(
+        ref.watch(specCodecProvider),
+        [(spec: _bulbSpec, yaml: 'bulb-yaml')],
+      ),
     ),
   ],
   child: const MaterialApp(
@@ -237,7 +240,12 @@ void main() {
           bleServiceProvider.overrideWithValue(writableBle()),
           specCodecProvider.overrideWithValue(FakeSpecCodec()),
           scanGuessProvider.overrideWith((ref, identity) => never.future),
-          parsedDeviceSpecsProvider.overrideWith((ref) async => []),
+          specCatalogueProvider.overrideWith(
+            (ref) async => FallbackSpecCatalogue.fromParsed(
+              ref.watch(specCodecProvider),
+              const [],
+            ),
+          ),
         ],
         child: const MaterialApp(
           home: GroupDetailScreen(category: DeviceCategory.light),
@@ -281,7 +289,12 @@ void main() {
             if (failGuesses) throw Exception('catalogue unavailable');
             return null;
           }),
-          parsedDeviceSpecsProvider.overrideWith((ref) async => []),
+          specCatalogueProvider.overrideWith(
+            (ref) async => FallbackSpecCatalogue.fromParsed(
+              ref.watch(specCodecProvider),
+              const [],
+            ),
+          ),
         ],
         child: const MaterialApp(
           home: GroupDetailScreen(category: DeviceCategory.light),
@@ -444,11 +457,14 @@ void main() {
             bleServiceProvider.overrideWithValue(ble),
             specCodecProvider.overrideWithValue(codec),
             scanGuessProvider.overrideWith((ref, identity) async => null),
-            parsedDeviceSpecsProvider.overrideWith(
-              (ref) async => [
-                (spec: _bulbSpec, yaml: 'bulb-yaml'),
-                (spec: wifiSpec, yaml: 'wifi-yaml'),
-              ],
+            specCatalogueProvider.overrideWith(
+              (ref) async => FallbackSpecCatalogue.fromParsed(
+                ref.watch(specCodecProvider),
+                [
+                  (spec: _bulbSpec, yaml: 'bulb-yaml'),
+                  (spec: wifiSpec, yaml: 'wifi-yaml'),
+                ],
+              ),
             ),
             httpControlClientProvider.overrideWithValue(
               HttpControlClient(

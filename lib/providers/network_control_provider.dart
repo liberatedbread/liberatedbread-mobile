@@ -144,12 +144,12 @@ final rabbitAirSpecSurfaceProvider =
     FutureProvider.autoDispose<
       ({String specYaml, List<NetworkEntityDto> entities})?
     >((ref) async {
-      final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-      final spec = parsed
+      final catalogue = await ref.watch(specCatalogueProvider.future);
+      final spec = catalogue.specs
           // The spec is selected by the protocol handler this app implements —
           // the same join the Rust admission gate trusts — not by a discovery
           // string that could move.
-          .where((p) => p.spec.protocolHandler == 'rabbit_air_lan')
+          .where((p) => p.protocolHandler == 'rabbit_air_lan')
           .firstOrNull;
       if (spec == null) return null;
       final codec = ref.watch(specCodecProvider);
@@ -179,12 +179,12 @@ final rabbitAirProvisionServiceProvider = Provider<RabbitAirProvisionService>((
     keyStore: ref.watch(rabbitAirKeyStoreProvider),
     linkFactory: () => RabbitAirBleClient(ref.watch(bleServiceProvider), codec),
     verifier: ({required thingId, required userKey}) async {
-      final parsed = await ref.read(parsedDeviceSpecsProvider.future);
-      final spec = parsed
+      final catalogue = await ref.read(specCatalogueProvider.future);
+      final spec = catalogue.specs
           // The spec is selected by the protocol handler this app implements —
           // the same join the Rust admission gate trusts — not by a discovery
           // string that could move.
-          .where((p) => p.spec.protocolHandler == 'rabbit_air_lan')
+          .where((p) => p.protocolHandler == 'rabbit_air_lan')
           .firstOrNull;
       if (spec == null) return false;
       final scanner = ref.read(networkScanServiceProvider);
@@ -373,12 +373,12 @@ class NetworkControls {
 /// details sheet, not break the scan list that asked.
 final networkControlsProvider = FutureProvider.autoDispose
     .family<NetworkControls?, NetworkControlRequest>((ref, request) async {
-      final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-      final match = parsed
+      final catalogue = await ref.watch(specCatalogueProvider.future);
+      final match = catalogue.specs
           .where(
             (p) =>
-                p.spec.deviceName == request.deviceName &&
-                p.spec.manufacturer == request.manufacturer,
+                p.deviceName == request.deviceName &&
+                p.manufacturer == request.manufacturer,
           )
           .toList();
       if (match.isEmpty) return null;
@@ -393,8 +393,8 @@ final networkControlsProvider = FutureProvider.autoDispose
         // a raster byte stream, not commands — so admit it on its protocol_handler
         // rather than letting the empty-entity check drop it to the details sheet.
         final rasterPrintHandler =
-            match.first.spec.protocolHandler == 'brother_ql_raster'
-            ? match.first.spec.protocolHandler
+            match.first.protocolHandler == 'brother_ql_raster'
+            ? match.first.protocolHandler
             : null;
         if (surface.entities.isEmpty && rasterPrintHandler == null) return null;
         return NetworkControls(

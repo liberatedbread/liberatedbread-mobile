@@ -188,7 +188,7 @@ void main() {
     final yamls = await Future.wait(paths.map(rootBundle.loadString));
     loading.stop();
 
-    const codec = RealSpecCodec();
+    final codec = RealSpecCodec();
     final failures = <String>[];
     var slowest = Duration.zero;
     var slowestPath = '';
@@ -322,7 +322,7 @@ void main() {
 
       // The codec runs the Kasa cipher on the discovery datagram, as production
       // wires it; without it that transport does not run.
-      final service = RealNetworkScanService(codec: const RealSpecCodec());
+      final service = RealNetworkScanService(codec: RealSpecCodec());
       final found = <String, NetworkDevice>{};
       Object? failure;
       final scanning = Stopwatch()..start();
@@ -357,7 +357,7 @@ void main() {
         final container = ProviderContainer();
         addTearDown(container.dispose);
         final identities = await container.read(specIdentitiesProvider.future);
-        const codec = RealSpecCodec();
+        final codec = RealSpecCodec();
         var recognised = 0;
         for (final d in found.values) {
           final identity = NetworkIdentity.of(d);
@@ -556,7 +556,7 @@ void main() {
         final container = ProviderContainer();
         addTearDown(container.dispose);
         final identities = await container.read(specIdentitiesProvider.future);
-        const codec = RealSpecCodec();
+        final codec = RealSpecCodec();
         final matches = await codec.matchScannedDevice(
           identities: identities,
           device: ScannedDeviceDto(

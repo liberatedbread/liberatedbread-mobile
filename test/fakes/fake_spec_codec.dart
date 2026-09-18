@@ -266,6 +266,16 @@ class FakeSpecCodec implements SpecCodec {
     return s;
   }
 
+  /// Builds the catalogue out of this fake's own [loadDeviceSpec] and
+  /// [matchDeviceToSpec], which is what [FallbackSpecCatalogue] is for: a
+  /// codec with no native handles still answers every catalogue question,
+  /// just by value.
+  @override
+  Future<SpecCatalogue> loadCatalogue(
+    Map<String, String> specs, {
+    void Function(int loaded, int total)? onProgress,
+  }) => FallbackSpecCatalogue.load(this, specs, onProgress: onProgress);
+
   @override
   Future<List<MatchResult>> matchDeviceToSpec({
     required List<DeviceSpecDto> specs,

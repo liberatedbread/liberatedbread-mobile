@@ -116,7 +116,13 @@ class SpecMatchOutcome {
 /// path or the full identity tuple: it survives the spec's UUID list or
 /// name-prefix being refined upstream without orphaning the stored choice.
 String specKeyFor(DeviceSpecDto spec) =>
-    '${spec.deviceName}|${spec.manufacturer}';
+    specKeyOf(spec.deviceName, spec.manufacturer);
+
+/// [specKeyFor] for a caller that has the two fields but not a whole spec —
+/// a catalogue entry, or a key being rebuilt from a saved record. One
+/// definition of the key, two ways in.
+String specKeyOf(String deviceName, String manufacturer) =>
+    '$deviceName|$manufacturer';
 
 /// The parsed catalogue indexed by [specKeyFor], for resolving stored keys
 /// back to (spec, yaml) pairs.
@@ -156,11 +162,12 @@ final bleVariantNamesProvider = FutureProvider.autoDispose
 /// collision the pack entry wins. This is the ONE place that shadowing rule
 /// is encoded for key lookups — consumers that need it (the group member
 /// resolver) build the map here rather than re-implementing the scan.
-Map<String, ({DeviceSpecDto spec, String yaml})> specEntriesByKey(
-  List<({DeviceSpecDto spec, String yaml})> parsed,
-) => {for (final entry in parsed) specKeyFor(entry.spec): entry};
+Map<String, CatalogueSpec> specEntriesByKey(List<CatalogueSpec> parsed) => {
+  for (final entry in parsed)
+    specKeyOf(entry.deviceName, entry.manufacturer): entry,
+};
 
-/// Strength of the evidence behind one [MatchResult], strongest first.
+/// Strength of the evidence behind one [SpecMatch], strongest first.
 ///
 /// The ordering encodes which axis is trustworthy on its own. A matched
 /// 128-bit service UUID is a fact read from the connected device's GATT
@@ -173,7 +180,7 @@ Map<String, ({DeviceSpecDto spec, String yaml})> specEntriesByKey(
 enum MatchEvidence { corroborated, uuidOnly, nameOnly }
 
 /// Classify one match result. Pure so ranking is unit-testable.
-MatchEvidence matchEvidenceOf(MatchResult match) =>
+MatchEvidence matchEvidenceOf(SpecMatch match) =>
     match.matchedServiceUuids.isNotEmpty
     ? (match.matchedByNamePrefix
           ? MatchEvidence.corroborated
@@ -198,13 +205,13 @@ MatchEvidence matchEvidenceOf(MatchResult match) =>
 /// its only usable axis here), as does any match when the discovered list is
 /// empty (no evidence either way).
 bool isContradictedNameOnlyMatch(
-  MatchResult match, {
+  SpecMatch match, {
   required List<String> discoveredUuids,
 }) {
   if (match.matchedServiceUuids.isNotEmpty) return false;
   if (discoveredUuids.isEmpty) return false;
   final specGattUuids = {
-    for (final service in match.spec.services) normalizeUuid(service.uuid),
+    for (final uuid in match.entry.gattServiceUuids) normalizeUuid(uuid),
   };
   if (specGattUuids.isEmpty) return false;
   return !discoveredUuids.any(
@@ -216,8 +223,8 @@ bool isContradictedNameOnlyMatch(
 /// dropped, then candidates sort by [MatchEvidence] tier and, within a tier,
 /// by how many service UUIDs matched. Pure so the policy is unit-testable
 /// without providers or the FFI codec.
-List<MatchResult> rankSpecMatches(
-  List<MatchResult> matches, {
+List<SpecMatch> rankSpecMatches(
+  List<SpecMatch> matches, {
   required List<String> discoveredUuids,
 }) {
   final kept =
@@ -245,7 +252,7 @@ List<MatchResult> rankSpecMatches(
 /// evidence tier, same matched-UUID count). More than one element means
 /// ranking cannot separate them and the user should choose. Pure for tests;
 /// assumes [ranked] came from [rankSpecMatches].
-List<MatchResult> topTiedSpecMatches(List<MatchResult> ranked) {
+List<SpecMatch> topTiedSpecMatches(List<SpecMatch> ranked) {
   if (ranked.isEmpty) return const [];
   final top = ranked.first;
   return ranked
@@ -257,57 +264,50 @@ List<MatchResult> topTiedSpecMatches(List<MatchResult> ranked) {
       .toList();
 }
 
-/// Every bundled spec, parsed once.
+/// The whole catalogue, parsed once and held by the codec.
 ///
 /// Parsing is cached here rather than inside [matchedDeviceSpecProvider]
 /// because that provider is a family: it would otherwise re-parse the whole
 /// catalogue for every distinct device. With one bundled spec that was
-/// invisible; the vendored catalogue is 70+ specs, so it would mean 70+ FFI
+/// invisible; the vendored catalogue is 200+ specs, so it would mean 200+ FFI
 /// parses per connect. Specs that fail to parse (bad YAML, or the native
-/// library unavailable) are skipped, so one bad spec can't take out matching.
-final parsedDeviceSpecsProvider =
-    FutureProvider<List<({DeviceSpecDto spec, String yaml})>>((ref) async {
-      final codec = ref.watch(specCodecProvider);
-      final specYamls = await ref.watch(deviceSpecsProvider.future);
+/// library unavailable) are skipped and named, so one bad spec can't take out
+/// matching.
+///
+/// What this provider yields is the catalogue's LIGHT projection — identity
+/// fields, the YAML, and the two fields the adopt and network paths select on
+/// — not 200+ `DeviceSpecDto`s. It used to be the latter, and decoding them
+/// on the UI isolate was a ~70-77 ms stall that landed, on a cold app,
+/// exactly as the first scan results appeared. A screen that renders a spec
+/// asks for its full DTO by index ([SpecCatalogue.specAt]).
+final specCatalogueProvider = FutureProvider<SpecCatalogue>((ref) async {
+  final codec = ref.watch(specCodecProvider);
+  final specYamls = await ref.watch(deviceSpecsProvider.future);
+  final catalogue = await codec.loadCatalogue(specYamls);
 
-      // Parsed concurrently: each parse is an independent FFI round trip, and the
-      // catalogue is ~70 of them on the startup path. Future.wait preserves the
-      // manifest order, so the resulting list is byte-for-byte what the sequential
-      // loop produced.
-      // Counted rather than logged per spec: when the native library is not up
-      // (a host test that pumps the app before RustLib.init, or a device build
-      // whose framework failed to load — main() carries on without it by
-      // design) EVERY parse fails the same way, and 204 identical warnings
-      // drowned the one line that mattered, and any genuinely malformed spec
-      // with it. One error line for the bridge; per-spec warnings stay for
-      // real parse failures.
-      var bridgeDown = 0;
-      final parsed = await Future.wait(
-        specYamls.entries.map((entry) async {
-          try {
-            return (
-              spec: await codec.loadDeviceSpec(entry.value),
-              yaml: entry.value,
-            );
-          } catch (e) {
-            if (isBridgeUninitialised(e)) {
-              bridgeDown++;
-              return null;
-            }
-            // Skip this spec, but say so - a silent drop looks like a matching bug.
-            Log.spec.warning('failed to parse spec ${entry.key}', error: e);
-            return null;
-          }
-        }),
-      );
-      if (bridgeDown > 0) {
-        Log.spec.error(
-          'native codec unavailable: $bridgeDown spec(s) skipped, '
-          'so no device will match a spec until the Rust core loads',
-        );
-      }
-      return parsed.nonNulls.toList();
-    });
+  // Counted rather than logged per spec: when the native library is not up
+  // (a host test that pumps the app before RustLib.init, or a device build
+  // whose framework failed to load — main() carries on without it by
+  // design) EVERY parse fails the same way, and 204 identical warnings
+  // drowned the one line that mattered, and any genuinely malformed spec
+  // with it. One error line for the bridge; per-spec warnings stay for
+  // real parse failures.
+  final bridgeDown = catalogue.failures
+      .where((f) => isBridgeUninitialised(f.message))
+      .length;
+  if (bridgeDown > 0) {
+    Log.spec.error(
+      'native codec unavailable: $bridgeDown spec(s) skipped, '
+      'so no device will match a spec until the Rust core loads',
+    );
+  }
+  for (final failure in catalogue.failures) {
+    if (isBridgeUninitialised(failure.message)) continue;
+    // Skip this spec, but say so - a silent drop looks like a matching bug.
+    Log.spec.warning('failed to parse spec ${failure.key}: ${failure.message}');
+  }
+  return catalogue;
+});
 
 /// Whether [error] is flutter_rust_bridge refusing a call because
 /// `RustLib.init()` has not run (or failed) — the one failure that is the
@@ -323,17 +323,15 @@ bool isBridgeUninitialised(Object error) =>
 /// returned as [SpecMatchOutcome.needsChoice] for the UI to resolve.
 final matchedDeviceSpecProvider =
     FutureProvider.family<SpecMatchOutcome, SpecMatchRequest>((ref, req) async {
-      final codec = ref.watch(specCodecProvider);
       // Watched (not read) so saving a choice recomputes this match in place —
       // but select()ed down to THIS device's entry, so answering the chooser for
-      // one device doesn't invalidate every other device's cached match (each
-      // recompute re-marshals the whole parsed catalogue over FFI, and the
+      // one device doesn't invalidate every other device's cached match (the
       // transient AsyncLoading would blank other panels' typed controls).
       final savedKey = ref.watch(
         specChoicesProvider.select((m) => m[req.deviceId]),
       );
-      final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-      if (parsed.isEmpty) {
+      final catalogue = await ref.watch(specCatalogueProvider.future);
+      if (catalogue.specs.isEmpty) {
         Log.spec.info(
           'no parseable specs; ${req.deviceName} gets raw controls '
           '(is the native codec loaded?)',
@@ -341,12 +339,11 @@ final matchedDeviceSpecProvider =
         return const SpecMatchOutcome.none();
       }
 
-      final List<MatchResult> matches;
+      final List<SpecMatch> matches;
       try {
-        matches = await codec.matchDeviceToSpec(
-          specs: [for (final p in parsed) p.spec],
+        matches = await catalogue.matchDevice(
           deviceName: req.deviceName,
-          advertisedServiceUuids: req.serviceUuids,
+          serviceUuids: req.serviceUuids,
         );
       } catch (e) {
         // Degrade to "no spec matched" (raw controls still work), but log why.
@@ -370,7 +367,7 @@ final matchedDeviceSpecProvider =
         final dropped = matches.length - ranked.length;
         Log.spec.info(
           'no spec matched ${req.deviceName}; raw controls only '
-          '(${parsed.length} spec(s) considered'
+          '(${catalogue.specs.length} spec(s) considered'
           '${dropped > 0 ? '; $dropped name-only match(es) dropped as '
                     'contradicted by the discovered services' : ''}'
           '; discovered service uuid(s): '
@@ -379,28 +376,38 @@ final matchedDeviceSpecProvider =
         return const SpecMatchOutcome.none();
       }
 
-      // Recover the source YAML for each candidate spec. matchDeviceToSpec
-      // round-trips DTOs through Rust/FRB, and the generated `DeviceSpecDto ==`
-      // compares its List fields by reference — so a plain `==` against the
-      // returned spec is unreliable when multiple specs are bundled. Compare
-      // identifying fields by value, and return the locally-parsed (spec, yaml)
-      // pair so both are guaranteed to come from the same source.
-      // Use lastWhere so remote specs (loaded after bundled) take precedence
-      // when both share the same identity.
-      MatchedSpec resolve(MatchResult match) {
-        final source = parsed.lastWhere(
-          (p) => _sameSpecIdentity(p.spec, match.spec),
-          orElse: () => parsed.first,
+      // A match names an INDEX into the catalogue, so the winning spec's DTO
+      // and the YAML behind it come from one entry rather than an identity
+      // join over parsed specs — and (on the native codec) the parse the
+      // catalogue already holds becomes this screen's, so its first
+      // decodeValue ships a pointer rather than the spec's text.
+      //
+      // The one identity lookup that survives is the shadowing rule: an
+      // installed pack carrying a corrected copy of a bundled spec loads
+      // after it and must win, and only the identity key can say that two
+      // entries are the same device. specEntriesByKey is last-wins, which is
+      // exactly that rule, defined once.
+      final entriesByKey = specEntriesByKey(catalogue.specs);
+      Future<MatchedSpec> resolve(SpecMatch match) async {
+        final entry =
+            entriesByKey[specKeyOf(
+              match.entry.deviceName,
+              match.entry.manufacturer,
+            )] ??
+            match.entry;
+        return MatchedSpec(
+          spec: await catalogue.specAt(entry.index),
+          yaml: entry.yaml,
         );
-        return MatchedSpec(spec: source.spec, yaml: source.yaml);
       }
 
-      String evidenceOf(MatchResult match) => [
+      String evidenceOf(SpecMatch match) => [
         // Plural: a family sold under several rebadged names declares each of
-        // them, and MatchResult does not say which one hit, so name them all
+        // them, and a match does not say which one hit, so name them all
         // rather than pick one and imply it was the one that matched.
         if (match.matchedByNamePrefix)
-          'name prefix ${match.spec.localNamePrefixes.map((p) => '"$p"').join(' or ')}',
+          'name prefix '
+              '${match.entry.identity.localNamePrefixes.map((p) => '"$p"').join(' or ')}',
         if (match.matchedServiceUuids.isNotEmpty)
           'service uuid(s) ${match.matchedServiceUuids.join(', ')}',
       ].join(' + ');
@@ -411,10 +418,14 @@ final matchedDeviceSpecProvider =
       // the device no longer matches it) falls through to the normal flow.
       if (savedKey != null) {
         final savedMatch = ranked
-            .where((m) => specKeyFor(m.spec) == savedKey)
+            .where(
+              (m) =>
+                  specKeyOf(m.entry.deviceName, m.entry.manufacturer) ==
+                  savedKey,
+            )
             .firstOrNull;
         if (savedMatch != null) {
-          final saved = resolve(savedMatch);
+          final saved = await resolve(savedMatch);
           Log.spec.info(
             'using spec "${saved.spec.deviceName}" for '
             '${req.deviceName}: saved user choice',
@@ -431,15 +442,20 @@ final matchedDeviceSpecProvider =
       // identities) go to the user: white-label families share GATT platforms,
       // and guessing the brand silently would pin wrong names/commands to the
       // device with no way to notice.
-      final tiedByKey = <String, MatchResult>{};
+      final tiedByKey = <String, SpecMatch>{};
       for (final m in topTiedSpecMatches(ranked)) {
         // First occurrence wins, keeping candidates in rank order; duplicate
         // identities (a bundled spec shadowed by a remote refresh) collapse to
         // one choice.
-        tiedByKey.putIfAbsent(specKeyFor(m.spec), () => m);
+        tiedByKey.putIfAbsent(
+          specKeyOf(m.entry.deviceName, m.entry.manufacturer),
+          () => m,
+        );
       }
       if (tiedByKey.length > 1) {
-        final candidates = tiedByKey.values.map(resolve).toList();
+        final candidates = <MatchedSpec>[
+          for (final m in tiedByKey.values) await resolve(m),
+        ];
         Log.spec.info(
           '${candidates.length} specs match ${req.deviceName} '
           'equally well '
@@ -450,7 +466,7 @@ final matchedDeviceSpecProvider =
       }
 
       final best = ranked.first;
-      final winner = resolve(best);
+      final winner = await resolve(best);
       // The one place "this device is using spec X" is recorded — typed controls,
       // readings and command encoding all follow from this match. Spell out the
       // evidence (name prefix and/or the concrete UUIDs) so a wrong match is
@@ -458,19 +474,10 @@ final matchedDeviceSpecProvider =
       Log.spec.info(
         'using spec "${winner.spec.deviceName}" for '
         '${req.deviceName}: matched by ${evidenceOf(best)} '
-        '(${matches.length} of ${parsed.length} spec(s) matched)',
+        '(${matches.length} of ${catalogue.specs.length} spec(s) matched)',
       );
       return SpecMatchOutcome.auto(winner);
     });
-
-/// Whether two specs identify the same device, compared by value. The generated
-/// `DeviceSpecDto ==` uses referential equality for its List fields, which does
-/// not survive the FFI round-trip, so we compare the identifying fields here.
-bool _sameSpecIdentity(DeviceSpecDto a, DeviceSpecDto b) =>
-    a.deviceName == b.deviceName &&
-    a.manufacturer == b.manufacturer &&
-    listEquals(a.localNamePrefixes, b.localNamePrefixes) &&
-    listEquals(a.serviceUuids, b.serviceUuids);
 
 /// Find the [ServiceDto] in [spec] for a discovered service UUID, or null.
 ServiceDto? findServiceForUuid(DeviceSpecDto spec, String uuid) {

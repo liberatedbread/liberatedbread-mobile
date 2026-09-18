@@ -42,7 +42,7 @@ void main() {
   setUpAll(() async {
     rustReady = await initHostRustLib();
     if (!rustReady) return;
-    const codec = RealSpecCodec();
+    final codec = RealSpecCodec();
     parsed = [
       for (final file in const ['wemo-devices.yaml', 'lifx-z.yaml'])
         (
@@ -61,8 +61,13 @@ void main() {
   ProviderContainer containerWith(WifiNetworkScanner scanner) {
     final container = ProviderContainer(
       overrides: [
-        specCodecProvider.overrideWithValue(const RealSpecCodec()),
-        parsedDeviceSpecsProvider.overrideWith((ref) async => parsed),
+        specCodecProvider.overrideWithValue(RealSpecCodec()),
+        specCatalogueProvider.overrideWith(
+          (ref) async => FallbackSpecCatalogue.fromParsed(
+            ref.watch(specCodecProvider),
+            parsed,
+          ),
+        ),
         wifiNetworkScannerProvider.overrideWithValue(scanner),
       ],
     );
@@ -118,9 +123,12 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
-          specCodecProvider.overrideWithValue(const RealSpecCodec()),
-          parsedDeviceSpecsProvider.overrideWith(
-            (ref) async => [...parsed, packCopy],
+          specCodecProvider.overrideWithValue(RealSpecCodec()),
+          specCatalogueProvider.overrideWith(
+            (ref) async => FallbackSpecCatalogue.fromParsed(
+              ref.watch(specCodecProvider),
+              [...parsed, packCopy],
+            ),
           ),
           wifiNetworkScannerProvider.overrideWithValue(_FakeScanner(const [])),
         ],
@@ -197,8 +205,13 @@ void main() {
     final scanner = _FakeScanner(const ['HomeNetwork']);
     final container = ProviderContainer(
       overrides: [
-        specCodecProvider.overrideWithValue(const RealSpecCodec()),
-        parsedDeviceSpecsProvider.overrideWith((ref) async => parsed),
+        specCodecProvider.overrideWithValue(RealSpecCodec()),
+        specCatalogueProvider.overrideWith(
+          (ref) async => FallbackSpecCatalogue.fromParsed(
+            ref.watch(specCodecProvider),
+            parsed,
+          ),
+        ),
         wifiNetworkScannerProvider.overrideWithValue(scanner),
         nearbySetupPollIntervalProvider.overrideWithValue(
           const Duration(milliseconds: 40),

@@ -26,6 +26,37 @@ heading.
 
 ### Changed
 
+- **The spec catalogue stays in Rust, and a device spec crosses the FFI
+  boundary once instead of on every call.** Three findings (F-024, F-025,
+  F-059) were one shape: everything about a spec was asked by re-sending the
+  spec. Parsing the catalogue shipped 200-odd fully expanded `DeviceSpecDto`s
+  back to be decoded on the UI isolate; matching a connected device shipped all
+  of them out again, once per connect and once per spec-choice change; and
+  every BLE notification re-encoded the matched spec's YAML — up to 123 KB —
+  once per subscribed widget, to decode a few bytes. All of it on the isolate
+  that draws frames, and all of it timed, on a cold app, to land during the
+  radar sweep.
+
+  Now `rust/src/api/spec_handle.rs` holds the parses. `CatalogueHandle` is the
+  catalogue, built 40 specs per event-loop turn and matched by index — two
+  strings out, matched positions back — and `LoadedSpec` is one spec, addressed
+  by a pointer. The Dart codec keeps the by-YAML signatures every caller
+  already uses and simply sends the handle when it is holding the parse for
+  that exact string, so a cold call costs what it always did and warms itself
+  for the next one. A notification packet fanned out to seven sensor tiles is
+  now decoded once, not seven times. On an Apple Silicon host: the catalogue
+  load's synchronous share of the isolate fell from ~410 ms to ~3 ms, a match
+  against the whole catalogue from ~78-91 ms to ~0.3-0.5 ms per call, and the
+  marshalling for one decode against the largest bundled spec from ~10 ms to
+  ~0.3 ms. The terms gate also starts the catalogue and number-registry loads,
+  so neither begins when the first scan result arrives.
+
+  Nothing was reimplemented to get there: each handle method and its by-YAML
+  twin run the same function, `test/services/spec_catalogue_golden_test.dart`
+  holds the two paths to identical answers over the entire vendored catalogue,
+  and `test/services/spec_codec_ffi_budget_test.dart` keeps the numbers
+  honest.
+
 - **Wi-Fi adoption logs the whole conversation, under a new `[adopt]`
   category.** A failed Wemo setup used to leave three lines behind, two of them
   the same bare `TimeoutException after 0:00:10.000000` — which never said

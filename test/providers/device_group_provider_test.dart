@@ -339,11 +339,12 @@ void main() {
       final recorded = _bulbSpec(name: 'Recorded Bulb');
       final container = await _container(
         overrides: [
-          parsedDeviceSpecsProvider.overrideWith(
-            (ref) async => [
-              (spec: chosen, yaml: 'chosen-yaml'),
-              (spec: recorded, yaml: 'recorded-yaml'),
-            ],
+          specCatalogueProvider.overrideWith(
+            (ref) async =>
+                FallbackSpecCatalogue.fromParsed(ref.watch(specCodecProvider), [
+                  (spec: chosen, yaml: 'chosen-yaml'),
+                  (spec: recorded, yaml: 'recorded-yaml'),
+                ]),
           ),
         ],
       );
@@ -381,7 +382,14 @@ void main() {
 
     test('drops forgotten ids and carries members with no spec', () async {
       final container = await _container(
-        overrides: [parsedDeviceSpecsProvider.overrideWith((ref) async => [])],
+        overrides: [
+          specCatalogueProvider.overrideWith(
+            (ref) async => FallbackSpecCatalogue.fromParsed(
+              ref.watch(specCodecProvider),
+              const [],
+            ),
+          ),
+        ],
       );
       final saved = container.read(savedDevicesProvider.notifier);
       await saved.save(SavedDevice(id: 'A', name: 'Known', lastSeen: seen));
@@ -401,7 +409,12 @@ void main() {
         // not keep taking part through its stale group membership.
         final container = await _container(
           overrides: [
-            parsedDeviceSpecsProvider.overrideWith((ref) async => []),
+            specCatalogueProvider.overrideWith(
+              (ref) async => FallbackSpecCatalogue.fromParsed(
+                ref.watch(specCodecProvider),
+                const [],
+              ),
+            ),
           ],
         );
         final saved = container.read(savedDevicesProvider.notifier);

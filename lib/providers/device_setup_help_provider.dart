@@ -41,9 +41,9 @@ class DeviceSetupHelp {
 final deviceSetupHelpProvider = FutureProvider.autoDispose
     .family<DeviceSetupHelp?, ScanIdentity>((ref, identity) async {
       final codec = ref.watch(specCodecProvider);
-      final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
+      final catalogue = await ref.watch(specCatalogueProvider.future);
       final identities = await ref.watch(specIdentitiesProvider.future);
-      if (parsed.isEmpty || identities.isEmpty) return null;
+      if (identities.isEmpty) return null;
 
       final List<ScanMatch> matches;
       try {
@@ -70,12 +70,13 @@ final deviceSetupHelpProvider = FutureProvider.autoDispose
       if (guess == null || !guess.namesAProduct) return null;
 
       final best = matches.first;
-      // `specIndex` is the position in the identities list, which is built from
-      // `parsed` in the same order — so it recovers the exact spec that matched.
+      // `specIndex` is the position in the identities list, which is the
+      // catalogue's own order — so it recovers the exact spec that matched.
       // Guard the bound rather than trust it: a codec that returned a stale index
       // must not throw a RangeError into a screen that is already an error state.
-      if (best.specIndex < 0 || best.specIndex >= parsed.length) return null;
-      final yaml = parsed[best.specIndex].yaml;
+      final specs = catalogue.specs;
+      if (best.specIndex < 0 || best.specIndex >= specs.length) return null;
+      final yaml = specs[best.specIndex].yaml;
 
       final SetupInstructionsDto? instructions;
       try {

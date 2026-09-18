@@ -29,7 +29,7 @@ const _commandChar = '0000ffb1-0000-1000-8000-00805f9b34fb';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const codec = RealSpecCodec();
+  final codec = RealSpecCodec();
   late final bool rustReady;
   late final String yaml;
   late final DeviceSpecDto spec;

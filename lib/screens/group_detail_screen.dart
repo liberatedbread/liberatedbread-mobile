@@ -232,7 +232,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                   // screen's watch, so invalidating the aggregate alone
                   // would only re-read the old error.
                   ref.invalidate(scanGuessProvider);
-                  ref.invalidate(parsedDeviceSpecsProvider);
+                  ref.invalidate(specCatalogueProvider);
                   ref.invalidate(autoGroupsProvider);
                   ref.invalidate(groupMembersProvider);
                 },

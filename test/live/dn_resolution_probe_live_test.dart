@@ -44,7 +44,7 @@ void main() {
       final specYaml = File(
         'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
       ).readAsStringSync();
-      const codec = RealSpecCodec();
+      final codec = RealSpecCodec();
       final ble = RealBleService();
 
       // === 1. ADVERTISEMENT ===

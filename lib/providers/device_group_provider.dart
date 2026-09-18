@@ -456,7 +456,7 @@ final groupMembersProvider = FutureProvider.autoDispose
       // Everything watched before the first await, futures gathered up front —
       // the same two-pass discipline as autoGroupsProvider, and for the same
       // soundness reason.
-      final parsedFuture = ref.watch(parsedDeviceSpecsProvider.future);
+      final catalogueFuture = ref.watch(specCatalogueProvider.future);
       final savedNetworkById = {
         for (final device in savedNetwork) device.id: device,
       };
@@ -483,11 +483,11 @@ final groupMembersProvider = FutureProvider.autoDispose
         );
       }
 
-      final parsed = await parsedFuture;
+      final catalogue = await catalogueFuture;
       final savedById = {for (final device in saved) device.id: device};
       // Built through specEntriesByKey so the pack-shadows-bundled rule for
       // duplicate keys stays defined in exactly one place.
-      final entriesByKey = specEntriesByKey(parsed);
+      final entriesByKey = specEntriesByKey(catalogue.specs);
 
       final ble = <GroupMember>[];
       for (final id in request.deviceIds) {
@@ -501,11 +501,15 @@ final groupMembersProvider = FutureProvider.autoDispose
         if (!isGroupable(device.category)) continue;
         final resolved =
             entriesByKey[choices[id]] ?? entriesByKey[device.specKey];
+        // The full DTO is fetched for the members that resolved a spec — a
+        // handful per group — rather than held for the whole catalogue.
         ble.add(
           GroupMember(
             id: id,
             name: device.name,
-            spec: resolved?.spec,
+            spec: resolved == null
+                ? null
+                : await catalogue.specAt(resolved.index),
             specYaml: resolved?.yaml,
           ),
         );

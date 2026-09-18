@@ -178,7 +178,7 @@ void main() {
       );
 
       // ── The controls the spec declares, through the native codec.
-      const codec = RealSpecCodec();
+      final codec = RealSpecCodec();
       final entities = (await codec.networkEntitiesForDevice(
         specYaml: specYaml,
         ssdpTargets: const [],
