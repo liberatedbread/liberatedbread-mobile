@@ -122,6 +122,9 @@ class RabbitAirBleClient implements RabbitAirBleLink {
   }) async {
     if (_deviceId == deviceId) return;
     _deviceId = deviceId;
+    // A fresh attach means a fresh subscription; whatever killed the last
+    // one is no longer the reason a command cannot be sent.
+    _notifyFailure = null;
 
     try {
       // The MTU the link actually carries, minus the 5 bytes of ATT overhead
@@ -161,7 +164,22 @@ class RabbitAirBleClient implements RabbitAirBleLink {
             _serviceUuid!,
             _characteristicUuid!,
           )
-          .listen(_enqueueChunk, onError: _failPending);
+          .listen(
+            _enqueueChunk,
+            onError: (Object e) {
+              // R-014: the notify stream can fail AFTER attach returned —
+              // the CCCD enable is confirmed asynchronously, and a purifier
+              // that refuses it (or a link that drops during it) reports
+              // here. Recorded as well as failed: without this the client
+              // still believed it was attached, so every later command
+              // wrote its frames into the void and waited out the full
+              // seven seconds before saying the purifier did not answer,
+              // which named the wrong culprit and cost the user seven
+              // seconds per press.
+              _notifyFailure = e;
+              _failPending(e);
+            },
+          );
     } catch (_) {
       // A failed attach is forgotten entirely, or the guard above turns
       // every later attempt into a no-op: the device id was claimed before
@@ -173,6 +191,7 @@ class RabbitAirBleClient implements RabbitAirBleLink {
       _deviceId = null;
       _serviceUuid = null;
       _characteristicUuid = null;
+      _notifyFailure = null;
       rethrow;
     }
   }
@@ -198,6 +217,14 @@ class RabbitAirBleClient implements RabbitAirBleLink {
     String charUuid,
     List<int> payload,
   ) async {
+    final failure = _notifyFailure;
+    if (failure != null) {
+      // Nothing can come back on a dead subscription, so do not spend the
+      // response timeout finding that out.
+      throw RabbitAirBleException(
+        'the purifier stopped sending replies ($failure) — reconnect to it',
+      );
+    }
     final chunks = await _codec.rabbitAirBleFrame(
       payload: payload,
       chunkSize: _chunkSize,
@@ -250,6 +277,10 @@ class RabbitAirBleClient implements RabbitAirBleLink {
       pending.complete(_buffer.sublist(0, expected));
     }
   }
+
+  /// Why the notify subscription died, when it did. Cleared by a fresh
+  /// attach; consulted before a command is written.
+  Object? _notifyFailure;
 
   void _failPending(Object error) {
     final pending = _pending;

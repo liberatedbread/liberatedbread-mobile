@@ -141,6 +141,39 @@ void main() {
     },
   );
 
+  test(
+    'a dead notify subscription fails the next command at once (R-014)',
+    () async {
+      // The CCCD enable is confirmed asynchronously, so the stream can fail
+      // after attach returned. The client went on believing it was attached:
+      // every later command wrote its frames into the void and waited out the
+      // whole response window before blaming the purifier for not answering.
+      setUpClient(responseTimeout: const Duration(seconds: 30));
+      await client.connect('01');
+      notifications.addError(
+        const RabbitAirBleException('notifications were refused'),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final watch = Stopwatch()..start();
+      await expectLater(
+        client.sendCommand([1]),
+        throwsA(
+          isA<RabbitAirBleException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('stopped sending replies'), contains('reconnect')),
+          ),
+        ),
+      );
+      expect(
+        watch.elapsed,
+        lessThan(const Duration(seconds: 5)),
+        reason: 'nothing can arrive on a dead subscription; do not wait for it',
+      );
+    },
+  );
+
   test('an unanswered command throws after the response window', () async {
     setUpClient(responseTimeout: const Duration(milliseconds: 50));
     await client.connect('01');

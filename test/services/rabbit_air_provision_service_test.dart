@@ -34,6 +34,10 @@ class _FakeLink implements RabbitAirBleLink {
   /// the way [RabbitAirBleClient.disconnect] fails an exchange in flight.
   Completer<List<int>>? holdCmd2;
 
+  /// Answer the next reply with this id instead of the one asked, the way a
+  /// purifier answering a step that had already given up does.
+  int? answerWithStaleId;
+
   final sent = <Map<String, Object?>>[];
   int connects = 0;
   int disconnects = 0;
@@ -64,7 +68,9 @@ class _FakeLink implements RabbitAirBleLink {
   Future<List<int>> sendCommand(List<int> payload) async {
     final request = jsonDecode(utf8.decode(payload)) as Map<String, Object?>;
     sent.add(request);
-    final id = request['id'];
+    final stale = answerWithStaleId;
+    answerWithStaleId = null;
+    final id = stale ?? request['id'];
     switch (request['cmd']) {
       case 255:
         return _json({
@@ -166,6 +172,25 @@ void main() {
       isNotNull,
     );
   });
+
+  test(
+    'a reply to a question already given up on is refused (R-010)',
+    () async {
+      // Only one exchange is in flight, but a step that timed out and a
+      // purifier that answers it late do not cancel each other: the late reply
+      // arrives while the NEXT step is waiting and was taken as its answer. On
+      // this path that means a network list read as a join result, or a
+      // refusal read as a success, leaving a purifier half-configured on the
+      // user's Wi-Fi.
+      setUpService();
+      link.answerWithStaleId = 99;
+
+      await service.begin('01');
+
+      expect(service.state.step, RabbitAirProvisionStep.failed);
+      expect(service.state.message, contains('answered a different question'));
+    },
+  );
 
   test('cmd 0 re-polls until the network list is non-empty', () async {
     setUpService();

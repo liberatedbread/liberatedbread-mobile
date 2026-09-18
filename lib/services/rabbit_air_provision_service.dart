@@ -304,9 +304,18 @@ class RabbitAirProvisionService {
   }
 
   /// One cleartext setup exchange: render the envelope with the next id,
-  /// send it, parse the reply's `data`. A reply carrying a truthy `error` is
-  /// the device refusing the step — surfaced with the step's state, since
-  /// the id is positional here (one exchange in flight).
+  /// send it, check the reply is the answer to THIS question, parse its
+  /// `data`. A reply carrying a truthy `error` is the device refusing the
+  /// step.
+  ///
+  /// R-010: the echoed id used to be ignored. Only one exchange is in flight
+  /// at a time, but a step that timed out and a purifier that answered it
+  /// late do not cancel each other — the late reply simply arrives while the
+  /// NEXT step is waiting, and was taken as its answer. During provisioning
+  /// that means the network list is read as the join result, or a refusal is
+  /// read as a success, on the one path where getting it wrong leaves a
+  /// purifier half-configured on the user's Wi-Fi. The id is what tells the
+  /// two apart, so it is checked.
   Future<Map<String, Object?>?> _exchange(
     int cmd, [
     Map<String, Object?>? data,
@@ -326,6 +335,15 @@ class RabbitAirProvisionService {
     if (decoded is! Map) {
       throw const RabbitAirProvisionException(
         'the purifier answered with something that is not JSON',
+      );
+    }
+    final echoed = decoded['id'];
+    final echoedId = echoed is int ? echoed : int.tryParse('$echoed');
+    if (echoedId != null && echoedId != id) {
+      throw RabbitAirProvisionException(
+        'the purifier answered a different question (asked $id, answered '
+        '$echoedId) — a late reply to a step that had already given up. '
+        'Start setup again.',
       );
     }
     final error = decoded['error'];
