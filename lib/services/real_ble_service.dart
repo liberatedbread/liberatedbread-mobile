@@ -1360,10 +1360,17 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     String deviceId,
     String serviceUuid,
     String charUuid,
-  ) async {
+  ) => _pairingAware(deviceId, () async {
+    // The LOOKUP is inside the classifier, not before it. It was outside,
+    // and the lookup is where service discovery happens — so a device that
+    // hung up between one operation and the next failed here, upstream of
+    // every rule below, and the plugin's own "discoverServices | fbp-code: 6
+    // | device is not connected" went to the screen. Found on a lock that
+    // drops the link after refusing a read (the case above), which makes the
+    // very next call take exactly this path.
     final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
-    return _pairingAware(deviceId, () => char.read());
-  }
+    return char.read();
+  });
 
   @override
   Future<void> writeCharacteristic(
@@ -1372,17 +1379,17 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     String charUuid,
     List<int> value,
   ) async {
-    final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
-    await _pairingAware(
-      deviceId,
-      () => char.write(
+    await _pairingAware(deviceId, () async {
+      // Inside the classifier for the reason readCharacteristic gives.
+      final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
+      return char.write(
         value,
         withoutResponse: useWriteWithoutResponse(
           canWriteWithResponse: char.properties.write,
           canWriteWithoutResponse: char.properties.writeWithoutResponse,
         ),
-      ),
-    );
+      );
+    });
   }
 
   /// Run [operation], turning a pairing refusal into something the user can act
