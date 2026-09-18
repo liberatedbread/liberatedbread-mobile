@@ -67,6 +67,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
+import 'package:liberated_bread_mobile/core/error_text.dart'
+    show UserFacingException;
 import 'package:liberated_bread_mobile/main.dart' as app;
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
@@ -600,6 +602,58 @@ void main() {
         final rssi = await ble.readRssi(id);
         _say('mtu $mtu, rssi $rssi dBm while connected');
         expect(mtu, greaterThanOrEqualTo(23));
+
+        // READ every readable characteristic, and survive whatever comes
+        // back. This is F-006's whole test, and it needs a device: the
+        // pinned darwin plugin built an NSDictionary with an unguarded nil
+        // value on the characteristic ERROR path, so a read that failed
+        // before anything had been cached — which is exactly what an
+        // encrypted characteristic on a lock does to an unpaired central —
+        // took the process down with NSInvalidArgumentException. An
+        // uncatchable native abort, so the only proof is that the app is
+        // still here afterwards.
+        //
+        // A refusal is the EXPECTED outcome on a device that wants pairing,
+        // and it must arrive as one of this app's own exception types, not
+        // as a crash and not as a raw platform error. Reads only: nothing
+        // here writes to somebody's lock.
+        var attempted = 0;
+        var answered = 0;
+        var refused = 0;
+        for (final service in services) {
+          for (final characteristic in service.characteristics) {
+            if (!characteristic.canRead) continue;
+            attempted++;
+            try {
+              final value = await ble.readCharacteristic(
+                id,
+                service.uuid,
+                characteristic.uuid,
+              );
+              answered++;
+              _say(
+                '  read ${characteristic.uuid}: ${value.length} byte(s)'
+                '${value.length <= 24 ? ' $value' : ''}',
+              );
+            } on UserFacingException catch (e) {
+              refused++;
+              _say('  read ${characteristic.uuid} refused: ${e.message}');
+            } catch (e) {
+              refused++;
+              _say(
+                '  read ${characteristic.uuid} failed as ${e.runtimeType}: $e',
+              );
+              fail(
+                'a failed read surfaced as ${e.runtimeType} rather than one '
+                'of this app\'s own exception types: $e',
+              );
+            }
+          }
+        }
+        _say(
+          'reads: $attempted attempted, $answered answered, $refused refused '
+          '— and the app is still running, which is what F-006 is about',
+        );
       } finally {
         await ble.disconnect(id);
       }
