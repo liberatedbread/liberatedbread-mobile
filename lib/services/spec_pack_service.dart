@@ -465,6 +465,9 @@ class SpecPackService {
       // Specs dropped at write time (on-disk name collisions) join the
       // download-time partial failures so the UI can surface every skip.
       failures.addAll(persisted.failures);
+    } on _PackNameCollision catch (e) {
+      Log.packs.warning('install refused: ${e.message}');
+      return InstallFailed(SpecPackError(SpecPackErrorKind.cacheIo, e.message));
     } on Object catch (e) {
       // cacheIo is the one error kind whose message the settings screen shows
       // verbatim, so it has to read like a sentence; the raw failure (a path,
@@ -655,9 +658,11 @@ class SpecPackService {
       try {
         final stored = SpecPack.tryFromJson(await manifestFile.readAsString());
         if (stored != null && stored.name != manifest.name) {
-          throw StateError(
-            'Pack "${manifest.name}" collides with existing "${stored.name}" at ${dir.path}',
-          );
+          // R-062: a real answer, not a storage failure. Two pack names can
+          // reduce to the same directory slug ("My Pack" and "My/Pack"), and
+          // the user was told their device could not save the pack — which
+          // is untrue, unactionable, and sends them looking at free space.
+          throw _PackNameCollision(manifest.name, stored.name);
         }
       } catch (e) {
         if (e is StateError) rethrow;
@@ -667,7 +672,14 @@ class SpecPackService {
 
     // Write into a staging directory and swap atomically so a partial write
     // never replaces a valid cached pack.
-    final stagingDir = Directory('${dir.path}.staging');
+    //
+    // R-062: the staging name is dot-prefixed, which `_slug` strips, so no
+    // pack can ever be given this directory. It used to be `<slug>.staging`,
+    // a name a pack could hold itself — installing "foo" then deleted the
+    // installed pack "foo.staging" without a word.
+    final stagingDir = Directory(
+      '${root.path}/.staging-${_slug(manifest.name)}',
+    );
     if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
     final specsDir = Directory('${stagingDir.path}/specs');
     await specsDir.create(recursive: true);
@@ -679,10 +691,16 @@ class SpecPackService {
     // while both keys survived in metadata, so loadCachedSpecs would return the
     // wrong content for one of them. Track used names and skip (annotate)
     // collisions instead of silently clobbering.
+    //
+    // R-061: compared case-INSENSITIVELY, because the volume this writes to
+    // is. On iOS and macOS the app's Application Support directory is
+    // case-insensitive, so "Bulb.yaml" and "bulb.yaml" passed a
+    // case-sensitive check and then clobbered each other on disk, leaving
+    // both keys in the metadata and one of them serving the other's spec.
     final usedNames = <String>{};
     for (final entry in specs.entries) {
       final safeName = _safeFileName(entry.key);
-      if (!usedNames.add(safeName)) {
+      if (!usedNames.add(safeName.toLowerCase())) {
         failures.add(
           SpecDownloadFailure(
             entry.key,
@@ -958,4 +976,24 @@ class _FetchException implements Exception {
   final SpecPackError error;
   _FetchException(this.error);
   SpecPackError toError() => error;
+}
+
+/// Two pack names that reduce to the same cache directory.
+///
+/// Its own type so the install path can tell it from a storage failure: the
+/// device is fine, the two packs simply cannot both be called what they are
+/// called (R-062).
+class _PackNameCollision implements Exception {
+  final String incoming;
+  final String existing;
+
+  const _PackNameCollision(this.incoming, this.existing);
+
+  String get message =>
+      'A pack called "$existing" is already installed under the same name on '
+      'disk, so "$incoming" cannot be installed alongside it. Remove the '
+      'other pack first.';
+
+  @override
+  String toString() => message;
 }

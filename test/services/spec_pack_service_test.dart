@@ -175,6 +175,34 @@ void main() {
     );
 
     test(
+      'a collision the VOLUME sees is annotated too, not just an exact one (R-061)',
+      () async {
+        // The app's Application Support directory is case-insensitive on iOS
+        // and macOS, so a case-sensitive check passed 'Bulb.yaml' and
+        // 'bulb.yaml' through and let them clobber each other on disk —
+        // leaving both keys in the metadata, one of them serving the other's
+        // spec.
+        final service = _service(tempDir, (request) async {
+          final path = request.url.path;
+          if (path.endsWith('pack.json')) {
+            return http.Response(
+              _manifestJson(specs: ['Bulb.yaml', 'bulb.yaml']),
+              200,
+            );
+          }
+          return http.Response('device_name: X', 200);
+        });
+
+        final result = await service.install(_manifestUrl);
+        expect(result, isA<InstallOk>());
+        final ok = result as InstallOk;
+        expect(ok.pack.specCount, 1);
+        expect(ok.partialFailures, hasLength(1));
+        expect(ok.partialFailures.single.reason, contains('collides'));
+      },
+    );
+
+    test(
       'a residual on-disk name collision is annotated, not clobbered',
       () async {
         // 'a/b.yaml' and 'a_b.yaml' both sanitize to 'a_b.yaml'; the second is
