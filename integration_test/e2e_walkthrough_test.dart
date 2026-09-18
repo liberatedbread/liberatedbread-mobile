@@ -68,8 +68,16 @@ void main() {
     await _pumpApp(tester);
     await _soak(tester, const Duration(milliseconds: 300));
 
-    // Launching IS starting the scan — nothing is tapped here.
-    expect(find.text('Searching for devices...'), findsOneWidget);
+    // Launching IS starting the scan — nothing is tapped here. The headline
+    // is whichever of the two the scan has reached: since the catalogue moved
+    // behind a Rust handle the first devices can be on screen inside 300 ms,
+    // so pinning "Searching..." here was pinning the app being slow. The stop
+    // control below is the unambiguous statement that a scan is running.
+    expect(
+      find.byIcon(Icons.stop),
+      findsOneWidget,
+      reason: 'the launch scan is running',
+    );
     expect(
       find.text('MOCK'),
       findsOneWidget,
@@ -131,12 +139,21 @@ void main() {
     expect(find.byType(Switch), findsOneWidget);
     expect(find.byType(Slider), findsOneWidget);
 
-    // The toggle: one flip writes the spec-encoded on/off command, and the
-    // status line changes to say so.
+    // The toggle: one flip writes the spec-encoded on/off command, the device
+    // answers, and the control follows the device rather than the finger.
+    //
+    // Asserted on the switch itself, not on a word in the status line: the
+    // line's wording depends on which state the simulator happens to be in,
+    // and demo mode no longer resets on every scan (R-018), so a run that had
+    // already toggled the bulb read the other sentence and failed.
     final wasOn = tester.widget<Switch>(find.byType(Switch)).value;
     await tester.tap(find.byType(Switch));
     await _soak(tester, const Duration(seconds: 1));
-    expect(find.textContaining(wasOn ? 'Off' : 'On'), findsWidgets);
+    expect(
+      tester.widget<Switch>(find.byType(Switch)).value,
+      !wasOn,
+      reason: 'the bulb reports the state the command asked for',
+    );
     await _shot(tester, '07_toggle_sent');
 
     // The brightness slider commits on release.
