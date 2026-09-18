@@ -526,13 +526,34 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
 
   /// Open a device's own admin page, filling `{address}` with its host.
   void _openAdmin(ScanGuess guess, NetworkDevice device) {
-    final uri = Uri.tryParse(
-      guess.adminUrl!.replaceAll('{address}', device.host),
-    );
+    final raw = guess.adminUrl!.replaceAll('{address}', device.host);
     // Spec-supplied, so the same allow-list as the advisory links: only a
     // web URL leaves the app.
-    if (!isWebLink(uri)) return;
-    unawaited(ref.read(urlOpenerProvider)(uri!));
+    unawaited(_openExternal(context, Uri.tryParse(raw), raw));
+  }
+
+  /// Hand a vetted URI to the platform, and say so when it does not open.
+  ///
+  /// R-088: both launches here ignored `launchUrl`'s result and its
+  /// exceptions, so a phone with no browser for the scheme, a refusal, or a
+  /// spec-supplied address the allow-list rejects all looked identical to a
+  /// dead button — one tap, nothing, no reason.
+  Future<void> _openExternal(
+    BuildContext context,
+    Uri? uri,
+    String shown,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    var opened = false;
+    if (isWebLink(uri)) {
+      try {
+        opened = await ref.read(urlOpenerProvider)(uri!);
+      } catch (e) {
+        Log.ui.warning('could not open $shown', error: e);
+      }
+    }
+    if (opened || !context.mounted) return;
+    messenger.showSnackBar(SnackBar(content: Text('Could not open $shown')));
   }
 
   static String _transportLabel(NetworkDevice device) {
@@ -720,12 +741,10 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: const Text('Open UniFi Protect'),
                 onPressed: () {
-                  final uri = Uri.tryParse(
-                    'https://${controller.host}/protect/',
+                  final raw = 'https://${controller.host}/protect/';
+                  unawaited(
+                    _openExternal(sheetContext, Uri.tryParse(raw), raw),
                   );
-                  if (uri != null) {
-                    unawaited(ref.read(urlOpenerProvider)(uri));
-                  }
                 },
               ),
             ),

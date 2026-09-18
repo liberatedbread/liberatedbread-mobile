@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
+import 'package:liberated_bread_mobile/providers/ha_provider.dart'
+    show urlOpenerProvider;
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/network_scan_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
@@ -77,19 +79,23 @@ final _spec = DeviceSpecDto(
   services: const [],
 );
 
-ScanMatch _match(MatchConfidence confidence, {String? category = 'hub'}) =>
-    ScanMatch(
-      specIndex: 0,
-      deviceName: 'Hue Bridge',
-      manufacturer: 'Signify',
-      category: category,
-      confidence: confidence,
-      matchedByNamePrefix: false,
-      matchedServiceUuids: const [],
-      matchedCompanyIds: Uint16List(0),
-      matchedMacPrefix: null,
-      matchedServiceTypes: const [],
-    );
+ScanMatch _match(
+  MatchConfidence confidence, {
+  String? category = 'hub',
+  String? adminUrl,
+}) => ScanMatch(
+  specIndex: 0,
+  deviceName: 'Hue Bridge',
+  manufacturer: 'Signify',
+  category: category,
+  adminUrl: adminUrl,
+  confidence: confidence,
+  matchedByNamePrefix: false,
+  matchedServiceUuids: const [],
+  matchedCompanyIds: Uint16List(0),
+  matchedMacPrefix: null,
+  matchedServiceTypes: const [],
+);
 
 NetworkDevice _device({
   String host = '192.168.1.40',
@@ -202,6 +208,49 @@ void main() {
     final promoted = tester.getTopLeft(find.text('Philips Hue')).dy;
     final otherHeader = tester.getTopLeft(find.text('Other devices')).dy;
     expect(promoted, lessThan(otherHeader));
+  });
+
+  testWidgets('an admin page that will not open says so (R-088)', (
+    tester,
+  ) async {
+    // Both external launches ignored the result and any exception, so a
+    // phone with no browser for the scheme, a refusal, or a spec-supplied
+    // address the allow-list rejects all looked identical to a dead button.
+    final service = _FakeNetworkScanService(
+      devices: [_device(name: 'Recognised NAS')],
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          networkScanServiceProvider.overrideWithValue(service),
+          numberRegistryProvider.overrideWith((ref) async => _registry),
+          deviceSpecsProvider.overrideWith((ref) => {'hue.yaml': 'yaml'}),
+          specCodecProvider.overrideWithValue(
+            FakeSpecCodec(
+              spec: _spec,
+              networkMatches: (_) => [
+                _match(
+                  MatchConfidence.strong,
+                  category: 'nas',
+                  adminUrl: 'http://{address}:5000/',
+                ),
+              ],
+            ),
+          ),
+          // The platform refuses to open it, which is what the screen has to
+          // notice.
+          urlOpenerProvider.overrideWithValue((uri) async => false),
+        ],
+        child: const MaterialApp(home: WifiScanScreen()),
+      ),
+    );
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Recognised NAS'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Could not open'), findsOneWidget);
   });
 
   testWidgets('a port-only match is a hint, not a claim', (tester) async {
