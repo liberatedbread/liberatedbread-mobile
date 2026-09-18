@@ -1006,16 +1006,33 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
 
     // One short scan filtered to this device. A sighting is enough; the
     // system registers the peripheral and the identifier resolves again.
-    try {
-      await FlutterBluePlus.startScan(
-        withRemoteIds: [deviceId],
-        timeout: appleRediscoveryWindow,
+    //
+    // R-187: unless a scan is ALREADY running, in which case starting one
+    // here would stop it — there is a single radio and one scan at a time.
+    // The scan screen's continuous scan is the common case (a saved device
+    // opened from the list while the Nearby tab is still listening), and it
+    // hears every advertisement anyway, so it re-registers the peripheral
+    // just as well. Waiting out the window is both correct and cheaper than
+    // taking the radio away from a scan whose results a screen is showing.
+    final borrowedScan = FlutterBluePlus.isScanningNow;
+    if (borrowedScan) {
+      Log.ble.debug(
+        'a scan is already running; waiting for it to hear $deviceId rather '
+        'than restarting the radio',
       );
-      await FlutterBluePlus.isScanning.where((on) => !on).first;
-    } catch (error) {
-      Log.ble.debug('rediscovery scan for $deviceId failed: $error');
-    } finally {
-      await FlutterBluePlus.stopScan().catchError((Object _) {});
+      await Future<void>.delayed(appleRediscoveryWindow);
+    } else {
+      try {
+        await FlutterBluePlus.startScan(
+          withRemoteIds: [deviceId],
+          timeout: appleRediscoveryWindow,
+        );
+        await FlutterBluePlus.isScanning.where((on) => !on).first;
+      } catch (error) {
+        Log.ble.debug('rediscovery scan for $deviceId failed: $error');
+      } finally {
+        await FlutterBluePlus.stopScan().catchError((Object _) {});
+      }
     }
 
     try {
@@ -1072,29 +1089,24 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     // tear it down under the other (see disconnect()).
     _connectionClaims[deviceId] = (_connectionClaims[deviceId] ?? 0) + 1;
     _watchServicesReset(deviceId, device);
+    _watchLinkDrop(deviceId, device);
     // A fresh link starts from fresh CCCD state; shares from the previous
     // one must not be inherited (see _expireNotifyShares).
     if (!wasConnected) _expireNotifyShares(deviceId);
     // The MTU decides the usable write payload (ATT MTU - 3). This is not a
     // nicety: SmartDawn's BIN (TUTU) channel does NOT reassemble fragments, so
     // each image chunk (up to ~200 B) must fit in a single write — which needs
-    // a large MTU. Explicitly request 512 where the platform takes requests
-    // (Android honors it). Best-effort: a failure just leaves the default,
-    // which the image encoder then rejects loudly rather than painting a
-    // partial frame.
+    // a large MTU.
     //
-    // Not on Apple platforms. They negotiate the maximum on their own and
-    // fbp does not treat the request as a no-op there — it throws
-    // `androidOnly` — so this logged "not honored" on every iOS connect for
-    // a call that could never work. The negotiated value arrives a little
-    // after connect instead; [mtu] waits for it.
-    if (!isApple) {
-      try {
-        await device.requestMtu(512);
-      } catch (e) {
-        Log.ble.debug('requestMtu(512) not honored for $deviceId: $e');
-      }
-    }
+    // R-017: nothing is requested HERE. `BluetoothDevice.connect` already
+    // takes `mtu: 512` by default and asks for it itself, on Android and
+    // only on Android (bluetooth_device.dart guards on Platform.isAndroid).
+    // This file used to ask a second time straight afterwards, which on
+    // Android is a redundant round trip on a link the user is waiting on,
+    // and whose old comment described a platform error — `androidOnly` —
+    // that the guarded call never raises. Apple platforms negotiate the
+    // maximum on their own and report it a little after connect; [mtu]
+    // waits for that.
     Log.ble.debug('mtu for $deviceId: ${device.mtuNow}');
     // flutter_blue_plus_linux never updates mtuNow from the value BlueZ
     // actually negotiates (enabling notifications already exchanged a larger
@@ -1139,6 +1151,7 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     _mtuUnknown.remove(deviceId);
     _expireNotifyShares(deviceId);
     unawaited(_servicesResetSubs.remove(deviceId)?.cancel());
+    unawaited(_linkDropSubs.remove(deviceId)?.cancel());
     final device = BluetoothDevice.fromId(deviceId);
     try {
       await device.disconnect();
@@ -1392,14 +1405,29 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     });
   }
 
-  /// Recent raw notifications per "deviceId|charUuid" (lowercased), oldest
-  /// first, capped so a connect-time push survives without unbounded growth.
+  /// Recent raw notifications, oldest first, capped so a connect-time push
+  /// survives without unbounded growth.
+  ///
+  /// R-020: keyed exactly like the notify share that fills it
+  /// ([_notifyShareKey]) — by device, service AND characteristic, each UUID
+  /// normalised. It used to key on the characteristic alone, in whatever
+  /// spelling the caller passed: a device exposing the same characteristic
+  /// UUID under two services (a strip with one per channel, and the vendor
+  /// profiles that reuse a UUID across services) mixed both streams into one
+  /// ring, so a reader asking one service got the other's frames; and a
+  /// caller spelling a 16-bit UUID in full form read an empty ring beside a
+  /// full one.
   final Map<String, List<List<int>>> _recentNotifications = {};
   static const int _recentNotificationsCap = 16;
 
-  void _recordRecent(String deviceId, String charUuid, List<int> value) {
+  void _recordRecent(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) {
     final ring = _recentNotifications.putIfAbsent(
-      '$deviceId|${charUuid.toLowerCase()}',
+      _notifyShareKey(deviceId, serviceUuid, charUuid),
       () => <List<int>>[],
     );
     ring.add(List<int>.of(value));
@@ -1411,7 +1439,9 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     String deviceId,
     String serviceUuid,
     String charUuid,
-  ) => _recentNotifications['$deviceId|${charUuid.toLowerCase()}'] ?? const [];
+  ) =>
+      _recentNotifications[_notifyShareKey(deviceId, serviceUuid, charUuid)] ??
+      const [];
 
   @override
   Stream<List<int>> subscribeCharacteristic(
@@ -1527,7 +1557,7 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
             // 16-deep ring would hold under three real pushes. Torn down
             // with the share in releaseInterest/_expireNotifyShares.
             claimed.recorder ??= char.onValueReceived.listen(
-              (value) => _recordRecent(deviceId, charUuid, value),
+              (value) => _recordRecent(deviceId, serviceUuid, charUuid, value),
             );
             return char;
           }();
@@ -1576,6 +1606,12 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
   /// One per connected device: the platform's "services changed" events.
   final Map<String, StreamSubscription<void>> _servicesResetSubs = {};
 
+  /// One per connected device: the platform's connection state, watched so a
+  /// link that drops without anyone calling disconnect still releases its
+  /// claims ([_watchLinkDrop]).
+  final Map<String, StreamSubscription<BluetoothConnectionState>>
+  _linkDropSubs = {};
+
   /// Drop the cached GATT table when the peripheral republishes it.
   ///
   /// `subscribeToServicesChanged: false` in [_loadServices] keeps fbp from
@@ -1590,6 +1626,33 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
   /// disconnected by hand. Treated like a link turnover: the generation
   /// moves so an in-flight discovery cannot repopulate the cache with the
   /// old table, and notify shares expire because their handles are gone.
+  /// Forget everything tied to a link that is no longer up.
+  ///
+  /// R-013: claims are a count of app-side owners, but the LINK can go away
+  /// without any of them letting go — the device is unplugged, walks out of
+  /// range, or resets. The count then survived into the next connect, so the
+  /// first `disconnect()` after reconnecting only decremented an inherited
+  /// claim and never reached the platform: the radio stayed connected to a
+  /// device the app believed it had released, and the user's "disconnect"
+  /// did nothing until they pressed it as many times as the link had been
+  /// lost. Watched rather than inferred, because only the platform knows.
+  void _watchLinkDrop(String deviceId, BluetoothDevice device) {
+    if (_linkDropSubs.containsKey(deviceId)) return;
+    _linkDropSubs[deviceId] = device.connectionState.listen((state) {
+      if (state != BluetoothConnectionState.disconnected) return;
+      if (!_connectionClaims.containsKey(deviceId)) return;
+      Log.ble.info(
+        '$deviceId dropped the link; releasing '
+        '${_connectionClaims[deviceId]} claim(s)',
+      );
+      _connectionClaims.remove(deviceId);
+      _servicesCache.remove(deviceId);
+      _connectionGeneration[deviceId] = _generationOf(deviceId) + 1;
+      _mtuUnknown.remove(deviceId);
+      _expireNotifyShares(deviceId);
+    }, onError: (Object e) => Log.ble.debug('link watch $deviceId: $e'));
+  }
+
   void _watchServicesReset(String deviceId, BluetoothDevice device) {
     if (_servicesResetSubs.containsKey(deviceId)) return;
     _servicesResetSubs[deviceId] = device.onServicesReset.listen(

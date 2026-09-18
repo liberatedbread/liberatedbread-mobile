@@ -934,6 +934,99 @@ void main() {
     );
   });
 
+  group('a link that drops on its own (R-013)', () {
+    test('releases the claims nobody let go of', () async {
+      // Claims count app-side owners, but the LINK can go without any of them
+      // letting go — unplugged, out of range, reset. The count used to
+      // survive into the next connect, so the first disconnect afterwards
+      // only decremented an inherited claim and never reached the platform:
+      // the radio stayed connected to a device the app thought it had
+      // released.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+      expect(bulb.isConnected, isTrue);
+
+      bulb.dropLink();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await service.connect(_bulbId);
+      ble.platformCalls.clear();
+      await service.disconnect(_bulbId);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(
+        ble.platformCalls,
+        contains('disconnect:$_bulbId'),
+        reason: 'one connect means one disconnect reaches the radio',
+      );
+      expect(bulb.isConnected, isFalse);
+    });
+
+    test('a dropped link does not leave a stale GATT table behind', () async {
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+      await service.discoverServices(_bulbId);
+      ble.platformCalls.clear();
+
+      bulb.dropLink();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await service.connect(_bulbId);
+      await service.discoverServices(_bulbId);
+
+      expect(
+        ble.platformCalls.where((c) => c.startsWith('discoverServices')),
+        isNotEmpty,
+        reason: 'the new link must not be handed the old link\'s table',
+      );
+    });
+  });
+
+  test('the notification ring is keyed by service too (R-020)', () async {
+    // Keyed by characteristic alone, a reader asking about ANY service got
+    // another service's frames — and a caller spelling a 16-bit UUID in full
+    // form read an empty ring beside a full one.
+    ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+    await service.connect(_bulbId);
+    final sub = service
+        .subscribeCharacteristic(
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        )
+        .listen((_) {});
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    ble.peripheral(_bulbId)!.pushNotification(EmulatedUuids.batteryLevel, [42]);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(
+      service.recentNotifications(
+        _bulbId,
+        EmulatedUuids.batteryService,
+        EmulatedUuids.batteryLevel,
+      ),
+      [
+        [42],
+      ],
+    );
+    expect(
+      service.recentNotifications(
+        _bulbId,
+        EmulatedUuids.controlService,
+        EmulatedUuids.batteryLevel,
+      ),
+      isEmpty,
+      reason: 'nothing was pushed on that service',
+    );
+    // …and the same ring, asked for in the short spelling of the same UUIDs.
+    expect(
+      service.recentNotifications(_bulbId, '180F', '2A19'),
+      [
+        [42],
+      ],
+      reason: 'the key normalises both UUIDs, like the notify share does',
+    );
+    await sub.cancel();
+  });
+
   // The Apple-only reconnect path (R-008). The remote id on Apple platforms
   // is a system-minted UUID, not an address, so a saved device the system has
   // forgotten fails before the radio is touched with "Peripheral not found" —
