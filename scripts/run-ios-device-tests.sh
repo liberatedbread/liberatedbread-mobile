@@ -263,6 +263,44 @@ restore_xcconfig() {
 cleanup() { restore_xcconfig; restore_entitlements; }
 trap cleanup EXIT
 
+# Wait until the phone is unlocked, because xcodebuild will not.
+#
+# Its preflight checks the lock state ONCE. A phone that auto-locks during the
+# build — which takes a couple of minutes, and the default Auto-Lock is well
+# under that — leaves xcodebuild parked on "Unlock <device> to Continue"
+# forever: unlocking afterwards does not wake it, and the run has to be killed
+# and started again. So the check happens here, where it can be repeated, and
+# the build is already done by the time it matters.
+#
+# `devicectl` answers `passcodeRequired: false` for an unlocked phone. A device
+# with no passcode at all answers the same way, which is the right answer for
+# it too.
+wait_for_unlock() {
+  local waited=0 interval=5 limit="${LB_UNLOCK_WAIT:-600}"
+  while true; do
+    if ! xcrun devicectl device info lockState --device "$UDID" 2>/dev/null \
+        | grep -q 'passcodeRequired: true'; then
+      [[ "$waited" -gt 0 ]] && log "Thanks — $1 is unlocked; starting."
+      return 0
+    fi
+    if [[ "$waited" -eq 0 ]]; then
+      warn "UNLOCK $1 AND KEEP IT AWAKE."
+      warn "Set Settings > Display & Brightness > Auto-Lock to Never for the"
+      warn "run: xcodebuild checks the lock once and waits forever if it is"
+      warn "locked at that moment, and answering the permission prompts needs"
+      warn "the screen anyway."
+    elif (( waited % 60 == 0 )); then
+      warn "still locked after ${waited}s; waiting up to ${limit}s."
+    fi
+    if (( waited >= limit )); then
+      err "$1 was still locked after ${limit}s; nothing was run."
+      return 1
+    fi
+    sleep "$interval"
+    waited=$((waited + interval))
+  done
+}
+
 # The seconds in a `flutter test --timeout` value such as 900s or 15m, for
 # xcodebuild's per-test allowance.
 timeout_seconds() {
@@ -293,9 +331,25 @@ run_suite() {
     XCCONFIG_BACKUP="$(mktemp)"
     cp "$XCCONFIG" "$XCCONFIG_BACKUP"
   fi
-  log "flutter build ios --config-only -t $suite"
-  if ! flutter build ios --config-only --debug -t "$suite" "$@" >"$logfile" 2>&1; then
+  # PROFILE, not debug, and that is load-bearing.
+  #
+  # A Flutter app built in debug mode calls `ptrace(PT_TRACE_ME)` on startup
+  # and refuses to create its engine if that fails — "Cannot create a
+  # FlutterEngine instance in debug mode without Flutter tooling or Xcode".
+  # `xcodebuild test` does not attach a debugger, so a debug build dies on
+  # launch there however the device is set up; it is Xcode.app and
+  # `flutter run` that satisfy the check. Profile keeps the VM service and
+  # the tooling this suite needs without the ptrace requirement. (Flutter's
+  # own guide for running integration tests on real devices in CI says the
+  # same thing, in release.)
+  log "flutter build ios --config-only --profile -t $suite"
+  if ! flutter build ios --config-only --profile -t "$suite" "$@" >"$logfile" 2>&1; then
     err "flutter build ios --config-only failed; see $logfile"
+    return 1
+  fi
+
+  # Named the way the operator named it, falling back to the UDID.
+  if ! wait_for_unlock "${DEVICE_ID:-$UDID}"; then
     return 1
   fi
 
@@ -308,7 +362,7 @@ run_suite() {
   xcodebuild test \
       -workspace ios/Runner.xcworkspace \
       -scheme Runner \
-      -configuration Debug \
+      -configuration Profile \
       -destination "id=$UDID" \
       -only-testing:RunnerTests \
       -resultBundlePath "$bundle" \
