@@ -169,12 +169,23 @@ void main() {
     expect(find.text('Device Spec Packs'), findsOneWidget);
     await _shot(tester, '12_spec_packs_screen');
 
-    // Client-side URL validation.
+    // Client-side URL validation. The screen shows the service's own reason
+    // rather than one fixed sentence, because there are two different ones.
     await _type(tester, find.byType(TextField), 'not-a-url');
     await tester.tap(find.text('Install / Refresh'));
     await _soak(tester, const Duration(seconds: 1));
-    expect(find.text('Enter a valid http:// or https:// URL.'), findsOneWidget);
+    expect(find.textContaining('valid http'), findsOneWidget);
     await _shot(tester, '13_spec_pack_invalid_url');
+
+    // …and the other reason: a spec pack decides what requests the app makes
+    // of a device and which credentials it sends, so it is fetched over https
+    // unless the host is on the user's own network. A plain http:// address
+    // out on the internet is refused before anything is downloaded.
+    await _type(tester, find.byType(TextField), 'http://example.com/pack.json');
+    await tester.tap(find.text('Install / Refresh'));
+    await _soak(tester, const Duration(seconds: 1));
+    expect(find.textContaining('installed over https only'), findsOneWidget);
+    await _shot(tester, '13b_spec_pack_insecure_url');
 
     // A syntactically valid but unreachable host exercises the network error
     // path deterministically, with no dependency on outbound connectivity.
