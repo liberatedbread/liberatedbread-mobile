@@ -24,10 +24,48 @@ import '../helpers/host_rust_lib.dart';
 const _envSensing = '0000181a-0000-1000-8000-00805f9b34fb';
 const _tempChar = '00002a6e-0000-1000-8000-00805f9b34fb';
 
+/// Pump [widget] and give the real clock back until [target] is on screen.
+///
+/// The decode crosses into Rust on a background isolate, which the widget
+/// binding's fake clock never advances — so some of the waiting here has to be
+/// real, and [WidgetTester.runAsync] is what hands the real clock over.
+///
+/// The waiting used to be a flat `Future.delayed(500 ms)` and a single pump,
+/// which is two guesses in one. Too long on every green run (three of them,
+/// every suite), and too short on a loaded CI box or a cold FFI load — where
+/// the failure is not "the decode is slow" but `find.text('23.50')` finding
+/// nothing, an assertion that looks exactly like a decoder that returned the
+/// wrong number. Polling ends the moment the reading lands and, when it never
+/// does, says so as a timeout rather than as a wrong value.
+Future<void> _pumpUntilFound(
+  WidgetTester tester,
+  Widget widget,
+  Finder target, {
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  await tester.runAsync(() async {
+    await tester.pumpWidget(widget);
+  });
+  final deadline = DateTime.now().add(timeout);
+  while (target.evaluate().isEmpty) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail(
+        '$target did not appear within ${timeout.inSeconds}s. The card is '
+        'showing: ${find.byType(Text).evaluate().map((e) => (e.widget as Text).data).toList()}',
+      );
+    }
+    // Real time for the isolate, then a frame for whatever it completed.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump();
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const codec = RealSpecCodec();
+  final codec = RealSpecCodec();
   late final bool rustReady;
   late final String yaml;
   late final DeviceSpecDto spec;
@@ -97,15 +135,7 @@ void main() {
       ),
     );
 
-    // The real codec crosses into Rust on a background isolate, which the test
-    // binding's fake clock never advances. `runAsync` hands back the real one
-    // for long enough to let the decode land; `pumpAndSettle` alone would just
-    // spin the loading indicator until it times out.
-    await tester.runAsync(() async {
-      await tester.pumpWidget(widget);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    });
-    await tester.pump();
+    await _pumpUntilFound(tester, widget, find.text('23.50'));
 
     expect(find.text('23.50'), findsOneWidget);
     expect(find.text('2350'), findsNothing);
@@ -182,11 +212,7 @@ void main() {
       ),
     );
 
-    await tester.runAsync(() async {
-      await tester.pumpWidget(widget);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    });
-    await tester.pump();
+    await _pumpUntilFound(tester, widget, find.text('650'));
 
     expect(find.text('650'), findsOneWidget);
     expect(find.text('ppm'), findsOneWidget);
@@ -239,11 +265,7 @@ void main() {
         ),
       );
 
-      await tester.runAsync(() async {
-        await tester.pumpWidget(widget);
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-      });
-      await tester.pump();
+      await _pumpUntilFound(tester, widget, find.text('135.0'));
 
       // 100 * 0.5 + 85 = 135.
       expect(find.text('135.0'), findsOneWidget);

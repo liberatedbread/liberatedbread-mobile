@@ -73,15 +73,44 @@ void main() {
   });
 
   test('keeps the fallback when the fetch fails', () async {
-    final container = _container((_) => throw http.ClientException('offline'));
+    // A test that asserts nothing CHANGED has to earn it: it used to sleep
+    // 50 ms of wall clock and then declare the state unmoved, which passes
+    // just as well when the refresh has not run yet, or ran but was still two
+    // microtasks from writing. So: wait for the fetch to actually have been
+    // attempted, drain the event queue, and then run the same wait against a
+    // fetch that DOES change the state — the positive control that proves the
+    // waiting is long enough for a change to have shown up.
+    var failedCalls = 0;
+    final container = _container((_) {
+      failedCalls++;
+      throw http.ClientException('offline');
+    });
 
     expect(container.read(adBannerProvider), AdBanner.fallback);
-    // Give the failed refresh time to (wrongly) change state if it were going
-    // to; then confirm nothing moved and nothing was cached.
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await _until(() => failedCalls > 0);
+    await pumpEventQueue();
 
     expect(container.read(adBannerProvider), AdBanner.fallback);
     expect(_prefs.getString(AdBannerNotifier.cacheKey), isNull);
+
+    // The control. Same container shape, same wait, a reply that parses: if
+    // this does not swap the banner in, the negative assertion above was
+    // measuring nothing.
+    var okCalls = 0;
+    final succeeding = _container((_) async {
+      okCalls++;
+      return http.Response(_remoteJson, 200);
+    });
+    expect(succeeding.read(adBannerProvider), AdBanner.fallback);
+    await _until(() => okCalls > 0);
+    await pumpEventQueue();
+    expect(
+      succeeding.read(adBannerProvider)?.id,
+      'promo-2',
+      reason:
+          'the wait used for the failure case must be enough to observe a '
+          'state change, or "nothing changed" proves nothing',
+    );
   });
 
   test(

@@ -11,8 +11,12 @@
 #   source scripts/ci-versions.sh      # defines CI_* variables (see below)
 #   ./scripts/ci-versions.sh           # prints them, one KEY=value per line
 #
-# Every value has a fallback, so a parse miss degrades to "slightly stale pin"
-# rather than "setup explodes"; a miss is reported on stderr so it gets fixed.
+# Every value has a fallback, so a parse miss degrades to a usable pin rather
+# than "setup explodes"; a miss is reported on stderr so it gets fixed. The
+# fallback is not allowed to DISAGREE with the workflow, though — `--strict`
+# fails on that too (see _ci_set), because a fallback that has drifted
+# provisions a machine differently from CI precisely when this script has lost
+# its ability to notice.
 #
 # HOW THIS READS THE WORKFLOW, and why it is boring on purpose.
 #
@@ -133,11 +137,38 @@ _ci_env_list() {
 # turn "announced" into "enforced" — see the bottom of this file.
 CI_VERSIONS_FALLBACKS=0
 
+# How many fallbacks disagree with the value ci.yml actually declares, and
+# which ones.
+#
+# A fallback is not a second opinion — it is what a machine gets when the
+# workflow cannot be read at all (a shallow checkout, a moved file, a parse
+# that broke). A fallback that has drifted is therefore not "slightly stale":
+# it is a dev environment provisioned differently from CI, silently, exactly
+# when this script has already lost its ability to notice.
+#
+# CI_LINUX_DESKTOP_PACKAGES is the one that proved it. ci.yml grew `dbus` and
+# `python3-dbus-next` for the Linux desktop job; the fallback here kept the
+# older nine, so any machine that fell back installed a set that cannot run
+# the Linux tests, and the failure surfaced as an unrelated GTK/CMake error
+# inside `flutter build linux`.
+#
+# So the same `--strict` that enforces "every key is readable" also enforces
+# "every fallback still says what the workflow says". Bumping a pin in ci.yml
+# means updating its fallback here in the same commit — one line, named in the
+# error.
+CI_VERSIONS_STALE=0
+CI_VERSIONS_STALE_KEYS=""
+
 # Assign $1=$3 if $3 is non-empty, else fall back to $2 and say so.
 _ci_set() {
   local var="$1" fallback="$2" parsed="$3"
   if [ -n "$parsed" ]; then
     printf -v "$var" '%s' "$parsed"
+    if [ "$parsed" != "$fallback" ]; then
+      CI_VERSIONS_STALE=$((CI_VERSIONS_STALE + 1))
+      CI_VERSIONS_STALE_KEYS="${CI_VERSIONS_STALE_KEYS}${var} "
+      _ci_warn "$var fallback is '$fallback' but ${CI_WORKFLOW##*/} says '$parsed'; update the fallback in $_ci_versions_self"
+    fi
   else
     printf -v "$var" '%s' "$fallback"
     CI_VERSIONS_FALLBACKS=$((CI_VERSIONS_FALLBACKS + 1))
@@ -147,6 +178,8 @@ _ci_set() {
 
 ci_versions_load() {
   CI_VERSIONS_FALLBACKS=0
+  CI_VERSIONS_STALE=0
+  CI_VERSIONS_STALE_KEYS=""
   if [ ! -r "$CI_WORKFLOW" ]; then
     _ci_warn "workflow not readable at ${CI_WORKFLOW}; using fallbacks for everything"
   fi
@@ -185,7 +218,7 @@ ci_versions_load() {
   CI_EMULATOR_SYSTEM_IMAGE="system-images;android-${CI_EMULATOR_API};${CI_EMULATOR_TARGET};${CI_EMULATOR_ARCH}"
 
   _ci_set CI_LINUX_DESKTOP_PACKAGES \
-    'clang cmake libgtk-3-dev libjsoncpp-dev liblzma-dev libsecret-1-dev ninja-build pkg-config xvfb' \
+    'clang cmake dbus libgtk-3-dev libjsoncpp-dev liblzma-dev libsecret-1-dev ninja-build pkg-config python3-dbus-next xvfb' \
     "$(_ci_env LINUX_DESKTOP_PACKAGES || true)"
 }
 
@@ -223,6 +256,10 @@ if [ "${BASH_SOURCE[0]:-}" = "${0}" ]; then
     esac
   done
   ci_versions_print
+  if [ "$strict" -eq 1 ] && [ "$CI_VERSIONS_STALE" -gt 0 ]; then
+    echo "::error file=scripts/ci-versions.sh::${CI_VERSIONS_STALE} fallback(s) in this script no longer match .github/workflows/ci.yml: ${CI_VERSIONS_STALE_KEYS% }. The fallback is what provisions a machine that cannot read the workflow, so a drifted one installs something CI never uses — which is how CI_LINUX_DESKTOP_PACKAGES came to be missing dbus and python3-dbus-next. Copy each value from the env: block into the matching _ci_set call above." >&2
+    exit 1
+  fi
   if [ "$strict" -eq 1 ] && [ "$CI_VERSIONS_FALLBACKS" -gt 0 ]; then
     echo "::error file=.github/workflows/ci.yml::${CI_VERSIONS_FALLBACKS} pinned value(s) could not be read out of this workflow's top-level env: block (each is named on stderr above), so scripts/setup.sh and .claude/hooks/session-start.sh would provision dev environments from stale hardcoded defaults while CI used the real ones. Add the key back to that env: block, or update the reader in scripts/ci-versions.sh." >&2
     exit 1

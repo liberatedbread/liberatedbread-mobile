@@ -34,6 +34,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 const String _devicesDir = 'vendor/protocol-specs/device-specs/devices';
 
+/// The transport that actually sends these datagrams, and the source of truth
+/// for which ports it sends them on.
+const String _scanService = 'lib/services/real_network_scan_service.dart';
+
 /// One `udp_broadcast` method as the catalogue declares it.
 class _Declared {
   final String spec;
@@ -94,21 +98,66 @@ const Map<int, String> _undeclared = {
       'is a binary frame, not a datagram this block could describe.',
 };
 
-/// Every port this app broadcasts on, whether or not a spec declares it.
-/// Read by the reverse check; [_performed] covers only the declared ones.
-const Set<int> _portsProbed = {
-  10001,
-  5678,
-  9999,
-  6666,
-  6667,
-  38899,
-  1982,
-  4001,
-  4002,
-  3671,
-  56700,
+/// The port constants in the scan service that are NOT a probe of this app's
+/// own, and why — the only hand-maintained half of [_portsProbed].
+///
+/// Everything else the service declares is a port it puts a datagram on, so it
+/// has to be explained by a spec or by [_undeclared].
+const Map<String, String> _notAProbe = {
+  '_ssdpPort':
+      'The standard SSDP port. An M-SEARCH to 239.255.255.250:1900 is the '
+      'ssdp discovery method, declared by specs as `ssdp` — not a '
+      'udp_broadcast exchange, and covered by ios_bonjour/ssdp checks '
+      'elsewhere.',
+  '_mdnsPort':
+      'The standard mDNS port. Same argument: `mdns` methods, not '
+      'udp_broadcast ones.',
+  '_roombaControlPort':
+      'The robot MQTT control port, reached AFTER discovery with credentials '
+      'in hand. Nothing is broadcast to it.',
 };
+
+/// Every port this app broadcasts on, whether or not a spec declares it, read
+/// out of the transport that broadcasts on it.
+///
+/// Derived, not retyped. This was a hand-copied list of eleven integers beside
+/// a file that declares them — so a new `_fooPort` and the `_runFoo` that
+/// sends to it were a datagram on somebody's LAN that this check would have
+/// called explained, because the list it compared against did not know the
+/// port existed. Now adding a port constant to the service adds it here, and
+/// the test below is what makes the reader's failure loud rather than empty.
+Set<int> _portsProbed() {
+  final source = File(_scanService).readAsStringSync();
+  final constant = RegExp(
+    r'''^const\s+(_\w*[Pp]ort\w*)\s*=\s*(\d+)\s*;''',
+    multiLine: true,
+  );
+  final found = <String, int>{};
+  for (final match in constant.allMatches(source)) {
+    found[match.group(1)!] = int.parse(match.group(2)!);
+  }
+  expect(
+    found,
+    hasLength(greaterThanOrEqualTo(12)),
+    reason:
+        '$_scanService should declare its UDP ports as `const _fooPort = N;` '
+        'at the top level. Finding almost none means this reader has stopped '
+        'matching and every check below it is vacuous.',
+  );
+  for (final name in _notAProbe.keys) {
+    expect(
+      found,
+      contains(name),
+      reason:
+          '$name is excused from the probe list and $_scanService no longer '
+          'declares it — delete the _notAProbe entry',
+    );
+  }
+  return {
+    for (final entry in found.entries)
+      if (!_notAProbe.containsKey(entry.key)) entry.value,
+  };
+}
 
 /// Declared exchanges no transport performs, each with what it would take.
 ///
@@ -276,10 +325,33 @@ void main() {
     },
   );
 
+  test('the probe ports are still readable out of the scan service', () {
+    // The reader, before anything leans on it: a regex that stops matching
+    // makes both checks below pass over an empty set.
+    final probed = _portsProbed();
+    expect(
+      probed,
+      containsAll(<int>[10001, 5678, 9999, 6666, 6667, 38899, 1982, 56700]),
+      reason:
+          'these are the ports $_scanService broadcasts on; a reader that '
+          'cannot find them is not checking anything',
+    );
+    expect(
+      probed,
+      isNot(contains(1900)),
+      reason: 'SSDP :1900 is an `ssdp` method, not a udp_broadcast probe',
+    );
+    expect(
+      probed,
+      isNot(contains(5353)),
+      reason: 'mDNS :5353 is an `mdns` method, not a udp_broadcast probe',
+    );
+  });
+
   test('every UDP probe this app sends is declared somewhere', () {
     final declaredPorts = {for (final d in _declaredMethods()) d.port};
     final unexplained = <String>[];
-    for (final port in _portsProbed) {
+    for (final port in _portsProbed()) {
       if (declaredPorts.contains(port)) continue;
       if (_undeclared.containsKey(port)) continue;
       unexplained.add(':$port');
@@ -341,9 +413,10 @@ void main() {
             'the _notPerformed entry',
       );
     }
+    final probed = _portsProbed();
     for (final port in _undeclared.keys) {
       expect(
-        _portsProbed,
+        probed,
         contains(port),
         reason:
             ':$port is explained as undeclared and nothing probes it — '

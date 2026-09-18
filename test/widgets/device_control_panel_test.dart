@@ -1021,7 +1021,27 @@ void main() {
     ) async {
       // The entity characteristics are absent from what was discovered —
       // nothing to show above, so hiding the GATT tree would hide everything.
-      const bare = [BleDiscoveredService(uuid: svcUuid, characteristics: [])];
+      //
+      // The service therefore has to have a CHILD for the fold to hide. This
+      // used to discover an empty service and then assert that the service
+      // title was on screen, which is true folded and unfolded alike — the
+      // folded case two tests up asserts the very same title. An unbound
+      // characteristic is what makes the two states different: unfolded it is
+      // on screen, folded it would be offstage like the fold test's children.
+      const strayChar = '0000aab9-0000-1000-8000-00805f9b34fb';
+      const bare = [
+        BleDiscoveredService(
+          uuid: svcUuid,
+          characteristics: [
+            BleDiscoveredCharacteristic(
+              uuid: strayChar,
+              canRead: true,
+              canWrite: false,
+              canNotify: false,
+            ),
+          ],
+        ),
+      ];
       await tester.pumpWidget(
         await _wrap(
           const DeviceControlPanel(
@@ -1036,13 +1056,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // No reading resolved: the spec's entity characteristics were not
+      // discovered, so there is nothing above the GATT tree.
       expect(find.byType(EntitySensorCard), findsNothing);
-      // Folded-with-nothing-above would leave a bare title row; the tile
-      // stays open (nothing to expand here since the service is empty, so
-      // assert via the tile's controller state: no fold means no collapse
-      // animation ran and the card renders exactly as the pre-readings
-      // panel always has).
       expect(find.text('Air Service'), findsOneWidget);
+      // ...so the tree itself must be the thing on screen, expanded, with no
+      // tap needed. Folding here would leave a title row and nothing else.
+      expect(find.byType(RawCharacteristicWidget), findsOneWidget);
     });
   });
 

@@ -114,6 +114,14 @@ privileges. The bundled scenario is one device answering on both transports (a
 Hue bridge — the coalescing case) and one that is SSDP-only (a Wemo plug — the
 reason both transports run).
 
+It answers only what was asked, on both transports: an mDNS question gets the
+records for that name and type, and an SSDP M-SEARCH gets the devices whose
+`ST` it named (`ssdp:all` gets them all). A scenario device can set
+`"deaf_to_wildcard": true` in its `ssdp` block to answer its exact `ST` and
+nothing else — the awkward real behaviour the scan carries extra search targets
+for. `python3 scripts/net_virtual_device_selftest.py` asserts that half without
+touching a socket.
+
 ```bash
 # Watch a scan happen, with every answered query logged
 python3 scripts/net_virtual_device.py --verbose &

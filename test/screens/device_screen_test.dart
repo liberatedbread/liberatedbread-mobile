@@ -47,6 +47,22 @@ class _RecordingForwarder extends HaSensorForwarder {
   }
 }
 
+/// [FakeBleService] that records every connect ATTEMPT, not just the ones that
+/// succeeded. `connectedIds` is written after the error is thrown, so with a
+/// failing connect it stays empty however many times the screen tries — and a
+/// retry test has nothing else to look at.
+class _CountingBleService extends FakeBleService {
+  _CountingBleService({super.connectError});
+
+  final List<String> connectAttempts = [];
+
+  @override
+  Future<void> connect(String deviceId) {
+    connectAttempts.add(deviceId);
+    return super.connect(deviceId);
+  }
+}
+
 final _device = IoTDevice(
   id: '01',
   name: 'ACME_A',
@@ -155,20 +171,43 @@ void main() {
   });
 
   testWidgets('retry re-attempts connection', (tester) async {
-    final fake = FakeBleService(connectError: StateError('boom'));
+    // What this has to prove is that the tap reaches the SERVICE. It used to
+    // leave connectError sticky and then assert the error card was still on
+    // screen — which is the state the screen was already in, and is exactly
+    // what a Retry button wired to nothing at all would show. So: count the
+    // attempts, and then let the second one succeed, which no amount of
+    // rebuilding the error card can fake.
+    final fake = _CountingBleService(connectError: StateError('boom'));
     await tester.pumpWidget(_wrap(fake));
     await tester.pumpAndSettle();
+    expect(fake.connectAttempts, ['01']);
     expect(fake.connectedIds, isEmpty);
 
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
 
-    // Still errors (connectError is sticky) but we've attempted again.
+    // A second attempt was made, and it still failed, so the error state and
+    // the button are still there for a third.
+    expect(fake.connectAttempts, ['01', '01']);
     expect(
       find.textContaining('Could not connect to this device'),
       findsOneWidget,
     );
     expect(find.textContaining('Bad state'), findsNothing);
+
+    // And when the retry succeeds, the screen leaves the error state — the
+    // half of "re-attempts" that a sticky error can never show.
+    fake.connectError = null;
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(fake.connectAttempts, ['01', '01', '01']);
+    expect(fake.connectedIds, ['01']);
+    expect(
+      find.textContaining('Could not connect to this device'),
+      findsNothing,
+    );
+    expect(find.text('Retry'), findsNothing);
   });
 
   testWidgets('discovery failure disconnects the half-open peripheral', (

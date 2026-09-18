@@ -569,12 +569,37 @@ if [ -n "$(git status --porcelain -- "$INDEX_PATH")" ]; then
   fi
 fi
 
-# `git subtree pull` merges, so it refuses to start on a dirty tree — and it
-# refuses *after* fetching, with a message about the merge rather than about
-# the working copy. Say it plainly first.
-if [ -n "$(git status --porcelain)" ]; then
-  echo "::error::working tree is not clean; commit or stash before refreshing the subtree." >&2
-  git status --short >&2
+# `git subtree pull` merges, so it refuses to start on a tree with local
+# changes — and it refuses *after* fetching, with a message about the merge
+# rather than about the working copy. Say it plainly first.
+#
+# TRACKED changes, repo-wide. That is git-subtree's own bar (its ensure_clean
+# is `git diff-index HEAD` plus the cached form), and it has to be repo-wide
+# for a second reason: the merge commit this pull writes takes whatever is in
+# the index, so a staged change anywhere else would be swept into a commit
+# labelled "Update vendored protocol-specs".
+#
+# UNTRACKED files, under the prefix ONLY. This check used to be a bare `git
+# status --porcelain`, which refused to pull over a scratch file in the repo
+# root or an untracked fixture three directories away — stricter than
+# git-subtree itself and for nothing: a merge does not touch a file git has
+# never heard of. Under the prefix it is a different matter and the narrow
+# check stays: an unstaged YAML dropped into device-specs/ is bundled by
+# Flutter at build time exactly like a vendored one, and the pull would leave
+# it sitting there looking vendored.
+dirty_tracked="$(git status --porcelain --untracked-files=no)"
+if [ -n "$dirty_tracked" ]; then
+  echo "::error::tracked files have uncommitted changes; commit or stash before refreshing the subtree." >&2
+  printf '%s\n' "$dirty_tracked" >&2
+  exit 1
+fi
+
+untracked_in_prefix="$(git ls-files --others --exclude-standard -- "$PREFIX")"
+if [ -n "$untracked_in_prefix" ]; then
+  echo "::error::untracked files under $PREFIX; the subtree is vendored unmodified," >&2
+  echo "::error::and Flutter bundles these exactly like a vendored spec. Remove them" >&2
+  echo "::error::(or move the change upstream) before refreshing:" >&2
+  printf '%s\n' "$untracked_in_prefix" | sed 's/^/::error::  /' >&2
   exit 1
 fi
 

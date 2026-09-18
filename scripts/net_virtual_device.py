@@ -269,6 +269,20 @@ def response_packet(answers: list[bytes]) -> bytes:
     return header + b''.join(answers)
 
 
+def ssdp_search_target(request: str) -> str:
+    """The ST header of an M-SEARCH, or '' when it carries none.
+
+    Header names are case-insensitive and the value is trimmed, because that
+    is what the wire looks like; everything else about the request is the
+    caller's business.
+    """
+    for line in request.split('\r\n'):
+        name, sep, value = line.partition(':')
+        if sep and name.strip().lower() == 'st':
+            return value.strip()
+    return ''
+
+
 def parse_questions(packet: bytes) -> list[tuple[str, int]]:
     if len(packet) < 12:
         return []
@@ -361,11 +375,41 @@ class VirtualNetwork:
                                           socket.inet_aton(device['address'])))
         return answers
 
-    def ssdp_replies(self, host_header: str) -> list[bytes]:
+    def ssdp_replies(self, search_target: str) -> list[bytes]:
+        """Replies to ONE M-SEARCH, from the devices it actually asked for.
+
+        The same principle as answers_for: answer what was asked and nothing
+        else. This used to return every device for every M-SEARCH — including
+        one whose ST names a device type nothing here implements — so a client
+        that searched for the wrong thing still found everything, and a test
+        could not tell a targeted search from a wildcard. The app sends both
+        (`ssdp:all` first, then each vendor target the catalogue declares), and
+        which of the two found a device is the whole question when a vendor
+        target is added or dropped.
+
+        Matching, per UDA 1.0 as far as a fixture needs it:
+
+          * `ssdp:all` — every device answers, each with its own ST.
+          * an exact ST — only the devices declaring it.
+          * anything else, including an M-SEARCH with no ST at all — silence.
+
+        A device with `deaf_to_wildcard` answers its exact ST only. That models
+        the awkward real one the scan carries extra search targets for: a Roku
+        is deaf to `ssdp:all` and answers only `roku:ecp`, so a scan that sent
+        the wildcard alone would never see it.
+        """
+        wanted = search_target.strip().lower()
+        if not wanted:
+            return []
         replies = []
         for device in self.devices:
             ssdp = device.get('ssdp')
             if not ssdp:
+                continue
+            if wanted == 'ssdp:all':
+                if ssdp.get('deaf_to_wildcard'):
+                    continue
+            elif wanted != ssdp['st'].lower():
                 continue
             location = ssdp.get('location') or (
                 f"http://{device['address']}:{ssdp.get('location_port', 80)}"
@@ -714,9 +758,13 @@ def main() -> int:
                     text = packet.decode('utf-8', 'replace')
                     if not text.upper().startswith('M-SEARCH'):
                         continue
+                    target = ssdp_search_target(text)
+                    replies = network.ssdp_replies(target)
                     if args.verbose:
-                        print(f'ssdp M-SEARCH from {sender}', flush=True)
-                    for reply in network.ssdp_replies(''):
+                        print(f'ssdp M-SEARCH ST {target or "(none)"} from '
+                              f'{sender} -> {len(replies)} reply/replies',
+                              flush=True)
+                    for reply in replies:
                         # Unicast back to the searcher, which is what the
                         # protocol says and what the app listens for.
                         ssdp.sendto(reply, sender)

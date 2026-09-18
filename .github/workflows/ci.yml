@@ -327,6 +327,23 @@ jobs:
         run: ./scripts/verify-ios-app-selftest.sh
       - name: device-select selftest
         run: ./scripts/device-select-selftest.sh
+      # The emulator job's retry loop, driven against stub binaries on a runner
+      # with no emulator. The case it pins is the one that made the retry a
+      # no-op in the first place: an attempt that ignores SIGTERM. Seconds
+      # here, versus only ever being exercised inside a 40-minute job.
+      - name: ci-emulator-tests selftest
+        run: ./scripts/ci-emulator-tests-selftest.sh
+      # WHICH files the format check covers. It used to reformat the vendored
+      # cargokit build_tool under rust_builder/ — third-party source — and
+      # passed only because that tree happened to satisfy the formatter.
+      - name: ci-format selftest
+        run: ./scripts/ci-format-selftest.sh
+      # The emulated-network responder, asked directly — no sockets, so it
+      # belongs here and not in the network-discovery job. It answered every
+      # M-SEARCH with every device whatever the ST said, which made "the scan
+      # still sends its vendor search targets" unprovable.
+      - name: net_virtual_device selftest
+        run: python3 ./scripts/net_virtual_device_selftest.py
       # The header of this file says every pinned version lives in one `env:`
       # block and that scripts/ci-versions.sh reads it. Nothing enforced the
       # second half. That script is deliberately forgiving — a key it cannot
@@ -340,6 +357,13 @@ jobs:
       # --strict turns each of those stderr lines into a failure, in the gate,
       # in the pull request that renames the key. Costs milliseconds; it is one
       # awk pass over one file.
+      #
+      # It also fails when a fallback no longer AGREES with the value below it.
+      # Same failure, one step later: CI_LINUX_DESKTOP_PACKAGES kept the nine
+      # packages it was written with while this block grew dbus and
+      # python3-dbus-next, so a machine that fell back installed a set that
+      # cannot run the Linux desktop tests. Bumping a pin here means updating
+      # its fallback in the same commit.
       - name: Check the toolchain pins are still readable by the setup scripts
         run: ./scripts/ci-versions.sh --strict
       # Both halves of this are invisible failures without a gate. pubspec.yaml
@@ -1209,11 +1233,33 @@ jobs:
       # developer notices in `git status` months later. When it fires: run the
       # build locally, review what the migration did, restore any comments it
       # ate, and commit the result.
+      #
+      # ONE exception, and it is the only thing here this repo cannot control:
+      # the `COCOAPODS:` trailer of ios/Podfile.lock, which records the
+      # CocoaPods version that resolved it. `pod install` rewrites that line
+      # with whatever version the runner image ships, so a GitHub image bump
+      # turns this step red on a pull request that changed nothing about iOS —
+      # and the fix a red build asks for (commit the diff) pins this repo's
+      # lockfile to a hosted runner's toolchain until the next bump does it
+      # again. Everything else in the lockfile still counts: SPEC CHECKSUMS and
+      # the resolved pod versions are what the app links, and PODFILE CHECKSUM
+      # moves only when the Podfile does.
       - name: Committed ios/ project matches what the build produces
         run: |
           drift=0
-          if ! git diff --exit-code -- ios/; then
+          if ! git diff --exit-code -- ios/ ':(exclude)ios/Podfile.lock'; then
             echo "::error file=ios/Runner.xcodeproj/project.pbxproj::Building for iOS modified tracked files under ios/. Flutter ran a project migration, so the committed project is not what CI just built. Run 'flutter build ios --simulator --debug --no-codesign' locally, review the diff (watch for XML comments the plist migration drops), and commit it." >&2
+            drift=1
+          fi
+          # The lockfile, minus the runner's CocoaPods version. -U0 so only
+          # changed lines are considered, and the +++/--- file headers are
+          # dropped before the COCOAPODS: line is.
+          lock="$(git diff -U0 -- ios/Podfile.lock \
+                  | grep -E '^[-+][^-+]' \
+                  | grep -vE '^[-+]COCOAPODS: ' || true)"
+          if [ -n "$lock" ]; then
+            echo "::error file=ios/Podfile.lock::Building for iOS changed ios/Podfile.lock beyond its CocoaPods version line — the pods CI linked are not the pods this repo committed. Run the build locally, review, and commit the lockfile:" >&2
+            echo "$lock" >&2
             drift=1
           fi
           # `git diff` is blind to untracked files, so a migration that ADDS a

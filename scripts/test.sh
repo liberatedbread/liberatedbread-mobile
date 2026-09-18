@@ -100,6 +100,11 @@ flutter pub get --enforce-lockfile
 log "dart format (tracked Dart files)"
 ./scripts/ci-format.sh
 
+# WHICH files that formats — the app's, and not the vendored cargokit copy
+# under rust_builder/. Both directions of that set are silent when wrong.
+log "ci-format selftest"
+./scripts/ci-format-selftest.sh
+
 log "flutter analyze --fatal-infos"
 flutter analyze --fatal-infos
 
@@ -127,6 +132,23 @@ log "ci-ios-tests.sh self-test"
 # blessed — the one gap this mirror exists to close.
 log "verify-ios-app selftest"
 ./scripts/verify-ios-app-selftest.sh
+
+# The emulated-network responder answers only what was asked — the property the
+# netdisco suites' "the app sent the right query" claims rest on. No sockets,
+# so it runs here rather than in the netdisco job.
+if command -v python3 &>/dev/null; then
+  log "net_virtual_device selftest"
+  python3 ./scripts/net_virtual_device_selftest.py
+else
+  warn "SKIPPING net_virtual_device selftest: no python3. CI still runs it."
+fi
+
+# The emulator job's retry loop, against stub binaries: an attempt that ignores
+# SIGTERM has to be escalated to SIGKILL, or the retry the whole script exists
+# for never runs. Seconds here; otherwise only a 40-minute emulator job ever
+# exercises it. Skips its `timeout` cases on a Mac without coreutils.
+log "ci-emulator-tests selftest"
+./scripts/ci-emulator-tests-selftest.sh
 
 # The device pickers behind run-ios-device*.sh and run-android-device-tests.sh,
 # against canned `flutter devices` output: a booted simulator reports the

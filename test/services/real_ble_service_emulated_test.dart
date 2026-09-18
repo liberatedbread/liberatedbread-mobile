@@ -628,38 +628,72 @@ void main() {
       );
     });
 
-    test('a stop meant for the previous scan cannot close its replacement', () async {
-      // The shape the scan screen produces whenever a stop is followed closely
-      // by a start: a tab switched away from and back, a device screen popped.
-      // The old scan is cancelled, stopScan() is still in flight, and the
-      // replacement starts inside that window.
-      //
-      // Honesty about what this pins: it exercises the sequence, not the
-      // interleaving. stopScan() now claims the active scan BEFORE awaiting the
-      // platform, so a scan installed during that await can never be torn down
-      // on behalf of one that is already over — but flutter_blue_plus's scan
-      // mutex and its synchronous isScanning bookkeeping keep the emulated
-      // adapter from landing on the exact interleaving that used to break, so
-      // this passes with the capture in either position. It is here to hold the
-      // contract, not to prove the race.
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      final first = service.scan(timeout: null).listen((_) {});
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      await first.cancel();
+    test(
+      'a stop meant for the previous scan cannot close its replacement',
+      () async {
+        // The shape the scan screen produces whenever a stop is followed closely
+        // by a start: a tab switched away from and back, a device screen popped.
+        // The old scan is cancelled, stopScan() is still in flight, and the
+        // replacement starts inside that window.
+        //
+        // What this pins, and what it cannot: stopScan() claims the active scan
+        // BEFORE awaiting the platform, so a scan installed during that await is
+        // never torn down on behalf of one that is already over. The exact
+        // interleaving that used to break is not reachable from the public API
+        // here — flutter_blue_plus holds a scan mutex, so the replacement's own
+        // `_endActiveScan` cannot be installed until the in-flight stopScan's
+        // platform call has returned — and forcing it would need a seam inside
+        // the service. So this asserts the OUTCOME the ownership rule exists to
+        // produce, on evidence a torn-down scan cannot produce:
+        //
+        //   * the replacement's stream is still open, AND
+        //   * the radio is still scanning FOR IT — a device that starts
+        //     advertising after the sequence reaches its consumer.
+        //
+        // The second half is what the test was missing. `done` staying empty is
+        // also what a stream nobody ever fed looks like, so on its own it was
+        // satisfied by a scan that had been silently stopped: the assertion
+        // could not tell a live replacement from a dead one.
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        final first = service.scan(timeout: null).listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await first.cancel();
 
-      ble.latency = const Duration(milliseconds: 60);
-      final stopping = service.stopScan();
-      final second = startContinuous();
-      await stopping;
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+        ble.latency = const Duration(milliseconds: 60);
+        final stopping = service.stopScan();
+        final second = startContinuous();
+        await stopping;
+        await Future<void>.delayed(const Duration(milliseconds: 120));
 
-      expect(
-        second.done,
-        isEmpty,
-        reason: 'the replacement scan belongs to nobody but its own caller',
-      );
-      expect(second.errors, isEmpty);
-    });
+        expect(
+          second.done,
+          isEmpty,
+          reason: 'the replacement scan belongs to nobody but its own caller',
+        );
+        expect(second.errors, isEmpty);
+
+        ble.latency = Duration.zero;
+        ble
+            .add(EmulatedPeripheral.bulb(id: _lampId, name: 'After The Stop'))
+            .advertise();
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+
+        expect(
+          second.seen.map((d) => d.name),
+          contains('After The Stop'),
+          reason:
+              'the replacement scan is still running and still delivering — a '
+              'stop issued for the scan before it must reach neither its stream '
+              'nor its radio',
+        );
+        final calls = ble.platformCalls;
+        expect(
+          calls.lastIndexOf('startScan'),
+          greaterThan(calls.lastIndexOf('stopScan')),
+          reason: 'the radio was left scanning for the replacement; $calls',
+        );
+      },
+    );
 
     test(
       'a teardown during an in-flight refresh does not revive the scan',
