@@ -153,6 +153,30 @@ int initialCanvasSize(int? max) {
   return max < 1 ? 1 : max;
 }
 
+/// The largest dimension worth opening a canvas at, for a device that states
+/// a fixed resolution.
+///
+/// A display's fixed resolution IS its canvas, so it is used as given. A roll
+/// printer's "resolution" is how far the paper could go — tens of thousands
+/// of rows — and an RGB buffer that size is tens of megabytes allocated
+/// before the user has drawn anything. Above this the editor opens small and
+/// the size box raises it, which is what the box is for.
+///
+/// 512 covers every display in the catalogue with room to spare (the largest
+/// is a 96x16 bar; the biggest matrix panels are 64x64), and is 786 KB rather
+/// than 75 MB.
+const int maxInitialFixedCanvas = 512;
+
+/// [max] when it is a plausible display dimension, else a small canvas.
+@visibleForTesting
+int plausibleCanvasSizeForTest(int? max) => _plausibleCanvasSize(max);
+
+int _plausibleCanvasSize(int? max) {
+  if (max == null) return 16;
+  if (max < 1) return 1;
+  return max <= maxInitialFixedCanvas ? max : initialCanvasSize(max);
+}
+
 /// Parse a user-entered canvas dimension, clamped to `1..max`.
 ///
 /// Free-form entry rather than a preset list: real panels report sizes like
@@ -455,12 +479,24 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   void _applySpecDefaults() {
     // Fixed-resolution panels get their declared size; device-reported ones
     // start at a common small size the user can adjust.
-    _width = _spec.resolutionDeviceReported
+    //
+    // …with one exception, and it is not a small one. A roll printer states
+    // its maximum as the paper it could print before running out — 384x65535
+    // for one in the catalogue, 1296x35434 for another — which as an RGB
+    // canvas is 75 to 138 MB, allocated the moment the editor mounts, on a
+    // phone, for a surface nobody asked to draw on yet. Worse, it happened
+    // even when the build cannot encode for this device at all and the
+    // screen only ever shows the "not supported" message. So a fixed
+    // resolution is taken at its word only while it is a plausible display;
+    // beyond that the editor starts small and the user raises it, exactly as
+    // a device-reported panel does.
+    final usable = _spec.encodable;
+    _width = _spec.resolutionDeviceReported || !usable
         ? initialCanvasSize(_spec.maxWidth)
-        : (_spec.maxWidth ?? 16);
-    _height = _spec.resolutionDeviceReported
+        : _plausibleCanvasSize(_spec.maxWidth);
+    _height = _spec.resolutionDeviceReported || !usable
         ? initialCanvasSize(_spec.maxHeight)
-        : (_spec.maxHeight ?? 16);
+        : _plausibleCanvasSize(_spec.maxHeight);
     _intervalMs = frameIntervalBoundsMs(_spec).initial;
     // A spec refresh can withdraw animation support; the mode toggle unmounts
     // then, so the flag must fall back too or the frame controls and stream
@@ -1923,6 +1959,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       'play_next',
     );
 
+    // R-118: every line above is an await on a BLE link, and the user can
+    // leave the screen during any of them. A timer started after that runs
+    // forever, writing play_effect through a ref this State no longer owns —
+    // the one leak dispose() cannot clean up, because dispose has already run.
+    if (!mounted) return;
     // set_playlist above is the DISCONNECT behaviour; drive the cycle in-app
     // while connected so the panel animates without the user disconnecting.
     _startDeviceCycle(
@@ -2041,14 +2082,26 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       Paint()..color = const Color(0xFF000000),
     );
     painter.paint(canvas, Offset.zero);
-    final image = await recorder.endRecording().toImage(width, height);
-    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    final rgba = data!.buffer.asUint8List();
-    final bits = Uint8List(width * height);
-    for (var i = 0; i < width * height; i++) {
-      // Lit where the glyph painted brightly over the black ground.
-      final sum = rgba[i * 4] + rgba[i * 4 + 1] + rgba[i * 4 + 2];
-      bits[i] = sum > 240 ? 1 : 0;
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(width, height);
+    // R-120: both hold native memory the garbage collector does not account
+    // for, so a marquee retyped a few dozen times — which is exactly how a
+    // text layer gets composed — walked the app up to a memory warning with
+    // the Dart heap looking healthy. Released as soon as the bytes are out.
+    final Uint8List bits;
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final rgba = data!.buffer.asUint8List();
+      bits = Uint8List(width * height);
+      for (var i = 0; i < width * height; i++) {
+        // Lit where the glyph painted brightly over the black ground.
+        final sum = rgba[i * 4] + rgba[i * 4 + 1] + rgba[i * 4 + 2];
+        bits[i] = sum > 240 ? 1 : 0;
+      }
+    } finally {
+      image.dispose();
+      picture.dispose();
+      painter.dispose();
     }
     return (width: width, height: height, bits: bits);
   }

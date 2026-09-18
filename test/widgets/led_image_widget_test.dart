@@ -189,6 +189,33 @@ void main() {
     });
   });
 
+  group('a fixed resolution that is not a display (R-124)', () {
+    // A roll printer states its maximum as the paper it could get through:
+    // 384x65535 for one in the catalogue. Taken as a canvas that is a 75 MB
+    // RGB buffer allocated the moment the editor mounts.
+    test('a plausible display size is used as declared', () {
+      expect(maxInitialFixedCanvas, greaterThanOrEqualTo(96));
+      for (final size in [4, 16, 64, 96, maxInitialFixedCanvas]) {
+        expect(
+          plausibleCanvasSizeForTest(size),
+          size,
+          reason: 'every display in the catalogue fits well inside this',
+        );
+      }
+    });
+
+    test('a roll length opens small instead', () {
+      expect(plausibleCanvasSizeForTest(65535), 16);
+      expect(plausibleCanvasSizeForTest(35434), 16);
+      // The canvas a 384x65535 printer would have allocated, against what it
+      // allocates now.
+      expect(
+        384 * plausibleCanvasSizeForTest(65535) * 3,
+        lessThan(384 * 65535 * 3 ~/ 1000),
+      );
+    });
+  });
+
   group('parseCanvasSize', () {
     test('accepts any in-range size, not just presets', () {
       // Real panels report sizes like 25x50; forcing a preset would shear
