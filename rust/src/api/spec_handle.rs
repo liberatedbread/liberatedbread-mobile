@@ -624,3 +624,120 @@ device:
         assert!(catalogue.match_device("anything".into(), vec![]).is_empty());
     }
 }
+
+/// One UDP discovery probe a spec declares, ready for a caller to send.
+///
+/// Thirteen bundled specs mention `udp_broadcast` and ten declare a usable
+/// block; the app executed none of them, carrying four of the payloads as Dart
+/// constants beside a hand-written transport each and simply not finding the
+/// devices the other specs describe (SPECS_TO_FIX.md S-10). The hex is decoded
+/// here rather than in Dart so a malformed `probe_hex` is one spec that drops
+/// out of discovery instead of an exception in the middle of a scan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UdpProbeDto {
+    /// The catalogue key of the spec that declared this probe, so a reply can
+    /// be attributed to the device it belongs to.
+    pub spec_key: String,
+    /// Index into the catalogue, for callers that then want the whole spec.
+    pub index: u32,
+    /// What the spec calls this device, for the row a reply becomes.
+    pub display_name: String,
+    /// The port to send to, and for a passive probe the port to listen on.
+    pub port: u16,
+    /// Where to send it. Usually the v4 broadcast address; the Aqara hub names
+    /// a multicast group instead, which a caller must join rather than
+    /// broadcast to.
+    pub broadcast_address: String,
+    /// The bytes to send, decoded from `probe_hex`. Empty when the spec
+    /// declares none, which is only meaningful together with [`Self::passive_ok`].
+    pub probe: Vec<u8>,
+    /// The device announces itself unprompted, so a caller that only listens
+    /// still finds it. Tuya and Synology are found this way.
+    pub passive_ok: bool,
+    /// How to read a reply, as the spec names it (`json`, `tlv`, …). Advisory:
+    /// the app's own parsers are keyed off the spec, not off this string.
+    pub response_format: Option<String>,
+    /// Fields that identify the answering device across scans.
+    pub stable_keys: Vec<UdpIdentityFieldDto>,
+    /// The field to show the user, when the spec names one.
+    pub display_field: Option<UdpIdentityFieldDto>,
+}
+
+/// One field a UDP reply is read for, with its dialect split out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UdpIdentityFieldDto {
+    /// `json`, `tlv`, `csv` or `payload` — how to read [`Self::path`].
+    pub dialect: String,
+    /// What to read, in that dialect: a dotted JSON path, a TLV field name, a
+    /// CSV column index, or empty for the payload itself.
+    pub path: String,
+    /// What to call the value once read.
+    pub name: String,
+}
+
+impl CatalogueHandle {
+    /// Every UDP discovery probe the catalogue declares.
+    ///
+    /// The scan service asks this once and sends what comes back, instead of
+    /// holding a constant and a transport per vendor. A spec whose probe is
+    /// unusable — no port, or `probe_hex` that is not hex — is left out rather
+    /// than reported: discovery is best-effort by nature, and one bad block
+    /// should cost that device, not the scan.
+    pub fn udp_broadcast_probes(&self) -> Vec<UdpProbeDto> {
+        let mut out = Vec::new();
+        for (index, entry) in self.entries.iter().enumerate() {
+            for probe in entry.spec.device.udp_broadcast_probes() {
+                let Some(port) = probe.port else { continue };
+                let bytes = match probe.probe_hex.as_deref() {
+                    Some(hex) => match decode_hex(hex) {
+                        Some(bytes) => bytes,
+                        None => continue,
+                    },
+                    None => Vec::new(),
+                };
+                let passive_ok = probe.passive_ok.unwrap_or(false);
+                // Nothing to send and nobody speaking first is not a probe.
+                if bytes.is_empty() && !passive_ok {
+                    continue;
+                }
+                let field = |f: &crate::spec::types::UdpIdentityField| {
+                    let (dialect, path) = f.dialect();
+                    UdpIdentityFieldDto {
+                        dialect: dialect.to_string(),
+                        path: path.to_string(),
+                        name: f.name(),
+                    }
+                };
+                let mapping = probe.identity_mapping.unwrap_or_default();
+                out.push(UdpProbeDto {
+                    spec_key: entry.key.clone(),
+                    index: index as u32,
+                    display_name: entry.identity.device_name.clone(),
+                    port,
+                    broadcast_address: probe
+                        .broadcast_address
+                        .unwrap_or_else(|| "255.255.255.255".to_string()),
+                    probe: bytes,
+                    passive_ok,
+                    response_format: probe.response_format.clone(),
+                    stable_keys: mapping.stable_keys.iter().map(field).collect(),
+                    display_field: mapping.display.as_ref().map(field),
+                });
+            }
+        }
+        out
+    }
+}
+
+/// Decode an even-length ASCII hex string, or None if it is not one.
+#[frb(ignore)]
+fn decode_hex(hex: &str) -> Option<Vec<u8>> {
+    let trimmed = hex.trim();
+    if trimmed.is_empty() || !trimmed.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..trimmed.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&trimmed[i..i + 2], 16).ok())
+        .collect()
+}

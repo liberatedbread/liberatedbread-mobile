@@ -1193,6 +1193,86 @@ pub struct NameMatch {
     pub values: Option<Vec<String>>,
 }
 
+/// One `discovery.methods[].udp_broadcast` block: a vendor's LAN probe, as the
+/// spec states it.
+///
+/// Thirteen specs declare one of these and the app executed none of them — it
+/// carried eight probes as Dart constants instead, so six devices whose spec
+/// is complete were undiscoverable and adding a ninth meant editing a
+/// 2700-line service. This is the block read as data, so the catalogue can
+/// answer "what do I send, where, and what does the reply mean".
+///
+/// Deliberately tolerant: every field is optional and a malformed entry is
+/// skipped rather than fatal, the same rule the rest of this block follows.
+/// A spec that states only `port` and `passive_ok: true` is a device that
+/// announces itself unprompted, which is a complete declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct UdpBroadcastProbe {
+    pub port: Option<u16>,
+    /// Where the probe goes. A subnet broadcast (`255.255.255.255`) for most,
+    /// but Aqara states a multicast group (`230.0.0.1`) in the same field, so
+    /// this is an address rather than a flag.
+    #[serde(default)]
+    pub broadcast_address: Option<String>,
+    /// The probe payload as hex. Absent means listen-only.
+    #[serde(default)]
+    pub probe_hex: Option<String>,
+    /// Whether the device announces itself without being asked.
+    #[serde(default)]
+    pub passive_ok: Option<bool>,
+    /// `json` | `json_xor` | `json_aes` | `tlv` | `binary` | `http`, as the
+    /// schema names them. Absent means the reply needs no decoding beyond
+    /// what `identity_mapping` asks for.
+    #[serde(default)]
+    pub response_format: Option<String>,
+    #[serde(default)]
+    pub identity_mapping: Option<UdpIdentityMapping>,
+}
+
+/// How to lift an identity out of a probe reply.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+pub struct UdpIdentityMapping {
+    #[serde(default)]
+    pub stable_keys: Vec<UdpIdentityField>,
+    #[serde(default)]
+    pub display: Option<UdpIdentityField>,
+}
+
+/// One field lifted from a reply: where it is, and what to call it.
+///
+/// `source` carries a dialect prefix — `json:<dotted.path>`, `tlv:<name>`,
+/// `csv:<index>`, or the bare `payload` for a reply whose whole body is the
+/// value. The catalogue uses all four today.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct UdpIdentityField {
+    pub source: String,
+    /// What to file the value under. Absent means the source's own last
+    /// segment names it.
+    #[serde(default)]
+    pub key: Option<String>,
+}
+
+impl UdpIdentityField {
+    /// The dialect and its argument: `json:a.b` -> `("json", "a.b")`, and a
+    /// bare `payload` -> `("payload", "")`.
+    pub fn dialect(&self) -> (&str, &str) {
+        match self.source.split_once(':') {
+            Some((prefix, rest)) => (prefix, rest),
+            None => (self.source.as_str(), ""),
+        }
+    }
+
+    /// What this field should be filed under: the stated key, else the last
+    /// segment of the source path.
+    pub fn name(&self) -> String {
+        if let Some(key) = self.key.as_ref().filter(|k| !k.is_empty()) {
+            return key.clone();
+        }
+        let (_, rest) = self.dialect();
+        rest.rsplit('.').next().unwrap_or(rest).to_string()
+    }
+}
+
 impl NameMatch {
     /// Every needle this matcher offers, singular and plural forms together.
     pub fn needles(&self) -> Vec<String> {
@@ -1215,6 +1295,19 @@ impl DeviceInfo {
             .and_then(|m| m.as_sequence())
             .into_iter()
             .flatten()
+    }
+
+    /// Every `udp_broadcast` probe this spec declares.
+    ///
+    /// A malformed entry is skipped rather than fatal: the block is advisory
+    /// to every other reader of this core, and a spec whose probe cannot be
+    /// parsed should still identify its device over mDNS or SSDP.
+    pub fn udp_broadcast_probes(&self) -> Vec<UdpBroadcastProbe> {
+        self.discovery_methods()
+            .filter(|m| m.get("type").and_then(|t| t.as_str()) == Some("udp_broadcast"))
+            .filter_map(|m| m.get("udp_broadcast"))
+            .filter_map(|v| serde_yaml::from_value(v.clone()).ok())
+            .collect()
     }
 
     /// Every BLE local-name matcher the discovery block declares (one per

@@ -10,9 +10,9 @@ import '../spec/types.dart';
 import 'device_api.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `entry_at`, `parse_chunk`
+// These functions are ignored because they are not marked as `pub`: `decode_hex`, `entry_at`, `parse_chunk`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CatalogueSpec`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Parse a spec and keep it, returning the handle that addresses it.
 ///
@@ -63,6 +63,15 @@ abstract class CatalogueHandle implements RustOpaqueInterface {
   /// This is how a screen goes from "spec 41 matched" to driving the
   /// device: no re-parse, and no YAML crossing in either direction.
   Future<LoadedSpec> specAt({required int index});
+
+  /// Every UDP discovery probe the catalogue declares.
+  ///
+  /// The scan service asks this once and sends what comes back, instead of
+  /// holding a constant and a transport per vendor. A spec whose probe is
+  /// unusable — no port, or `probe_hex` that is not hex — is left out rather
+  /// than reported: discovery is best-effort by nature, and one bad block
+  /// should cost that device, not the scan.
+  Future<List<UdpProbeDto>> udpBroadcastProbes();
 }
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<LoadedSpec>>
@@ -245,4 +254,123 @@ class SpecLoadFailureDto {
           runtimeType == other.runtimeType &&
           key == other.key &&
           message == other.message;
+}
+
+/// One field a UDP reply is read for, with its dialect split out.
+class UdpIdentityFieldDto {
+  /// `json`, `tlv`, `csv` or `payload` — how to read [`Self::path`].
+  final String dialect;
+
+  /// What to read, in that dialect: a dotted JSON path, a TLV field name, a
+  /// CSV column index, or empty for the payload itself.
+  final String path;
+
+  /// What to call the value once read.
+  final String name;
+
+  const UdpIdentityFieldDto({
+    required this.dialect,
+    required this.path,
+    required this.name,
+  });
+
+  @override
+  int get hashCode => dialect.hashCode ^ path.hashCode ^ name.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is UdpIdentityFieldDto &&
+          runtimeType == other.runtimeType &&
+          dialect == other.dialect &&
+          path == other.path &&
+          name == other.name;
+}
+
+/// One UDP discovery probe a spec declares, ready for a caller to send.
+///
+/// Thirteen bundled specs mention `udp_broadcast` and ten declare a usable
+/// block; the app executed none of them, carrying four of the payloads as Dart
+/// constants beside a hand-written transport each and simply not finding the
+/// devices the other specs describe (SPECS_TO_FIX.md S-10). The hex is decoded
+/// here rather than in Dart so a malformed `probe_hex` is one spec that drops
+/// out of discovery instead of an exception in the middle of a scan.
+class UdpProbeDto {
+  /// The catalogue key of the spec that declared this probe, so a reply can
+  /// be attributed to the device it belongs to.
+  final String specKey;
+
+  /// Index into the catalogue, for callers that then want the whole spec.
+  final int index;
+
+  /// What the spec calls this device, for the row a reply becomes.
+  final String displayName;
+
+  /// The port to send to, and for a passive probe the port to listen on.
+  final int port;
+
+  /// Where to send it. Usually the v4 broadcast address; the Aqara hub names
+  /// a multicast group instead, which a caller must join rather than
+  /// broadcast to.
+  final String broadcastAddress;
+
+  /// The bytes to send, decoded from `probe_hex`. Empty when the spec
+  /// declares none, which is only meaningful together with [`Self::passive_ok`].
+  final Uint8List probe;
+
+  /// The device announces itself unprompted, so a caller that only listens
+  /// still finds it. Tuya and Synology are found this way.
+  final bool passiveOk;
+
+  /// How to read a reply, as the spec names it (`json`, `tlv`, …). Advisory:
+  /// the app's own parsers are keyed off the spec, not off this string.
+  final String? responseFormat;
+
+  /// Fields that identify the answering device across scans.
+  final List<UdpIdentityFieldDto> stableKeys;
+
+  /// The field to show the user, when the spec names one.
+  final UdpIdentityFieldDto? displayField;
+
+  const UdpProbeDto({
+    required this.specKey,
+    required this.index,
+    required this.displayName,
+    required this.port,
+    required this.broadcastAddress,
+    required this.probe,
+    required this.passiveOk,
+    this.responseFormat,
+    required this.stableKeys,
+    this.displayField,
+  });
+
+  @override
+  int get hashCode =>
+      specKey.hashCode ^
+      index.hashCode ^
+      displayName.hashCode ^
+      port.hashCode ^
+      broadcastAddress.hashCode ^
+      probe.hashCode ^
+      passiveOk.hashCode ^
+      responseFormat.hashCode ^
+      stableKeys.hashCode ^
+      displayField.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is UdpProbeDto &&
+          runtimeType == other.runtimeType &&
+          specKey == other.specKey &&
+          index == other.index &&
+          displayName == other.displayName &&
+          port == other.port &&
+          broadcastAddress == other.broadcastAddress &&
+          probe == other.probe &&
+          passiveOk == other.passiveOk &&
+          responseFormat == other.responseFormat &&
+          stableKeys == other.stableKeys &&
+          displayField == other.displayField;
 }

@@ -196,6 +196,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_u_8(dynamic raw);
 
   @protected
+  UdpIdentityFieldDto dco_decode_box_autoadd_udp_identity_field_dto(
+    dynamic raw,
+  );
+
+  @protected
   WebSocketSurfaceDto dco_decode_box_autoadd_web_socket_surface_dto(
     dynamic raw,
   );
@@ -482,6 +487,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TxtMatchGroupDto> dco_decode_list_txt_match_group_dto(dynamic raw);
 
   @protected
+  List<UdpIdentityFieldDto> dco_decode_list_udp_identity_field_dto(dynamic raw);
+
+  @protected
+  List<UdpProbeDto> dco_decode_list_udp_probe_dto(dynamic raw);
+
+  @protected
   List<WebSocketChannelDto> dco_decode_list_web_socket_channel_dto(dynamic raw);
 
   @protected
@@ -656,6 +667,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int? dco_decode_opt_box_autoadd_u_8(dynamic raw);
 
   @protected
+  UdpIdentityFieldDto? dco_decode_opt_box_autoadd_udp_identity_field_dto(
+    dynamic raw,
+  );
+
+  @protected
   WebSocketSurfaceDto? dco_decode_opt_box_autoadd_web_socket_surface_dto(
     dynamic raw,
   );
@@ -793,6 +809,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int dco_decode_u_8(dynamic raw);
+
+  @protected
+  UdpIdentityFieldDto dco_decode_udp_identity_field_dto(dynamic raw);
+
+  @protected
+  UdpProbeDto dco_decode_udp_probe_dto(dynamic raw);
 
   @protected
   void dco_decode_unit(dynamic raw);
@@ -1020,6 +1042,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_box_autoadd_u_8(SseDeserializer deserializer);
+
+  @protected
+  UdpIdentityFieldDto sse_decode_box_autoadd_udp_identity_field_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   WebSocketSurfaceDto sse_decode_box_autoadd_web_socket_surface_dto(
@@ -1394,6 +1421,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<UdpIdentityFieldDto> sse_decode_list_udp_identity_field_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<UdpProbeDto> sse_decode_list_udp_probe_dto(SseDeserializer deserializer);
+
+  @protected
   List<WebSocketChannelDto> sse_decode_list_web_socket_channel_dto(
     SseDeserializer deserializer,
   );
@@ -1614,6 +1649,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int? sse_decode_opt_box_autoadd_u_8(SseDeserializer deserializer);
 
   @protected
+  UdpIdentityFieldDto? sse_decode_opt_box_autoadd_udp_identity_field_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   WebSocketSurfaceDto? sse_decode_opt_box_autoadd_web_socket_surface_dto(
     SseDeserializer deserializer,
   );
@@ -1783,6 +1823,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
+
+  @protected
+  UdpIdentityFieldDto sse_decode_udp_identity_field_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  UdpProbeDto sse_decode_udp_probe_dto(SseDeserializer deserializer);
 
   @protected
   void sse_decode_unit(SseDeserializer deserializer);
@@ -2066,6 +2114,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_box_autoadd_u_8(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_udp_identity_field_dto(
+    UdpIdentityFieldDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_web_socket_surface_dto(
@@ -2563,6 +2617,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_udp_identity_field_dto(
+    List<UdpIdentityFieldDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_udp_probe_dto(
+    List<UdpProbeDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_web_socket_channel_dto(
     List<WebSocketChannelDto> self,
     SseSerializer serializer,
@@ -2839,6 +2905,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_opt_box_autoadd_u_8(int? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_udp_identity_field_dto(
+    UdpIdentityFieldDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_web_socket_surface_dto(
     WebSocketSurfaceDto? self,
     SseSerializer serializer,
@@ -3068,6 +3140,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_udp_identity_field_dto(
+    UdpIdentityFieldDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_udp_probe_dto(UdpProbeDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);

@@ -3280,3 +3280,200 @@ fn no_vendored_entity_binds_a_state_command_that_cannot_be_rendered() {
         }
     }
 }
+
+/// Every `udp_broadcast` block in the catalogue parses into the typed model.
+///
+/// Thirteen specs declare one and the app executed none of them: eight vendor
+/// probes were Dart constants instead, so six devices whose spec is complete
+/// could not be found at all, and adding a ninth meant editing a 2700-line
+/// service (SPECS_TO_FIX.md S-10). Reading them as data is the first half of
+/// closing that; this pins that the data is actually there and well-formed,
+/// so the executor has something to stand on.
+#[test]
+fn every_declared_udp_probe_parses() {
+    let mut declaring = 0usize;
+    let mut with_payload = 0usize;
+    let mut passive_only = 0usize;
+
+    for file in vendored_yaml_paths() {
+        let path = file.file_name().unwrap().to_string_lossy().into_owned();
+        let yaml = fs::read_to_string(&file).expect("spec file should be readable");
+        let Ok(spec) = parse_device_spec(&yaml) else {
+            continue; // parseability is `every_vendored_spec_parses_ok`'s job
+        };
+        let probes = spec.device.udp_broadcast_probes();
+        if probes.is_empty() {
+            continue;
+        }
+        declaring += 1;
+        for probe in &probes {
+            assert!(
+                probe.port.is_some(),
+                "{path}: a udp_broadcast probe with no port cannot be sent or listened for"
+            );
+            // Either it says what to send, or it says the device speaks first.
+            let speaks_first = probe.passive_ok.unwrap_or(false);
+            match probe.probe_hex.as_deref() {
+                Some(hex) => {
+                    with_payload += 1;
+                    assert!(
+                        hex.len() % 2 == 0 && hex.chars().all(|c| c.is_ascii_hexdigit()),
+                        "{path}: probe_hex is not hex: {hex}"
+                    );
+                }
+                None => {
+                    // A probe that neither carries a payload nor says the device
+                    // speaks first tells a client nothing it can act on. One spec
+                    // is in that state because the payload it needs is not
+                    // expressible: the Aqara hub wants a JSON document carrying
+                    // THIS phone's LAN address and listen port, so no fixed hex
+                    // string can stand for it, and the bytes live in prose notes
+                    // instead (SPECS_TO_FIX.md S-20).
+                    const PAYLOAD_ONLY_IN_PROSE: &[&str] = &["aqara-hub.yaml"];
+                    assert!(
+                        speaks_first || PAYLOAD_ONLY_IN_PROSE.contains(&path.as_str()),
+                        "{path}: a probe with no payload and no passive_ok says nothing a \
+                         client could act on"
+                    );
+                    passive_only += 1;
+                }
+            }
+            // Identity fields must name a dialect this app can grow to read.
+            if let Some(mapping) = &probe.identity_mapping {
+                for field in mapping.stable_keys.iter().chain(mapping.display.iter()) {
+                    let (dialect, _) = field.dialect();
+                    assert!(
+                        matches!(dialect, "json" | "tlv" | "csv" | "payload"),
+                        "{path}: identity source dialect {dialect} is not one the \
+                         catalogue uses elsewhere (json/tlv/csv/payload)"
+                    );
+                    assert!(
+                        !field.name().is_empty(),
+                        "{path}: an identity field resolves to no name"
+                    );
+                }
+            }
+        }
+    }
+
+    assert!(
+        declaring >= 10,
+        "the catalogue declared {declaring} udp_broadcast specs; it had 10 when this \
+         was written, and a drop means a spec lost its block"
+    );
+    assert!(
+        with_payload > 0 && passive_only > 0,
+        "both shapes are exercised"
+    );
+}
+
+/// The probes the catalogue hands the scanner are the ones the app already
+/// sends, byte for byte.
+///
+/// Four vendor probes lived as Dart constants beside a hand-written transport
+/// each (`_ubiquitiProbe`, `_mikrotikProbe`, the Kasa `get_sysinfo` plaintext,
+/// and Rust's own `roomba::DISCOVERY_PROBE`), with nothing tying them to the
+/// spec that documents the same bytes. They agree today — this pins that, so
+/// moving the transports onto catalogue data is a swap rather than a rewrite,
+/// and so a spec edit that changes a probe cannot silently diverge from the
+/// constant the way the LIFX header offset once did.
+#[test]
+fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
+    use liberated_bread_core::api::spec_handle::new_catalogue;
+
+    let mut catalogue = new_catalogue();
+    let paths = vendored_yaml_paths();
+    let keys: Vec<String> = paths
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    let yamls: Vec<String> = paths
+        .iter()
+        .map(|p| fs::read_to_string(p).expect("spec file should be readable"))
+        .collect();
+    let failed = catalogue
+        .add_specs(keys, yamls)
+        .expect("the bundled catalogue should load");
+    assert!(
+        failed.is_empty(),
+        "specs failed to parse: {:?}",
+        failed.iter().map(|f| &f.key).collect::<Vec<_>>()
+    );
+
+    let probes = catalogue.udp_broadcast_probes();
+    let by_key =
+        |key: &str, port: u16| -> Vec<&liberated_bread_core::api::spec_handle::UdpProbeDto> {
+            probes
+                .iter()
+                .filter(|p| p.spec_key == key && p.port == port)
+                .collect()
+        };
+
+    // Ubiquiti and UniFi Protect: the same four bytes on 10001.
+    for key in ["ubiquiti-unifi-device.yaml", "unifi-protect-camera.yaml"] {
+        let found = by_key(key, 10001);
+        assert_eq!(found.len(), 1, "{key}: one probe on 10001");
+        assert_eq!(
+            found[0].probe,
+            vec![0x01, 0x00, 0x00, 0x00],
+            "{key}: must match `_ubiquitiProbe` in real_network_scan_service.dart"
+        );
+    }
+
+    // MikroTik MNDP: a four-byte-zero solicitation on 5678.
+    let mikrotik = by_key("mikrotik-routeros.yaml", 5678);
+    assert_eq!(mikrotik.len(), 1);
+    assert_eq!(
+        mikrotik[0].probe,
+        vec![0, 0, 0, 0],
+        "must match `_mikrotikProbe` in real_network_scan_service.dart"
+    );
+    assert!(
+        mikrotik[0].passive_ok,
+        "a RouterOS box also beacons unprompted, which is why that transport \
+         binds :5678 rather than an ephemeral port"
+    );
+
+    // iRobot: the nine ASCII bytes Rust already holds.
+    let roomba = by_key("irobot-roomba.yaml", 5678);
+    assert_eq!(roomba.len(), 1);
+    assert_eq!(
+        roomba[0].probe,
+        liberated_bread_core::protocol::roomba::DISCOVERY_PROBE.to_vec(),
+        "the spec and `roomba::DISCOVERY_PROBE` describe the same nine bytes"
+    );
+
+    // Kasa: the spec carries the ENCRYPTED datagram, so it decrypts to the
+    // plaintext the Dart constant holds. XOR-autokey, initial key 171.
+    let kasa = by_key("tplink-kasa-smart-plug.yaml", 9999);
+    assert_eq!(kasa.len(), 1);
+    let mut key = 171u8;
+    let plain: Vec<u8> = kasa[0]
+        .probe
+        .iter()
+        .map(|&c| {
+            let p = c ^ key;
+            key = c;
+            p
+        })
+        .collect();
+    assert_eq!(
+        String::from_utf8(plain).expect("the Kasa probe decrypts to JSON"),
+        r#"{"system":{"get_sysinfo":null}}"#,
+        "must match `_kasaProbeJson` in real_network_scan_service.dart"
+    );
+
+    // And the probes for devices the app cannot yet find are present, which is
+    // the point of reading them as data (SPECS_TO_FIX.md S-10).
+    assert_eq!(
+        by_key("limitlessled-milight-bridge.yaml", 48899).len(),
+        2,
+        "the bridge answers two different probes depending on firmware"
+    );
+    let synology = by_key("synology-diskstation.yaml", 9999);
+    assert_eq!(synology.len(), 1);
+    assert!(
+        synology[0].passive_ok && synology[0].probe.is_empty(),
+        "a DiskStation is heard, not asked — it shares port 9999 with Kasa"
+    );
+}
