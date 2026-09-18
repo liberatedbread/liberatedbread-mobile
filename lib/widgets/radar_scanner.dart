@@ -209,25 +209,50 @@ class RadarArcPainter extends CustomPainter {
     // Drawn with a gradient that fades out behind the head so the sweep
     // reads directionally. The head sits at 12 o'clock; rotation does the
     // rest.
-    const arcLength = math.pi * 0.85;
-    const start = -math.pi / 2;
+    //
+    // `startAngle`/`endAngle` already place the ramp in the canvas's own
+    // angular frame (0 at 3 o'clock, clockwise), which is the same frame
+    // `drawArc` measures in — so they line the ramp up with the arc exactly.
+    // A `GradientRotation(start)` on top of that turned the ramp a SECOND
+    // quarter-turn, leaving the fade a quarter of the ring behind the arc it
+    // belongs to: the tail came out solid and the head half-transparent.
+    // See [arcStart]/[arcLength], which the test reads.
     canvas.drawArc(
       rect,
-      start,
+      arcStart,
       arcLength,
       false,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 6
         ..strokeCap = StrokeCap.round
-        ..shader = SweepGradient(
-          startAngle: start,
-          endAngle: start + arcLength,
-          colors: [accent.withValues(alpha: 0), accent],
-          transform: const GradientRotation(start),
-        ).createShader(rect),
+        ..shader = sweepShader(rect),
     );
   }
+
+  /// Where the arc begins: 12 o'clock, in the canvas's angular frame.
+  @visibleForTesting
+  static const double arcStart = -math.pi / 2;
+
+  /// How far the arc runs from [arcStart], clockwise.
+  @visibleForTesting
+  static const double arcLength = math.pi * 0.85;
+
+  /// The fade the arc is stroked with: transparent at the tail, solid at the
+  /// head, spanning exactly the arc and nothing else.
+  ///
+  /// Built here rather than inline so a test can assert the gradient's own
+  /// angles against [arcStart]/[arcLength] — the double-rotation this had
+  /// was invisible to every test that could only look at the painted result.
+  @visibleForTesting
+  SweepGradient get sweepGradient => SweepGradient(
+    startAngle: arcStart,
+    endAngle: arcStart + arcLength,
+    colors: [accent.withValues(alpha: 0), accent],
+  );
+
+  @visibleForTesting
+  Shader sweepShader(Rect rect) => sweepGradient.createShader(rect);
 
   @override
   bool shouldRepaint(RadarArcPainter old) => old.accent != accent;

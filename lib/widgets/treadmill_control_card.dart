@@ -39,6 +39,30 @@ class _ResolvedVerb {
   );
 }
 
+/// The speed parameter's `scale`, with a malformed `scale: 0` read as the
+/// identity.
+///
+/// The ONE place this card states the parameter's presentation transform.
+/// The arithmetic itself is [displayValueFor]/[rawValueFor]; this only
+/// answers "what scale", because a zero scale has no inverse (every raw
+/// value collapses to one display value) and dividing by it would send
+/// Infinity to the encoder. It was written out inline three times — once to
+/// map the range, once to map a dialled speed back, once to count decimals —
+/// and a fix to one of the three was a fix to one of the three.
+///
+/// BELONGS IN RUST. A `format:` field's number semantics already arrive
+/// decoded (`rust/src/codec/number.rs`, read through `core/decoded_number.
+/// dart`); a command PARAMETER's are still resolved on this side, so the
+/// write direction re-derives what the read direction is handed. The real
+/// fix is the parameter-level twin of that contract — a display range and a
+/// display→raw coercion computed where `bindings::setpoint_transform`
+/// already lives — after which this function and both call sites go away.
+@visibleForTesting
+double speedScaleOf(ParameterDto parameter) {
+  final scale = parameter.scale;
+  return (scale == null || scale == 0) ? 1.0 : scale;
+}
+
 /// A resolved speed command with the parameter that carries the speed and
 /// its range mapped to display units (km/h). `min`/`max` on the DTO are RAW;
 /// the card lives on the decoded side of the transform because that is what
@@ -252,19 +276,15 @@ _resolve(
         candidates.where((p) => p.unit == 'km/h').firstOrNull ??
         candidates.firstOrNull;
     if (parameter != null) {
-      // A zero scale is a malformed spec (every raw value collapses to one
-      // display value); treat it as the identity rather than dividing by it.
-      final scale = parameter.scale == null || parameter.scale == 0
-          ? 1.0
-          : parameter.scale!;
-      final offset = parameter.valueOffset ?? 0.0;
+      final scale = speedScaleOf(parameter);
+      final offset = parameter.valueOffset;
       final rawRange = rangeFor(
         parameter.valueType,
         parameter.min,
         parameter.max,
       );
-      var minDisplay = rawRange.min * scale + offset;
-      var maxDisplay = rawRange.max * scale + offset;
+      var minDisplay = displayValueFor(rawRange.min, scale, offset);
+      var maxDisplay = displayValueFor(rawRange.max, scale, offset);
       // A negative scale flips the range; the slider needs it well-ordered.
       if (minDisplay > maxDisplay) {
         (minDisplay, maxDisplay) = (maxDisplay, minDisplay);
@@ -558,11 +578,11 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     // parameters need nothing, and a spec whose speed command carries further
     // caller-owned parameters without defaults fails honestly in _send.
     final parameter = speed.parameter;
-    final scale = parameter.scale == null || parameter.scale == 0
-        ? 1.0
-        : parameter.scale!;
-    final raw = ((display - (parameter.valueOffset ?? 0.0)) / scale)
-        .roundToDouble();
+    final raw = rawValueFor(
+      display,
+      speedScaleOf(parameter),
+      parameter.valueOffset,
+    ).roundToDouble();
     return _send(
       serviceUuid: speed.serviceUuid,
       charUuid: speed.charUuid,
@@ -583,11 +603,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   }
 
   int _speedDecimals(_ResolvedSpeed speed) {
-    final parameter = speed.parameter;
-    final scale = parameter.scale == null || parameter.scale == 0
-        ? 1.0
-        : parameter.scale!;
-    final scaleDecimals = decimalsForStep(scale.abs());
+    final scaleDecimals = decimalsForStep(speedScaleOf(speed.parameter).abs());
     final stepDecimals = decimalsForStep(_speedStep);
     return scaleDecimals > stepDecimals ? scaleDecimals : stepDecimals;
   }

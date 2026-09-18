@@ -2464,8 +2464,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   }
 
   /// Delete the app's stored designs from the device: a best-effort
-  /// clear-all, then a per-cid remove for each design we recorded (the
+  /// clear-all, then a per-cid remove for each cid we recorded (the
   /// vendor-verified path), then forget them locally.
+  ///
+  /// Every cid, not just each design's base one. An animation is stored as
+  /// one effect PER FRAME, contiguous from its base cid (see [_uploadFramesAndLoop]),
+  /// so removing `design.cid` alone left every other frame of it on the
+  /// device — a hundred stills the autorun still cycles, kept only by
+  /// whatever the best-effort bulk clear happened to take. Deduped, because
+  /// two designs share a cid only when one overwrote the other, and a remove
+  /// for a cid the device no longer holds is a no-op.
   Future<void> _clearDeviceDesigns() async {
     setState(() {
       _saving = true;
@@ -2495,12 +2503,18 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           sequence: _nextSequence(),
         ),
       );
-      // Then remove each design we know we stored, by cid.
-      for (final design in store.load(widget.deviceId)) {
+      // Then remove every cid we know we stored — base and frames alike.
+      final cids = <int>{
+        for (final design in store.load(widget.deviceId)) ...[
+          design.cid,
+          ...design.frameCids,
+        ],
+      };
+      for (final cid in cids) {
         await send(
           await codec.encodeRemoveApp(
             specYaml: specYaml,
-            cid: design.cid,
+            cid: cid,
             sequence: _nextSequence(),
           ),
         );

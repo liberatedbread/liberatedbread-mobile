@@ -11,6 +11,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/widgets/radar_scanner.dart';
 
 void main() {
+  test('the sweep gradient is rotated exactly once', () {
+    // R-125. The ramp was placed by `startAngle`/`endAngle` AND turned again
+    // by a `GradientRotation(startAngle)`, so the fade sat a quarter of the
+    // ring behind the arc it belongs to: solid tail, half-transparent head.
+    // `drawArc` and `SweepGradient` measure in the same frame, so the angles
+    // alone are the whole placement.
+    final painter = RadarArcPainter(accent: const Color(0xFF00FF00));
+    final gradient = painter.sweepGradient;
+
+    expect(
+      gradient.transform,
+      isNull,
+      reason: 'the angles already place the ramp; a rotation doubles it',
+    );
+    expect(gradient.startAngle, RadarArcPainter.arcStart);
+    expect(
+      gradient.endAngle,
+      RadarArcPainter.arcStart + RadarArcPainter.arcLength,
+    );
+    // Transparent at the tail, solid at the head — the direction the sweep
+    // reads in.
+    expect(gradient.colors.first.a, 0);
+    expect(gradient.colors.last.a, 1);
+  });
+
   setUp(() {
     RadarTrackPainter.debugPaintCount = 0;
     RadarArcPainter.debugPaintCount = 0;

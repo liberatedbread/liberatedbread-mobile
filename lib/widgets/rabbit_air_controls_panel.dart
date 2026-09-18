@@ -142,6 +142,10 @@ class RabbitAirControlsPanelState
   /// Send one action, then re-poll: the reply acknowledges the request, it
   /// does not report the resulting state, so the control snaps to the
   /// purifier's true state whether or not the write took.
+  ///
+  /// The two halves fail differently and say so differently — a refused
+  /// command is "try again", a failed re-poll is "it took, but the values
+  /// below may be stale".
   Future<void> _send(
     NetworkEntityDto entity,
     NetworkActionDto action, {
@@ -174,7 +178,26 @@ class RabbitAirControlsPanelState
         deviceTs: transport.deviceTs(),
       );
       await transport.send(request, userKey: key);
-      if (_stateCommands.isNotEmpty) await _refreshState();
+      // The re-poll has its own catch, because by here the purifier HAS
+      // taken the command. Sharing the catch below reported a failed
+      // re-read as "The purifier did not accept that. Try again." — wrong
+      // twice over: it did accept it, and trying again would send the
+      // command a second time. What actually went wrong is that the panel no
+      // longer knows what the purifier is set to.
+      try {
+        if (_stateCommands.isNotEmpty) await _refreshState();
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _error = friendlyErrorText(
+            e,
+            context: 'device control read-back',
+            fallback:
+                'The purifier took that, but the app could not read back '
+                'what it did — the values here may be out of date.',
+          );
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {

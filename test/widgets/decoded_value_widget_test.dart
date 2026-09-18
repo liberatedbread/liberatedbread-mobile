@@ -156,6 +156,137 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
   });
 
+  testWidgets('a battery field in other units gets no percentage bar', (
+    tester,
+  ) async {
+    // R-109. The bar is a claim about a RANGE, and the name fallback made it
+    // from a WORD: `battery_voltage` in millivolts matched `battery` and drew
+    // a 0-100% bar pinned at full under a reading of 3700. A field that
+    // declares its unit has already said it is not a percentage.
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(
+      decoded: const [
+        DecodedValueDto(
+          name: 'battery_voltage',
+          valueType: 'uint',
+          display: '3700',
+          uintValue: 3700,
+          unit: 'mV',
+          rawNumber: 3700.0,
+          decodedNumber: 3700.0,
+          decodedText: '3700',
+          decimals: 0,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        const DecodedValueWidget(
+          deviceId: 'd',
+          serviceUuid: 's',
+          specYaml: 'y',
+          specChar: _batteryChar,
+          canRead: true,
+          canNotify: false,
+        ),
+        ble: ble,
+        codec: codec,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Battery voltage: 3700 mV'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  testWidgets('an unitless battery field outside 0..100 gets no bar', (
+    tester,
+  ) async {
+    // The same claim, made without a unit to contradict it: a raw battery
+    // count of 3700 is not 100%, and a bar clamped to full says it is.
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(
+      decoded: const [
+        DecodedValueDto(
+          name: 'battery_raw',
+          valueType: 'uint',
+          display: '3700',
+          uintValue: 3700,
+          rawNumber: 3700.0,
+          decodedNumber: 3700.0,
+          decodedText: '3700',
+          decimals: 0,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        const DecodedValueWidget(
+          deviceId: 'd',
+          serviceUuid: 's',
+          specYaml: 'y',
+          specChar: _batteryChar,
+          canRead: true,
+          canNotify: false,
+        ),
+        ble: ble,
+        codec: codec,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  testWidgets('a declared percent unit keeps its bar whatever it is called', (
+    tester,
+  ) async {
+    // The other half of the rule: `unit: "%"` is the spec asserting the
+    // scale, so the bar is drawn on a field whose name says nothing.
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(
+      decoded: const [
+        DecodedValueDto(
+          name: 'tank_level',
+          valueType: 'uint',
+          display: '40',
+          uintValue: 40,
+          unit: '%',
+          rawNumber: 40.0,
+          decodedNumber: 40.0,
+          decodedText: '40',
+          decimals: 0,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        const DecodedValueWidget(
+          deviceId: 'd',
+          serviceUuid: 's',
+          specYaml: 'y',
+          specChar: _batteryChar,
+          canRead: true,
+          canNotify: false,
+        ),
+        ble: ble,
+        codec: codec,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tank level: 40 %'), findsOneWidget);
+    expect(
+      tester
+          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
+          .value,
+      closeTo(0.4, 1e-9),
+    );
+  });
+
   testWidgets('forwards decoded values to Home Assistant when registered', (
     tester,
   ) async {

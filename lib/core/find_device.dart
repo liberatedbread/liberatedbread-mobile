@@ -257,7 +257,19 @@ const int _noAlertLevel = 0x00;
 //
 // The guess is kept because spec packs update on their own schedule and the
 // declaration is new, but it is a poor substitute and the size of these lists
-// is the evidence. Across the 350 BLE commands in the vendored catalogue the
+// is the evidence.
+//
+// AND IT BELONGS IN RUST. Command semantics are the catalogue's, and every
+// other question about a command — is it fixed, is it encodable, is it
+// advanced, what does its `locate` say — is already answered across the FFI
+// by `rust/src/protocol`. This is the last one asked on the Dart side, and
+// only because its answer is a guess rather than a reading. The end state is
+// the same one `locate` already describes: every bundled spec declaring it,
+// `classify_alert_command` in Rust for the packs that have not, and these
+// six token sets deleted. Until then they stay HERE, in one named place
+// subordinate to the declaration, rather than spread through the find
+// screen — which is what [classifyAlertCommand] reading `locate` first
+// enforces. Across the 350 BLE commands in the vendored catalogue the
 // positive tokens match three, and four of the six sets below exist purely to
 // take matches away again — `set_flash_count` configures, `silence_alarm`
 // negates, `get_alarm_mode` queries, `flash_firmware` must never be one tap

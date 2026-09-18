@@ -221,6 +221,107 @@ void main() {
     expect(tester.widget<Slider>(slider).value, held);
   });
 
+  testWidgets('a fan draws on/off and oscillate, each sending its own role', (
+    tester,
+  ) async {
+    // R-113. Only the fan's percentage slider was covered; the two verbs and
+    // the oscillate row — which send a RAW value through the role's own
+    // parameter, the same rule the select's chips follow — were not.
+    final entity = EntityDto(
+      options: const [],
+      name: 'Circulation',
+      platform: 'fan',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        _action('turn_on', 'fan_on'),
+        _action('turn_off', 'fan_off'),
+        _action('set_oscillating', 'set_swing', userParams: const ['swing']),
+      ],
+      variants: const [],
+    );
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x01]));
+    final ble = FakeBleService();
+
+    await tester.pumpWidget(_wrap(entity, codec: codec, ble: ble));
+    await tester.pumpAndSettle();
+
+    // Two of each: the fan's own verbs, then the oscillate row's.
+    expect(find.text('On'), findsNWidgets(2));
+    expect(find.text('Off'), findsNWidgets(2));
+    expect(find.text('Oscillate'), findsOneWidget);
+    // No set_percentage role resolved, so no slider pretending to one.
+    expect(find.byType(Slider), findsNothing);
+
+    await tester.tap(find.text('On').first);
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.single.commandName, 'fan_on');
+    expect(codec.encodeCalls.single.params, isEmpty);
+
+    // The oscillate row's own On — the second one in the tree.
+    await tester.tap(find.text('On').last);
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.last.commandName, 'set_swing');
+    expect(
+      codec.encodeCalls.last.params,
+      {'swing': 1.0},
+      reason: 'the raw value rides the role\'s own parameter',
+    );
+
+    await tester.tap(find.text('Off').last);
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.last.params, {'swing': 0.0});
+    expect(ble.writes, hasLength(3));
+  });
+
+  testWidgets('a platform with no builder still draws what it resolved', (
+    tester,
+  ) async {
+    // R-113, the generic path. A platform none of the four bodies claims
+    // used to reach the user as a card with a title and an empty control
+    // area; every resolved role is drawn by UnclaimedActions instead, and a
+    // press there goes out through the same codec write a curated control
+    // would use.
+    final entity = EntityDto(
+      options: const [],
+      name: 'Humidifier',
+      platform: 'humidifier',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        _action('turn_on', 'mist_on'),
+        _action('set_humidity', 'set_rh', userParams: const ['rh']),
+      ],
+      variants: const [],
+    );
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x0A]));
+    final ble = FakeBleService();
+
+    await tester.pumpWidget(_wrap(entity, codec: codec, ble: ble));
+    await tester.pumpAndSettle();
+
+    // A fixed role is a button; a role that needs a value says so in words
+    // rather than offering a control that cannot send one.
+    final fixed = find.byKey(const ValueKey('unclaimed-action:turn_on'));
+    expect(fixed, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('unclaimed-action:set_humidity')),
+      findsNothing,
+    );
+    expect(
+      find.textContaining('has no control here yet'),
+      findsOneWidget,
+      reason: 'the spec declares it; the app says so instead of hiding it',
+    );
+
+    await tester.tap(fixed);
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.single.commandName, 'mist_on');
+    expect(ble.writes.single.value, [0x0A]);
+  });
+
   testWidgets('a cover renders its motions and sends open', (tester) async {
     final entity = EntityDto(
       options: const [],

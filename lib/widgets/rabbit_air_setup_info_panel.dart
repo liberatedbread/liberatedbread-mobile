@@ -107,6 +107,11 @@ class _RabbitAirSetupInfoPanelState
     final old = _client;
     _client = null;
     if (old != null) await old.disconnect();
+    // Disconnecting the previous client is an await, so the panel can already
+    // be gone by the time it returns — back out of the setup screen while a
+    // retry is in flight and every line below ran on a defunct State, where
+    // setState throws and `ref.read` reaches through a disposed ref.
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;

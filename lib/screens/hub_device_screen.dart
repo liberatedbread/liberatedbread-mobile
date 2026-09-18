@@ -198,18 +198,8 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
     return claimed;
   }
 
-  static String? _bridgeIdFromConfig(String body) {
-    try {
-      final parsed = jsonDecode(body);
-      if (parsed is Map<String, dynamic>) {
-        final id = parsed['bridgeid'];
-        if (id is String && id.length == 16) return id.toUpperCase();
-      }
-    } on FormatException {
-      // Fall through: not a config document.
-    }
-    return null;
-  }
+  static String? _bridgeIdFromConfig(String body) =>
+      HueBridgeVocabulary.bridgeIdFrom(body);
 
   /// One GET per instanced entity's state command, then enumerate and read
   /// every child from that single reply.
@@ -260,11 +250,10 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
     final values = <String, String>{};
     for (final action in actions) {
       for (final credential in action.credentials) {
-        final value = switch (credential.name) {
-          'username' => credentials.username,
-          'clientkey' => credentials.clientKey,
-          _ => null,
-        };
+        final value = HueBridgeVocabulary.credentialValue(
+          credential.name,
+          credentials,
+        );
         if (value != null) values[credential.param] = value;
       }
     }
@@ -633,4 +622,57 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       ],
     );
   }
+}
+
+/// Everything this screen knows about the Hue bridge's own dialect, in one
+/// place with one reason to change.
+///
+/// BELONGS IN RUST. Both of these are protocol statements the spec already
+/// carries or could: which field of `/api/config` is the bridge's identity
+/// and what shape it has, and which pairing field fills a `credential:<name>`
+/// parameter. They were written out in the middle of the widget — a
+/// `jsonDecode` in a `State` method and a `switch` on credential names beside
+/// a `setState` — which is how "the bridge id is 16 hex characters" ended up
+/// being a fact about a Flutter screen. The real fix is
+/// `render_network_http_command`'s side resolving `source: credential:<name>`
+/// against the pairing record, and the bridge-identity probe answering with
+/// the id rather than the document; then this class goes away and the screen
+/// only decides what to show.
+///
+/// Collected here rather than moved to `lib/core` on purpose: this is not a
+/// utility anybody should reach for, it is a debt with an address.
+@visibleForTesting
+class HueBridgeVocabulary {
+  const HueBridgeVocabulary._();
+
+  /// The bridge's own id out of an `/api/config` reply, or null when the
+  /// document is not one (an unrelated device answering 200, a captive
+  /// portal, malformed JSON).
+  ///
+  /// `bridgeid` is the field, and the 16-character length is the check that
+  /// a `bridgeid` of some other shape is not this protocol. Upper-cased
+  /// because the certificate CN it is cross-checked against is, and because
+  /// it keys the credential store and the pin.
+  static String? bridgeIdFrom(String body) {
+    try {
+      final parsed = jsonDecode(body);
+      if (parsed is Map<String, dynamic>) {
+        final id = parsed['bridgeid'];
+        if (id is String && id.length == 16) return id.toUpperCase();
+      }
+    } on FormatException {
+      // Fall through: not a config document.
+    }
+    return null;
+  }
+
+  /// The pairing field a `credential:<name>` parameter names, or null when
+  /// nothing here can fill it — which fails the send visibly, the spec's own
+  /// rule for a `source:` nothing can supply.
+  static String? credentialValue(String name, HubCredentials credentials) =>
+      switch (name) {
+        'username' => credentials.username,
+        'clientkey' => credentials.clientKey,
+        _ => null,
+      };
 }

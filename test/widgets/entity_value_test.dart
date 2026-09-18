@@ -293,4 +293,97 @@ void main() {
     expect(ble.cancelledSubscriptions, contains(_stateChar));
     expect(ble.liveSubscriberCount[_stateChar], 0);
   });
+
+  testWidgets('a changed entity re-runs the loop against the new binding', (
+    tester,
+  ) async {
+    // R-110. The builder only ever set itself up in initState, so a card
+    // rebuilt with a NEW entity under the same element kept reading,
+    // subscribing to and decoding the characteristic it was first built with
+    // — the title said one thing and the reading came from another, for as
+    // long as the card lived. A refined spec match, a resolved variant and a
+    // screen swapping which entity a card surfaces all do exactly that.
+    const otherChar = '0000fff5-0000-1000-8000-00805f9b34fb';
+    final ble = FakeBleService(
+      readValues: const {
+        _stateChar: [21],
+        otherChar: [42],
+      },
+    );
+    final codec = FakeSpecCodec(decoded: _decoded);
+
+    Widget at(EntityDto entity) => ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(ble),
+        specCodecProvider.overrideWithValue(codec),
+      ],
+      child: MaterialApp(
+        home: EntityValueBuilder(
+          deviceId: 'd',
+          serviceUuid: _svc,
+          entity: entity,
+          specYaml: 'y',
+          builder: (context, value) => Text(
+            value.decoded.firstOrNull?.name ?? value.status.name,
+            textDirection: TextDirection.ltr,
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(at(_entity()));
+    await tester.pumpAndSettle();
+    expect(ble.reads.map((r) => r.charUuid), [_stateChar]);
+
+    await tester.pumpWidget(at(_entity(stateCharacteristic: otherChar)));
+    await tester.pumpAndSettle();
+    expect(
+      ble.reads.map((r) => r.charUuid),
+      [_stateChar, otherChar],
+      reason: 'the new binding is what the card is now showing',
+    );
+  });
+
+  testWidgets('an entity that loses its binding stops claiming a reading', (
+    tester,
+  ) async {
+    final ble = FakeBleService(
+      readValues: const {
+        _stateChar: [21],
+      },
+    );
+    final codec = FakeSpecCodec(decoded: _decoded);
+    final seen = <EntityLiveValue>[];
+
+    Widget at(EntityDto entity) => ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(ble),
+        specCodecProvider.overrideWithValue(codec),
+      ],
+      child: MaterialApp(
+        home: EntityValueBuilder(
+          deviceId: 'd',
+          serviceUuid: _svc,
+          entity: entity,
+          specYaml: 'y',
+          builder: (context, value) {
+            seen.add(value);
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(at(_entity()));
+    await tester.pumpAndSettle();
+    expect(seen.last.status, EntityValueStatus.live);
+
+    await tester.pumpWidget(at(_entity(stateCharacteristic: null)));
+    await tester.pumpAndSettle();
+    expect(
+      seen.last.status,
+      EntityValueStatus.unavailable,
+      reason: 'the previous entity\'s reading is not this entity\'s reading',
+    );
+  });
 }

@@ -197,6 +197,22 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   // exactly one disconnect() runs per established connection.
   bool _connected = false;
 
+  /// Bumped by every [_connect]. Retry, Try-to-find and the reconnect the
+  /// connection watcher fires all call it, and nothing stopped a second call
+  /// from overlapping the first: the older attempt was left suspended inside
+  /// `connect()` or `discoverServices()`, and when it finally resolved it
+  /// carried on as though it owned the screen — worst of all in its catch,
+  /// where `_cleanupConnection()` tore down the link the NEWER attempt had
+  /// just established and then painted the error state over a working
+  /// screen. An attempt that is no longer the current one now does nothing
+  /// at all: it does not disconnect (the peripheral is the same one the
+  /// live attempt is holding), it does not setState, it just stops.
+  int _connectGeneration = 0;
+
+  /// Whether a newer [_connect] has taken over from the attempt that started
+  /// at [generation].
+  bool _superseded(int generation) => generation != _connectGeneration;
+
   @override
   void initState() {
     super.initState();
@@ -205,10 +221,14 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   }
 
   Future<void> _connect() async {
+    final generation = ++_connectGeneration;
     // Drop any connection this screen still owns + cached services first, so a
     // retry or reconnect doesn't run against an already-connected peripheral
     // with a stale service cache.
     await _cleanupConnection();
+    // Even the teardown is an await: a second tap during it supersedes us
+    // before we have started.
+    if (_superseded(generation) || !mounted) return;
 
     setState(() {
       _state = _ScreenState.connecting;
@@ -217,6 +237,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
     try {
       await _bleService.connect(widget.device.id);
+      // A newer attempt is driving now. It targets the same peripheral, so
+      // the link this call established is the one it is about to use (or
+      // already using): hand it over untouched rather than disconnecting it,
+      // and let the newer attempt's own `_connected` own the teardown.
+      if (_superseded(generation)) return;
       // We now own a live connection — record it BEFORE the mounted check so an
       // unmount-during-connect still tears it down instead of leaking it.
       _connected = true;
@@ -266,6 +291,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
       final services = await _bleService.discoverServices(widget.device.id);
 
+      if (_superseded(generation)) return;
       // Same hazard as above: discovery can return after unmount.
       if (!mounted) {
         await _cleanupConnection();
@@ -279,6 +305,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // handshake that fails is a device that may ignore its commands, and a
       // screen that refuses to open is a device that certainly does.
       await _runSpecHandshake(services);
+      if (_superseded(generation)) return;
       if (!mounted) {
         await _cleanupConnection();
         return;
@@ -293,6 +320,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         _openFind();
       }
     } catch (e) {
+      // A stale attempt's failure is not the screen's failure. Returning
+      // here is the whole point of the generation: `_cleanupConnection()`
+      // below would disconnect the peripheral the newer attempt is using,
+      // and the setState after it would replace a connected screen with
+      // "Could not connect to this device."
+      if (_superseded(generation)) return;
       // Drop any half-open link + cached services so the error path / Retry
       // starts from a clean slate (no-op if we never connected).
       await _cleanupConnection();

@@ -318,4 +318,49 @@ void main() {
 
     await unmount(tester);
   });
+
+  testWidgets('leaving during a retry does not touch the defunct panel', (
+    tester,
+  ) async {
+    // R-128. A retry tears the previous client down before re-seeding its
+    // own state, and that teardown is an await — so the panel can be gone
+    // by the time it returns. Everything after it ran unguarded: setState on
+    // a defunct State, and `ref.read` through a disposed ref.
+    final cancelGate = Completer<void>();
+    await notifications.close();
+    notifications = StreamController<List<int>>.broadcast(
+      onCancel: () => cancelGate.future,
+    );
+    ble = FakeBleService(
+      servicesToReturn: const [_rabbitService],
+      notifyStream: notifications.stream,
+      mtuToReturn: 515,
+    );
+
+    await tester.pumpWidget(wrap());
+    await answerNewWrites(tester); // cmd 255
+    await answerNewWrites(tester); // cmd 4
+    await tester.pumpAndSettle();
+
+    // Let a poll go unanswered so the retry affordance appears.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.text('Try again'), findsOneWidget);
+
+    // The retry's teardown hangs on cancelling the notify subscription...
+    await tester.tap(find.text('Try again'));
+    await tester.pump();
+    // ...and the user backs out while it is still in flight.
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump();
+    cancelGate.complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'the retry must notice the panel is gone, not setState on it',
+    );
+  });
 }

@@ -337,6 +337,45 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
+
+    testWidgets('clearing the device removes an animation\'s frames too', (
+      tester,
+    ) async {
+      // R-129. "Clear designs from device" removed only each design's BASE
+      // cid, so an animation left every frame but the first on the device —
+      // stills the autorun still cycles — kept only by whatever the
+      // best-effort bulk clear happened to take.
+      final notify = StreamController<List<int>>.broadcast();
+      addTearDown(notify.close);
+      final ble = FakeBleService(notifyStream: notify.stream);
+      final codec = FakeSpecCodec()..storedResponseChar = 'notify';
+      await tester.pumpWidget(_editor(ble: ble, codec: codec));
+
+      await _twoFrames(tester);
+      await _startSave(tester, name: 'Loop');
+      await _driveTwoFrameUpload(tester, notify);
+      final frameCids = [for (final c in codec.encodeStoredCalls) c.cid];
+      expect(frameCids, hasLength(2));
+
+      codec.encodeRemoveAppCalls.clear();
+      await _scrollAndTap(
+        tester,
+        find.byKey(const Key('clear-device-designs')),
+      );
+      await _pumpFor(tester, const Duration(milliseconds: 300));
+      await tester.tap(find.widgetWithText(FilledButton, 'Clear'));
+      await _pumpFor(tester, const Duration(milliseconds: 300));
+
+      expect(codec.encodeRemoveAllAppsCalls, 1);
+      expect(
+        codec.encodeRemoveAppCalls,
+        containsAll(frameCids),
+        reason: 'every frame is its own effect on the device',
+      );
+      expect(find.widgetWithText(ActionChip, 'Loop'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 
   group('R-116: the in-app loop cycle stops when something else plays', () {

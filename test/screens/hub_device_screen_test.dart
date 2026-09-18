@@ -531,4 +531,50 @@ void main() {
     expect(await store.credentials(_bridgeId), isNull);
     expect(find.text('Pair with bridge'), findsOneWidget);
   });
+
+  group('R-103: the bridge\'s dialect is stated in one place', () {
+    // The `/api/config` parse and the credential-name mapping were written
+    // out inside the widget — a jsonDecode in a State method and a switch on
+    // credential names beside a setState. They are protocol statements and
+    // the fix is Rust-side; until then they are one named, tested place.
+    test('the bridge id is the 16-character bridgeid field, upper-cased', () {
+      expect(
+        HueBridgeVocabulary.bridgeIdFrom('{"bridgeid":"001788fffe0a1b2c"}'),
+        '001788FFFE0A1B2C',
+      );
+    });
+
+    test('anything that is not a config document is not an identity', () {
+      // A device answering 200 with something else, a captive portal, or an
+      // id of the wrong shape: none of these is a bridge saying who it is,
+      // and treating one as an id would key a credential and a certificate
+      // pin to it.
+      expect(HueBridgeVocabulary.bridgeIdFrom('not json'), isNull);
+      expect(HueBridgeVocabulary.bridgeIdFrom('[]'), isNull);
+      expect(HueBridgeVocabulary.bridgeIdFrom('{"name":"Bridge"}'), isNull);
+      expect(HueBridgeVocabulary.bridgeIdFrom('{"bridgeid":"short"}'), isNull);
+      expect(HueBridgeVocabulary.bridgeIdFrom('{"bridgeid":42}'), isNull);
+    });
+
+    test('only the pairing fields a credential can name resolve', () {
+      const credentials = HubCredentials(
+        username: 'testuser',
+        clientKey: 'CAFE',
+      );
+      expect(
+        HueBridgeVocabulary.credentialValue('username', credentials),
+        'testuser',
+      );
+      expect(
+        HueBridgeVocabulary.credentialValue('clientkey', credentials),
+        'CAFE',
+      );
+      // An unknown name fails the send visibly rather than being improvised
+      // — the spec's own rule for a `source:` nothing can fill.
+      expect(
+        HueBridgeVocabulary.credentialValue('applicationkey', credentials),
+        isNull,
+      );
+    });
+  });
 }

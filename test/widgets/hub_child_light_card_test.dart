@@ -143,4 +143,44 @@ void main() {
     await tester.pumpWidget(at(200));
     expect(tester.widget<Slider>(find.byType(Slider)).value, 200);
   });
+
+  testWidgets(
+    'a write that failed does not leave the dragged value on screen',
+    (tester) async {
+      // R-126. The slider held the drag until the READING changed — and a
+      // failed write never changes the reading, so the card sat showing a
+      // brightness the light was not at for as long as the screen stayed
+      // open. The end of the send is the other thing that ends the hold.
+      Widget at({required bool busy}) => _wrap(
+        HubChildLightCard(
+          label: 'Desk',
+          isOn: true,
+          brightness: 100,
+          busy: busy,
+          onToggle: (_) {},
+          onBrightness: (_) {},
+        ),
+      );
+
+      await tester.pumpWidget(at(busy: false));
+      await tester.drag(find.byType(Slider), const Offset(80, 0));
+      await tester.pump();
+      final dragged = tester.widget<Slider>(find.byType(Slider)).value;
+      expect(dragged, isNot(100));
+
+      // The screen marks the child busy for the duration of the send: the
+      // dragged value is what the user should still see.
+      await tester.pumpWidget(at(busy: true));
+      expect(tester.widget<Slider>(find.byType(Slider)).value, dragged);
+
+      // The send finished and the reading did not move — the write failed.
+      await tester.pumpWidget(at(busy: false));
+      expect(
+        tester.widget<Slider>(find.byType(Slider)).value,
+        100,
+        reason: 'the device has had its say; the reading owns the slider again',
+      );
+      expect(find.text('100'), findsOneWidget);
+    },
+  );
 }

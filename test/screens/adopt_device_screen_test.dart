@@ -385,4 +385,36 @@ void main() {
     expect(find.text('Sets up over Bluetooth instead'), findsNothing);
     expect(find.text('Some Future Kettle'), findsNothing);
   });
+
+  group('R-104: the Wemo join guesses are stated in one place', () {
+    // WPA2PSK/AES were vendor constants in a text field's callback, and the
+    // family check that depends on them was an enum comparison in a warning
+    // builder — so "which devices need a cipher guessed" was answerable only
+    // by reading the UI. The fix is the spec declaring what its provisioning
+    // command needs; until then these are one named, tested place.
+    test(
+      'a typed SSID becomes a joinable secured network with the guesses',
+      () {
+        final network = WemoJoinDefaults.assumedNetwork('  Home  '.trim());
+
+        expect(network.ssid, 'Home');
+        expect(network.joinable, isTrue);
+        expect(
+          network.isOpen,
+          isFalse,
+          reason: 'a typed SSID with no scan behind it is assumed secured',
+        );
+        expect(network.auth, 'WPA2PSK');
+        expect(network.encrypt, 'AES');
+        // No channel to claim: the device did not scan, so nothing knows one.
+        expect(network.channel, isEmpty);
+      },
+    );
+
+    test('only Wemo needs the setup metadata a secured join encrypts with', () {
+      expect(WemoJoinDefaults.needsMetaInfo(AdoptFamily.wemo), isTrue);
+      // LIFX carries a security byte instead and needs none of it.
+      expect(WemoJoinDefaults.needsMetaInfo(AdoptFamily.lifx), isFalse);
+    });
+  });
 }

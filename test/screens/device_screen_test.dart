@@ -63,6 +63,29 @@ class _CountingBleService extends FakeBleService {
   }
 }
 
+/// A [FakeBleService] whose connects are held open, one completer per call,
+/// so a test can overlap two of the screen's connect attempts and choose
+/// which resolves first — and which of them fails.
+class _GatedBleService extends FakeBleService {
+  _GatedBleService({super.servicesToReturn});
+
+  /// One gate per connect() call, in call order. The test completes them.
+  final List<Completer<void>> gates = [];
+
+  /// Call indexes whose connect throws once its gate opens.
+  final Set<int> failAt = {};
+
+  @override
+  Future<void> connect(String deviceId) async {
+    final index = gates.length;
+    final gate = Completer<void>();
+    gates.add(gate);
+    await gate.future;
+    if (failAt.contains(index)) throw StateError('connect $index failed');
+    return super.connect(deviceId);
+  }
+}
+
 final _device = IoTDevice(
   id: '01',
   name: 'ACME_A',
@@ -261,6 +284,62 @@ void main() {
     // BEFORE connect resolved (a no-op against a not-yet-connected peripheral)
     // and then returned without disconnecting the now-live link, leaking it.
     expect(fake.events, ['connect:01', 'disconnect:01']);
+  });
+
+  testWidgets('a stale connect attempt cannot tear down the newer link', (
+    tester,
+  ) async {
+    // R-084. Nothing stopped two _connect() calls from overlapping, and the
+    // older one carried on as though it owned the screen: its catch called
+    // _cleanupConnection(), which disconnected the peripheral the NEWER
+    // attempt had just connected, and then painted "Could not connect to
+    // this device" over a screen that was working.
+    final fake = _GatedBleService(
+      servicesToReturn: const [
+        BleDiscoveredService(
+          uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+          characteristics: [],
+        ),
+      ],
+    );
+    fake.failAt.addAll({0, 1});
+
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump();
+    // The opening attempt fails, leaving the error state and its buttons.
+    fake.gates[0].complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsOneWidget);
+
+    // Two taps before the rebuild greys the button out: attempt 1 (which
+    // will fail) and attempt 2 (which will not). This is the race — two
+    // live attempts against one peripheral.
+    await tester.tap(find.text('Retry'));
+    await tester.tap(find.text('Retry'), warnIfMissed: false);
+    await tester.pump();
+    expect(fake.gates, hasLength(3));
+
+    // The newer attempt lands first and takes the screen to ready.
+    fake.gates[2].complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Battery Service'), findsOneWidget);
+    expect(fake.connectedIds, ['01']);
+
+    // Now the stale attempt fails. It must do nothing at all.
+    fake.gates[1].complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Could not connect to this device'),
+      findsNothing,
+      reason: 'a superseded attempt does not own the error state',
+    );
+    expect(find.text('Battery Service'), findsOneWidget);
+    expect(
+      fake.disconnectedIds,
+      isEmpty,
+      reason: 'the live link belongs to the newer attempt',
+    );
   });
 
   testWidgets('Find device opens the find screen for the connected device', (

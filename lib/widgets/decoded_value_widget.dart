@@ -254,9 +254,25 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
   /// is a percentage whatever it is called — and only falls back to the name
   /// for the many bundled fields that carry no unit at all. The bar is drawn
   /// from the DECODED value, so a scaled percentage fills correctly.
+  ///
+  /// The name fallback is now fenced two ways, because on its own it was a
+  /// claim about a RANGE made from a WORD. A field called
+  /// `battery_voltage_mv` carries millivolts; it matched `battery`, and the
+  /// GATT browser drew it a 0-100% bar pinned at full under a reading of
+  /// 3700. So the fallback applies only where the spec said nothing about
+  /// the unit — a field that declares `mV` has already told us it is not a
+  /// percentage — and only where the decoded value actually falls in 0..100,
+  /// which is the range the bar is drawing. A declared `unit: "%"` keeps its
+  /// bar whatever it reads, out-of-range included: there the spec asserted
+  /// the scale, and clamping shows the reading is off rather than hiding it.
   double? _percentOf(DecodedValueDto v) {
-    final isPercent = v.unit == '%' || v.name.toLowerCase().contains('battery');
-    if (!isPercent) return null;
-    return decodedNumberOf(v);
+    final unit = v.unit;
+    if (unit == '%') return decodedNumberOf(v);
+    if (unit != null && unit.isNotEmpty) return null;
+    if (unitFollowsDeviceSetting(v)) return null;
+    if (!v.name.toLowerCase().contains('battery')) return null;
+    final number = decodedNumberOf(v);
+    if (number == null || !number.isFinite) return null;
+    return (number < 0 || number > 100) ? null : number;
   }
 }

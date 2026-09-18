@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -184,7 +185,7 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
   String? _missingMetaInfoWarning() {
     final session = _session;
     if (session == null ||
-        session.family != AdoptFamily.wemo ||
+        !WemoJoinDefaults.needsMetaInfo(session.family) ||
         session.metaInfo != null) {
       return null;
     }
@@ -212,23 +213,15 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       return;
     }
     // A typed network carries no auth/cipher/channel. For Wemo that is a real
-    // gap — its ConnectHomeNetwork needs them — so a typed SSID is offered only
-    // as a fallback and defaults are filled: WPA2 is what home networks run.
+    // gap — its ConnectHomeNetwork needs them — so a typed SSID is offered
+    // only as a fallback and the guesses are filled in from one named place.
     Log.adopt.info(
       'adopt: using a typed SSID "$ssid" with assumed '
-      'WPA2PSK/AES and no channel — the device did not supply these, so a '
-      'failed join here may simply mean the assumption is wrong',
+      '${WemoJoinDefaults.auth}/${WemoJoinDefaults.encrypt} and no channel — '
+      'the device did not supply these, so a failed join here may simply mean '
+      'the assumption is wrong',
     );
-    _chooseNetwork(
-      SetupNetwork(
-        ssid: ssid,
-        joinable: true,
-        isOpen: false,
-        auth: 'WPA2PSK',
-        encrypt: 'AES',
-        channel: '',
-      ),
-    );
+    _chooseNetwork(WemoJoinDefaults.assumedNetwork(ssid));
   }
 
   Future<void> _provision() async {
@@ -810,4 +803,46 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     'appliance' => Icons.kitchen_outlined,
     _ => Icons.wifi,
   };
+}
+
+/// The Wemo join parameters this screen has to guess, and the one family
+/// check that depends on them, in one place with one reason to change.
+///
+/// BELONGS IN RUST — or, better, in the spec. `WPA2PSK`/`AES` are not facts
+/// about a Flutter screen; they are what Wemo's `ConnectHomeNetwork` wants
+/// when the device's own network scan could not supply them, and the device
+/// that wants them is identified by its spec. Written out inline, they were
+/// a vendor constant in a text field's callback and a family enum compared
+/// in a warning builder — so "which devices need a cipher guessed" was
+/// answerable only by reading the UI. The real fix is the spec declaring the
+/// join parameters its provisioning command needs and Rust filling the
+/// defaults, after which this class goes away.
+///
+/// Kept beside the screen rather than promoted to `lib/core`: it is a debt
+/// with an address, not a utility.
+@visibleForTesting
+class WemoJoinDefaults {
+  const WemoJoinDefaults._();
+
+  /// What home networks run, and therefore the honest guess when the device
+  /// did not say. A wrong guess fails the join visibly — see the log line at
+  /// the only call site.
+  static const String auth = 'WPA2PSK';
+  static const String encrypt = 'AES';
+
+  /// Whether this family's join needs the device metadata that only its own
+  /// setup exchange can supply — the encryption details a secured join
+  /// encrypts the password with. LIFX carries a security byte instead and
+  /// needs none of this.
+  static bool needsMetaInfo(AdoptFamily family) => family == AdoptFamily.wemo;
+
+  /// A typed SSID as a joinable secured network, with the guesses filled in.
+  static SetupNetwork assumedNetwork(String ssid) => SetupNetwork(
+    ssid: ssid,
+    joinable: true,
+    isOpen: false,
+    auth: auth,
+    encrypt: encrypt,
+    channel: '',
+  );
 }

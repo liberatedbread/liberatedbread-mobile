@@ -25,13 +25,19 @@ import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_control_service.dart';
+import 'package:liberated_bread_mobile/widgets/rabbit_air_controls_panel.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
+import 'package:liberated_bread_mobile/models/ha_config.dart';
+import 'package:liberated_bread_mobile/providers/ha_provider.dart';
+import 'package:liberated_bread_mobile/services/ha_api_client.dart';
+import 'package:liberated_bread_mobile/services/ha_roomba_client.dart';
 import 'package:liberated_bread_mobile/services/roomba_control_service.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_ecp2_socket.dart';
+import '../fakes/fake_ha_api_client.dart';
 import '../fakes/fake_spec_codec.dart';
 import '../fakes/in_memory_settings_store.dart';
 
@@ -2327,9 +2333,14 @@ void main() {
     late Map<String, bool> childOn;
     late FakeSpecCodec stripCodec;
 
-    Future<void> pumpStrip(WidgetTester tester) async {
+    Future<void> pumpStrip(
+      WidgetTester tester, {
+      List<NetworkCredentialDto> declaredCredentials = const [],
+      InMemorySettingsStore? settings,
+    }) async {
       childOn = {'8006AAA00': true, '8006AAA01': false, '8006AAA02': true};
       stripCodec = FakeSpecCodec(
+        networkCredentials: declaredCredentials,
         networkEntities: (_) => stripEntities,
         // The spec scopes the plain Outlet to the plug family and the
         // instanced Outlets to the strip family; a children-bearing reply
@@ -2390,6 +2401,8 @@ void main() {
             kasaControlClientProvider.overrideWithValue(
               KasaControlClient(stripCodec, exchange: exchange),
             ),
+            if (settings != null)
+              settingsStoreProvider.overrideWithValue(settings),
           ],
           child: const MaterialApp(home: SizedBox()),
         ),
@@ -2467,6 +2480,48 @@ void main() {
       expect(outletSwitch(tester, 'Pleaky1').value, isTrue);
       expect(outletSwitch(tester, 'RackFans').value, isTrue);
       expect(outletSwitch(tester, 'Spare').value, isTrue);
+    });
+
+    testWidgets('an outlet send goes through the same sender every other '
+        'control uses', (tester) async {
+      // R-105. The outlet switches rendered and wrote the socket themselves —
+      // their own codec call, their own client, their own idea of the port —
+      // so they were the one control on this screen that did not inherit what
+      // NetworkCommandSender does for every other send. The stored credential
+      // it merges in is the visible half of that: a strip whose spec declares
+      // one used to send without it.
+      await pumpStrip(
+        tester,
+        declaredCredentials: const [
+          NetworkCredentialDto(
+            name: 'serial',
+            description: 'The strip serial.',
+            neededBy: ['relay_on_child'],
+            mustBeAskedFor: true,
+          ),
+        ],
+        settings: InMemorySettingsStore({
+          'credential.host:10.0.0.8.serial': 'S-123',
+        }),
+      );
+
+      await tester.tap(
+        find.descendant(
+          of: find.widgetWithText(Card, 'Pleaky1'),
+          matching: find.byType(Switch),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final call = stripCodec.renderNetworkKasaCommandCalls.lastWhere(
+        (c) => c.commandName == 'relay_on_child',
+      );
+      expect(call.values['child_id'], '8006AAA01');
+      expect(
+        call.values['serial'],
+        'S-123',
+        reason: 'the sender merges the device\'s stored credentials',
+      );
     });
   });
 
@@ -3149,6 +3204,11 @@ void main() {
     late int timeSyncs;
     late FakeSpecCodec rabbitCodec;
 
+    /// Entity decodes since the screen opened — the work the screen's own
+    /// 4 s poll used to do for nothing on a device whose exchange it cannot
+    /// make. See the poll test below.
+    late int rabbitDecodes;
+
     /// A stand-in purifier: holds state, answers the time sync with its
     /// clock, answers get_state with the lot, applies cmd-4 writes — all
     /// encrypted under [rabbitKey], over the fake codec's faithful cipher.
@@ -3191,6 +3251,7 @@ void main() {
           );
         },
         networkReading: (entity, returned) {
+          rabbitDecodes++;
           const boolFields = {
             'Power': 'power',
             'Ionizer': 'ionizer',
@@ -3244,6 +3305,7 @@ void main() {
           );
         },
       );
+      rabbitDecodes = 0;
 
       Future<List<Uint8List>> exchange(
         String host,
@@ -3412,6 +3474,57 @@ void main() {
       );
       expect(call.values, {'mode': '0'});
       expect(purifierState['mode'], 0);
+    });
+
+    testWidgets('Refresh drives the panel instead of replacing it', (
+      tester,
+    ) async {
+      // R-097. Refresh flipped the SCREEN into its loading state, which swaps
+      // the panel out for a spinner on the very next frame — destroying the
+      // State whose refresh was in flight, and building a fresh one
+      // afterwards that starts the key lookup and the clock sync over. The
+      // panel owns the conversation; Refresh forwards to it.
+      await pumpPurifier(tester);
+      final before = tester.state(find.byType(RabbitAirControlsPanel));
+      expect(find.text('4320 min'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Refresh'));
+      await tester.pump();
+      // No screen-level spinner in place of the controls mid-refresh.
+      expect(find.text('Asking the device...'), findsNothing);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.state(find.byType(RabbitAirControlsPanel)),
+        same(before),
+        reason: 'the refresh must not throw away what it is refreshing',
+      );
+      expect(find.text('4320 min'), findsOneWidget);
+    });
+
+    testWidgets('the screen runs no background poll of its own', (
+      tester,
+    ) async {
+      // R-097. The screen started its 4 s state poll for a purifier too, and
+      // that poll cannot make the encrypted exchange — it found no UPnP
+      // description, logged, and then re-decoded every entity and rebuilt the
+      // whole screen. Four times a minute, for as long as the screen was
+      // open, and never a changed reading.
+      await pumpPurifier(tester);
+      final decodesAfterLoad = rabbitDecodes;
+      expect(decodesAfterLoad, greaterThan(0));
+
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      expect(
+        rabbitDecodes,
+        decodesAfterLoad,
+        reason:
+            'the panel polls on its own terms; the screen has nothing '
+            'to poll',
+      );
     });
   });
 
@@ -3811,6 +3924,103 @@ void main() {
         isEmpty,
         reason: 'the screen let go of the robot while still driving it',
       );
+    });
+
+    /// A push whose decode blows up must not take the app down with it.
+    ///
+    /// R-098. The robot's state stream had an `async` listener with no catch
+    /// and no coalescing — unlike the other push transport, whose
+    /// `_scheduleDecode` exists for exactly these two problems. An `async`
+    /// callback has nowhere to throw, so one undecodable push became an
+    /// uncaught zone error instead of a logged line and a next chance; and a
+    /// robot's shadow arrives as a burst, each message starting its own
+    /// concurrent full-entity decode.
+    testWidgets('a push whose decode fails does not escape the stream', (
+      tester,
+    ) async {
+      const batteryEntity = NetworkEntityDto(
+        isInstanced: false,
+        name: 'Battery',
+        platform: 'sensor',
+        deviceClass: 'battery',
+        stateCommand: 'state',
+        valueField: 'state.reported.batPct',
+        options: [],
+        actions: [],
+      );
+
+      final store = InMemorySettingsStore();
+      await RoombaCredentialStore(store).save(
+        const RoombaCredentials(
+          blid: '3193C60472324700',
+          password: ':1:1486937829:gktkDoYpWaDxCfGh',
+          // The Home Assistant route: a controller whose state stream this
+          // test can drive without a TLS socket or an MQTT broker.
+          haEntityId: 'vacuum.dorita',
+        ),
+      );
+
+      final api = FakeHaApiClient()
+        ..entities = {
+          'vacuum.dorita': const HaEntityState(
+            entityId: 'vacuum.dorita',
+            state: 'cleaning',
+            attributes: {'battery_level': 94, 'status': 'Clean'},
+          ),
+        };
+
+      var decodes = 0;
+      final codec = FakeSpecCodec(
+        networkEntities: (_) => const [batteryEntity],
+        networkReading: (entity, returned) {
+          decodes++;
+          throw StateError('a reading this build cannot decode');
+        },
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            settingsStoreProvider.overrideWithValue(store),
+            haRoombaClientProvider.overrideWithValue(
+              HaRoombaClient(
+                api: api,
+                config: const HaConfig(
+                  baseUrl: 'http://ha.local:8123',
+                  token: 'llat',
+                  deviceId: 'device',
+                ),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+              device: robot,
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: [batteryEntity],
+                capabilities: roombaCapabilities,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(seconds: 3));
+
+      expect(decodes, greaterThan(0), reason: 'pushes did reach the decode');
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'the stream outlives one bad payload',
+      );
+      // And the screen is still there to take the next push.
+      expect(find.byType(NetworkDeviceScreen), findsOneWidget);
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pump();
     });
 
     /// A television is not a robot. Both ride `mqtt`, so the transport string

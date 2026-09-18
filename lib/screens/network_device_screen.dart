@@ -395,19 +395,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       .where((command) => command.isNotEmpty)
       .toSet();
 
-  /// The Kasa transport constant, matched as a bare string exactly as `'http'`
-  /// is — one spec's actions are all one transport, so this labels the device.
-  static const _kasaTransport = 'tcp-json';
-
-  /// The TP-Link Smart Home port, the fallback when discovery did not carry one
-  /// (a manually added device, a mock). Real discovery reports 9999.
-  static const _kasaPort = 9999;
-
   /// Whether this device is driven over the Kasa TCP-JSON transport rather than
   /// SOAP/HTTP. It has no `setup.xml` and no UPnP control URLs; state and sends
   /// go over a raw socket instead, so the load and refresh paths fork on it.
-  bool get _isKasa =>
-      _entities.any((e) => e.actions.any((a) => a.transport == _kasaTransport));
+  ///
+  /// The transport string is asked of [NetworkCommandSender], which owns the
+  /// routing table this screen is agreeing with. It used to be restated here
+  /// as a private constant beside a private copy of the 9999 default, so the
+  /// screen could — and did — disagree with the sender about what a Kasa
+  /// device is and where it lives.
+  bool get _isKasa => _entities.any(
+    (e) =>
+        e.actions.any((a) => a.transport == NetworkCommandSender.kasaTransport),
+  );
 
   /// Whether an instanced entity enumerated any children this poll — a power
   /// strip. Drives the render fork: per-outlet switches instead of the single
@@ -416,8 +416,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     (e) => e.isInstanced && (_instances[e.name]?.isNotEmpty ?? false),
   );
 
-  /// The address a Kasa send/poll uses.
-  int get _kasaHostPort => widget.device.port ?? _kasaPort;
+  /// The address the Kasa STATE POLL uses — the same rule the sender applies
+  /// to a send (`devicePort ?? kasaPort`), stated against the sender's own
+  /// constant so the two cannot drift. Sends do not come through here at all:
+  /// they go to [NetworkCommandSender.sendAction], which owns the address.
+  int get _kasaHostPort => widget.device.port ?? NetworkCommandSender.kasaPort;
 
   /// The Rabbit Air transport constant — the encrypted-JSON-over-UDP LAN
   /// protocol. Unlike Kasa, a Rabbit Air surface can be ALL readings (the
@@ -576,6 +579,20 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // through a disposed ref. Every other entry into _load is a user gesture
     // on a mounted screen, so the guard costs them nothing.
     if (!mounted) return;
+    // A Rabbit Air screen has nothing of its own to load: the key, the clock
+    // sync and the poll are all the panel's. Taking the screen through
+    // `_loading` would swap the panel out for the spinner on the very next
+    // frame — destroying the State whose refresh is in flight, and building
+    // a fresh one afterwards that starts the whole conversation again. So
+    // Refresh forwards to the panel and leaves the tree standing. On first
+    // load there is no panel yet and this falls through to the normal path,
+    // whose Rabbit Air arm is then a no-op (the panel's own initState loads).
+    final rabbitAirPanel = _rabbitAirPanelKey.currentState;
+    if (_isRabbitAir && rabbitAirPanel != null) {
+      setState(() => _error = null);
+      await rabbitAirPanel.refresh();
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -750,6 +767,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   void _startStatePoll() {
     _statePoll?.cancel();
     if (_stateCommands.isEmpty) return;
+    // A Rabbit Air device polls on the panel's own timer, under the panel's
+    // own key and clock offset. This screen's poll had no way to make that
+    // exchange and did not try: it walked the state commands, found no
+    // description, logged, and then re-decoded and setState the whole screen
+    // — a full rebuild every four seconds that could not change a thing.
+    if (_isRabbitAir) return;
     _statePoll = Timer.periodic(
       const Duration(seconds: 4),
       (_) => unawaited(_tickStatePoll()),
@@ -791,6 +814,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // declares any, arrives on the session's frames, and there is no request
     // whose reply is a reading.
     if (_speaksWebsocket) return;
+    // Rabbit Air is push-shaped from this screen's point of view: the
+    // encrypted exchange belongs to RabbitAirControlsPanel, which holds the
+    // user key and the clock offset. See [_startStatePoll].
+    if (_isRabbitAir) return;
     final codec = ref.read(specCodecProvider);
     final client = ref.read(soapControlClientProvider);
 
@@ -1098,12 +1125,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// [_decodeEntities] — which is the SOAP and Kasa paths' decoder, unchanged —
   /// finds it where it expects to. That shared decode is what makes a battery
   /// percentage mean the same thing whichever transport carried it.
-  Future<void> _onRoombaState(Map<String, String> fields) async {
+  ///
+  /// Through [_scheduleDecode], which is the other push transport's decode
+  /// and exists for both of this callback's problems. A robot's shadow
+  /// arrives as a burst — one message per changed section, back to back,
+  /// and the whole shadow on connect — and each one used to start its own
+  /// full-entity decode concurrently, rebuilding the screen per frame. And
+  /// an `async` listener has nowhere to throw: one undecodable push became
+  /// an uncaught zone error rather than a logged line and a next chance.
+  void _onRoombaState(Map<String, String> fields) {
     for (final command in _stateCommands) {
       _stateByCommand[command] = {...?_stateByCommand[command], ...fields};
     }
-    await _decodeEntities();
-    if (mounted) setState(() {});
+    _scheduleDecode();
   }
 
   Future<void> _sendRoomba(NetworkActionDto action) async {
@@ -1474,11 +1508,18 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       !NetworkCommandSender.isIndependentTransport(action) &&
       _soapSending != null;
 
-  /// Toggle one outlet of a power strip: render the child-scoped command with
+  /// Toggle one outlet of a power strip: send the child-scoped command with
   /// the outlet's id threaded into `context.child_ids` (via the action's
-  /// instance params), send it, and re-poll so the switch snaps to the strip's
-  /// true state. The busy key is "entity/childId", so one outlet's spinner
-  /// does not disable its siblings.
+  /// instance params), then re-poll so the switch snaps to the strip's true
+  /// state. The busy key is "entity/childId", so one outlet's spinner does
+  /// not disable its siblings.
+  ///
+  /// Through [NetworkCommandSender], exactly as [_send] is. This used to
+  /// render and write the socket itself — its own codec call, its own client,
+  /// its own idea of the port — so a power strip's outlets were the one
+  /// control on this screen that did not inherit the sender's stored
+  /// credentials, its address rule or anything else it will grow. The only
+  /// thing that is this screen's is which values to supply.
   Future<void> _sendKasaChild(
     NetworkEntityDto entity,
     NetworkInstanceDto child,
@@ -1492,17 +1533,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _error = null;
     });
     try {
-      final codec = ref.read(specCodecProvider);
-      final request = await codec.renderNetworkKasaCommand(
-        specYaml: widget.controls.specYaml,
-        commandName: action.commandName,
-        values: {
-          for (final param in action.instanceParams) param.param: child.id,
-        },
-      );
-      await ref
-          .read(kasaControlClientProvider)
-          .send(widget.device.host, _kasaHostPort, request);
+      await _sender.sendAction(action, {
+        for (final param in action.instanceParams) param.param: child.id,
+      }, description: _description);
       await _refreshState();
     } catch (e) {
       if (!mounted) return;

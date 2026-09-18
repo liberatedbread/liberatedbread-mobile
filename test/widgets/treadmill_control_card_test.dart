@@ -158,6 +158,34 @@ Widget _wrap({
 );
 
 void main() {
+  group('R-112: the presentation transform is stated once', () {
+    // The card used to spell `scale == null || scale == 0 ? 1.0 : scale!`
+    // out three times — mapping the range, mapping a dialled speed back, and
+    // counting decimals — so a fix to one was a fix to one. The arithmetic
+    // now runs through `displayValueFor`/`rawValueFor`; the only thing left
+    // here is which scale to use.
+    ParameterDto param({double? scale}) => ParameterDto(
+      name: 'speed',
+      valueType: 'uint16',
+      scale: scale,
+      userSettable: true,
+    );
+
+    test('a declared scale is used as declared', () {
+      expect(speedScaleOf(param(scale: 0.1)), 0.1);
+      expect(speedScaleOf(param(scale: -0.5)), -0.5);
+    });
+
+    test('no scale is the identity', () {
+      expect(speedScaleOf(param()), 1.0);
+    });
+
+    test('a malformed zero scale is the identity, never a divisor', () {
+      // Dividing a dialled speed by it would hand the encoder Infinity.
+      expect(speedScaleOf(param(scale: 0)), 1.0);
+    });
+  });
+
   testWidgets('renders the transport buttons and the speed control', (
     tester,
   ) async {
