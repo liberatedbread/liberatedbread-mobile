@@ -939,3 +939,209 @@ this device driven elsewhere, and where is elsewhere" from the catalogue, the
 way it answers every other identification question, and the client would hold
 no vendor list at all. Ubiquiti is the case in hand; anything with a hub or an
 NVR has the same shape.
+
+---
+
+## Audit, 2026-09-17: knowledge in the app that belongs in the catalogue
+
+A read-only sweep of `lib/` and `rust/src/` for device, vendor or protocol
+knowledge hard-coded in the app rather than declared by a spec. Ten findings
+where the knowledge could realistically move; the sweep also separated out the
+cases that are genuinely platform or transport concerns, and the ones whose
+code comment already explains why they cannot move, so this list is only the
+actionable part. Ordered by how much each would reduce "adding a device means
+editing the app".
+
+### S-10 — `discovery.methods[].udp_broadcast` is declared by thirteen specs and executed by none
+
+Thirteen specs carry the block (`irobot-roomba`, `tplink-kasa-smart-plug`,
+`ubiquiti-unifi-device`, `mikrotik-routeros`, `tuya-generic-device`,
+`tuya-wifi-gas-sensor`, `unifi-protect-camera`, `squeezebox-slimproto`, both
+`frigidaire-*-ac`, `limitlessled-milight-bridge`, `aqara-hub`,
+`synology-diskstation`). Rust reads `discovery.methods[]` only for
+`ble_scan.local_name` and the mDNS keys; `spec/types.rs` says the rest is
+"preserved unexecuted".
+
+So eight vendor probes are written in Dart instead —
+`real_network_scan_service.dart` holds the ports (LIFX 56700, Ubiquiti 10001,
+MNDP 5678, Tuya 6666/6667, Kasa 9999, Yeelight 1982, Govee 4001→4002, Roomba
+5678), the broadcast addresses, the reply parsers with their TLV type bytes,
+and the `Roomba-`/`iRobot-` hostname prefixes. The probe payloads are Rust
+constants (`roomba::DISCOVERY_PROBE = b"irobotmcs"`, and the Kasa and LIFX
+equivalents). A comment in that file states that the Roomba transport "takes
+its probe from the spec"; it does not — that was verified.
+
+Two consequences, both live today. Six of the thirteen specs declare a probe
+the app cannot run, so those devices are undiscoverable however well their
+spec is written. And two probes the app does run emit lan-protocol tokens no
+spec declares (`govee-lan`, `yeelight-ssdp`), so they can never promote a
+match even though eight Govee and Yeelight specs exist.
+
+The schema mostly already covers it: the arm carries `port`,
+`broadcast_address`, `probe_hex`, `passive_ok`, `response_format` and
+`identity_mapping`, and Kasa already ships its XOR-ciphered probe as
+`probe_hex`. To cover the rest it needs `multicast_group` and a `listen_port`
+distinct from the send port (Govee sends to 4001 and listens on 4002; Yeelight
+is multicast), and a TLV dialect for `identity_mapping.source` — which that
+key's own description already contemplates as `tlv:0x0005`.
+
+**Related, and worth fixing in the same pass:** `discovery.methods[].ble
+.manufacturer_data.{pattern,mask,match}` is likewise parsed and never
+executed — Rust matches company id equality only. S-06 covers the ambiguity
+about where the pattern starts; this is the separate fact that nothing reads
+it at all.
+
+### S-11 — the "this identifier proves nothing" list is a Rust `matches!`, not a registry
+
+`is_shared_service_type` in `device_api.rs` holds twenty service types and
+search targets that must never promote a match on their own: `upnp:rootdevice`,
+`ssdp:all`, the three generic UPnP device types, `_hap`, `_airplay`, `_raop`,
+`_companion-link`, `_googlecast`, `_http`, `_https`, `_ipp`, `_ipps`,
+`_printer`, `_pdl-datastream`, `_workstation`, `_device-info`,
+`_services._dns-sd._udp`. It affects every Wi-Fi spec in the catalogue.
+
+Its BLE twin already does this the right way: `is_sig_assigned_service` reads
+`registries/bluetooth-service-uuids.tsv` from this repo, and its doc comment
+calls the two halves of one rule. The ask is the sibling asset —
+`registries/shared-service-types.tsv`, one type per line with a reason column,
+pulled by `update-specs.sh` and read the same way. **No schema change at all.**
+
+Why it is worth doing: R-211 was a defect whose fix was adding two strings to
+that `matches!`, which shipped as an app release rather than a spec refresh. A
+new ecosystem type — `_matter._tcp`, `_meshcop._udp` — is a Rust edit today.
+
+### S-12 — a `format:` field cannot state its device class, so the app guesses from English
+
+`ha_sensor_mapping.dart` decides the Home Assistant device class a reading is
+permanently registered under by testing the field's NAME for the substrings
+`battery`, `humid`, `temp`, `lux`, `illumin`, `pressure`. The same guessing
+feeds icon choice and sensor banding. It affects every BLE sensor spec: 92
+bundled `format:` fields, 69 of which carry no unit either.
+
+The file says so itself: "The class is inferred from the field name — the
+spec's `format:` block has no device-class vocabulary of its own — but the
+UNIT is the spec's to state."
+
+The ask is one additive key: `device_class` on
+`services[].characteristics[].format[]`. The vocabulary already exists at
+`entities[].device_class`; it is simply not available where a BLE reading is
+described. Verified against the schema: `device_class` appears only under
+`/properties/entities/items/properties`.
+
+### S-13 — `entities[].commands` can name a command but cannot bind an argument to a role
+
+A role maps to a command NAME and nothing else, so a device whose verbs are
+one opcode plus an argument byte cannot express itself. FTMS is the case in
+hand: stop and pause are both `stop_or_pause`, distinguished by `action: 1`
+versus `action: 2` — and those two bytes are consequently written into a
+Flutter widget (`treadmill_control_card.dart`).
+
+That widget also carries a fallback list of eighteen vendor command names
+(KingSmith's `start_belt`/`stop_belt`, UREVO's five `ur_*` verbs, an `ft_*`
+class, FTMS's three) and uses `unit == 'km/h'` to decide which parameter is the
+speed. The code is honest about this being a legacy path — the entity layer
+wins wherever it resolves, and the names are "the fallback for specs that
+predate the entity bindings" — so half the fix is specs declaring
+`entities[].key`. The other half needs the schema.
+
+Ask: let a role's value be either a string or `{command: <name>, values:
+{<param>: <literal>}}`. General rather than treadmill-shaped — any device with
+one opcode and a selector argument needs it.
+
+### S-14 — the `image_upload` feature cannot state a palette ceiling, so one device's limit is applied to twelve others
+
+The LED editor quantizes every panel to sixteen colours. That number belongs to
+exactly one codec: SmartDawn's TUTU run-length format packs its palette index
+into a nibble, which is intrinsic and genuinely cannot be a spec number *for
+that codec*. But it is applied unconditionally to all thirteen specs that reach
+the editor, including seven 1-bit bitmap devices whose real limit is two
+(`cat-printer`, `cat-printer-mxw01`, `fichero-d11-printer`, `niimbot-d110`,
+`brother-ql-1110nwb`, `bluetooth-led-name-badge`, `magic-display`) and five
+whose formats have no palette constraint at all (`autobaba-led-backpack`,
+`nyan-bt-image-controller`, `led-space`, `idotmatrix`).
+
+Ask: `features[].max_palette_colors` on the `image_upload` feature, absent
+meaning no constraint. This folds into the same "more fields on the
+image_upload feature" ask R-219 already makes.
+
+### S-15 — Brother QL print geometry and the DK media table are Rust constants, though the spec states them
+
+`render_brother_ql_test_label` hard-codes a 1296-dot head, a 44-dot right dead
+zone, 300 dpi as `mm * 3000 / 254`, a die-cut undershoot of one eighth, and a
+400-row continuous strip. `brother-ql-1110nwb.yaml` already declares every one
+of those under `protocol_details.brother_ql_raster_protocol.geometry` (`dpi`,
+`bytes_per_row`, `head_dots`, `invalidate_bytes`, `min_length_dots`,
+`max_length_dots`, `additional_offset_right_dots`) and gives exact dot counts
+per DK roll under `media.rolls[]` — the table the millimetre arithmetic is
+approximating.
+
+Ask: promote `geometry` and `media.rolls` out of untyped `protocol_details`
+into a declared block (`features[].print_geometry` and `features[].media[]`)
+so Rust can resolve them by key. Distinct from R-219's brother_ql line, which
+is about the raster opcodes; this is geometry and media.
+
+The narrow-media caveat should stay in code: `brother_ql.rs` explains that
+getting it exactly right is a hardware-calibration question nobody has driven,
+which is a fair reason for that one number and not for the rest.
+
+### S-16 — Rabbit Air's GATT addresses live in Rust because its spec declares no `services:` block
+
+`rabbit_air_ble.rs` holds the service and command-characteristic UUIDs and the
+framing scheme (a two-byte little-endian length prefix, then fixed chunks), and
+exposes them as spec-less FFI calls. The facts do exist in the spec, but as
+`protocol_details.ble.gatt` — a vendor-named prose block nothing parses. A
+comment in `rabbit_air_setup_screen.dart` claims the GATT addresses "come from
+the spec"; they do not.
+
+Ask: declare the pair as an ordinary `services[].characteristics[]` entry with
+`properties: [write, indicate]` and a `framing:` block. The framing vocabulary
+already exists and is exercised; it needs one new named scheme value,
+`length_prefixed_le16`, registered beside `daniao_fragment`.
+
+### S-17 — a device whose control surface is a byte stream is admitted by naming its handler
+
+`network_control_provider.dart` keeps a raster label printer from being dropped
+by the empty-entity check with `protocolHandler == 'brother_ql_raster'`. The
+reasoning is right — such a device resolves no entities because its surface is
+a raster stream — but the predicate names one handler for what is a class:
+Niimbot, the cat printers, any future raw-stream device.
+
+Ask: `features[].type: raster_print` (the enum is already
+`image_upload|firmware_update|audio_upload|stored_upload`, so this is one more
+value), or a capability flag Rust surfaces, so the question becomes "does this
+device have a non-entity control surface".
+
+### S-18 — LIFX's white range is declared by the spec and ignored by the code
+
+`lifx.rs` fixes `KELVIN_MIN 1500`, `KELVIN_MAX 9000`, `KELVIN_DEFAULT 3500` and
+builds the user-facing slider from them, mirrored again in
+`network_light_card.dart`. `lifx-z.yaml` already declares
+`set_color.parameters.kelvin: {min: 1500, max: 9000, default: 3500}`.
+
+No schema change needed — this is the clean case where the spec says it and
+the code does not look. A LIFX White 800 (2700–6500 K) is a Rust edit today.
+The file's broader argument for hard-coding is sound and should be left alone:
+the wire layout, field offsets and HSBK packing are not in the YAML and cannot
+be. A per-product limit is not wire layout.
+
+### S-19 — air-quality verdict bands are one vendor's shipped defaults applied to every device
+
+`sensor_reading_level.dart` bands radon at 100/150 Bq/m³, CO₂ at 800/1000 ppm,
+VOC at 250/2000 ppb, humidity at 25/30/60/70 %, PM2.5 at 10/25, PM10 at 20/50
+and battery at 20/10 %. The file records that four of the seven are Airthings'
+shipped defaults, transcribed from that spec's own UI-settings notes.
+
+Ask: `entities[].bands: [{level: fair, above: 100}, {level: poor, above: 150}]`,
+with a two-sided form for humidity. Worth noting the Airthings device reports
+its own thresholds over `griffin_ui_settings`, so a declarative version would
+be strictly more honest than a transcription. Lowest priority of these — the
+current numbers are defensible — but it is the same shape as the rest.
+
+### Also worth extending an existing ask
+
+S-09 (devices driven through a controller) should also cover the sixteen
+Ubiquiti platform prefixes that map to glyph tokens in
+`real_network_scan_service.dart`. Its stated reason — that the platform is only
+known at discovery, from the wire — explains when the value arrives, not why
+the MAP lives in the app. A `platform_pictograms:` table on the UniFi spec
+would close it.
