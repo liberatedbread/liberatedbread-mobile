@@ -118,6 +118,14 @@ class LifxControlClient {
       // whose header echoes the sequence we asked with is our answer.
       if (datagram.address.address != host) return;
       final data = datagram.data;
+      // R-160: the 23 is the LIFX header's sequence byte, whose layout lives
+      // in `lifx::parse_header`. It is read here rather than asked for,
+      // deliberately: correlation has to work on a build whose native library
+      // failed to load — main() carries on without it by design — and a
+      // transport that silently stops matching replies in that case is worse
+      // than a restated offset. What the offset must not do is DRIFT, so
+      // `lifx_control_service_test.dart` decodes a crafted frame through Rust
+      // and requires the two to agree; a layout change fails there.
       if (data.length > 23 && data[23] == sequence) {
         completer.complete(Uint8List.fromList(data));
       }

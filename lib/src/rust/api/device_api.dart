@@ -720,6 +720,17 @@ Future<String> deriveCredentialValue({
 /// not hardcode it separately from the protocol module.
 Future<int> lifxPort() => RustLib.instance.api.crateApiDeviceApiLifxPort();
 
+/// The sequence byte a LIFX reply echoes, or `None` when the datagram is too
+/// short to be a LIFX frame at all.
+///
+/// R-160: the Dart client used to read `data[23]` itself, which is the wire
+/// layout stated twice — once here in `lifx::parse_header` and once as a
+/// magic number in a socket callback. Correlating a reply to the request that
+/// asked for it is the one thing that keeps two bulbs' answers apart, so the
+/// offset being right matters and it should be stated once.
+Future<int?> lifxReplySequence({required List<int> datagram}) =>
+    RustLib.instance.api.crateApiDeviceApiLifxReplySequence(datagram: datagram);
+
 /// Render one LIFX control action into the datagram bytes to send.
 ///
 /// `action` is a `command_name` from [`network_entities_for_device`] on a LIFX

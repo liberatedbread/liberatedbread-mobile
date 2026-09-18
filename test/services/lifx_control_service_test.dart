@@ -4,6 +4,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/src/rust/api/device_api.dart'
+    show lifxReplySequence;
+
+import '../helpers/host_rust_lib.dart';
 import 'package:liberated_bread_mobile/services/lifx_control_service.dart';
 
 void main() {
@@ -148,6 +152,49 @@ void main() {
         client.collect('bulb.local', Uint8List(36), sequence: 1),
         throwsA(isA<LifxTransportException>()),
       );
+    });
+  });
+
+  group('the header layout the client reads (R-160)', () {
+    late final bool rustReady;
+
+    setUpAll(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      rustReady = await initHostRustLib();
+    });
+
+    test(
+      'Rust agrees the sequence byte is where the client reads it',
+      () async {
+        // The client reads data[23] itself rather than asking, because
+        // correlation has to keep working on a build whose native library did
+        // not load — main() carries on without it by design. What that offset
+        // must not do is drift away from `lifx::parse_header`, so this decodes
+        // a crafted frame through Rust and requires the two to agree.
+        if (!rustReady) {
+          markTestSkipped('Rust lib not loaded');
+          return;
+        }
+        for (final sequence in [1, 42, 255]) {
+          final frame = Uint8List(36);
+          frame[23] = sequence;
+          // A well-formed enough header for the parser: type at 32..33.
+          frame[32] = 0x6B; // StateService (107)
+          expect(
+            await lifxReplySequence(datagram: frame),
+            sequence,
+            reason: 'the client\'s offset and lifx::parse_header must agree',
+          );
+        }
+      },
+    );
+
+    test('a datagram too short to be a LIFX frame yields nothing', () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      expect(await lifxReplySequence(datagram: Uint8List(8)), isNull);
     });
   });
 }
