@@ -107,6 +107,36 @@ class BlePairingRequiredException implements UserFacingException {
 /// cannot be opened at any distance until the device advertises again and the
 /// system re-registers it — so the useful instruction is "make sure it is
 /// powered on and in range, then scan", not "move closer".
+/// A characteristic the device never answered.
+///
+/// Found on a real Schlage lock (2026-09-17): one of its vendor
+/// characteristics declares `read` and then simply does not reply, so the
+/// operation times out after 15 s. That is not a refusal — an ATT error would
+/// say "insufficient authentication" and become a
+/// [BlePairingRequiredException] — and it is not the device being out of
+/// range, because the link is up and every other characteristic answered. It
+/// is a characteristic that advertises a capability it will not honour for
+/// this central, which on a lock usually means the real conversation happens
+/// through its write/notify pair after a pairing exchange this app has not
+/// done.
+///
+/// Typed because the alternative is what shipped: the plugin's own
+/// `FlutterBluePlusException | readCharacteristic | fbp-code: 1 | Timed out
+/// after 15s` reaching the screen verbatim.
+class BleCharacteristicSilentException implements UserFacingException {
+  @override
+  final String message;
+  const BleCharacteristicSilentException([
+    this.message =
+        'The device did not answer that reading. It may need to be paired '
+        'with this phone first, or that value may not be readable the way '
+        'the device advertises it.',
+  ]);
+
+  @override
+  String toString() => message;
+}
+
 class BleDeviceUnheardException implements UserFacingException {
   @override
   final String message;

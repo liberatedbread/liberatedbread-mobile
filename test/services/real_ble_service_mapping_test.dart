@@ -727,4 +727,53 @@ void main() {
       expect(isPairingRequiredError(StateError('boom')), isFalse);
     });
   });
+
+  group('a characteristic that never answers (found on a Schlage lock)', () {
+    // A real BE489WB declares `read` on one of its vendor characteristics and
+    // then does not reply: the operation times out after 15 s with the
+    // plugin's own error, which used to reach the screen verbatim as
+    // "FlutterBluePlusException | readCharacteristic | fbp-code: 1 | Timed
+    // out after 15s". It is neither a refusal (an ATT error would say so and
+    // become a pairing prompt) nor a dropped link.
+    test('the plugin\'s own timeout is recognised', () {
+      expect(
+        isCharacteristicSilentError(
+          FlutterBluePlusException(
+            ErrorPlatform.fbp,
+            'readCharacteristic',
+            FbpErrorCode.timeout.index,
+            'Timed out after 15s',
+          ),
+        ),
+        isTrue,
+      );
+    });
+
+    test('a NATIVE code at the same number is not', () {
+      // The number 1 from the platform is an ATT code, not fbp's timeout —
+      // the same trap the pairing classifier documents.
+      expect(
+        isCharacteristicSilentError(
+          FlutterBluePlusException(
+            ErrorPlatform.apple,
+            'readCharacteristic',
+            FbpErrorCode.timeout.index,
+            'some att error',
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test('a refusal stays a refusal, not silence', () {
+      final refusal = FlutterBluePlusException(
+        ErrorPlatform.apple,
+        'readCharacteristic',
+        0x05,
+        'insufficient authentication',
+      );
+      expect(isCharacteristicSilentError(refusal), isFalse);
+      expect(isPairingRequiredError(refusal), isTrue);
+    });
+  });
 }

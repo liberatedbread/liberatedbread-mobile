@@ -61,7 +61,14 @@ void main() {
     final script = File('scripts/run-ios-device-tests.sh').readAsStringSync();
     expect(script, contains(r'LAUNCHER="${LB_IOS_LAUNCHER:-xcodebuild}"'));
     expect(script, contains('-only-testing:RunnerTests'));
-    expect(script, contains('flutter build ios --config-only --debug -t'));
+    // PROFILE, not debug: a debug Flutter build calls ptrace at startup and
+    // refuses to create its engine when nothing is tracing it, and
+    // `xcodebuild test` attaches no debugger — so a debug build dies on
+    // launch on a real device, which is how this was found.
+    expect(script, contains('flutter build ios --config-only --profile -t'));
+    expect(script, contains('-configuration Profile'));
+    // And the lock check is the script's, not xcodebuild's one-shot preflight.
+    expect(script, contains('wait_for_unlock'));
     expect(script, contains('Unlock .* to Continue'));
   });
 }
