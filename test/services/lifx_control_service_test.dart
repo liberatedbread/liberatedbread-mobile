@@ -114,4 +114,40 @@ void main() {
     expect(seqs[254], 255);
     expect(seqs[255], 1, reason: 'wraps back to 1 after 255');
   });
+
+  group('the documented failure contract (R-044)', () {
+    // The class documents LifxTransportException for a bind failure and an
+    // unresolvable host, and then threw neither: a caller following the
+    // contract caught nothing, and a SocketException or ArgumentError
+    // reached the UI as an unclassified error.
+    test('a host that is not an address is a transport failure', () async {
+      final client = LifxControlClient();
+      await expectLater(
+        client.send('not-an-address', Uint8List(36)),
+        throwsA(
+          isA<LifxTransportException>().having(
+            (e) => e.message,
+            'message',
+            contains('reached by IP'),
+          ),
+        ),
+      );
+    });
+
+    test('so is one on the request path', () async {
+      final client = LifxControlClient();
+      await expectLater(
+        client.request('bulb.local', Uint8List(36), sequence: 1),
+        throwsA(isA<LifxTransportException>()),
+      );
+    });
+
+    test('and on the collect path', () async {
+      final client = LifxControlClient();
+      await expectLater(
+        client.collect('bulb.local', Uint8List(36), sequence: 1),
+        throwsA(isA<LifxTransportException>()),
+      );
+    });
+  });
 }
