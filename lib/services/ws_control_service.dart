@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../core/constants.dart';
 import '../core/error_text.dart';
@@ -187,7 +188,20 @@ class WsSession {
   /// a runtime socket share ONE open instead of each opening their own and
   /// leaking whichever lost the map write.
   final _channelOpening = <String, Future<WsSocket>>{};
-  final _channelSubscriptions = <StreamSubscription<dynamic>>[];
+
+  /// The drain subscription per channel socket, keyed like [_channelSockets].
+  ///
+  /// A list here grew one dead entry per idle-close and reopen: the set drops
+  /// an idle button socket, the next press opens another, and the old
+  /// subscription stayed in the list for the session's life. Keyed by channel,
+  /// the reopen replaces its own.
+  final _channelSubscriptions = <String, StreamSubscription<dynamic>>{};
+
+  /// How many channel drains are live. A leak here is invisible from the
+  /// outside — the session keeps working — so the count is the only way a
+  /// test can hold it to one per channel.
+  @visibleForTesting
+  int get debugChannelDrainCount => _channelSubscriptions.length;
 
   var _requestId = 0;
 
@@ -197,6 +211,14 @@ class WsSession {
   /// a `register_frame` device this is a person walking to the television and
   /// pressing accept.
   static const pairingTimeout = Duration(seconds: 60);
+
+  /// The pairing wait in flight, so [close] can end it.
+  ///
+  /// Pairing waits a full minute for the user to accept the prompt on the
+  /// device. Closing the session in the meantime — the user leaving the
+  /// screen — left that minute running and then reported "the device never
+  /// authorised this app", an accusation about a device that was never asked.
+  Completer<String>? _pairingWait;
 
   WsSession({
     required this._codec,
@@ -235,9 +257,24 @@ class WsSession {
     Object? lastFailure;
     for (final (port, scheme, path) in addresses) {
       try {
-        _socket = await _connect('$scheme://$_host:$port${_fillPath(path)}', {
+        final pending = _connect('$scheme://$_host:$port${_fillPath(path)}', {
           for (final h in _surface.headers) h.name: h.value,
-        }).timeout(connectTimeout);
+        });
+        // The timeout abandons the future, it does not cancel the connect —
+        // so a set that answers on the eleventh second hands back a live
+        // socket with nobody holding it: never listened to, never closed, and
+        // with it the HttpClient underneath. Close whatever turns up late.
+        _socket = await pending.timeout(
+          connectTimeout,
+          onTimeout: () {
+            unawaited(
+              pending
+                  .then((late) => late.close())
+                  .catchError((Object _) => null),
+            );
+            throw TimeoutException('ws connect', connectTimeout);
+          },
+        );
         break;
       } on TimeoutException catch (e) {
         lastFailure = WsConnectionException(
@@ -470,6 +507,7 @@ class WsSession {
         await Future<void>.delayed(Duration.zero);
         _socket?.add(send);
       }
+      _pairingWait = issued;
       _credential = await issued.future.timeout(pairingTimeout);
       Log.net.debug('ws $_host: authorised');
     } on TimeoutException {
@@ -478,6 +516,7 @@ class WsSession {
         promptNotes: _surface.promptNotes,
       );
     } finally {
+      _pairingWait = null;
       await watching.cancel();
     }
   }
@@ -623,18 +662,17 @@ class WsSession {
       // idle-closes this socket, and a cached corpse would be served to
       // every later press with add() silently dropping, every button on the
       // channel dead until the whole session died.
-      _channelSubscriptions.add(
-        socket.stream.listen(
-          (_) {},
-          onError: (Object e) =>
-              Log.net.debug('ws $_host "$channelName" socket: $e'),
-          onDone: () {
-            if (identical(_channelSockets[channelName], socket)) {
-              _channelSockets.remove(channelName);
-            }
-          },
-          cancelOnError: false,
-        ),
+      unawaited(_channelSubscriptions.remove(channelName)?.cancel());
+      _channelSubscriptions[channelName] = socket.stream.listen(
+        (_) {},
+        onError: (Object e) =>
+            Log.net.debug('ws $_host "$channelName" socket: $e'),
+        onDone: () {
+          if (identical(_channelSockets[channelName], socket)) {
+            _channelSockets.remove(channelName);
+          }
+        },
+        cancelOnError: false,
       );
       // The protocol keepalive the main socket gets, for the same reason:
       // an idle button socket a set would otherwise time out.
@@ -657,13 +695,25 @@ class WsSession {
 
   /// Close every socket this session opened. Idempotent.
   Future<void> close() async {
+    // Anyone waiting for the device's prompt is waiting for a session that no
+    // longer exists; tell them that instead of the timeout's accusation.
+    final pairing = _pairingWait;
+    _pairingWait = null;
+    if (pairing != null && !pairing.isCompleted) {
+      pairing.completeError(
+        const WsConnectionException(
+          'The session was closed while waiting for the device to authorise '
+          'this app.',
+        ),
+      );
+    }
     final socket = _socket;
     _socket = null;
     final extras = List.of(_channelSockets.values);
     _channelSockets.clear();
     await _subscription?.cancel();
     _subscription = null;
-    for (final extra in _channelSubscriptions) {
+    for (final extra in _channelSubscriptions.values) {
       await extra.cancel();
     }
     _channelSubscriptions.clear();

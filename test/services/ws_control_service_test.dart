@@ -10,6 +10,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -1021,4 +1022,152 @@ void main() {
     );
     expect(pointer.written, hasLength(1));
   });
+
+  // ── What a session leaves behind ─────────────────────────────────────────
+
+  test('a socket that connects after the timeout is closed, not abandoned', () {
+    // R-191/R-047: `Future.timeout` abandons its future, it does not cancel
+    // the connect. A set that answers on the eleventh second handed back a
+    // live socket nobody held — never listened to, never closed, taking its
+    // HttpClient with it — once per attempt, for the life of the app.
+    fakeAsync((async) {
+      final late0 = ScriptedWsSocket();
+      final late1 = ScriptedWsSocket();
+      final slow = [late0, late1];
+      var index = 0;
+      final session = WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.4',
+        surface: samsungSurface,
+        connect: (url, headers) {
+          final socket = slow[index++];
+          // Answers well after WsSession.connectTimeout.
+          return Future<WsSocket>.delayed(
+            const Duration(seconds: 30),
+            () => socket,
+          );
+        },
+      );
+
+      Object? failure;
+      session.open().catchError((Object e) => failure = e);
+      // Both the declared address and the fallback time out.
+      async.elapse(const Duration(seconds: 25));
+      expect(failure, isA<WsConnectionException>());
+
+      // …and then both sets finally answer.
+      async.elapse(const Duration(seconds: 40));
+      expect(
+        [late0.closed, late1.closed],
+        [true, true],
+        reason: 'a socket that arrives late still has to be closed',
+      );
+    });
+  });
+
+  test('closing during pairing ends the wait, and says who hung up', () async {
+    // R-048: pairing waits a full minute for the viewer to accept the prompt
+    // on the set. Closing the session in between left that minute running and
+    // then reported "the device never authorised this app" — an accusation
+    // about a set that was never asked, delivered long after the user had
+    // left the screen. The two-second guard is the test: without the fix this
+    // future does not complete for a minute.
+    final tv = ScriptedWsSocket();
+    final session = WsSession(
+      codec: codec,
+      specYaml: 'yaml',
+      host: '10.0.0.4',
+      surface: samsungSurface,
+      connect: (url, headers) async => tv,
+    );
+    addTearDown(session.dispose);
+
+    final opening = session.open();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await session.close();
+
+    Object? failure;
+    try {
+      await opening.timeout(const Duration(seconds: 2));
+    } catch (e) {
+      failure = e;
+    }
+
+    expect(
+      failure,
+      isA<WsConnectionException>(),
+      reason: 'a pairing wait outliving its session is the leak',
+    );
+    expect('$failure', contains('closed while waiting'));
+    expect(
+      '$failure',
+      isNot(contains('never authorised')),
+      reason: 'the set did nothing wrong; the app hung up',
+    );
+  });
+
+  test(
+    'a channel socket that idle-closes and reopens leaves one drain',
+    () async {
+      // R-057: the set drops an idle button socket, the next press opens
+      // another, and the old drain stayed in the list for the session's life —
+      // one dead subscription per press cycle.
+      final main = ScriptedWsSocket();
+      final pointers = <ScriptedWsSocket>[];
+      codec.websocketFrameFor = (command, id) => command == 'get_pointer_socket'
+          ? WebSocketFrameDto(channel: 'ssap', text: jsonEncode({'id': id}))
+          : const WebSocketFrameDto(channel: 'pointer', text: 'x');
+      final session = WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.7',
+        surface: lgSurface,
+        credential: 'k',
+        connect: (url, headers) async {
+          if (url.contains('/pointer')) {
+            final pointer = ScriptedWsSocket();
+            pointers.add(pointer);
+            return pointer;
+          }
+          scheduleMicrotask(
+            () => main.send(
+              jsonEncode({
+                'payload': {'client-key': 'k'},
+              }),
+            ),
+          );
+          return main;
+        },
+      );
+      addTearDown(session.dispose);
+      await session.open();
+
+      Future<void> press() async {
+        final pressing = session.send('press_home', const {});
+        await Future<void>.delayed(Duration.zero);
+        main.send(
+          jsonEncode({
+            'payload': {'socketPath': 'ws://10.0.0.7:3000/pointer'},
+          }),
+        );
+        await pressing;
+      }
+
+      await press();
+      expect(session.debugChannelDrainCount, 1);
+
+      // The set times the button socket out; the next press opens a new one.
+      await pointers.single.close();
+      await Future<void>.delayed(Duration.zero);
+      await press();
+
+      expect(pointers, hasLength(2));
+      expect(
+        session.debugChannelDrainCount,
+        1,
+        reason: 'the reopened channel replaces its own drain',
+      );
+    },
+  );
 }
