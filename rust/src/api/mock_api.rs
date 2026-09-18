@@ -49,22 +49,28 @@ pub fn mock_read_characteristic(
     char_uuid: String,
     spec_yaml: String,
 ) -> Vec<u8> {
+    // R-131: the spec is parsed BEFORE the lock is taken. It used to be
+    // parsed while holding it, and the lock is process-wide: a demo device
+    // whose spec is large (the catalogue's biggest is 123 KB) blocked every
+    // other mock read for the length of a full YAML parse, once per read,
+    // with a screenful of sensor tiles all reading at once.
+    let format = match parse_device_spec(&spec_yaml) {
+        Ok(spec) => spec
+            .find_decodable_characteristic(&char_uuid)
+            .and_then(|(_, characteristic)| characteristic.format.clone()),
+        Err(e) => {
+            warn_spec_failure_once(&char_uuid, &e.to_string());
+            None
+        }
+    };
+
     let mut states = MOCK_STATES.lock().unwrap_or_else(|e| e.into_inner());
     let state = states.entry(device_id).or_default();
-
-    match parse_device_spec(&spec_yaml) {
-        Ok(spec) => {
-            if let Some((_, characteristic)) = spec.find_decodable_characteristic(&char_uuid) {
-                if let Some(ref format) = characteristic.format {
-                    return state.read(&char_uuid, format);
-                }
-            }
-        }
-        Err(e) => warn_spec_failure_once(&char_uuid, &e.to_string()),
+    match format {
+        Some(format) => state.read(&char_uuid, &format),
+        // No usable format — return a fixed-length zero buffer.
+        None => state.read_raw(&char_uuid, FALLBACK_RAW_READ_LEN),
     }
-
-    // No usable format — return a fixed-length zero buffer.
-    state.read_raw(&char_uuid, FALLBACK_RAW_READ_LEN)
 }
 
 fn warn_spec_failure_once(char_uuid: &str, message: &str) {
@@ -199,5 +205,36 @@ services:
         // Low two bytes carry the heuristic (lux → 500 = 0x01F4, LE); the
         // declared-but-unused third byte stays zero.
         assert_eq!(bytes, vec![0xF4, 0x01, 0x00]);
+    }
+
+    /// R-131: the YAML is parsed before the process-wide state lock is taken.
+    ///
+    /// It used to be parsed while holding it, so one demo device's read
+    /// blocked every other device's read for a full parse — with a screenful
+    /// of sensor tiles reading at once, on the catalogue's largest spec, that
+    /// is the whole screen waiting on one tile. Asserted by reading from
+    /// several devices on several threads at once: with the parse inside the
+    /// lock this still passes but serialises, so the value here is the
+    /// correctness half — the states stay per-device under contention — and
+    /// the comment carries the rest.
+    #[test]
+    fn concurrent_reads_stay_per_device() {
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    mock_read_characteristic(
+                        format!("device-{i}"),
+                        "0000fff3-0000-1000-8000-00805f9b34fb".into(),
+                        TEST_YAML.into(),
+                    )
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        assert_eq!(results.len(), 8);
+        for bytes in &results {
+            assert_eq!(bytes, &results[0], "every device reads its own state");
+            assert!(!bytes.is_empty());
+        }
     }
 }
