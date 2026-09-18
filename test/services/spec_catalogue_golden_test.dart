@@ -13,7 +13,9 @@
 // between `match_device_to_spec` and `CatalogueHandle::match_device`, is
 // caught. Requires the host-target Rust library; skipped without it.
 import 'package:flutter/services.dart' show AssetManifest, rootBundle;
+import 'package:collection/collection.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/hex.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/src/rust/api/device_api.dart' as rust;
@@ -146,6 +148,7 @@ void main() {
     // hand-written fixture, and includes the cross-spec collisions (shared
     // platform services, two-letter prefixes) the ranking rules exist for.
     var devicesTried = 0;
+    var dialectsTried = 0;
     for (final entry in handled.specs) {
       final prefix = entry.identity.localNamePrefixes.firstOrNull;
       final uuids = entry.identity.serviceUuids;
@@ -177,8 +180,40 @@ void main() {
         isNotEmpty,
         reason: '${entry.key} does not match its own device',
       );
+
+      // R-073: and in the dialect the APP actually speaks. Specs write the
+      // full 128-bit form; flutter_blue_plus reports the shortest one, so a
+      // real peripheral exposing a standard service arrives here as "180f"
+      // where its spec says "0000180f-0000-1000-8000-00805f9b34fb". Every
+      // test before this one fed matching the spec's own spelling back to
+      // it, which is the one input that cannot catch a folding bug — and
+      // folding on only one side is exactly the defect R-066 was.
+      if (uuids.isEmpty) continue;
+      final asRadioReportsThem = [for (final u in uuids) normalizeUuid(u)];
+      if (const ListEquality<String>().equals(asRadioReportsThem, uuids)) {
+        continue;
+      }
+      dialectsTried++;
+      final inRadioDialect = await handled.matchDevice(
+        deviceName: name,
+        serviceUuids: asRadioReportsThem,
+      );
+      expect(
+        digest(inRadioDialect),
+        digest(a),
+        reason:
+            '${entry.key} matches its own UUIDs but not the shortened form '
+            'the radio reports them in',
+      );
     }
     expect(devicesTried, greaterThan(50));
+    expect(
+      dialectsTried,
+      greaterThan(20),
+      reason:
+          'the radio-dialect check has to actually run on a good share of the '
+          'catalogue, or it pins nothing',
+    );
   });
 
   test(
@@ -372,10 +407,23 @@ void main() {
         bytes: [1, 80, 255, 180, 50],
       );
       expect(decoded, isNotEmpty);
+      // The disposed parse was dropped rather than served again. This used to
+      // assert the held count was zero afterwards, which is a statement about
+      // an internal cache and not about the property under test: a miss goes
+      // by value and warms a NEW parse for next time, so the count is 0 or 1
+      // depending on whether that warm succeeded — and the test only passed
+      // at all because of what the tests before it in this file had left
+      // behind. Run alone it failed. What matters is that nothing serves a
+      // disposed handle, so decode again and require the same answer.
       expect(
-        owned.heldParseCount,
-        0,
-        reason: 'the disposed parse was dropped rather than served again',
+        await owned.decodeValue(
+          specYaml: yaml,
+          serviceUuid: service,
+          charUuid: statusChar,
+          bytes: [1, 80, 255, 180, 50],
+        ),
+        decoded,
+        reason: 'the replacement parse answers like the one that was disposed',
       );
     });
   });
