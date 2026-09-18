@@ -42,6 +42,13 @@ Map<String, String> jsonStateFields(String replyJson) {
         walk(path, value, depth + 1);
       } else if (value is String || value is num || value is bool) {
         out[path] = value.toString();
+      } else if (value is List) {
+        // R-043: kept as its JSON text, which is what the Kasa flattener has
+        // always done. The two are one `state_mapping` convention, and they
+        // disagreed: a path naming an array resolved on a Kasa plug and
+        // resolved to nothing over HTTP, so the same spec key worked on one
+        // transport and silently did not on the other.
+        out[path] = jsonEncode(value);
       }
     });
   }

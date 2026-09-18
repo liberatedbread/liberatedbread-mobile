@@ -168,20 +168,24 @@ Map<String, String> kasaSysinfoFields(String replyJson) {
   if (sysinfo is! Map) return const {};
 
   final out = <String, String>{};
-  void flatten(Map<dynamic, dynamic> node, String prefix) {
+  // Depth-capped like the HTTP flattener next to it (R-043): the document is
+  // device-supplied, and recursion a device sizes is a stack overflow that
+  // takes the whole poll down.
+  void flatten(Map<dynamic, dynamic> node, String prefix, int depth) {
+    if (depth > 32) return;
     node.forEach((key, value) {
       final path = '$prefix$key';
       if (value is String || value is num || value is bool) {
         out[path] = value.toString();
       } else if (value is Map) {
-        flatten(value, '$path.');
+        flatten(value, '$path.', depth + 1);
       } else if (value is List) {
         out[path] = jsonEncode(value);
       }
     });
   }
 
-  flatten(sysinfo, '');
+  flatten(sysinfo, '', 0);
   return out;
 }
 

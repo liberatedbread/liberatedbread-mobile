@@ -32,21 +32,36 @@ void main() {
       );
     });
 
-    test('scalars stringify; arrays, nulls and empty maps drop out', () {
-      final fields = jsonStateFields(
-        '{"on":true,"alias":"Desk","rssi":-42,'
-        '"children":[{"state":1}],"next":null,"empty":{}}',
-      );
-      expect(fields['on'], 'true');
-      expect(fields['alias'], 'Desk');
-      expect(fields['rssi'], '-42');
-      expect(
-        fields.containsKey('children'),
-        isFalse,
-        reason: 'a dotted path cannot name an array entry',
-      );
-      expect(fields.containsKey('next'), isFalse);
-      expect(fields.containsKey('empty'), isFalse);
+    test(
+      'scalars stringify; arrays keep their JSON; nulls and empty maps drop',
+      () {
+        final fields = jsonStateFields(
+          '{"on":true,"alias":"Desk","rssi":-42,'
+          '"children":[{"state":1}],"next":null,"empty":{}}',
+        );
+        expect(fields['on'], 'true');
+        expect(fields['alias'], 'Desk');
+        expect(fields['rssi'], '-42');
+        // R-043: the Kasa flattener has always kept an array as its JSON text,
+        // and these two are one `state_mapping` convention — so a spec path
+        // naming an array used to resolve on a plug and resolve to nothing over
+        // HTTP, the same key working on one transport and silently not on the
+        // other.
+        expect(fields['children'], '[{"state":1}]');
+        expect(fields.containsKey('next'), isFalse);
+        expect(fields.containsKey('empty'), isFalse);
+      },
+    );
+
+    test('a document nested past the cap is dropped, not followed', () {
+      // Device-supplied, so its depth is the device's choice; recursion the
+      // sender does not bound is a stack overflow that takes the poll down.
+      var json = '{"leaf":1}';
+      for (var i = 0; i < 40; i++) {
+        json = '{"a":$json}';
+      }
+      final fields = jsonStateFields(json);
+      expect(fields, isEmpty);
     });
 
     test('an unparseable or non-object reply yields no fields', () {
