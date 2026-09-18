@@ -1,6 +1,5 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -86,6 +85,38 @@ class SecureSettingsStore implements SettingsStore {
     accessibility: null,
   );
 
+  // macOS: THE TRICK ABOVE DOES NOT WORK HERE, so macOS does not use it.
+  //
+  // The two Apple implementations are not the same code. iOS's baseQuery is
+  // `if (accessibility != nil) { keychainQuery[kSecAttrAccessible] = … }`;
+  // the macOS one (flutter_secure_storage_macos,
+  // macos/Classes/FlutterSecureStorage.swift) builds the dictionary with
+  // `kSecAttrAccessible: parseAccessibleAttr(accessibility:)` UNCONDITIONALLY,
+  // and parseAccessibleAttr maps nil to kSecAttrAccessibleWhenUnlocked. So on
+  // macOS a null class does not widen the query, it silently picks
+  // `whenUnlocked` — and [iosOptionsAnyAccessibility]'s whole premise, that a
+  // null class means "match every class", is false there.
+  //
+  // There is therefore no unconstrained sweep on macOS with this plugin. The
+  // only property still worth having is the one that actually keeps the store
+  // coherent: THE SWEEP MUST CARRY THE SAME CLASS THE WRITES DO, so that
+  // readAll/delete/deleteAll can see what write() stored. Hence one constant
+  // used for both, not a pair.
+  //
+  // Pinning it also stops the class from being whatever the plugin's default
+  // happens to be. Until now this file set no `mOptions` at all, so macOS ran
+  // on `MacOsOptions.defaultOptions` — `unlocked`, not the
+  // first_unlock_this_device the comment above says this app writes under —
+  // and a plugin bump that changed that default would have stranded every
+  // stored secret on macOS with no code change here to blame.
+  //
+  // The class is the iOS one for the iOS reasons: `first_unlock` so a read
+  // still works while the screen is locked, `_this_device` so a secret scoped
+  // to hardware on one LAN does not ride a backup onto another machine.
+  static const MacOsOptions macOsOptions = MacOsOptions(
+    accessibility: KeychainAccessibility.first_unlock_this_device,
+  );
+
   /// Marker key proving this install has run before.
   ///
   /// Lives in SharedPreferences ON PURPOSE: on iOS prefs are removed with the
@@ -120,6 +151,7 @@ class SecureSettingsStore implements SettingsStore {
            const FlutterSecureStorage(
              aOptions: androidOptions,
              iOptions: iosOptions,
+             mOptions: macOsOptions,
            ),
        // Falls back to the injected [storage] before the default, so a test
        // that supplies one fake still sees every call through it.
@@ -129,6 +161,10 @@ class SecureSettingsStore implements SettingsStore {
            const FlutterSecureStorage(
              aOptions: androidOptions,
              iOptions: iosOptionsAnyAccessibility,
+             // Not an "any accessibility" variant: macOS cannot express one
+             // (see [macOsOptions]). Same class as the writes, which is what
+             // makes the sweep able to see them at all.
+             mOptions: macOsOptions,
            );
 
   @override
@@ -207,14 +243,6 @@ class SecureSettingsStore implements SettingsStore {
     await _record(prefs);
     return wiped;
   }
-
-  /// The wipe on its own, without the prefs bookkeeping.
-  ///
-  /// Exists for integration_test/keychain_accessibility_test.dart, which has
-  /// to prove against a REAL keychain that the delete is not scoped to the
-  /// current write class. Everything else goes through [reconcileInstall].
-  @visibleForTesting
-  Future<void> wipeForTest() => _sweeping.deleteAll();
 
   Future<void> _record(SharedPreferences prefs) async {
     try {

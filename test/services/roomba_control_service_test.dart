@@ -406,6 +406,67 @@ void main() {
       },
     );
 
+    /// Reconnecting after the robot hangs up.
+    ///
+    /// The robot serves ONE local client and a new connection evicts the old,
+    /// so a hang-up is the ordinary end of a session here — the iRobot app or
+    /// Home Assistant taking the slot — and reconnecting is what the screen
+    /// does next. `connect()` returns early only while the session is still
+    /// connected, so on that path it ran again with the previous
+    /// subscription still live, and `session.messages` is a BROADCAST stream:
+    /// both listeners then decoded every push and added it to `state`. The
+    /// contents looked right, so only the COUNT catches it — and it grows by
+    /// one more copy per reconnect.
+    test('reconnecting does not leave a second listener behind', () async {
+      final robots = <_ScriptedRobot>[];
+      final client = RoombaMqttClient(
+        codec: codec,
+        connect: (_, _, _) async {
+          final robot = _ScriptedRobot();
+          robots.add(robot);
+          scheduleMicrotask(() => robot.send([0x20, 0x02, 0x00, 0x00]));
+          return robot;
+        },
+      );
+      addTearDown(client.dispose);
+
+      await client.connect('10.0.0.7', credentials);
+      // The eviction, as it looks from here: the socket simply closes.
+      await robots.first.hangUp();
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(client.isConnected, isFalse);
+
+      await client.connect('10.0.0.7', credentials);
+      expect(robots, hasLength(2));
+
+      final seen = <Map<String, String>>[];
+      final errors = <Object>[];
+      final sub = client.state.listen(seen.add, onError: errors.add);
+      addTearDown(sub.cancel);
+
+      robots.last.send(
+        await codec.mqttPublishPacket(
+          topic: 'delta',
+          payload: '{"state":{"reported":{"batPct":94}}}',
+        ),
+      );
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(errors, isEmpty);
+      expect(
+        seen,
+        hasLength(1),
+        reason:
+            'the previous connect\'s subscription was never cancelled, so '
+            'every state push is decoded and published once per reconnect',
+      );
+      expect(seen.single['state.reported.batPct'], '94');
+    });
+
     /// A wrong password must not read like an unreachable robot: the fix is to
     /// redo the handshake, not to check the Wi-Fi.
     test('a refused login throws with the reason, not a timeout', () async {

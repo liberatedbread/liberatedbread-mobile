@@ -41,6 +41,51 @@ void main() {
     );
   });
 
+  group('macOS is pinned, because it cannot be unscoped', () {
+    // The premise the iOS constants rest on — a null accessibility widens the
+    // query to every class — is an iOS implementation detail, and this file
+    // used to state it as if it held on every Apple platform. It does not.
+    // flutter_secure_storage_macos builds its query with
+    // `kSecAttrAccessible: parseAccessibleAttr(accessibility:)`
+    // UNCONDITIONALLY and maps nil to `whenUnlocked`, where the iOS plugin
+    // writes `if (accessibility != nil) { … }`.
+    test('the macOS options carry an explicit class', () {
+      expect(
+        SecureSettingsStore.macOsOptions.params['accessibility'],
+        KeychainAccessibility.first_unlock_this_device.name,
+        reason:
+            'Until this constant existed the store set no mOptions at all, '
+            'so macOS silently ran on MacOsOptions.defaultOptions — '
+            '`unlocked`, not the class this file documents writing under — '
+            'and a plugin bump that moved that default would have stranded '
+            'every stored secret with no change here to blame.',
+      );
+    });
+
+    test('one macOS class, so the sweep can see the writes', () {
+      // There is no "any accessibility" macOS variant to pair with
+      // [iosOptionsAnyAccessibility], and there cannot be: a nil class on
+      // macOS resolves to `whenUnlocked`, not to "match everything". So the
+      // property worth pinning is the other one — the sweep and the writes
+      // carry the SAME class, which is the only thing that lets
+      // readAll/delete/deleteAll see what write() stored. A second macOS
+      // constant appearing beside this one is how that breaks, and a
+      // mismatched pair fails silently in both directions:
+      // SecItemCopyMatching returns nothing, SecItemDelete matches nothing,
+      // and the plugin maps both to success.
+      expect(
+        SecureSettingsStore.macOsOptions.params['accessibility'],
+        SecureSettingsStore.iosOptions.params['accessibility'],
+        reason:
+            'The macOS store is one constant used for both roles, and it '
+            'should be the class this app says it writes under — the same '
+            'one iOS uses, for the same two reasons (background reads on a '
+            'locked machine; a LAN-scoped secret must not ride a backup onto '
+            'another one).',
+      );
+    });
+  });
+
   group('read and delete are not scoped to one accessibility class', () {
     test('the sweeping options set no accessibility at all', () {
       expect(
@@ -110,6 +155,85 @@ void main() {
             'previous install, which are the only items this wipe exists '
             'for. It would return errSecItemNotFound, which the plugin maps '
             'to success, and the marker would be written regardless.',
+      );
+    });
+  });
+
+  // The split above is only half a contract: reads and deletes sweep, and
+  // WRITES must not. Nothing here asserted that half, so a store that sent
+  // everything through the sweeping instance — the obvious "simplify this"
+  // edit — passed the whole file while writing every secret under the
+  // unconstrained class on iOS (backed up off the device, which
+  // [iosOptions]'s `_this_device` exists to prevent) and under whatever
+  // default the plugin picks on macOS.
+  //
+  // These are routing assertions, and routing is the only part of the
+  // platform story a host test can reach: which FlutterSecureStorage instance
+  // each method uses. WHICH OPTIONS THOSE INSTANCES CARRY is not visible from
+  // here — the store's two instances are private, and the constants above are
+  // asserted as values rather than as the options the default constructor
+  // hands the plugin. That gap needs an accessor on the production class; the
+  // constants and this routing are what pin it in the meantime.
+  group('writes take the write class, not the sweeping one', () {
+    test('write(key) goes through the scoped store', () async {
+      final scoped = _RecordingStorage();
+      final sweeping = _RecordingStorage();
+
+      await SecureSettingsStore(scoped, sweeping).write('ha_token', 'secret');
+
+      expect(scoped.writeCalls, ['ha_token']);
+      expect(
+        sweeping.writeCalls,
+        isEmpty,
+        reason:
+            'The sweeping store exists to QUERY across accessibility classes '
+            '(iOS) and is deliberately not a stronger write class. Writing '
+            'through it stores the item unconstrained on iOS — included in '
+            'encrypted backups and restored onto another device — and under '
+            'the plugin default on macOS.',
+      );
+    });
+
+    test('read(key) goes through the scoped store', () async {
+      final scoped = _RecordingStorage();
+      final sweeping = _RecordingStorage();
+      final store = SecureSettingsStore(scoped, sweeping);
+
+      await store.write('ha_token', 'secret');
+
+      expect(
+        await store.read('ha_token'),
+        'secret',
+        reason:
+            'read(key:) is the one plugin call that already ignores the '
+            'instance class (it hardcodes a nil kSecAttrAccessible), so it '
+            'belongs with the writes it reads back — and routing it through '
+            'the sweeping store would hide a write that went to the wrong '
+            'instance, which is what the assertion above is for.',
+      );
+      expect(sweeping.values, isEmpty);
+    });
+
+    test('one injected store serves both roles', () async {
+      // The documented single-argument fallback: `_sweeping = sweeping ??
+      // storage ?? default`. Every other test in this file, and every test
+      // elsewhere that fakes this store, depends on one fake seeing every
+      // call — including the sweeping ones.
+      final only = _RecordingStorage();
+      final store = SecureSettingsStore(only);
+
+      await store.write('ha_token', 'secret');
+      await store.delete('ha_token');
+      await store.readAll();
+
+      expect(only.writeCalls, ['ha_token']);
+      expect(only.deleteCalls, ['ha_token']);
+      expect(
+        only.readAllCalls,
+        1,
+        reason:
+            'a single injected store must serve the sweeping role too, or a '
+            'test that supplies one fake silently talks to the real keychain',
       );
     });
   });
@@ -260,6 +384,40 @@ void main() {
       },
     );
 
+    test('nothing but reconcileInstall can clear the whole store', () async {
+      // A `wipeForTest()` hook used to ship here — one line, no guard, and it
+      // deletes every secret the app holds: the Home Assistant token, the Hue
+      // client key, the Roomba local password, the Rabbit Air AES key and
+      // every TLS pin. @visibleForTesting is an analyzer note, not a lock, so
+      // it was reachable from anything in the release binary that could get a
+      // store, and a mistaken call was unrecoverable and silent.
+      //
+      // It is gone, and this pins the property its absence buys: the only
+      // path to deleteAll is the once-per-install gate, which has already
+      // decided here.
+      SharedPreferences.setMockInitialValues({
+        SecureSettingsStore.freshInstallMarkerKey: true,
+      });
+      final storage = _RecordingStorage();
+      final store = SecureSettingsStore(storage);
+
+      await store.write('ha_token', 'secret');
+      await store.read('ha_token');
+      await store.readAll();
+      await store.delete('ha_token');
+      await store.reconcileInstall(await SharedPreferences.getInstance());
+
+      expect(
+        storage.deleteAllCalls,
+        0,
+        reason:
+            'Every method the store exposes, exercised end to end, and none '
+            'of them may reach deleteAll on an install that has already been '
+            'decided. Re-adding an ungated wipe fails here.',
+      );
+      expect(storage.writeCalls, ['ha_token']);
+    });
+
     test(
       'a keychain that hangs is bounded by wipeTimeout',
       () async {
@@ -287,6 +445,34 @@ class _RecordingStorage extends FlutterSecureStorage {
   int deleteAllCalls = 0;
   int readAllCalls = 0;
   final List<String> deleteCalls = [];
+  final List<String> writeCalls = [];
+  final Map<String, String> values = {};
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    writeCalls.add(key);
+    if (value != null) values[key] = value;
+  }
+
+  @override
+  Future<String?> read({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async => values[key];
 
   @override
   Future<void> delete({

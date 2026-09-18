@@ -21,9 +21,22 @@ class PrefsSettingsStore implements SettingsStore {
   @override
   Future<void> delete(String key) => _prefs.remove(key);
 
+  /// Every STRING preference, which is all this interface can express.
+  ///
+  /// Reads each key with the untyped [SharedPreferences.get], not
+  /// `getString`: the preference file is shared with the rest of the app and
+  /// is full of non-strings — the terms-accepted flag, the fresh-install
+  /// marker, the saved panel sizes — and `getString` is `_cache[key] as
+  /// String?`, which THROWS a `TypeError` on the first one it meets rather
+  /// than returning null. So the comprehension's `case final String` guard
+  /// never got the chance to skip anything: in production readAll() threw
+  /// before it could filter, and every enumerating caller
+  /// (DeviceCredentialStore.credentials(), the Rabbit Air candidate keys,
+  /// "forget this device") failed with it. Tests missed it because a store
+  /// built over `setMockInitialValues({})` holds only what the test wrote.
   @override
   Future<Map<String, String>> readAll() async => {
     for (final key in _prefs.getKeys())
-      if (_prefs.getString(key) case final String value) key: value,
+      if (_prefs.get(key) case final String value) key: value,
   };
 }

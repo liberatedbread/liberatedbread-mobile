@@ -35,8 +35,46 @@ class DeviceCredentialStore {
   /// device known by two different keys would carry two half-populated sets
   /// of secrets. The prefix keeps this namespace clear of the hub/roomba
   /// stores, which key by their own device-issued ids.
-  static String _key(String identity, String name) =>
-      'credential.$identity.$name';
+  ///
+  /// The name is the LAST segment and holds no dot of its own — see
+  /// [_nameIn], which is what makes one device's keys separable from
+  /// another's. Spec credential names are identifiers (`serial`, `username`,
+  /// `blid`, `appliance_id`, `mqtt_client_id`), so the restriction costs
+  /// nothing; the assert is here so a spec that broke it would fail loudly in
+  /// development rather than store a value [credentials] then silently drops.
+  static String _key(String identity, String name) {
+    assert(
+      !name.contains('.'),
+      'a credential name may not contain "." — it is the segment that ends '
+      'the key, and a dotted one cannot be told from part of the next '
+      'device\'s identity',
+    );
+    return 'credential.$identity.$name';
+  }
+
+  /// The credential name [key] holds for [identity], or null when the key is
+  /// not this device's.
+  ///
+  /// `key.startsWith('credential.$identity.')` is NOT a namespace test, and
+  /// treating it as one is how one device's sweep reaches another's secrets.
+  /// An identity is `mac:<addr>` or `host:<hostname>` (see `identityFor`),
+  /// and one hostname being another with a dotted suffix is the ordinary
+  /// case, not a contrived one: mDNS hands out `bulb` and `bulb.local` for
+  /// the same kind of device, and two of them on one LAN give
+  /// `credential.host:bulb.serial` and `credential.host:bulb.local.serial`.
+  /// A bare prefix test makes the second a member of the first's namespace.
+  /// So `credentials('host:bulb')` returns the other device's secrets under
+  /// the bogus name `local.serial` — and `forget('host:bulb')` DELETES them,
+  /// which unpairs a device the user never asked to forget.
+  ///
+  /// The boundary is that the name is a single segment: it is what follows
+  /// the prefix and it contains no dot, so a longer identity's key (which
+  /// always has one) can never pass.
+  static String? _nameIn(String key, String prefix) {
+    if (!key.startsWith(prefix)) return null;
+    final name = key.substring(prefix.length);
+    return (name.isEmpty || name.contains('.')) ? null : name;
+  }
 
   /// One stored value, or null when this device has never been given it.
   Future<String?> read(String identity, String name) async {
@@ -64,8 +102,8 @@ class DeviceCredentialStore {
     final all = await _store.readAll();
     return {
       for (final entry in all.entries)
-        if (entry.key.startsWith(prefix) && entry.value.isNotEmpty)
-          entry.key.substring(prefix.length): entry.value,
+        if (_nameIn(entry.key, prefix) case final String name)
+          if (entry.value.isNotEmpty) name: entry.value,
     };
   }
 
@@ -75,7 +113,7 @@ class DeviceCredentialStore {
     final prefix = _key(identity, '');
     final all = await _store.readAll();
     for (final key in all.keys) {
-      if (key.startsWith(prefix)) await _store.delete(key);
+      if (_nameIn(key, prefix) != null) await _store.delete(key);
     }
   }
 }

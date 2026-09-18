@@ -94,10 +94,27 @@ class HaRoombaClient {
   /// from the name at creation and does not track later renames, so building
   /// the sibling's id by string surgery is a guess. Matching against the real
   /// list is not.
+  ///
+  /// It is also expensive: `/api/states` has no domain parameter, so this
+  /// downloads Home Assistant's WHOLE state machine and filters here. Use it
+  /// to FIND the sibling once; read it afterwards with [binarySensor], which
+  /// asks for the one entity — see [HaRoombaController], which polls every
+  /// two seconds.
   Future<List<HaEntityState>> binarySensors() => _api.entitiesInDomain(
     baseUrl: _config.baseUrl,
     token: _config.token,
     domain: 'binary_sensor',
+  );
+
+  /// One binary_sensor's current state, by the id [binFullFor] already found.
+  ///
+  /// `/api/states/<entity_id>`, so the poll costs one entity rather than the
+  /// whole state machine. Null when HA no longer has it — an entity renamed
+  /// in HA stops answering here, and the caller re-resolves.
+  Future<HaEntityState?> binarySensor(String entityId) => _api.entityState(
+    baseUrl: _config.baseUrl,
+    token: _config.token,
+    entityId: entityId,
   );
 
   /// One vacuum's state, or null when HA no longer has that entity.

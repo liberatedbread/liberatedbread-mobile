@@ -38,12 +38,21 @@ class FakeHaApiClient implements HaApiClient {
   Object? readError;
   Object? callServiceError;
 
+  /// Every whole-domain read, in order. `/api/states` has no domain
+  /// parameter, so each of these is Home Assistant's ENTIRE state machine on
+  /// the wire — the cost a two-second poll must not pay per tick.
+  final List<String> domainReads = [];
+
+  /// Every single-entity read, in order: `/api/states/<entity_id>`.
+  final List<String> entityReads = [];
+
   @override
   Future<List<HaEntityState>> entitiesInDomain({
     required String baseUrl,
     required String token,
     required String domain,
   }) async {
+    domainReads.add(domain);
     final error = readError;
     if (error != null) throw error;
     return entities.values.where((e) => e.domain == domain).toList();
@@ -55,6 +64,7 @@ class FakeHaApiClient implements HaApiClient {
     required String token,
     required String entityId,
   }) async {
+    entityReads.add(entityId);
     final error = readError;
     if (error != null) throw error;
     return entities[entityId];

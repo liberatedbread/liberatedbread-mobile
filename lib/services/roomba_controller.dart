@@ -265,8 +265,7 @@ class HaRoombaController implements RoombaController {
       // common case stays one request per tick.
       HaEntityState? binFull;
       if (vacuum.attributes['bin_full'] is! bool) {
-        final sensors = await _client.binarySensors();
-        binFull = HaRoombaClient.binFullFor(vacuum, sensors);
+        binFull = await _binFull(vacuum);
       }
 
       final fields = HaRoombaClient.stateFields(vacuum, binFull: binFull);
@@ -276,6 +275,49 @@ class HaRoombaController implements RoombaController {
     } finally {
       _reading = false;
     }
+  }
+
+  /// The bin-full sibling's entity id once it has been looked up, and whether
+  /// that lookup has happened. Null-with-resolved means HA has no such sensor
+  /// for this vacuum, which is a fine answer and must not be re-asked every
+  /// two seconds.
+  String? _binFullId;
+  bool _binFullResolved = false;
+
+  /// The bin-full binary_sensor's current state, for a vacuum that does not
+  /// report `bin_full` on itself.
+  ///
+  /// FINDING it needs the whole `binary_sensor` domain, because HA derives an
+  /// entity id from the name at creation and does not track later renames, so
+  /// composing the sibling's id by string surgery is a guess. READING it does
+  /// not. `/api/states` has no domain parameter, so the search downloads Home
+  /// Assistant's entire state machine — every entity, with every attribute —
+  /// and this runs on [pollInterval], two seconds, for as long as the screen
+  /// is open. On an instance with a few hundred entities that is hundreds of
+  /// kilobytes a tick, forever, to learn one boolean, and the Pi the whole
+  /// path exists to be gentle on is serialising all of it.
+  ///
+  /// So the search happens ONCE and the ticks after it ask for the one
+  /// entity. If HA stops knowing that id — the sensor was renamed or removed
+  /// while the screen was open — the next tick searches again rather than
+  /// reporting the bin as unknown forever.
+  Future<HaEntityState?> _binFull(HaEntityState vacuum) async {
+    if (!_binFullResolved) {
+      final found = HaRoombaClient.binFullFor(
+        vacuum,
+        await _client.binarySensors(),
+      );
+      _binFullId = found?.entityId;
+      _binFullResolved = true;
+      // The search already carried the state; asking again in the same tick
+      // would be a second request for what is in hand.
+      return found;
+    }
+    final id = _binFullId;
+    if (id == null) return null;
+    final sensor = await _client.binarySensor(id);
+    if (sensor == null) _binFullResolved = false;
+    return sensor;
   }
 
   /// One service call per command — and deliberately NOT

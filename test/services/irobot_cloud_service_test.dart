@@ -40,6 +40,7 @@ const _robotPassword = ':1:1486937829:gktkDoYpWaDxCfGh';
 /// test can assert what did — and did not — go out.
 MockClient _irobot({
   List<http.Request>? seen,
+  Map<String, Object?>? discoveryOverride,
   Map<String, Object?>? loginOverride,
   Map<String, Object?>? robotsOverride,
 }) {
@@ -49,13 +50,16 @@ MockClient _irobot({
 
     if (path.endsWith('/v1/discover/endpoints')) {
       return http.Response(
-        jsonEncode({
-          'gigya': {
-            'api_key': 'REGION-API-KEY',
-            'datacenter_domain': 'accounts.us1.gigya.com',
-          },
-          'httpBase': 'https://unauth2.prod.iot.irobotapi.com',
-        }),
+        jsonEncode(
+          discoveryOverride ??
+              {
+                'gigya': {
+                  'api_key': 'REGION-API-KEY',
+                  'datacenter_domain': 'accounts.us1.gigya.com',
+                },
+                'httpBase': 'https://unauth2.prod.iot.irobotapi.com',
+              },
+        ),
         200,
       );
     }
@@ -151,6 +155,111 @@ void main() {
         });
       },
     );
+
+    group('the password is only ever sent over HTTPS', () {
+      // Only [discoveryHost] is known ahead of time. Everything the password
+      // is posted to comes back from that call, so it is exactly as
+      // trustworthy as whatever answered — a DNS reply, a proxy, a captive
+      // portal. The old check was `startsWith('http')`, which `http://`
+      // passes, so a directory reply naming a plaintext Gigya host got the
+      // account password in the clear.
+      Map<String, Object?> directory({
+        String gigya = 'accounts.us1.gigya.com',
+        String api = 'https://unauth2.prod.iot.irobotapi.com',
+      }) => {
+        'gigya': {'api_key': 'REGION-API-KEY', 'datacenter_domain': gigya},
+        'httpBase': api,
+      };
+
+      test('an http:// Gigya base is refused before anything is sent', () async {
+        final seen = <http.Request>[];
+        final service = IRobotCloudService(
+          client: _irobot(
+            seen: seen,
+            discoveryOverride: directory(
+              gigya: 'http://accounts.us1.gigya.com',
+            ),
+          ),
+        );
+
+        await expectLater(
+          service.fetchCredentials(email: _account, password: _accountPassword),
+          throwsA(
+            isA<IRobotCloudException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('insecure'),
+                contains('HTTPS'),
+                contains('nothing was sent'),
+                contains('HOME-button'),
+              ),
+            ),
+          ),
+        );
+
+        expect(
+          seen.map((r) => r.url.path).toList(),
+          ['/v1/discover/endpoints'],
+          reason:
+              'fail closed: the sign-in must not be attempted at all, and the '
+              'password must never reach the wire',
+        );
+        expect(seen.every((r) => !r.body.contains(_accountPassword)), isTrue);
+      });
+
+      test('an http:// robot-list base is refused too', () async {
+        // This one carries the Gigya assertion rather than the password, but
+        // the assertion is a bearer credential for the same account and the
+        // reply is a list of local robot passwords. Same rule.
+        final seen = <http.Request>[];
+        final service = IRobotCloudService(
+          client: _irobot(
+            seen: seen,
+            discoveryOverride: directory(
+              api: 'http://unauth2.prod.iot.irobotapi.com',
+            ),
+          ),
+        );
+
+        await expectLater(
+          service.fetchCredentials(email: _account, password: _accountPassword),
+          throwsA(isA<IRobotCloudException>()),
+        );
+        expect(seen.map((r) => r.url.path).toList(), [
+          '/v1/discover/endpoints',
+        ]);
+      });
+
+      test('a scheme that is neither is refused, not guessed at', () async {
+        final service = IRobotCloudService(
+          client: _irobot(discoveryOverride: directory(gigya: 'ftp://nope')),
+        );
+        await expectLater(
+          service.fetchCredentials(email: _account, password: _accountPassword),
+          throwsA(isA<IRobotCloudException>()),
+        );
+      });
+
+      test('a bare domain still means https, as it always did', () async {
+        // Gigya's `datacenter_domain` has no scheme; refusing it would break
+        // every real sign-in.
+        final seen = <http.Request>[];
+        final service = IRobotCloudService(client: _irobot(seen: seen));
+
+        await service.fetchCredentials(
+          email: _account,
+          password: _accountPassword,
+        );
+
+        expect(seen.map((r) => r.url.scheme).toSet(), {'https'});
+        expect(
+          seen[1].url.host,
+          'accounts.us1.gigya.com',
+          reason: 'promoted, not rewritten',
+        );
+      });
+    });
 
     /// The account password goes to Gigya and nowhere else — not to iRobot's
     /// own API, and above all not to storage.

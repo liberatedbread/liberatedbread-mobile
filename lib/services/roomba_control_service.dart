@@ -448,6 +448,18 @@ class RoombaMqttClient {
       );
     }
 
+    // Let go of the previous subscription first. [connect] returns early only
+    // when the session is still connected, and the way a robot session ends is
+    // usually NOT close(): the robot serves one local client and hangs up when
+    // the iRobot app or Home Assistant takes the slot. That leaves
+    // `isConnected` false with this subscription still live, so reconnecting
+    // — which the screen does, and which is the whole point of the hang-up
+    // warning — added a second listener to a BROADCAST stream. Both then ran
+    // for every push: each state document was decoded twice and added to
+    // [_state] twice, and every socket error was reported twice, growing by
+    // one more copy per reconnect for the life of the client.
+    await _messages?.cancel();
+
     // Subscribed and flattened here because both are the robot's: '#' rather
     // than the spec's topic names (which shape a given firmware publishes
     // locally is not settled — the spec grades the shadow topic `low`), and

@@ -72,6 +72,43 @@ void main() {
     await expectLater(store.delete('never-written'), completes);
   });
 
+  group('readAll', () {
+    test('returns every string that was written', () async {
+      await store.write('a', 'one');
+      await store.write('b', 'two');
+      expect(await store.readAll(), {'a': 'one', 'b': 'two'});
+    });
+
+    test('an empty store enumerates empty rather than throwing', () async {
+      expect(await store.readAll(), isEmpty);
+    });
+
+    test('a non-string preference is skipped, not fatal', () async {
+      // The production shape, and the one no test had: this store shares the
+      // preference file with the rest of the app, which keeps bools, ints and
+      // string lists in it — the terms-accepted flag and the secure store's
+      // fresh-install marker are both bools written a few lines from app
+      // start. SharedPreferences.getString is `_cache[key] as String?`, so it
+      // THROWS a TypeError on the first one rather than returning null, and
+      // readAll() threw before the `case final String` guard could skip
+      // anything. Every enumerating caller — per-device credentials, the
+      // Rabbit Air candidate keys, "forget this device" — went down with it.
+      SharedPreferences.setMockInitialValues({
+        'terms_accepted': true,
+        'secure_store_install_marker': true,
+        'panel_width': 32,
+        'ratio': 1.5,
+        'recent': <String>['x', 'y'],
+        'spec_pack_source': 'https://example.com/packs.json',
+      });
+      final mixed = PrefsSettingsStore(await SharedPreferences.getInstance());
+
+      expect(await mixed.readAll(), {
+        'spec_pack_source': 'https://example.com/packs.json',
+      });
+    });
+  });
+
   test(
     'writes land in the underlying SharedPreferences, not a private map',
     () async {

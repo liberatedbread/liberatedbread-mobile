@@ -76,6 +76,74 @@ void main() {
     expect(await store.credentials(printer), {'serial': '01P00A123456789'});
   });
 
+  group('one identity that extends another is a different device', () {
+    // `credential.<identity>.` is not a namespace just because it is a
+    // prefix. mDNS gives the same device out as `bulb` and as `bulb.local`,
+    // so two of them on one LAN produce `credential.host:bulb.serial` and
+    // `credential.host:bulb.local.serial` — and the second starts with the
+    // first's prefix.
+    const short = 'host:bulb';
+    const dotted = 'host:bulb.local';
+
+    test('reading one does not return the other\'s values', () async {
+      await store.save(short, 'serial', 'SHORT');
+      await store.save(dotted, 'serial', 'DOTTED');
+
+      expect(await store.credentials(short), {'serial': 'SHORT'});
+      expect(await store.credentials(dotted), {'serial': 'DOTTED'});
+    });
+
+    test(
+      'a device with nothing stored reads empty, not its neighbour\'s',
+      () async {
+        await store.save(dotted, 'serial', 'DOTTED');
+        expect(
+          await store.credentials(short),
+          isEmpty,
+          reason:
+              'a bare startsWith would hand these back under the invented name '
+              '"local.serial", which then renders into a request addressed with '
+              'another device\'s secret',
+        );
+      },
+    );
+
+    test('forgetting one does not unpair the other', () async {
+      await store.save(short, 'serial', 'SHORT');
+      await store.save(dotted, 'serial', 'DOTTED');
+      await store.save(dotted, 'password', 'a1b2c3d4');
+
+      await store.forget(short);
+
+      expect(await store.credentials(short), isEmpty);
+      expect(
+        await store.credentials(dotted),
+        {'serial': 'DOTTED', 'password': 'a1b2c3d4'},
+        reason:
+            'the sweep deleted a still-adopted device\'s credentials because '
+            'its identity happened to extend the forgotten one',
+      );
+      // And the keys are really still there, not merely filtered out.
+      expect(
+        settings.values.keys,
+        containsAll(<String>[
+          'credential.$dotted.serial',
+          'credential.$dotted.password',
+        ]),
+      );
+    });
+
+    test('the longer identity still forgets itself', () async {
+      await store.save(short, 'serial', 'SHORT');
+      await store.save(dotted, 'serial', 'DOTTED');
+
+      await store.forget(dotted);
+
+      expect(await store.credentials(dotted), isEmpty);
+      expect(await store.credentials(short), {'serial': 'SHORT'});
+    });
+  });
+
   test(
     'the namespace does not collide with the device-specific stores',
     () async {
