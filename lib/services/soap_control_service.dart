@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
+import 'http_control_service.dart' show decodeDeviceBody;
 import 'spec_codec.dart' show SoapRequestDto;
 
 /// The transport half of network device control: fetch a UPnP device
@@ -103,7 +104,14 @@ class SoapControlClient {
         'description fetch failed: HTTP ${response.statusCode} from $uri',
       );
     }
-    return SoapDeviceDescription.parse(response.body, host: host, port: port);
+    // Read as UTF-8 when the bytes are UTF-8 — a friendlyName is the first
+    // thing the user sees, and "Küche" arriving as "KÃ¼che" is the whole of
+    // what Latin-1-by-default does. See [decodeDeviceBody].
+    return SoapDeviceDescription.parse(
+      decodeDeviceBody(response),
+      host: host,
+      port: port,
+    );
   }
 
   /// POST one rendered request to the device and return the response values.
@@ -136,13 +144,14 @@ class SoapControlClient {
       })
       ..body = request.body;
     final response = await _bounded(httpRequest, request.action);
+    final body = decodeDeviceBody(response);
     if (response.statusCode != 200) {
       // UPnP delivers action-level errors as HTTP 500 with a Fault body,
       // and that fault detail is the only diagnostics the device offers —
       // read it before writing the reply off as a transport failure.
       if (response.statusCode == 500) {
         try {
-          parseSoapResponse(response.body, action: request.action);
+          parseSoapResponse(body, action: request.action);
         } on SoapFaultException {
           rethrow;
         } catch (_) {
@@ -153,7 +162,7 @@ class SoapControlClient {
         '${request.action} failed: HTTP ${response.statusCode} from $uri',
       );
     }
-    return parseSoapResponse(response.body, action: request.action);
+    return parseSoapResponse(body, action: request.action);
   }
 
   /// Parse a SOAP response envelope into its named return values.

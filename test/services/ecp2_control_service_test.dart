@@ -429,5 +429,67 @@ void main() {
       expect(await second, isEmpty);
       expect(await first, contains('Netflix'));
     });
+
+    test('a content-data that is not base64 fails the request', () async {
+      // R-036. `base64.decode` throws on a non-canonical payload, and it was
+      // called straight from the socket's onData — so the FormatException went
+      // to the zone uncaught while the request, which HAD been answered, sat
+      // out its full deadline and reported a silent device.
+      final (session, socket) = await authenticatedSession(
+        timeout: const Duration(milliseconds: 200),
+      );
+      addTearDown(session.close);
+
+      final pending = session.send(
+        const HttpRequestDto(method: 'GET', path: '/query/apps', body: ''),
+      );
+      await Future<void>.delayed(Duration.zero);
+      socket.receive({
+        'response': 'query-apps',
+        'response-id': '${socket.sent.last['request-id']}',
+        'status': '200',
+        // One character short of a quantum, and not in the alphabet either.
+        'content-data': 'not base64!!',
+      });
+
+      await expectLater(
+        pending,
+        throwsA(
+          isA<Ecp2Exception>().having(
+            (e) => e.message,
+            'message',
+            contains('unreadable content-data'),
+          ),
+        ),
+        reason: 'promptly, as a malformed frame — not ten seconds of silence',
+      );
+      // And the session is still usable: one bad frame is not a dead socket.
+      expect(session.isClosed, isFalse);
+    });
+
+    test('a textedit notice with unreadable content-data is ignored', () async {
+      // The same decode on the notice path, where there is no request to fail:
+      // a frame whose payload cannot be read simply carries no focus news, and
+      // must not throw inside onData either.
+      final (session, socket) = await authenticatedSession();
+      addTearDown(session.close);
+      final focuses = <bool>[];
+      final sub = session.textEditFocusChanges.listen(focuses.add);
+      addTearDown(sub.cancel);
+
+      socket.receive({'notify': 'textedit', 'content-data': 'not base64!!'});
+      await Future<void>.delayed(Duration.zero);
+      expect(focuses, isEmpty);
+
+      // A readable one still lands, so the guard did not swallow the feature.
+      socket.receive({
+        'notify': 'textedit',
+        'content-data': base64.encode(
+          utf8.encode('{"textedit-state":{"textedit-id":"17"}}'),
+        ),
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(focuses, [true]);
+    });
   });
 }

@@ -78,6 +78,16 @@ void main() {
             ..headers.contentType = ContentType('image', 'jpeg')
             ..add(jpeg(frameTag));
           await req.response.close();
+        } else if (req.uri.path == '/huge.jpg') {
+          // A 200 that starts like a JPEG and then keeps going past the cap —
+          // a broken daemon, or a host that simply never stops sending.
+          frameTag++;
+          req.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType('image', 'jpeg')
+            ..add(jpeg(1))
+            ..add(Uint8List(CameraFeedService.maxFrameBytes));
+          await req.response.close();
         } else if (req.uri.path == '/notjpeg') {
           // 200, but the body is NOT a JPEG (no FF D8) — an error page a daemon
           // serves with a 200. Exercises the magic-byte drop, not the status
@@ -176,6 +186,26 @@ void main() {
         await sub.cancel();
       },
     );
+
+    test('a body past the cap is dropped and polling continues', () async {
+      // R-189: the DEVICE decides how many bytes come back and the loop runs
+      // up to five times a second, so an uncapped read is a repeated
+      // allocation something on the LAN sizes. The body here opens with a
+      // valid JPEG header, so only the cap can stop it — and the tick that
+      // trips it keeps polling, exactly like a timeout.
+      const stream = CameraStreamDto(
+        transport: 'mjpeg_snapshot_poll',
+        urlTemplate: 'http://{address}/huge.jpg',
+        targetFps: 30,
+      );
+      const service = CameraFeedService();
+      final got = <Uint8List>[];
+      final sub = service.frames(host: host, stream: stream).listen(got.add);
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      expect(got, isEmpty, reason: 'an oversized body is never a frame');
+      expect(frameTag, greaterThan(1), reason: 'and the feed keeps polling');
+      await sub.cancel();
+    });
   });
 
   group('keepalive reconnect', () {

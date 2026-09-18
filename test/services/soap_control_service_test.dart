@@ -8,6 +8,8 @@
 // namespace-less description must parse because some firmware serves one.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -160,6 +162,72 @@ void main() {
       await expectLater(
         client.fetchDescription('10.0.0.5', 49153),
         throwsA(isA<SoapTransportException>()),
+      );
+    });
+
+    test('a friendlyName in UTF-8 is not mangled into Latin-1', () async {
+      // R-040. package:http reads a body whose Content-Type states no charset
+      // as Latin-1, and a Wemo's setup.xml states none — so the one string the
+      // user actually reads came back as "KÃ¼che" for every device not named
+      // in ASCII. The XML declaration says utf-8 and the bytes agree.
+      final named = _setupXml.replaceFirst(
+        'Kitchen Crock-Pot',
+        'Küche – Crock-Pot',
+      );
+      final client = SoapControlClient(
+        httpClient: MockClient(
+          (request) async => http.Response.bytes(
+            utf8.encode(named),
+            200,
+            headers: const {'content-type': 'text/xml'},
+          ),
+        ),
+      );
+      final description = await client.fetchDescription('10.0.0.5', 49153);
+      expect(description.friendlyName, 'Küche – Crock-Pot');
+    });
+
+    test('a description past the cap is refused, not buffered', () async {
+      // R-042: the cap the class comment explains was pinned by nothing. The
+      // host chooses the length, so this is an allocation the LAN controls.
+      final client = SoapControlClient(
+        httpClient: MockClient(
+          (request) async => http.Response.bytes(
+            Uint8List(SoapControlClient.maxResponseBytes + 1),
+            200,
+          ),
+        ),
+      );
+      await expectLater(
+        client.fetchDescription('10.0.0.5', 49153),
+        throwsA(
+          isA<SoapTransportException>().having(
+            (e) => e.message,
+            'message',
+            contains('refusing to buffer further'),
+          ),
+        ),
+      );
+    });
+
+    test('an oversized action reply is refused the same way', () async {
+      final client = SoapControlClient(
+        httpClient: MockClient(
+          (request) async => http.Response.bytes(
+            Uint8List(SoapControlClient.maxResponseBytes + 1),
+            200,
+          ),
+        ),
+      );
+      await expectLater(
+        client.send('10.0.0.5', 49153, '/upnp/control/basicevent1', _request),
+        throwsA(
+          isA<SoapTransportException>().having(
+            (e) => e.message,
+            'message',
+            contains('sent more than ${SoapControlClient.maxResponseBytes}'),
+          ),
+        ),
       );
     });
   });

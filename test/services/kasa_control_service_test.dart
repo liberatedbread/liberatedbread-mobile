@@ -209,4 +209,71 @@ void main() {
       expect(kasaStateFields('not json at all'), isEmpty);
     });
   });
+
+  group('readKasaReply', () {
+    test('reads exactly the frame the prefix announced', () async {
+      final frame = <int>[0, 0, 0, 3, 1, 2, 3];
+      // Split across chunks, the way a socket delivers them, plus trailing
+      // bytes that belong to nothing: the read stops at the announced length.
+      final reply = await readKasaReply(
+        Stream<List<int>>.fromIterable([
+          frame.sublist(0, 2),
+          frame.sublist(2),
+          const [9, 9, 9],
+        ]),
+        '10.0.0.9',
+        9999,
+      );
+      expect(reply, [0, 0, 0, 3, 1, 2, 3]);
+    });
+
+    test('a device-announced length past the cap is refused', () async {
+      // R-189. `FF FF FF FF` is a four-gigabyte read, named by the device: the
+      // prefix is the DEVICE's claim, so an unchecked `needed` is an
+      // allocation something on the LAN sizes. Checked before it becomes a
+      // read target, not after the buffer has grown into it.
+      await expectLater(
+        readKasaReply(
+          Stream<List<int>>.fromIterable([
+            const [0xFF, 0xFF, 0xFF, 0xFF],
+          ]),
+          '10.0.0.9',
+          9999,
+        ),
+        throwsA(
+          isA<KasaControlException>().having(
+            (e) => e.message,
+            'message',
+            contains('announced a 4294967295-byte reply'),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'bytes past the cap are refused even if the prefix lied low',
+      () async {
+        // A short frame announced, then a flood: the second guard is what stops
+        // a host that overruns the length it gave.
+        final chunks = <List<int>>[
+          const [0, 0, 0, 4],
+          List<int>.filled(KasaControlClient.maxReplyBytes + 8, 0x41),
+        ];
+        await expectLater(
+          readKasaReply(
+            Stream<List<int>>.fromIterable(chunks),
+            '10.0.0.9',
+            9999,
+          ),
+          throwsA(
+            isA<KasaControlException>().having(
+              (e) => e.message,
+              'message',
+              contains('refusing to buffer further'),
+            ),
+          ),
+        );
+      },
+    );
+  });
 }

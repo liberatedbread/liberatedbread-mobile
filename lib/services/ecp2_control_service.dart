@@ -180,12 +180,43 @@ class Ecp2Session {
     if (completer == null) return;
     final status = '${decoded['status']}';
     final data64 = decoded['content-data'];
-    completer.complete((
-      status: status,
-      body: data64 is String
-          ? utf8.decode(base64.decode(data64), allowMalformed: true)
-          : '',
-    ));
+    final String body;
+    if (data64 is String) {
+      final text = _tryBase64Utf8(data64);
+      if (text == null) {
+        // The frame IS this request's answer, and its payload is unreadable.
+        // Failing it here is the whole point: decoding unguarded threw inside
+        // the socket's onData, where the request learned nothing and sat out
+        // its full deadline before reporting a device that had in fact
+        // replied — while the FormatException went to the zone uncaught.
+        completer.completeError(
+          const Ecp2Exception('the device sent an unreadable content-data'),
+        );
+        return;
+      }
+      body = text;
+    } else {
+      body = '';
+    }
+    completer.complete((status: status, body: body));
+  }
+
+  /// The UTF-8 text a base64 `content-data` carries, or null when the device
+  /// did not send canonical base64.
+  ///
+  /// `base64.decode` throws a FormatException on a payload that is not
+  /// canonical — bad padding, a stray character, a final quantum with
+  /// non-zero unused bits — and every one of those arrives straight off a
+  /// socket, from firmware this protocol was reverse-engineered from. Malformed
+  /// UTF-8 *inside* valid base64 still passes through as replacement
+  /// characters (`allowMalformed`), which is the right answer for a body that
+  /// is merely mis-encoded; a frame that is not base64 at all is not.
+  static String? _tryBase64Utf8(String data64) {
+    try {
+      return utf8.decode(base64.decode(data64), allowMalformed: true);
+    } on FormatException {
+      return null;
+    }
   }
 
   void _failAll(Object? error) {
@@ -331,9 +362,12 @@ class Ecp2Session {
     if (direct != null) return direct;
     final data64 = frame['content-data'];
     if (data64 is String) {
-      return _focusFromTextEditState(
-        _tryJson(utf8.decode(base64.decode(data64), allowMalformed: true)),
-      );
+      final text = _tryBase64Utf8(data64);
+      // Not base64 at all: this frame simply carries no focus news. Read
+      // defensively, like everything else about a notice whose shape is
+      // firmware-dependent — and never throw, because this runs in onData.
+      if (text == null) return null;
+      return _focusFromTextEditState(_tryJson(text));
     }
     return null;
   }

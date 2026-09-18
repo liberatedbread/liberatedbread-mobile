@@ -1,7 +1,9 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
@@ -44,6 +46,18 @@ class HttpControlClient {
   /// and cutting it off early would misreport a device that was about to say
   /// 200.
   static const timeout = Duration(seconds: 10);
+
+  /// Largest response body this client will buffer.
+  ///
+  /// The same rule and the same number as the SOAP client's: a query answer
+  /// is a few KB of XML or JSON, the DEVICE chooses how much it sends, and
+  /// `package:http`'s convenience helpers buffer to completion with no cap —
+  /// so an uncapped read is an allocation something on the LAN decides the
+  /// size of. Half a megabyte is not a device this app can drive, it is a
+  /// broken or hostile host. [_bounded] is where the cap sits, because it has
+  /// to sit on the stream read: by the time a caller could measure a buffered
+  /// body the allocation has already happened.
+  static const maxResponseBytes = 512 * 1024;
 
   HttpControlClient({
     http.Client? httpClient,
@@ -232,34 +246,43 @@ class HttpControlClient {
     }
     final scheme = secure ? 'https' : 'http';
     final uri = Uri.parse('$scheme://$host:$port').resolve(path);
+    final method = request.method.toUpperCase();
+    // Refused before anything is built or opened: a method this transport
+    // does not speak must never reach the device.
+    if (method != 'GET' && method != 'POST' && method != 'PUT') {
+      throw HttpControlException(
+        'unsupported method ${request.method} for $uri',
+      );
+    }
+    // Abortable so the deadline can actually END the exchange — see
+    // [_bounded]. The trigger is per request, never shared: this client is a
+    // Provider one group run drives several devices through at once, and a
+    // shared trigger would cancel a sibling device's request.
+    final abort = Completer<void>();
+    final outgoing = http.AbortableRequest(
+      method,
+      uri,
+      abortTrigger: abort.future,
+    );
     // The spec's own headers (a Vizio `AUTH` token, rendered by Rust from
     // the stored credential) over the Content-Type inferred from the body.
+    // Set BEFORE the body, because `Request.body` reads the declared
+    // Content-Type to choose the encoding it writes the bytes in.
     final headers = headersFor(request);
+    if (headers != null) outgoing.headers.addAll(headers);
+    // GET sends no body at all, as `client.get` did. POST and PUT send the
+    // rendered one verbatim — ECP commands carry an empty string and no
+    // headers of their own; PUT is the Hue bridge's whole write surface and
+    // the Frigidaires', admitted by Rust's SENDABLE_METHODS.
+    if (method != 'GET') outgoing.body = request.body;
     final http.Response response;
     try {
-      switch (request.method.toUpperCase()) {
-        case 'GET':
-          response = await client.get(uri, headers: headers).timeout(timeout);
-        case 'POST':
-          // ECP commands carry an empty body and no headers; a spec that
-          // declares a body gets it sent verbatim, labelled by what it is.
-          response = await client
-              .post(uri, body: request.body, headers: headers)
-              .timeout(timeout);
-        case 'PUT':
-          // The body-carrying sibling of POST — the Hue bridge's whole write
-          // surface, and the Frigidaires'. Rust's SENDABLE_METHODS names it,
-          // so a spec's PUT command renders as a live control; this arm is
-          // what makes the press actually go somewhere.
-          response = await client
-              .put(uri, body: request.body, headers: headers)
-              .timeout(timeout);
-        default:
-          throw HttpControlException(
-            'unsupported method ${request.method} for $uri',
-          );
-      }
+      response = await _bounded(client, outgoing, abort);
     } on TimeoutException {
+      // A deadline the client raised for itself — an injected one in a test,
+      // or a socket timeout underneath — says the same thing ours does.
+      // [_bounded]'s own deadline already throws ControlTimeoutException,
+      // which is not a TimeoutException and passes straight through here.
       throw const ControlTimeoutException();
     } on HandshakeException {
       // The shape a refused certificate ACTUALLY takes. `package:http`'s
@@ -269,23 +292,16 @@ class HttpControlClient {
       // ControlCertificateChangedException unreachable — the one sentence
       // naming the only recovery there is, never shown, for the exact failure
       // it was written for — and a raw platform exception went to the UI.
-      if (_trust?.refused(host) ?? false) {
-        throw const ControlCertificateChangedException();
-      }
-      throw const ControlUnreachableException();
+      throw _tlsFailure(host);
     } on http.ClientException {
       // A refused certificate arrives here looking exactly like a device that
       // is switched off: `badCertificateCallback` returns a bool, so the
       // handshake failure carries no reason. Asking the policy which it was is
       // the difference between "your Envoy is unreachable" and the one
       // sentence that names the only recovery there is.
-      if (_trust?.refused(host) ?? false) {
-        throw const ControlCertificateChangedException();
-      }
-      // Connection refused, no route, DNS — the device is not there to
-      // answer. Same user question as a timeout, different wording.
-      throw const ControlUnreachableException();
+      throw _tlsFailure(host);
     }
+    final body = decodeDeviceBody(response);
     if (response.statusCode == 403 ||
         // A firmware-gated API answers 401 until a credential rides along —
         // the Envoy's local endpoints since firmware 7 want the entrez JWT.
@@ -296,8 +312,7 @@ class HttpControlClient {
         // 400 and this body instead of 403 (observed both spellings on one
         // OS 15.2.4 fleet, against the same endpoint, minutes apart). It is
         // the same refusal, so it gets the same exception.
-        (response.statusCode == 400 &&
-            response.body.contains('Limited mode'))) {
+        (response.statusCode == 400 && body.contains('Limited mode'))) {
       throw const ControlRefusedException();
     }
     // The device says there is no such thing here. Handed back as a value so
@@ -311,7 +326,101 @@ class HttpControlClient {
         'HTTP ${response.statusCode} from $uri',
       );
     }
-    return response.body;
+    return body;
+  }
+
+  /// Send [request] and buffer its body, refusing past [maxResponseBytes].
+  ///
+  /// The SOAP client's `_bounded` with the one thing that client cannot do.
+  /// Both halves matter and neither was here: the size cap has to sit on the
+  /// stream read, because the convenience helpers buffer the whole body
+  /// before handing it over, and the deadline has to ABORT rather than merely
+  /// stop waiting. A bare `Future.timeout` only abandons the future — the
+  /// request stays in flight, holding a socket and a TLS session until the
+  /// device or the OS gives up, and a control screen that retries on a
+  /// sleeping TV stacks one of those per press. `package:http` 1.6's abort
+  /// trigger is what ends it; the deliberately un-timed `Stream` (rather than
+  /// `Stream.timeout` on the body) is the SOAP client's choice for the SOAP
+  /// client's reason — it never delivers events under fake async.
+  Future<http.Response> _bounded(
+    http.Client client,
+    http.AbortableRequest request,
+    Completer<void> abort,
+  ) {
+    return () async {
+      final streamed = await client.send(request);
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in streamed.stream) {
+        bytes.add(chunk);
+        if (bytes.length > maxResponseBytes) {
+          // Throwing out of the `await for` cancels the subscription, and
+          // that cancellation is what drops the connection. The abort
+          // trigger is deliberately left alone: firing it here would push an
+          // error into a stream already being cancelled.
+          throw HttpControlException(
+            '${request.url} sent more than $maxResponseBytes bytes; '
+            'refusing to buffer further',
+          );
+        }
+      }
+      return http.Response.bytes(
+        bytes.takeBytes(),
+        streamed.statusCode,
+        request: request,
+        headers: streamed.headers,
+        reasonPhrase: streamed.reasonPhrase,
+      );
+    }().timeout(
+      timeout,
+      onTimeout: () {
+        if (!abort.isCompleted) abort.complete();
+        throw const ControlTimeoutException();
+      },
+    );
+  }
+
+  /// What a failed handshake with [host] actually means, in the user's words.
+  ///
+  /// Every refusal used to come back as "presenting a different certificate
+  /// than before", which is only one of the three answers the policy can
+  /// give — and the wrong one twice over. `standard` pins nothing, so there
+  /// is no "before" to differ from; an unreadable pin store says nothing
+  /// about the certificate at all. Telling a user to remove and re-add a
+  /// device is useless advice for either, and alarming advice for the second.
+  UserFacingException _tlsFailure(String host) => switch (_trust?.refusalReason(
+    host,
+  )) {
+    TlsRefusal.certificateChanged => const ControlCertificateChangedException(),
+    TlsRefusal.unverifiableChain =>
+      const ControlCertificateUntrustedException(),
+    TlsRefusal.pinUnreadable =>
+      const ControlCertificatePinUnreadableException(),
+    // Not this policy's doing: connection refused, no route, DNS, or a
+    // handshake the platform failed for its own reasons.
+    null => const ControlUnreachableException(),
+  };
+}
+
+/// A device's response body as text, UTF-8 first.
+///
+/// `package:http` decodes a body whose Content-Type states no charset as
+/// Latin-1 — what RFC 2616 required and RFC 7231 withdrew — so every byte
+/// above 0x7F becomes its own character. A Roku app list naming "Pokémon"
+/// reads "PokÃ©mon", and so does every description, query answer and state
+/// reply from a device that leaves the charset off, which is most of them.
+///
+/// A charset the device DID state is the device's to state and is honoured as
+/// given. Otherwise the bytes decide: valid UTF-8 is read as UTF-8 (the
+/// encoding every one of these devices actually sends), and anything else
+/// falls back to Latin-1, which cannot fail — so a genuinely 8-bit body still
+/// comes through as text rather than throwing on the way to the screen.
+String decodeDeviceBody(http.Response response) {
+  final declared = response.headers['content-type']?.toLowerCase();
+  if (declared != null && declared.contains('charset=')) return response.body;
+  try {
+    return utf8.decode(response.bodyBytes);
+  } on FormatException {
+    return latin1.decode(response.bodyBytes, allowInvalid: true);
   }
 }
 
@@ -355,6 +464,41 @@ class ControlCertificateChangedException implements UserFacingException {
       'before. If you reset it or updated its firmware, remove it from Saved '
       'devices and add it again. If you did not, something else may be '
       'answering at its address.';
+}
+
+/// The device's certificate could not be verified, and its spec asked for
+/// the platform's own verification (`tls.verification: standard`).
+///
+/// Nothing was ever pinned here, so nothing CHANGED — telling the user to
+/// remove and re-add the device would be advice for a different failure, and
+/// re-adding it would not help. What did happen is that the chain does not
+/// end at a root this phone trusts, which on a LAN usually means something is
+/// intercepting the connection (a filtering router, a captive portal) or the
+/// spec is claiming a verification level this device cannot actually offer.
+class ControlCertificateUntrustedException implements UserFacingException {
+  const ControlCertificateUntrustedException();
+  @override
+  String get message =>
+      'This device\'s security certificate could not be verified. Nothing '
+      'about it has changed — it simply is not signed by an authority this '
+      'phone trusts. Check that you are on the same network as the device, '
+      'with no proxy or sign-in page in between.';
+}
+
+/// The device is pinned, but its saved fingerprint could not be read.
+///
+/// A locked keystore on a backgrounded app, or a desktop with no keyring.
+/// The certificate may be perfectly fine: the app refuses because trusting it
+/// would mean taking the first-contact branch and OVERWRITING a pin it cannot
+/// see — the exact substitution the pin exists to catch. So the message says
+/// to try again rather than to re-pair, which would throw the good pin away.
+class ControlCertificatePinUnreadableException implements UserFacingException {
+  const ControlCertificatePinUnreadableException();
+  @override
+  String get message =>
+      'The saved security fingerprint for this device could not be read, so '
+      'the app would not guess. Unlock the phone (or reopen the app) and try '
+      'again — there is nothing wrong with the device.';
 }
 
 /// The transport failed: unreachable host, unexpected status, bad method.

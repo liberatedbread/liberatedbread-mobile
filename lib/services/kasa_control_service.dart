@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'json_fields.dart';
 import 'spec_codec.dart';
 
@@ -40,6 +42,16 @@ class KasaControlClient {
   /// few seconds is generous while still failing a moved or asleep plug
   /// promptly rather than hanging the control screen.
   static const timeout = Duration(seconds: 5);
+
+  /// Largest reply this client will buffer, framing included.
+  ///
+  /// The same rule as [SoapControlClient.maxResponseBytes] and for the same
+  /// reason, only sharper here: the 4-byte prefix is the DEVICE's claim about
+  /// how much is coming, so an unchecked `needed` is an allocation a host on
+  /// the LAN names outright — four bytes of `FF FF FF FF` asked for a 4 GiB
+  /// read. A `get_sysinfo` answer is two or three KB; a quarter of a megabyte
+  /// is already not a Kasa device.
+  static const maxReplyBytes = 256 * 1024;
 
   KasaControlClient(this._codec, {KasaExchange? exchange})
     : _exchange = exchange ?? _socketExchange;
@@ -83,23 +95,52 @@ Future<Uint8List> _socketExchange(
   try {
     socket.add(request);
     await socket.flush();
-
-    final buffer = BytesBuilder(copy: false);
-    int? needed;
-    await for (final chunk in socket.timeout(timeout)) {
-      buffer.add(chunk);
-      if (needed == null && buffer.length >= 4) {
-        final head = buffer.toBytes();
-        final payload =
-            (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
-        needed = 4 + payload;
-      }
-      if (needed != null && buffer.length >= needed) break;
-    }
-    return buffer.toBytes();
+    return await readKasaReply(socket.timeout(timeout), host, port);
   } finally {
     socket.destroy();
   }
+}
+
+/// Read one length-prefixed Kasa reply off [chunks], refusing past
+/// [KasaControlClient.maxReplyBytes].
+///
+/// Split out from the socket so the cap can be tested without a listener:
+/// the thing worth pinning is what happens when the 4-byte prefix announces
+/// more than this app will ever hold, and standing up a TCP server to say
+/// four bytes would test dart:io.
+@visibleForTesting
+Future<Uint8List> readKasaReply(
+  Stream<List<int>> chunks,
+  String host,
+  int port,
+) async {
+  final buffer = BytesBuilder(copy: false);
+  int? needed;
+  await for (final chunk in chunks) {
+    buffer.add(chunk);
+    if (needed == null && buffer.length >= 4) {
+      final head = buffer.toBytes();
+      final payload =
+          (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
+      // The device's own claim, checked BEFORE it becomes a read target.
+      if (payload > KasaControlClient.maxReplyBytes) {
+        throw KasaControlException(
+          '$host:$port announced a $payload-byte reply; refusing to buffer '
+          'more than ${KasaControlClient.maxReplyBytes} bytes',
+        );
+      }
+      needed = 4 + payload;
+    }
+    // And what actually arrived, in case it overruns the frame it announced.
+    if (buffer.length > 4 + KasaControlClient.maxReplyBytes) {
+      throw KasaControlException(
+        '$host:$port sent more than ${KasaControlClient.maxReplyBytes} '
+        'bytes; refusing to buffer further',
+      );
+    }
+    if (needed != null && buffer.length >= needed) break;
+  }
+  return buffer.toBytes();
 }
 
 /// Flatten a Kasa `get_sysinfo` reply into the name→value pairs the generic

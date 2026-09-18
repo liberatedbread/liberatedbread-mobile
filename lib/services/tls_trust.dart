@@ -59,6 +59,29 @@ enum TlsPolicy {
   };
 }
 
+/// Why a policy refused a handshake.
+///
+/// `badCertificateCallback` returns a bool, so the reason has to be recorded
+/// on the side or it is gone — and the three are NOT the same news. Reporting
+/// all of them as "the device is presenting a different certificate than
+/// before" was wrong twice: [unverifiableChain] pins nothing, so there is no
+/// "before" to differ from, and [pinUnreadable] says nothing about the
+/// certificate at all. Each one points at a different action, which is the
+/// only reason a user-facing message exists.
+enum TlsRefusal {
+  /// A pinned device presented a leaf that is not the pinned one. Re-pair, or
+  /// find out what is answering at that address.
+  certificateChanged,
+
+  /// The spec asked for `standard` validation and the chain does not reach a
+  /// trusted root. Nothing was pinned; nothing changed.
+  unverifiableChain,
+
+  /// The device is pinned but the stored fingerprint could not be READ, so
+  /// first-contact trust would overwrite it. The certificate may be fine.
+  pinUnreadable,
+}
+
 /// Remembers which certificate a device presented the first time, so a later
 /// change is visible.
 ///
@@ -163,7 +186,11 @@ class TlsTrust {
   /// host for the same reason. It used to be cleared wholesale by [forget],
   /// which meant forgetting device A erased device B's recorded refusal and
   /// B's next failure reported as a plain unreachable.
-  final Set<String> _refused = <String>{};
+  ///
+  /// The VALUE is which refusal it was: a bare set could only say "the policy
+  /// said no", and the caller then had one sentence for three different
+  /// situations.
+  final Map<String, TlsRefusal> _refused = <String, TlsRefusal>{};
 
   /// Identities whose stored pin could not be read.
   ///
@@ -177,7 +204,12 @@ class TlsTrust {
 
   /// Whether the last handshake with [host] was refused BY THIS POLICY rather
   /// than by the network.
-  bool refused(String host) => _refused.contains(host);
+  bool refused(String host) => _refused.containsKey(host);
+
+  /// WHICH refusal the last handshake with [host] was, or null when the
+  /// policy did not refuse it. The caller turns this into the one sentence
+  /// that names the action the user can take.
+  TlsRefusal? refusalReason(String host) => _refused[host];
 
   /// Load [identity]'s pin so [evaluator] can answer synchronously. Call
   /// before opening the connection.
@@ -244,7 +276,7 @@ class TlsTrust {
           // Recorded like any other policy refusal. Without it the caller
           // reports "not reachable — try scanning again", which is advice that
           // cannot help for a failure that is not about reachability.
-          _refused.add(host);
+          _refused[host] = TlsRefusal.unverifiableChain;
           return false;
         case TlsPolicy.none:
           return true;
@@ -257,7 +289,7 @@ class TlsTrust {
               'stored fingerprint could not be read, so first-contact trust '
               'would overwrite it',
             );
-            _refused.add(host);
+            _refused[host] = TlsRefusal.pinUnreadable;
             return false;
           }
           final pinned = _known[identity];
@@ -289,7 +321,7 @@ class TlsTrust {
             'TLS refused for $host:$port: the certificate changed since this '
             'device was first seen. Re-pair it if the device was reset.',
           );
-          _refused.add(host);
+          _refused[host] = TlsRefusal.certificateChanged;
           return false;
         case null:
           return fallback(cert, host, port);

@@ -6,16 +6,50 @@
 // answers with into the right exceptions — 403 is a device-side setting, not
 // a network fault.
 
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:liberated_bread_mobile/core/error_text.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
+import 'package:liberated_bread_mobile/services/settings_store.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/services/tls_trust.dart';
 import 'package:liberated_bread_mobile/src/rust/api/device_api.dart'
     show HttpHeaderDto;
+
+import '../fakes/in_memory_settings_store.dart';
+
+/// A certificate is only ever asked for its DER here — the policy decisions
+/// themselves are tested in tls_trust_test.dart; what this file cares about is
+/// which SENTENCE each one turns into.
+class _FakeCert implements X509Certificate {
+  @override
+  final Uint8List der;
+
+  _FakeCert(String seed) : der = Uint8List.fromList(seed.codeUnits);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// A settings store whose reads throw: a locked keystore, a keyring-less
+/// desktop. What matters is that a pin read CAN fail, not how.
+class _FailingStore implements SettingsStore {
+  @override
+  Future<String?> read(String key) async => throw StateError('keystore locked');
+  @override
+  Future<void> write(String key, String value) async {}
+  @override
+  Future<void> delete(String key) async {}
+  @override
+  Future<Map<String, String>> readAll() async => const {};
+}
 
 void main() {
   const press = HttpRequestDto(
@@ -473,4 +507,275 @@ void main() {
       expect(reached, isFalse, reason: 'nothing must reach the device');
     },
   );
+
+  group('a response body is text, and the device rarely says in which code', () {
+    // R-040. package:http reads a body whose Content-Type states no charset as
+    // Latin-1 (what RFC 2616 required and RFC 7231 withdrew), and almost no LAN
+    // device states one — so every accented name in a Roku app list, a UPnP
+    // description or a state reply arrived as mojibake.
+    const query = HttpRequestDto(method: 'GET', path: '/query/apps', body: '');
+
+    Future<String> bodyFrom(List<int> bytes, {Map<String, String>? headers}) {
+      final client = HttpControlClient(
+        httpClient: MockClient(
+          (request) async =>
+              http.Response.bytes(bytes, 200, headers: headers ?? const {}),
+        ),
+      );
+      return client.send('10.0.0.9', 8060, query);
+    }
+
+    test('UTF-8 with no declared charset reads as UTF-8', () async {
+      expect(
+        await bodyFrom(
+          utf8.encode('<app>Pokémon Trading Card Game</app>'),
+          headers: const {'content-type': 'text/xml'},
+        ),
+        '<app>Pokémon Trading Card Game</app>',
+        reason: 'this used to come back as PokÃ©mon',
+      );
+      // And with no Content-Type at all, which is what an ECP keypress ack and
+      // a good many state endpoints answer with.
+      expect(await bodyFrom(utf8.encode('Küche – 21 °C')), 'Küche – 21 °C');
+    });
+
+    test('a charset the device DID state is taken at its word', () async {
+      expect(
+        await bodyFrom(
+          latin1.encode('Küche'),
+          headers: const {'content-type': 'text/plain; charset=iso-8859-1'},
+        ),
+        'Küche',
+        reason: 'the device said which code, so the bytes are not guessed at',
+      );
+    });
+
+    test('bytes that are not UTF-8 still come through as text', () async {
+      // 0xFC alone is not a UTF-8 sequence. Latin-1 cannot fail, so the
+      // fallback always produces something rather than throwing on the way to
+      // the screen.
+      expect(await bodyFrom(const [0x4B, 0xFC, 0x63, 0x68, 0x65]), 'Küche');
+    });
+  });
+
+  test('a reply past the cap is refused rather than buffered', () async {
+    // R-041. The device chooses the length, so an uncapped read is an
+    // allocation something on the LAN sizes. The cap sits on the stream read
+    // because a buffered body has already been allocated by the time anything
+    // could measure it.
+    final client = HttpControlClient(
+      httpClient: MockClient(
+        (request) async => http.Response.bytes(
+          Uint8List(HttpControlClient.maxResponseBytes + 1),
+          200,
+        ),
+      ),
+    );
+
+    await expectLater(
+      client.send(
+        '10.0.0.9',
+        8060,
+        const HttpRequestDto(method: 'GET', path: '/query/apps', body: ''),
+      ),
+      throwsA(
+        isA<HttpControlException>().having(
+          (e) => e.message,
+          'message',
+          contains('refusing to buffer further'),
+        ),
+      ),
+    );
+  });
+
+  test('the deadline aborts the exchange, not just the waiting', () {
+    // R-041. `Future.timeout` alone only stops listening: the request stays in
+    // flight holding a socket (and a TLS session) until the device or the OS
+    // gives up, and a control screen retried against a sleeping TV stacks one
+    // of those per press.
+    fakeAsync((async) {
+      var aborted = false;
+      final client = HttpControlClient(
+        httpClient: MockClient.streaming((request, body) async {
+          if (request case http.Abortable(:final abortTrigger?)) {
+            unawaited(abortTrigger.then((_) => aborted = true));
+          }
+          // Connected, then silent — a Roku that went to sleep mid-exchange.
+          return http.StreamedResponse(
+            StreamController<List<int>>().stream,
+            200,
+          );
+        }),
+      );
+      Object? thrown;
+      unawaited(
+        client
+            .send(
+              '10.0.0.9',
+              8060,
+              const HttpRequestDto(
+                method: 'POST',
+                path: '/keypress/Home',
+                body: '',
+              ),
+            )
+            .then<void>((_) {}, onError: (Object e) => thrown = e),
+      );
+
+      async.elapse(HttpControlClient.timeout + const Duration(seconds: 1));
+      expect(thrown, isA<ControlTimeoutException>());
+      expect(aborted, isTrue, reason: 'the request must actually end');
+    });
+  });
+
+  group('a refused handshake says WHICH refusal it was', () {
+    // R-042: nothing drove this client through a HandshakeException at all,
+    // so the catch written for it — the one that makes any certificate
+    // message reachable — was unpinned. R-038: every refusal then reported as
+    // "presenting a different certificate than before", which is one of three
+    // answers and the wrong one twice.
+    const secure = HttpRequestDto(
+      method: 'GET',
+      path: '/production.json',
+      body: '',
+      scheme: 'https',
+    );
+
+    Future<Object?> sendThrough(TlsTrust? trust) async {
+      final client = HttpControlClient(
+        trust: trust,
+        // HandshakeException extends TlsException, which IOClient wraps into
+        // nothing: it escapes `on ClientException` untouched, which is how a
+        // raw platform exception used to reach the UI.
+        httpsClient: MockClient(
+          (request) async =>
+              throw const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+        ),
+      );
+      if (trust != null) {
+        await client.useTlsPolicy(
+          host: '10.0.0.9',
+          identity: 'envoy@10.0.0.9',
+          policy: TlsPolicy.trustOnFirstUse,
+        );
+      }
+      try {
+        await client.send('10.0.0.9', 443, secure);
+        return null;
+      } catch (e) {
+        return e;
+      }
+    }
+
+    test('a handshake nobody refused on purpose is unreachable', () async {
+      // No policy said no, so this is a device that is off, behind a proxy, or
+      // simply not speaking TLS — and the honest answer is the network one.
+      expect(await sendThrough(null), isA<ControlUnreachableException>());
+    });
+
+    test('a changed certificate names the only recovery there is', () async {
+      final trust = TlsTrust(CertificatePinStore(InMemorySettingsStore()));
+      final client = HttpControlClient(
+        trust: trust,
+        httpsClient: MockClient(
+          (request) async =>
+              throw const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+        ),
+      );
+      await client.useTlsPolicy(
+        host: '10.0.0.9',
+        identity: 'envoy@10.0.0.9',
+        policy: TlsPolicy.trustOnFirstUse,
+      );
+      expect(
+        client.debugEvaluateCertificate(_FakeCert('real'), '10.0.0.9', 443),
+        isTrue,
+      );
+      expect(
+        client.debugEvaluateCertificate(_FakeCert('other'), '10.0.0.9', 443),
+        isFalse,
+      );
+
+      final thrown = await client
+          .send('10.0.0.9', 443, secure)
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      expect(thrown, isA<ControlCertificateChangedException>());
+      expect(
+        (thrown! as UserFacingException).message,
+        contains('different security certificate'),
+      );
+    });
+
+    test('a standard-policy refusal does not claim anything changed', () async {
+      // Nothing was ever pinned, so "remove it from Saved devices and add it
+      // again" is advice for a different failure — and would not help.
+      final trust = TlsTrust(CertificatePinStore(InMemorySettingsStore()));
+      final client = HttpControlClient(
+        trust: trust,
+        httpsClient: MockClient(
+          (request) async =>
+              throw const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+        ),
+      );
+      await client.useTlsPolicy(
+        host: '10.0.0.9',
+        identity: 'envoy@10.0.0.9',
+        policy: TlsPolicy.standard,
+      );
+      expect(
+        client.debugEvaluateCertificate(
+          _FakeCert('unchained'),
+          '10.0.0.9',
+          443,
+        ),
+        isFalse,
+      );
+
+      final thrown = await client
+          .send('10.0.0.9', 443, secure)
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      expect(thrown, isA<ControlCertificateUntrustedException>());
+      expect(
+        (thrown! as UserFacingException).message,
+        allOf(
+          contains('could not be verified'),
+          contains('Nothing about it has changed'),
+        ),
+      );
+    });
+
+    test('an unreadable pin store blames the store, not the device', () async {
+      // The certificate may be perfectly fine; what failed is reading the pin
+      // to compare it against, and re-pairing would throw the good pin away.
+      final trust = TlsTrust(CertificatePinStore(_FailingStore()));
+      final client = HttpControlClient(
+        trust: trust,
+        httpsClient: MockClient(
+          (request) async =>
+              throw const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+        ),
+      );
+      await client.useTlsPolicy(
+        host: '10.0.0.9',
+        identity: 'envoy@10.0.0.9',
+        policy: TlsPolicy.trustOnFirstUse,
+      );
+      expect(
+        client.debugEvaluateCertificate(_FakeCert('whatever'), '10.0.0.9', 443),
+        isFalse,
+      );
+
+      final thrown = await client
+          .send('10.0.0.9', 443, secure)
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      expect(thrown, isA<ControlCertificatePinUnreadableException>());
+      expect(
+        (thrown! as UserFacingException).message,
+        allOf(
+          contains('could not be read'),
+          contains('nothing wrong with the device'),
+        ),
+      );
+    });
+  });
 }
