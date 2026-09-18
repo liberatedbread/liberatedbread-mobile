@@ -14,6 +14,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:liberated_bread_mobile/services/settings_store.dart';
+import 'package:liberated_bread_mobile/services/tls_trust.dart';
 import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
@@ -70,6 +72,7 @@ void main() {
     String? wsCredential,
     Future<void> Function(String, String)? onCredentialIssued,
     SpecCodec? withCodec,
+    TlsTrust? trust,
   }) => NetworkCommandSender(
     mqttConnect: mqttConnect,
     wsConnect: wsConnect,
@@ -85,6 +88,7 @@ void main() {
     http: HttpControlClient(
       httpClient:
           httpClient ?? MockClient((request) async => http.Response('', 200)),
+      trust: trust,
     ),
     soap: SoapControlClient(
       httpClient: MockClient(
@@ -202,6 +206,49 @@ void main() {
         ).controlPort,
         7250,
       );
+    },
+  );
+
+  test(
+    'close waits for a TLS registration it is about to release (R-037)',
+    () async {
+      // The sender records its registration BEFORE the registration is made:
+      // the pin read is awaited inside useTlsPolicy. A close landing in that
+      // gap released a registration that had not happened yet — the count went
+      // negative, the entry was dropped, and the registration then landed with
+      // nobody left to release it, keeping a pinned policy and a
+      // blanket-trusted host for the life of the process on a client every
+      // screen shares.
+      final gate = Completer<void>();
+      final s = sender(
+        trust: TlsTrust(CertificatePinStore(_GatedPinStore(gate))),
+        ssdpTargets: const [],
+        capabilities: const NetworkCapabilitiesDto(
+          mqttClientIdGenerated: false,
+          defaultPort: 443,
+          defaultScheme: 'https',
+          advertisedPortUnreliable: true,
+          tlsSelfSigned: true,
+          tlsVerification: 'trust_on_first_use',
+        ),
+      );
+
+      final sending = s.sendAction(action('turn_off', 'press_power_off'), {});
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      var closed = false;
+      final closing = s.close().then((_) => closed = true);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(
+        closed,
+        isFalse,
+        reason: 'close cannot release a registration still being made',
+      );
+
+      gate.complete();
+      await sending.catchError((Object _) {});
+      await closing;
+      expect(closed, isTrue);
     },
   );
 
@@ -1052,3 +1099,27 @@ class _ScriptedBroker implements MqttSocket {
 }
 
 /// A scripted television behind the sender's WebSocket seam.
+
+/// A pin store whose reads wait on a gate, so a test can hold a TLS
+/// registration genuinely in flight (R-037).
+class _GatedPinStore implements SettingsStore {
+  final Completer<void> gate;
+  final Map<String, String> _values = {};
+
+  _GatedPinStore(this.gate);
+
+  @override
+  Future<String?> read(String key) async {
+    await gate.future;
+    return _values[key];
+  }
+
+  @override
+  Future<void> write(String key, String value) async => _values[key] = value;
+
+  @override
+  Future<void> delete(String key) async => _values.remove(key);
+
+  @override
+  Future<Map<String, String>> readAll() async => Map.of(_values);
+}

@@ -350,7 +350,19 @@ class NetworkCommandSender {
     // registration is memoized here, so it never re-registered, and its next
     // request fell through to blanket trust — an impostor accepted on a device
     // that was correctly pinned a moment earlier.
-    if (_tlsReady != null) _http.forgetHost(host);
+    //
+    // R-037: awaited first, because `_tlsReady` is set to the future BEFORE
+    // the registration it stands for has been made. A close landing in that
+    // gap decremented a count nothing had incremented — so the count went
+    // negative, the entry was removed, and the registration then landed and
+    // put it back at one with nobody left to release it: a policy and a
+    // blanket-trusted host kept for the life of the process, which is the
+    // leak this release exists to prevent.
+    final registering = _tlsReady;
+    if (registering != null) {
+      await registering.catchError((Object _) {});
+      _http.forgetHost(host);
+    }
     _tlsReady = null;
     final session = _ecp2;
     _ecp2 = null;
