@@ -654,8 +654,8 @@ alerts during the run; the suite waits for them to be answered.
 by request. Until a provisioning profile on the Mac includes it, the script
 builds with the file temporarily emptied (restored on every exit path) and
 tells the suite to expect a silent Wi-Fi scan. `--keep-multicast` and
-`--strip-multicast` override the detection. HARDWARE_LATER.md is the checklist
-these runs sign off.
+`--strip-multicast` override the detection. The checklist these runs sign off
+is kept out of the repo; ask a maintainer for it.
 
 ### Integration tests on the Linux desktop (no emulator)
 

@@ -320,8 +320,8 @@ iPhone 16e). Summary: **the app builds, launches, and runs on iOS**.
 > release cycle. A failure that only reproduces on one machine is not thereby
 > environmental — it is a failure that only one machine is positioned to see,
 > which is the opposite of harmless when that machine is the only one that
-> builds for the platform you ship. See MAC_NOW.md and PORTABLE.md for the
-> audit that found them.
+> builds for the platform you ship. The audit that found them is kept out of
+> the repo; ask a maintainer for it.
 
 - **iOS build:** `flutter build ios --release --no-codesign` ✅ — Runner.app
   38.5 MB; Rust FFI linked via cargokit; `PrivacyInfo.xcprivacy` +
@@ -364,4 +364,5 @@ today and neither is an Apple account step. The privacy manifest had to declare
 the Rust core's required-reason file-timestamp APIs or App Store Connect refuses
 the upload (ITMS-91053) — fixed, see `ios/Runner/PrivacyInfo.xcprivacy`. And the
 build number must increase per upload (Step 5). The pinned Bluetooth plugin also
-carries two native crashers; see PORTABLE.md.
+carries two native crashers; they are written up in the audit notes a
+maintainer can share.

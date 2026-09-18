@@ -56,8 +56,9 @@
 #   --keep-multicast    never touch the file (the grant has landed and the
 #                       profile was regenerated)
 #
-# What a stripped build cannot test is exactly the thing HARDWARE_LATER.md
-# says needs the phone: whether an entitled scan hears the network. Everything
+# What a stripped build cannot test is exactly the thing the hardware
+# checklist says needs the phone: whether an entitled scan hears the
+# network. Everything
 # else in the suite is unaffected.
 #
 # Exit codes: 0 all green; 1 a test failed or a build failed; 2 no iPhone

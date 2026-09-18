@@ -76,3 +76,12 @@ ios-crash-reports/
 ios-rust-artifacts.txt
 .ios-diagnostics/
 vendor/protocol-specs/device-specs/examples/index-temp.json
+
+# The iOS/portable audit trackers. They are working notes, not documentation:
+# they name the paired iPhone (device name and hardware UDID), a real Schlage
+# lock by its advertised BLE name, this checkout's absolute paths and the
+# private report they were generated from. They stay on disk and out of the
+# repo; a maintainer shares them on request.
+HARDWARE_LATER.md
+PORTABLE.md
+MAC_NOW.md

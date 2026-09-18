@@ -3,7 +3,7 @@
 `vendor/protocol-specs/` is a git subtree and is never edited here. Everything below is a change to open against
 [liberatedbread-protocol-specs](https://github.com/liberatedbread/liberatedbread-protocol-specs), then pull with
 `./scripts/update-specs.sh`. Where the app's parser could also be made stricter, the finding says so; that half
-is tracked in PORTABLE.md.
+is tracked in the app-side audit notes, which are kept out of this repo.
 
 Found by the 2026-09-15 review (one reader dedicated to the vendored catalogue against `rust/src/spec` and `rust/src/protocol`,
 plus the finders' incidental spec notes). Verified items were put to an adversarial second reader; the rest are single-reader leads.
@@ -269,7 +269,7 @@ lamp ... Filed upstream rather than papered over here"). Because the type is
 non-shared, `match_network_axes` puts it in `service_types` and `confidence()`
 returns Strong; the platform spec stands aside only for a *narrowed* claimant,
 and yeelight-cube-lamp is not narrowed. This is not tracked in
-PORTABLE.md/MAC_NOW.md/HARDWARE_LATER.md.
+the app-side audit notes.
 
 **Scenario.**
 

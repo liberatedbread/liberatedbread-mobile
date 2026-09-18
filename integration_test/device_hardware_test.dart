@@ -10,7 +10,8 @@
 // it runs the SHIPPING services — RealBleService, RealNetworkScanService,
 // SecureSettingsStore, the bundled Rust core — against the real radio, the
 // real Wi-Fi and the real keychain, and reports what the phone actually did.
-// HARDWARE_LATER.md is the checklist these runs sign off.
+// The hardware sign-off checklist these runs answer is kept out of the
+// repo (it names the paired phone); ask a maintainer for the current one.
 //
 // It is opt-in three ways, so nothing here can run by accident:
 //   * @Tags(['hardware']) keeps it out of the CI aggregate and the Linux
