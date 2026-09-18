@@ -583,6 +583,7 @@ class AdoptService {
     // The device only tells us a variant was wrong by never connecting, so each
     // is tried in turn until one joins.
     var everDelivered = false;
+    var unreachableRun = 0;
     for (final (index, attempt) in requests.indexed) {
       final label =
           'variant ${index + 1}/${requests.length} '
@@ -610,13 +611,34 @@ class AdoptService {
       // unreachable means not even the first send got through. Remember the
       // difference: once anything was delivered the honest summary is "sent,
       // unconfirmed", never "nothing happened".
-      if (outcome.status == AdoptStatus.sentUnconfirmed) everDelivered = true;
+      if (outcome.status == AdoptStatus.sentUnconfirmed) {
+        everDelivered = true;
+        unreachableRun = 0;
+        continue;
+      }
+      if (outcome.status != AdoptStatus.unreachable) continue;
+      unreachableRun++;
+      // R-029: a variant is a guess about ENCRYPTION, and encryption is not
+      // why a send did not arrive. Once two in a row have failed to reach the
+      // device at all, and nothing has ever landed, the setup access point is
+      // gone — and every remaining variant is another twenty-second poll
+      // spent proving it again, with the user watching a spinner. Two rather
+      // than one, so a single dropped datagram on a flaky setup AP still gets
+      // a second chance.
+      if (unreachableRun >= 2 && !everDelivered) {
+        Log.adopt.warning(
+          'wemo provision: two variants in a row did not reach the device and '
+          'nothing has landed; stopping with '
+          '${requests.length - index - 1} variant(s) untried, because a '
+          'different encryption cannot fix a send that never arrives',
+        );
+        break;
+      }
     }
     if (!everDelivered) {
       Log.adopt.warning(
-        'wemo provision: not one of ${requests.length} '
-        'variant(s) got a first send through — the setup AP went away before '
-        'any credentials landed',
+        'wemo provision: no variant got a first send through — the setup AP '
+        'went away before any credentials landed',
       );
       return const AdoptOutcome(
         AdoptStatus.unreachable,

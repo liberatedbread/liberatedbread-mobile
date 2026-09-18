@@ -120,6 +120,10 @@ class _WemoAp {
   /// as the device starts hopping to join.
   bool failConnect = false;
 
+  /// How many ConnectHomeNetwork requests arrived, including the ones
+  /// [failConnect] refuses — [connectBodies] counts only the ones that landed.
+  int connectAttempts = 0;
+
   /// GetNetworkStatus errors this many times before it starts answering — a
   /// transient drop mid-poll that must not read as total failure.
   int statusFailuresBeforeOk = 0;
@@ -167,6 +171,7 @@ class _WemoAp {
       );
     }
     if (action.contains('connecthomenetwork')) {
+      connectAttempts++;
       if (failConnect) return http.Response('setup AP gone', 500);
       connectBodies.add(request.body);
       return http.Response(
@@ -745,6 +750,16 @@ void main() {
         );
         expect(outcome.status, AdoptStatus.unreachable);
         expect(ap.connectBodies, isEmpty, reason: 'no send ever landed');
+        // R-029: a variant is a guess about ENCRYPTION, and encryption is not
+        // why a send did not arrive. The sweep used to spend a full
+        // twenty-second poll on each of the six proving that again, with the
+        // user watching a spinner; it now stops after two in a row have
+        // failed to reach the device with nothing landed.
+        expect(
+          ap.connectAttempts,
+          2,
+          reason: 'one retry for a dropped datagram, then stop',
+        );
       },
     );
 
