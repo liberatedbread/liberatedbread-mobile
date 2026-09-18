@@ -686,6 +686,27 @@ mod tests {
         assert_eq!(decode_tutu_restore(&chunks, 20, 20), rgb);
     }
 
+    /// R-168's remaining gap: a long run FOLLOWED by another token.
+    ///
+    /// The existing round trip covers a 127-pixel run that ends the stream,
+    /// where a missing terminator is invisible. The encoder's own comment
+    /// names the dangerous case — an exact multiple of 127 with more tokens
+    /// after it, where the decoder would read the next run's token as its
+    /// count and corrupt everything from there on.
+    #[test]
+    fn a_long_run_followed_by_another_survives_the_round_trip() {
+        let width = 127;
+        let mut rgb = vec![0u8; width * 2 * 3];
+        for px in rgb.chunks_exact_mut(3) {
+            px.copy_from_slice(&[10, 20, 30]);
+        }
+        let last = rgb.len() - 3;
+        rgb[last..].copy_from_slice(&[200, 100, 50]);
+
+        let chunks = encode_tutu_restore(&rgb, width, 2, DEFAULT_CHUNK_LIMIT).unwrap();
+        assert_eq!(decode_tutu_restore(&chunks, width, 2), rgb);
+    }
+
     #[test]
     fn long_runs_use_extension_bytes() {
         // A solid 20x20 canvas: one 400-pixel run -> (0<<4) then 255,255,255,19.
